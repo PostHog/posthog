@@ -7,6 +7,7 @@ procs:
 
     backend:
         shell: 'uv sync --active && bin/wait-for-docker && ./bin/start-backend'
+        ready_pattern: 'Listening at'
         env:
             DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog_e2e_test'
             CLICKHOUSE_DATABASE: 'posthog_test'
@@ -19,6 +20,7 @@ procs:
 
     celery-worker:
         shell: 'uv sync --active && bin/wait-for-docker && ./bin/start-celery worker'
+        ready_pattern: 'celery@'
         env:
             DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog_e2e_test'
             CLICKHOUSE_DATABASE: 'posthog_test'
@@ -31,6 +33,7 @@ procs:
 
     frontend:
         shell: './bin/start-frontend'
+        ready_pattern: 'VITE.*ready in'
         env:
             E2E_TESTING: '1'
 
@@ -55,6 +58,7 @@ procs:
             python manage.py setup_dev && \
             echo "=== Done ==="
         autostart: false
+        ready_pattern: '=== Done ==='
         env:
             PGHOST: 'localhost'
             PGPORT: '5432'

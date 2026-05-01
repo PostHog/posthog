@@ -183,9 +183,9 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                                             .nullish()
                                             .describe('Group type index when using group-based filters.'),
                                         operator: zod
-                                            .enum(['is_date_exact', 'is_date_after', 'is_date_before'])
+                                            .enum(['is_date_exact', 'is_date_before', 'is_date_after'])
                                             .describe(
-                                                '* `is_date_exact` - is_date_exact\n* `is_date_after` - is_date_after\n* `is_date_before` - is_date_before'
+                                                '* `is_date_exact` - is_date_exact\n* `is_date_before` - is_date_before\n* `is_date_after` - is_date_after'
                                             )
                                             .describe(
                                                 'Date comparison operator.\n\n* `is_date_exact` - is_date_exact\n* `is_date_after` - is_date_after\n* `is_date_before` - is_date_before'
@@ -376,8 +376,8 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                     question: zod.string().describe('Question text shown to respondents.'),
                     description: zod.string().optional().describe('Optional helper text.'),
                     descriptionContentType: zod
-                        .enum(['text', 'html'])
-                        .describe('* `text` - text\n* `html` - html')
+                        .enum(['html', 'text'])
+                        .describe('* `html` - html\n* `text` - text')
                         .optional()
                         .describe('Format for the description field.\n\n* `text` - text\n* `html` - html'),
                     optional: zod.boolean().optional().describe('Whether respondents may skip this question.'),
@@ -388,8 +388,8 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                     question: zod.string().describe('Question text shown to respondents.'),
                     description: zod.string().optional().describe('Optional helper text.'),
                     descriptionContentType: zod
-                        .enum(['text', 'html'])
-                        .describe('* `text` - text\n* `html` - html')
+                        .enum(['html', 'text'])
+                        .describe('* `html` - html\n* `text` - text')
                         .optional()
                         .describe('Format for the description field.\n\n* `text` - text\n* `html` - html'),
                     optional: zod.boolean().optional().describe('Whether respondents may skip this question.'),
@@ -401,8 +401,8 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                     question: zod.string().describe('Question text shown to respondents.'),
                     description: zod.string().optional().describe('Optional helper text.'),
                     descriptionContentType: zod
-                        .enum(['text', 'html'])
-                        .describe('* `text` - text\n* `html` - html')
+                        .enum(['html', 'text'])
+                        .describe('* `html` - html\n* `text` - text')
                         .optional()
                         .describe('Format for the description field.\n\n* `text` - text\n* `html` - html'),
                     optional: zod.boolean().optional().describe('Whether respondents may skip this question.'),
@@ -480,8 +480,8 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                     question: zod.string().describe('Question text shown to respondents.'),
                     description: zod.string().optional().describe('Optional helper text.'),
                     descriptionContentType: zod
-                        .enum(['text', 'html'])
-                        .describe('* `text` - text\n* `html` - html')
+                        .enum(['html', 'text'])
+                        .describe('* `html` - html\n* `text` - text')
                         .optional()
                         .describe('Format for the description field.\n\n* `text` - text\n* `html` - html'),
                     optional: zod.boolean().optional().describe('Whether respondents may skip this question.'),
@@ -558,8 +558,8 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                     question: zod.string().describe('Question text shown to respondents.'),
                     description: zod.string().optional().describe('Optional helper text.'),
                     descriptionContentType: zod
-                        .enum(['text', 'html'])
-                        .describe('* `text` - text\n* `html` - html')
+                        .enum(['html', 'text'])
+                        .describe('* `html` - html\n* `text` - text')
                         .optional()
                         .describe('Format for the description field.\n\n* `text` - text\n* `html` - html'),
                     optional: zod.boolean().optional().describe('Whether respondents may skip this question.'),
@@ -596,9 +596,9 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                 .optional()
                 .describe("Don't show this survey to users who saw any survey in the last x days."),
             urlMatchType: zod
-                .enum(['regex', 'not_regex', 'exact', 'is_not', 'icontains', 'not_icontains'])
+                .enum(['exact', 'is_not', 'icontains', 'not_icontains', 'regex', 'not_regex'])
                 .describe(
-                    '* `regex` - regex\n* `not_regex` - not_regex\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains'
+                    '* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex'
                 )
                 .optional()
                 .describe(
@@ -631,9 +631,9 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                 .optional()
                 .describe('Device types that should match for this survey to be shown.'),
             deviceTypesMatchType: zod
-                .enum(['regex', 'not_regex', 'exact', 'is_not', 'icontains', 'not_icontains'])
+                .enum(['exact', 'is_not', 'icontains', 'not_icontains', 'regex', 'not_regex'])
                 .describe(
-                    '* `regex` - regex\n* `not_regex` - not_regex\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains'
+                    '* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex'
                 )
                 .optional()
                 .describe(
@@ -926,9 +926,9 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                                             .nullish()
                                             .describe('Group type index when using group-based filters.'),
                                         operator: zod
-                                            .enum(['is_date_exact', 'is_date_after', 'is_date_before'])
+                                            .enum(['is_date_exact', 'is_date_before', 'is_date_after'])
                                             .describe(
-                                                '* `is_date_exact` - is_date_exact\n* `is_date_after` - is_date_after\n* `is_date_before` - is_date_before'
+                                                '* `is_date_exact` - is_date_exact\n* `is_date_before` - is_date_before\n* `is_date_after` - is_date_after'
                                             )
                                             .describe(
                                                 'Date comparison operator.\n\n* `is_date_exact` - is_date_exact\n* `is_date_after` - is_date_after\n* `is_date_before` - is_date_before'
@@ -1119,8 +1119,8 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                     question: zod.string().describe('Question text shown to respondents.'),
                     description: zod.string().optional().describe('Optional helper text.'),
                     descriptionContentType: zod
-                        .enum(['text', 'html'])
-                        .describe('* `text` - text\n* `html` - html')
+                        .enum(['html', 'text'])
+                        .describe('* `html` - html\n* `text` - text')
                         .optional()
                         .describe('Format for the description field.\n\n* `text` - text\n* `html` - html'),
                     optional: zod.boolean().optional().describe('Whether respondents may skip this question.'),
@@ -1131,8 +1131,8 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                     question: zod.string().describe('Question text shown to respondents.'),
                     description: zod.string().optional().describe('Optional helper text.'),
                     descriptionContentType: zod
-                        .enum(['text', 'html'])
-                        .describe('* `text` - text\n* `html` - html')
+                        .enum(['html', 'text'])
+                        .describe('* `html` - html\n* `text` - text')
                         .optional()
                         .describe('Format for the description field.\n\n* `text` - text\n* `html` - html'),
                     optional: zod.boolean().optional().describe('Whether respondents may skip this question.'),
@@ -1144,8 +1144,8 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                     question: zod.string().describe('Question text shown to respondents.'),
                     description: zod.string().optional().describe('Optional helper text.'),
                     descriptionContentType: zod
-                        .enum(['text', 'html'])
-                        .describe('* `text` - text\n* `html` - html')
+                        .enum(['html', 'text'])
+                        .describe('* `html` - html\n* `text` - text')
                         .optional()
                         .describe('Format for the description field.\n\n* `text` - text\n* `html` - html'),
                     optional: zod.boolean().optional().describe('Whether respondents may skip this question.'),
@@ -1223,8 +1223,8 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                     question: zod.string().describe('Question text shown to respondents.'),
                     description: zod.string().optional().describe('Optional helper text.'),
                     descriptionContentType: zod
-                        .enum(['text', 'html'])
-                        .describe('* `text` - text\n* `html` - html')
+                        .enum(['html', 'text'])
+                        .describe('* `html` - html\n* `text` - text')
                         .optional()
                         .describe('Format for the description field.\n\n* `text` - text\n* `html` - html'),
                     optional: zod.boolean().optional().describe('Whether respondents may skip this question.'),
@@ -1301,8 +1301,8 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                     question: zod.string().describe('Question text shown to respondents.'),
                     description: zod.string().optional().describe('Optional helper text.'),
                     descriptionContentType: zod
-                        .enum(['text', 'html'])
-                        .describe('* `text` - text\n* `html` - html')
+                        .enum(['html', 'text'])
+                        .describe('* `html` - html\n* `text` - text')
                         .optional()
                         .describe('Format for the description field.\n\n* `text` - text\n* `html` - html'),
                     optional: zod.boolean().optional().describe('Whether respondents may skip this question.'),
@@ -1339,9 +1339,9 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                 .optional()
                 .describe("Don't show this survey to users who saw any survey in the last x days."),
             urlMatchType: zod
-                .enum(['regex', 'not_regex', 'exact', 'is_not', 'icontains', 'not_icontains'])
+                .enum(['exact', 'is_not', 'icontains', 'not_icontains', 'regex', 'not_regex'])
                 .describe(
-                    '* `regex` - regex\n* `not_regex` - not_regex\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains'
+                    '* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex'
                 )
                 .optional()
                 .describe(
@@ -1374,9 +1374,9 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                 .optional()
                 .describe('Device types that should match for this survey to be shown.'),
             deviceTypesMatchType: zod
-                .enum(['regex', 'not_regex', 'exact', 'is_not', 'icontains', 'not_icontains'])
+                .enum(['exact', 'is_not', 'icontains', 'not_icontains', 'regex', 'not_regex'])
                 .describe(
-                    '* `regex` - regex\n* `not_regex` - not_regex\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains'
+                    '* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex'
                 )
                 .optional()
                 .describe(
@@ -1518,7 +1518,7 @@ Args:
 Returns:
     Survey statistics including event counts, unique respondents, and conversion rates
  */
-export const SurveysStatsRetrieve2Params = /* @__PURE__ */ zod.object({
+export const SurveysStatsRetrieveParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this survey.'),
     project_id: zod
         .string()
@@ -1527,7 +1527,7 @@ export const SurveysStatsRetrieve2Params = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const SurveysStatsRetrieve2QueryParams = /* @__PURE__ */ zod.object({
+export const SurveysStatsRetrieveQueryParams = /* @__PURE__ */ zod.object({
     date_from: zod.iso
         .datetime({})
         .optional()
@@ -1548,7 +1548,7 @@ Args:
 Returns:
     Aggregated statistics across all surveys including total counts and rates
  */
-export const SurveysStatsRetrieveParams = /* @__PURE__ */ zod.object({
+export const SurveysGlobalStatsRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
@@ -1556,7 +1556,7 @@ export const SurveysStatsRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const SurveysStatsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const SurveysGlobalStatsRetrieveQueryParams = /* @__PURE__ */ zod.object({
     date_from: zod.iso
         .datetime({})
         .optional()

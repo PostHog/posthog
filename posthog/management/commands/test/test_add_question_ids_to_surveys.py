@@ -62,6 +62,7 @@ class TestAddQuestionIdsToSurveys(BaseTest):
         self.survey4.refresh_from_db()
 
         # Check that all questions have IDs
+        assert self.survey1.questions is not None
         for question in self.survey1.questions:
             self.assertIn("id", question)
             # Original IDs should be preserved
@@ -70,11 +71,13 @@ class TestAddQuestionIdsToSurveys(BaseTest):
             elif question["question"] == "How would you rate us?":
                 self.assertEqual(question["id"], "existing-id-2")
 
+        assert self.survey2.questions is not None
         for question in self.survey2.questions:
             self.assertIn("id", question)
             # These should have new UUIDs
             self.assertTrue(len(question["id"]) > 0)
 
+        assert self.survey3.questions is not None
         for question in self.survey3.questions:
             self.assertIn("id", question)
             # First question should keep its ID
@@ -95,6 +98,7 @@ class TestAddQuestionIdsToSurveys(BaseTest):
         self.survey2.refresh_from_db()
 
         # Check that no changes were made in dry-run mode
+        assert self.survey2.questions is not None
         for question in self.survey2.questions:
             self.assertNotIn("id", question)
 

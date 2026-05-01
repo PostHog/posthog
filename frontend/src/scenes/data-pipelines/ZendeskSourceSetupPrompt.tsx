@@ -6,10 +6,11 @@ import { LemonButton, Spinner } from '@posthog/lemon-ui'
 import { SupportHeroHog } from 'lib/components/hedgehogs'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
-import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
+
+import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/logics/sourceManagementLogic'
 
 interface ZendeskSourceSetupPromptProps {
     children: React.ReactNode
@@ -22,7 +23,7 @@ export function ZendeskSourceSetupPrompt({
     className,
     attachTo,
 }: ZendeskSourceSetupPromptProps): JSX.Element {
-    const builtDataWarehouseSettingsLogic = dataWarehouseSettingsLogic()
+    const builtDataWarehouseSettingsLogic = sourceManagementLogic()
     const { hasZendeskSource, dataWarehouseSourcesLoading } = useValues(builtDataWarehouseSettingsLogic)
     useAttachedLogic(builtDataWarehouseSettingsLogic, attachTo)
 

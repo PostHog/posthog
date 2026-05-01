@@ -15,6 +15,11 @@ logger = structlog.get_logger(__name__)
 
 COMMAND_TIMEOUT_SECONDS = 15
 CANCEL_TIMEOUT_SECONDS = 10
+# Refresh triggers a query.interrupt() + resume with a 30s SDK timeout on the
+# agent-server, so we need more headroom than a plain command.
+REFRESH_TIMEOUT_SECONDS = 45
+
+REFRESH_SESSION_METHOD = "_posthog/refresh_session"
 
 ALLOWED_SANDBOX_SCHEMES = {"https"}
 BLOCKED_IP_RANGES = [
@@ -27,6 +32,8 @@ BLOCKED_IP_RANGES = [
     ipaddress.ip_network("fc00::/7"),
     ipaddress.ip_network("fe80::/10"),
 ]
+
+NO_ACTIVE_SESSION_ERROR = "No active session for this run"
 
 
 @dataclass
@@ -190,6 +197,19 @@ def send_agent_command(
         )
 
     if resp.status_code >= 400:
+        try:
+            error_data = resp.json()
+        except ValueError:
+            error_data = None
+
+        if isinstance(error_data, dict) and error_data.get("error") == NO_ACTIVE_SESSION_ERROR:
+            return CommandResult(
+                success=False,
+                status_code=resp.status_code,
+                data=error_data,
+                error=NO_ACTIVE_SESSION_ERROR,
+                retryable=True,
+            )
         return CommandResult(
             success=False,
             status_code=resp.status_code,
@@ -222,15 +242,22 @@ def send_agent_command(
 
 def send_user_message(
     task_run: Any,
-    message: str,
+    message: str | None = None,
+    *,
+    artifacts: list[dict[str, Any]] | None = None,
     auth_token: str | None = None,
     timeout: int = COMMAND_TIMEOUT_SECONDS,
 ) -> CommandResult:
     """Send a user_message command to the sandbox agent."""
+    params: dict[str, Any] = {}
+    if message:
+        params["content"] = message
+    if artifacts:
+        params["artifacts"] = artifacts
     return send_agent_command(
         task_run,
         method="user_message",
-        params={"content": message},
+        params=params,
         auth_token=auth_token,
         timeout=timeout,
     )
@@ -243,4 +270,26 @@ def send_cancel(task_run: Any, auth_token: str | None = None) -> CommandResult:
         method="cancel",
         timeout=CANCEL_TIMEOUT_SECONDS,
         auth_token=auth_token,
+    )
+
+
+def send_refresh_session(
+    task_run: Any,
+    mcp_servers: list[dict[str, Any]],
+    auth_token: str | None = None,
+    timeout: int = REFRESH_TIMEOUT_SECONDS,
+) -> CommandResult:
+    """Push updated MCP server configs into a live sandbox agent-server.
+
+    The agent-server handles this by interrupting its current ACP query and
+    resuming with the new ``mcpServers`` list (preserving conversation
+    history). Must be dispatched between turns — the agent-server will reply
+    with JSON-RPC error -32002 if a prompt is currently in flight.
+    """
+    return send_agent_command(
+        task_run,
+        method=REFRESH_SESSION_METHOD,
+        params={"mcpServers": mcp_servers},
+        auth_token=auth_token,
+        timeout=timeout,
     )

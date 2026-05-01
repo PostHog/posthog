@@ -17,6 +17,7 @@ from posthog.temporal.health_checks import WORKFLOWS as HEALTH_CHECK_WORKFLOWS
 from posthog.temporal.proxy_service import WORKFLOWS as PROXY_SERVICE_WORKFLOWS
 from posthog.temporal.quota_limiting import WORKFLOWS as QUOTA_LIMITING_WORKFLOWS
 from posthog.temporal.salesforce_enrichment import WORKFLOWS as SALESFORCE_ENRICHMENT_WORKFLOWS
+from posthog.temporal.session_replay.count_playlist_items import WORKFLOWS as COUNT_PLAYLIST_ITEMS_WORKFLOWS
 from posthog.temporal.session_replay.delete_recordings import WORKFLOWS as DELETE_RECORDING_WORKFLOWS
 from posthog.temporal.session_replay.enforce_max_replay_retention import (
     WORKFLOWS as ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS,
@@ -24,12 +25,15 @@ from posthog.temporal.session_replay.enforce_max_replay_retention import (
 from posthog.temporal.session_replay.export_recording import WORKFLOWS as EXPORT_RECORDING_WORKFLOWS
 from posthog.temporal.session_replay.import_recording import WORKFLOWS as IMPORT_RECORDING_WORKFLOWS
 from posthog.temporal.session_replay.rasterize_recording import WORKFLOWS as RASTERIZE_RECORDING_WORKFLOWS
+from posthog.temporal.session_replay.replay_count_metrics import WORKFLOWS as REPLAY_COUNT_METRICS_WORKFLOWS
+from posthog.temporal.session_replay.summarization_sweep import SUMMARIZATION_SWEEP_WORKFLOWS
 from posthog.temporal.sync_person_distinct_ids import WORKFLOWS as SYNC_PERSON_DISTINCT_IDS_WORKFLOWS
 from posthog.temporal.tests.utils.workflow import WORKFLOWS as TEST_WORKFLOWS
 from posthog.temporal.usage_reports import WORKFLOWS as USAGE_REPORTS_WORKFLOWS
 from posthog.temporal.weekly_digest import WORKFLOWS as WEEKLY_DIGEST_WORKFLOWS
 
 from products.batch_exports.backend.temporal import WORKFLOWS as BATCH_EXPORT_WORKFLOWS
+from products.web_analytics.backend.temporal import WORKFLOWS as WA_DIGEST_WORKFLOWS
 
 
 class Command(BaseCommand):
@@ -79,7 +83,7 @@ class Command(BaseCommand):
         )
         parser.add_argument(
             "--server-root-ca-cert",
-            default=settings.TEMPORAL_CLIENT_ROOT_CA,
+            default=None,
             help="Optional root server CA cert",
         )
         parser.add_argument(
@@ -144,14 +148,18 @@ class Command(BaseCommand):
             + SALESFORCE_ENRICHMENT_WORKFLOWS
             + SYNC_PERSON_DISTINCT_IDS_WORKFLOWS
             + TEST_WORKFLOWS
+            + COUNT_PLAYLIST_ITEMS_WORKFLOWS
             + DELETE_RECORDING_WORKFLOWS
             + ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS
             + EXPORT_RECORDING_WORKFLOWS
             + IMPORT_RECORDING_WORKFLOWS
+            + RASTERIZE_RECORDING_WORKFLOWS
+            + REPLAY_COUNT_METRICS_WORKFLOWS
+            + SUMMARIZATION_SWEEP_WORKFLOWS
             + WEEKLY_DIGEST_WORKFLOWS
             + EVENT_SCREENSHOTS_WORKFLOWS
             + HEALTH_CHECK_WORKFLOWS
-            + RASTERIZE_RECORDING_WORKFLOWS
+            + WA_DIGEST_WORKFLOWS
         )
         try:
             workflow = next(workflow for workflow in WORKFLOWS if workflow.is_named(workflow_name))

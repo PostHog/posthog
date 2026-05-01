@@ -21,6 +21,18 @@ from .types import (
 
 @wf.defn(name="rasterize-recording")
 class RasterizeRecordingWorkflow(PostHogWorkflow):
+    def __init__(self) -> None:
+        self._phase: str = "preparing"
+
+    @wf.query
+    def get_progress(self) -> dict[str, str]:
+        """Coarse-grained phase of the rasterization workflow.
+
+        Fine-grained frame progress is reported separately via activity
+        heartbeats — read those via `describe().pending_activities`.
+        """
+        return {"phase": self._phase}
+
     @staticmethod
     def parse_inputs(inputs: list[str]) -> RasterizeRecordingInputs:
         return RasterizeRecordingInputs(**json.loads(inputs[0]))
@@ -30,6 +42,7 @@ class RasterizeRecordingWorkflow(PostHogWorkflow):
         retry_policy = common.RetryPolicy(maximum_attempts=3)
 
         # Step 1: Read ExportedAsset, validate, build activity input
+        self._phase = "preparing"
         activity_input: RasterizationActivityInput = await wf.execute_activity(
             build_rasterization_input,
             inputs.exported_asset_id,
@@ -39,6 +52,7 @@ class RasterizeRecordingWorkflow(PostHogWorkflow):
 
         # Step 2: Dispatch rasterization to the Node.js worker
         # The Node.js activity returns a plain dict (cross-language boundary)
+        self._phase = "rendering"
         raw_result: dict[str, Any] = await wf.execute_activity(
             "rasterize-recording",
             activity_input.model_dump(exclude_none=True),
@@ -51,6 +65,7 @@ class RasterizeRecordingWorkflow(PostHogWorkflow):
         result = RasterizationActivityOutput.model_validate(raw_result)
 
         # Step 3: Finalize the ExportedAsset with the S3 URI and metadata
+        self._phase = "finalizing"
         await wf.execute_activity(
             finalize_rasterization,
             FinalizeRasterizationInput(exported_asset_id=inputs.exported_asset_id, result=result),
@@ -58,4 +73,5 @@ class RasterizeRecordingWorkflow(PostHogWorkflow):
             retry_policy=retry_policy,
         )
 
+        self._phase = "done"
         return result

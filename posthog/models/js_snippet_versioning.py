@@ -6,18 +6,71 @@ import hashlib
 import threading
 from collections import OrderedDict
 from dataclasses import dataclass
-from typing import NotRequired, Optional, TypedDict
+from typing import Any, NotRequired, Optional, TypedDict
 
 from django.conf import settings
 from django.core.cache import cache
 
+import boto3
 import structlog
+from botocore.exceptions import ClientError
 
 from posthog.exceptions_capture import capture_exception
-from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 
 logger = structlog.get_logger(__name__)
+
+# ---------------------------------------------------------------------------
+# S3 helpers — use IRSA credentials (no static creds) for the posthog-js bucket
+# ---------------------------------------------------------------------------
+_s3_client: Any = None
+
+
+def _get_s3_client():
+    global _s3_client
+    if _s3_client is None:
+        _s3_client = boto3.client("s3")
+    return _s3_client
+
+
+def s3_read(key: str, *, missing_ok: bool = False) -> Optional[str]:
+    """Read a UTF-8 object from the JS S3 bucket."""
+    try:
+        response = _get_s3_client().get_object(Bucket=settings.POSTHOG_JS_S3_BUCKET, Key=key)
+        return response["Body"].read().decode("utf-8")
+    except ClientError as e:
+        if e.response.get("Error", {}).get("Code") == "NoSuchKey" and missing_ok:
+            return None
+        capture_exception(e, additional_properties={"tag": "js_snippet_versioning", "s3_op": "read", "key": key})
+        raise ObjectStorageError("read failed") from e
+    except Exception as e:
+        capture_exception(e, additional_properties={"tag": "js_snippet_versioning", "s3_op": "read", "key": key})
+        raise ObjectStorageError("read failed") from e
+
+
+def s3_write(key: str, content: str) -> None:
+    """Write a UTF-8 string to the JS S3 bucket."""
+    try:
+        _get_s3_client().put_object(Bucket=settings.POSTHOG_JS_S3_BUCKET, Key=key, Body=content)
+    except Exception as e:
+        capture_exception(e, additional_properties={"tag": "js_snippet_versioning", "s3_op": "write", "key": key})
+        raise ObjectStorageError("write failed") from e
+
+
+def s3_head(key: str) -> bool:
+    """Check whether an object exists in the JS S3 bucket."""
+    try:
+        _get_s3_client().head_object(Bucket=settings.POSTHOG_JS_S3_BUCKET, Key=key)
+        return True
+    except ClientError as e:
+        if e.response.get("Error", {}).get("Code") == "404":
+            return False
+        capture_exception(e, additional_properties={"tag": "js_snippet_versioning", "s3_op": "head", "key": key})
+        raise ObjectStorageError("head failed") from e
+    except Exception as e:
+        capture_exception(e, additional_properties={"tag": "js_snippet_versioning", "s3_op": "head", "key": key})
+        raise ObjectStorageError("head failed") from e
+
 
 # Disk fallback: the array.js shipped with the current deploy
 _disk_js_content: Optional[str] = None
@@ -210,7 +263,7 @@ def get_js_content(version: Optional[str]) -> str:
     # 3. Try S3
     try:
         s3_key = array_js_path(version)
-        content = object_storage.read(s3_key, bucket=settings.POSTHOG_JS_S3_BUCKET, missing_ok=True)
+        content = s3_read(s3_key, missing_ok=True)
         if content is not None:
             cache.set(redis_key, content, REDIS_JS_CONTENT_TTL)
             _content_cache_put(version, content)
@@ -231,7 +284,7 @@ def _recover_manifest_from_s3() -> Optional[CachedManifest]:
     so no artifact validation is needed on the hot path.
     """
     try:
-        raw = object_storage.read(S3_MANIFEST_KEY, bucket=settings.POSTHOG_JS_S3_BUCKET, missing_ok=True)
+        raw = s3_read(S3_MANIFEST_KEY, missing_ok=True)
         if raw is None:
             return None
 
@@ -295,8 +348,7 @@ def validate_version_artifacts(version: str) -> bool:
     """Check that the required artifacts exist in S3 for a given version."""
     if not settings.POSTHOG_JS_S3_BUCKET:
         return False
-    result = object_storage.head_object(array_js_path(version), bucket=settings.POSTHOG_JS_S3_BUCKET)
-    return result is not None
+    return s3_head(array_js_path(version))
 
 
 class ManifestSyncError(Exception):
@@ -347,11 +399,7 @@ def sync_manifest_from_s3() -> VersionManifest:
                 e, additional_properties={"tag": "js_snippet_versioning", "redis_key": REDIS_POINTER_MAP_KEY}
             )
 
-    raw = object_storage.read(
-        S3_VERSIONS_KEY,
-        bucket=settings.POSTHOG_JS_S3_BUCKET,
-        missing_ok=True,
-    )
+    raw = s3_read(S3_VERSIONS_KEY, missing_ok=True)
     if raw is None:
         raise ManifestSyncError("versions.json not found in S3")
 
@@ -405,7 +453,7 @@ def sync_manifest_from_s3() -> VersionManifest:
     # flushed or evicted, _get_manifest can read this instead of
     # recomputing from versions.json (which would skip artifact validation).
     try:
-        object_storage.write(S3_MANIFEST_KEY, manifest_json, bucket=settings.POSTHOG_JS_S3_BUCKET)
+        s3_write(S3_MANIFEST_KEY, manifest_json)
     except Exception as e:
         logger.exception("Failed to write manifest backup to S3")
         capture_exception(e, additional_properties={"tag": "js_snippet_versioning", "key": S3_MANIFEST_KEY})

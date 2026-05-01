@@ -10,7 +10,7 @@ import api from 'lib/api'
 import { FEATURE_FLAGS, FeatureFlagKey } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
-import { cleanSourceId, isManagedSourceId, isSelfManagedSourceId } from 'scenes/data-warehouse/utils'
+import { createFuse } from 'lib/utils/fuseSearch'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -22,6 +22,8 @@ import {
     HogFunctionTypeType,
     UserType,
 } from '~/types'
+
+import { cleanSourceId, isManagedSourceId, isSelfManagedSourceId } from 'products/data_warehouse/frontend/utils'
 
 import { getSubTemplate } from '../sub-templates/sub-templates'
 import type { hogFunctionTemplateListLogicType } from './hogFunctionTemplateListLogicType'
@@ -50,6 +52,11 @@ export type HogFunctionTemplateListLogicProps = {
     /** Extra search params to include in the URL when navigating to create a new hog function */
     queryParams?: Record<string, string>
 }
+
+// Stable references for default prop values - avoids reselect input stability warnings
+// caused by `?? []` / `?? () => true` creating new references on every selector call.
+const EMPTY_ARRAY: never[] = []
+const ALWAYS_TRUE = (): boolean => true
 
 export const shouldShowHogFunctionTemplate = (
     hogFunctionTemplate: HogFunctionTemplateType,
@@ -118,8 +125,8 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
                 s.rawTemplates,
                 s.user,
                 s.featureFlags,
-                (_, p: HogFunctionTemplateListLogicProps) => p.manualTemplates ?? [],
-                (_, p: HogFunctionTemplateListLogicProps) => p.subTemplateIds ?? [],
+                (_, p: HogFunctionTemplateListLogicProps) => p.manualTemplates ?? EMPTY_ARRAY,
+                (_, p: HogFunctionTemplateListLogicProps) => p.subTemplateIds ?? EMPTY_ARRAY,
             ],
             (
                 rawTemplates,
@@ -167,9 +174,8 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
         templatesFuse: [
             (s) => [s.templates],
             (templates): Fuse => {
-                return new FuseClass(templates || [], {
+                return createFuse(templates || [], {
                     keys: ['name', 'description'],
-                    threshold: 0.3,
                 })
             },
         ],
@@ -180,7 +186,7 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
                 s.templates,
                 s.templatesFuse,
                 (_, props) => props.hideComingSoonByDefault ?? false,
-                (_, props) => props.customFilterFunction ?? (() => true),
+                (_, props) => props.customFilterFunction ?? ALWAYS_TRUE,
             ],
             (
                 filters,

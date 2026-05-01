@@ -77,7 +77,7 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
                 <div className="w-1/2 flex flex-col justify-end">
                     <div className="ml-auto">
                         {metrics.length > 0 && (
-                            <div className="mb-2 mt-4 justify-end flex gap-2">
+                            <div className="mb-2 mt-4 justify-end flex items-center gap-2">
                                 <AddMetricButton
                                     metricContext={isSecondary ? METRIC_CONTEXTS.secondary : METRIC_CONTEXTS.primary}
                                 />

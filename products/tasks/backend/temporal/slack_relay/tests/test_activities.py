@@ -81,7 +81,7 @@ class TestRelaySlackMessage(TestCase):
         mock_delete_progress.assert_called_once()
         mock_post.assert_called_once()
         assert "Which license should I use?" in mock_post.call_args.args[0]
-        mock_update.assert_called_once_with("white_check_mark")
+        mock_update.assert_called_once_with("hedgehog")
         self.task_run.refresh_from_db()
         assert "relay-1" in self.task_run.state.get("slack_sent_relay_ids", [])
 

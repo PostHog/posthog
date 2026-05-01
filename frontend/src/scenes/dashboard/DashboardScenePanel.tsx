@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconCode2, IconCopy, IconGraph, IconNotebook, IconPalette, IconScreen, IconTrash } from '@posthog/icons'
+import { IconCode2, IconCopy, IconGraph, IconNotebook, IconPalette, IconTrash } from '@posthog/icons'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { SceneExportDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneExportDropdownMenu'
@@ -37,7 +37,8 @@ import { AccessControlLevel, AccessControlResourceType, DashboardMode, ExporterF
 
 import { dashboardInsightColorsModalLogic } from './dashboardInsightColorsModalLogic'
 import { dashboardLogic } from './dashboardLogic'
-import { dashboardTemplateEditorLogic } from './dashboardTemplateEditorLogic'
+import { DashboardTemplateModal } from './dashboards/templates/DashboardTemplateModal'
+import { DashboardSaveAsTemplateSceneActions } from './DashboardSaveAsTemplateSceneActions'
 
 const RESOURCE_TYPE = 'dashboard'
 
@@ -56,7 +57,6 @@ export function DashboardScenePanel(): JSX.Element | null {
     } = useValues(dashboardLogic)
     const { setDashboardMode, updateDashboardTags, togglePinned, setTerraformModalOpen } = useActions(dashboardLogic)
     const { createNotebookFromDashboard } = useActions(notebooksModel)
-    const { setDashboardTemplate, openDashboardTemplateEditor } = useActions(dashboardTemplateEditorLogic)
     const { showInsightColorsModal } = useActions(dashboardInsightColorsModalLogic)
     const { newTab } = useActions(sceneLogic)
     const { setScenePanelOpen } = useActions(sceneLayoutLogic)
@@ -180,20 +180,7 @@ export function DashboardScenePanel(): JSX.Element | null {
                     </ButtonPrimitive>
                 )}
 
-                {user?.is_staff && (
-                    <ButtonPrimitive
-                        onClick={() => {
-                            if (asDashboardTemplate) {
-                                setDashboardTemplate(asDashboardTemplate)
-                                openDashboardTemplateEditor()
-                            }
-                        }}
-                        menuItem
-                    >
-                        <IconScreen />
-                        Save as template
-                    </ButtonPrimitive>
-                )}
+                <DashboardSaveAsTemplateSceneActions />
 
                 {dashboard && <SceneMetalyticsSummaryButton dataAttrKey={RESOURCE_TYPE} />}
                 {dashboard && (
@@ -251,6 +238,7 @@ export function DashboardScenePanel(): JSX.Element | null {
                     </ScenePanelActionsSection>
                 </>
             )}
+            <DashboardTemplateModal />
         </ScenePanel>
     )
 }

@@ -634,3 +634,46 @@ fn test_otel_log_row_overridden_timestamp_tracking() {
     assert!(!was_not_overridden);
     assert!(!row_recent.attributes.contains_key("$originalTimestamp"));
 }
+
+#[tokio::test]
+async fn middleware_decompresses_gzip_js_query_param() {
+    use axum::{body::Body, http::Request, routing::post, Router};
+    use bytes::Bytes;
+    use capture_logs::middleware::translate_compression_query_param;
+    use flate2::{write::GzEncoder, Compression};
+    use std::io::Write;
+    use tower::ServiceExt;
+    use tower_http::decompression::RequestDecompressionLayer;
+
+    async fn echo(body: Bytes) -> Bytes {
+        body
+    }
+
+    let app = Router::new()
+        .route("/i/v1/logs", post(echo))
+        .layer(RequestDecompressionLayer::new())
+        .layer(axum::middleware::from_fn(translate_compression_query_param));
+
+    let payload = br#"{"resourceLogs":[]}"#.to_vec();
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+    encoder.write_all(&payload).unwrap();
+    let gzipped = encoder.finish().unwrap();
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/i/v1/logs?token=phc_test&compression=gzip-js")
+        .header("content-type", "text/plain")
+        .body(Body::from(gzipped))
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert!(
+        resp.status().is_success(),
+        "expected 2xx, got {}",
+        resp.status()
+    );
+    let bytes = axum::body::to_bytes(resp.into_body(), 1 << 20)
+        .await
+        .unwrap();
+    assert_eq!(&bytes[..], payload.as_slice());
+}

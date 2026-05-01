@@ -6,7 +6,7 @@
     "dependencies": {
         "fast-deep-equal": "catalog:",
         "kea-subscriptions": "catalog:",
-        "torph": "^0.0.5"
+        "torph": "^0.0.9"
     },
     "devDependencies": {
         "kea-test-utils": "catalog:"

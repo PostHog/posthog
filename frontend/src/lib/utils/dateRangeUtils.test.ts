@@ -1,6 +1,6 @@
 import { dayjs } from 'lib/dayjs'
 
-import { formatLocalizedDate, getConstrainedWeekRange } from './dateTimeUtils'
+import { alignResolvedDateRangeToInterval, formatLocalizedDate, getConstrainedWeekRange } from './dateTimeUtils'
 
 describe('getConstrainedWeekRange', () => {
     beforeEach(() => {
@@ -279,5 +279,86 @@ describe('formatLocalizedDate', () => {
         Object.defineProperty(window.navigator, 'language', { value: undefined, configurable: true })
         document.documentElement.lang = 'en-GB'
         expect(formatLocalizedDate()).toBe('DD MMM')
+    })
+})
+
+describe('alignResolvedDateRangeToInterval', () => {
+    it('returns undefined when resolvedDateRange is missing', () => {
+        expect(alignResolvedDateRangeToInterval(undefined, 'month')).toBeUndefined()
+        expect(alignResolvedDateRangeToInterval(null, 'month')).toBeUndefined()
+    })
+
+    it('returns undefined when date_from is empty', () => {
+        expect(
+            alignResolvedDateRangeToInterval({ date_from: '', date_to: '2026-04-07T23:59:59+00:00' }, 'month')
+        ).toBeUndefined()
+    })
+
+    it.each([['day' as const], [null], [undefined]])('returns the range unchanged when interval is %s', (interval) => {
+        const range = {
+            date_from: '2025-04-07T00:00:00+00:00',
+            date_to: '2026-04-07T23:59:59+00:00',
+        }
+        expect(alignResolvedDateRangeToInterval(range, interval)).toBe(range)
+    })
+
+    it('expands to full months when grouping by month', () => {
+        expect(
+            alignResolvedDateRangeToInterval(
+                {
+                    date_from: '2025-04-07T00:00:00+00:00',
+                    date_to: '2026-04-07T23:59:59+00:00',
+                },
+                'month'
+            )
+        ).toEqual({
+            date_from: '2025-04-01T00:00:00+00:00',
+            date_to: '2026-04-30T23:59:59+00:00',
+        })
+    })
+
+    it('preserves a non-UTC timezone offset', () => {
+        expect(
+            alignResolvedDateRangeToInterval(
+                {
+                    date_from: '2025-04-07T00:00:00-08:00',
+                    date_to: '2026-04-07T23:59:59-08:00',
+                },
+                'month'
+            )
+        ).toEqual({
+            date_from: '2025-04-01T00:00:00-08:00',
+            date_to: '2026-04-30T23:59:59-08:00',
+        })
+    })
+
+    it('normalizes a Z suffix to +00:00', () => {
+        expect(
+            alignResolvedDateRangeToInterval(
+                {
+                    date_from: '2025-04-07T00:00:00Z',
+                    date_to: '2026-04-07T23:59:59Z',
+                },
+                'month'
+            )
+        ).toEqual({
+            date_from: '2025-04-01T00:00:00+00:00',
+            date_to: '2026-04-30T23:59:59+00:00',
+        })
+    })
+
+    it('handles an ISO string with no timezone suffix', () => {
+        expect(
+            alignResolvedDateRangeToInterval(
+                {
+                    date_from: '2025-04-07T00:00:00',
+                    date_to: '2026-04-07T23:59:59',
+                },
+                'month'
+            )
+        ).toEqual({
+            date_from: '2025-04-01T00:00:00',
+            date_to: '2026-04-30T23:59:59',
+        })
     })
 })

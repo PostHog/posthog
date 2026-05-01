@@ -2,12 +2,23 @@ import { LemonTag } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 
+import { fakeUtcToReal } from './rrule-helpers'
+
 const VISIBLE_HEAD = 4
 const VISIBLE_TAIL = 1
 
-export function OccurrencesList({ occurrences, isFinite }: { occurrences: Date[]; isFinite: boolean }): JSX.Element {
-    const now = new Date()
-    const futureOccurrences = occurrences.filter((date) => date > now)
+export function OccurrencesList({
+    occurrences,
+    isFinite,
+    timezone,
+    showRelativeTime,
+}: {
+    occurrences: Date[]
+    isFinite: boolean
+    timezone?: string
+    showRelativeTime?: boolean
+}): JSX.Element {
+    const futureOccurrences = occurrences.filter((date) => fakeUtcToReal(date, timezone).isAfter(dayjs()))
     const total = futureOccurrences.length
     const needsCollapse = isFinite && total > VISIBLE_HEAD + VISIBLE_TAIL + 1
     const lastIndex = total - 1
@@ -15,6 +26,7 @@ export function OccurrencesList({ occurrences, isFinite }: { occurrences: Date[]
     const renderRow = (date: Date, i: number): JSX.Element => {
         const isFirst = i === 0
         const isLast = isFinite && i === lastIndex
+        const real = fakeUtcToReal(date, timezone)
 
         return (
             <div key={i} className="flex items-center justify-between text-sm">
@@ -27,6 +39,7 @@ export function OccurrencesList({ occurrences, isFinite }: { occurrences: Date[]
                     <span className={isFirst || isLast ? 'font-semibold' : 'text-muted'}>
                         {dayjs(date).utc().format('dddd, MMMM D YYYY · h:mm A')}
                     </span>
+                    {showRelativeTime && <span className="text-xs text-muted">{real.fromNow()}</span>}
                 </div>
                 {isFirst && (
                     <LemonTag type="warning" size="small">

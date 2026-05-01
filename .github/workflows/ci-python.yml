@@ -12,7 +12,7 @@ permissions:
     pull-requests: read
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -30,10 +30,17 @@ jobs:
             # also want this to run on master so we need to checkout
             - uses: actions/checkout@v6
 
-            - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+            - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              id: app-token
+              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
+            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
               id: filter
               if: github.event_name != 'push' # Run all tests on master push
               with:
+                  token: ${{ steps.app-token.outputs.token || github.token }}
                   filters: |
                       python:
                         - 'pyproject.toml'
@@ -52,7 +59,9 @@ jobs:
                         # Products changes need to trigger Python CI to validate the json usage is still valid
                         - 'frontend/src/products.json'
                         # hogli CLI changes need validation
-                        - 'common/hogli/**'
+                        - 'tools/hogli/**'
+                        - 'tools/hogli-commands/hogli_commands/**'
+                        - 'hogli.yaml'
                         - 'bin/**'
                         # LLM Gateway service
                         - 'services/llm-gateway/**/*.py'
@@ -66,8 +75,13 @@ jobs:
         if: needs.changes.outputs.python == 'true'
         timeout-minutes: 30
 
-        name: Python code quality
-        runs-on: depot-ubuntu-latest
+        strategy:
+            fail-fast: false
+            matrix:
+                include: ${{ vars.BLACKSMITH_SHADOW_ENABLED == 'true' && fromJson('[{"runner":"depot-ubuntu-latest","is_shadow":false},{"runner":"blacksmith-2vcpu-ubuntu-2404","is_shadow":true}]') || fromJson('[{"runner":"depot-ubuntu-latest","is_shadow":false}]') }}
+        name: Python code quality (${{ matrix.runner }})
+        runs-on: ${{ matrix.runner }}
+        continue-on-error: ${{ matrix.is_shadow }}
 
         steps:
             - uses: actions/checkout@v6
@@ -105,6 +119,11 @@ jobs:
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
+            - name: Download GeoIP database
+              shell: bash
+              run: |
+                  ./bin/download-mmdb
+
             - name: Check for syntax errors, import sort, and code style violations
               shell: bash
               run: |
@@ -120,14 +139,11 @@ jobs:
               run: |
                   echo "::add-matcher::.github/ty-problem-matcher.json"
 
-            - name: Check ty type checking (informational)
+            - name: Check ty type checking
               shell: bash
-              continue-on-error: true
               run: |
-                  echo "👀 Running ty type checker (informational - does not block CI)"
-                  echo "📊 Trial run to evaluate ty vs mypy. Feedback welcome in #team-devex"
-                  echo ""
-                  ./bin/ty.py check posthog ee common dags || echo "⚠️ ty found type issues (annotations below)"
+                  echo "📊 Feedback welcome in #team-devex"
+                  uv run ty check
 
             - name: Add mypy Problem Matcher
               shell: bash
@@ -145,10 +161,11 @@ jobs:
             - name: Check static typing
               shell: bash -e {0}
               run: |
-                  mypy --version && mypy --cache-fine-grained . | mypy-baseline filter || (echo "run 'pnpm run mypy-baseline-sync' to update the baseline" && exit 1)
+                  mypy --version && mypy --cache-fine-grained .
 
             - name: Save mypy cache
-              if: github.ref == 'refs/heads/master'
+              # Shadow restores the saved cache for apples-to-apples timing.
+              if: github.ref == 'refs/heads/master' && !matrix.is_shadow
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
               with:
                   path: .mypy_cache
@@ -164,17 +181,24 @@ jobs:
               run: |
                   ./bin/hogli meta:check
 
-            - name: Run hogli tests
+            - name: Run hogli framework tests
               shell: bash
               run: |
-                  pytest common/hogli/tests/ -v --cov=common/hogli --cov-report=term --junitxml=junit-hogli.xml
+                  pytest tools/hogli/tests -v --junitxml=junit-hogli.xml
+
+            - name: Run hogli extension tests
+              shell: bash
+              run: |
+                  pytest tools/hogli-commands/hogli_commands/tests -v --junitxml=junit-hogli-commands.xml
 
             - name: Upload test results
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-              if: always()
+              if: always() && !matrix.is_shadow
               with:
                   name: junit-results-hogli
-                  path: junit-hogli.xml
+                  path: |
+                      junit-hogli.xml
+                      junit-hogli-commands.xml
 
             - name: Run dependency detection script tests
               shell: bash
@@ -183,7 +207,7 @@ jobs:
 
             - name: Upload test results for dependency detection
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-              if: always()
+              if: always() && !matrix.is_shadow
               with:
                   name: junit-results-dependency-detection
                   path: junit-dependency-detection.xml

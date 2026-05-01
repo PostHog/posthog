@@ -1315,6 +1315,41 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "type": "validation_error",
         }
 
+    def test_cannot_create_warehouse_source_webhook_via_api(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                **EXAMPLE_FULL,
+                "type": "warehouse_source_webhook",
+            },
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json() == {
+            "attr": "type",
+            "detail": "Cannot create or modify warehouse source webhook functions via this API.",
+            "code": "invalid_input",
+            "type": "validation_error",
+        }
+
+    def test_cannot_update_to_warehouse_source_webhook_via_api(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data=EXAMPLE_FULL,
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{response.json()['id']}/",
+            data={"type": "warehouse_source_webhook"},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json() == {
+            "attr": "type",
+            "detail": "Cannot create or modify warehouse source webhook functions via this API.",
+            "code": "invalid_input",
+            "type": "validation_error",
+        }
+
     def test_transpiled_field_not_populated_for_other_types(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
@@ -1677,6 +1712,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         # Verify filters were saved
         function = HogFunction.objects.get(id=function_id)
+        assert function.filters is not None
         assert function.filters.get("events") is not None
         assert function.filters.get("filter_test_accounts") is True
         assert function.filters.get("bytecode") is not None
@@ -1690,6 +1726,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         # Verify filters were updated to an empty object with valid bytecode
         function.refresh_from_db()
+        assert function.filters is not None
         assert function.filters.get("events", None) is None
         assert function.filters.get("filter_test_accounts", None) is None
         assert function.filters.get("bytecode") is not None
@@ -1703,9 +1740,37 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         # Verify filters remain an empty object with valid bytecode
         function.refresh_from_db()
+        assert function.filters is not None
         assert function.filters.get("events", None) is None
         assert function.filters.get("filter_test_accounts", None) is None
         assert function.filters.get("bytecode") is not None
+
+    def test_transformation_rejects_inputs_referencing_unavailable_globals(self):
+        # Realtime transformations only have project, event, and inputs in scope
+        # (HogTransformerService.createInvocationGlobals). Saving an input template
+        # that references person/groups/source must fail validation rather than
+        # crash ingestion at runtime.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "name": "Bad transformation",
+                "type": "transformation",
+                "hog": "return event",
+                "enabled": False,
+                "inputs_schema": [{"key": "pid", "type": "string", "required": False}],
+                "inputs": {"pid": {"value": "person_id = {person?.id}"}},
+            },
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "invalid_input",
+            "attr": "inputs__pid",
+            "detail": (
+                "Invalid template: Variable not available in transformations: person. "
+                "Transformations only have access to project, event, and inputs."
+            ),
+        }
 
     def test_limits_transformation_functions_per_team(self):
         """Test that we can create unlimited disabled transformations but only 20 enabled ones"""

@@ -4,7 +4,7 @@ import { loaders } from 'kea-loaders'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { getSeriesColor } from 'lib/colors'
+import { dataColorVars } from 'lib/colors'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 
 import { PropertyGroupFilter } from '~/types'
@@ -26,6 +26,7 @@ export interface TracingSparklineData {
 }
 
 const DEFAULT_PAGE_SIZE = 100
+export const PREFETCH_SPANS = 20
 const NEW_QUERY_STARTED_ERROR_MESSAGE = 'new query started' as const
 
 function isUserInitiatedError(error: unknown): boolean {
@@ -117,7 +118,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                         orderBy: values.filters.orderBy,
                         serviceNames: values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
                         filterGroup: values.filters.filterGroup as PropertyGroupFilter,
-                        prefetchSpans: 20,
+                        prefetchSpans: PREFETCH_SPANS,
                         limit: DEFAULT_PAGE_SIZE,
                     })
 
@@ -154,7 +155,14 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
             [] as Span[],
             {
                 loadTraceSpans: async (traceId: string): Promise<Span[]> => {
-                    const response = await api.tracing.getTrace(traceId, { date_from: '-24h' })
+                    const response = await api.tracing.getTrace(traceId, {
+                        dateRange: {
+                            date_from: values.utcDateRange.date_from ?? '-24h',
+                            date_to: values.utcDateRange.date_to ?? undefined,
+                        },
+                        serviceNames: values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
+                        filterGroup: values.filters.filterGroup as PropertyGroupFilter,
+                    })
                     return response.results as Span[]
                 },
             },
@@ -224,7 +232,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                     .map(([name, values], index) => ({
                         name,
                         values: values as number[],
-                        color: getSeriesColor(index),
+                        color: dataColorVars[index % dataColorVars.length],
                     }))
                     .filter((series) => series.values.reduce((a, b) => a + b) > 0)
 

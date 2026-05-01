@@ -6,6 +6,10 @@ on:
     pull_request:
     merge_group:
 
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
     CARGO_TERM_COLOR: always
     UV_HTTP_TIMEOUT: 120
@@ -31,10 +35,17 @@ jobs:
             - uses: actions/checkout@v6
               with:
                   clean: false
-            - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+            - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              id: app-token
+              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
+            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
               id: filter
               if: github.event_name != 'push' # Run all tests on master push
               with:
+                  token: ${{ steps.app-token.outputs.token || github.token }}
                   filters: |
                       rust:
                         # Avoid running rust tests for irrelevant changes
@@ -90,7 +101,7 @@ jobs:
                       "ingestion-consumer": 5,
                       "hogvm": 5,
                       "k8s-awareness": 60,
-                      "kafka-assigner": 30,
+                      "kafka-assigner": 150,
                       "kafka-deduplicator": 239,
                       "limiters": 23,
                       "lifecycle": 10,
@@ -130,11 +141,18 @@ jobs:
                       f.write(f"matrix={json.dumps(matrix)}\n")
 
     build:
-        name: Build Rust services
+        name: Build Rust services (${{ matrix.runner }})
         needs: changes
         if: needs.changes.outputs.rust == 'true'
-        runs-on: depot-ubuntu-22.04-4
+        strategy:
+            fail-fast: false
+            matrix:
+                include: ${{ vars.BLACKSMITH_SHADOW_ENABLED == 'true' && fromJson('[{"runner":"depot-ubuntu-22.04-4","is_shadow":false},{"runner":"blacksmith-4vcpu-ubuntu-2204","is_shadow":true}]') || fromJson('[{"runner":"depot-ubuntu-22.04-4","is_shadow":false}]') }}
+        runs-on: ${{ matrix.runner }}
+        continue-on-error: ${{ matrix.is_shadow }}
         timeout-minutes: 15
+        permissions:
+            contents: read
 
         defaults:
             run:
@@ -184,6 +202,8 @@ jobs:
         if: needs.changes.outputs.rust == 'true'
         runs-on: depot-ubuntu-24.04-4
         timeout-minutes: 20
+        permissions:
+            contents: read
 
         defaults:
             run:
@@ -286,6 +306,8 @@ jobs:
               run: |
                   for pkg in ${{ matrix.packages }}; do
                       echo "::group::Testing $pkg"
+                      # Free cgroups, overlayfs, and network namespaces from previous testcontainers
+                      docker system prune -f --volumes 2>/dev/null || true
                       extra_args=""
                       # Limit test threads for packages with sqlx pool exhaustion issues
                       if [ "$pkg" = "property-defs-rs" ]; then
@@ -295,12 +317,110 @@ jobs:
                       echo "::endgroup::"
                   done
 
+    # Blacksmith shadow of `test` with a trimmed 2-package subset. Dynamic matrix above
+    # prevents matrix-expansion, so this is a separate shadow job. continue-on-error,
+    # no artifacts, not in rust_tests collate list.
+    test-blacksmith:
+        name: Test Rust (${{ matrix.packages }}) (blacksmith shadow)
+        needs: changes
+        if: needs.changes.outputs.rust == 'true' && vars.BLACKSMITH_SHADOW_ENABLED == 'true'
+        runs-on: blacksmith-4vcpu-ubuntu-2404
+        continue-on-error: true
+        timeout-minutes: 20
+        permissions:
+            contents: read
+        strategy:
+            fail-fast: false
+            matrix:
+                # Representative subset — feature-flags (241s, biggest) + common-hypercache (93s, medium).
+                # Widen if signal is noisy.
+                packages:
+                    - feature-flags
+                    - common-hypercache
+        defaults:
+            run:
+                working-directory: rust
+        steps:
+            - uses: actions/checkout@v6
+              with:
+                  clean: false
+            - name: Clean up data directories with container permissions
+              working-directory: .
+              run: |
+                  [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
+              continue-on-error: true
+            - name: Setup main repo and dependencies
+              env:
+                  COMPOSE_FILE: ../docker-compose.dev.yml:../docker-compose.profiles.yml
+                  COMPOSE_PROFILES: etcd
+                  WAIT_FOR_DOCKER_LAUNCH_RETRIES: 3
+                  WAIT_FOR_DOCKER_LAUNCH_RETRY_DELAY: 10
+              run: |
+                  ../bin/ci-wait-for-docker launch --down
+                  ../bin/ci-wait-for-docker wait
+                  echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
+            - name: Install rust
+              uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
+              with:
+                  toolchain: 1.91.1
+            - name: Install protoc
+              uses: ./.github/actions/setup-protoc
+            - name: Install sccache
+              uses: ./.github/actions/setup-sccache
+            - name: Set up Python
+              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              with:
+                  python-version-file: 'pyproject.toml'
+            - name: Install uv
+              id: setup-uv
+              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              with:
+                  version: '0.10.2'
+                  enable-cache: true
+                  cache-dependency-glob: uv.lock
+                  save-cache: false # shadow never writes cache
+            - name: Install SAML deps
+              if: steps.setup-uv.outputs.cache-hit != 'true'
+              run: sudo apt-get update && sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl postgresql-client
+            - name: Install python dependencies
+              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev --directory ..
+            - name: Install sqlx-cli
+              uses: ./.github/actions/setup-sqlx-cli
+            - name: Set up databases
+              env:
+                  DEBUG: 'true'
+                  TEST: 'true'
+                  SECRET_KEY: 'abcdef'
+                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
+              run: cd ../ && python manage.py setup_test_environment
+            - name: Run sqlx migrations
+              env:
+                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog_persons'
+              run: |
+                  sqlx migrate run --source persons_migrations/
+                  DATABASE_URL='postgres://posthog:posthog@localhost:5432/test_posthog' sqlx migrate run --source behavioral_cohorts_migrations/
+            - name: Download MaxMind Database
+              run: cd ../ && ./bin/download-mmdb
+            - name: Run cargo test
+              env:
+                  RUST_BACKTRACE: 1
+                  PERSONS_READ_DATABASE_URL: ${{ contains(format(' {0} ', matrix.packages), ' feature-flags ') && 'postgres://posthog:posthog@localhost:5432/posthog_persons' || '' }}
+                  PERSONS_WRITE_DATABASE_URL: ${{ contains(format(' {0} ', matrix.packages), ' feature-flags ') && 'postgres://posthog:posthog@localhost:5432/posthog_persons' || '' }}
+              run: cargo test -p "${{ matrix.packages }}"
+
     linting:
-        name: Lint Rust services
+        name: Lint Rust services (${{ matrix.runner }})
         needs: changes
         if: needs.changes.outputs.rust == 'true'
-        runs-on: depot-ubuntu-22.04-4
+        strategy:
+            fail-fast: false
+            matrix:
+                include: ${{ vars.BLACKSMITH_SHADOW_ENABLED == 'true' && fromJson('[{"runner":"depot-ubuntu-22.04-4","is_shadow":false},{"runner":"blacksmith-4vcpu-ubuntu-2204","is_shadow":true}]') || fromJson('[{"runner":"depot-ubuntu-22.04-4","is_shadow":false}]') }}
+        runs-on: ${{ matrix.runner }}
+        continue-on-error: ${{ matrix.is_shadow }}
         timeout-minutes: 15
+        permissions:
+            contents: read
 
         defaults:
             run:
@@ -369,6 +489,7 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 5
         if: always()
+        permissions: {}
         steps:
             - name: Check all Rust jobs
               run: |

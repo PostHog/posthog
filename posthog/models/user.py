@@ -1,6 +1,6 @@
 from collections.abc import Callable
 from functools import cached_property
-from typing import Any, Optional, TypedDict
+from typing import TYPE_CHECKING, Any, Optional, TypedDict, cast
 
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.db import models, transaction
@@ -21,6 +21,11 @@ from .organization import Organization, OrganizationMembership
 from .team import Team
 from .utils import UUIDTClassicModel, generate_random_token, sane_repr
 
+if TYPE_CHECKING:
+    from django.db.models.fields.related_descriptors import RelatedManager
+
+    from social_django.models import UserSocialAuth
+
 
 class Notifications(TypedDict, total=False):
     plugin_disabled: bool
@@ -37,6 +42,8 @@ class Notifications(TypedDict, total=False):
     )
     project_api_key_exposed: bool
     materialized_view_sync_failed: bool
+    web_analytics_weekly_digest: bool
+    web_analytics_weekly_digest_project_enabled: dict[str, bool]
     organization_member_join_email_disabled: dict[
         str, bool
     ]  # Maps organization ID (str) to disabled status (True = do not email when a new member joins)
@@ -52,6 +59,7 @@ NOTIFICATION_DEFAULTS: Notifications = {
     "data_pipeline_error_threshold": 0.01,  # Default: notify when failure rate exceeds 1%
     "project_api_key_exposed": True,  # Private project API key (secure API key) exposure alerts enabled by default
     "materialized_view_sync_failed": False,  # Materialized view failure disabled by default
+    "web_analytics_weekly_digest": True,  # Web analytics weekly digest enabled by default
     "organization_member_join_email_disabled": {},  # No per-org opt-out until user configures
 }
 
@@ -76,8 +84,6 @@ class UserManager(BaseUserManager):
     def get_queryset(self):
         return super().get_queryset().defer(*DEFERED_ATTRS)
 
-    model: type["User"]
-
     use_in_migrations = True
 
     def create_user(self, email: str, password: Optional[str], first_name: str, **extra_fields) -> "User":
@@ -86,7 +92,7 @@ class UserManager(BaseUserManager):
             raise ValueError("Email must be provided!")
         email = EmailNormalizer.normalize(email)
         extra_fields.setdefault("distinct_id", generate_random_token())
-        user = self.model(email=email, first_name=first_name, **extra_fields)
+        user = cast("User", self.model(email=email, first_name=first_name, **extra_fields))
         if password is not None:
             # nosemgrep: python.django.security.audit.unvalidated-password.unvalidated-password (validation happens at serializer/view layer before reaching this method)
             user.set_password(password)
@@ -157,9 +163,9 @@ class ShortcutPosition(models.TextChoices):
     HIDDEN = "hidden", "Hidden"
 
 
-class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):
+class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore[django-manager-missing]
     USERNAME_FIELD = "email"
-    REQUIRED_FIELDS: list[str] = []
+    REQUIRED_FIELDS = []
 
     DISABLED = "disabled"
     TOOLBAR = "toolbar"
@@ -188,7 +194,7 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):
     role_at_organization = models.CharField(max_length=64, choices=ROLE_CHOICES, null=True, blank=True)
     # Preferences / configuration options
 
-    theme_mode = models.CharField(max_length=20, null=True, blank=True, choices=ThemeMode.choices)
+    theme_mode = models.CharField(max_length=20, null=True, blank=True, choices=ThemeMode)
     # These override the notification settings
     partial_notification_settings = models.JSONField(null=True, blank=True)
     anonymize_data = models.BooleanField(default=False, null=True, blank=True)
@@ -197,7 +203,7 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):
     hedgehog_config = models.JSONField(null=True, blank=True)
     allow_sidebar_suggestions = models.BooleanField(default=True, null=True, blank=True)
     shortcut_position = models.CharField(
-        max_length=20, null=True, blank=True, choices=ShortcutPosition.choices, default=ShortcutPosition.ABOVE
+        max_length=20, null=True, blank=True, choices=ShortcutPosition, default=ShortcutPosition.ABOVE
     )
     passkeys_enabled_for_2fa = models.BooleanField(
         default=False,
@@ -215,9 +221,13 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):
     temporary_token = deprecate_field(models.CharField(max_length=200, null=True, blank=True, unique=True))
 
     # Remove unused attributes from `AbstractUser`
-    username = None
+    username = cast(Any, None)
 
-    objects: UserManager = UserManager()
+    objects: UserManager = UserManager()  # type: ignore[assignment,misc]
+
+    # Reverse relation from social_django.UserSocialAuth.user (related_name="social_auth"); not a DB column.
+    if TYPE_CHECKING:
+        social_auth: RelatedManager[UserSocialAuth]
 
     # Snapshot of is_active at load time, used by signal handlers to detect changes.
     # Set in from_db(); not a model field.
@@ -230,7 +240,7 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):
         return instance
 
     @property
-    def is_superuser(self) -> bool:
+    def is_superuser(self) -> bool:  # type: ignore[override]
         return self.is_staff
 
     @cached_property
@@ -298,7 +308,7 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):
                     accessible_team_ids = accessible_private_team_ids | role_accessible_team_ids
 
                     # Build the list of all accessible team IDs
-                    all_accessible_team_ids = set()
+                    all_accessible_team_ids: set[int] = set()
 
                     # Add teams from organizations where user is admin
                     admin_teams = Team.objects.filter(
@@ -339,6 +349,53 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):
             if self.current_team:
                 self.save(update_fields=["current_team"])
         return self.current_team
+
+    def get_github_login(self) -> str | None:
+        """Resolve this user's GitHub login.
+
+        Precedence:
+        1. `UserIntegration` (kind=github) - the user's own GitHub integration
+        2. `UserSocialAuth` (provider=github) - fallback for users who log in with GitHub but haven't set up a `UserIntegration` yet
+        3. Team `Integration` `connecting_user_github_login` - legacy fallback from before the user integration model existed
+        """
+        from posthog.models.integration import Integration
+        from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
+
+        user_integration = UserIntegration.objects.filter(user=self, kind="github").first()
+        if user_integration:
+            login = UserGitHubIntegration(user_integration).github_login
+            if login:
+                return login
+
+        for sa in self.social_auth.all():
+            if sa.provider != "github":
+                continue
+            login_val = getattr(sa, "_prefetched_github_login", None)
+            if login_val:
+                return str(login_val)
+            if isinstance(sa.extra_data, dict):
+                login = sa.extra_data.get("login")
+                if login:
+                    return str(login)
+
+        # Fall back to team Integration identity captured at install time.
+        prefetched_integrations = getattr(self, "_prefetched_github_integrations", None)
+        if prefetched_integrations is not None:
+            for integration in prefetched_integrations:
+                login = (integration.config or {}).get("connecting_user_github_login")
+                if login:
+                    return str(login)
+        else:
+            login = (
+                Integration.objects.filter(kind="github", created_by=self)
+                .values_list("config__connecting_user_github_login", flat=True)
+                .exclude(config__connecting_user_github_login=None)
+                .first()
+            )
+            if login:
+                return str(login)
+
+        return None
 
     def join(
         self,
@@ -383,7 +440,6 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):
                     },
                 )
 
-        self.update_billing_organization_users(organization)
         return membership
 
     @property
@@ -392,6 +448,11 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):
             **NOTIFICATION_DEFAULTS,
             **(self.partial_notification_settings if self.partial_notification_settings else {}),
         }
+
+    def should_send_organization_member_join_email(self, organization_id: str) -> bool:
+        """Whether to email this user when someone joins the given organization (default: True)."""
+        disabled = self.notification_settings.get("organization_member_join_email_disabled") or {}
+        return not bool(disabled.get(str(organization_id), False))
 
     def leave(self, *, organization: Organization) -> None:
         membership: OrganizationMembership = OrganizationMembership.objects.get(user=self, organization=organization)
@@ -406,7 +467,6 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):
                 )
                 self.team = self.current_team  # Update cached property
                 self.save()
-        self.update_billing_organization_users(organization)
 
     def update_billing_organization_users(self, organization: Organization) -> None:
         from ee.billing.billing_manager import BillingManager  # avoid circular import

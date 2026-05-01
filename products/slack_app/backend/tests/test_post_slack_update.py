@@ -39,7 +39,7 @@ class TestPostSlackUpdate(TestCase):
     @patch.object(SlackThreadHandler, "update_reaction")
     @patch.object(SlackThreadHandler, "__init__", return_value=None)
     @patch("products.tasks.backend.models.TaskRun")
-    def test_completed_run_updates_reaction_to_white_check_mark(
+    def test_completed_run_updates_reaction_to_hedgehog(
         self, mock_task_run_class, mock_handler_init, mock_update_reaction, mock_post_completion
     ):
         mock_run = self._make_mock_run(
@@ -50,7 +50,7 @@ class TestPostSlackUpdate(TestCase):
 
         post_slack_update(PostSlackUpdateInput(run_id="run-1", slack_thread_context=self.slack_thread_context))
 
-        mock_update_reaction.assert_called_once_with("white_check_mark")
+        mock_update_reaction.assert_called_once_with("hedgehog")
         mock_post_completion.assert_called_once()
 
     @patch.object(SlackThreadHandler, "post_error")
@@ -83,7 +83,7 @@ class TestPostSlackUpdate(TestCase):
 
         post_slack_update(PostSlackUpdateInput(run_id="run-1", slack_thread_context=self.slack_thread_context))
 
-        mock_update_reaction.assert_called_once_with("white_check_mark")
+        mock_update_reaction.assert_called_once_with("hedgehog")
         mock_post_cancelled.assert_called_once()
 
     @patch.object(SlackThreadHandler, "post_or_update_progress")
@@ -126,7 +126,7 @@ class TestPostSlackUpdate(TestCase):
         post_slack_update(PostSlackUpdateInput(run_id="run-1", slack_thread_context=self.slack_thread_context))
 
         mock_post_progress.assert_not_called()
-        mock_update_reaction.assert_called_once_with("white_check_mark")
+        mock_update_reaction.assert_called_once_with("hedgehog")
         mock_delete_progress.assert_called_once()
 
     @patch.object(SlackThreadHandler, "delete_progress")
@@ -166,10 +166,17 @@ class TestPostSlackUpdate(TestCase):
             "https://github.com/org/repo/pull/1",
             "http://localhost:8000/project/1/tasks/10?runId=run-1",
         )
-        mock_update_reaction.assert_called_once_with("white_check_mark")
+        mock_update_reaction.assert_called_once_with("hedgehog")
         mock_delete_progress.assert_called_once()
         mock_post_progress.assert_not_called()
-        mock_run.save.assert_called_once()
+        mock_task_run_class.update_state_atomic.assert_called_once_with(
+            "run-1",
+            updates={
+                "slack_pr_opened_notified": True,
+                "slack_notified_pr_url": "https://github.com/org/repo/pull/1",
+            },
+        )
+        mock_run.save.assert_not_called()
 
     @patch.object(SlackThreadHandler, "post_completion")
     @patch.object(SlackThreadHandler, "delete_progress")
@@ -188,7 +195,7 @@ class TestPostSlackUpdate(TestCase):
 
         post_slack_update(PostSlackUpdateInput(run_id="run-1", slack_thread_context=self.slack_thread_context))
 
-        mock_update_reaction.assert_called_once_with("white_check_mark")
+        mock_update_reaction.assert_called_once_with("hedgehog")
         mock_delete_progress.assert_called_once()
         mock_post_completion.assert_not_called()
 
@@ -220,7 +227,7 @@ class TestPostSlackUpdate(TestCase):
             )
         )
 
-        mock_update_reaction.assert_called_once_with("white_check_mark")
+        mock_update_reaction.assert_called_once_with("hedgehog")
         mock_delete_progress.assert_not_called()
         mock_post_pr_opened_sandbox_cleaned.assert_called_once_with(
             "https://github.com/org/repo/pull/1",
@@ -255,7 +262,7 @@ class TestPostSlackUpdate(TestCase):
             )
         )
 
-        mock_update_reaction.assert_called_once_with("white_check_mark")
+        mock_update_reaction.assert_called_once_with("hedgehog")
         mock_delete_progress.assert_called_once()
         mock_post_pr_opened_sandbox_cleaned.assert_not_called()
 
@@ -290,7 +297,7 @@ class TestPostSlackUpdate(TestCase):
             )
         )
 
-        mock_update_reaction.assert_called_once_with("white_check_mark")
+        mock_update_reaction.assert_called_once_with("hedgehog")
         mock_delete_progress.assert_called_once()
         mock_post_pr_opened_sandbox_cleaned.assert_not_called()
 
@@ -323,7 +330,7 @@ class TestPostSlackUpdate(TestCase):
             )
         )
 
-        mock_update_reaction.assert_called_once_with("white_check_mark")
+        mock_update_reaction.assert_called_once_with("hedgehog")
         mock_post_pr_opened_sandbox_cleaned.assert_called_once_with(
             "https://github.com/org/repo/pull/2",
             "http://localhost:8000/project/1/tasks/10?runId=run-1",
@@ -354,7 +361,7 @@ class TestPostSlackUpdate(TestCase):
             )
         )
 
-        mock_update_reaction.assert_called_once_with("white_check_mark")
+        mock_update_reaction.assert_called_once_with("hedgehog")
         mock_post_pr_opened_sandbox_cleaned.assert_called_once_with(
             "https://github.com/org/repo/pull/2",
             "http://localhost:8000/project/1/tasks/10?runId=run-1",

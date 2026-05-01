@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { BindLogic } from 'kea'
 
-import { IconEndpoints, IconFunnels, IconPlus, IconRetention, IconTrends } from '@posthog/icons'
+import { IconEndpoints, IconPlus, IconRetention, IconTrends } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
@@ -11,7 +11,7 @@ import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 import { SavedInsightsTable } from 'scenes/saved-insights/SavedInsightsTable'
 import { urls } from 'scenes/urls'
 
-import { HogQLQuery, InsightQueryNode } from '~/queries/schema/schema-general'
+import { EndpointQueryNode, HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { isNodeWithSource } from '~/queries/utils'
 import { InsightType, QueryBasedInsightModel } from '~/types'
 
@@ -19,9 +19,27 @@ import { EndpointFromInsightModal } from './EndpointFromInsightModal'
 import { endpointLogic } from './endpointLogic'
 import { insightPickerEndpointModalLogic } from './insightPickerEndpointModalLogic'
 
+const UNSUPPORTED_INSIGHT_TYPES = new Set([
+    InsightType.FUNNELS,
+    InsightType.PATHS,
+    InsightType.STICKINESS,
+    InsightType.JSON,
+    InsightType.HOG,
+])
+
+const UNSUPPORTED_QUERY_KINDS = new Set([NodeKind.FunnelsQuery, NodeKind.PathsQuery, NodeKind.StickinessQuery])
+
+function isInsightSupported(insight: QueryBasedInsightModel): boolean {
+    const query = insight.query
+    if (!query) {
+        return true
+    }
+    const kind = isNodeWithSource(query) ? (query as { source?: { kind?: string } }).source?.kind : query.kind
+    return !kind || !UNSUPPORTED_QUERY_KINDS.has(kind as NodeKind)
+}
+
 const QUICK_CREATE_TYPES = [
     { type: InsightType.TRENDS, icon: IconTrends, label: 'Trend' },
-    { type: InsightType.FUNNELS, icon: IconFunnels, label: 'Funnel' },
     { type: InsightType.RETENTION, icon: IconRetention, label: 'Retention' },
 ]
 
@@ -34,17 +52,18 @@ export function InsightPickerEndpointModal({ tabId }: InsightPickerEndpointModal
     const { closeModal, selectInsight, toggleShowMoreInsightTypes } = useActions(insightPickerEndpointModalLogic)
     const { openCreateFromInsightModal } = useActions(endpointLogic({ tabId }))
 
-    const insightQuery: HogQLQuery | InsightQueryNode | null = selectedInsight?.query
+    // Safe cast: unsupported query types (FunnelsQuery, PathsQuery, StickinessQuery)
+    // are filtered out via isInsightSupported on the SavedInsightsTable
+    const insightQuery: HogQLQuery | EndpointQueryNode | null = selectedInsight?.query
         ? isNodeWithSource(selectedInsight.query)
-            ? (selectedInsight.query.source as HogQLQuery | InsightQueryNode)
-            : (selectedInsight.query as HogQLQuery | InsightQueryNode)
+            ? (selectedInsight.query.source as unknown as HogQLQuery | EndpointQueryNode)
+            : (selectedInsight.query as unknown as HogQLQuery | EndpointQueryNode)
         : null
 
     const additionalTypes = Object.entries(INSIGHT_TYPES_METADATA).filter(
         ([type, meta]) =>
             meta.inMenu &&
-            type !== InsightType.JSON &&
-            type !== InsightType.HOG &&
+            !UNSUPPORTED_INSIGHT_TYPES.has(type as InsightType) &&
             !QUICK_CREATE_TYPES.some((qt) => qt.type === type)
     )
 
@@ -124,6 +143,7 @@ export function InsightPickerEndpointModal({ tabId }: InsightPickerEndpointModal
                                     selectInsight(insight)
                                     openCreateFromInsightModal()
                                 }}
+                                filterFn={isInsightSupported}
                             />
                         </div>
                     </div>

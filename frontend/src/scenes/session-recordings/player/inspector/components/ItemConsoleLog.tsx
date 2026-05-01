@@ -1,12 +1,15 @@
 import clsx from 'clsx'
+import { useActions } from 'kea'
 
 import { LemonDivider } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { SimpleKeyValueList } from 'lib/components/SimpleKeyValueList'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
+import { ceilMsToClosestSecond } from 'lib/utils'
 
 import { ItemTimeDisplay } from '../../../components/ItemTimeDisplay'
+import { sessionRecordingPlayerLogic } from '../../sessionRecordingPlayerLogic'
 import { InspectorListItemAppState, InspectorListItemConsole } from '../playerInspectorLogic'
 
 export interface ItemConsoleLogProps {
@@ -45,6 +48,8 @@ export function ItemConsoleLog({ item, groupCount }: ItemConsoleLogProps): JSX.E
 }
 
 export function ItemConsoleLogDetail({ item, groupedItems }: ItemConsoleLogProps): JSX.Element {
+    const { seekToTime } = useActions(sessionRecordingPlayerLogic)
+
     return (
         <div className="w-full font-light" data-attr="item-console-log">
             <div className="px-2 py-1 text-xs border-t">
@@ -57,7 +62,11 @@ export function ItemConsoleLogDetail({ item, groupedItems }: ItemConsoleLogProps
                             {groupedItems.map((entry, i) => (
                                 <div
                                     key={entry.key}
-                                    className={clsx('flex items-center gap-2 font-mono', i > 0 && 'border-t')}
+                                    className={clsx(
+                                        'flex items-center gap-2 font-mono cursor-pointer hover:bg-surface-primary',
+                                        i > 0 && 'border-t'
+                                    )}
+                                    onClick={() => seekToTime(ceilMsToClosestSecond(entry.timeInRecording) - 1000)}
                                 >
                                     <ItemTimeDisplay
                                         timestamp={entry.timestamp}

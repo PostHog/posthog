@@ -1,35 +1,93 @@
 import * as d3 from 'd3'
 
-import type { ChartDimensions, Series } from './types'
+import { yTickCountForHeight } from './scales'
+import type { ChartDimensions, ChartDrawArgs, ResolvedSeries } from './types'
 
 export interface DrawContext {
     ctx: CanvasRenderingContext2D
     dimensions: ChartDimensions
-    xScale: d3.ScalePoint<string>
+    xScale: (label: string) => number | undefined
     yScale: d3.ScaleLinear<number, number> | d3.ScaleLogarithmic<number, number>
     labels: string[]
 }
 
-export function drawLine(drawCtx: DrawContext, series: Series, yValues?: number[]): void {
-    const { ctx, xScale, yScale, labels } = drawCtx
+export function drawLine(drawCtx: DrawContext, series: ResolvedSeries, yValues?: number[]): void {
     const data = yValues ?? series.data
-
     if (data.length === 0) {
         return
     }
 
-    ctx.beginPath()
+    const { ctx } = drawCtx
     ctx.strokeStyle = series.color
     ctx.lineWidth = 2
     ctx.lineJoin = 'round'
     ctx.lineCap = 'round'
-    ctx.setLineDash(series.dashPattern ?? [])
 
+    for (const { start, end, pattern } of planLineStrokes(series, data.length)) {
+        ctx.beginPath()
+        ctx.setLineDash(pattern)
+        tracePath(drawCtx, data, start, end)
+        ctx.stroke()
+    }
+    ctx.setLineDash([])
+}
+
+/** One contiguous stroke: indices [start, end] inclusive, rendered with `pattern`. */
+interface Stroke {
+    start: number
+    end: number
+    pattern: number[]
+}
+
+/**
+ * Splits the line into strokes based on `stroke.partial.fromIndex`/`stroke.partial.toIndex`.
+ * Each entry is a contiguous index range drawn with a single dash pattern; adjacent strokes
+ * share their boundary index so the visual seam between them is invisible.
+ */
+function planLineStrokes(series: ResolvedSeries, length: number): Stroke[] {
+    const basePattern = series.stroke?.pattern ?? []
+    const partialPattern = series.stroke?.partial?.pattern ?? [10, 10]
+    const from = resolvePartialIndex(series.stroke?.partial?.fromIndex, length)
+    const to = resolvePartialIndex(series.stroke?.partial?.toIndex, length)
+
+    // No partial dashing — one stroke covering the whole line.
+    if (from === null && to === null) {
+        return [{ start: 0, end: length - 1, pattern: basePattern }]
+    }
+
+    // Dashed region(s) cover the whole line — from the start, through the end, or meeting in the middle.
+    const wholeLineDashed = from === 0 || to === length - 1 || (from !== null && to !== null && to >= from - 1)
+    if (wholeLineDashed) {
+        return [{ start: 0, end: length - 1, pattern: partialPattern }]
+    }
+
+    // Up to three strokes: dashed leading → solid middle → dashed trailing.
+    const strokes: Stroke[] = []
+    if (to !== null) {
+        strokes.push({ start: 0, end: to, pattern: partialPattern })
+    }
+    const solidStart = to ?? 0
+    const solidEnd = from !== null ? from - 1 : length - 1
+    if (solidStart < solidEnd) {
+        strokes.push({ start: solidStart, end: solidEnd, pattern: basePattern })
+    }
+    if (from !== null) {
+        strokes.push({ start: from - 1, end: length - 1, pattern: partialPattern })
+    }
+    return strokes
+}
+
+/** Walks data from [start, end] inclusive, emitting moveTo/lineTo. Caller owns beginPath/stroke. */
+function tracePath(drawCtx: DrawContext, data: number[], start: number, end: number): void {
+    const { ctx, xScale, yScale, labels } = drawCtx
     let started = false
-    for (let i = 0; i < data.length; i++) {
+    for (let i = start; i <= end; i++) {
         const x = xScale(labels[i])
         const y = yScale(data[i])
         if (x == null || !isFinite(y)) {
+            // Reset so the next valid point starts a fresh subpath rather than
+            // connecting straight across the NaN gap.
+            started = false
             continue
         }
         if (!started) {
@@ -39,64 +97,180 @@ export function drawLine(drawCtx: DrawContext, series: Series, yValues?: number[
             ctx.lineTo(x, y)
         }
     }
-    ctx.stroke()
-    ctx.setLineDash([])
 }
 
-export function drawArea(drawCtx: DrawContext, series: Series, yValues?: number[], bottomValues?: number[]): void {
+/** Returns null when unset; otherwise rounds and clamps into [0, length-1]. */
+function resolvePartialIndex(idx: number | undefined, length: number): number | null {
+    if (idx == null || length === 0) {
+        return null
+    }
+    const rounded = Math.round(idx)
+    return Math.max(0, Math.min(length - 1, rounded))
+}
+
+const hatchPatternCache = new Map<string, CanvasPattern>()
+
+function getHatchPattern(ctx: CanvasRenderingContext2D, color: string): CanvasPattern | string {
+    const cached = hatchPatternCache.get(color)
+    if (cached) {
+        return cached
+    }
+    const size = 14
+    const patCanvas = document.createElement('canvas')
+    patCanvas.width = size
+    patCanvas.height = size
+    const patCtx = patCanvas.getContext('2d')
+    if (!patCtx) {
+        return color
+    }
+    patCtx.strokeStyle = color
+    patCtx.lineWidth = 4
+    patCtx.beginPath()
+    patCtx.moveTo(0, size)
+    patCtx.lineTo(size, 0)
+    patCtx.stroke()
+    patCtx.beginPath()
+    patCtx.moveTo(-size / 2, size / 2)
+    patCtx.lineTo(size / 2, -size / 2)
+    patCtx.stroke()
+    patCtx.beginPath()
+    patCtx.moveTo(size / 2, size + size / 2)
+    patCtx.lineTo(size + size / 2, size / 2)
+    patCtx.stroke()
+    const pattern = ctx.createPattern(patCanvas, 'repeat')
+    if (pattern) {
+        hatchPatternCache.set(color, pattern)
+        return pattern
+    }
+    return color
+}
+
+interface AreaPoint {
+    x: number
+    y: number
+    dataIndex: number
+}
+
+export function drawArea(
+    drawCtx: DrawContext,
+    series: ResolvedSeries,
+    yValues?: number[],
+    bottomValues?: number[]
+): void {
     const { ctx, xScale, yScale, labels, dimensions } = drawCtx
     const data = yValues ?? series.data
-    const opacity = series.fillOpacity ?? 0.5
+    const opacity = series.fill?.opacity ?? 0.5
     const baseline = dimensions.plotTop + dimensions.plotHeight
+    const dashedFrom = resolvePartialIndex(series.stroke?.partial?.fromIndex, data.length)
+    const dashedTo = resolvePartialIndex(series.stroke?.partial?.toIndex, data.length)
 
-    // Split into contiguous segments to handle data gaps consistently with drawLine
-    const segments: { top: { x: number; y: number }[]; bottom: { x: number; y: number }[] }[] = []
-    let currentTop: { x: number; y: number }[] = []
-    let currentBottom: { x: number; y: number }[] = []
-    for (let i = 0; i < data.length; i++) {
-        const x = xScale(labels[i])
-        const yTop = yScale(data[i])
-        if (x != null && isFinite(yTop)) {
-            currentTop.push({ x, y: yTop })
-            const yBot = bottomValues ? yScale(bottomValues[i]) : baseline
-            currentBottom.push({ x, y: isFinite(yBot) ? yBot : baseline })
-        } else if (currentTop.length > 0) {
+    const segments: { top: AreaPoint[]; bottom: AreaPoint[] }[] = []
+    let currentTop: AreaPoint[] = []
+    let currentBottom: AreaPoint[] = []
+    const breakSegment = (): void => {
+        if (currentTop.length > 0) {
             segments.push({ top: currentTop, bottom: currentBottom })
             currentTop = []
             currentBottom = []
         }
     }
-    if (currentTop.length > 0) {
-        segments.push({ top: currentTop, bottom: currentBottom })
+    for (let i = 0; i < data.length; i++) {
+        const x = xScale(labels[i])
+        const yTop = yScale(data[i])
+        if (x == null || !isFinite(yTop)) {
+            breakSegment()
+            continue
+        }
+        if (bottomValues) {
+            const rawBottom = bottomValues[i]
+            const yBot = rawBottom == null ? NaN : yScale(rawBottom)
+            if (!isFinite(yBot)) {
+                breakSegment()
+                continue
+            }
+            currentTop.push({ x, y: yTop, dataIndex: i })
+            currentBottom.push({ x, y: yBot, dataIndex: i })
+        } else {
+            currentTop.push({ x, y: yTop, dataIndex: i })
+            currentBottom.push({ x, y: baseline, dataIndex: i })
+        }
     }
+    breakSegment()
 
     ctx.globalAlpha = opacity
-    ctx.fillStyle = series.color
 
     for (const { top, bottom } of segments) {
         if (top.length < 2) {
             continue
         }
-        ctx.beginPath()
-        ctx.moveTo(top[0].x, top[0].y)
-        for (let i = 1; i < top.length; i++) {
-            ctx.lineTo(top[i].x, top[i].y)
+
+        if (dashedFrom === null && dashedTo === null) {
+            ctx.fillStyle = series.color
+            fillAreaPath(ctx, top, bottom)
+            continue
         }
-        // Close along bottom edge in reverse
-        for (let i = bottom.length - 1; i >= 0; i--) {
-            ctx.lineTo(bottom[i].x, bottom[i].y)
+
+        // First index in this segment that is part of the trailing dashed range (>= dashedFrom).
+        const fromSplit = dashedFrom === null ? -1 : top.findIndex((p) => p.dataIndex >= dashedFrom)
+        // First index in this segment that is past the leading dashed range (> dashedTo).
+        const toSplit = dashedTo === null ? -1 : top.findIndex((p) => p.dataIndex > dashedTo)
+        const wholeSegmentLeading = dashedTo !== null && toSplit === -1
+        const wholeSegmentTrailing = dashedFrom !== null && fromSplit === 0
+        const hatch = getHatchPattern(ctx, series.color)
+
+        if (wholeSegmentLeading || wholeSegmentTrailing) {
+            ctx.fillStyle = hatch
+            fillAreaPath(ctx, top, bottom)
+            continue
         }
-        ctx.closePath()
-        ctx.fill()
+
+        if (dashedTo !== null && toSplit > 0) {
+            const leadingEnd = Math.min(top.length, toSplit + 1)
+            ctx.fillStyle = hatch
+            fillAreaPath(ctx, top.slice(0, leadingEnd), bottom.slice(0, leadingEnd))
+        }
+
+        const solidStart = toSplit === -1 ? 0 : toSplit
+        const solidEnd = fromSplit === -1 ? top.length : fromSplit
+
+        if (solidEnd - solidStart >= 2) {
+            const trailingHatchPresent = dashedFrom !== null && fromSplit !== -1
+            const slicedEnd = trailingHatchPresent ? Math.min(top.length, solidEnd + 1) : solidEnd
+            ctx.fillStyle = series.color
+            fillAreaPath(ctx, top.slice(solidStart, slicedEnd), bottom.slice(solidStart, slicedEnd))
+        }
+
+        if (dashedFrom !== null && fromSplit > 0) {
+            const hatchStart = Math.max(0, fromSplit - 1)
+            ctx.fillStyle = hatch
+            fillAreaPath(ctx, top.slice(hatchStart), bottom.slice(hatchStart))
+        }
     }
 
     ctx.globalAlpha = 1
 }
 
-export function drawPoints(drawCtx: DrawContext, series: Series, yValues?: number[]): void {
+function fillAreaPath(
+    ctx: CanvasRenderingContext2D,
+    top: { x: number; y: number }[],
+    bottom: { x: number; y: number }[]
+): void {
+    ctx.beginPath()
+    ctx.moveTo(top[0].x, top[0].y)
+    for (let i = 1; i < top.length; i++) {
+        ctx.lineTo(top[i].x, top[i].y)
+    }
+    for (let i = bottom.length - 1; i >= 0; i--) {
+        ctx.lineTo(bottom[i].x, bottom[i].y)
+    }
+    ctx.closePath()
+    ctx.fill()
+}
+
+export function drawPoints(drawCtx: DrawContext, series: ResolvedSeries, yValues?: number[]): void {
     const { ctx, xScale, yScale, labels } = drawCtx
     const data = yValues ?? series.data
-    const radius = series.pointRadius ?? 0
+    const radius = series.points?.radius ?? 0
 
     if (radius <= 0) {
         return
@@ -116,33 +290,186 @@ export function drawPoints(drawCtx: DrawContext, series: Series, yValues?: numbe
     }
 }
 
+/** Draws the grid lines and the categorical-axis baseline.
+ *
+ * `orientation`:
+ *  - `'vertical'` (default): horizontal grid lines at value-axis (y) tick positions, vertical baseline on the left.
+ *  - `'horizontal'`: vertical grid lines at value-axis (x) tick positions, horizontal baseline on the top.
+ *
+ * In both modes, `yScale` maps a value to a pixel on the value axis — for vertical that's a y-pixel,
+ * for horizontal that's an x-pixel. The function uses `dimensions` to size the perpendicular axis.
+ */
 export function drawGrid(
     drawCtx: DrawContext,
-    options: {
-        gridColor?: string
-        goalLineValues?: number[]
-    } = {}
+    options: { gridColor?: string; orientation?: 'vertical' | 'horizontal' } = {}
 ): void {
     const { ctx, yScale, dimensions } = drawCtx
     const gridColor = options.gridColor ?? 'rgba(0, 0, 0, 0.1)'
-    const goalValues = new Set(options.goalLineValues ?? [])
+    const orientation = options.orientation ?? 'vertical'
+    const tickAxisLength = orientation === 'horizontal' ? dimensions.plotWidth : dimensions.plotHeight
 
-    const yTicks = (yScale as d3.ScaleLinear<number, number>).ticks?.() ?? []
+    const valueTicks = (yScale as d3.ScaleLinear<number, number>).ticks?.(yTickCountForHeight(tickAxisLength)) ?? []
 
     ctx.strokeStyle = gridColor
     ctx.lineWidth = 1
     ctx.setLineDash([])
 
-    for (const tick of yTicks) {
-        if (goalValues.has(tick)) {
-            continue
+    if (orientation === 'horizontal') {
+        for (const tick of valueTicks) {
+            const x = Math.round(yScale(tick)) + 0.5
+            ctx.beginPath()
+            ctx.moveTo(x, dimensions.plotTop)
+            ctx.lineTo(x, dimensions.plotTop + dimensions.plotHeight)
+            ctx.stroke()
         }
+        const axisY = Math.round(dimensions.plotTop) + 0.5
+        ctx.beginPath()
+        ctx.moveTo(dimensions.plotLeft, axisY)
+        ctx.lineTo(dimensions.plotLeft + dimensions.plotWidth, axisY)
+        ctx.stroke()
+        return
+    }
+
+    for (const tick of valueTicks) {
         const y = Math.round(yScale(tick)) + 0.5
         ctx.beginPath()
         ctx.moveTo(dimensions.plotLeft, y)
         ctx.lineTo(dimensions.plotLeft + dimensions.plotWidth, y)
         ctx.stroke()
     }
+
+    const axisX = Math.round(dimensions.plotLeft) + 0.5
+    ctx.beginPath()
+    ctx.moveTo(axisX, dimensions.plotTop)
+    ctx.lineTo(axisX, dimensions.plotTop + dimensions.plotHeight)
+    ctx.stroke()
+}
+
+export function drawCrosshair(
+    ctx: CanvasRenderingContext2D,
+    dimensions: ChartDimensions,
+    coord: number,
+    color: string,
+    orientation: 'vertical' | 'horizontal' = 'vertical'
+): void {
+    // 0.5 offset keeps the 1px line crisp on integer pixel boundaries.
+    const line = Math.round(coord) + 0.5
+    ctx.strokeStyle = color
+    ctx.lineWidth = 1
+    ctx.setLineDash([])
+    ctx.beginPath()
+    if (orientation === 'vertical') {
+        ctx.moveTo(line, dimensions.plotTop)
+        ctx.lineTo(line, dimensions.plotTop + dimensions.plotHeight)
+    } else {
+        ctx.moveTo(dimensions.plotLeft, line)
+        ctx.lineTo(dimensions.plotLeft + dimensions.plotWidth, line)
+    }
+    ctx.stroke()
+}
+
+export interface BarRoundedCorners {
+    topLeft?: boolean
+    topRight?: boolean
+    bottomLeft?: boolean
+    bottomRight?: boolean
+}
+
+/** Caller owns beginPath / fill / stroke; this only emits the path. */
+export function traceRoundedBarPath(
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    radius: number,
+    corners: BarRoundedCorners
+): void {
+    const r = Math.max(0, Math.min(radius, Math.abs(width) / 2, Math.abs(height) / 2))
+    const tl = corners.topLeft ? r : 0
+    const tr = corners.topRight ? r : 0
+    const br = corners.bottomRight ? r : 0
+    const bl = corners.bottomLeft ? r : 0
+    ctx.moveTo(x + tl, y)
+    ctx.lineTo(x + width - tr, y)
+    if (tr > 0) {
+        ctx.quadraticCurveTo(x + width, y, x + width, y + tr)
+    }
+    ctx.lineTo(x + width, y + height - br)
+    if (br > 0) {
+        ctx.quadraticCurveTo(x + width, y + height, x + width - br, y + height)
+    }
+    ctx.lineTo(x + bl, y + height)
+    if (bl > 0) {
+        ctx.quadraticCurveTo(x, y + height, x, y + height - bl)
+    }
+    ctx.lineTo(x, y + tl)
+    if (tl > 0) {
+        ctx.quadraticCurveTo(x, y, x + tl, y)
+    }
+    ctx.closePath()
+}
+
+export interface BarRect {
+    x: number
+    y: number
+    width: number
+    height: number
+    corners: BarRoundedCorners
+    /** Index into the original `series.data` — partial-dash hatch ranges resolve against the
+     *  source array, not against this bars[] which the caller may have pre-filtered. */
+    dataIndex: number
+}
+
+export const DEFAULT_BAR_CORNER_RADIUS = 4
+
+/** Hatch ranges (`series.stroke?.partial`) clamp against `series.data.length`; callers may
+ *  pre-filter `bars` without shifting the hatch boundary. */
+export function drawBars(
+    drawCtx: DrawContext,
+    series: ResolvedSeries,
+    bars: BarRect[],
+    cornerRadius: number = DEFAULT_BAR_CORNER_RADIUS
+): void {
+    const { ctx } = drawCtx
+    if (bars.length === 0) {
+        return
+    }
+
+    const dataLength = series.data.length
+    const dashedFrom = resolvePartialIndex(series.stroke?.partial?.fromIndex, dataLength)
+    const dashedTo = resolvePartialIndex(series.stroke?.partial?.toIndex, dataLength)
+    const hatch = dashedFrom !== null || dashedTo !== null ? getHatchPattern(ctx, series.color) : null
+
+    for (const bar of bars) {
+        if (bar.width <= 0 || bar.height <= 0) {
+            continue
+        }
+        const useHatch =
+            hatch !== null &&
+            ((dashedFrom !== null && bar.dataIndex >= dashedFrom) || (dashedTo !== null && bar.dataIndex <= dashedTo))
+        ctx.fillStyle = useHatch ? hatch : series.color
+        ctx.beginPath()
+        traceRoundedBarPath(ctx, bar.x, bar.y, bar.width, bar.height, cornerRadius, bar.corners)
+        ctx.fill()
+    }
+}
+
+export function drawBarHighlight(
+    ctx: CanvasRenderingContext2D,
+    bar: BarRect,
+    color: string,
+    cornerRadius: number = DEFAULT_BAR_CORNER_RADIUS
+): void {
+    if (bar.width <= 0 || bar.height <= 0) {
+        return
+    }
+    ctx.strokeStyle = color
+    ctx.lineWidth = 2
+    ctx.setLineDash([])
+    ctx.beginPath()
+    traceRoundedBarPath(ctx, bar.x, bar.y, bar.width, bar.height, cornerRadius, bar.corners)
+    ctx.stroke()
 }
 
 export function drawHighlightPoint(
@@ -162,4 +489,31 @@ export function drawHighlightPoint(
     ctx.beginPath()
     ctx.arc(x, y, radius, 0, Math.PI * 2)
     ctx.fill()
+}
+
+type DrawHoverFn = (args: ChartDrawArgs) => void
+
+interface ComposeDrawHoverOptions {
+    crosshairColor: string | undefined
+    showCrosshair: boolean
+    axisOrientation?: 'vertical' | 'horizontal'
+    labelToCoord?: (label: string) => number | undefined
+}
+
+// Crosshair drawn first so the chart-type's highlight rings render on top.
+export function composeDrawHoverWithCrosshair(
+    getDrawHover: () => DrawHoverFn,
+    options: ComposeDrawHoverOptions
+): DrawHoverFn {
+    const { crosshairColor, showCrosshair, axisOrientation = 'vertical', labelToCoord } = options
+    return (args) => {
+        if (showCrosshair && crosshairColor && args.hoverIndex >= 0) {
+            const label = args.labels[args.hoverIndex]
+            const coord = labelToCoord ? labelToCoord(label) : args.scales.x(label)
+            if (coord != null && isFinite(coord)) {
+                drawCrosshair(args.ctx, args.dimensions, coord, crosshairColor, axisOrientation)
+            }
+        }
+        getDrawHover()(args)
+    }
 }

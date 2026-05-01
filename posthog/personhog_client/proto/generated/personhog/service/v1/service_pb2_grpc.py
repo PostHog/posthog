@@ -117,6 +117,36 @@ class PersonHogServiceStub:
             response_deserializer=personhog_dot_types_dot_v1_dot_cohort__pb2.CohortMembershipResponse.FromString,
             _registered_method=True,
         )
+        self.CountCohortMembers = channel.unary_unary(
+            "/personhog.service.v1.PersonHogService/CountCohortMembers",
+            request_serializer=personhog_dot_types_dot_v1_dot_cohort__pb2.CountCohortMembersRequest.SerializeToString,
+            response_deserializer=personhog_dot_types_dot_v1_dot_cohort__pb2.CountCohortMembersResponse.FromString,
+            _registered_method=True,
+        )
+        self.DeleteCohortMember = channel.unary_unary(
+            "/personhog.service.v1.PersonHogService/DeleteCohortMember",
+            request_serializer=personhog_dot_types_dot_v1_dot_cohort__pb2.DeleteCohortMemberRequest.SerializeToString,
+            response_deserializer=personhog_dot_types_dot_v1_dot_cohort__pb2.DeleteCohortMemberResponse.FromString,
+            _registered_method=True,
+        )
+        self.DeleteCohortMembersBulk = channel.unary_unary(
+            "/personhog.service.v1.PersonHogService/DeleteCohortMembersBulk",
+            request_serializer=personhog_dot_types_dot_v1_dot_cohort__pb2.DeleteCohortMembersBulkRequest.SerializeToString,
+            response_deserializer=personhog_dot_types_dot_v1_dot_cohort__pb2.DeleteCohortMembersBulkResponse.FromString,
+            _registered_method=True,
+        )
+        self.InsertCohortMembers = channel.unary_unary(
+            "/personhog.service.v1.PersonHogService/InsertCohortMembers",
+            request_serializer=personhog_dot_types_dot_v1_dot_cohort__pb2.InsertCohortMembersRequest.SerializeToString,
+            response_deserializer=personhog_dot_types_dot_v1_dot_cohort__pb2.InsertCohortMembersResponse.FromString,
+            _registered_method=True,
+        )
+        self.ListCohortMemberIds = channel.unary_unary(
+            "/personhog.service.v1.PersonHogService/ListCohortMemberIds",
+            request_serializer=personhog_dot_types_dot_v1_dot_cohort__pb2.ListCohortMemberIdsRequest.SerializeToString,
+            response_deserializer=personhog_dot_types_dot_v1_dot_cohort__pb2.ListCohortMemberIdsResponse.FromString,
+            _registered_method=True,
+        )
         self.GetGroup = channel.unary_unary(
             "/personhog.service.v1.PersonHogService/GetGroup",
             request_serializer=personhog_dot_types_dot_v1_dot_group__pb2.GetGroupRequest.SerializeToString,
@@ -169,6 +199,12 @@ class PersonHogServiceStub:
             "/personhog.service.v1.PersonHogService/DeletePersons",
             request_serializer=personhog_dot_types_dot_v1_dot_person__pb2.DeletePersonsRequest.SerializeToString,
             response_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.DeletePersonsResponse.FromString,
+            _registered_method=True,
+        )
+        self.DeletePersonsBatchForTeam = channel.unary_unary(
+            "/personhog.service.v1.PersonHogService/DeletePersonsBatchForTeam",
+            request_serializer=personhog_dot_types_dot_v1_dot_person__pb2.DeletePersonsBatchForTeamRequest.SerializeToString,
+            response_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.DeletePersonsBatchForTeamResponse.FromString,
             _registered_method=True,
         )
 
@@ -256,6 +292,36 @@ class PersonHogServiceServicer:
         context.set_details("Method not implemented!")
         raise NotImplementedError("Method not implemented!")
 
+    def CountCohortMembers(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
+    def DeleteCohortMember(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
+    def DeleteCohortMembersBulk(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
+    def InsertCohortMembers(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
+    def ListCohortMemberIds(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
     def GetGroup(self, request, context):
         """Groups"""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
@@ -311,6 +377,12 @@ class PersonHogServiceServicer:
         (which uses the primary Postgres pool) as a temporary measure.
         TODO: Migrate routing to leader before personhog-leader goes live.
         """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
+    def DeletePersonsBatchForTeam(self, request, context):
+        """WARNING: Same routing caveat as DeletePersons above."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details("Method not implemented!")
         raise NotImplementedError("Method not implemented!")
@@ -383,6 +455,31 @@ def add_PersonHogServiceServicer_to_server(servicer, server):
             request_deserializer=personhog_dot_types_dot_v1_dot_cohort__pb2.CheckCohortMembershipRequest.FromString,
             response_serializer=personhog_dot_types_dot_v1_dot_cohort__pb2.CohortMembershipResponse.SerializeToString,
         ),
+        "CountCohortMembers": grpc.unary_unary_rpc_method_handler(
+            servicer.CountCohortMembers,
+            request_deserializer=personhog_dot_types_dot_v1_dot_cohort__pb2.CountCohortMembersRequest.FromString,
+            response_serializer=personhog_dot_types_dot_v1_dot_cohort__pb2.CountCohortMembersResponse.SerializeToString,
+        ),
+        "DeleteCohortMember": grpc.unary_unary_rpc_method_handler(
+            servicer.DeleteCohortMember,
+            request_deserializer=personhog_dot_types_dot_v1_dot_cohort__pb2.DeleteCohortMemberRequest.FromString,
+            response_serializer=personhog_dot_types_dot_v1_dot_cohort__pb2.DeleteCohortMemberResponse.SerializeToString,
+        ),
+        "DeleteCohortMembersBulk": grpc.unary_unary_rpc_method_handler(
+            servicer.DeleteCohortMembersBulk,
+            request_deserializer=personhog_dot_types_dot_v1_dot_cohort__pb2.DeleteCohortMembersBulkRequest.FromString,
+            response_serializer=personhog_dot_types_dot_v1_dot_cohort__pb2.DeleteCohortMembersBulkResponse.SerializeToString,
+        ),
+        "InsertCohortMembers": grpc.unary_unary_rpc_method_handler(
+            servicer.InsertCohortMembers,
+            request_deserializer=personhog_dot_types_dot_v1_dot_cohort__pb2.InsertCohortMembersRequest.FromString,
+            response_serializer=personhog_dot_types_dot_v1_dot_cohort__pb2.InsertCohortMembersResponse.SerializeToString,
+        ),
+        "ListCohortMemberIds": grpc.unary_unary_rpc_method_handler(
+            servicer.ListCohortMemberIds,
+            request_deserializer=personhog_dot_types_dot_v1_dot_cohort__pb2.ListCohortMemberIdsRequest.FromString,
+            response_serializer=personhog_dot_types_dot_v1_dot_cohort__pb2.ListCohortMemberIdsResponse.SerializeToString,
+        ),
         "GetGroup": grpc.unary_unary_rpc_method_handler(
             servicer.GetGroup,
             request_deserializer=personhog_dot_types_dot_v1_dot_group__pb2.GetGroupRequest.FromString,
@@ -427,6 +524,11 @@ def add_PersonHogServiceServicer_to_server(servicer, server):
             servicer.DeletePersons,
             request_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.DeletePersonsRequest.FromString,
             response_serializer=personhog_dot_types_dot_v1_dot_person__pb2.DeletePersonsResponse.SerializeToString,
+        ),
+        "DeletePersonsBatchForTeam": grpc.unary_unary_rpc_method_handler(
+            servicer.DeletePersonsBatchForTeam,
+            request_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.DeletePersonsBatchForTeamRequest.FromString,
+            response_serializer=personhog_dot_types_dot_v1_dot_person__pb2.DeletePersonsBatchForTeamResponse.SerializeToString,
         ),
     }
     generic_handler = grpc.method_handlers_generic_handler("personhog.service.v1.PersonHogService", rpc_method_handlers)
@@ -830,6 +932,156 @@ class PersonHogService:
         )
 
     @staticmethod
+    def CountCohortMembers(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/personhog.service.v1.PersonHogService/CountCohortMembers",
+            personhog_dot_types_dot_v1_dot_cohort__pb2.CountCohortMembersRequest.SerializeToString,
+            personhog_dot_types_dot_v1_dot_cohort__pb2.CountCohortMembersResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True,
+        )
+
+    @staticmethod
+    def DeleteCohortMember(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/personhog.service.v1.PersonHogService/DeleteCohortMember",
+            personhog_dot_types_dot_v1_dot_cohort__pb2.DeleteCohortMemberRequest.SerializeToString,
+            personhog_dot_types_dot_v1_dot_cohort__pb2.DeleteCohortMemberResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True,
+        )
+
+    @staticmethod
+    def DeleteCohortMembersBulk(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/personhog.service.v1.PersonHogService/DeleteCohortMembersBulk",
+            personhog_dot_types_dot_v1_dot_cohort__pb2.DeleteCohortMembersBulkRequest.SerializeToString,
+            personhog_dot_types_dot_v1_dot_cohort__pb2.DeleteCohortMembersBulkResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True,
+        )
+
+    @staticmethod
+    def InsertCohortMembers(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/personhog.service.v1.PersonHogService/InsertCohortMembers",
+            personhog_dot_types_dot_v1_dot_cohort__pb2.InsertCohortMembersRequest.SerializeToString,
+            personhog_dot_types_dot_v1_dot_cohort__pb2.InsertCohortMembersResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True,
+        )
+
+    @staticmethod
+    def ListCohortMemberIds(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/personhog.service.v1.PersonHogService/ListCohortMemberIds",
+            personhog_dot_types_dot_v1_dot_cohort__pb2.ListCohortMemberIdsRequest.SerializeToString,
+            personhog_dot_types_dot_v1_dot_cohort__pb2.ListCohortMemberIdsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True,
+        )
+
+    @staticmethod
     def GetGroup(
         request,
         target,
@@ -1088,6 +1340,36 @@ class PersonHogService:
             "/personhog.service.v1.PersonHogService/DeletePersons",
             personhog_dot_types_dot_v1_dot_person__pb2.DeletePersonsRequest.SerializeToString,
             personhog_dot_types_dot_v1_dot_person__pb2.DeletePersonsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True,
+        )
+
+    @staticmethod
+    def DeletePersonsBatchForTeam(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/personhog.service.v1.PersonHogService/DeletePersonsBatchForTeam",
+            personhog_dot_types_dot_v1_dot_person__pb2.DeletePersonsBatchForTeamRequest.SerializeToString,
+            personhog_dot_types_dot_v1_dot_person__pb2.DeletePersonsBatchForTeamResponse.FromString,
             options,
             channel_credentials,
             insecure,

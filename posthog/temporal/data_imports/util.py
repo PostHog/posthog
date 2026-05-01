@@ -5,11 +5,11 @@ from typing import Literal, Optional
 
 from django.conf import settings
 
-from dlt.common.normalizers.naming.snake_case import NamingConvention
 from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions import capture_exception
 from posthog.settings.utils import get_from_env
+from posthog.temporal.data_imports.naming_convention import NamingConvention
 from posthog.utils import str_to_bool
 
 from products.data_warehouse.backend.s3 import aget_s3_client
@@ -65,7 +65,7 @@ async def prepare_s3_files_for_querying(
     async with aget_s3_client() as s3:
         s3.invalidate_cache()
 
-        normalized_table_name = NamingConvention().normalize_identifier(table_name)
+        normalized_table_name = NamingConvention.normalize_identifier(table_name)
 
         s3_folder_for_job = f"{settings.BUCKET_URL}/{folder_path}"
 
@@ -85,7 +85,9 @@ async def prepare_s3_files_for_querying(
         files_to_delete: list[str] = []
         if delete_existing:
             if use_timestamped_folders:
-                query_folder_pattern = re.compile(r"^.+?\_\_query\_(\d+)\/?$")
+                # Match only directories belonging to this specific table.
+                # Keys may be bare folder names or full paths, so use (?:^|.+/) to handle both.
+                query_folder_pattern = re.compile(rf"(?:^|.+/){re.escape(normalized_table_name)}\_\_query\_(\d+)\/?$")
 
                 all_files = await s3._ls(s3_folder_for_job, detail=True)
                 all_file_values = all_files.values() if isinstance(all_files, dict) else all_files

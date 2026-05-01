@@ -26,6 +26,7 @@ from posthog.models.instance_setting import override_instance_config
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.organization_invite import OrganizationInvite
+from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.utils import get_instance_realm
 
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -1018,6 +1019,7 @@ class TestSignupAPI(APIBaseTest):
             user = User.objects.get(email="alice@posthog.net")
             self.assertEqual(user.organization_memberships.count(), 1)
             membership = user.organization_memberships.first()
+            assert membership is not None
             self.assertEqual(membership.organization, new_org)
             self.assertEqual(membership.level, OrganizationMembership.Level.MEMBER)
 
@@ -1060,6 +1062,103 @@ class TestSignupAPI(APIBaseTest):
             existing_user.refresh_from_db()
             self.assertEqual(existing_user.organization_memberships.count(), 1)
             self.assertEqual(existing_user.organization, new_org)
+
+    def _setup_jit_domain_for_email(self, email: str) -> Organization:
+        org = Organization.objects.create(name="Test org")
+        OrganizationDomain.objects.create(
+            domain=email.split("@")[1],
+            verified_at=timezone.now(),
+            jit_provisioning_enabled=True,
+            organization=org,
+        )
+        Team.objects.create(organization=org, name="Test Project")
+        return org
+
+    def _complete_sso_for_email(self, mock_request, mock_sso_providers, email: str):
+        mock_sso_providers.return_value = {"google-oauth2": True}
+        response = self.client.get(reverse("social:begin", kwargs={"backend": "google-oauth2"}))
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        url = reverse("social:complete", kwargs={"backend": "google-oauth2"})
+        url += f"?code=2&state={response.client.session['google-oauth2_state']}"
+        mock_request.return_value.json.return_value = {"access_token": "123", "email": email, "sub": "123"}
+        return self.client.get(url, follow=True)
+
+    @mock.patch("social_core.backends.base.BaseAuth.request")
+    @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
+    @pytest.mark.ee
+    def test_sso_merge_into_unverified_passkey_account_clears_passkey(self, mock_sso_providers, mock_request):
+        # An attacker pre-registered the email with a passkey-only signup. SSO must wipe
+        # the dangling passkey before merging the SSO identity into the existing row.
+        with self.is_cloud(True):
+            email = "victim@posthog.net"
+            squatter = User.objects.create(email=email, distinct_id=str(uuid.uuid4()))
+            squatter.set_unusable_password()
+            squatter.is_email_verified = False
+            squatter.passkeys_enabled_for_2fa = True
+            squatter.save()
+            WebauthnCredential.objects.create(
+                user=squatter,
+                credential_id=b"squatter-credential",
+                label="Squatter passkey",
+                public_key=b"squatter-public-key",
+                algorithm=-7,
+                verified=True,
+            )
+            self._setup_jit_domain_for_email(email)
+
+            response = self._complete_sso_for_email(mock_request, mock_sso_providers, email)
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            squatter.refresh_from_db()
+            self.assertTrue(squatter.is_email_verified)
+            self.assertFalse(squatter.passkeys_enabled_for_2fa)
+            self.assertFalse(WebauthnCredential.objects.filter(user=squatter).exists())
+
+    @mock.patch("social_core.backends.base.BaseAuth.request")
+    @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
+    @pytest.mark.ee
+    def test_sso_merge_into_unverified_password_account_clears_password(self, mock_sso_providers, mock_request):
+        with self.is_cloud(True):
+            email = "victim@posthog.net"
+            squatter = User.objects.create(email=email, distinct_id=str(uuid.uuid4()))
+            squatter.set_password(VALID_TEST_PASSWORD)
+            squatter.is_email_verified = False
+            squatter.save()
+            self._setup_jit_domain_for_email(email)
+
+            response = self._complete_sso_for_email(mock_request, mock_sso_providers, email)
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            squatter.refresh_from_db()
+            self.assertTrue(squatter.is_email_verified)
+            self.assertFalse(squatter.has_usable_password())
+
+    @mock.patch("social_core.backends.base.BaseAuth.request")
+    @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
+    @pytest.mark.ee
+    def test_sso_merge_into_verified_account_preserves_credentials(self, mock_sso_providers, mock_request):
+        with self.is_cloud(True):
+            email = "legit@posthog.net"
+            existing = User.objects.create(email=email, distinct_id=str(uuid.uuid4()))
+            existing.set_password(VALID_TEST_PASSWORD)
+            existing.is_email_verified = True
+            existing.save()
+            WebauthnCredential.objects.create(
+                user=existing,
+                credential_id=b"legit-credential",
+                label="Legit passkey",
+                public_key=b"legit-public-key",
+                algorithm=-7,
+                verified=True,
+            )
+            self._setup_jit_domain_for_email(email)
+
+            response = self._complete_sso_for_email(mock_request, mock_sso_providers, email)
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            existing.refresh_from_db()
+            self.assertTrue(existing.has_usable_password())
+            self.assertTrue(WebauthnCredential.objects.filter(user=existing).exists())
 
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
@@ -1151,6 +1250,64 @@ class TestSignupAPI(APIBaseTest):
         # User and org are not created
         self.assertEqual(User.objects.count(), user_count)
         self.assertEqual(Organization.objects.count(), org_count)
+
+    @mock.patch("social_core.backends.base.BaseAuth.request")
+    @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
+    @pytest.mark.ee
+    def test_first_time_sso_login_clears_password_and_passkeys_on_unverified_account(
+        self, mock_sso_providers, mock_request
+    ):
+        mock_sso_providers.return_value = {"google-oauth2": True}
+
+        new_org = Organization.objects.create(name="Hogflix Movies")
+        OrganizationDomain.objects.create(
+            domain="hogflix.posthog.com",
+            verified_at=timezone.now(),
+            jit_provisioning_enabled=True,
+            organization=new_org,
+        )
+        Team.objects.create(organization=new_org, name="My First Project")
+
+        existing_user = User.objects.create_and_join(
+            organization=new_org,
+            email="jane@hogflix.posthog.com",
+            password=VALID_TEST_PASSWORD,
+            first_name="Jane",
+        )
+        existing_user.is_email_verified = False
+        existing_user.save()
+        self.assertTrue(existing_user.has_usable_password())
+
+        WebauthnCredential.objects.create(
+            user=existing_user,
+            credential_id=b"test-credential-id",
+            label="Test passkey",
+            public_key=b"test-public-key",
+            algorithm=-7,
+            counter=0,
+            transports=["internal"],
+            verified=True,
+        )
+
+        response = self.client.get(reverse("social:begin", kwargs={"backend": "google-oauth2"}))
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+
+        url = reverse("social:complete", kwargs={"backend": "google-oauth2"})
+        url += f"?code=2&state={response.client.session['google-oauth2_state']}"
+        mock_request.return_value.json.return_value = {
+            "access_token": "123",
+            "email": "jane@hogflix.posthog.com",
+            "sub": "123",
+        }
+
+        response = self.client.get(url, follow=True)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertRedirects(response, "/")
+
+        existing_user.refresh_from_db()
+        self.assertTrue(existing_user.is_email_verified)
+        self.assertFalse(existing_user.has_usable_password())
+        self.assertFalse(WebauthnCredential.objects.filter(user=existing_user).exists())
 
     @patch("posthog.api.signup.is_email_available", return_value=True)
     @patch("posthog.api.signup.EmailVerifier.create_token_and_send_email_verification")
@@ -1616,6 +1773,130 @@ class TestPasskeySignupAPI(APIBaseTest):
         )
         self.assertEqual(User.objects.count(), count)
 
+    @pytest.mark.skip_on_multitenancy
+    def test_password_signup_with_passkey_in_session(self):
+        """
+        When a password is provided, password signup should work even if passkey data exists in session.
+        This handles the case where a user registers a passkey but then reloads the page and tries to signup with a password.
+        """
+        from django.contrib.sessions.backends.db import SessionStore
+
+        from webauthn.helpers import bytes_to_base64url
+
+        from posthog.api.webauthn import (
+            WEBAUTHN_SIGNUP_CREDENTIAL_KEY,
+            WEBAUTHN_SIGNUP_EMAIL_KEY,
+            WEBAUTHN_SIGNUP_USER_UUID_KEY,
+        )
+
+        # Create a session and set passkey data (simulating a user who registered a passkey but reloaded)
+        session = SessionStore()
+        session[WEBAUTHN_SIGNUP_EMAIL_KEY] = "passkey_user@posthog.com"
+        session[WEBAUTHN_SIGNUP_USER_UUID_KEY] = str(uuid.uuid4())
+        session[WEBAUTHN_SIGNUP_CREDENTIAL_KEY] = {
+            "credential_id": bytes_to_base64url(b"test-credential-id-12345"),
+            "public_key": bytes_to_base64url(b"test-public-key-bytes"),
+            "algorithm": -7,
+            "sign_count": 0,
+            "transports": ["internal"],
+        }
+        session.create()
+        session_key = session.session_key
+
+        # Set the session cookie on the client
+        self.client.cookies["sessionid"] = session_key or ""
+
+        # Sign up with a password (using a different email)
+        response = self.client.post(
+            "/api/signup/",
+            {
+                "first_name": "Password",
+                "last_name": "User",
+                "email": "password_fallback@posthog.com",
+                "password": VALID_TEST_PASSWORD,
+                "organization_name": "Password Fallback Org",
+                "role_at_organization": "engineering",
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        user = User.objects.get(email="password_fallback@posthog.com")
+        self.assertTrue(user.has_usable_password())
+
+        # No passkey credential should exist for this user
+        from posthog.models.webauthn_credential import WebauthnCredential
+
+        self.assertEqual(WebauthnCredential.objects.filter(user=user).count(), 0)
+
+        # Verify the passkey session data was cleared
+        session = SessionStore(session_key=session_key)
+        self.assertIsNone(session.get(WEBAUTHN_SIGNUP_CREDENTIAL_KEY))
+        self.assertIsNone(session.get(WEBAUTHN_SIGNUP_EMAIL_KEY))
+        self.assertIsNone(session.get(WEBAUTHN_SIGNUP_USER_UUID_KEY))
+
+    @pytest.mark.skip_on_multitenancy
+    def test_password_signup_with_passkey_in_session_same_email(self):
+        """
+        When a password is provided, password signup should work even if passkey data exists in session,
+        even when using the same email that was used for passkey registration.
+        """
+        from django.contrib.sessions.backends.db import SessionStore
+
+        from webauthn.helpers import bytes_to_base64url
+
+        from posthog.api.webauthn import (
+            WEBAUTHN_SIGNUP_CREDENTIAL_KEY,
+            WEBAUTHN_SIGNUP_EMAIL_KEY,
+            WEBAUTHN_SIGNUP_USER_UUID_KEY,
+        )
+
+        passkey_email = "same_email@posthog.com"
+
+        # Create a session and set passkey data
+        session = SessionStore()
+        session[WEBAUTHN_SIGNUP_EMAIL_KEY] = passkey_email
+        session[WEBAUTHN_SIGNUP_USER_UUID_KEY] = str(uuid.uuid4())
+        session[WEBAUTHN_SIGNUP_CREDENTIAL_KEY] = {
+            "credential_id": bytes_to_base64url(b"test-credential-id-67890"),
+            "public_key": bytes_to_base64url(b"test-public-key-bytes-67890"),
+            "algorithm": -7,
+            "sign_count": 0,
+            "transports": ["internal"],
+        }
+        session.create()
+        session_key = session.session_key
+
+        # Set the session cookie on the client
+        self.client.cookies["sessionid"] = session_key or ""
+
+        # Sign up with a password using the same email
+        response = self.client.post(
+            "/api/signup/",
+            {
+                "first_name": "Password",
+                "last_name": "SameEmail",
+                "email": passkey_email,
+                "password": VALID_TEST_PASSWORD,
+                "organization_name": "Same Email Org",
+                "role_at_organization": "engineering",
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        user = User.objects.get(email=passkey_email)
+        self.assertTrue(user.has_usable_password())
+
+        # No passkey credential should exist for this user
+        from posthog.models.webauthn_credential import WebauthnCredential
+
+        self.assertEqual(WebauthnCredential.objects.filter(user=user).count(), 0)
+
+        # Verify the passkey session data was cleared
+        session = SessionStore(session_key=session_key)
+        self.assertIsNone(session.get(WEBAUTHN_SIGNUP_CREDENTIAL_KEY))
+        self.assertIsNone(session.get(WEBAUTHN_SIGNUP_EMAIL_KEY))
+        self.assertIsNone(session.get(WEBAUTHN_SIGNUP_USER_UUID_KEY))
+
 
 class TestSignupSessionSaveRecovery(unittest.TestCase):
     def test_save_session_with_recovery_uses_save_when_row_exists(self):
@@ -1978,22 +2259,26 @@ class TestInviteSignupAPI(APIBaseTest):
             target_email="test+100@posthog.com", organization=self.organization
         )
 
-        with self.settings(
-            EMAIL_ENABLED=True,
-            EMAIL_HOST="localhost",
-            SITE_URL="http://test.posthog.com",
-        ):
-            response = self.client.post(
-                f"/api/signup/{invite.id}/",
-                {
-                    "first_name": "Alice",
-                    "password": VALID_TEST_PASSWORD,
-                },
-            )
+        with override_instance_config("EMAIL_HOST", "localhost"):
+            with self.settings(
+                EMAIL_ENABLED=True,
+                SITE_URL="http://test.posthog.com",
+            ):
+                response = self.client.post(
+                    f"/api/signup/{invite.id}/",
+                    {
+                        "first_name": "Alice",
+                        "password": VALID_TEST_PASSWORD,
+                    },
+                )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-        self.assertEqual(len(mail.outbox), 0)
+        member_join_emails = [m for m in mail.outbox if "joined you on PostHog" in m.subject]
+        self.assertEqual(len(member_join_emails), 0)
+        # Verify invite signup still sends verification email to the new user.
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertListEqual(mail.outbox[0].to, ['"Alice" <test+100@posthog.com>'])
 
     def test_api_invite_sign_up_member_joined_email_is_sent_for_next_members(self):
         with override_instance_config("EMAIL_HOST", "localhost"):
@@ -2021,37 +2306,37 @@ class TestInviteSignupAPI(APIBaseTest):
             self.assertListEqual(mail.outbox[1].to, ['"Alice" <test+100@posthog.com>'])
 
     def test_api_invite_sign_up_member_joined_email_is_not_sent_if_disabled(self):
-        self.organization.is_member_join_email_enabled = False
-        self.organization.save()
-
-        User.objects.create_and_join(self.organization, "test+420@posthog.com", None)
+        initial_user = User.objects.create_and_join(self.organization, "test+420@posthog.com", None)
+        initial_user.partial_notification_settings = {
+            "organization_member_join_email_disabled": {str(self.organization.id): True}
+        }
+        initial_user.save()
 
         invite: OrganizationInvite = OrganizationInvite.objects.create(
             target_email="test+100@posthog.com", organization=self.organization
         )
 
-        with self.settings(
-            EMAIL_ENABLED=True,
-            EMAIL_HOST="localhost",
-            SITE_URL="http://test.posthog.com",
-        ):
-            response = self.client.post(
-                f"/api/signup/{invite.id}/",
-                {
-                    "first_name": "Alice",
-                    "password": VALID_TEST_PASSWORD,
-                },
-            )
+        with override_instance_config("EMAIL_HOST", "localhost"):
+            with self.settings(
+                EMAIL_ENABLED=True,
+                SITE_URL="http://test.posthog.com",
+            ):
+                response = self.client.post(
+                    f"/api/signup/{invite.id}/",
+                    {
+                        "first_name": "Alice",
+                        "password": VALID_TEST_PASSWORD,
+                    },
+                )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-        self.assertEqual(len(mail.outbox), 0)
+        member_join_emails = [m for m in mail.outbox if "joined you on PostHog" in m.subject]
+        self.assertEqual(len(member_join_emails), 0)
 
     @patch("posthoganalytics.capture")
-    @patch("ee.billing.billing_manager.BillingManager.update_billing_organization_users")
-    def test_existing_user_can_sign_up_to_a_new_organization(
-        self, mock_update_billing_organization_users, mock_capture
-    ):
+    @patch("posthog.tasks.sync_billing.sync_members_to_billing.delay")
+    def test_existing_user_can_sign_up_to_a_new_organization(self, mock_sync_delay, mock_capture):
         user = self._create_user("test+159@posthog.com", VALID_TEST_PASSWORD, role_at_organization="product")
         new_org = Organization.objects.create(name="TestCo")
         new_team = Team.objects.create(organization=new_org)
@@ -2074,7 +2359,8 @@ class TestInviteSignupAPI(APIBaseTest):
                 valid_until=datetime(2038, 1, 19, 3, 14, 7),
             )
 
-        with self.is_cloud(True):
+        mock_sync_delay.reset_mock()
+        with self.is_cloud(True), self.captureOnCommitCallbacks(execute=True):
             response = self.client.post(f"/api/signup/{invite.id}/")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(
@@ -2130,8 +2416,8 @@ class TestInviteSignupAPI(APIBaseTest):
         response = self.client.get("/api/users/@me/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        # Assert that the org's distinct IDs are sent to billing
-        mock_update_billing_organization_users.assert_called_once_with(new_org)
+        # Assert that the billing sync was enqueued for the newly joined organization
+        mock_sync_delay.assert_called_once_with(str(new_org.id))
 
     @patch("posthoganalytics.capture")
     def test_cannot_use_claim_invite_endpoint_to_update_user(self, mock_capture):
@@ -2518,3 +2804,66 @@ class TestInviteSignupAPI(APIBaseTest):
         nonexistent_id = str(uuid.uuid4())
         result = process_social_invite_signup(mock.MagicMock(), nonexistent_id, "test@example.com", "Test User")
         self.assertIsNone(result)
+
+    @pytest.mark.skip_on_multitenancy
+    def test_password_invite_signup_with_passkey_in_session(self):
+        """
+        When a password is provided for invite signup, it should work even if passkey data exists in session.
+        This handles the case where a user registers a passkey but then reloads the page and tries to signup with a password.
+        """
+        from django.contrib.sessions.backends.db import SessionStore
+
+        from webauthn.helpers import bytes_to_base64url
+
+        from posthog.api.webauthn import (
+            WEBAUTHN_SIGNUP_CREDENTIAL_KEY,
+            WEBAUTHN_SIGNUP_EMAIL_KEY,
+            WEBAUTHN_SIGNUP_USER_UUID_KEY,
+        )
+
+        # Create an invite
+        invite: OrganizationInvite = OrganizationInvite.objects.create(
+            target_email="password_invite_user@posthog.com", organization=self.organization
+        )
+
+        # Create a session and set passkey data (simulating a user who registered a passkey but reloaded)
+        session = SessionStore()
+        session[WEBAUTHN_SIGNUP_EMAIL_KEY] = "passkey_user@posthog.com"
+        session[WEBAUTHN_SIGNUP_USER_UUID_KEY] = str(uuid.uuid4())
+        session[WEBAUTHN_SIGNUP_CREDENTIAL_KEY] = {
+            "credential_id": bytes_to_base64url(b"test-credential-id-invite"),
+            "public_key": bytes_to_base64url(b"test-public-key-invite"),
+            "algorithm": -7,
+            "sign_count": 0,
+            "transports": ["internal"],
+        }
+        session.create()
+        session_key = session.session_key
+
+        # Set the session cookie on the client
+        self.client.cookies["sessionid"] = session_key or ""
+
+        # Sign up with a password using the invite
+        response = self.client.post(
+            f"/api/signup/{invite.id}/",
+            {
+                "first_name": "Password",
+                "last_name": "Invite",
+                "password": VALID_TEST_PASSWORD,
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        user = User.objects.get(email="password_invite_user@posthog.com")
+        self.assertTrue(user.has_usable_password())
+
+        # No passkey credential should exist for this user
+        from posthog.models.webauthn_credential import WebauthnCredential
+
+        self.assertEqual(WebauthnCredential.objects.filter(user=user).count(), 0)
+
+        # Verify the passkey session data was cleared
+        session = SessionStore(session_key=session_key)
+        self.assertIsNone(session.get(WEBAUTHN_SIGNUP_CREDENTIAL_KEY))
+        self.assertIsNone(session.get(WEBAUTHN_SIGNUP_EMAIL_KEY))
+        self.assertIsNone(session.get(WEBAUTHN_SIGNUP_USER_UUID_KEY))

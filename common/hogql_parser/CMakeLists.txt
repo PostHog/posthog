@@ -49,28 +49,52 @@ target_link_libraries(hogql_parser
 )
 
 if(EMSCRIPTEN)
+    # Global: all targets (including antlr4) need native WASM exceptions
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fwasm-exceptions")
+
+    # Shared link flags for all WASM targets
+    set(WASM_COMMON_LINK_FLAGS "\
+        -lembind \
+        -s WASM=1 \
+        -s MODULARIZE=1 \
+        -s EXPORT_NAME='createHogQLParser' \
+        -s ALLOW_MEMORY_GROWTH=1 \
+        -s SINGLE_FILE=1 \
+    ")
+
+    # ESM build (for Node.js ESM — includes Node.js createRequire support)
     add_executable(hogql_parser_wasm parser_wasm.cpp)
     target_include_directories(hogql_parser_wasm PRIVATE ${ANTLR_INCLUDE_DIR})
     target_link_libraries(hogql_parser_wasm PRIVATE hogql_parser antlr4_static)
-
-    set(CMAKE_EXECUTABLE_SUFFIX ".js")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fwasm-exceptions") # Native WASM exceptions for better exception handling
     set_target_properties(hogql_parser_wasm PROPERTIES
-        LINK_FLAGS "\
-            -lembind \
-            -s WASM=1 \
-            -s MODULARIZE=1 \
-            -s EXPORT_ES6=1 \
-            -s EXPORT_NAME='createHogQLParser' \
-            -s ALLOW_MEMORY_GROWTH=1 \
-            -s SINGLE_FILE=1 \
-        "
+        SUFFIX ".js"
+        LINK_FLAGS "${WASM_COMMON_LINK_FLAGS} -s EXPORT_ES6=1"
+    )
+
+    # Browser ESM build (web/worker only — no Node.js import("module") references)
+    add_executable(hogql_parser_wasm_browser parser_wasm.cpp)
+    target_include_directories(hogql_parser_wasm_browser PRIVATE ${ANTLR_INCLUDE_DIR})
+    target_link_libraries(hogql_parser_wasm_browser PRIVATE hogql_parser antlr4_static)
+    set_target_properties(hogql_parser_wasm_browser PROPERTIES
+        OUTPUT_NAME "hogql_parser_wasm_browser"
+        SUFFIX ".js"
+        LINK_FLAGS "${WASM_COMMON_LINK_FLAGS} -s EXPORT_ES6=1 -s ENVIRONMENT='web,worker'"
+    )
+
+    # CJS build (for Jest and other CommonJS environments)
+    add_executable(hogql_parser_wasm_cjs parser_wasm.cpp)
+    target_include_directories(hogql_parser_wasm_cjs PRIVATE ${ANTLR_INCLUDE_DIR})
+    target_link_libraries(hogql_parser_wasm_cjs PRIVATE hogql_parser antlr4_static)
+    set_target_properties(hogql_parser_wasm_cjs PROPERTIES
+        OUTPUT_NAME "hogql_parser_wasm"
+        SUFFIX ".cjs"
+        LINK_FLAGS "${WASM_COMMON_LINK_FLAGS}"
     )
 
     # Install WASM outputs to dist/
     # Usage: cmake --install build_wasm --prefix .
     set(CMAKE_INSTALL_PREFIX ${PROJECT_SOURCE_DIR} CACHE PATH "" FORCE)
-    install(TARGETS hogql_parser_wasm RUNTIME DESTINATION dist)
+    install(TARGETS hogql_parser_wasm hogql_parser_wasm_browser hogql_parser_wasm_cjs RUNTIME DESTINATION dist)
     install(FILES
         ${PROJECT_SOURCE_DIR}/index.d.ts
         ${PROJECT_SOURCE_DIR}/index.cjs

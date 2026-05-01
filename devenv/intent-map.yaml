@@ -88,6 +88,11 @@ capabilities:
         requires: [core_infra]
         docker_profiles: []
 
+    opensearch_search:
+        description: 'OpenSearch reverse index for LLM trace search'
+        requires: [core_infra]
+        docker_profiles: [opensearch]
+
     llm_analytics_sentiment:
         description: 'Sentiment classification model for LLM Analytics (installs torch, optimum ~2GB)'
         requires: [temporal_workflows]
@@ -150,9 +155,14 @@ capabilities:
         requires: [event_ingestion]
         docker_profiles: []
 
+    warehouse_webhook_sink:
+        description: 'Kafka → S3 parquet sink for data warehouse webhook sources'
+        requires: [event_ingestion]
+        docker_profiles: []
+
     personhog:
-        description: 'PersonHog gRPC service (router + replica) for person data access'
-        requires: [core_infra]
+        description: 'PersonHog gRPC service (router + replica + leader) for person data access'
+        requires: [core_infra, coordination]
         docker_profiles: []
 
     observability:
@@ -256,7 +266,8 @@ intents:
 
     data_warehouse:
         description: 'Data warehouse queries and saved queries'
-        capabilities: [event_ingestion, property_definitions, celery_workers, temporal_workflows]
+        capabilities:
+            [event_ingestion, property_definitions, celery_workers, temporal_workflows, warehouse_webhook_sink]
 
     cohorts:
         description: 'User cohort management'
@@ -269,7 +280,15 @@ intents:
 
     ai_features:
         description: 'AI features'
-        capabilities: [event_ingestion, llm_gateway, embedding_service, property_definitions, temporal_workflows]
+        capabilities:
+            [
+                event_ingestion,
+                llm_gateway,
+                embedding_service,
+                opensearch_search,
+                property_definitions,
+                temporal_workflows,
+            ]
 
     logs:
         description: 'Log aggregation and viewing'
@@ -329,4 +348,7 @@ always_required:
     - nodejs
     - capture
     - feature-flags
+    - hypercache-server
     - property-defs-rs
+    - personhog-replica
+    - personhog-router

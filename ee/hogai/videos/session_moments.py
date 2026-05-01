@@ -11,7 +11,7 @@ import structlog
 from google.genai import Client
 from google.genai.errors import APIError
 from google.genai.types import Blob, Content, Part, VideoMetadata
-from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
+from temporalio.common import RetryPolicy, SearchAttributePair, TypedSearchAttributes, WorkflowIDReusePolicy
 
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.user import User
@@ -19,17 +19,14 @@ from posthog.settings.temporal import TEMPORAL_WORKFLOW_MAX_ATTEMPTS
 from posthog.storage import object_storage
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
-from posthog.temporal.exports_video.workflow import VideoExportInputs, VideoExportWorkflow
-
-from products.llm_analytics.backend.providers.gemini import GeminiProvider
+from posthog.temporal.common.search_attributes import POSTHOG_SESSION_RECORDING_ID_KEY, POSTHOG_TEAM_ID_KEY
+from posthog.temporal.session_replay.rasterize_recording.types import RasterizeRecordingInputs
 
 from ee.hogai.session_summaries.constants import (
     DEFAULT_VIDEO_UNDERSTANDING_MODEL,
     MOMENT_VIDEO_EXPORT_FORMAT,
     SHORT_VALIDATION_VIDEO_PLAYBACK_SPEED,
-    VALIDATION_VIDEO_DURATION,
 )
-from ee.hogai.videos.utils import get_video_duration_s
 
 logger = structlog.get_logger(__name__)
 
@@ -133,16 +130,11 @@ class SessionMomentsLLMAnalyzer:
             raise Exception(exception_message)
         return moment_to_asset_id
 
-    def _generate_moment_video_filename(self, moment_id: str) -> str:
-        """Generate a filename for a moment video"""
-        return f"session-moment_{self.session_id}_{moment_id}"
-
     async def _generate_video_for_single_moment(
         self, moment: SessionMomentInput, expires_after_days: int
     ) -> int | Exception:
         """Generate a video for an event in Replay session and return the asset ID"""
         try:
-            moment_filename = self._generate_moment_video_filename(moment_id=moment.moment_id)
             created_at = now()
             expires_after = created_at + timedelta(days=expires_after_days)
             exported_asset = await ExportedAsset.objects.acreate(
@@ -151,31 +143,31 @@ class SessionMomentsLLMAnalyzer:
                 export_context={
                     "session_recording_id": self.session_id,
                     "timestamp": moment.timestamp_s,
-                    "filename": moment_filename,
                     "duration": moment.duration_s,
-                    # Speed up to reduce the rendering time
                     "playback_speed": SHORT_VALIDATION_VIDEO_PLAYBACK_SPEED,
-                    # Keeping default values
-                    "mode": "screenshot",
-                    # Display additional metadata in the video footer, like current URL (for LLM analysis and so)
                     "show_metadata_footer": True,
                 },
                 created_by=self.user,
                 created_at=created_at,
                 expires_after=expires_after,
+                is_system=True,
             )
             # Generate a video through Temporal workflow
             client = await async_connect()
             await client.execute_workflow(
-                VideoExportWorkflow.run,
-                # TODO: Enable Puppeteer for the previous video analysis flow after testing
-                VideoExportInputs(exported_asset_id=exported_asset.id, use_puppeteer=False),
+                "rasterize-recording",
+                RasterizeRecordingInputs(exported_asset_id=exported_asset.id),
                 id=f"session-moment-video-export_{self.session_id}_{moment.moment_id}_{uuid.uuid4()}",
-                task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+                task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
                 retry_policy=RetryPolicy(maximum_attempts=int(TEMPORAL_WORKFLOW_MAX_ATTEMPTS)),
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
-                # Keep hard limit to avoid hanging workflows
-                execution_timeout=timedelta(hours=3),
+                execution_timeout=timedelta(minutes=30),
+                search_attributes=TypedSearchAttributes(
+                    search_attributes=[
+                        SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=self.team_id),
+                        SearchAttributePair(key=POSTHOG_SESSION_RECORDING_ID_KEY, value=self.session_id),
+                    ]
+                ),
             )
             # Return the asset ID for later retrieval
             return exported_asset.id
@@ -224,19 +216,12 @@ class SessionMomentsLLMAnalyzer:
                     f"No video bytes found for asset {asset_id} for moment {moment_id} of session {self.session_id} of team {self.team_id}"
                 )
                 return None
-            # Calculate how many seconds to skip from the start, as Puppeteer needs time to render the export UI
-            try:
-                total_video_duration = get_video_duration_s(video_bytes=video_bytes)
-            except ValueError:
-                total_video_duration = None
-            start_offset_s = total_video_duration - VALIDATION_VIDEO_DURATION if total_video_duration else None
-            # Analyze the video with LLM
+            # Analyze the video with LLM — no start_offset needed since the rasterizer
+            # produces clean videos without warm-up periods
             content = await self._provider.understand_video(
                 video_bytes=video_bytes,
                 mime_type=MOMENT_VIDEO_EXPORT_FORMAT,
                 prompt=prompt,
-                start_offset_s=start_offset_s,
-                # No end offset is required, as we expect the export rendering to stop right after the video was played
                 trace_id=self.trace_id,
             )
             if not content:
@@ -318,10 +303,11 @@ class GeminiVideoUnderstandingProvider:
 
     def __init__(self, model_id: str):
         self.model_id = model_id
-        # Using PostHog Gemini provider to avoid logic duplication
-        self._base_provider = GeminiProvider(model_id=model_id)
+        api_key = settings.GEMINI_API_KEY
+        if not api_key:
+            raise ValueError("GEMINI_API_KEY is not set in environment or settings")
         # Using default Gemini client as workaround, as PostHog wrapper doesn't support async yet
-        self.client = Client(api_key=self._base_provider.get_api_key())
+        self.client = Client(api_key=api_key)
 
     async def understand_video(
         self,
@@ -336,7 +322,6 @@ class GeminiVideoUnderstandingProvider:
         Understand a video and return a summary using the provided prompt
         https://ai.google.dev/gemini-api/docs/video-understanding
         """
-        self._base_provider.validate_model(self.model_id)
         if mime_type not in self.SUPPORTED_VIDEO_MIME_TYPES:
             logger.exception(
                 f"Video bytes for understanding video are not in a supported MIME type (trace_id:{trace_id}): {mime_type}"

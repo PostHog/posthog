@@ -1,10 +1,12 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
+import { useMemo } from 'react'
 
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
 import { DialogClose, DialogPrimitive, DialogPrimitiveTitle } from 'lib/ui/DialogPrimitive/DialogPrimitive'
 import { pluralize } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
+import { dashboardTemplateChooserLogic } from 'scenes/dashboard/dashboards/templates/dashboardTemplateChooserLogic'
 import { dashboardTemplatesLogic } from 'scenes/dashboard/dashboards/templates/dashboardTemplatesLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 
@@ -21,11 +23,21 @@ export function NewDashboardModal(): JSX.Element {
 
     const { variables } = useValues(dashboardTemplateVariablesLogic)
 
-    const templatesLogic = dashboardTemplatesLogic({
-        scope: builtLogic.props.featureFlagId ? 'feature_flag' : 'default',
-    })
+    const templateScope = builtLogic.props.featureFlagId ? 'feature_flag' : 'default'
+    const templatesLogic = dashboardTemplatesLogic({ scope: templateScope })
     const { templateFilter } = useValues(templatesLogic)
     const { setTemplateFilter } = useActions(templatesLogic)
+
+    const createChooserLogic = useMemo(
+        () =>
+            dashboardTemplateChooserLogic({
+                scope: templateScope,
+                availabilityContexts: undefined,
+            }),
+        [templateScope]
+    )
+    const { isLoading: blankDashboardLoading } = useValues(createChooserLogic)
+    const { blankTileClicked } = useActions(createChooserLogic)
 
     const title = activeDashboardTemplate ? 'Choose your events' : 'Create a dashboard'
     const description = activeDashboardTemplate ? (
@@ -36,10 +48,10 @@ export function NewDashboardModal(): JSX.Element {
     ) : (
         <div className="flex flex-col gap-2">
             <p className="m-0 text-secondary">
-                Here are some ready-made templates to help you get started quickly. Pick one below, or choose to start
-                from scratch.
+                Here are some ready-made templates to help you get started quickly. Pick one below or start from
+                scratch.
             </p>
-            <div>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
                 <LemonInput
                     type="search"
                     placeholder="Filter templates"
@@ -47,7 +59,18 @@ export function NewDashboardModal(): JSX.Element {
                     value={templateFilter}
                     fullWidth={true}
                     autoFocus
+                    className="min-w-0 flex-1"
                 />
+                <LemonButton
+                    type="primary"
+                    size="medium"
+                    onClick={() => blankTileClicked('modal_toolbar')}
+                    disabled={blankDashboardLoading}
+                    data-attr="create-dashboard-blank"
+                    className="shrink-0 self-start sm:self-auto"
+                >
+                    Start from scratch
+                </LemonButton>
             </div>
         </div>
     )
@@ -56,7 +79,13 @@ export function NewDashboardModal(): JSX.Element {
         <DialogPrimitive
             open={newDashboardModalVisible}
             onOpenChange={(open) => !open && hideNewDashboardModal()}
-            className={cn('w-[min(100vw-3rem,1200px)] max-h-[calc(100vh-4rem)] top-8', 'bg-surface-primary')}
+            className={cn(
+                'w-[min(100vw-3rem,1200px)] max-h-[calc(100vh-4rem)] top-8',
+                'bg-surface-primary',
+                // Variable selectors in ActionFilter portal to the popover layer; keep this modal just below
+                // that layer so dropdown options render above the dialog instead of behind it.
+                'z-[calc(var(--z-popover)-1)]'
+            )}
         >
             <div className="flex shrink-0 flex-col gap-3 border-b border-primary px-4 py-3 pr-2">
                 <div className="flex items-start justify-between gap-2">
@@ -72,7 +101,7 @@ export function NewDashboardModal(): JSX.Element {
                     {activeDashboardTemplate ? (
                         <DashboardTemplateVariables />
                     ) : (
-                        <DashboardTemplateChooser scope={builtLogic.props.featureFlagId ? 'feature_flag' : 'default'} />
+                        <DashboardTemplateChooser scope={templateScope} />
                     )}
                 </div>
             </div>

@@ -4,7 +4,13 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from posthog.temporal.ingestion_acceptance_test.config import Config
-from posthog.temporal.ingestion_acceptance_test.runner import AcceptanceTest, RunningTests, TestContext, run_tests
+from posthog.temporal.ingestion_acceptance_test.runner import (
+    AcceptanceTest,
+    RunningTestInfo,
+    RunningTests,
+    TestContext,
+    run_tests,
+)
 from posthog.temporal.ingestion_acceptance_test.test_cases_discovery import TestCase
 
 
@@ -13,8 +19,7 @@ def config() -> Config:
     return Config(
         api_host="https://test.posthog.com",
         project_api_key="phc_test_key",
-        project_id="12345",
-        personal_api_key="phx_personal_key",
+        team_id=12345,
     )
 
 
@@ -154,7 +159,7 @@ class TestRunTests:
         result = run_tests(config, tests, mock_client, executor, running_tests)
 
         assert result.environment["api_host"] == "https://test.posthog.com"
-        assert result.environment["project_id"] == "12345"
+        assert result.environment["team_id"] == "12345"
 
     @patch("posthog.temporal.ingestion_acceptance_test.runner.as_completed")
     def test_submits_all_tests_to_executor(
@@ -188,3 +193,40 @@ class TestRunTests:
         run_tests(config, tests, mock_client, mock_executor, running_tests)
 
         assert mock_executor.submit.call_count == 3
+
+
+class TestSnapshotWithPolls:
+    @pytest.mark.parametrize(
+        "tests_by_tid, polls_by_tid, expected",
+        [
+            (
+                {100: "TestA::test_one", 200: "TestB::test_two"},
+                {100: "event UUID 'abc-123'", 200: "person with distinct_id 'xyz-456'"},
+                [
+                    RunningTestInfo("TestA::test_one", "event UUID 'abc-123'"),
+                    RunningTestInfo("TestB::test_two", "person with distinct_id 'xyz-456'"),
+                ],
+            ),
+            (
+                {100: "TestA::test_one", 200: "TestB::test_two"},
+                {100: "event UUID 'abc-123'"},
+                [
+                    RunningTestInfo("TestA::test_one", "event UUID 'abc-123'"),
+                    RunningTestInfo("TestB::test_two", None),
+                ],
+            ),
+            ({}, {}, []),
+        ],
+        ids=["all_polls_matched", "partial_poll_match", "empty"],
+    )
+    def test_snapshot_with_polls(
+        self,
+        tests_by_tid: dict[int, str],
+        polls_by_tid: dict[int, str],
+        expected: list[RunningTestInfo],
+    ) -> None:
+        rt = RunningTests()
+        rt._tests = tests_by_tid
+        mock_client = MagicMock()
+        mock_client.pending_polls_snapshot.return_value = polls_by_tid
+        assert rt.snapshot_with_polls(mock_client) == expected

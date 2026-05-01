@@ -18,6 +18,7 @@ from posthog.models.utils import hash_key_value, mask_key_value
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.experiments.backend.models.experiment import Experiment
 
 
 class PlaywrightSetupVariableType(StrEnum):
@@ -59,6 +60,14 @@ class PlaywrightSetupPerson(BaseModel):
     properties: dict[str, Any] | None = None
 
 
+class PlaywrightSetupExperiment(BaseModel):
+    name: str
+    feature_flag_key: str
+    start_date: str | None = None  # ISO 8601 — if set, experiment is created as RUNNING
+    metrics: list[dict[str, Any]] | None = None
+    metrics_secondary: list[dict[str, Any]] | None = None
+
+
 class PlaywrightWorkspaceSetupData(BaseModel):
     organization_name: str | None = None
     use_current_time: bool | None = None
@@ -69,6 +78,7 @@ class PlaywrightWorkspaceSetupData(BaseModel):
     dashboards: list[PlaywrightSetupDashboard] | None = None
     events: list[PlaywrightSetupEvent] | None = None
     persons: list[PlaywrightSetupPerson] | None = None
+    experiments: list[PlaywrightSetupExperiment] | None = None
 
 
 class PlaywrightSetupCreatedVariable(BaseModel):
@@ -85,6 +95,11 @@ class PlaywrightSetupCreatedDashboard(BaseModel):
     id: int
 
 
+class PlaywrightSetupCreatedExperiment(BaseModel):
+    id: int
+    feature_flag_key: str
+
+
 class PlaywrightWorkspaceSetupResult(BaseModel):
     organization_id: str
     team_id: str
@@ -96,6 +111,7 @@ class PlaywrightWorkspaceSetupResult(BaseModel):
     created_variables: list[PlaywrightSetupCreatedVariable] | None = None
     created_insights: list[PlaywrightSetupCreatedInsight] | None = None
     created_dashboards: list[PlaywrightSetupCreatedDashboard] | None = None
+    created_experiments: list[PlaywrightSetupCreatedExperiment] | None = None
 
 
 @runtime_checkable
@@ -210,6 +226,8 @@ def create_organization_with_team(
             "explore_lifecycle_insight": "completed",
             "setup_session_recordings": "completed",
             "watch_session_recording": "completed",
+            "create_experiment": "completed",
+            "launch_experiment": "completed",
         }
         team.save()
 
@@ -217,6 +235,7 @@ def create_organization_with_team(
     created_insights = _create_insights(data, team, user, created_variables)
     created_dashboards = _create_dashboards(data, team, user, created_variables, created_insights)
     _create_events_and_persons(data, team)
+    created_experiments = _create_experiments(data, team, user)
 
     return PlaywrightWorkspaceSetupResult(
         organization_id=str(organization.id),
@@ -238,6 +257,14 @@ def create_organization_with_team(
         ),
         created_dashboards=(
             [PlaywrightSetupCreatedDashboard(id=d.id) for d in created_dashboards] if created_dashboards else None
+        ),
+        created_experiments=(
+            [
+                PlaywrightSetupCreatedExperiment(id=e.id, feature_flag_key=e.feature_flag.key)
+                for e in created_experiments
+            ]
+            if created_experiments
+            else None
         ),
     )
 
@@ -333,6 +360,34 @@ def _create_dashboards(
                     insight=created_insights[int(idx)],
                 )
         created.append(dashboard)
+    return created
+
+
+def _create_experiments(
+    data: PlaywrightWorkspaceSetupData,
+    team: Team,
+    user: User,
+) -> list[Experiment]:
+    if not data.experiments:
+        return []
+
+    from products.experiments.backend.experiment_service import ExperimentService
+
+    service = ExperimentService(team=team, user=user)
+    created: list[Experiment] = []
+    for exp_spec in data.experiments:
+        start_date = None
+        if exp_spec.start_date:
+            start_date = datetime.fromisoformat(exp_spec.start_date.replace("Z", "+00:00"))
+
+        experiment = service.create_experiment(
+            name=exp_spec.name,
+            feature_flag_key=exp_spec.feature_flag_key,
+            metrics=exp_spec.metrics,
+            metrics_secondary=exp_spec.metrics_secondary,
+            start_date=start_date,
+        )
+        created.append(experiment)
     return created
 
 

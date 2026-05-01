@@ -1,6 +1,20 @@
 import * as path from 'path'
 
-import { isDev } from '@posthog/esbuilder'
+import { commonConfig, isDev } from '@posthog/esbuilder'
+
+// `TOOLBAR_PUBLIC_PATH`, when set, overrides the default `publicPath` so the
+// toolbar bundle and its assets can be hosted under a versioned, content-pinned
+// URL on the posthog-js CDN. Used by posthog-js's release workflow to ship a
+// fully self-contained toolbar bundle. When unset, behaviour is unchanged from
+// before this knob existed (Django-served `https://us.posthog.com/static/`).
+//
+// esbuild uses this verbatim as a URL prefix, so a trailing slash is required;
+// add one if the caller forgot.
+const toolbarPublicPathOverride = process.env.TOOLBAR_PUBLIC_PATH
+    ? process.env.TOOLBAR_PUBLIC_PATH.endsWith('/')
+        ? process.env.TOOLBAR_PUBLIC_PATH
+        : process.env.TOOLBAR_PUBLIC_PATH + '/'
+    : ''
 
 // Modules replaced with lightweight kea logic shims that satisfy connect() contracts
 // without side effects. If the upstream logic adds new connect() values, the shim
@@ -104,7 +118,17 @@ export function getToolbarBuildConfig(dirname) {
         outfile: path.resolve(dirname, 'dist', 'toolbar.js'),
         banner: { js: 'var __posthogToolbarModule = (function () { var define = undefined;' },
         footer: { js: 'return __posthogToolbarModule })();' },
-        publicPath: isDev ? '/static/' : 'https://us.posthog.com/static/',
+        publicPath: isDev ? '/static/' : toolbarPublicPathOverride || 'https://us.posthog.com/static/',
+        // Inject TOOLBAR_PUBLIC_PATH at build time as a bare global so runtime
+        // code (e.g. ToolbarApp.tsx's CSS loader) can construct URLs to sibling
+        // files in the same versioned bundle. The identifier is declared as
+        // `declare const` in frontend/src/globals.d.ts so TypeScript is happy.
+        // Merge with commonConfig.define so we don't drop the inherited
+        // `global` / `process.env.NODE_ENV` substitutions.
+        define: {
+            ...commonConfig.define,
+            __POSTHOG_TOOLBAR_PUBLIC_PATH__: JSON.stringify(toolbarPublicPathOverride),
+        },
         writeMetaFile: true,
         extraPlugins: [createToolbarModulePlugin(dirname)],
     }

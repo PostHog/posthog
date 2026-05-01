@@ -146,6 +146,8 @@ const MOCK_RUNS: RawBatchExportRun[] = [
         data_interval_start: '2024-01-15T08:00:00Z',
         data_interval_end: '2024-01-15T09:00:00Z',
         last_updated_at: '2024-01-15T09:04:00Z',
+        latest_error:
+            'NotFound: 404 POST https://bigquery.googleapis.com/bigquery/v2/projects/posthog-301601/datasets/BatchExports/tables?prettyPrint=false: Not found: Dataset posthog-301601:BatchExports',
     },
     {
         id: 'run-004',

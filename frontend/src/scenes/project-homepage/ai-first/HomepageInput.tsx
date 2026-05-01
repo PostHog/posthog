@@ -26,7 +26,7 @@ import { ProductIconWrapper, iconForType } from '~/layout/panel-layout/ProjectTr
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { FileSystemEntry, FileSystemIconType } from '~/queries/schema/schema-general'
 
-import { aiFirstHomepageLogic, HomepageGridItem, HomepageGridItemKind } from './aiFirstHomepageLogic'
+import { HomepageGridItem, HomepageGridItemKind, aiFirstHomepageLogic } from './aiFirstHomepageLogic'
 import { HOMEPAGE_TAB_ID } from './constants'
 
 function IdleInput(): JSX.Element {
@@ -587,9 +587,6 @@ export function HomepageInput(): JSX.Element {
                 <div className="flex flex-col items-center gap-3 pb-(--scene-layout-header-height)">
                     <Intro forceHeadline={`Hello ${user?.first_name || 'there'}`} forceSubheadline={null} />
                     <IdleInput />
-                    <p className="w-full flex justify-center text-xs text-tertiary/50 m-0 grow px-4 text-center">
-                        PostHog AI can make mistakes. Please double-check responses
-                    </p>
                     <IdleGrid />
 
                     {!isConfigurePinnedTabsTooltipDismissed && <HomePageOfframp />}

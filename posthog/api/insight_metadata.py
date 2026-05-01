@@ -4,7 +4,15 @@ from typing import Any
 import structlog
 from pydantic import BaseModel
 
-from posthog.schema import ActorsQuery, FunnelsActorsQuery, InsightActorsQuery, InsightVizNode, StickinessActorsQuery
+from posthog.schema import (
+    ActorsQuery,
+    EventsQuery,
+    FunnelsActorsQuery,
+    GroupsQuery,
+    InsightActorsQuery,
+    InsightVizNode,
+    StickinessActorsQuery,
+)
 
 from posthog.hogql.ai import hit_openai
 
@@ -174,13 +182,51 @@ _NAMING_GUIDANCE: dict[str, str] = {
         "If a start/end point is an event name, humanize it normally.\n"
         "Examples: 'User Page Paths', 'Page & Screen Paths', 'Page Paths from Insights'"
     ),
+    "EventsQuery": (
+        "This is an EVENTS table — a raw list of events matching filters.\n"
+        "Lead with the event name (humanized), then weave in the time window and any property filters naturally.\n"
+        "Humanize event names: '$pageview' → 'Pageviews', 'user_signed_up' → 'Signups'.\n"
+        "Humanize time ranges: '-1h' → 'in the Last Hour', '-24h' → 'in the Last 24 Hours', '-7d' → 'in the Last 7 Days'.\n"
+        "If there are property filters, append 'on/from/by <filter>': 'Pageviews in the Last Hour on Chrome'.\n"
+        "If filtering by cohort, use the cohort name in parentheses: 'Pageviews in the Last Hour (Real Persons)'.\n"
+        "If filtering by person, say 'for <person>': 'Events for User 123'.\n"
+        "If no specific event, use 'Events': 'Events in the Last Hour', 'Events on Chrome in the Last 24 Hours'.\n"
+        "Examples: 'Pageviews in the Last Hour', 'Signups in the Last 7 Days on Mobile', 'Events for User 123', "
+        "'Pageviews in the Last Hour on Chrome (Real Persons)'"
+    ),
+    "ActorsQuery": (
+        "This is an ACTORS view — a table listing individual persons, groups, or sessions matching an insight's criteria.\n"
+        "Name it as a natural phrase starting with the actor type:\n"
+        "- Persons: 'Persons Who Performed Pageviews', 'Persons Who Converted: Signup → Purchase'\n"
+        "- Groups: 'Organizations Who Performed Pageviews' (use the group type name)\n"
+        "- Sessions: 'Sessions with Pageviews'\n"
+        "If there is a lifecycle status, lead with it: 'Resurrecting Persons on Pageviews', 'New Persons on Signups'.\n"
+        "If there is a funnel step, include it: 'Persons Who Converted at Step 2: Signup → Purchase', "
+        "'Persons Who Dropped Off at Step 3: Signup → Purchase'.\n"
+        "For the description, explain what list of actors this shows and the specific filter criteria."
+    ),
+    "GroupsQuery": (
+        "This is a GROUPS list — a table of group entities.\n"
+        "Lead with the group type name exactly as provided (e.g. 'Accounts', 'Instances', 'Organizations', 'Projects').\n"
+        "If there are property filters, append them naturally: 'Accounts on Enterprise Plan'.\n"
+        "If there is a search term, mention it: 'Organizations Matching \"Acme\"'.\n"
+        "Examples: 'Accounts', 'Accounts on Enterprise Plan', 'Organizations Matching \"Acme\"'"
+    ),
 }
 
 
-def generate_insight_metadata(query: InsightVizNode | ActorsQuery, team: Team) -> InsightMetadata:
+def generate_insight_metadata(
+    query: InsightVizNode | ActorsQuery | EventsQuery | GroupsQuery, team: Team
+) -> InsightMetadata:
     """Generate a concise name and description for an insight based on its query configuration."""
     if isinstance(query, ActorsQuery):
         return _generate_actors_metadata(query, team)
+
+    if isinstance(query, EventsQuery):
+        return _generate_events_query_metadata(query, team)
+
+    if isinstance(query, GroupsQuery):
+        return _generate_groups_query_metadata(query, team)
 
     return _generate_insight_viz_metadata(query, team)
 
@@ -189,9 +235,13 @@ SupportedActorSource = InsightActorsQuery | FunnelsActorsQuery | StickinessActor
 SUPPORTED_ACTOR_SOURCES = (InsightActorsQuery, FunnelsActorsQuery, StickinessActorsQuery)
 
 
+## Actors (Person opened from an insight, e.g. trends, funnel converted modal)
 def _generate_actors_metadata(query: ActorsQuery, team: Team) -> InsightMetadata:
     actor_source = query.source
-    assert isinstance(actor_source, SUPPORTED_ACTOR_SOURCES)
+
+    if not isinstance(actor_source, SUPPORTED_ACTOR_SOURCES):
+        return _generate_standalone_actors_metadata(query, team)
+
     inner_source = _narrow_to_selected_series(actor_source, actor_source.source)
     query_kind = inner_source.kind
     insight_guidance = _NAMING_GUIDANCE.get(query_kind, "")
@@ -200,16 +250,7 @@ def _generate_actors_metadata(query: ActorsQuery, team: Team) -> InsightMetadata
     actors_context = _summarize_actors_context(actor_source, inner_source, team)
     query_summary = f"Actors view for:\n{summarize_query_for_naming(viz_query, team)}\n{actors_context}"
     type_guidance = (
-        f"This is an ACTORS view — a table listing individual persons, groups, or sessions matching an insight's criteria.\n"
-        f"The underlying insight is a {query_kind}. {insight_guidance}\n"
-        f"Name it as a natural phrase starting with the actor type:\n"
-        f"- Persons: 'Persons Who Performed Pageviews', 'Persons Who Converted: Signup → Purchase'\n"
-        f"- Groups: 'Organizations Who Performed Pageviews' (use the group type name)\n"
-        f"- Sessions: 'Sessions with Pageviews'\n"
-        f"If there is a lifecycle status, lead with it: 'Resurrecting Persons on Pageviews', 'New Persons on Signups'.\n"
-        f"If there is a funnel step, include it: 'Persons Who Converted at Step 2: Signup → Purchase', "
-        f"'Persons Who Dropped Off at Step 3: Signup → Purchase'.\n"
-        f"For the description, explain what list of actors this shows and the specific filter criteria."
+        f"{_NAMING_GUIDANCE.get('ActorsQuery', '')}\nThe underlying insight is a {query_kind}. {insight_guidance}"
     )
 
     return _request_metadata_from_llm(query_summary, type_guidance, team)
@@ -300,15 +341,116 @@ def _detect_actor_type(
 
 
 def _resolve_group_type_name(team: Team, group_type_index: int) -> str:
-    from posthog.models.group_type_mapping import GroupTypeMapping
+    from posthog.models.group_type_mapping import get_group_types_for_project
 
-    try:
-        mapping = GroupTypeMapping.objects.get(team=team, group_type_index=group_type_index)
-        return mapping.name_plural or mapping.name_singular or mapping.group_type
-    except GroupTypeMapping.DoesNotExist:
-        return f"group type {group_type_index}"
+    for m in get_group_types_for_project(team.project_id):
+        if m["group_type_index"] == group_type_index:
+            return m["name_plural"] or m["name_singular"] or m["group_type"]
+    return f"group type {group_type_index}"
 
 
+# Standalone actors (e.g. Persons opened as new insights)
+def _generate_standalone_actors_metadata(query: ActorsQuery, team: Team) -> InsightMetadata:
+    query_summary = _summarize_standalone_actors_query(query)
+    type_guidance = _NAMING_GUIDANCE.get("ActorsQuery", "")
+
+    return _request_metadata_from_llm(query_summary, type_guidance, team)
+
+
+def _summarize_standalone_actors_query(query: ActorsQuery) -> str:
+    """Extract a human-readable summary from a standalone ActorsQuery (no insight source)."""
+    lines: list[str] = ["Type: ActorsQuery (person list)"]
+
+    if query.search:
+        lines.append(f"Search: {query.search}")
+
+    if query.properties:
+        prop_summaries = [_summarize_property_filter(prop) for prop in query.properties]
+        lines.append(f"Property filters: {', '.join(prop_summaries)}")
+
+    return "\n".join(lines)
+
+
+## Events
+def _generate_events_query_metadata(query: EventsQuery, team: Team) -> InsightMetadata:
+    query_summary = _summarize_events_query(query)
+    type_guidance = _NAMING_GUIDANCE.get("EventsQuery", "")
+
+    return _request_metadata_from_llm(query_summary, type_guidance, team)
+
+
+def _summarize_events_query(query: EventsQuery) -> str:
+    """Extract a human-readable summary from an EventsQuery."""
+    lines: list[str] = ["Type: EventsQuery"]
+
+    if query.event:
+        lines.append(f"Event: {query.event}")
+    elif query.events:
+        lines.append(f"Events: {', '.join(query.events)}")
+    else:
+        lines.append("Event: All events")
+
+    all_properties = [*(query.properties or []), *(query.fixedProperties or [])]
+    if all_properties:
+        prop_summaries = [_summarize_property_filter(prop) for prop in all_properties]
+        lines.append(f"Property filters: {', '.join(prop_summaries)}")
+
+    if query.where:
+        lines.append(f"HogQL filters: {', '.join(query.where)}")
+
+    if query.after or query.before:
+        time_parts: list[str] = []
+        if query.after:
+            time_parts.append(f"after {query.after}")
+        if query.before:
+            time_parts.append(f"before {query.before}")
+        lines.append(f"Time range: {' '.join(time_parts)}")
+
+    return "\n".join(lines)
+
+
+def _summarize_property_filter(prop: Any) -> str:
+    """Summarize a single property filter into a readable string."""
+    prop_type = getattr(prop, "type", None)
+
+    if prop_type == "cohort":
+        cohort_name = getattr(prop, "cohort_name", None)
+        if cohort_name:
+            return f"in cohort '{cohort_name}'"
+        return ""
+
+    key = getattr(prop, "key", None) or "unknown"
+    operator = getattr(prop, "operator", None) or "exact"
+    value = getattr(prop, "value", None)
+    if value is not None:
+        return f"{key} {operator} {value}"
+    return f"{key} {operator}"
+
+
+## Groups (Accounts, Instances, Organizations, Projects)
+def _generate_groups_query_metadata(query: GroupsQuery, team: Team) -> InsightMetadata:
+    query_summary = _summarize_groups_query(query, team)
+    type_guidance = _NAMING_GUIDANCE.get("GroupsQuery", "")
+
+    return _request_metadata_from_llm(query_summary, type_guidance, team)
+
+
+def _summarize_groups_query(query: GroupsQuery, team: Team) -> str:
+    """Extract a human-readable summary from a GroupsQuery."""
+    group_name = _resolve_group_type_name(team, query.group_type_index)
+    lines: list[str] = ["Type: GroupsQuery", f"Group type: {group_name}"]
+
+    if query.properties:
+        prop_summaries = [_summarize_property_filter(prop) for prop in query.properties]
+        lines.append(f"Property filters: {', '.join(prop_summaries)}")
+
+    if query.search:
+        lines.append(f"Search: {query.search}")
+
+    return "\n".join(lines)
+
+
+## Insights
 def _generate_insight_viz_metadata(query: InsightVizNode, team: Team) -> InsightMetadata:
     query_summary = summarize_query_for_naming(query, team)
     query_kind = query.source.kind if query.source else "Unknown"

@@ -81,6 +81,7 @@ function resolveDetailApp(
         component_import: raw.component_import ?? componentImport,
         data_type: raw.data_type ?? `${pascal}Data`,
         view_component: raw.view_component ?? `${pascal}View`,
+        ...(raw.link_prop ? { link_prop: raw.link_prop } : {}),
     }
 }
 
@@ -115,6 +116,9 @@ function resolveListApp(
 
 function generateDetailApp(appKey: string, config: ResolvedDetailUiApp): string {
     const pascalName = kebabToPascal(appKey)
+    const renderProp = config.link_prop
+        ? `({ data, openLink }) => <${config.view_component} ${config.view_prop}={data!} ${config.link_prop}={openLink} />`
+        : `({ data }) => <${config.view_component} ${config.view_prop}={data!} />`
     return `${AUTO_GENERATED_HEADER}import '../../styles/tailwind.css'
 
 import { createRoot } from 'react-dom/client'
@@ -126,7 +130,7 @@ import { AppWrapper } from '../../components/AppWrapper'
 function ${pascalName}App(): JSX.Element {
     return (
         <AppWrapper<${config.data_type}> appName="${config.app_name}">
-            {({ data }) => <${config.view_component} ${config.view_prop}={data!} />}
+            {${renderProp}}
         </AppWrapper>
     )
 }

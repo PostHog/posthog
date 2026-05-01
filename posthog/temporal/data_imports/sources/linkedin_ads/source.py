@@ -15,15 +15,17 @@ from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInput
 from posthog.temporal.data_imports.sources.common.base import (
     MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
     FieldType,
-    SimpleSource,
+    ResumableSource,
 )
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import LinkedinAdsSourceConfig
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
 from .linkedin_ads import (
+    LinkedInAdsResumeConfig,
     get_incremental_fields as get_linkedin_ads_incremental_fields,
     get_schemas as get_linkedin_ads_schemas,
     linkedin_ads_source,
@@ -31,7 +33,7 @@ from .linkedin_ads import (
 
 
 @SourceRegistry.register
-class LinkedInAdsSource(SimpleSource[LinkedinAdsSourceConfig]):
+class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResumeConfig]):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.LINKEDINADS
@@ -48,7 +50,7 @@ class LinkedInAdsSource(SimpleSource[LinkedinAdsSourceConfig]):
             name=SchemaExternalDataSourceType.LINKEDIN_ADS,
             label="LinkedIn Ads",
             caption="Ensure you have granted PostHog access to your LinkedIn Ads account, learn how to do this in [the documentation](https://posthog.com/docs/cdp/sources/linkedin-ads).",
-            betaSource=True,
+            releaseStatus="beta",
             iconPath="/static/services/linkedin.png",
             docsUrl="https://posthog.com/docs/cdp/sources/linkedin-ads",
             fields=cast(
@@ -60,6 +62,7 @@ class LinkedInAdsSource(SimpleSource[LinkedinAdsSourceConfig]):
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="",
+                        secret=False,
                     ),
                     SourceFieldOauthConfig(
                         name="linkedin_ads_integration_id",
@@ -125,11 +128,21 @@ class LinkedInAdsSource(SimpleSource[LinkedinAdsSourceConfig]):
 
         return schemas
 
-    def source_for_pipeline(self, config: LinkedinAdsSourceConfig, inputs: SourceInputs) -> SourceResponse:
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[LinkedInAdsResumeConfig]:
+        return ResumableSourceManager[LinkedInAdsResumeConfig](inputs, LinkedInAdsResumeConfig)
+
+    def source_for_pipeline(
+        self,
+        config: LinkedinAdsSourceConfig,
+        resumable_source_manager: ResumableSourceManager[LinkedInAdsResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
         return linkedin_ads_source(
             config=config,
             resource_name=inputs.schema_name,
             team_id=inputs.team_id,
+            resumable_source_manager=resumable_source_manager,
+            logger=inputs.logger,
             should_use_incremental_field=inputs.should_use_incremental_field,
             incremental_field=inputs.incremental_field if inputs.should_use_incremental_field else None,
             incremental_field_type=inputs.incremental_field_type if inputs.should_use_incremental_field else None,

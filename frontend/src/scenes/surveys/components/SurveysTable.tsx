@@ -58,7 +58,9 @@ export function SurveysTable(): JSX.Element {
 
     const hasMultipleProjects = currentOrganization?.teams && currentOrganization.teams.length > 1
 
-    const shouldShowEmptyState = !dataLoading && surveys.length === 0
+    const isInitialDataLoad = surveys.length === 0 && hasNextPage
+    const isTableLoading = dataLoading || isInitialDataLoad
+    const shouldShowEmptyState = !isTableLoading && surveys.length === 0
 
     if (shouldShowEmptyState) {
         return <SurveysEmptyState />
@@ -144,16 +146,18 @@ export function SurveysTable(): JSX.Element {
                 nouns={['survey', 'surveys']}
                 data-attr="surveys-table"
                 emptyState={tab === SurveysTabs.Active ? 'No surveys. Create a new survey?' : 'No surveys found'}
-                loading={dataLoading}
+                loading={isTableLoading}
                 footer={
                     (searchTerm ? hasNextSearchPage : hasNextPage) && (
                         <div className="flex justify-center p-1">
                             <LemonButton
                                 onClick={searchTerm ? loadNextSearchPage : loadNextPage}
                                 className="min-w-full text-center"
-                                disabledReason={dataLoading ? 'Loading surveys' : ''}
+                                disabledReason={isTableLoading ? 'Loading surveys' : ''}
                             >
-                                <span className="flex-1 text-center">{dataLoading ? 'Loading...' : 'Load more'}</span>
+                                <span className="flex-1 text-center">
+                                    {isTableLoading ? 'Loading...' : 'Load more'}
+                                </span>
                             </LemonButton>
                         </div>
                     )

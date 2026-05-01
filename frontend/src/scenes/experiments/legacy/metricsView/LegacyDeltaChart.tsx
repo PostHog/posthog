@@ -8,28 +8,27 @@ import {
     EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS,
     EXPERIMENT_MIN_METRIC_VALUE_FOR_RESULTS,
 } from '~/scenes/experiments/constants'
-import { experimentLogic } from '~/scenes/experiments/experimentLogic'
 import { isLaunched } from '~/scenes/experiments/experimentsLogic'
-import { Experiment, FunnelExperimentVariant, InsightType, TrendExperimentVariant } from '~/types'
-
 import {
     legacyCalculateDelta,
     legacyConversionRateForVariant,
     legacyCountDataForVariant,
     legacyCredibleIntervalForVariant,
     legacyExposureCountDataForVariant,
-} from '../calculations/legacyExperimentCalculations'
-import { LegacyVariantTag } from '../components/LegacyVariantTag'
-import { LegacyChartEmptyState } from './LegacyChartEmptyState'
-import { LegacyChartLoadingState } from './LegacyChartLoadingState'
-import { LegacyChartModal } from './LegacyChartModal'
-import { useLegacyChartColors } from './legacyColors'
-import { LegacyGridLines } from './LegacyGridLines'
-import { LegacyMetricHeader } from './LegacyMetricHeader'
-import { LegacyMetricsChartLayout } from './LegacyMetricsChartLayout'
-import { LegacySignificanceHighlight } from './LegacySignificanceHighlight'
-import { LegacyVariantTooltip } from './LegacyVariantTooltip'
-import { legacyGenerateViolinPath } from './legacyViolinUtils'
+    legacyExperimentLogic,
+    LegacyVariantTag,
+    LegacyChartEmptyState,
+    LegacyChartLoadingState,
+    LegacyChartModal,
+    useLegacyChartColors,
+    LegacyGridLines,
+    LegacyMetricHeader,
+    LegacyMetricsChartLayout,
+    LegacySignificanceHighlight,
+    LegacyVariantTooltip,
+    legacyGenerateViolinPath,
+} from '~/scenes/experiments/legacy'
+import { Experiment, FunnelExperimentVariant, InsightType, TrendExperimentVariant } from '~/types'
 
 // Chart configuration types
 type ChartDimensions = {
@@ -64,7 +63,6 @@ type DeltaChartContextType = {
     // Experiment data
     experiment: Experiment
     variants: FunnelExperimentVariant[] | TrendExperimentVariant[]
-    hasMinimumExposureForResults: boolean
     primaryMetricsLengthWithSharedMetrics: number
 
     // Data transformation functions
@@ -441,12 +439,11 @@ function ChartTooltips(): JSX.Element {
  * Frozen copy for legacy experiments - do not modify.
  */
 function DeltaChartContent({ chartSvgRef }: { chartSvgRef: React.RefObject<SVGSVGElement> }): JSX.Element {
-    const { result, metric, hasMinimumExposureForResults, resultsLoading, experiment, error, dimensions } =
-        useDeltaChartContext()
+    const { result, metric, resultsLoading, experiment, error, dimensions } = useDeltaChartContext()
 
     const { chartHeight } = dimensions
 
-    if (result && hasMinimumExposureForResults) {
+    if (result) {
         return (
             <div className="relative w-full max-w-screen">
                 <ChartControls />
@@ -499,13 +496,12 @@ export function LegacyDeltaChart({
     chartBound: number
 }): JSX.Element {
     // Get values from logic
-    const {
-        experiment,
-        primaryMetricsResultsLoading,
-        secondaryMetricsResultsLoading,
-        primaryMetricsLengthWithSharedMetrics,
-        hasMinimumExposureForResults,
-    } = useValues(experimentLogic)
+    const { experiment, primaryMetricsResultsLoading, secondaryMetricsResultsLoading } =
+        useValues(legacyExperimentLogic)
+
+    const primaryMetricsLengthWithSharedMetrics =
+        experiment.metrics.length +
+        experiment.saved_metrics.filter((metric) => metric.metadata.type === 'primary').length
 
     // Loading state
     const resultsLoading = isSecondary ? secondaryMetricsResultsLoading : primaryMetricsResultsLoading
@@ -555,7 +551,6 @@ export function LegacyDeltaChart({
         // Experiment data
         experiment,
         variants,
-        hasMinimumExposureForResults,
         primaryMetricsLengthWithSharedMetrics,
 
         // Data transformation functions

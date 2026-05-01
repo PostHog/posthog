@@ -17,6 +17,7 @@ from django.utils import timezone
 import structlog
 
 from posthog.exceptions_capture import capture_exception
+from posthog.models.activity_logging.utils import ACTIVITY_LOG_CLIENT_MAX_LENGTH, activity_storage
 from posthog.models.utils import ActivityDetailEncoder, UUIDTModel
 
 if TYPE_CHECKING:
@@ -53,6 +54,7 @@ ActivityScope = Literal[
     "Project",
     "ErrorTrackingIssue",
     "DataWarehouseSavedQuery",
+    "LegalDocument",
     "Organization",
     "OrganizationDomain",
     "OrganizationMembership",
@@ -79,6 +81,7 @@ ActivityScope = Literal[
     "CustomerProfileConfig",
     "Log",
     "LogsAlertConfiguration",
+    "LogsExclusionRule",
     "ProductTour",
     "Ticket",
 ]
@@ -129,7 +132,7 @@ class ActivityLog(UUIDTModel):
         constraints = [
             models.CheckConstraint(
                 name="must_have_team_or_organization_id",
-                check=models.Q(team_id__isnull=False) | models.Q(organization_id__isnull=False),
+                condition=models.Q(team_id__isnull=False) | models.Q(organization_id__isnull=False),
             ),
         ]
         indexes = [
@@ -183,6 +186,8 @@ class ActivityLog(UUIDTModel):
     was_impersonated = models.BooleanField(null=True)
     # If truthy, user can be unset and this indicates a 'system' user made activity asynchronously
     is_system = models.BooleanField(null=True)
+    # Value of the x-posthog-client request header captured when the activity was logged
+    client = models.CharField(max_length=ACTIVITY_LOG_CLIENT_MAX_LENGTH, null=True, blank=True)
 
     activity = models.fields.CharField(max_length=79, null=False)
     # if scoped to a model this activity log holds the id of the model being logged
@@ -366,6 +371,7 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "featureflagoverride",
         "usage_dashboard",
         "analytics_dashboards",
+        "flag_evaluation_contexts",
     ],
     "Experiment": [
         "feature_flag",
@@ -794,9 +800,12 @@ def log_activity(
     activity: str,
     detail: Detail,
     was_impersonated: bool,
+    client: Optional[str] = None,
     force_save: bool = False,
     instance_only: bool = False,
 ) -> ActivityLog | None:
+    if client is None:
+        client = activity_storage.get_client()
     if was_impersonated and user is None:
         logger.warn(
             "activity_log.failed_to_write_to_activity_log",
@@ -829,6 +838,7 @@ def log_activity(
                 scope=scope,
                 activity=activity,
                 detail=detail,
+                client=client,
             )
 
         def _do_log_activity():
@@ -843,6 +853,7 @@ def log_activity(
                 scope=log.scope,
                 activity=log.activity,
                 detail=log.detail,
+                client=log.client,
             )
 
         if instance_only:
@@ -882,6 +893,7 @@ class LogActivityEntry(TypedDict, total=False):
     activity: Required[str]
     detail: Required[Detail]
     was_impersonated: Required[bool]
+    client: Optional[str]
     force_save: bool
 
 

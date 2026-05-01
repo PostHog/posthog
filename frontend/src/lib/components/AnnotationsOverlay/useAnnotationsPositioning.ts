@@ -5,6 +5,8 @@ import { Chart } from 'lib/Chart'
 export interface AnnotationsPositioning {
     tickIntervalPx: number
     firstTickLeftPx: number
+    /** Pixel x of a data point by index, or null if the chart isn't ready / index is out of range. */
+    getDataPointX: (dataIndex: number) => number | null
 }
 
 export function useAnnotationsPositioning(
@@ -31,11 +33,16 @@ export function useAnnotationsPositioning(
             return {
                 tickIntervalPx: (lastTickLeftPx - firstTickLeftPx) / (tickCount - 1),
                 firstTickLeftPx,
+                getDataPointX: (dataIndex: number) => {
+                    const point = points[dataIndex]
+                    return point ? point.x : null
+                },
             }
         }
         return {
             tickIntervalPx: 0,
             firstTickLeftPx: 0,
+            getDataPointX: () => null,
         }
     }, [chart, chartWidth, chartHeight])
 }

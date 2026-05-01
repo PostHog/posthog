@@ -12,6 +12,7 @@ from dateutil.rrule import DAILY, FR, MO, MONTHLY, SA, SU, TH, TU, WE, WEEKLY, Y
 
 from posthog.exceptions_capture import capture_exception
 from posthog.jwt import PosthogJwtAudience, decode_jwt, encode_jwt
+from posthog.models.utils import UUIDModel
 from posthog.utils import absolute_uri
 
 UNSUBSCRIBE_TOKEN_EXP_DAYS = 30
@@ -25,6 +26,8 @@ RRULE_WEEKDAY_MAP = {
     "saturday": SA,
     "sunday": SU,
 }
+
+WEEKDAY_SET = {"monday", "tuesday", "wednesday", "thursday", "friday"}
 
 
 @dataclass
@@ -83,15 +86,15 @@ class Subscription(models.Model):
 
     # Subscription type (email, slack etc.)
     title = models.CharField(max_length=100, null=True, blank=True)
-    target_type = models.CharField(max_length=10, choices=SubscriptionTarget.choices)
+    target_type = models.CharField(max_length=10, choices=SubscriptionTarget)
     target_value = models.TextField()
 
     # Subscription delivery (related to rrule)
-    frequency = models.CharField(max_length=10, choices=SubscriptionFrequency.choices)
+    frequency = models.CharField(max_length=10, choices=SubscriptionFrequency)
     interval = models.IntegerField(default=1)
     count = models.IntegerField(null=True)
     byweekday: ArrayField = ArrayField(
-        models.CharField(max_length=10, choices=SubscriptionByWeekDay.choices),
+        models.CharField(max_length=10, choices=SubscriptionByWeekDay),
         null=True,
         blank=True,
         default=None,
@@ -107,6 +110,9 @@ class Subscription(models.Model):
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
     deleted = models.BooleanField(default=False)
+
+    summary_enabled = models.BooleanField(default=False)
+    summary_prompt_guide = models.CharField(max_length=500, blank=True, default="")
 
     class Meta:
         indexes = [
@@ -151,6 +157,8 @@ class Subscription(models.Model):
         )
 
     def set_next_delivery_date(self, from_dt=None):
+        # Authoritative schedule — a client-side preview mirror lives in
+        # frontend/src/lib/components/Subscriptions/utils.tsx (getNextDeliveryDate)
         # We never want next_delivery_date to be in the past
         now = timezone.now() + timedelta(minutes=15)  # Buffer of 15 minutes since we might run a bit early
         self.next_delivery_date = self.rrule.after(dt=max(from_dt or now, now), inc=False)
@@ -172,7 +180,7 @@ class Subscription(models.Model):
                 self.insight.url,
             )
         elif self.dashboard:
-            return SubscriptionResourceInfo("Dashboard", self.dashboard.name, self.dashboard.url)
+            return SubscriptionResourceInfo("Dashboard", self.dashboard.name or "Dashboard", self.dashboard.url)
 
         return None
 
@@ -198,9 +206,13 @@ class Subscription(models.Model):
                     4: "fourth",
                     -1: "last",
                 }[self.bysetpos]
-                summary += (
-                    f" on the {human_bysetpos} {self.byweekday[0].capitalize() if len(self.byweekday) == 1 else 'day'}"
-                )
+                if len(self.byweekday) == 1:
+                    day_label = self.byweekday[0].capitalize()
+                elif set(self.byweekday) == WEEKDAY_SET:
+                    day_label = "weekday"
+                else:
+                    day_label = "day"
+                summary += f" on the {human_bysetpos} {day_label}"
             return summary
         except KeyError as e:
             capture_exception(e)
@@ -240,6 +252,60 @@ def get_unsubscribe_token(subscription: Subscription, email: str) -> str:
         expiry_delta=timedelta(days=UNSUBSCRIBE_TOKEN_EXP_DAYS),
         audience=PosthogJwtAudience.UNSUBSCRIBE,
     )
+
+
+class SubscriptionDelivery(UUIDModel):
+    class Status(models.TextChoices):
+        STARTING = "starting"
+        COMPLETED = "completed"
+        FAILED = "failed"
+        SKIPPED = "skipped"
+
+    subscription = models.ForeignKey("Subscription", on_delete=models.CASCADE, related_name="deliveries")
+    team = models.ForeignKey("Team", on_delete=models.CASCADE)
+
+    # Temporal correlation — workflow_id for debugging, idempotency_key for dedup.
+    # idempotency_key is generated via temporalio.workflow.uuid4() which is deterministic
+    # across activity retries (replay) but different across workflow retries.
+    temporal_workflow_id = models.CharField(max_length=255)
+    idempotency_key = models.CharField(max_length=255, unique=True)
+
+    # Trigger context
+    trigger_type = models.CharField(max_length=20)
+    scheduled_at = models.DateTimeField(null=True)
+
+    # Target snapshot (frozen at delivery time)
+    target_type = models.CharField(max_length=10)
+    target_value = models.TextField()
+
+    # Content snapshot
+    exported_asset_ids: ArrayField = ArrayField(models.IntegerField(), default=list)
+    content_snapshot = models.JSONField(default=dict)
+
+    # AI-generated summary sent in the delivery, when summary_enabled is on for the subscription.
+    # None when no summary is attached.
+    change_summary = models.TextField(null=True, blank=True)
+
+    # Per-recipient delivery results
+    recipient_results = models.JSONField(default=list)
+
+    # Overall status and error (null when no error)
+    # Shape: {"message": str, "type": str, ...} — extensible for stack traces, codes, etc.
+    status = models.CharField(max_length=24, choices=Status, default=Status.STARTING)
+    error = models.JSONField(null=True, blank=True)
+
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_updated_at = models.DateTimeField(auto_now=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "posthog_subscription_delivery"
+        indexes = [
+            models.Index(fields=["subscription", "-created_at"], name="posthog_subdel_sub_crtd"),
+            models.Index(fields=["team", "-created_at"], name="posthog_subdel_team_crtd"),
+        ]
+        ordering = ["-created_at"]
 
 
 def unsubscribe_using_token(token: str) -> Subscription:

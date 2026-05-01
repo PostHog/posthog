@@ -1,0 +1,48 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "deleted": {
+            "description": "Set to true to soft-delete the playlist.",
+            "type": "boolean"
+        },
+        "derived_name": {
+            "anyOf": [
+                {
+                    "maxLength": 400,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        },
+        "description": {
+            "description": "Optional description of the playlist's purpose or contents.",
+            "type": "string"
+        },
+        "filters": {
+            "description": "JSON object with recording filter criteria. Only used when type is 'filters'. Defines which recordings match this saved filter view. When updating a filters-type playlist, you must include the existing filters alongside any other changes — omitting filters will be treated as removing them."
+        },
+        "name": {
+            "anyOf": [
+                {
+                    "maxLength": 400,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Human-readable name for the playlist."
+        },
+        "pinned": {
+            "description": "Whether this playlist is pinned to the top of the list.",
+            "type": "boolean"
+        },
+        "short_id": {
+            "type": "string"
+        }
+    },
+    "required": ["short_id"],
+    "type": "object"
+}

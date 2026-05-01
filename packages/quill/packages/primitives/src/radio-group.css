@@ -1,0 +1,133 @@
+@layer components {
+    /* =========================================================================
+       RadioIndicator — standalone visual
+       ========================================================================= */
+    .quill-radio-indicator {
+        position: relative;
+        display: flex;
+        flex-shrink: 0;
+        border: 1px solid var(--accent);
+        border-radius: 9999px;
+    }
+
+    .quill-radio-indicator--checked {
+        color: var(--primary-foreground);
+        background-color: var(--primary);
+        border-color: var(--primary);
+    }
+
+    .quill-radio-indicator--size-default {
+        width: 1rem;
+        height: 1rem;
+    }
+
+    .quill-radio-indicator--size-sm {
+        width: 0.875rem;
+        height: 0.875rem;
+    }
+
+    /* =========================================================================
+       Inner dot (shared between RadioIndicator and RadioGroupItem.Indicator)
+       ========================================================================= */
+    .quill-radio-dot {
+        position: absolute;
+        inset-inline-start: 50%;
+        top: 50%;
+        background-color: var(--primary-foreground);
+        border-radius: 9999px;
+        transform: translate(-50%, -50%);
+    }
+
+    [dir='rtl'] .quill-radio-dot {
+        transform: translate(50%, -50%);
+    }
+
+    .quill-radio-dot--size-default {
+        width: 0.5rem;
+        height: 0.5rem;
+    }
+
+    .quill-radio-dot--size-sm {
+        width: 0.375rem;
+        height: 0.375rem;
+    }
+
+    /* =========================================================================
+       RadioGroupItem — the interactive circle
+       ========================================================================= */
+    .quill-radio {
+        position: relative;
+        flex-shrink: 0;
+        aspect-ratio: 1 / 1;
+        border: 1px solid var(--input);
+        border-radius: 9999px;
+        outline: none;
+    }
+
+    :is(.dark, [theme='dark']) .quill-radio {
+        background-color: color-mix(in oklab, var(--input) 30%, transparent);
+    }
+
+    .quill-radio::after {
+        position: absolute;
+        inset-block: -0.5rem;
+        inset-inline: -0.75rem;
+        content: '';
+    }
+
+    .quill-radio:focus-visible {
+        border-color: var(--ring);
+        box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring) 50%, transparent);
+    }
+
+    .quill-radio:disabled {
+        cursor: not-allowed;
+        opacity: 0.5;
+    }
+
+    .quill-radio[aria-invalid='true'] {
+        border-color: color-mix(in oklab, var(--destructive-foreground) 50%, transparent);
+    }
+
+    .quill-radio[aria-invalid='true'][aria-checked='true'] {
+        border-color: var(--primary);
+    }
+
+    .quill-radio[data-checked] {
+        color: var(--primary-foreground);
+        background-color: var(--primary);
+        border-color: var(--primary);
+    }
+
+    :is(.dark, [theme='dark']) .quill-radio[data-checked] {
+        background-color: var(--primary);
+    }
+
+    /* Sizes */
+    .quill-radio--size-default {
+        width: 1rem;
+        height: 1rem;
+    }
+
+    .quill-radio--size-sm {
+        width: 0.875rem;
+        height: 0.875rem;
+    }
+
+    /* Item indicator wrapper — centers the dot */
+    .quill-radio__indicator {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .quill-radio__indicator--size-default {
+        width: 1rem;
+        height: 1rem;
+    }
+
+    .quill-radio__indicator--size-sm {
+        width: 0.875rem;
+        height: 0.875rem;
+    }
+}

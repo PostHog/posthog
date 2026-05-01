@@ -10,7 +10,31 @@ import { cn } from 'lib/utils/css-classes'
 
 import { MenuSeparator } from '../Menus/Menus'
 
-const ContextMenu = ContextMenuPrimitive.Root
+const ContextMenuOpenContext = React.createContext(false)
+
+function ContextMenu({
+    children,
+    onOpenChange,
+    ...props
+}: React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.Root>): JSX.Element {
+    const [isOpen, setIsOpen] = React.useState(false)
+
+    const handleOpenChange = React.useCallback(
+        (open: boolean) => {
+            setIsOpen(open)
+            onOpenChange?.(open)
+        },
+        [onOpenChange]
+    )
+
+    return (
+        <ContextMenuOpenContext.Provider value={isOpen}>
+            <ContextMenuPrimitive.Root onOpenChange={handleOpenChange} {...props}>
+                {children}
+            </ContextMenuPrimitive.Root>
+        </ContextMenuOpenContext.Provider>
+    )
+}
 
 const ContextMenuTrigger = ContextMenuPrimitive.Trigger
 
@@ -65,8 +89,14 @@ ContextMenuSubContent.displayName = ContextMenuPrimitive.SubContent.displayName
 const ContextMenuContent = React.forwardRef<
     React.ElementRef<typeof ContextMenuPrimitive.Content>,
     React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.Content>
->(
-    ({ className, children, collisionPadding = { top: 50, bottom: 50 }, ...props }, ref): JSX.Element => (
+>(({ className, children, collisionPadding = { top: 50, bottom: 50 }, ...props }, ref): JSX.Element | null => {
+    const open = React.useContext(ContextMenuOpenContext)
+
+    if (!open) {
+        return null
+    }
+
+    return (
         <ContextMenuPrimitive.Portal>
             <ContextMenuPrimitive.Content
                 ref={ref}
@@ -83,7 +113,7 @@ const ContextMenuContent = React.forwardRef<
             </ContextMenuPrimitive.Content>
         </ContextMenuPrimitive.Portal>
     )
-)
+})
 ContextMenuContent.displayName = ContextMenuPrimitive.Content.displayName
 
 const ContextMenuItem = React.forwardRef<

@@ -1,10 +1,11 @@
 import uuid
 import datetime
+from typing import Any, cast
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
-from django.http import HttpResponse
+from django.http import StreamingHttpResponse
 from django.test import override_settings
 from django.utils import timezone
 
@@ -83,10 +84,12 @@ class TestConversation(APIBaseTest):
             settings=MaxBillingContextSettings(autocapture_on=True, active_destinations=2),
         )
 
-    def _get_streaming_content(self, response):
+    def _get_streaming_content(self, response: Any) -> bytes:
         return b"".join(response.streaming_content)
 
-    def _create_mock_streaming_response(self, streaming_content, *args, **kwargs):
+    def _create_mock_streaming_response(
+        self, streaming_content: Any, *args: Any, **kwargs: Any
+    ) -> StreamingHttpResponse:
         """Helper to create a mock StreamingHttpResponse that actually processes the streaming content."""
 
         # Actually consume the generator to ensure the mocked methods are called
@@ -97,8 +100,8 @@ class TestConversation(APIBaseTest):
             # If there's an issue with the async generator, use fallback
             content = _generator_serialized_value
 
-        mock_response = HttpResponse(content, content_type="text/event-stream")
-        mock_response.streaming_content = [content]
+        mock_response = StreamingHttpResponse([content], content_type="text/event-stream")
+        cast(Any, mock_response).streaming_content = [content]
         return mock_response
 
     def test_create_conversation(self):
@@ -117,7 +120,8 @@ class TestConversation(APIBaseTest):
                 self.assertEqual(response.status_code, status.HTTP_200_OK)
                 self.assertEqual(self._get_streaming_content(response), _generator_serialized_value)
                 self.assertEqual(Conversation.objects.count(), 1)
-                conversation: Conversation = Conversation.objects.first()
+                conversation = Conversation.objects.first()
+                assert conversation is not None
                 self.assertEqual(conversation.user, self.user)
                 self.assertEqual(conversation.team, self.team)
                 # Check that the method was called with workflow_inputs
@@ -512,7 +516,7 @@ class TestConversation(APIBaseTest):
         Conversation.objects.create(user=self.user, team=self.team, title=None, type=Conversation.Type.ASSISTANT)
         Conversation.objects.create(user=self.user, team=self.team, title="Tool call", type=Conversation.Type.TOOL_CALL)
 
-        with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock):
+        with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock) as mock_get_state:
             response = self.client.get(f"/api/environments/{self.team.id}/conversations/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -521,8 +525,9 @@ class TestConversation(APIBaseTest):
             self.assertEqual(len(results), 1)
             self.assertEqual(results[0]["id"], str(conversation1.id))
             self.assertEqual(results[0]["title"], "Conversation 1")
-            self.assertIn("messages", results[0])
             self.assertIn("status", results[0])
+            self.assertNotIn("messages", results[0])
+            mock_get_state.assert_not_awaited()
 
     def test_list_conversations_only_returns_own_conversations(self):
         """Test that listing conversations only returns the current user's conversations"""
@@ -552,7 +557,13 @@ class TestConversation(APIBaseTest):
         with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock):
             response = self.client.get(f"/api/environments/{self.team.id}/conversations/{conversation.id}/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertEqual(response.json()["id"], str(conversation.id))
+            data = response.json()
+            self.assertEqual(data["id"], str(conversation.id))
+            self.assertIn("messages", data)
+            self.assertIn("has_unsupported_content", data)
+            self.assertIn("agent_mode", data)
+            self.assertIn("is_sandbox", data)
+            self.assertIn("pending_approvals", data)
 
     def test_retrieve_other_users_conversation_succeeds(self):
         """Test that user can retrieve another user's conversation in the same team"""

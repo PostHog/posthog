@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
 import { IconGear, IconLaptop, IconPhone, IconTabletLandscape, IconTabletPortrait } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonSelect } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSegmentedButton, LemonSelect } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
@@ -13,6 +13,8 @@ import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
+
+import { HeatmapType } from '~/types'
 
 const useDebounceLoading = (loading: boolean, delay = 200): boolean => {
     const [debouncedLoading, setDebouncedLoading] = useState(false)
@@ -98,7 +100,13 @@ export function ViewportChooser(): JSX.Element {
  * values and actions are passed as props because they are different
  * between fixed and embedded mode
  */
-export function FilterPanel(): JSX.Element {
+export function FilterPanel({
+    captureMethod,
+    onCaptureMethodChange,
+}: {
+    captureMethod?: HeatmapType
+    onCaptureMethodChange?: (type: HeatmapType) => void
+}): JSX.Element {
     const [isSettingsOpen, setIsSettingsOpen] = useState(false)
     const {
         heatmapFilters,
@@ -150,6 +158,28 @@ export function FilterPanel(): JSX.Element {
                                         heatmapFixedPositionMode={heatmapFixedPositionMode}
                                         setHeatmapFixedPositionMode={setHeatmapFixedPositionMode}
                                     />
+                                    {captureMethod && onCaptureMethodChange && (
+                                        <SectionSetting
+                                            title="Capture method"
+                                            info="Screenshot generates a full-page screenshot. Iframe loads your site directly."
+                                        >
+                                            <LemonSegmentedButton
+                                                onChange={onCaptureMethodChange}
+                                                value={captureMethod}
+                                                options={[
+                                                    {
+                                                        value: 'screenshot',
+                                                        label: 'Screenshot',
+                                                    },
+                                                    {
+                                                        value: 'iframe',
+                                                        label: 'Iframe',
+                                                    },
+                                                ]}
+                                                size="small"
+                                            />
+                                        </SectionSetting>
+                                    )}
                                     <SectionSetting
                                         title="Internal and test users filter"
                                         info="Filter out internal and test users"

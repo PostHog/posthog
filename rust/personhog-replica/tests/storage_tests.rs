@@ -3,6 +3,7 @@ mod common;
 use common::TestContext;
 use personhog_replica::storage::postgres::ConsistencyLevel;
 use personhog_replica::storage::GroupKey;
+use rand::Rng;
 
 #[tokio::test]
 async fn test_get_person_by_id() {
@@ -832,5 +833,228 @@ async fn test_delete_hash_key_overrides_by_teams_nonexistent_team() {
 
     assert_eq!(deleted_count, 0);
 
+    ctx.cleanup().await.ok();
+}
+
+// ============================================================
+// Delete persons batch for team tests
+// ============================================================
+
+#[tokio::test]
+async fn test_delete_persons_batch_for_team() {
+    let ctx = TestContext::new().await;
+
+    let p1 = ctx.insert_person("batch_del_1", None).await.unwrap();
+    let p2 = ctx.insert_person("batch_del_2", None).await.unwrap();
+    let p3 = ctx.insert_person("batch_del_3", None).await.unwrap();
+
+    // Delete batch_size=2 — should delete 2 of the 3 persons
+    let deleted = ctx
+        .storage
+        .delete_persons_batch_for_team(ctx.team_id, 2)
+        .await
+        .expect("Failed to delete persons batch");
+
+    assert_eq!(deleted, 2);
+
+    // Second call — should delete the remaining 1
+    let deleted = ctx
+        .storage
+        .delete_persons_batch_for_team(ctx.team_id, 2)
+        .await
+        .expect("Failed to delete persons batch");
+
+    assert_eq!(deleted, 1);
+
+    // Third call — nothing left
+    let deleted = ctx
+        .storage
+        .delete_persons_batch_for_team(ctx.team_id, 2)
+        .await
+        .expect("Failed to delete persons batch");
+
+    assert_eq!(deleted, 0);
+
+    // Verify all persons are gone
+    assert!(ctx
+        .storage
+        .get_person_by_id(ctx.team_id, p1.id)
+        .await
+        .unwrap()
+        .is_none());
+    assert!(ctx
+        .storage
+        .get_person_by_id(ctx.team_id, p2.id)
+        .await
+        .unwrap()
+        .is_none());
+    assert!(ctx
+        .storage
+        .get_person_by_id(ctx.team_id, p3.id)
+        .await
+        .unwrap()
+        .is_none());
+
+    // Verify distinct IDs are gone too
+    assert!(ctx
+        .storage
+        .get_person_by_distinct_id(ctx.team_id, "batch_del_1")
+        .await
+        .unwrap()
+        .is_none());
+    assert!(ctx
+        .storage
+        .get_person_by_distinct_id(ctx.team_id, "batch_del_2")
+        .await
+        .unwrap()
+        .is_none());
+    assert!(ctx
+        .storage
+        .get_person_by_distinct_id(ctx.team_id, "batch_del_3")
+        .await
+        .unwrap()
+        .is_none());
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_delete_persons_batch_for_team_empty() {
+    let ctx = TestContext::new().await;
+
+    let deleted = ctx
+        .storage
+        .delete_persons_batch_for_team(ctx.team_id, 1000)
+        .await
+        .expect("Failed to delete persons batch");
+
+    assert_eq!(deleted, 0);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_delete_persons_batch_for_team_cross_team_isolation() {
+    let ctx = TestContext::new().await;
+
+    let _p1 = ctx.insert_person("team_a_person", None).await.unwrap();
+
+    // Insert a person in a different team directly via SQL
+    let other_team_id = ctx.team_id + 1;
+    let other_person_id: i64 = rand::thread_rng().gen_range(1_000_000..100_000_000);
+    sqlx::query(
+        r#"INSERT INTO posthog_person
+        (id, uuid, team_id, properties, properties_last_updated_at,
+         properties_last_operation, created_at, version, is_identified, is_user_id)
+        VALUES ($1, $2, $3, '{}', '{}', '{}', NOW(), 0, false, NULL)
+        ON CONFLICT DO NOTHING"#,
+    )
+    .bind(other_person_id)
+    .bind(uuid::Uuid::now_v7())
+    .bind(other_team_id)
+    .execute(&ctx.pool)
+    .await
+    .unwrap();
+
+    // Delete only ctx.team_id persons
+    let deleted = ctx
+        .storage
+        .delete_persons_batch_for_team(ctx.team_id, 1000)
+        .await
+        .expect("Failed to delete persons batch");
+
+    assert_eq!(deleted, 1);
+
+    // Other team's person should still exist
+    let other_person = ctx
+        .storage
+        .get_person_by_id(other_team_id, other_person_id)
+        .await
+        .unwrap();
+    assert!(other_person.is_some());
+
+    // Cleanup both teams
+    sqlx::query("DELETE FROM posthog_person WHERE team_id = $1")
+        .bind(other_team_id)
+        .execute(&ctx.pool)
+        .await
+        .ok();
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_delete_persons_batch_for_team_rolls_back_on_partial_failure() {
+    let ctx = TestContext::new().await;
+
+    let p1 = ctx.insert_person("rollback_user_1", None).await.unwrap();
+    let p2 = ctx.insert_person("rollback_user_2", None).await.unwrap();
+
+    // Create a table with a RESTRICT FK to posthog_person. When
+    // delete_persons_batch_for_team reaches step 3 (DELETE FROM posthog_person),
+    // this FK will cause the delete to fail — after step 2 already deleted the
+    // distinct_ids within the same transaction.
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS _test_person_fk_block (
+            id SERIAL PRIMARY KEY,
+            team_id INTEGER NOT NULL,
+            person_id BIGINT NOT NULL,
+            FOREIGN KEY (team_id, person_id)
+                REFERENCES posthog_person(team_id, id) ON DELETE RESTRICT
+        )",
+    )
+    .execute(&ctx.pool)
+    .await
+    .expect("Failed to create blocking FK table");
+
+    // Block deletion of p1 — both p1 and p2 are selected in the same batch,
+    // so the entire transaction should fail and roll back
+    sqlx::query("INSERT INTO _test_person_fk_block (team_id, person_id) VALUES ($1, $2)")
+        .bind(ctx.team_id as i32)
+        .bind(p1.id)
+        .execute(&ctx.pool)
+        .await
+        .expect("Failed to insert blocking reference");
+
+    let result = ctx
+        .storage
+        .delete_persons_batch_for_team(ctx.team_id, 100)
+        .await;
+
+    assert!(result.is_err());
+
+    // Both persons should still exist — transaction rolled back
+    assert!(ctx
+        .storage
+        .get_person_by_id(ctx.team_id, p1.id)
+        .await
+        .unwrap()
+        .is_some());
+    assert!(ctx
+        .storage
+        .get_person_by_id(ctx.team_id, p2.id)
+        .await
+        .unwrap()
+        .is_some());
+
+    // Distinct IDs should also still exist — proves the step 2 deletes were rolled back
+    assert!(ctx
+        .storage
+        .get_person_by_distinct_id(ctx.team_id, "rollback_user_1")
+        .await
+        .unwrap()
+        .is_some());
+    assert!(ctx
+        .storage
+        .get_person_by_distinct_id(ctx.team_id, "rollback_user_2")
+        .await
+        .unwrap()
+        .is_some());
+
+    // Cleanup
+    sqlx::query("DELETE FROM _test_person_fk_block WHERE team_id = $1")
+        .bind(ctx.team_id as i32)
+        .execute(&ctx.pool)
+        .await
+        .ok();
     ctx.cleanup().await.ok();
 }

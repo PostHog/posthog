@@ -32,6 +32,7 @@ from posthog.personhog_client.proto.generated.personhog.types.v1 import cohort_p
 class _Call:
     method: str
     request: Any
+    response: Any = None
 
 
 class FakePersonHogClient:
@@ -63,6 +64,8 @@ class FakePersonHogClient:
 
         # keyed by person_id -> list of CohortMembership
         self._cohort_memberships: dict[int, list[cohort_pb2.CohortMembership]] = {}
+        # keyed by (cohort_id, person_id) -> True
+        self._cohort_members: dict[tuple[int, int], bool] = {}
 
     # ── Builder methods ──────────────────────────────────────────────
 
@@ -158,6 +161,8 @@ class FakePersonHogClient:
         self._cohort_memberships.setdefault(person_id, []).append(
             cohort_pb2.CohortMembership(cohort_id=cohort_id, is_member=is_member)
         )
+        if is_member:
+            self._cohort_members[(cohort_id, person_id)] = True
 
     # ── PersonHogClient interface ────────────────────────────────────
 
@@ -252,6 +257,71 @@ class FakePersonHogClient:
         filtered = [m for m in all_memberships if m.cohort_id in request.cohort_ids]
         return cohort_pb2.CohortMembershipResponse(memberships=filtered)
 
+    def count_cohort_members(
+        self, request: cohort_pb2.CountCohortMembersRequest
+    ) -> cohort_pb2.CountCohortMembersResponse:
+        self.calls.append(_Call("count_cohort_members", request))
+        cohort_ids_set = set(request.cohort_ids)
+        count = sum(1 for (cid, _) in self._cohort_members if cid in cohort_ids_set)
+        return cohort_pb2.CountCohortMembersResponse(count=count)
+
+    def delete_cohort_member(
+        self, request: cohort_pb2.DeleteCohortMemberRequest, timeout: float | None = None
+    ) -> cohort_pb2.DeleteCohortMemberResponse:
+        self.calls.append(_Call("delete_cohort_member", request))
+        key = (request.cohort_id, request.person_id)
+        deleted = key in self._cohort_members
+        if deleted:
+            del self._cohort_members[key]
+            memberships = self._cohort_memberships.get(request.person_id, [])
+            self._cohort_memberships[request.person_id] = [m for m in memberships if m.cohort_id != request.cohort_id]
+        return cohort_pb2.DeleteCohortMemberResponse(deleted=deleted)
+
+    def delete_cohort_members_bulk(
+        self, request: cohort_pb2.DeleteCohortMembersBulkRequest, timeout: float | None = None
+    ) -> cohort_pb2.DeleteCohortMembersBulkResponse:
+        self.calls.append(_Call("delete_cohort_members_bulk", request))
+        cohort_ids_set = set(request.cohort_ids)
+        batch_size = request.batch_size if request.batch_size > 0 else 10000
+        to_remove = [k for k in self._cohort_members if k[0] in cohort_ids_set][:batch_size]
+        for key in to_remove:
+            del self._cohort_members[key]
+        for pid in list(self._cohort_memberships.keys()):
+            self._cohort_memberships[pid] = [
+                m
+                for m in self._cohort_memberships[pid]
+                if m.cohort_id not in cohort_ids_set or (m.cohort_id, pid) in self._cohort_members
+            ]
+        return cohort_pb2.DeleteCohortMembersBulkResponse(deleted_count=len(to_remove))
+
+    def insert_cohort_members(
+        self, request: cohort_pb2.InsertCohortMembersRequest, timeout: float | None = None
+    ) -> cohort_pb2.InsertCohortMembersResponse:
+        self.calls.append(_Call("insert_cohort_members", request))
+        inserted = 0
+        for pid in request.person_ids:
+            key = (request.cohort_id, pid)
+            if key not in self._cohort_members:
+                self._cohort_members[key] = True
+                self._cohort_memberships.setdefault(pid, []).append(
+                    cohort_pb2.CohortMembership(cohort_id=request.cohort_id, is_member=True)
+                )
+                inserted += 1
+        return cohort_pb2.InsertCohortMembersResponse(inserted_count=inserted)
+
+    def list_cohort_member_ids(
+        self, request: cohort_pb2.ListCohortMemberIdsRequest
+    ) -> cohort_pb2.ListCohortMemberIdsResponse:
+        self.calls.append(_Call("list_cohort_member_ids", request))
+        all_pids = sorted(pid for (cid, pid) in self._cohort_members if cid == request.cohort_id)
+        if request.cursor > 0:
+            all_pids = [p for p in all_pids if p > request.cursor]
+        limit = request.limit if request.limit > 0 else 10000
+        has_more = len(all_pids) > limit
+        page = all_pids[:limit]
+        next_cursor = page[-1] if has_more else 0
+        return cohort_pb2.ListCohortMemberIdsResponse(person_ids=page, next_cursor=next_cursor)
+
     def get_group(self, request: group_pb2.GetGroupRequest) -> group_pb2.GetGroupResponse:
         self.calls.append(_Call("get_group", request))
         group = self._groups.get((request.team_id, request.group_type_index, request.group_key))
@@ -311,6 +381,47 @@ class FakePersonHogClient:
             mappings = self._group_type_mappings_by_project.get(pid, [])
             results.append(group_pb2.GroupTypeMappingsByKey(key=pid, mappings=mappings))
         return group_pb2.GroupTypeMappingsBatchResponse(results=results)
+
+    # ── Person deletes ────────────────────────────────────────────────
+
+    def delete_persons(
+        self, request: person_pb2.DeletePersonsRequest, timeout: float | None = None
+    ) -> person_pb2.DeletePersonsResponse:
+        self.calls.append(_Call("delete_persons", request))
+        deleted_count = 0
+        for uuid in request.person_uuids:
+            person = self._persons_by_uuid.pop((request.team_id, uuid), None)
+            if person is None:
+                continue
+            deleted_count += 1
+            self._persons_by_id.pop((request.team_id, person.id), None)
+            # Remove distinct_id mappings
+            dids = self._distinct_ids.pop((request.team_id, person.id), [])
+            for did in dids:
+                self._persons_by_distinct_id.pop((request.team_id, did.distinct_id), None)
+        return person_pb2.DeletePersonsResponse(deleted_count=deleted_count)
+
+    def delete_persons_batch_for_team(
+        self, request: person_pb2.DeletePersonsBatchForTeamRequest, timeout: float | None = None
+    ) -> person_pb2.DeletePersonsBatchForTeamResponse:
+        deleted_count = 0
+        # Find up to batch_size persons for this team
+        to_delete = []
+        for (team_id, uuid), person in list(self._persons_by_uuid.items()):
+            if team_id == request.team_id:
+                to_delete.append((team_id, uuid, person))
+                if len(to_delete) >= request.batch_size:
+                    break
+        for team_id, uuid, person in to_delete:
+            self._persons_by_uuid.pop((team_id, uuid), None)
+            self._persons_by_id.pop((team_id, person.id), None)
+            dids = self._distinct_ids.pop((team_id, person.id), [])
+            for did in dids:
+                self._persons_by_distinct_id.pop((team_id, did.distinct_id), None)
+            deleted_count += 1
+        response = person_pb2.DeletePersonsBatchForTeamResponse(deleted_count=deleted_count)
+        self.calls.append(_Call("delete_persons_batch_for_team", request, response))
+        return response
 
     # ── Assertion helpers ────────────────────────────────────────────
 

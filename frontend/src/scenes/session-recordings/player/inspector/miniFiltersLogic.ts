@@ -116,6 +116,24 @@ export const MiniFilters: SharedListMiniFilter[] = [
         tooltip:
             'Comments can be made using annotations or notebooks. Includes project and org level annotations that are within this session.',
     },
+    {
+        type: 'logs',
+        key: 'logs-info',
+        name: 'Info',
+        tooltip: 'Log entries with info, debug, or trace severity',
+    },
+    {
+        type: 'logs',
+        key: 'logs-warn',
+        name: 'Warn',
+        tooltip: 'Log entries with warn severity',
+    },
+    {
+        type: 'logs',
+        key: 'logs-error',
+        name: 'Error',
+        tooltip: 'Log entries with error or fatal severity',
+    },
 ]
 export type MiniFilterKey = (typeof MiniFilters)[number]['key']
 
@@ -129,6 +147,9 @@ const defaultMinifilters = [
     'console-warn',
     'console-error',
     'comment',
+    'logs-info',
+    'logs-warn',
+    'logs-error',
 ]
 
 export const miniFiltersLogic = kea<miniFiltersLogicType>([

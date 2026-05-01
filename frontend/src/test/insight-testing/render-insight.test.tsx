@@ -1,19 +1,19 @@
 import { cleanup } from '@testing-library/react'
 
-import { breakdown, renderInsightPage, series, waitForChart } from './index'
+import { breakdown, renderInsight, series, waitForChart } from './index'
 
 jest.mock('lib/components/AutoSizer', () => ({
     AutoSizer: ({ renderProp }: { renderProp: (size: { height: number; width: number }) => React.ReactNode }) =>
         renderProp({ height: 400, width: 400 }),
 }))
 
-describe('renderInsightPage', () => {
+describe('renderInsight', () => {
     afterEach(() => {
         cleanup()
     })
 
     it.skip('breakdown naps by hedgehogs', async () => {
-        renderInsightPage()
+        renderInsight()
         await waitForChart()
 
         await series.select('Napped')

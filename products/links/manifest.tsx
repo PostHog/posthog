@@ -1,7 +1,7 @@
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
-import { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
+import { FileSystemIconType, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 import { FileSystemIconColor, ProductManifest } from '~/types'
 
 export const manifest: ProductManifest = {
@@ -11,7 +11,6 @@ export const manifest: ProductManifest = {
             name: 'Links',
             import: () => import('./frontend/LinksScene'),
             projectBased: true,
-            defaultDocsPath: '/docs/link-tracking',
             activityScope: 'Link',
             description: 'Start creating links for your marketing campaigns, referral programs, and more.',
             iconType: 'link',
@@ -20,7 +19,6 @@ export const manifest: ProductManifest = {
             name: 'Link',
             import: () => import('./frontend/LinkScene'),
             projectBased: true,
-            defaultDocsPath: '/docs/link-tracking',
             activityScope: 'Link',
         },
     },
@@ -58,7 +56,7 @@ export const manifest: ProductManifest = {
         {
             path: 'Links',
             intents: [ProductKey.LINKS],
-            category: 'Unreleased',
+            category: ProductItemCategory.UNRELEASED,
             type: 'link',
             href: urls.links(),
             flag: FEATURE_FLAGS.LINKS,

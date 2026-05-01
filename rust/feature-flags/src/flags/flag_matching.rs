@@ -161,8 +161,10 @@ pub struct FlagEvaluationState {
     person_property_state: PersonPropertyState,
     /// Properties for each group type involved in flag evaluation
     group_properties: HashMap<GroupTypeIndex, HashMap<String, Value>>,
-    /// Cohorts for the current request
-    cohorts: Option<Vec<Cohort>>,
+    /// Cohorts for the current request, shared via `Arc` either from the
+    /// preloaded hypercache slice or wrapped from a `CohortCacheManager`
+    /// fetch.
+    cohorts: Option<Arc<[Cohort]>>,
     /// Cache of cohort membership results (both static and realtime) to avoid repeated lookups.
     /// Static results come from `posthog_cohortpeople`, realtime results from `cohort_membership`.
     /// The two sources produce disjoint key sets partitioned by `CohortType`.
@@ -211,7 +213,7 @@ impl FlagEvaluationState {
         self.person_property_state = PersonPropertyState::Skipped;
     }
 
-    pub fn set_cohorts(&mut self, cohorts: Vec<Cohort>) {
+    pub fn set_cohorts(&mut self, cohorts: Arc<[Cohort]>) {
         self.cohorts = Some(cohorts);
     }
 
@@ -335,7 +337,7 @@ pub struct FeatureFlagMatcher {
     /// When present, scoped to only the cohorts referenced by flags (including transitive deps),
     /// so the matcher skips the CohortCacheManager PG query entirely.
     /// `None` means no preloaded data (PG fallback or old cache) — use CohortCacheManager.
-    preloaded_cohorts: Option<Vec<Cohort>>,
+    preloaded_cohorts: Option<Arc<[Cohort]>>,
 }
 
 /// Lightweight snapshot of a flag's identity fields, saved before moving
@@ -680,7 +682,7 @@ impl FeatureFlagMatcher {
         &self,
         cohort_property_filters: &[&PropertyFilter],
         target_properties: &HashMap<String, Value>,
-        cohorts: Vec<Cohort>,
+        cohorts: Arc<[Cohort]>,
     ) -> Result<bool, FlagError> {
         // Track cohort evaluations in canonical log
         with_canonical_log(|log| log.eval.cohorts_evaluated += cohort_property_filters.len());
@@ -1186,8 +1188,14 @@ impl FeatureFlagMatcher {
         hash_key_overrides: Option<&HashMap<String, String>>,
         request_hash_key_override: &Option<String>,
     ) -> Result<FeatureFlagMatch, FlagError> {
-        let mut highest_match = FeatureFlagMatchReason::NoConditionMatch;
+        // Seed with the lowest-priority "could not evaluate" reason so any real evaluation
+        // result outranks it via `get_highest_priority_match_evaluation`. NoGroupType is
+        // the floor: a pure-group flag whose only condition is skipped for missing context
+        // still surfaces NoGroupType, while a person condition that runs and reports
+        // NoConditionMatch or OutOfRolloutBound takes precedence in mixed-targeting flags.
+        let mut highest_match = FeatureFlagMatchReason::NoGroupType;
         let mut highest_index = None;
+        let mut had_skipped_group_conditions = false;
 
         // Lazily compute properties per aggregation type. Person and group properties are
         // cached separately so conditions with different aggregation modes can share them.
@@ -1345,7 +1353,10 @@ impl FeatureFlagMatcher {
                         condition_index = %index,
                         "Condition uses group aggregation but group type not provided in evaluation context, skipping"
                     );
-                    // Record this as a NoGroupType reason but continue to next condition
+                    // Record this as a NoGroupType reason but continue to next condition.
+                    // Track that we skipped a group condition so the final result can
+                    // surface a richer description when person conditions also didn't match.
+                    had_skipped_group_conditions = true;
                     let (new_highest_match, new_highest_index) = self
                         .get_highest_priority_match_evaluation(
                             highest_match.clone(),
@@ -1453,6 +1464,17 @@ impl FeatureFlagMatcher {
         }
 
         condition_timer.label("outcome", "success").fin();
+
+        // When person conditions were evaluated (and didn't match) but group conditions
+        // were skipped because the caller didn't provide the required group type, upgrade
+        // the reason to carry a richer description. The API code still serializes as
+        // "no_condition_match" for backward compatibility, but the description tells the
+        // caller about the skipped group conditions.
+        if highest_match == FeatureFlagMatchReason::NoConditionMatch && had_skipped_group_conditions
+        {
+            highest_match = FeatureFlagMatchReason::NoConditionMatchGroupsNotEvaluated;
+        }
+
         // Return with the highest_match reason and index even if no conditions matched
         Ok(FeatureFlagMatch {
             matches: false,
@@ -1946,7 +1968,7 @@ impl FeatureFlagMatcher {
         // Use preloaded cohorts from the flags cache when available (already scoped
         // to only referenced cohorts). Fall back to CohortCacheManager which fetches
         // ALL cohorts for the team.
-        let cohorts = match self.preloaded_cohorts.take() {
+        let cohorts: Arc<[Cohort]> = match self.preloaded_cohorts.take() {
             Some(preloaded) => {
                 inc(
                     FLAG_COHORT_SOURCE_COUNTER,
@@ -1961,10 +1983,10 @@ impl FeatureFlagMatcher {
                     &[("source".to_string(), "cache_manager".to_string())],
                     1,
                 );
-                self.cohort_cache.get_cohorts(self.team_id).await?
+                Arc::from(self.cohort_cache.get_cohorts(self.team_id).await?)
             }
         };
-        self.flag_evaluation_state.set_cohorts(cohorts.clone());
+        self.flag_evaluation_state.set_cohorts(Arc::clone(&cohorts));
 
         // Get static cohort IDs
         // NOTE: relies on `is_static` and `uses_realtime_membership()` being mutually exclusive

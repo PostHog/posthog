@@ -19,14 +19,16 @@ def migrate_show_mean_from_boolean_to_string(batch_size: int, live_run: bool = F
     print(f"Found {total_count} retention insights to migrate")  # noqa: T201
 
     for insight in retention_insights.iterator(chunk_size=batch_size):
-        show_mean_value = insight.query["source"]["retentionFilter"]["showMean"]
+        source = insight.query.get("source") if isinstance(insight.query, dict) else None
+        retention_filter = source.get("retentionFilter") if isinstance(source, dict) else None
+        if not isinstance(retention_filter, dict) or "showMean" not in retention_filter:
+            continue
+        show_mean_value = retention_filter["showMean"]
         if isinstance(show_mean_value, bool):
             if live_run:
                 with transaction.atomic():
                     # Convert boolean to string - if True, use 'simple' else 'none'
-                    insight.query["source"]["retentionFilter"]["meanRetentionCalculation"] = (
-                        "simple" if show_mean_value else "none"
-                    )
+                    retention_filter["meanRetentionCalculation"] = "simple" if show_mean_value else "none"
                     insight.save()
                 processed_count += 1
                 if processed_count % batch_size == 0:

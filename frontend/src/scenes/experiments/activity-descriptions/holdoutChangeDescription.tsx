@@ -17,4 +17,15 @@ export const getHoldoutChangeDescription = (holdoutChange: ActivityChange): stri
         .with('filters', () => {
             return 'updated experiment holdout filters:'
         })
-        .exhaustive()
+        .otherwise(() => {
+            if (!holdoutChange.field) {
+                return 'updated experiment holdout'
+            }
+            // Fallback for unhandled fields - ensures all activity is visible
+            const fieldName = holdoutChange.field.replace(/_/g, ' ')
+            return match(holdoutChange.action)
+                .with('created', () => `added ${fieldName} to`)
+                .with('deleted', () => `removed ${fieldName} from`)
+                .with('changed', () => `updated ${fieldName} for`)
+                .otherwise(() => `modified ${fieldName} for`)
+        })

@@ -3,11 +3,9 @@ import './Navigation.scss'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { ReactNode, useCallback, useEffect, useRef } from 'react'
 
-import { BillingAlertsV2 } from 'lib/components/BillingAlertsV2'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { cn } from 'lib/utils/css-classes'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { SceneConfig } from 'scenes/sceneTypes'
 
@@ -35,7 +33,6 @@ export function Navigation({
     sceneConfig: SceneConfig | null
 }): JSX.Element {
     useMountedLogic(maxGlobalLogic)
-    const { isDev } = useValues(preflightLogic)
     const { theme } = useValues(themeLogic)
     const { mobileLayout } = useValues(navigationLogic)
     const { mode } = useValues(navigation3000Logic)
@@ -67,6 +64,16 @@ export function Navigation({
             registerScenePanelElement(inlinePanelRef.current)
         }
     }, [sidePanelOpen, registerScenePanelElement])
+
+    // Null the registration on Navigation unmount so the detached inline
+    // panel div is not pinned by sceneLayoutLogic's reducer. Kept in its own
+    // empty-deps effect so it fires only on final unmount, not on every
+    // sidePanelOpen toggle (which would briefly blank SceneLayout's portal).
+    useEffect(() => {
+        return () => {
+            registerScenePanelElement(null)
+        }
+    }, [registerScenePanelElement])
 
     // Set container ref so we can measure the width of the scene layout in logic
     useEffect(() => {
@@ -156,18 +163,17 @@ export function Navigation({
                             }}
                         >
                             <SceneLayout sceneConfig={sceneConfig}>
-                                {(!sceneConfig?.hideBillingNotice || !sceneConfig?.hideProjectNotice) && (
+                                {!sceneConfig?.hideProjectNotice && (
                                     <div
                                         className={cn({
                                             'px-4 empty:hidden': sceneConfig?.layout === 'app-raw-no-header',
                                         })}
                                     >
-                                        {!sceneConfig?.hideBillingNotice && (
-                                            <BillingAlertsV2 className={cn('my-0 mb-4', { 'mt-4': noPaddingScene })} />
-                                        )}
-                                        {!sceneConfig?.hideProjectNotice && !isDev && (
-                                            <ProjectNotice className={cn('my-0 mb-4', { 'mt-4': noPaddingScene })} />
-                                        )}
+                                        <ProjectNotice
+                                            className={cn('my-0 mb-4', {
+                                                'mt-4': noPaddingScene,
+                                            })}
+                                        />
                                     </div>
                                 )}
                                 {children}

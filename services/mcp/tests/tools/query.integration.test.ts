@@ -44,7 +44,7 @@ function assertQueryResponse(response: any, expectedQueryKind?: string): { resul
     expect(response).toHaveProperty('results')
     expect(response).toHaveProperty('_posthogUrl')
     expect(typeof response._posthogUrl).toBe('string')
-    expect(response._posthogUrl).toMatch(/\/insights\/new\?q=/)
+    expect(response._posthogUrl).toMatch(/\/insights\/new#q=/)
 
     if (expectedQueryKind) {
         expect(response.query.kind).toBe(expectedQueryKind)

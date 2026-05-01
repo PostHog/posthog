@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useMemo } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 
 import { IconCalendar } from '@posthog/icons'
 import {
@@ -23,6 +23,8 @@ import {
     FREQUENCY_OPTIONS,
     getNthWeekdayOfMonth,
     NTH_LABELS,
+    parseNaturalLanguage,
+    scheduleToText,
     WEEKDAY_FULL_LABELS,
     WEEKDAY_LABELS,
     WEEKDAY_PILL_LABELS,
@@ -226,7 +228,11 @@ function SchedulePreview({ state, summary, previewOccurrences, timezone }: Sched
                         {timezone ? ` in ${timezone}` : ''}
                     </div>
                     <div className="space-y-1.5">
-                        <OccurrencesList occurrences={previewOccurrences} isFinite={state.endType !== 'never'} />
+                        <OccurrencesList
+                            occurrences={previewOccurrences}
+                            isFinite={state.endType !== 'never'}
+                            timezone={timezone}
+                        />
                     </div>
                 </div>
             )}
@@ -256,15 +262,68 @@ function TimezoneMenuPicker({ value, onChange }: { value: string; onChange: (tim
     )
 }
 
+function NaturalLanguageScheduleInput({
+    state,
+    startsAt,
+    onStateChange,
+}: {
+    state: ScheduleState
+    startsAt: string | null
+    onStateChange: (state: ScheduleState) => void
+}): JSX.Element {
+    const currentText = scheduleToText(state, startsAt)
+    const [text, setText] = useState(currentText)
+    const [isFocused, setIsFocused] = useState(false)
+    const [hasError, setHasError] = useState(false)
+
+    const handleChange = useCallback(
+        (value: string) => {
+            setText(value)
+            if (!value.trim()) {
+                setHasError(false)
+                return
+            }
+            const parsed = parseNaturalLanguage(value)
+            if (parsed) {
+                setHasError(false)
+                onStateChange(parsed)
+            } else {
+                setHasError(true)
+            }
+        },
+        [onStateChange]
+    )
+
+    // Sync text from picker changes when not focused
+    const displayText = isFocused ? text : currentText
+
+    return (
+        <div className="flex flex-col gap-1">
+            <LemonInput
+                value={displayText}
+                onChange={handleChange}
+                onFocus={() => {
+                    setIsFocused(true)
+                    setText(currentText)
+                    setHasError(false)
+                }}
+                onBlur={() => setIsFocused(false)}
+                placeholder='e.g. "every week on Monday and Wednesday"'
+                fullWidth
+                size="small"
+                status={hasError && isFocused ? 'danger' : undefined}
+            />
+            <span className="text-xs text-muted">
+                Type a schedule in plain English to update the picker below, or use the controls directly.
+            </span>
+        </div>
+    )
+}
+
 export function RecurringSchedulePicker(): JSX.Element {
     const { scheduleState, scheduleStartsAt, scheduleTimezone, isScheduleRepeating } = useValues(workflowLogic)
-    const {
-        setScheduleState,
-        setScheduleStartsAt,
-        setScheduleStartsAtFromPicker,
-        setScheduleTimezone,
-        setScheduleRepeating,
-    } = useActions(workflowLogic)
+    const { setScheduleState, setScheduleStartsAtFromPicker, setScheduleTimezone, setScheduleRepeating } =
+        useActions(workflowLogic)
 
     const previewOccurrences = useMemo(() => {
         if (!isScheduleRepeating || !scheduleStartsAt) {
@@ -318,19 +377,15 @@ export function RecurringSchedulePicker(): JSX.Element {
                         showTimeToggle={false}
                     />
                 </div>
-                <div className="w-22 shrink-0">
-                    <LemonSwitch
-                        label="Repeat"
-                        checked={isScheduleRepeating}
-                        onChange={(checked) => {
-                            if (!scheduleStartsAt) {
-                                // If no start date yet, set one so the toggle is meaningful
-                                setScheduleStartsAt(new Date().toISOString())
-                            }
-                            setScheduleRepeating(checked)
-                        }}
-                    />
-                </div>
+                {scheduleStartsAt && (
+                    <div className="w-22 shrink-0">
+                        <LemonSwitch
+                            label="Repeat"
+                            checked={isScheduleRepeating}
+                            onChange={(checked) => setScheduleRepeating(checked)}
+                        />
+                    </div>
+                )}
             </div>
             {scheduleStartsAt && (
                 <div className="flex flex-col gap-1 -mt-1">
@@ -354,7 +409,15 @@ export function RecurringSchedulePicker(): JSX.Element {
                 </div>
             )}
 
-            {isScheduleRepeating && (
+            {scheduleStartsAt && isScheduleRepeating && (
+                <NaturalLanguageScheduleInput
+                    state={scheduleState}
+                    startsAt={scheduleStartsAt}
+                    onStateChange={(newState) => setScheduleState(newState, 'natural_language')}
+                />
+            )}
+
+            {scheduleStartsAt && isScheduleRepeating && (
                 <>
                     <div className="flex items-center gap-2 flex-wrap">
                         <FrequencyPicker state={scheduleState} onStateChange={setScheduleState} />

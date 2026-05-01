@@ -44,7 +44,7 @@ export const useSessionReplaySummaryMaxTool = (): ReturnType<typeof useMaxTool> 
             icon: iconForType('session_replay'),
         },
         active: shouldShowButton,
-        initialMaxPrompt: `!Summarize session replays for experiment "${maxToolContext.experiment_name}"`,
+        initialMaxPrompt: `!Summarize session recordings for experiment "${maxToolContext.experiment_name}"`,
         callback(toolOutput) {
             if (toolOutput?.error) {
                 posthog.captureException(

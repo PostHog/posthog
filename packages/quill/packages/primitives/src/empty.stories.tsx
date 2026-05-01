@@ -1,11 +1,11 @@
-import type { Meta, StoryObj } from '@storybook/react-vite'
+import type { Meta, StoryObj } from '@storybook/react'
 import { ArrowRightIcon, Folder } from 'lucide-react'
 
 import { Button } from './button'
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from './empty'
 
 const meta: Meta<typeof Empty> = {
-    title: 'Primitives/Empty',
+    title: 'Primitives/Empty/Empty',
     component: Empty,
     tags: ['autodocs'],
 }

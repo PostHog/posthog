@@ -32,7 +32,7 @@ import { featureFlagLogic, getFeatureFlagPayload } from 'lib/logic/featureFlagLo
 import { clearDOMTextSelection, getJSHeapMemory, shouldCancelQuery, toParams, uuid } from 'lib/utils'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { BREAKPOINTS } from 'scenes/dashboard/dashboardUtils'
+import { BREAKPOINTS, dashboardToSaveableTemplate } from 'scenes/dashboard/dashboardUtils'
 import { calculateDuplicateLayout, calculateLayouts } from 'scenes/dashboard/tileLayouts'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
@@ -41,7 +41,6 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
-import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { variableDataLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variableDataLogic'
@@ -103,6 +102,7 @@ import {
     parseURLFilters,
     parseURLVariables,
     runWithLimit,
+    scheduleSharedDashboardStaleAutoForceIfEligible,
 } from './dashboardUtils'
 import { TileFiltersOverride } from './TileFiltersOverride'
 import { tileLogic } from './tileLogic'
@@ -179,8 +179,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
     props({} as DashboardLogicProps),
 
     key((props) => {
-        if (typeof props.id !== 'number') {
-            throw Error('Must init dashboardLogic with a numeric ID key')
+        // `typeof NaN === 'number'` — check finiteness explicitly so a NaN id surfaces loudly
+        // instead of mounting a stuck-NotFound logic instance.
+        if (typeof props.id !== 'number' || !Number.isFinite(props.id)) {
+            throw Error(`dashboardLogic key() received non-finite id: ${String(props.id)}`)
         }
         return props.id
     }),
@@ -630,22 +632,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     }
 
                     return values.dashboard
-                },
-            },
-        ],
-        generatedDashboardMetadata: [
-            null as { name: string; description: string } | null,
-            {
-                generateDashboardMetadata: async () => {
-                    try {
-                        const response = await api.dashboards.generateMetadata(props.id)
-                        eventUsageLogic.actions.reportDashboardMetadataAiGenerated({ dashboardId: props.id })
-                        return { name: response.name, description: response.description }
-                    } catch (e) {
-                        eventUsageLogic.actions.reportDashboardMetadataAiGenerationFailed({ dashboardId: props.id })
-                        lemonToast.error('Failed to generate name and description')
-                        throw e
-                    }
                 },
             },
         ],
@@ -1354,52 +1340,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
         asDashboardTemplate: [
             (s) => [s.dashboard],
-            (dashboard: DashboardType): DashboardTemplateEditorType | undefined => {
-                return dashboard
-                    ? {
-                          template_name: dashboard.name,
-                          dashboard_description: dashboard.description,
-                          dashboard_filters: dashboard.filters,
-                          tags: dashboard.tags || [],
-                          tiles: dashboard.tiles
-                              .filter((tile) => !tile.error) // Skip error tiles when creating templates
-                              .map((tile) => {
-                                  if (tile.text) {
-                                      return {
-                                          type: 'TEXT',
-                                          body: tile.text.body,
-                                          layouts: tile.layouts,
-                                          color: tile.color,
-                                      }
-                                  }
-                                  if (tile.insight) {
-                                      return {
-                                          type: 'INSIGHT',
-                                          name: tile.insight.name,
-                                          description: tile.insight.description || '',
-                                          query: tile.insight.query,
-                                          layouts: tile.layouts,
-                                          color: tile.color,
-                                      }
-                                  }
-                                  if (tile.button_tile) {
-                                      return {
-                                          button_tile: {
-                                              url: tile.button_tile.url,
-                                              text: tile.button_tile.text,
-                                              placement: tile.button_tile.placement,
-                                              style: tile.button_tile.style,
-                                          },
-                                          layouts: tile.layouts,
-                                          color: tile.color,
-                                      }
-                                  }
-                                  throw new Error('Unknown tile type')
-                              }),
-                          variables: [],
-                      }
-                    : undefined
-            },
+            (dashboard: DashboardType): DashboardTemplateEditorType | undefined =>
+                dashboardToSaveableTemplate(dashboard),
         ],
         placement: [
             () => [(_, props) => props.placement],
@@ -1505,8 +1447,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
         effectiveLastRefresh: [
             (s) => [s.lastDashboardRefresh, s.oldestRefreshed],
             (lastDashboardRefresh, oldestRefreshed): Dayjs | null => {
-                const dates = [lastDashboardRefresh, oldestRefreshed].filter((d): d is Dayjs => d != null)
-                return sortDayJsDates(dates)[dates.length - 1]
+                // Pessimistic: the banner must not claim the dashboard is fresher than the stalest insight
+                // tile (per-tile menus use insight.last_refresh). `last_dashboard.last_refresh` and client
+                // `updateDashboardLastRefresh(dayjs())` can otherwise run ahead of embedded tile metadata.
+                return oldestRefreshed ?? lastDashboardRefresh ?? null
             },
         ],
 
@@ -1571,31 +1515,17 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     : false
             },
         ],
-        /** AI dashboard title/description: editor access, tiles present, main dashboard scene only, not shared/embed routes. */
-        canGenerateDashboardAiMetadata: [
-            (s) => [s.canEditDashboard, s.placement, s.dashboard, router.selectors.location],
-            (
-                canEditDashboard: boolean,
-                placement: DashboardPlacement,
-                dashboard: DashboardType<QueryBasedInsightModel> | null,
-                { pathname }: { pathname: string }
-            ): boolean => {
-                const tiles = dashboard?.tiles?.filter((t: DashboardTile<QueryBasedInsightModel>) => !t.deleted) ?? []
-                const hasInsightOrTextTile = tiles.some((t) => !!(t.insight || t.text))
-                if (!canEditDashboard || !hasInsightOrTextTile) {
+        /** Save-as-project-template from dashboard scene: editor on dashboard, payload has tiles; customers also need authoring flag. Staff use the same modal, with an optional JSON editor entry inside. */
+        canSaveProjectDashboardTemplate: [
+            (s) => [userLogic.selectors.user, s.featureFlags, s.canEditDashboard, s.asDashboardTemplate],
+            (user, featureFlags, canEditDashboard, asDashboardTemplate): boolean => {
+                if (!canEditDashboard || !(asDashboardTemplate?.tiles?.length ?? 0)) {
                     return false
                 }
-                if (placement !== DashboardPlacement.Dashboard) {
-                    return false
+                if (user?.is_staff) {
+                    return true
                 }
-                if (
-                    pathname.startsWith('/shared/') ||
-                    pathname.startsWith('/embedded/') ||
-                    pathname.startsWith('/shared_dashboard/')
-                ) {
-                    return false
-                }
-                return true
+                return !!featureFlags[FEATURE_FLAGS.CUSTOMER_DASHBOARD_TEMPLATE_AUTHORING]
             },
         ],
         canRestrictDashboard: [
@@ -1796,19 +1726,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
     })),
     listeners(({ actions, values, cache, props, sharedListeners }) => ({
-        generateDashboardMetadataSuccess: ({ generatedDashboardMetadata }) => {
-            if (generatedDashboardMetadata && values.dashboard) {
-                dashboardsModel.actions.updateDashboard({
-                    id: values.dashboard.id,
-                    name: generatedDashboardMetadata.name,
-                    description: generatedDashboardMetadata.description,
-                    allowUndo: true,
-                })
-                if (generatedDashboardMetadata.description && !sceneLayoutLogic.values.showDescription) {
-                    sceneLayoutLogic.actions.toggleShowDescription()
-                }
-            }
-        },
         togglePinned: () => {
             if (values.dashboard) {
                 // Reducers have already run, so values.isPinned reflects the desired new state.
@@ -2255,6 +2172,21 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         actions.setRefreshAnalysisCacheKey(null)
                     }
                 }
+            }
+
+            if (
+                isInitialLoad &&
+                !forceRefresh &&
+                tilesErroredCount === 0 &&
+                tilesAbortedCount === 0 &&
+                values.placement === DashboardPlacement.Public
+            ) {
+                scheduleSharedDashboardStaleAutoForceIfEligible({
+                    effectiveLastRefresh: values.effectiveLastRefresh,
+                    triggerDashboardRefresh: () => {
+                        void actions.triggerDashboardRefresh()
+                    },
+                })
             }
         },
         saveEditModeChanges: () => {

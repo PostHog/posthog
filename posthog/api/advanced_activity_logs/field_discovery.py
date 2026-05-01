@@ -34,7 +34,7 @@ class AdvancedActivityLogFieldDiscovery:
             if cached:
                 return cached
             return {
-                "static_filters": {"users": [], "scopes": [], "activities": []},
+                "static_filters": {"users": [], "scopes": [], "activities": [], "clients": []},
                 "detail_fields": {},
             }
 
@@ -54,6 +54,7 @@ class AdvancedActivityLogFieldDiscovery:
             "users": self._get_available_users(queryset),
             "scopes": self._get_available_scopes(queryset),
             "activities": self._get_available_activities(queryset),
+            "clients": self._get_available_clients(queryset),
         }
 
     def _get_available_users(self, queryset: QuerySet) -> list[dict[str, str]]:
@@ -82,6 +83,11 @@ class AdvancedActivityLogFieldDiscovery:
         activities_query = queryset.values_list("activity", flat=True)
         activities = set(activities_query)
         return [{"value": activity} for activity in sorted(activities) if activity]
+
+    def _get_available_clients(self, queryset: QuerySet) -> list[dict[str, str]]:
+        clients_query = queryset.values_list("client", flat=True)
+        clients = set(clients_query)
+        return [{"value": client} for client in sorted(c for c in clients if c)]
 
     def _analyze_detail_fields_memory(self) -> DetailFieldsResult:
         fields = self._discover_fields_memory(batch_size=BATCH_SIZE, use_sampling=False)
@@ -348,6 +354,7 @@ class AdvancedActivityLogFieldDiscovery:
             "users": existing.get("users", []),
             "scopes": existing.get("scopes", []),
             "activities": existing.get("activities", []),
+            "clients": existing.get("clients", []),
         }
 
         # Merge users (by uuid)
@@ -367,5 +374,11 @@ class AdvancedActivityLogFieldDiscovery:
         for activity in new.get("activities", []):
             if activity["value"] not in existing_activities:
                 merged["activities"].append(activity)
+
+        # Merge clients
+        existing_clients = {c["value"] for c in merged["clients"]}
+        for client in new.get("clients", []):
+            if client["value"] not in existing_clients:
+                merged["clients"].append(client)
 
         return merged

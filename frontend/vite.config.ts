@@ -4,9 +4,9 @@ import { resolve } from 'path'
 import { defineConfig } from 'vite'
 
 // import { toolbarDenylistPlugin } from './vite-toolbar-plugin'
-import { htmlGenerationPlugin } from './vite-html-plugin'
-import { posthogJsPlugin } from './vite-posthog-js-plugin'
-import { publicAssetsPlugin } from './vite-public-assets-plugin'
+import { htmlGenerationPlugin } from './plugins/vite-html-plugin'
+import { posthogJsPlugin } from './plugins/vite-posthog-js-plugin'
+import { publicAssetsPlugin } from './plugins/vite-public-assets-plugin'
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
@@ -100,6 +100,9 @@ export default defineConfig(({ mode }) => {
         server: {
             port: 8234,
             host: process.argv.includes('--host') ? '0.0.0.0' : 'localhost',
+            allowedHosts: process.env.VITE_ALLOWED_HOSTS?.split(',')
+                .map((s) => s.trim())
+                .filter(Boolean),
             // nosemgrep: trailofbits.javascript.apollo-graphql.v3-cors-audit.v3-potentially-bad-cors
             cors: true,
             // JS_URL overrides for sandbox environments where Vite is exposed on a different port.

@@ -1,4 +1,4 @@
-import type { Meta, StoryObj } from '@storybook/react-vite'
+import type { Meta, StoryObj } from '@storybook/react'
 
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './collapsible'
 
@@ -19,6 +19,26 @@ export const Default: Story = {
             </CollapsibleTrigger>
             <CollapsibleContent>
                 <p>Collapsible Content</p>
+            </CollapsibleContent>
+        </Collapsible>
+    ),
+} satisfies Story
+
+export const Folder: Story = {
+    render: () => (
+        <Collapsible className="max-w-sm" variant="folder">
+            <CollapsibleTrigger>
+                <p>Collapsible Trigger</p>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+            <Collapsible variant="folder">
+                <CollapsibleTrigger>
+                    <p>Collapsible Trigger</p>
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                    <p>Collapsible Content</p>
+                </CollapsibleContent>
+            </Collapsible>
             </CollapsibleContent>
         </Collapsible>
     ),

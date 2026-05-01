@@ -74,12 +74,14 @@ export function NodeCanvas<T extends Record<string, unknown>>({
     height = 200,
     width = 800,
     padding = 0.3,
+    maxZoom = 1,
 }: {
     nodes: Node<T>[]
     nodeTypes: NodeTypes
     height?: number
     width?: number
     padding?: number
+    maxZoom?: number
 }): JSX.Element {
     return (
         <ReactFlowProvider>
@@ -94,7 +96,7 @@ export function NodeCanvas<T extends Record<string, unknown>>({
                     fitViewOptions={{ padding }}
                     proOptions={{ hideAttribution: true }}
                     minZoom={0.5}
-                    maxZoom={1}
+                    maxZoom={maxZoom}
                 />
             </div>
         </ReactFlowProvider>

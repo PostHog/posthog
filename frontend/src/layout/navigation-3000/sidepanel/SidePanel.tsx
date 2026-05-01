@@ -3,7 +3,7 @@ import './SidePanel.scss'
 import { useActions, useValues } from 'kea'
 import { lazy, Suspense, useEffect, useRef } from 'react'
 
-import { IconBook, IconGear, IconInfo, IconLock, IconLogomark, IconNotebook } from '@posthog/icons'
+import { IconGear, IconLock, IconLogomark, IconNotebook } from '@posthog/icons'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
@@ -17,13 +17,8 @@ const NotebookPanel = lazy(() =>
 import { useWindowSize } from 'lib/hooks/useWindowSize'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
-import {
-    SidePanelExports,
-    SidePanelExportsIcon,
-} from '~/layout/navigation-3000/sidepanel/panels/exports/SidePanelExports'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
-import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { SidePanelTab } from '~/types'
 
 import { SidePanelSupportIcon } from 'products/conversations/frontend/components/SidePanel/SidePanelSupportIcon'
@@ -31,22 +26,16 @@ import { SidePanelSupportIcon } from 'products/conversations/frontend/components
 import { SidePanelAccessControl } from './panels/access_control/SidePanelAccessControl'
 import { SidePanelActivity, SidePanelActivityIcon } from './panels/activity/SidePanelActivity'
 import { SidePanelDiscussion, SidePanelDiscussionIcon } from './panels/discussion/SidePanelDiscussion'
-import { SidePanelChangelog } from './panels/SidePanelChangelog'
-import { SidePanelDocs } from './panels/SidePanelDocs'
-import { SidePanelHealth, SidePanelHealthIcon } from './panels/SidePanelHealth'
-import { SidePanelInfo, SidePanelInfoIcon } from './panels/SidePanelInfo'
-import { SidePanelMax } from './panels/SidePanelMax'
-import { SidePanelSettings } from './panels/SidePanelSettings'
-import { SidePanelStatus, SidePanelStatusIcon } from './panels/SidePanelStatus'
-import { SidePanelSupport } from './panels/SidePanelSupport'
+import { SidePanelExports, SidePanelExportsIcon } from './panels/exports/SidePanelExports'
+import { SidePanelInfo, SidePanelInfoIcon } from './panels/info/SidePanelInfo'
+import { SidePanelMax } from './panels/max/SidePanelMax'
+import { SidePanelSettings } from './panels/settings/SidePanelSettings'
+import { SidePanelSupport } from './panels/support/SidePanelSupport'
 import { sidePanelLogic } from './sidePanelLogic'
 import { SidePanelNavigation } from './SidePanelNavigation'
 import { sidePanelStateLogic } from './sidePanelStateLogic'
 
-export const SIDE_PANEL_TABS: Record<
-    SidePanelTab,
-    { label: string; Icon: any; Content: any; noModalSupport?: boolean }
-> = {
+export const SIDE_PANEL_TABS: Record<SidePanelTab, { label: string; Icon: any; Content: any }> = {
     [SidePanelTab.Max]: {
         label: 'PostHog AI',
         Icon: IconLogomark,
@@ -58,59 +47,34 @@ export const SIDE_PANEL_TABS: Record<
         Content: NotebookPanel,
     },
     [SidePanelTab.Support]: {
-        label: 'Help',
+        label: 'Support',
         Icon: SidePanelSupportIcon,
         Content: SidePanelSupport,
     },
-    [SidePanelTab.Docs]: {
-        label: 'Docs',
-        Icon: IconInfo,
-        Content: SidePanelDocs,
-        noModalSupport: true,
-    },
-    [SidePanelTab.Changelog]: {
-        label: 'Changelog',
-        Icon: IconBook,
-        Content: SidePanelChangelog,
-        noModalSupport: true,
-    },
-
     [SidePanelTab.Settings]: {
         label: 'Settings',
         Icon: IconGear,
         Content: SidePanelSettings,
-    },
-
-    [SidePanelTab.Activity]: {
-        label: 'Activity logs',
-        Icon: SidePanelActivityIcon,
-        Content: SidePanelActivity,
-    },
-    [SidePanelTab.Discussion]: {
-        label: 'Discussion',
-        Icon: SidePanelDiscussionIcon,
-        Content: SidePanelDiscussion,
     },
     [SidePanelTab.Exports]: {
         label: 'Exports',
         Icon: SidePanelExportsIcon,
         Content: SidePanelExports,
     },
-    [SidePanelTab.Status]: {
-        label: 'System status',
-        Icon: SidePanelStatusIcon,
-        Content: SidePanelStatus,
-        noModalSupport: true,
+    [SidePanelTab.Activity]: {
+        label: 'Activity logs',
+        Icon: SidePanelActivityIcon,
+        Content: SidePanelActivity,
+    },
+    [SidePanelTab.Discussion]: {
+        label: 'Discuss',
+        Icon: SidePanelDiscussionIcon,
+        Content: SidePanelDiscussion,
     },
     [SidePanelTab.AccessControl]: {
-        label: 'Access control',
+        label: 'Access',
         Icon: IconLock,
         Content: SidePanelAccessControl,
-    },
-    [SidePanelTab.Health]: {
-        label: 'Pipeline status',
-        Icon: SidePanelHealthIcon,
-        Content: SidePanelHealth,
     },
     [SidePanelTab.Info]: {
         label: 'Actions',
@@ -124,16 +88,14 @@ const SIDE_PANEL_MIN_WIDTH_COMPACT = 330
 
 export function SidePanel({ className }: { className?: string }): JSX.Element | null {
     const { theme } = useValues(themeLogic)
-    const { visibleTabs } = useValues(sidePanelLogic)
+    const { enabledTabs, visibleTabs } = useValues(sidePanelLogic)
     const { selectedTab, sidePanelOpen } = useValues(sidePanelStateLogic)
     const { openSidePanel, closeSidePanel, setSidePanelAvailable } = useActions(sidePanelStateLogic)
-    const { scenePanelIsPresent } = useValues(sceneLayoutLogic)
 
     const activeTab = sidePanelOpen && selectedTab
 
-    const isInfoTabActive = activeTab === SidePanelTab.Info && scenePanelIsPresent
-    const PanelContent =
-        activeTab && (visibleTabs.includes(activeTab) || isInfoTabActive) ? SIDE_PANEL_TABS[activeTab]?.Content : null
+    // Use enabledTabs (not visibleTabs) so programmatically-opened tabs like Support render
+    const PanelContent = activeTab && enabledTabs.includes(activeTab) ? SIDE_PANEL_TABS[activeTab]?.Content : null
 
     const ref = useRef<HTMLDivElement>(null)
 
@@ -166,19 +128,16 @@ export function SidePanel({ className }: { className?: string }): JSX.Element | 
         }
     }, [desiredSize, sidePanelOpen, setMainContentRect, mainContentRef])
 
-    const sidePanelOpenAndAvailable =
-        selectedTab &&
-        sidePanelOpen &&
-        (visibleTabs.includes(selectedTab) || (selectedTab === SidePanelTab.Info && scenePanelIsPresent))
+    const sidePanelOpenAndAvailable = selectedTab && sidePanelOpen && enabledTabs.includes(selectedTab)
 
-    // If the persisted state says the panel is open but the selected tab isn't
-    // available in this context (e.g. Info tab on a scene without a ScenePanel),
-    // close the panel so other components like SceneTitlePanelButton stay in sync.
+    // If the selected tab is no longer available (e.g. navigating away from a scene
+    // with Settings or Info), fall back to Info or Max instead of closing
     useEffect(() => {
         if (sidePanelOpen && selectedTab && !sidePanelOpenAndAvailable) {
-            closeSidePanel()
+            const fallbackTab = enabledTabs.includes(SidePanelTab.Info) ? SidePanelTab.Info : SidePanelTab.Max
+            openSidePanel(fallbackTab)
         }
-    }, [sidePanelOpen, selectedTab, sidePanelOpenAndAvailable, closeSidePanel])
+    }, [sidePanelOpen, selectedTab, sidePanelOpenAndAvailable, enabledTabs, openSidePanel])
 
     const { windowSize } = useWindowSize()
 

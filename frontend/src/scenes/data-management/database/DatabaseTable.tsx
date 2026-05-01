@@ -8,13 +8,14 @@ import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
-import { dataWarehouseJoinsLogic } from 'scenes/data-warehouse/external/dataWarehouseJoinsLogic'
 import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsSceneLogic'
 import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { DatabaseSchemaTable, DatabaseSerializedFieldType } from '~/queries/schema/schema-general'
+
+import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
 
 interface DatabaseTableProps {
     table: string
@@ -54,8 +55,8 @@ const isNonEditableSchemaType = (schemaType: unknown): schemaType is NonEditable
 const JoinsMoreMenu = ({ tableName, fieldName }: { tableName: string; fieldName: string }): JSX.Element => {
     const { currentTeamId } = useValues(teamLogic)
     const { toggleEditJoinModal } = useActions(viewLinkLogic)
-    const { joins, joinsLoading } = useValues(dataWarehouseJoinsLogic)
-    const { loadJoins } = useActions(dataWarehouseJoinsLogic)
+    const { joins, joinsLoading } = useValues(joinsLogic)
+    const { loadJoins } = useActions(joinsLogic)
     const { loadDatabase } = useActions(dataWarehouseSettingsSceneLogic)
 
     const join =

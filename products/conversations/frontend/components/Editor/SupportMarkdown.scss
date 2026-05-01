@@ -11,10 +11,10 @@
         border-radius: var(--radius);
     }
 
-    .SupportMarkdown__image {
+    img {
         max-width: 100%;
         max-height: 300px;
-        cursor: pointer;
+        cursor: zoom-in;
         border-radius: var(--radius);
         transition: opacity 0.15s ease;
 

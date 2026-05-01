@@ -216,7 +216,7 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return dag_id
 
     def safely_get_queryset(self, queryset):
-        qs = queryset.filter(team_id=self.team_id).exclude(dag__name__startswith="conflict_")
+        qs = queryset.filter(team_id=self.team_id)
         dag_id = self._get_dag_id_param()
         if dag_id:
             qs = qs.filter(dag_id=dag_id)
@@ -325,12 +325,7 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["GET"], detail=False)
     def dag_ids(self, req: request.Request, *args, **kwargs) -> response.Response:
         """Get all distinct DAGs for the team."""
-        dags = list(
-            DAG.objects.filter(team_id=self.team_id)
-            .exclude(name__startswith="conflict_")
-            .order_by("name")
-            .values("id", "name")
-        )
+        dags = list(DAG.objects.filter(team_id=self.team_id).order_by("name").values("id", "name"))
         dag_ids = [{"id": str(dag["id"]), "name": dag["name"]} for dag in dags]
         return response.Response({"dag_ids": dag_ids}, status=status.HTTP_200_OK)
 

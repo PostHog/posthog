@@ -1,12 +1,16 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
+import { useEffect } from 'react'
 
-import { LemonTag } from '@posthog/lemon-ui'
+import { IconGear } from '@posthog/icons'
+import { LemonButton, LemonDropdown, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { objectsEqual } from 'lib/utils'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
@@ -16,25 +20,33 @@ import { isTracesQuery } from '~/queries/utils'
 
 import { LLMMessageDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
 import { llmAnalyticsColumnRenderers } from './llmAnalyticsColumnRenderers'
-import { llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
+import { buildApplyUrlStatePayload, llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
 import { llmAnalyticsTracesTabLogic } from './tabs/llmAnalyticsTracesTabLogic'
+import { TraceMessages, traceMessagesLazyLoaderLogic } from './traceMessagesLazyLoaderLogic'
 import { traceReviewsLazyLoaderLogic } from './traceReviews/traceReviewsLazyLoaderLogic'
 import {
     formatLLMCost,
     formatLLMLatency,
     formatLLMUsage,
     getTraceTimestamp,
+    LLM_TRACES_PAGE_SIZE,
     normalizeMessages,
     sanitizeTraceUrlSearchParams,
 } from './utils'
 
 export function LLMAnalyticsTraces(): JSX.Element {
     useMountedLogic(traceReviewsLazyLoaderLogic)
+    useMountedLogic(traceMessagesLazyLoaderLogic)
 
-    const { setDates, setShouldFilterTestAccounts, setShouldFilterSupportTraces, setPropertyFilters } =
-        useActions(llmAnalyticsSharedLogic)
-    const { propertyFilters: currentPropertyFilters } = useValues(llmAnalyticsSharedLogic)
+    const { applyUrlState, setShouldFilterSupportTraces } = useActions(llmAnalyticsSharedLogic)
+    const { dateFilter, propertyFilters: currentPropertyFilters } = useValues(llmAnalyticsSharedLogic)
     const { tracesQuery } = useValues(llmAnalyticsTracesTabLogic)
+
+    const baseContext = useTracesQueryContext()
+    const context: QueryContext<DataTableNode> = {
+        ...baseContext,
+        customActions: <TracesOptionsMenu key="traces-options-menu" />,
+    }
 
     return (
         <div data-attr="llm-trace-table">
@@ -48,19 +60,69 @@ export function LLMAnalyticsTraces(): JSX.Element {
                     if (!isTracesQuery(query.source)) {
                         throw new Error('Invalid query')
                     }
-                    setDates(query.source.dateRange?.date_from || null, query.source.dateRange?.date_to || null)
-                    setShouldFilterTestAccounts(query.source.filterTestAccounts || false)
+                    // filterSupportTraces has no actionToUrl mapping, so keep it
+                    // separate — it cannot contribute to the URL-change counter.
                     setShouldFilterSupportTraces(query.source.filterSupportTraces ?? true)
 
-                    const newPropertyFilters = query.source.properties || []
-                    if (!objectsEqual(newPropertyFilters, currentPropertyFilters)) {
-                        setPropertyFilters(newPropertyFilters)
-                    }
+                    // Batch the remaining three URL-synced fields into a single
+                    // applyUrlState dispatch so the DataTable's setQuery emits
+                    // one URL change instead of three.
+                    applyUrlState(
+                        buildApplyUrlStatePayload({
+                            dateFrom: query.source.dateRange?.date_from || null,
+                            dateTo: query.source.dateRange?.date_to || null,
+                            shouldFilterTestAccounts: query.source.filterTestAccounts || false,
+                            propertyFilters: query.source.properties || [],
+                            currentDateFilter: dateFilter,
+                            currentPropertyFilters,
+                        })
+                    )
                 }}
-                context={useTracesQueryContext()}
+                context={context}
                 uniqueKey="llm-analytics-traces"
             />
         </div>
+    )
+}
+
+function TracesOptionsMenu(): JSX.Element | null {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { showInputOutputColumns } = useValues(llmAnalyticsTracesTabLogic)
+    const { setShowInputOutputColumns } = useActions(llmAnalyticsTracesTabLogic)
+
+    const showInputOutputToggleEnabled = !!featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT]
+
+    if (!showInputOutputToggleEnabled) {
+        return null
+    }
+
+    return (
+        <LemonDropdown
+            closeOnClickInside={false}
+            placement="bottom-end"
+            overlay={
+                <div className="flex flex-col gap-2 py-1 px-2 min-w-64">
+                    <LemonSwitch
+                        checked={showInputOutputColumns}
+                        onChange={setShowInputOutputColumns}
+                        label="Show input/output"
+                        fullWidth
+                        tooltip="Preview each trace's first input and last output in the table. Turn off for a denser view."
+                        data-attr="llm-traces-show-input-output-toggle"
+                    />
+                </div>
+            }
+        >
+            <LemonButton
+                type="secondary"
+                size="small"
+                icon={<IconGear />}
+                tooltip="Customize traces view"
+                data-attr="llm-traces-options-menu"
+            >
+                Options
+            </LemonButton>
+        </LemonDropdown>
     )
 }
 
@@ -68,6 +130,7 @@ export const useTracesQueryContext = (): QueryContext<DataTableNode> => {
     return {
         emptyStateHeading: 'There were no traces in this period',
         emptyStateDetail: 'Try changing the date range or filters.',
+        dataTableMaxPaginationLimit: LLM_TRACES_PAGE_SIZE,
         columns: {
             id: {
                 title: 'ID',
@@ -81,7 +144,7 @@ export const useTracesQueryContext = (): QueryContext<DataTableNode> => {
                 title: 'Output message',
                 render: OutputMessageColumn,
             },
-            timestamp: {
+            createdAt: {
                 title: 'Time',
                 render: TimestampColumn,
             },
@@ -101,7 +164,7 @@ export const useTracesQueryContext = (): QueryContext<DataTableNode> => {
             person: llmAnalyticsColumnRenderers.person,
             __llm_sentiment: llmAnalyticsColumnRenderers.__llm_sentiment,
             __llm_tools: llmAnalyticsColumnRenderers.__llm_tools,
-            errors: {
+            errorCount: {
                 renderTitle: () => <Tooltip title="Number of errors in this trace">Errors</Tooltip>,
                 render: ErrorsColumn,
             },
@@ -264,24 +327,42 @@ const ErrorsColumn: QueryContextColumnComponent = ({ record }) => {
 }
 ErrorsColumn.displayName = 'ErrorsColumn'
 
+// `undefined` = cache miss (still loading). Checking the cached record
+// directly avoids a one-frame dash flash before a separate loading reducer
+// catches up on the first render.
+function useTraceMessagesForRow(row: LLMTrace): TraceMessages | null | undefined {
+    const { ensureTraceMessagesLoaded } = useActions(traceMessagesLazyLoaderLogic)
+    const { getTraceMessages } = useValues(traceMessagesLazyLoaderLogic)
+    useEffect(() => {
+        if (row.id) {
+            ensureTraceMessagesLoaded([{ id: row.id, createdAt: row.createdAt ?? null }])
+        }
+    }, [row.id, row.createdAt, ensureTraceMessagesLoaded])
+    return getTraceMessages(row.id)
+}
+
 const InputMessageColumn: QueryContextColumnComponent = ({ record }) => {
     const row = record as LLMTrace
-    let inputNormalized
-    try {
-        inputNormalized = normalizeMessages(row.inputState?.messages, 'user')
-    } catch (e) {
-        console.warn('Error normalizing trace inputState', e)
+    const messages = useTraceMessagesForRow(row)
+    if (messages === undefined) {
+        return <LemonSkeleton className="h-4 w-40" />
+    }
+    // Three-tier fallback: clean state unwrap → generation fallback → raw state dump.
+    const firstInput =
+        pickFirstInputMessage(messages?.firstInput, { strict: true }) ??
+        pickFirstInputMessage(messages?.firstInputFallback) ??
+        pickFirstInputMessage(messages?.firstInput)
+    if (!firstInput) {
         return <>–</>
     }
-    if (!inputNormalized.length) {
-        return <>–</>
-    }
-    return <LLMMessageDisplay message={inputNormalized.at(-1)!} isOutput={false} minimal />
+    return <LLMMessageDisplay message={firstInput} isOutput={false} minimal />
 }
 InputMessageColumn.displayName = 'InputMessageColumn'
 
 const OutputMessageColumn: QueryContextColumnComponent = ({ record }) => {
     const row = record as LLMTrace
+    const messages = useTraceMessagesForRow(row)
+
     const errorEventFound = Array.isArray(row.events)
         ? row.events.find((e) => e.properties?.$ai_error || e.properties?.$ai_is_error)
         : false
@@ -292,16 +373,128 @@ const OutputMessageColumn: QueryContextColumnComponent = ({ record }) => {
             </LemonTag>
         )
     }
-    let outputNormalized
-    try {
-        outputNormalized = normalizeMessages(row.outputState?.messages, 'assistant')
-    } catch (e) {
-        console.warn('Error normalizing trace outputState', e)
+
+    if (messages === undefined) {
+        return <LemonSkeleton className="h-4 w-40" />
+    }
+
+    const lastOutput =
+        pickLastOutputMessage(messages?.lastOutput, { strict: true }) ??
+        pickLastOutputMessage(messages?.lastOutputFallback) ??
+        pickLastOutputMessage(messages?.lastOutput)
+    if (!lastOutput) {
         return <>–</>
     }
-    if (!outputNormalized.length) {
-        return <>–</>
-    }
-    return <LLMMessageDisplay message={outputNormalized.at(-1)!} isOutput={true} minimal />
+    return <LLMMessageDisplay message={lastOutput} isOutput={true} minimal />
 }
 OutputMessageColumn.displayName = 'OutputMessageColumn'
+
+type NormalizedMessage = ReturnType<typeof normalizeMessages>[number]
+
+function hasDisplayableContent(message: NormalizedMessage): boolean {
+    const { content, tool_calls } = message as NormalizedMessage & { tool_calls?: unknown }
+    if (typeof content === 'string' && content.trim().length > 0) {
+        return true
+    }
+    if (Array.isArray(content) && content.length > 0) {
+        return true
+    }
+    if (Array.isArray(tool_calls) && tool_calls.length > 0) {
+        return true
+    }
+    return false
+}
+
+/**
+ * Preferred → fallback cascade for the trace input column. We prefer the first
+ * actual user turn, but tolerate traces that open with a system prompt or a
+ * tool-result by falling back down the list. When `strict` is true we reject
+ * unknown state-wrapper shapes (the caller will then try the generation-level
+ * fallback payload).
+ */
+function pickFirstInputMessage(
+    raw: unknown,
+    { strict }: { strict: boolean } = { strict: false }
+): NormalizedMessage | null {
+    const normalized = safeNormalize(raw, 'user', { strict })
+    if (normalized.length === 0) {
+        return null
+    }
+    const firstUser = normalized.find((m) => m.role === 'user' && hasDisplayableContent(m))
+    if (firstUser) {
+        return firstUser
+    }
+    const firstNonSystem = normalized.find((m) => m.role !== 'system' && hasDisplayableContent(m))
+    if (firstNonSystem) {
+        return firstNonSystem
+    }
+    const firstDisplayable = normalized.find(hasDisplayableContent)
+    if (firstDisplayable) {
+        return firstDisplayable
+    }
+    return normalized[0]
+}
+
+/**
+ * Preferred → fallback cascade for the trace output column. We prefer the
+ * last assistant message with real content, but fall back to the last
+ * displayable message (e.g. tool_calls) so tool-calling traces still show
+ * something useful instead of a dash.
+ */
+function pickLastOutputMessage(
+    raw: unknown,
+    { strict }: { strict: boolean } = { strict: false }
+): NormalizedMessage | null {
+    const normalized = safeNormalize(raw, 'assistant', { strict })
+    if (normalized.length === 0) {
+        return null
+    }
+    for (let i = normalized.length - 1; i >= 0; i--) {
+        if (normalized[i].role === 'assistant' && hasDisplayableContent(normalized[i])) {
+            return normalized[i]
+        }
+    }
+    for (let i = normalized.length - 1; i >= 0; i--) {
+        if (hasDisplayableContent(normalized[i])) {
+            return normalized[i]
+        }
+    }
+    return normalized[normalized.length - 1]
+}
+
+/**
+ * Some SDKs emit the trace input/output as a state wrapper object rather than a
+ * bare messages array. Langchain/LangGraph writes `$ai_input_state` /
+ * `$ai_output_state` as something like `{ agent_mode, messages: [...], ... }`.
+ * Drill into the known `.messages` key so the picker sees a clean array; for
+ * unknown wrapper shapes (agent-specific state like `{ current_step, ... }`)
+ * return `null` in strict mode so the picker can fall through to the
+ * generation-level fallback rather than dumping raw JSON.
+ */
+function unwrapMessageContainer(raw: unknown, strict: boolean): unknown {
+    if (raw == null || typeof raw !== 'object' || Array.isArray(raw)) {
+        return raw
+    }
+    const obj = raw as Record<string, unknown>
+    if (Array.isArray(obj.messages)) {
+        return obj.messages
+    }
+    return strict ? null : raw
+}
+
+function safeNormalize(
+    raw: unknown,
+    defaultRole: string,
+    { strict }: { strict: boolean } = { strict: false }
+): ReturnType<typeof normalizeMessages> {
+    const unwrapped = unwrapMessageContainer(raw, strict)
+    if (unwrapped == null) {
+        return []
+    }
+    try {
+        return normalizeMessages(unwrapped, defaultRole)
+    } catch (e) {
+        console.warn('Error normalizing trace messages', e)
+        return []
+    }
+}

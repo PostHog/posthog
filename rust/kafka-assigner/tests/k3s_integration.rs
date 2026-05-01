@@ -41,7 +41,7 @@ use common::{
 
 const NAMESPACE: &str = "default";
 const NUM_PARTITIONS: u32 = 8;
-const E2E_TIMEOUT: Duration = Duration::from_secs(60);
+const E2E_TIMEOUT: Duration = Duration::from_secs(180);
 
 // ── K3s helpers ──────────────────────────────────────────
 
@@ -323,6 +323,28 @@ async fn trigger_statefulset_rollout(client: &Client, name: &str) {
         .expect("failed to patch statefulset");
 }
 
+/// Wait for the k3s API server to become reachable again after a rollout.
+/// The API server can crash under resource pressure in the single-node
+/// testcontainer; this avoids burning the `wait_for_condition` budget on
+/// Connect errors.
+async fn wait_for_k3s_api_ready(client: &Client, timeout_dur: Duration) {
+    let start = std::time::Instant::now();
+    let pods: Api<k8s_openapi::api::core::v1::Pod> = Api::namespaced(client.clone(), NAMESPACE);
+    loop {
+        if tokio::time::timeout(Duration::from_secs(5), pods.list(&ListParams::default()))
+            .await
+            .map(|r| r.is_ok())
+            .unwrap_or(false)
+        {
+            return;
+        }
+        if start.elapsed() > timeout_dur {
+            panic!("k3s API server did not recover within {timeout_dur:?}");
+        }
+        tokio::time::sleep(Duration::from_secs(2)).await;
+    }
+}
+
 async fn scale_deployment(client: &Client, name: &str, replicas: i32) {
     let deployments: Api<Deployment> = Api::namespaced(client.clone(), NAMESPACE);
     let patch = serde_json::json!({
@@ -540,6 +562,10 @@ async fn deployment_rollout_reassigns_partitions() {
         DepartureReason::Rollout,
     )
     .await;
+
+    // Wait for the k3s API server to recover — it can crash under resource
+    // pressure during the rollout in the single-node testcontainer.
+    wait_for_k3s_api_ready(&k8s_client, E2E_TIMEOUT).await;
 
     // Wait for new k3s pods (created by the rollout)
     let new_names =

@@ -35,7 +35,7 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
 
     const isSavedWorkflow = props.id && props.id !== 'new'
     const isCreatedFromTemplate = props.id === 'new' && !!templateId
-    const isManualWorkflow = ['manual', 'schedule', 'batch'].includes(workflow?.trigger?.type || '')
+    const isManualWorkflow = ['manual', 'batch'].includes(workflow?.trigger?.type || '')
     const [displayStatus, setDisplayStatus] = useState(workflow?.status)
     const [isTransitioning, setIsTransitioning] = useState(false)
     const prevStatusRef = useRef(workflow?.status)

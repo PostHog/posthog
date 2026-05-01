@@ -11,6 +11,12 @@ import { META_GROUP_TYPES, TaxonomicDefinitionTypes, TaxonomicFilterGroupType, T
 
 export const MAX_RECENT_FILTERS = 20
 export const RECENT_FILTER_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000
+const EXCLUDED_RECENT_FILTER_GROUP_TYPES = new Set<TaxonomicFilterGroupType>([
+    ...META_GROUP_TYPES,
+    TaxonomicFilterGroupType.DataWarehouse,
+    TaxonomicFilterGroupType.DataWarehouseProperties,
+    TaxonomicFilterGroupType.DataWarehousePersonProperties,
+])
 
 export interface RecentTaxonomicFilter {
     groupType: TaxonomicFilterGroupType
@@ -104,7 +110,7 @@ export const recentTaxonomicFiltersLogic = kea<recentTaxonomicFiltersLogicType>(
             {
                 clearRecentFilters: () => [],
                 recordRecentFilter: (state, { groupType, groupName, value, item, teamId, propertyFilter }) => {
-                    if (META_GROUP_TYPES.has(groupType) || value == null) {
+                    if (EXCLUDED_RECENT_FILTER_GROUP_TYPES.has(groupType) || value == null) {
                         return state
                     }
 

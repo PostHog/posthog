@@ -1,5 +1,5 @@
 from abc import ABCMeta, abstractmethod
-from typing import Any, Optional, Union
+from typing import Any, Optional, Union, cast
 
 from posthog.schema import PersonsOnEventsMode
 
@@ -192,7 +192,7 @@ class EventQuery(metaclass=ABCMeta):
 
     def _does_cohort_need_persons(self, prop: Property) -> bool:
         try:
-            cohort: Cohort = Cohort.objects.get(pk=prop.value, team_id=self._team_id)
+            cohort: Cohort = Cohort.objects.get(pk=cast(str | int, prop.value), team_id=self._team_id)
         except Cohort.DoesNotExist:
             return False
         if is_precalculated_query(cohort):

@@ -19,8 +19,10 @@ async-trait = { workspace = true }
 axum = { workspace = true }
 dashmap = { workspace = true }
 envconfig = { workspace = true }
+futures = { workspace = true }
 metrics = { workspace = true }
 rand = { workspace = true }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 tonic = { workspace = true }

@@ -13,16 +13,15 @@ The underlying HogQL functions provide maximum flexibility during development:
 """
 
 from posthog.hogql import ast
-
-# Re-export BOT_DEFINITIONS from the HogQL functions module (single source of truth)
 from posthog.hogql.functions.traffic_type import (
-    BOT_DEFINITIONS,
     get_bot_name as _get_bot_name,
     get_bot_type as _get_bot_type,
     get_traffic_category as _get_traffic_category,
     get_traffic_type as _get_traffic_type,
     is_bot as _is_bot,
 )
+
+from posthog.hogql_queries.web_analytics.bot_definitions import BOT_DEFINITIONS
 
 __all__ = [
     "BOT_DEFINITIONS",
@@ -41,7 +40,7 @@ def get_traffic_type_expr(user_agent_expr: ast.Expr) -> ast.Expr:
     EXPERIMENTAL: This function may change without notice.
 
     Returns an expression that evaluates to one of:
-    - "AI Agent" - LLM crawlers (GPTBot, ClaudeBot, etc.)
+    - "AI Agent" - AI crawlers, search, and assistants (GPTBot, ClaudeBot, ChatGPT-User, etc.)
     - "Bot" - Search engines, SEO tools, social crawlers, monitoring
     - "Automation" - HTTP clients, headless browsers, empty UA
     - "Regular" - Default for unmatched user agents
@@ -55,8 +54,8 @@ def get_traffic_category_expr(user_agent_expr: ast.Expr) -> ast.Expr:
 
     EXPERIMENTAL: This function may change without notice.
 
-    Categories: llm_crawler, search_crawler, seo_crawler, social_crawler,
-    monitoring, http_client, headless_browser, no_user_agent, regular
+    Categories: ai_crawler, ai_search, ai_assistant, search_crawler, seo_crawler,
+    social_crawler, monitoring, http_client, headless_browser, no_user_agent, regular
     """
     return _get_traffic_category(node=ast.Call(name="__preview_getTrafficCategory", args=[]), args=[user_agent_expr])
 
@@ -76,8 +75,8 @@ def get_bot_type_expr(user_agent_expr: ast.Expr) -> ast.Expr:
 
     EXPERIMENTAL: This function may change without notice.
 
-    Categories: llm_crawler, search_crawler, seo_crawler, social_crawler,
-    monitoring, http_client, headless_browser, no_user_agent, "" (regular)
+    Categories: ai_crawler, ai_search, ai_assistant, search_crawler, seo_crawler,
+    social_crawler, monitoring, http_client, headless_browser, no_user_agent, "" (regular)
     """
     return _get_bot_type(node=ast.Call(name="__preview_getBotType", args=[]), args=[user_agent_expr])
 

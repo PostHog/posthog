@@ -8,6 +8,20 @@ import { registerAsyncFunction } from '../async-function-registry'
  * If you're trying to add a new realtime destination or workflow action that will use your async function, these are defined in nodejs/src/cdp/templates/_destinations.
  *
  * IMPORTANT: For your async function to become registered, it MUST be imported in the index.ts file in this directory (nodejs/src/cdp/async-functions/index.ts)
+ *
+ * RETURN-VALUE CONTRACT: when the VM hits an async function call it pops the args, advances the
+ * instruction pointer, and pauses. By the time the VM resumes, `vmState.stack` MUST contain the
+ * function's return value (so the bytecode compiler's trailing POP for expression statements has
+ * something to consume). Handlers satisfy this in one of two ways:
+ *
+ * 1. Synchronous handlers (like this example, and `produceToWarehouseWebhooks`) finish their work
+ *    inside `execute()` and push their return value directly onto `result.invocation.state.vmState.stack`.
+ * 2. Queueing handlers (`fetch`, `sendEmail`, `postHogGetTicket`, `postHogUpdateTicket`) stage
+ *    `result.invocation.queueParameters` and let the matching `executeFetch` / `executeSendEmail`
+ *    worker push the response once the real I/O completes.
+ *
+ * Forgetting to push leaves the resumed VM with an empty stack and crashes with
+ * "Invalid HogQL bytecode, stack is empty, can not pop".
  */
 registerAsyncFunction('foobar', {
     /**
@@ -15,7 +29,7 @@ registerAsyncFunction('foobar', {
      * @param args the arguments passed from the Hog code, for example `foobar('i am foo', {'key': 200}, 'i am baz')`
      * @param _context includes the invocation details, any global variables attached to the invocation, and a reference to
      *   the AsyncFunctionContext which provides access to other services and data (e.g. teamManager, siteUrl, etc.)
-     * @param _result the current state of the invocation result, which can be modified by the async function and serves as a place to store
+     * @param result the current state of the invocation result, which can be modified by the async function and serves as a place to store
      *   its return value and/or modify the invocation.
      *   For example, you can set a value for a key on result.invocation, and that value would then be accessible in subsequent async functions.
      *   You can stop execution after an error by setting result.finished = true + result.error, and you can log messages to the
@@ -32,6 +46,10 @@ registerAsyncFunction('foobar', {
             timestamp: DateTime.now(),
             message: `Executed async function 'foobar' with arguments: foo=${foo}, bar=${JSON.stringify(bar)}, baz=${baz}`,
         })
+
+        // See the RETURN-VALUE CONTRACT comment above the registration. We finished our work
+        // synchronously, so we push our return value onto the resumed VM stack right here.
+        result.invocation.state.vmState?.stack.push(null)
     },
     /**
      * A mock implementation of the async function used in destinations and workflows Test tooling, when "Make real HTTP requests" is disabled.

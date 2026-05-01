@@ -12,7 +12,7 @@ import { clusteringConfigLogic } from './clusteringConfigLogic'
 import type { clustersAdminLogicType } from './clustersAdminLogicType'
 
 export interface ClusteringRunParams {
-    analysis_level: 'trace' | 'generation'
+    analysis_level: 'trace' | 'generation' | 'evaluation'
     lookback_days: number
     max_samples: number
     embedding_normalization: 'none' | 'l2'

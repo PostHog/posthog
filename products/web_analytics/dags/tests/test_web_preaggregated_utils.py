@@ -149,6 +149,7 @@ class TestWebPreaggregatedUtils:
             assert web_job.executor_def is not None
 
             assert hasattr(web_job, "tags")
+            assert web_job.tags is not None
             assert "dagster/max_runtime" in web_job.tags
             web_job_timeout = int(web_job.tags["dagster/max_runtime"])
             assert web_job_timeout >= 600

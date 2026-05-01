@@ -98,8 +98,14 @@
         max-width: 100%;
         max-height: 300px;
         margin: 0.5em 0;
+        cursor: zoom-in;
         object-fit: contain;
         border-radius: var(--radius);
+        transition: opacity 0.15s ease;
+
+        &:hover {
+            opacity: 0.9;
+        }
     }
 
     .SupportEditor__link {

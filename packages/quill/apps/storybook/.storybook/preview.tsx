@@ -1,7 +1,7 @@
 import './storybook.css'
 
 import React, { useEffect } from 'react'
-import type { Preview } from 'storybook'
+import type { Preview } from '@storybook/react'
 
 const preview: Preview = {
     parameters: {
@@ -15,6 +15,7 @@ const preview: Preview = {
     globalTypes: {
         theme: {
             description: 'Toggle light/dark theme',
+            defaultValue: 'light',
             toolbar: {
                 title: 'Theme',
                 icon: 'paintbrush',
@@ -26,16 +27,20 @@ const preview: Preview = {
             },
         },
     },
-    initialGlobals: {
-        theme: 'light',
-    },
     decorators: [
         (Story, context) => {
             const theme = context.globals.theme || 'light'
             const isDark = theme === 'dark'
 
             useEffect(() => {
+                // Set both .dark class and theme="dark" attribute so the
+                // toolbar toggle validates both dark mode selectors at once.
                 document.documentElement.classList.toggle('dark', isDark)
+                if (isDark) {
+                    document.documentElement.setAttribute('theme', 'dark')
+                } else {
+                    document.documentElement.removeAttribute('theme')
+                }
                 document.body.style.backgroundColor = ''
             }, [isDark])
 

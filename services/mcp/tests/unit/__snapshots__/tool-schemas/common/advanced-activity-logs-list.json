@@ -1,0 +1,92 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "activities": {
+            "default": [],
+            "items": {
+                "type": "string"
+            },
+            "type": "array"
+        },
+        "clients": {
+            "default": [],
+            "items": {
+                "type": "string"
+            },
+            "type": "array"
+        },
+        "detail_filters": {
+            "type": "string"
+        },
+        "end_date": {
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+            "type": "string"
+        },
+        "hogql_filter": {
+            "type": "string"
+        },
+        "is_system": {
+            "anyOf": [
+                {
+                    "type": "boolean"
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        },
+        "item_ids": {
+            "default": [],
+            "items": {
+                "type": "string"
+            },
+            "type": "array"
+        },
+        "page": {
+            "description": "Page number for pagination. When provided, uses page-based pagination ordered by most recent first.",
+            "minimum": 1,
+            "type": "number"
+        },
+        "page_size": {
+            "default": 10,
+            "description": "Number of results per page (default: 100, max: 1000). Only used with page-based pagination.",
+            "maximum": 1000,
+            "minimum": 1,
+            "type": "number"
+        },
+        "scopes": {
+            "default": [],
+            "items": {
+                "type": "string"
+            },
+            "type": "array"
+        },
+        "search_text": {
+            "type": "string"
+        },
+        "start_date": {
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+            "type": "string"
+        },
+        "users": {
+            "default": [],
+            "items": {
+                "type": "string"
+            },
+            "type": "array"
+        },
+        "was_impersonated": {
+            "anyOf": [
+                {
+                    "type": "boolean"
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        }
+    },
+    "type": "object"
+}

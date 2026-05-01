@@ -1,8 +1,9 @@
 import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
-import { forms } from 'kea-forms'
+import { forms, type DeepPartialMap, type ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
-import api from 'lib/api'
+import api, { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
@@ -16,8 +17,10 @@ import {
 import { InsightLogicProps, IntervalType, QueryBasedInsightModel } from '~/types'
 
 import type { alertFormLogicType } from './alertFormLogicType'
+import { alertLogic } from './alertLogic'
 import { alertNotificationLogic } from './alertNotificationLogic'
 import { insightAlertsLogic } from './insightAlertsLogic'
+import { quietHoursFormError } from './scheduleRestrictionValidation'
 import { AlertSimulationResult, AlertType, AlertTypeWrite, AnomalyPoint } from './types'
 
 export type AlertFormType = Pick<
@@ -32,6 +35,7 @@ export type AlertFormType = Pick<
     | 'checks'
     | 'config'
     | 'skip_weekend'
+    | 'schedule_restriction'
     | 'detector_config'
 > & {
     id?: AlertType['id']
@@ -48,12 +52,72 @@ export function canCheckOngoingInterval(alert?: AlertType | AlertFormType): bool
     )
 }
 
+export function getDefaultSimulationRange(interval: AlertCalculationInterval): string {
+    switch (interval) {
+        case AlertCalculationInterval.HOURLY:
+            return '-48h'
+        case AlertCalculationInterval.DAILY:
+            return '-30d'
+        case AlertCalculationInterval.WEEKLY:
+            return '-12w'
+        case AlertCalculationInterval.MONTHLY:
+            return '-12m'
+    }
+}
+
 export interface AlertFormLogicProps {
     alert: AlertType | null
     insightId: QueryBasedInsightModel['id']
     onEditSuccess: (alertId?: AlertType['id']) => void
     insightVizDataLogicProps?: InsightLogicProps
     insightInterval?: IntervalType
+    /** Must match the `alertLogic` instance keyed on the same alertId — read from `useFeatureFlag('ALERTS_HISTORY_CHART')` in the parent. */
+    historyChartEnabled: boolean
+}
+
+/**
+ * Hydrate alertLogic from the save response, then kick off a background refetch so pagination-aware
+ * `checks` / `checks_total` (which PATCH/POST bodies omit) catch up without blocking the UI.
+ * Preserves the previously loaded `checks` state so the history section doesn't flash empty.
+ *
+ * On create, the alertLogic instance keyed by the newly minted id has never been mounted — reading
+ * `logic.values` on an unmounted logic throws a `[KEA] Can not find path …` error. Check mount state
+ * first and skip the merge (there's nothing to preserve for a brand-new alert).
+ */
+function hydrateAlertLogicFromSaveResponse(updatedAlert: AlertType, historyChartEnabled: boolean): void {
+    const logic = alertLogic({ alertId: updatedAlert.id, historyChartEnabled })
+    const wasMounted = logic.isMounted()
+    const previousAlert = wasMounted ? logic.values.alert : null
+    const savedChecks = updatedAlert.checks ?? []
+    const mergedAlert: AlertType = {
+        ...updatedAlert,
+        checks: savedChecks.length > 0 ? savedChecks : (previousAlert?.checks ?? []),
+        checks_total: updatedAlert.checks_total ?? previousAlert?.checks_total,
+    }
+
+    if (wasMounted) {
+        logic.actions.loadAlertSuccess(mergedAlert)
+        void logic.asyncActions.loadAlert()
+        return
+    }
+
+    const unmount = logic.mount()
+    logic.actions.loadAlertSuccess(mergedAlert)
+    // On create, mounting triggers `afterMount`, which already loads the alert in the background.
+    // Avoid a duplicate refetch here and clean up the temporary mount immediately after dispatching.
+    unmount()
+}
+
+function formatSaveError(error: unknown): string {
+    if (error instanceof ApiError) {
+        const field = error.attr?.replace(/_/g, ' ')
+        const detail = error.detail ?? error.message
+        return field ? `${field}: ${detail}` : detail
+    }
+    if (error instanceof Error) {
+        return error.message
+    }
+    return 'Unknown error'
 }
 
 function insightIntervalToAlertInterval(interval?: IntervalType | null): AlertCalculationInterval {
@@ -115,19 +179,13 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     if (!detectorConfig || !props.insightId) {
                         return null
                     }
-                    const defaultRange =
-                        values.alertForm.calculation_interval === AlertCalculationInterval.HOURLY
-                            ? '-48h'
-                            : values.alertForm.calculation_interval === AlertCalculationInterval.WEEKLY
-                              ? '-12w'
-                              : values.alertForm.calculation_interval === AlertCalculationInterval.MONTHLY
-                                ? '-12m'
-                                : '-30d'
                     return await api.alerts.simulate({
                         insight: props.insightId,
                         detector_config: detectorConfig,
                         series_index: values.alertForm.config?.series_index ?? 0,
-                        date_from: values.simulationDateFrom ?? defaultRange,
+                        date_from:
+                            values.simulationDateFrom ??
+                            getDefaultSimulationRange(values.alertForm.calculation_interval),
                     })
                 },
                 clearSimulation: () => null,
@@ -163,12 +221,15 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     checks: [],
                     calculation_interval: insightIntervalToAlertInterval(props.insightInterval),
                     skip_weekend: false,
+                    schedule_restriction: null,
                     detector_config: null,
                     insight: props.insightId,
                 } as AlertFormType),
-            errors: ({ name }) => ({
-                name: !name ? 'You need to give your alert a name' : undefined,
-            }),
+            errors: (alert: AlertType | AlertFormType) =>
+                ({
+                    name: !alert.name ? 'You need to give your alert a name' : undefined,
+                    schedule_restriction: quietHoursFormError(alert.schedule_restriction),
+                }) as DeepPartialMap<AlertType | AlertFormType, ValidationErrorType>,
             submit: async (alert) => {
                 const payload: AlertTypeWrite = {
                     ...alert,
@@ -185,6 +246,10 @@ export const alertFormLogic = kea<alertFormLogicType>([
                         check_ongoing_interval: canCheckOngoingInterval(alert) && alert.config.check_ongoing_interval,
                     },
                     detector_config: alert.detector_config ?? null,
+                    schedule_restriction:
+                        (alert.schedule_restriction?.blocked_windows?.length ?? 0) > 0
+                            ? alert.schedule_restriction
+                            : null,
                 }
 
                 // absolute value alert can only have absolute threshold
@@ -211,31 +276,35 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     }
                 }
 
+                let updatedAlert: AlertType
                 try {
-                    if (alert.id === undefined) {
-                        const updatedAlert: AlertType = await api.alerts.create(payload)
-
-                        await flushPendingNotifications(updatedAlert.id)
-                        lemonToast.success(`Alert created.`)
-                        upsertToParent(updatedAlert)
-                        props.onEditSuccess(updatedAlert.id)
-
-                        return updatedAlert
-                    }
-
-                    const updatedAlert: AlertType = await api.alerts.update(alert.id, payload)
-
-                    await flushPendingNotifications(updatedAlert.id)
-                    lemonToast.success(`Alert saved.`)
-                    upsertToParent(updatedAlert)
-                    props.onEditSuccess(updatedAlert.id)
-
-                    return updatedAlert
-                } catch (error: any) {
-                    const field = error.data?.attr?.replace(/_/g, ' ')
-                    lemonToast.error(`Error saving alert: ${field}: ${error.detail}`)
+                    updatedAlert =
+                        alert.id === undefined
+                            ? await api.alerts.create(payload)
+                            : await api.alerts.update(alert.id, payload)
+                } catch (error: unknown) {
+                    // `AlertViewSet` is a standard DRF ModelViewSet, so validation errors arrive as
+                    // `{attr, detail}`. Anything else (network blip, non-ApiError thrown somehow) shouldn't
+                    // be formatted with those fields or we end up with "undefined: undefined".
+                    lemonToast.error(`Error saving alert: ${formatSaveError(error)}`)
                     throw error
                 }
+
+                // The alert is already persisted — any error from the local side-effects below is a
+                // client-side bug, not a save failure. Capture it for investigation but don't surface it
+                // as "Error saving alert" since the API returned 2xx. Regression guarded by `alertFormLogic.test.ts`.
+                try {
+                    await flushPendingNotifications(updatedAlert.id)
+                    hydrateAlertLogicFromSaveResponse(updatedAlert, props.historyChartEnabled)
+                    upsertToParent(updatedAlert)
+                    props.onEditSuccess(updatedAlert.id)
+                } catch (postSaveError) {
+                    posthog.captureException(postSaveError)
+                }
+
+                lemonToast.success(alert.id === undefined ? 'Alert created.' : 'Alert saved.')
+
+                return updatedAlert
             },
         },
     })),
@@ -272,6 +341,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 const updatedAlert: AlertType = await api.alerts.update(values.alertForm.id, {
                     snoozed_until: snoozeUntil,
                 })
+                hydrateAlertLogicFromSaveResponse(updatedAlert, props.historyChartEnabled)
                 const parent = getParentLogic()
                 if (parent) {
                     parent.actions.upsertAlert(updatedAlert)
@@ -286,6 +356,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 const updatedAlert: AlertType = await api.alerts.update(values.alertForm.id, {
                     snoozed_until: null,
                 })
+                hydrateAlertLogicFromSaveResponse(updatedAlert, props.historyChartEnabled)
                 const parent = getParentLogic()
                 if (parent) {
                     parent.actions.upsertAlert(updatedAlert)
@@ -298,6 +369,32 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 getParentLogic()?.actions.loadAlerts()
             },
             simulateAlertSuccess: ({ simulationResult }) => {
+                // simulateAlert returns null early for threshold alerts (no API call),
+                // so null here means nothing actually ran — skip the event.
+                if (simulationResult) {
+                    const detectorConfig = values.alertForm.detector_config
+                    const isBreakdown = Boolean(
+                        simulationResult.breakdown_results && simulationResult.breakdown_results.length > 0
+                    )
+                    const totalPoints = isBreakdown
+                        ? (simulationResult.breakdown_results?.reduce((sum, br) => sum + br.total_points, 0) ?? 0)
+                        : simulationResult.total_points
+                    const anomalyCount = isBreakdown
+                        ? (simulationResult.breakdown_results?.reduce((sum, br) => sum + br.anomaly_count, 0) ?? 0)
+                        : simulationResult.anomaly_count
+                    posthog.capture('alert simulation run', {
+                        success: true,
+                        detector_type: detectorConfig?.type ?? null,
+                        ensemble_operator: detectorConfig?.type === 'ensemble' ? detectorConfig.operator : null,
+                        date_from:
+                            values.simulationDateFrom ??
+                            getDefaultSimulationRange(values.alertForm.calculation_interval),
+                        anomaly_count: anomalyCount,
+                        total_points: totalPoints,
+                        is_breakdown: isBreakdown,
+                    })
+                }
+
                 const parent = getParentLogic()
                 if (!parent || !simulationResult) {
                     return
@@ -329,6 +426,15 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 parent.actions.setSimulationAnomalyPoints(anomalyPoints)
             },
             simulateAlertFailure: ({ error }) => {
+                const detectorConfig = values.alertForm.detector_config
+                posthog.capture('alert simulation run', {
+                    success: false,
+                    detector_type: detectorConfig?.type ?? null,
+                    ensemble_operator: detectorConfig?.type === 'ensemble' ? detectorConfig.operator : null,
+                    date_from:
+                        values.simulationDateFrom ?? getDefaultSimulationRange(values.alertForm.calculation_interval),
+                    error: error ?? 'Unknown error',
+                })
                 lemonToast.error(`Simulation failed: ${error || 'Unknown error'}`)
             },
         }

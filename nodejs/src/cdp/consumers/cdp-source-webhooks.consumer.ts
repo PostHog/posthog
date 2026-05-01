@@ -120,8 +120,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
             hogFlow.status === 'active' &&
             (hogFlow.trigger?.type === 'webhook' ||
                 hogFlow.trigger?.type === 'tracking_pixel' ||
-                hogFlow.trigger?.type === 'manual' ||
-                hogFlow.trigger?.type === 'schedule')
+                hogFlow.trigger?.type === 'manual')
         ) {
             const hogFunction = await this.hogFlowFunctionsService.buildHogFunction(hogFlow, hogFlow.trigger)
 
@@ -282,17 +281,6 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
                     {} as HogFunctionFilterGlobals
                 )
 
-                const scheduledAt = hogFlow.trigger && 'scheduled_at' in hogFlow.trigger && hogFlow.trigger.scheduled_at
-                if (scheduledAt) {
-                    const scheduledDateTime = DateTime.fromISO(scheduledAt)
-                    if (!scheduledDateTime.isValid) {
-                        addLog('warn', `Invalid scheduled_at date format: ${scheduledAt}`)
-                    } else {
-                        hogFlowInvocation.queueScheduledAt = scheduledDateTime
-                        addLog('info', `Workflow run scheduled for ${scheduledAt}`)
-                    }
-                }
-
                 hogFlowInvocation.id = invocationId // Keep the IDs consistent
 
                 addMetric({
@@ -423,7 +411,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
             )
         }
 
-        await this.hogFunctionMonitoringService.queueInvocationResults([result])
+        await this.invocationResultsService.queueInvocationResults([result])
         return result
     }
 
@@ -466,20 +454,20 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
             : await this.executeHogFunction(req, hogFunction, hogFunctionState)
 
         void this.promiseScheduler.schedule(
-            this.hogFunctionMonitoringService.flush(),
+            this.invocationResultsService.flush(),
             this.hogWatcher.observeResultsBuffered(result)
         )
 
         return result
     }
 
-    public async start(): Promise<void> {
+    public override async start(): Promise<void> {
         await super.start()
         // Make sure we are ready to produce to cyclotron first
         await this.cyclotronJobQueue.startAsProducer()
     }
 
-    public async stop(): Promise<void> {
+    public override async stop(): Promise<void> {
         await this.cyclotronJobQueue.stop()
         await this.promiseScheduler.waitForAllSettled()
         // IMPORTANT: super always comes last

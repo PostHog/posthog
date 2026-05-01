@@ -24,7 +24,7 @@ import {
     COMMON_REPLAYER_CONFIG,
     CanvasReplayerPlugin,
     CorsPlugin,
-    HLSPlayerPlugin,
+    createHLSPlayerPlugin,
 } from '@posthog/replay-shared'
 import { ReplayPlugin, Replayer, playerConfig } from '@posthog/rrweb'
 import { EventType, IncrementalSource, eventWithTime } from '@posthog/rrweb-types'
@@ -184,6 +184,19 @@ export function removeReplayIframeDataFromLocalStorage(): void {
     removeFromLocalStorageWithPrefix(ReplayIframeDatakeyPrefix)
 }
 
+const NOSCRIPT_BLOCK_RE = /<noscript\b[^>]*>[\s\S]*?<\/noscript>/gi
+
+/**
+ * Strip <noscript> elements from rrweb replay iframe HTML before handing it to
+ * the heatmap iframe.
+ */
+export function stripRrwebScriptShims(html: string): string {
+    if (!html || !/<noscript\b/i.test(html)) {
+        return html
+    }
+    return html.replace(NOSCRIPT_BLOCK_RE, '')
+}
+
 /**
  * returns the relative second in the recording
  * e.g. if the player starts at 1000ms and the snapshot is at 2000ms or 1500ms, the relative second is 1
@@ -233,10 +246,16 @@ export function findSegmentForTimestamp(segments: RecordingSegment[], timestamp?
                 return segment
             }
         }
-        // Timestamp doesn't fall in any segment (e.g. timezone mismatch).
+        // Timestamp falls outside all segments (e.g. timezone mismatch, stale link).
         // Pick the nearest segment that has a windowId so the player can still boot.
         if (timestamp < segments[0].startTimestamp) {
             const nearest = segments.find((s) => s.windowId !== undefined)
+            if (nearest) {
+                return nearest
+            }
+        }
+        if (timestamp > segments[segments.length - 1].endTimestamp) {
+            const nearest = [...segments].reverse().find((s) => s.windowId !== undefined)
             if (nearest) {
                 return nearest
             }
@@ -1247,18 +1266,18 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 return
             }
 
-            const plugins: ReplayPlugin[] = [HLSPlayerPlugin]
+            const hlsPlugin = createHLSPlayerPlugin()
+            const plugins: ReplayPlugin[] = [hlsPlugin]
 
             // We don't want non-cloud products to talk to our proxy as it likely won't work, but we _do_ want local testing to work
             if (values.preflight?.cloud || window.location.hostname === 'localhost') {
                 plugins.push(CorsPlugin)
             }
 
-            plugins.push(
-                CanvasReplayerPlugin(values.sessionPlayerData.snapshotsByWindowId[windowId], (error) =>
-                    posthog.captureException(error)
-                )
+            const canvasPlugin = CanvasReplayerPlugin(values.sessionPlayerData.snapshotsByWindowId[windowId], (error) =>
+                posthog.captureException(error)
             )
+            plugins.push(canvasPlugin)
             plugins.push(AudioMuteReplayerPlugin(values.isMuted))
 
             // we override the console in the player, with one which stores its data instead of logging
@@ -1400,6 +1419,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     actions.setPlayer({ replayer, windowId })
 
                     return () => {
+                        canvasPlugin.destroy()
+                        hlsPlugin.destroy()
+
                         if (replayer) {
                             for (const cleanup of iframeCleanups) {
                                 cleanup()
@@ -1712,23 +1734,32 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             // Check if we're seeking to a new segment
             const segment = values.segmentForTimestamp(timestamp)
 
-            if (segment && !objectsEqual(segment, values.currentSegment)) {
+            // End-of-recording detection — independent of segment type so that
+            // findSegmentForTimestamp can safely return a real segment for
+            // past-end timestamps (needed for the image exporter to boot the
+            // rrweb replayer). See #49364 and #53550.
+            //
+            // Strictly > (not >=): landing exactly on `end` is a valid
+            // "show the last frame" seek (e.g. from a stale ?t= URL that
+            // got clamped by seekToTime). Firing endReached here would
+            // pause the player before tryInitReplayer has created the
+            // rrweb wrapper. Natural playback progression still triggers
+            // endReached via updateAnimation.
+            const isPastEnd = values.sessionPlayerData.end && timestamp > values.sessionPlayerData.end.valueOf()
+            if (isPastEnd) {
+                actions.setEndReached(true)
+            } else if (segment && !objectsEqual(segment, values.currentSegment)) {
                 actions.setCurrentSegment(segment)
             }
 
             // If next time is greater than last buffered time, set to buffering
             else if (segment?.kind === 'buffer' || values.isWaitingForPlayableFullSnapshot) {
-                const isPastEnd = values.sessionPlayerData.end && timestamp >= values.sessionPlayerData.end.valueOf()
-                if (isPastEnd) {
-                    actions.setEndReached(true)
-                } else {
-                    values.player?.replayer?.pause()
-                    actions.startBuffer()
-                    actions.clearPlayerError()
+                values.player?.replayer?.pause()
+                actions.startBuffer()
+                actions.clearPlayerError()
 
-                    // if we're buffering, then be careful to ensure we're loading data
-                    actions.loadNextSnapshotSource()
-                }
+                // if we're buffering, then be careful to ensure we're loading data
+                actions.loadNextSnapshotSource()
             }
 
             // If not forced to play and if last playing state was pause, pause
@@ -1781,7 +1812,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 const seekToPrevActivityEnd = (segment: RecordingSegment): void => {
                     const prevActivity = findPrevActivitySegment(findSegmentIndex(segment))
                     if (prevActivity) {
-                        targetTime = Math.max(0, prevActivity.endTimestamp - startTimestamp - amount)
+                        const prevStart = prevActivity.startTimestamp - startTimestamp
+                        const prevEnd = prevActivity.endTimestamp - startTimestamp
+                        targetTime = Math.max(prevStart, prevEnd - amount)
                     }
                 }
 
@@ -2123,16 +2156,16 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         openHeatmap: () => {
             actions.setPause()
             const iframe = values.rootFrame?.querySelector('iframe')
-            const iframeHtml = iframe?.contentWindow?.document?.documentElement?.innerHTML
+            const rawIframeHtml = iframe?.contentWindow?.document?.documentElement?.innerHTML
             const resolution = values.resolution
-            if (!iframeHtml || !resolution) {
+            if (!rawIframeHtml || !resolution) {
                 return
             }
 
             removeFromLocalStorageWithPrefix(ReplayIframeDatakeyPrefix)
             const key = ReplayIframeDatakeyPrefix + uuid()
             const data: ReplayIframeData = {
-                html: iframeHtml,
+                html: stripRrwebScriptShims(rawIframeHtml),
                 width: resolution.width,
                 height: resolution.height,
                 startDateTime: values.sessionPlayerMetaData?.start_time,
@@ -2218,6 +2251,16 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             if (hasSnapshotChanges) {
                 actions.syncSnapshotsWithPlayer()
+            }
+        },
+        isWaitingForPlayableFullSnapshot: (isWaiting: boolean, wasWaiting: boolean | undefined) => {
+            // Force a buffering re-check when the scheduler gives up on seek
+            // without loading new snapshots. checkBufferingCompleted normally
+            // fires via syncSnapshotsWithPlayer on new data, but a silent
+            // seek → buffer_ahead transition delivers none, so the player
+            // would stay stuck in BUFFER without this listener (#53893).
+            if (wasWaiting && !isWaiting) {
+                actions.checkBufferingCompleted()
             }
         },
         timestampChangeTracking: (value) => {

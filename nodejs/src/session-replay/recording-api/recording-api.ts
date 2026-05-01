@@ -3,8 +3,7 @@ import { ClickHouseClient, createClient as createClickHouseClient } from '@click
 import https from 'https'
 import express from 'ultimate-express'
 
-import { KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS } from '../../config/kafka-topics'
-import { KafkaProducerWrapper } from '../../kafka/producer'
+import { IngestionOutputs } from '../../ingestion/outputs/ingestion-outputs'
 import {
     HealthCheckResult,
     HealthCheckResultError,
@@ -17,9 +16,11 @@ import { createRedisPoolFromConfig } from '../../utils/db/redis'
 import { logger, serializeError } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
 import { getBlockDecryptor } from '../shared/crypto'
+import { SessionFeatureStore } from '../shared/features/session-feature-store'
 import { getKeyStore } from '../shared/keystore'
 import { RedisCachedKeyStore } from '../shared/keystore/cache'
 import { SessionMetadataStore } from '../shared/metadata/session-metadata-store'
+import { ReplayEventsOutput, SessionFeaturesOutput } from '../shared/outputs'
 import { RetentionService } from '../shared/retention/retention-service'
 import { TeamService } from '../shared/teams/team-service'
 import { RecordingService } from './recording-service'
@@ -33,13 +34,13 @@ export class RecordingApi {
     private keyStore: KeyStore | null = null
     private decryptor: RecordingDecryptor | null = null
     private redisPool: RedisPool | null = null
-    private kafkaProducer: KafkaProducerWrapper | null = null
     private clickhouseClient: ClickHouseClient | null = null
     private recordingService: RecordingService | null = null
 
     constructor(
         private config: RecordingApiConfig,
-        private postgres: PostgresRouter
+        private postgres: PostgresRouter,
+        private outputs: IngestionOutputs<ReplayEventsOutput | SessionFeaturesOutput>
     ) {}
 
     public get service(): PluginServerService {
@@ -113,9 +114,8 @@ export class RecordingApi {
         this.decryptor = getBlockDecryptor(this.keyStore)
         await this.decryptor.start()
 
-        // Initialize Kafka producer for emitting deletion events
-        this.kafkaProducer = await KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK)
-        const metadataStore = new SessionMetadataStore(this.kafkaProducer, KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS)
+        const metadataStore = new SessionMetadataStore(this.outputs)
+        const featureStore = new SessionFeatureStore(this.outputs)
 
         // Initialize ClickHouse client for block listing queries
         const chScheme = this.config.CLICKHOUSE_SECURE ? 'https' : 'http'
@@ -141,6 +141,7 @@ export class RecordingApi {
             this.keyStore,
             this.decryptor,
             metadataStore,
+            featureStore,
             this.postgres,
             this.clickhouseClient
         )
@@ -154,9 +155,6 @@ export class RecordingApi {
         if (this.redisPool) {
             await this.redisPool.drain()
             await this.redisPool.clear()
-        }
-        if (this.kafkaProducer) {
-            await this.kafkaProducer.disconnect()
         }
         if (this.clickhouseClient) {
             await this.clickhouseClient.close()
@@ -174,9 +172,6 @@ export class RecordingApi {
         }
         if (!this.decryptor) {
             uninitializedComponents.push('decryptor')
-        }
-        if (!this.kafkaProducer) {
-            uninitializedComponents.push('kafkaProducer')
         }
 
         if (uninitializedComponents.length > 0) {

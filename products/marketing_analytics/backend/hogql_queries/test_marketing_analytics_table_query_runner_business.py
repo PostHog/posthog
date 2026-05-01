@@ -1,7 +1,7 @@
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Union
+from typing import Any, ClassVar, Union
 
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
@@ -110,6 +110,7 @@ def _create_action(team, name: str = "test_action") -> Action:
 class TestMarketingAnalyticsTableQueryRunnerBusiness(ClickhouseTestMixin, BaseTest):
     maxDiff = None
     CLASS_DATA_LEVEL_SETUP = False
+    test_data_configs: ClassVar[dict[str, DataConfig]]
 
     @classmethod
     def setUpClass(cls):
@@ -166,7 +167,7 @@ class TestMarketingAnalyticsTableQueryRunnerBusiness(ClickhouseTestMixin, BaseTe
     def setUp(self):
         super().setUp()
         self.test_tables: dict[str, TableInfo] = {}
-        self._cleanup_functions: list[callable] = []
+        self._cleanup_functions: list[Callable[[], None]] = []
 
         config = self.team.marketing_analytics_config
         config.sources_map = {}
@@ -442,7 +443,7 @@ class TestMarketingAnalyticsTableQueryRunnerBusiness(ClickhouseTestMixin, BaseTe
 
         response = runner.calculate()
 
-        source_efficiency = {}
+        source_efficiency: dict[Any, dict[str, Any]] = {}
         for row in response.results:
             source = row[2].value
             cost = float(row[3].value or 0)

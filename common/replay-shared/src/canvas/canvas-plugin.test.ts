@@ -337,6 +337,27 @@ describe('CanvasReplayerPlugin', () => {
             expect(plugin.handler).toBeTruthy()
             expect(typeof plugin.onBuild).toBe('function')
             expect(typeof plugin.handler).toBe('function')
+            expect(typeof plugin.destroy).toBe('function')
+        })
+    })
+
+    describe('destroy', () => {
+        it('can be called safely after onBuild', () => {
+            const plugin = CanvasReplayerPlugin([])
+            const canvas = document.createElement('canvas')
+
+            plugin.onBuild?.(canvas, { id: 1, replayer: mockReplayer })
+
+            expect(() => plugin.destroy()).not.toThrow()
+        })
+
+        it('can be called multiple times safely', () => {
+            const plugin = CanvasReplayerPlugin([])
+
+            expect(() => {
+                plugin.destroy()
+                plugin.destroy()
+            }).not.toThrow()
         })
     })
 

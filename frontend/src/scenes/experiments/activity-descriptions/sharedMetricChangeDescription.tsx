@@ -22,7 +22,7 @@ export const nameOrLinkToSharedMetric = (name: string | null, id?: string): JSX.
  */
 type AllowedSharedMetricFields = Pick<SharedMetric, 'query'>
 
-export const getSharedMetricChangeDescription = (sharedMetricChange: ActivityChange): string | JSX.Element | null => {
+export const getSharedMetricChangeDescription = (sharedMetricChange: ActivityChange): string | JSX.Element => {
     /**
      * a little type assertion to force field into the allowed shared metric fields
      */
@@ -30,5 +30,16 @@ export const getSharedMetricChangeDescription = (sharedMetricChange: ActivityCha
         .with({ field: 'query' }, () => {
             return 'updated shared metric:'
         })
-        .otherwise(() => null)
+        .otherwise(() => {
+            if (!sharedMetricChange.field) {
+                return 'updated shared metric'
+            }
+            // Fallback for unhandled fields - ensures all activity is visible
+            const fieldName = sharedMetricChange.field.replace(/_/g, ' ')
+            return match(sharedMetricChange.action)
+                .with('created', () => `added ${fieldName} to`)
+                .with('deleted', () => `removed ${fieldName} from`)
+                .with('changed', () => `updated ${fieldName} for`)
+                .otherwise(() => `modified ${fieldName} for`)
+        })
 }

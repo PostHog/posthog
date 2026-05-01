@@ -18,9 +18,16 @@ export async function handleToken(request: Request, kv: KVNamespace): Promise<Re
     let grantType: string | null = null
 
     if (contentType.includes('application/json')) {
-        const json = JSON.parse(body) as Record<string, unknown>
-        clientId = (json.client_id as string) || null
-        grantType = (json.grant_type as string) || null
+        try {
+            const json = JSON.parse(body) as Record<string, unknown>
+            clientId = (json.client_id as string) || null
+            grantType = (json.grant_type as string) || null
+        } catch {
+            return new Response(
+                JSON.stringify({ error: 'invalid_request', error_description: 'Malformed JSON body' }),
+                { status: 400, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }
+            )
+        }
     } else {
         const formParams = new URLSearchParams(body)
         clientId = formParams.get('client_id')

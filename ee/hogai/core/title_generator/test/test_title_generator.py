@@ -21,7 +21,7 @@ class TestTitleGenerator(BaseTest):
         """Test that a title is generated and saved for a conversation without a title."""
         with patch(
             "ee.hogai.core.title_generator.nodes.TitleGeneratorNode._model",
-            return_value=FakeChatOpenAI(responses=[LangchainAIMessage(content="Test Title")]),
+            return_value=FakeChatOpenAI(responses=[LangchainAIMessage(content="Test title")]),
         ):
             node = TitleGeneratorNode(self.team, self.user)
             new_state = node.run(
@@ -31,13 +31,13 @@ class TestTitleGenerator(BaseTest):
             self.assertIsNone(new_state)
             # Refresh from DB to ensure we get latest value
             self.conversation.refresh_from_db()
-            self.assertEqual(self.conversation.title, "Test Title")
+            self.assertEqual(self.conversation.title, "Test title")
 
     def test_saves_a_long_title_truncated(self):
         """Test that if a title over our length is generated, it is truncated on save, without error."""
         with patch(
             "ee.hogai.core.title_generator.nodes.TitleGeneratorNode._model",
-            return_value=FakeChatOpenAI(responses=[LangchainAIMessage(content=("Long " * 100).strip())]),
+            return_value=FakeChatOpenAI(responses=[LangchainAIMessage(content=("Long " + "long " * 99).strip())]),
         ):
             node = TitleGeneratorNode(self.team, self.user)
             new_state = node.run(
@@ -49,7 +49,7 @@ class TestTitleGenerator(BaseTest):
             self.conversation.refresh_from_db()
             self.assertEqual(
                 self.conversation.title,
-                "Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long",
+                "Long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long",
             )
 
     def test_title_already_set_should_stay_the_same(self):
@@ -73,7 +73,7 @@ class TestTitleGenerator(BaseTest):
 
     def test_two_messages_in_conversation_no_title_should_set_title(self):
         """Test that a title is generated when there are multiple messages in the conversation."""
-        mock_model = FakeChatOpenAI(responses=[LangchainAIMessage(content="Conversation Title")])
+        mock_model = FakeChatOpenAI(responses=[LangchainAIMessage(content="Conversation title")])
 
         with patch.object(TitleGeneratorNode, "_model", new=Mock(return_value=mock_model)):
             node = TitleGeneratorNode(self.team, self.user)
@@ -89,7 +89,7 @@ class TestTitleGenerator(BaseTest):
             self.assertIsNone(new_state)
             # Refresh from DB to ensure we get latest value
             self.conversation.refresh_from_db()
-            self.assertEqual(self.conversation.title, "Conversation Title")
+            self.assertEqual(self.conversation.title, "Conversation title")
 
     def test_no_messages_should_skip(self):
         """Test that title generation is skipped when there are no messages in the conversation."""
@@ -110,7 +110,7 @@ class TestTitleGenerator(BaseTest):
         with (
             patch(
                 "ee.hogai.core.title_generator.nodes.TitleGeneratorNode._model",
-                return_value=FakeChatOpenAI(responses=[LangchainAIMessage(content="Stream Title")]),
+                return_value=FakeChatOpenAI(responses=[LangchainAIMessage(content="Stream title")]),
             ),
             patch("ee.hogai.core.title_generator.nodes.get_stream_writer", return_value=mock_writer),
         ):
@@ -123,13 +123,13 @@ class TestTitleGenerator(BaseTest):
         self.assertEqual(len(written), 1)
         action = written[0]
         self.assertIsInstance(action, ConversationTitleAction)
-        self.assertEqual(action.title, "Stream Title")
+        self.assertEqual(action.title, "Stream title")
 
     def test_does_not_raise_when_stream_writer_unavailable(self):
         with (
             patch(
                 "ee.hogai.core.title_generator.nodes.TitleGeneratorNode._model",
-                return_value=FakeChatOpenAI(responses=[LangchainAIMessage(content="Some Title")]),
+                return_value=FakeChatOpenAI(responses=[LangchainAIMessage(content="Some title")]),
             ),
             patch(
                 "ee.hogai.core.title_generator.nodes.get_stream_writer",
@@ -145,7 +145,7 @@ class TestTitleGenerator(BaseTest):
 
         self.assertIsNone(result)
         self.conversation.refresh_from_db()
-        self.assertEqual(self.conversation.title, "Some Title")
+        self.assertEqual(self.conversation.title, "Some title")
 
     def test_handles_json_content_without_error(self):
         """Test that title generation works when user message contains JSON with curly braces."""
@@ -169,7 +169,7 @@ The query below is currently set up as an SQL insight, but the visualization opt
 
         with patch(
             "ee.hogai.core.title_generator.nodes.TitleGeneratorNode._model",
-            return_value=FakeChatOpenAI(responses=[LangchainAIMessage(content="Convert SQL to Trends")]),
+            return_value=FakeChatOpenAI(responses=[LangchainAIMessage(content="Convert SQL to trends")]),
         ):
             node = TitleGeneratorNode(self.team, self.user)
 
@@ -181,4 +181,4 @@ The query below is currently set up as an SQL insight, but the visualization opt
 
             self.assertIsNone(new_state)
             self.conversation.refresh_from_db()
-            self.assertEqual(self.conversation.title, "Convert SQL to Trends")
+            self.assertEqual(self.conversation.title, "Convert SQL to trends")

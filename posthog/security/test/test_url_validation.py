@@ -34,6 +34,19 @@ class TestUrlValidation:
         assert ok and err is None
         assert uv.should_block_url("http://localhost/x") is False
 
+    @pytest.mark.parametrize("env_value", ["1", "true", "TRUE", "True"])
+    def test_force_url_validation_env_var_disables_dev_bypass(self, monkeypatch, env_value):
+        monkeypatch.setattr(uv, "is_dev_mode", lambda: True)
+        monkeypatch.setenv("POSTHOG_FORCE_URL_VALIDATION", env_value)
+        ok, err = uv.is_url_allowed("http://localhost")
+        assert not ok and "Loopback" in (err or "")
+
+    def test_force_url_validation_env_var_unset_keeps_dev_bypass(self, monkeypatch):
+        monkeypatch.setattr(uv, "is_dev_mode", lambda: True)
+        monkeypatch.delenv("POSTHOG_FORCE_URL_VALIDATION", raising=False)
+        ok, err = uv.is_url_allowed("http://localhost")
+        assert ok and err is None
+
     def test_is_url_allowed_private_resolution_blocked(self, monkeypatch):
         def fake_resolve(host: str):
             return {ipaddress.ip_address("192.168.1.10")}

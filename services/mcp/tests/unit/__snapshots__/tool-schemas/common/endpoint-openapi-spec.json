@@ -1,0 +1,14 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "name": {
+            "type": "string"
+        },
+        "version": {
+            "description": "Specific endpoint version to generate the spec for. Defaults to latest.",
+            "type": "number"
+        }
+    },
+    "required": ["name"],
+    "type": "object"
+}

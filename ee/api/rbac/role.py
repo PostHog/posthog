@@ -62,7 +62,7 @@ class RoleSerializer(serializers.ModelSerializer):
         return organization.default_role_id == role.id
 
 
-@extend_schema(tags=["core"])
+@extend_schema(tags=["core", "platform_features"])
 class RoleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "organization"
     serializer_class = RoleSerializer
@@ -108,6 +108,7 @@ class RoleMembershipSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("User is already part of the role.")
 
 
+@extend_schema(tags=["platform_features"])
 class RoleMembershipViewSet(
     TeamAndOrgViewSetMixin,
     mixins.ListModelMixin,

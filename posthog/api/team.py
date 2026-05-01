@@ -21,7 +21,7 @@ from posthog.schema import AttributionMode, HogQLQueryModifiers
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import TeamBasicSerializer
-from posthog.api.utils import action, raise_if_user_provided_url_unsafe
+from posthog.api.utils import action
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.constants import AvailableFeature
 from posthog.decorators import disallow_if_impersonated
@@ -141,7 +141,6 @@ class CachingTeamSerializer(serializers.ModelSerializer):
 
 TEAM_CONFIG_FIELDS = (
     "app_urls",
-    "slack_incoming_webhook",
     "anonymize_ips",
     "completed_snippet_onboarding",
     "test_account_filters",
@@ -199,9 +198,6 @@ TEAM_CONFIG_FIELDS = (
     "onboarding_tasks",
     "base_currency",
     "web_analytics_pre_aggregated_tables_enabled",
-    "experiment_recalculation_time",
-    "default_experiment_confidence_level",
-    "default_experiment_stats_method",
     "receive_org_level_activity_logs",
     "business_model",
     "conversations_enabled",
@@ -328,6 +324,49 @@ class TeamCustomerAnalyticsConfigSerializer(serializers.ModelSerializer, UserAcc
             "subscription_event",
             "payment_event",
         ]
+
+
+_VALID_TRIGGER_PROPERTY_OPERATORS = {
+    "exact",
+    "is_not",
+    "icontains",
+    "not_icontains",
+    "regex",
+    "not_regex",
+    "gt",
+    "lt",
+}
+
+# Property types the SDK can evaluate client-side
+_VALID_TRIGGER_PROPERTY_TYPES = {
+    "event",
+    "person",
+}
+
+
+def _validate_trigger_property_filters(properties: object, context: str) -> None:
+    """Validate property filters on trigger conditions (events, URLs)."""
+    if not isinstance(properties, list):
+        raise exceptions.ValidationError(f"{context}: 'properties' must be an array.")
+
+    for prop_idx, prop in enumerate(properties):
+        if not isinstance(prop, dict):
+            raise exceptions.ValidationError(f"{context}: property {prop_idx} must be a dictionary.")
+        if "key" not in prop or not isinstance(prop["key"], str):
+            raise exceptions.ValidationError(f"{context}: property {prop_idx} must have a string 'key' field.")
+        if "type" not in prop or prop["type"] not in _VALID_TRIGGER_PROPERTY_TYPES:
+            raise exceptions.ValidationError(
+                f"{context}: property {prop_idx} must have a 'type' field with value: "
+                f"{', '.join(sorted(_VALID_TRIGGER_PROPERTY_TYPES))}."
+            )
+        if "operator" in prop and prop["operator"] not in _VALID_TRIGGER_PROPERTY_OPERATORS:
+            raise exceptions.ValidationError(
+                f"{context}: property {prop_idx} has invalid operator '{prop['operator']}'. "
+                f"Valid operators: {', '.join(sorted(_VALID_TRIGGER_PROPERTY_OPERATORS))}."
+            )
+        # All supported operators require a value (is_set/is_not_set are not supported)
+        if "value" not in prop:
+            raise exceptions.ValidationError(f"{context}: property {prop_idx} must have a 'value' field.")
 
 
 class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin):
@@ -609,9 +648,22 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             if "events" in conditions:
                 if not isinstance(conditions["events"], list):
                     raise exceptions.ValidationError(f"Group {idx}: field 'events' must be an array.")
-                for event in conditions["events"]:
-                    if not isinstance(event, str):
-                        raise exceptions.ValidationError(f"Group {idx}: event names must be strings.")
+                for event_idx, event in enumerate(conditions["events"]):
+                    if isinstance(event, str):
+                        pass  # Simple event name is valid
+                    elif isinstance(event, dict):
+                        if "name" not in event or not isinstance(event["name"], str):
+                            raise exceptions.ValidationError(
+                                f"Group {idx}: event {event_idx} object must have a string 'name' field."
+                            )
+                        if "properties" in event:
+                            _validate_trigger_property_filters(
+                                event["properties"], f"Group {idx}, event '{event['name']}'"
+                            )
+                    else:
+                        raise exceptions.ValidationError(
+                            f"Group {idx}: event {event_idx} must be a string or object with 'name'."
+                        )
 
             # Validate URLs array if present
             if "urls" in conditions:
@@ -652,6 +704,10 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                     raise exceptions.ValidationError(
                         f"Group {idx}: 'flag' must be a string (flag key), object (LinkedFeatureFlag), or null."
                     )
+
+            # Validate group-level property filters (shared WHERE clause for all triggers in group)
+            if "properties" in conditions:
+                _validate_trigger_property_filters(conditions["properties"], f"Group {idx}")
 
         # Note: All matching groups are evaluated independently
         # If any group's sample rate hits, the session is recorded (union behavior)
@@ -803,8 +859,32 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         if "widget_public_token" in value:
             value.pop("widget_public_token")
         # Integration state is managed only by dedicated endpoints, not user input
-        for managed_key in ("slack_bot_token", "slack_team_id", "slack_enabled", "email_enabled"):
+        for managed_key in (
+            "slack_bot_token",
+            "slack_team_id",
+            "slack_enabled",
+            "email_enabled",
+            "teams_enabled",
+            "teams_tenant_id",
+            "teams_team_id",
+            "teams_team_name",
+            "teams_channel_id",
+            "teams_channel_name",
+        ):
             value.pop(managed_key, None)
+        # Normalize multi-channel list: must be a list of non-empty strings, deduped, capped at 50
+        if "slack_channel_ids" in value:
+            raw = value.get("slack_channel_ids")
+            if isinstance(raw, list):
+                cleaned: list[str] = []
+                seen: set[str] = set()
+                for item in raw:
+                    if isinstance(item, str) and item and item not in seen:
+                        seen.add(item)
+                        cleaned.append(item)
+                value["slack_channel_ids"] = cleaned[:50]
+            else:
+                value.pop("slack_channel_ids", None)
         icon_url = value.get("slack_bot_icon_url")
         if icon_url is not None:
             if not isinstance(icon_url, str):
@@ -822,18 +902,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             if display_name and (len(display_name) > 200 or any(ord(c) < 32 for c in display_name)):
                 raise serializers.ValidationError(
                     {"slack_bot_display_name": "Must be 200 characters or fewer with no control characters."}
-                )
-        return value
-
-    def validate_slack_incoming_webhook(self, value: str | None) -> str | None:
-        if value is None or value == "":
-            return None
-        if not settings.DEBUG:
-            try:
-                raise_if_user_provided_url_unsafe(value)
-            except ValueError:
-                raise exceptions.ValidationError(
-                    "Invalid webhook URL. Ensure the URL is valid and points to an external server."
                 )
         return value
 
@@ -859,9 +927,17 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
         return value
 
+    VALID_RETENTION_DAYS = {14, 30, 90}
+
     def validate_logs_settings(self, value: dict | None) -> dict | None:
         if value is None or not self.instance:
             return value
+
+        new_retention = value.get("retention_days")
+        if new_retention is not None and new_retention not in TeamSerializer.VALID_RETENTION_DAYS:
+            raise exceptions.ValidationError(
+                f"retention_days must be one of {sorted(TeamSerializer.VALID_RETENTION_DAYS)}"
+            )
 
         # Only validate retention changes if we have an existing instance
         logs_settings = (
@@ -871,7 +947,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         )
         if self.instance and logs_settings:
             old_retention = logs_settings.get("retention_days")
-            new_retention = value.get("retention_days")
             old_last_updated = logs_settings.get("retention_last_updated")
 
             # Check if retention_days is being changed
@@ -1484,6 +1559,40 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         )
 
         return response.Response({"enabled": config.enabled, "default_groups": config.default_groups})
+
+    @action(
+        methods=["GET", "PATCH"],
+        detail=True,
+        permission_classes=[TeamMemberLightManagementPermission],
+        url_path="experiments_config",
+    )
+    def experiments_config(self, request: request.Request, id: str, **kwargs) -> response.Response:
+        """Manage experiment configuration for this environment."""
+        from rest_framework import serializers
+
+        from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+
+        class TeamExperimentsConfigSerializer(serializers.ModelSerializer):
+            class Meta:
+                model = TeamExperimentsConfig
+                fields = [
+                    "experiment_recalculation_time",
+                    "default_experiment_confidence_level",
+                    "default_experiment_stats_method",
+                    "experiment_precomputation_enabled",
+                    "default_only_count_matured_users",
+                ]
+
+        team = self.get_object()
+        config = get_or_create_team_extension(team, TeamExperimentsConfig)
+
+        if request.method == "PATCH":
+            serializer = TeamExperimentsConfigSerializer(config, data=request.data, partial=True)
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+            return response.Response(serializer.data)
+
+        return response.Response(TeamExperimentsConfigSerializer(config).data)
 
     @action(
         methods=["GET", "POST", "DELETE"],

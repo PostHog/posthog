@@ -39,6 +39,7 @@ export interface PieChartProps extends LineGraphProps {
     breakdownFilter?: BreakdownFilter | null | undefined
     showLabelOnSeries?: boolean | null
     disableHoverOffset?: boolean | null
+    valueFormatter?: ((value: number) => string) | null
 }
 
 export function PieChart({
@@ -58,6 +59,7 @@ export function PieChart({
     showPersonsModal = true,
     labelGroupType,
     disableHoverOffset,
+    valueFormatter,
 }: PieChartProps): JSX.Element {
     const isPie = type === GraphType.Pie
     const isPercentStackView = !!supportsPercentStackView && !!showPercentStackView
@@ -156,6 +158,10 @@ export function PieChart({
                                     return `${percentage.toFixed(1)}%`
                                 }
 
+                                if (valueFormatter) {
+                                    return valueFormatter(value)
+                                }
+
                                 return formatAggregationAxisValue(trendsFilter, value, baseCurrency)
                             },
                             font: {
@@ -231,6 +237,10 @@ export function PieChart({
                                             renderCount={
                                                 tooltipConfig?.renderCount ||
                                                 ((value: number): string => {
+                                                    if (valueFormatter) {
+                                                        return valueFormatter(value)
+                                                    }
+
                                                     const total = dataset.data.reduce(
                                                         (a: number, b: number) => a + b,
                                                         0

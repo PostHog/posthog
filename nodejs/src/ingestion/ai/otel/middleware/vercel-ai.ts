@@ -18,7 +18,6 @@ const STRIP_KEYS = [
     'ai.usage.promptTokens',
     'ai.usage.completionTokens',
     'ai.usage.tokens',
-    'ai.response.finishReason',
     'ai.response.id',
     'ai.response.model',
     'ai.response.timestamp',
@@ -43,7 +42,6 @@ const STRIP_KEYS = [
     'resource.name',
     // Standard GenAI semantic convention attributes not mapped to $ai_* properties
     'gen_ai.request.max_tokens',
-    'gen_ai.response.finish_reasons',
     'gen_ai.response.id',
 ]
 
@@ -148,7 +146,26 @@ function process(event: PluginEvent, next: () => void): void {
         delete props['ai.toolCall.result']
     }
 
-    // Strip Vercel-specific telemetry metadata and request headers
+    const functionId = props['ai.telemetry.functionId']
+    if (props['functionId'] === undefined && typeof functionId === 'string' && functionId) {
+        props['functionId'] = functionId
+    }
+
+    const posthogDistinctId = props['ai.telemetry.metadata.posthog_distinct_id']
+    if (typeof posthogDistinctId === 'string' && posthogDistinctId) {
+        if (props['posthog_distinct_id'] === undefined) {
+            props['posthog_distinct_id'] = posthogDistinctId
+        }
+        event.distinct_id = posthogDistinctId
+    }
+
+    const aiSessionId = props['ai.telemetry.metadata.$ai_session_id']
+    if (props['$ai_session_id'] === undefined && typeof aiSessionId === 'string' && aiSessionId) {
+        props['$ai_session_id'] = aiSessionId
+    }
+
+    // Strip Vercel-specific telemetry metadata and request headers after preserving
+    // the PostHog identifiers we rely on for event linkage and session grouping.
     for (const key of Object.keys(props)) {
         if (key.startsWith('ai.telemetry.metadata.')) {
             delete props[key]
@@ -156,6 +173,19 @@ function process(event: PluginEvent, next: () => void): void {
             delete props[key]
         }
     }
+
+    // Map finish reason to $ai_stop_reason before stripping
+    if (props['$ai_stop_reason'] === undefined) {
+        const vercelReason = props['ai.response.finishReason']
+        const genAiReasons = props['gen_ai.response.finish_reasons']
+        if (vercelReason !== undefined) {
+            props['$ai_stop_reason'] = vercelReason
+        } else if (Array.isArray(genAiReasons) && genAiReasons.length > 0) {
+            props['$ai_stop_reason'] = genAiReasons[0]
+        }
+    }
+    delete props['ai.response.finishReason']
+    delete props['gen_ai.response.finish_reasons']
 
     props['$ai_lib'] = 'opentelemetry/vercel-ai'
 

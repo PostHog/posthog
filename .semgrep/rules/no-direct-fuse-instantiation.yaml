@@ -1,0 +1,15 @@
+rules:
+    - id: no-direct-fuse-instantiation
+      message: >-
+          Do not instantiate Fuse directly. Use `createFuse()` from `lib/utils/fuseSearch`
+          which applies centralized defaults (threshold, useTokenSearch, ignoreDiacritics).
+      severity: ERROR
+      languages: [typescript, javascript]
+      patterns:
+          - pattern: new $FUSE(...)
+          - metavariable-regex:
+                metavariable: $FUSE
+                regex: ^(Fuse|FuseClass|_Fuse)$
+      paths:
+          exclude:
+              - frontend/src/lib/utils/fuseSearch.ts

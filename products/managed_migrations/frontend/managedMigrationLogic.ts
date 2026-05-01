@@ -122,6 +122,11 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
                         } else if (endDateParsed.diff(startDateParsed, 'year', true) > 1) {
                             errors.end_date =
                                 'Date range cannot exceed 1 year. Please create multiple migration jobs for longer periods.'
+                        } else if (
+                            source_type === 'amplitude' &&
+                            endDateParsed.diff(startDateParsed, 'hour', true) < 1
+                        ) {
+                            errors.end_date = 'Date range must be at least 1 hour for Amplitude migrations.'
                         }
                     }
 

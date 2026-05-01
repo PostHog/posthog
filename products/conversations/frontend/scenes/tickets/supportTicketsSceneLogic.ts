@@ -1,17 +1,21 @@
 import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { router } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { Sorting } from 'lib/lemon-ui/LemonTable/sorting'
+import { teamLogic } from 'scenes/teamLogic'
 
 import type {
     AssigneeFilterValue,
+    SavedTicketView,
     Ticket,
     TicketChannel,
     TicketPriority,
     TicketSlaState,
     TicketStatus,
+    TicketViewFilters,
 } from '../../types'
 import type { supportTicketsSceneLogicType } from './supportTicketsSceneLogicType'
 
@@ -35,11 +39,15 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         setTagsFilter: (tags: string[]) => ({ tags }),
         setDateRange: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         setSorting: (sorting: Sorting | null) => ({ sorting }),
+        setSearchQuery: (query: string) => ({ query }),
         setCurrentPage: (page: number) => ({ page }),
         loadTickets: true,
         setTickets: (tickets: Ticket[]) => ({ tickets }),
         setTotalCount: (count: number) => ({ count }),
         setTicketsLoading: (loading: boolean) => ({ loading }),
+        applyViewFilters: (filters: TicketViewFilters) => ({ filters }),
+        setActiveView: (view: SavedTicketView | null) => ({ view }),
+        clearActiveView: true,
     }),
     reducers({
         tickets: [
@@ -73,18 +81,21 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             { persist: true },
             {
                 setStatusFilter: (_, { statuses }) => statuses,
+                applyViewFilters: (state, { filters }) => filters.status ?? state,
             },
         ],
         channelFilter: [
             'all' as TicketChannel | 'all',
             {
                 setChannelFilter: (_, { channel }) => channel,
+                applyViewFilters: (state, { filters }) => filters.channel ?? state,
             },
         ],
         slaFilter: [
             'all' as TicketSlaState | 'all',
             {
                 setSlaFilter: (_, { sla }) => sla,
+                applyViewFilters: (state, { filters }) => filters.sla ?? state,
             },
         ],
         priorityFilter: [
@@ -92,6 +103,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             { persist: true },
             {
                 setPriorityFilter: (_, { priorities }) => priorities,
+                applyViewFilters: (state, { filters }) => filters.priority ?? state,
             },
         ],
         assigneeFilter: [
@@ -99,6 +111,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             { persist: true },
             {
                 setAssigneeFilter: (_, { assignee }) => assignee,
+                applyViewFilters: (state, { filters }) => filters.assignee ?? state,
             },
         ],
         tagsFilter: [
@@ -106,6 +119,14 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             { persist: true },
             {
                 setTagsFilter: (_, { tags }) => tags,
+                applyViewFilters: (state, { filters }) => filters.tags ?? state,
+            },
+        ],
+        searchQuery: [
+            '' as string,
+            {
+                setSearchQuery: (_, { query }) => query,
+                applyViewFilters: (state, { filters }) => filters.search ?? state,
             },
         ],
         dateFrom: [
@@ -113,6 +134,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             { persist: true },
             {
                 setDateRange: (_, { dateFrom }) => dateFrom,
+                applyViewFilters: (state, { filters }) => (filters.dateFrom !== undefined ? filters.dateFrom : state),
             },
         ],
         dateTo: [
@@ -120,17 +142,25 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             { persist: true },
             {
                 setDateRange: (_, { dateTo }) => dateTo,
+                applyViewFilters: (state, { filters }) => (filters.dateTo !== undefined ? filters.dateTo : state),
             },
         ],
         sorting: [
             { columnKey: 'updated_at', order: -1 } as Sorting | null,
             {
                 setSorting: (_, { sorting }) => sorting,
+                applyViewFilters: (state, { filters }) => (filters.sorting !== undefined ? filters.sorting : state),
+            },
+        ],
+        activeView: [
+            null as SavedTicketView | null,
+            {
+                setActiveView: (_, { view }) => view,
+                clearActiveView: () => null,
             },
         ],
     }),
     selectors({
-        filteredTickets: [(s) => [s.tickets], (tickets: Ticket[]) => tickets],
         orderBy: [
             (s) => [s.sorting],
             (sorting: Sorting | null): string => {
@@ -140,6 +170,43 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 const prefix = sorting.order === 1 ? '' : '-'
                 return `${prefix}${sorting.columnKey}`
             },
+        ],
+        currentFilters: [
+            (s) => [
+                s.statusFilter,
+                s.priorityFilter,
+                s.channelFilter,
+                s.slaFilter,
+                s.assigneeFilter,
+                s.tagsFilter,
+                s.dateFrom,
+                s.dateTo,
+                s.sorting,
+                s.searchQuery,
+            ],
+            (
+                status: TicketStatus[],
+                priority: TicketPriority[],
+                channel: TicketChannel | 'all',
+                sla: TicketSlaState | 'all',
+                assignee: AssigneeFilterValue,
+                tags: string[],
+                dateFrom: string | null,
+                dateTo: string | null,
+                sorting: Sorting | null,
+                search: string
+            ): TicketViewFilters => ({
+                status,
+                priority,
+                channel,
+                sla,
+                assignee,
+                tags,
+                dateFrom,
+                dateTo,
+                sorting,
+                search: search || undefined,
+            }),
         ],
     }),
     listeners(({ actions, values, props }) => ({
@@ -173,6 +240,9 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             if (values.tagsFilter.length > 0) {
                 params.tags = JSON.stringify(values.tagsFilter)
             }
+            if (values.searchQuery) {
+                params.search = values.searchQuery
+            }
             if (values.dateFrom) {
                 params.date_from = values.dateFrom
             }
@@ -192,35 +262,78 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 actions.setTicketsLoading(false)
             }
         },
+        applyViewFilters: () => {
+            actions.setCurrentPage(1)
+        },
         setCurrentPage: () => {
             actions.loadTickets()
         },
+        setSearchQuery: () => {
+            actions.clearActiveView()
+            actions.setCurrentPage(1)
+        },
         setStatusFilter: () => {
+            actions.clearActiveView()
             actions.setCurrentPage(1)
         },
         setPriorityFilter: () => {
+            actions.clearActiveView()
             actions.setCurrentPage(1)
         },
         setChannelFilter: () => {
+            actions.clearActiveView()
             actions.setCurrentPage(1)
         },
         setSlaFilter: () => {
+            actions.clearActiveView()
             actions.setCurrentPage(1)
         },
         setAssigneeFilter: () => {
+            actions.clearActiveView()
             actions.setCurrentPage(1)
         },
         setTagsFilter: () => {
+            actions.clearActiveView()
             actions.setCurrentPage(1)
         },
         setDateRange: () => {
+            actions.clearActiveView()
             actions.setCurrentPage(1)
         },
         setSorting: () => {
+            actions.clearActiveView()
             actions.setCurrentPage(1)
+        },
+        setActiveView: ({ view }) => {
+            if (view) {
+                const { searchParams } = router.values
+                router.actions.replace(router.values.location.pathname, { ...searchParams, view: view.short_id })
+            }
+        },
+        clearActiveView: () => {
+            const { searchParams } = router.values
+            if (searchParams.view) {
+                const { view: _, ...rest } = searchParams
+                router.actions.replace(router.values.location.pathname, rest)
+            }
         },
     })),
     afterMount(({ actions }) => {
+        const { searchParams } = router.values
+        const viewShortId = searchParams.view
+        if (viewShortId) {
+            const teamId = teamLogic.values.currentTeamId
+            api.get(`api/environments/${teamId}/conversations/views/${viewShortId}`)
+                .then((view: SavedTicketView) => {
+                    actions.applyViewFilters(view.filters || {})
+                    actions.setActiveView(view)
+                })
+                .catch(() => {
+                    lemonToast.error('Failed to load saved view')
+                    actions.loadTickets()
+                })
+            return
+        }
         actions.loadTickets()
     }),
 ])

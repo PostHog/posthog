@@ -6,6 +6,12 @@
 # PostHog has sunset support for self-hosted K8s deployments.
 # See: https://posthog.com/blog/sunsetting-helm-support-posthog
 #
+# Profile guidance:
+#   New optional services should declare `profiles:` directly on the service
+#   here (see capture, plugins, ingestion-* for examples).
+#   docker-compose.profiles.yml is a legacy overlay that retroactively gates
+#   older services; do not add new entries there.
+#
 
 services:
     proxy:
@@ -21,9 +27,15 @@ services:
             - 'capture-ai:host-gateway'
             - 'replay-capture:host-gateway'
             - 'feature-flags:host-gateway'
+            - 'hypercache-server:host-gateway'
         environment:
             CADDYFILE: |
-                http://localhost:8000 {
+                {
+                    servers {
+                        trusted_proxies static ${CADDY_TRUSTED_PROXIES:-127.0.0.1/32 ::1/128}
+                    }
+                }
+                ${CADDY_HOST:-http://localhost:8000} {
                     @replay-capture {
                         path /s
                         path /s/*
@@ -53,6 +65,17 @@ services:
                         path /flags*
                     }
 
+                    @surveys {
+                        path /surveys
+                        path /surveys/
+                        path /api/surveys
+                        path /api/surveys/
+                    }
+
+                    @remote-config {
+                        path /array/*
+                    }
+
                     @webhooks {
                         path /public/webhooks
                         path /public/webhooks/*
@@ -78,6 +101,14 @@ services:
 
                     handle @flags {
                         reverse_proxy feature-flags:3001
+                    }
+
+                    handle @surveys {
+                        reverse_proxy hypercache-server:3002
+                    }
+
+                    handle @remote-config {
+                        reverse_proxy hypercache-server:3002
                     }
 
                     handle @webhooks {
@@ -355,6 +386,12 @@ services:
             file: docker-compose.base.yml
             service: clickhouse
         hostname: clickhouse
+        # ClickHouse writes ~1 GB/hour in dev and json-file driver has no default rotation
+        logging:
+            driver: json-file
+            options:
+                max-size: '50m'
+                max-file: '3'
         # Development performance optimizations
         mem_limit: 8g
         cpus: 2
@@ -464,6 +501,32 @@ services:
         expose:
             - 9200
 
+    # OpenSearch (LLM trace reverse index). 9201 to avoid Elasticsearch's 9200.
+    opensearch:
+        extends:
+            file: docker-compose.base.yml
+            service: opensearch
+        ports:
+            - '127.0.0.1:9201:9200'
+        profiles: [opensearch]
+    opensearch-dashboards:
+        extends:
+            file: docker-compose.base.yml
+            service: opensearch-dashboards
+        ports:
+            - '127.0.0.1:5601:5601'
+        profiles: [opensearch]
+    opensearch-init:
+        image: curlimages/curl:8.10.1
+        depends_on:
+            opensearch:
+                condition: service_healthy
+        restart: 'no'
+        volumes:
+            - ./products/llm_analytics/opensearch:/work:ro
+        entrypoint: ['sh', '/work/init.sh']
+        profiles: [opensearch]
+
     temporal:
         extends:
             file: docker-compose.base.yml
@@ -551,21 +614,12 @@ services:
             - 'seaweedfs-data:/data'
 
     duckgres:
-        # DuckLake 0.4 + DuckDB 1.5.1, multi-arch (posthog/duckgres@5cfca88)
-        image: ghcr.io/posthog/duckgres:5cfca88a52f366765fcdb122056e7ad3f038ec4f
-        restart: on-failure
+        extends:
+            file: docker-compose.base.yml
+            service: duckgres
         profiles: ['duckgres']
         ports:
             - '15432:15432'
-        volumes:
-            - ./devenv/duckgres.yaml:/app/config.yaml:ro
-            - duckgres-data:/app/data
-        depends_on:
-            db:
-                condition: service_healthy
-            objectstorage:
-                condition: service_started
-        command: ['--config', '/app/config.yaml']
 
     etcd:
         image: quay.io/coreos/etcd:v3.6.8

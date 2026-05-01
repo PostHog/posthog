@@ -13,6 +13,7 @@ import collections.abc
 
 from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
+from django.db import transaction
 
 import pyarrow as pa
 import deltalake
@@ -46,6 +47,10 @@ from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
+from posthog.temporal.data_modeling.activities.fail_materialization import (
+    CONSECUTIVE_TIMEOUTS_TO_PAUSE,
+    should_pause_schedule_for_timeout,
+)
 from posthog.temporal.data_modeling.activities.utils import strip_hostname_from_error
 from posthog.temporal.data_modeling.metrics import get_data_modeling_finished_metric
 from posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow import DuckLakeCopyDataModelingWorkflow
@@ -483,7 +488,14 @@ async def materialize_model(
     if not query_columns:
         query_columns = await database_sync_to_async(saved_query.get_columns)()
 
-    hogql_query = saved_query.query["query"]
+    if not isinstance(saved_query.query, dict):
+        raise ValueError(f"Saved query {saved_query.id} is missing its query payload")
+
+    hogql_query_value = saved_query.query.get("query")
+    if not isinstance(hogql_query_value, str):
+        raise ValueError(f"Saved query {saved_query.id} has an invalid query payload")
+
+    hogql_query = hogql_query_value
 
     try:
         row_count = 0
@@ -629,15 +641,32 @@ async def materialize_model(
             await database_sync_to_async(saved_query.save)()
             await mark_job_as_failed(job, error_message, logger)
             raise Exception(f"Query exceeded memory limit for model {model_label}: {error_message}") from e
-        elif "Timeout exceeded" in error_message:
+        elif "Timeout exceeded" in error_message or "exceeded timeout" in error_message.lower():
             error_message = f"Query exceeded timeout - we limit queries to a 10-minute timeout."
             saved_query.latest_error = error_message
-            saved_query.sync_frequency_interval = None
             await logger.ainfo("Query exceeded timeout limit for model %s", model_label)
-            await database_sync_to_async(saved_query.save)()
-            await a_pause_saved_query_schedule(saved_query)
             await mark_job_as_failed(job, error_message, logger)
-            await logger.ainfo("Paused temporal schedule for query: saved_query_id=%s", saved_query.id)
+
+            should_pause, count = await database_sync_to_async(should_pause_schedule_for_timeout)(
+                saved_query.id, job.id
+            )
+            if should_pause:
+                saved_query.sync_frequency_interval = None
+                await database_sync_to_async(saved_query.save)()
+                await a_pause_saved_query_schedule(saved_query)
+                await logger.ainfo(
+                    "Paused temporal schedule for query due to %d consecutive timeouts: saved_query_id=%s",
+                    CONSECUTIVE_TIMEOUTS_TO_PAUSE,
+                    saved_query.id,
+                )
+            else:
+                await database_sync_to_async(saved_query.save)()
+                await logger.ainfo(
+                    "Timeout for query saved_query_id=%s - not pausing schedule (%d/%d consecutive timeouts)",
+                    saved_query.id,
+                    count,
+                    CONSECUTIVE_TIMEOUTS_TO_PAUSE,
+                )
             raise NonRetryableException(f"Query exceeded timeout limit for model {model_label}: {error_message}") from e
         else:
             sanitized_error = strip_hostname_from_error(error_message)
@@ -712,7 +741,7 @@ async def materialize_model(
 
 async def mark_job_as_failed(job: DataModelingJob, error_message: str, logger: FilteringBoundLogger) -> None:
     """
-    Mark DataModelingJob as failed and send notification email if applicable.
+    Mark DataModelingJob as failed.
 
     The original error message (with hostnames) is logged for internal debugging,
     but the user-facing error has hostnames stripped to avoid exposing infrastructure details.
@@ -724,14 +753,6 @@ async def mark_job_as_failed(job: DataModelingJob, error_message: str, logger: F
     job.rows_materialized = 0
     job.error = strip_hostname_from_error(error_message)
     await database_sync_to_async(job.save)()
-
-    if job.saved_query_id:
-        try:
-            from posthog.tasks.email import send_saved_query_materialization_failure
-
-            await database_sync_to_async(send_saved_query_materialization_failure)(str(job.saved_query_id))
-        except Exception:
-            await logger.aexception("Failed to send materialization failure notification email")
 
 
 async def revert_materialization(saved_query: DataWarehouseSavedQuery, logger: FilteringBoundLogger) -> None:
@@ -899,28 +920,29 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
                     ]
 
                     # We can safely assume there is at least one element in this array due to the outer `if`
-                    call_tuple = call_tuples[0]
+                    selected_call_tuple = call_tuples[0]
 
                     has_type_to_convert = True
-                    query_typings.append((column_name, ch_type, call_tuple))
+                    query_typings.append((column_name, ch_type, selected_call_tuple))
                 else:
                     query_typings.append((column_name, ch_type, None))
     if has_type_to_convert:
         await logger.adebug("Query has fields that need converting")
 
         select_fields: list[ast.Expr] = []
-        for column_name, ch_type, call_tuple in query_typings:
-            if call_tuple:
+        for column_name, ch_type, conversion_tuple in query_typings:
+            if conversion_tuple is not None:
+                function_name, function_args = conversion_tuple
                 is_array = ch_type.lower().startswith("array(")
 
                 if is_array:
                     await logger.adebug(
-                        f"Converting {column_name} of type {ch_type} using arrayMap with {call_tuple[0]}(..)"
+                        f"Converting {column_name} of type {ch_type} using arrayMap with {function_name}(..)"
                     )
                     # Use arrayMap to apply the conversion function to each array element
                     lambda_expr = ast.Lambda(
                         args=["x"],
-                        expr=ast.Call(name=call_tuple[0], args=[ast.Field(chain=["x"]), *call_tuple[1]]),
+                        expr=ast.Call(name=function_name, args=[ast.Field(chain=["x"]), *function_args]),
                     )
                     select_fields.append(
                         ast.Alias(
@@ -930,11 +952,11 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
                     )
                 else:
                     await logger.adebug(
-                        f"Converting {column_name} of type {ch_type} to be wrapped with {call_tuple[0]}(..)"
+                        f"Converting {column_name} of type {ch_type} to be wrapped with {function_name}(..)"
                     )
                     select_fields.append(
                         ast.Alias(
-                            expr=ast.Call(name=call_tuple[0], args=[ast.Field(chain=[column_name]), *call_tuple[1]]),
+                            expr=ast.Call(name=function_name, args=[ast.Field(chain=[column_name]), *function_args]),
                             alias=column_name,
                         )
                     )
@@ -1129,7 +1151,7 @@ def _transform_unsupported_decimals(batch: pa.RecordBatch) -> pa.RecordBatch:
             except Exception:
                 # Fallback: cast via string, truncate, then cast to reduced decimal
                 reduced_decimal_type = pa.decimal128(precision, scale)
-                string_col = pc.cast(col, pa.string())
+                string_col = typing.cast(pa.StringArray, pc.cast(col, pa.string()))
                 truncated = pc.utf8_slice_codeunits(string_col, 0, precision)
                 cast_reduced = pc.cast(truncated, reduced_decimal_type)
                 new_fields.append(field.with_type(reduced_decimal_type))
@@ -1229,9 +1251,11 @@ async def build_dag_activity(inputs: BuildDagActivityInputs) -> DAG:
         selector_paths: SelectorPaths = {}
 
         if not inputs.select:
-            matching_paths = await database_sync_to_async(list)(
-                DataWarehouseModelPath.objects.filter(team_id=inputs.team_id).values_list("path", flat=True)
-            )
+            matching_paths: list[str] = await database_sync_to_async(
+                lambda: list(
+                    DataWarehouseModelPath.objects.filter(team_id=inputs.team_id).values_list("path", flat=True)
+                )
+            )()
             selector_paths[
                 Selector(
                     label="*",
@@ -1245,11 +1269,13 @@ async def build_dag_activity(inputs: BuildDagActivityInputs) -> DAG:
             query = f"*.{selector_input.label}.*"
 
             # TODO: Make this one database fetch for all selectors, instead of one per selector
-            matching_paths = await database_sync_to_async(list)(
-                DataWarehouseModelPath.objects.filter(team_id=inputs.team_id, path__lquery=query).values_list(
-                    "path", flat=True
+            matching_paths = await database_sync_to_async(
+                lambda query_value=query: list(
+                    DataWarehouseModelPath.objects.filter(team_id=inputs.team_id, path__lquery=query_value).values_list(
+                        "path", flat=True
+                    )
                 )
-            )
+            )()
 
             selector_paths[selector_input] = matching_paths
 
@@ -1363,6 +1389,10 @@ async def create_job_model_activity(inputs: CreateJobModelInputs) -> str:
     workflow_id = temporalio.activity.info().workflow_id
     workflow_run_id = temporalio.activity.info().workflow_run_id
 
+    # Will always be defined if this activity was started by a workflow
+    assert workflow_id
+    assert workflow_run_id
+
     if len(inputs.select) != 0:
         label = inputs.select[0].label
         saved_query = await get_saved_query(team, label)
@@ -1376,34 +1406,74 @@ async def create_job_model_activity(inputs: CreateJobModelInputs) -> str:
 @dataclasses.dataclass
 class CleanupRunningJobsActivityInputs:
     team_id: int
+    saved_query_ids: list[str] = dataclasses.field(default_factory=list)
+
+
+@database_sync_to_async
+def _preempt_running_jobs(team_id: int, saved_query_ids: list[str] | None = None) -> list[DataModelingJob]:
+    """Atomically fetch and mark orphaned RUNNING jobs as FAILED.
+
+    When saved_query_ids is provided, only jobs belonging to those saved queries
+    are preempted (self-preemption). Otherwise, falls back to team-wide cleanup
+    for backwards compatibility.
+
+    The SELECT and UPDATE run inside a single transaction with row-level locks
+    so concurrent cleanups cannot process the same jobs twice.
+    """
+    with transaction.atomic():
+        filters: dict[str, typing.Any] = {
+            "team_id": team_id,
+            "status": DataModelingJob.Status.RUNNING,
+            "engine": DataModelingJob.Engine.CLICKHOUSE,
+        }
+        if saved_query_ids:
+            resolved_uuids: list[uuid.UUID] = []
+            for label in saved_query_ids:
+                try:
+                    resolved_uuids.append(uuid.UUID(label))
+                except ValueError:
+                    try:
+                        sq = DataWarehouseSavedQuery.objects.exclude(deleted=True).get(team_id=team_id, name=label)
+                        resolved_uuids.append(sq.id)
+                    except DataWarehouseSavedQuery.DoesNotExist:
+                        pass
+            if resolved_uuids:
+                filters["saved_query_id__in"] = resolved_uuids
+
+        orphaned_jobs = list(DataModelingJob.objects.select_for_update().filter(**filters))
+
+        if not orphaned_jobs:
+            return []
+
+        DataModelingJob.objects.filter(id__in=[job.id for job in orphaned_jobs]).update(
+            status=DataModelingJob.Status.FAILED,
+            rows_materialized=0,
+            error="Preempted: This job did not complete before the next scheduled job was triggered.",
+            updated_at=dt.datetime.now(dt.UTC),
+        )
+
+        return orphaned_jobs
 
 
 @temporalio.activity.defn
 async def cleanup_running_jobs_activity(inputs: CleanupRunningJobsActivityInputs) -> None:
-    """Mark all existing RUNNING DataModelingJobs as FAILED when starting a new run.
-    Since only one job can run at a time per team, any existing RUNNING jobs
-    are orphaned when a new run starts.
-    """
+    """Marks orphaned RUNNING DataModelingJobs for this saved query as FAILED when starting a new run."""
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()
 
-    orphaned_count = await database_sync_to_async(
-        DataModelingJob.objects.filter(
-            team_id=inputs.team_id,
-            status=DataModelingJob.Status.RUNNING,
-            engine=DataModelingJob.Engine.CLICKHOUSE,
-        ).update
-    )(
-        status=DataModelingJob.Status.FAILED,
-        rows_materialized=0,
-        error="Preempted: This job did not complete before the next scheduled job was triggered.",
-        updated_at=dt.datetime.now(dt.UTC),
-    )
+    orphaned_jobs = await _preempt_running_jobs(inputs.team_id, inputs.saved_query_ids or None)
 
-    if orphaned_count > 0:
-        await logger.ainfo(f"Cleaned up {orphaned_count} orphaned jobs", orphaned_count=orphaned_count)
-    else:
+    if not orphaned_jobs:
         await logger.adebug("No orphaned jobs found")
+        return
+
+    await logger.ainfo(
+        f"Cleaned up {len(orphaned_jobs)} orphaned jobs",
+        orphaned_count=len(orphaned_jobs),
+        orphaned_job_ids=[str(job.id) for job in orphaned_jobs],
+        orphaned_saved_query_ids=[str(job.saved_query_id) for job in orphaned_jobs if job.saved_query_id is not None],
+        orphaned_workflow_ids=[job.workflow_id for job in orphaned_jobs if job.workflow_id],
+    )
 
 
 @temporalio.activity.defn
@@ -1584,17 +1654,18 @@ class RunWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: RunWorkflowInputs) -> Results:
+        saved_query_ids = [s.label for s in inputs.select]
         await temporalio.workflow.execute_activity(
             cleanup_running_jobs_activity,
-            CleanupRunningJobsActivityInputs(team_id=inputs.team_id),
-            start_to_close_timeout=dt.timedelta(minutes=20),
-            retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
+            CleanupRunningJobsActivityInputs(team_id=inputs.team_id, saved_query_ids=saved_query_ids),
+            start_to_close_timeout=dt.timedelta(minutes=5),
+            retry_policy=temporalio.common.RetryPolicy(maximum_attempts=2),
         )
 
         job_id = await temporalio.workflow.execute_activity(
             create_job_model_activity,
             CreateJobModelInputs(team_id=inputs.team_id, select=inputs.select),
-            start_to_close_timeout=dt.timedelta(minutes=20),
+            start_to_close_timeout=dt.timedelta(minutes=5),
             retry_policy=temporalio.common.RetryPolicy(
                 maximum_attempts=1,
             ),
@@ -1607,8 +1678,6 @@ class RunWorkflow(PostHogWorkflow):
             start_to_close_timeout=dt.timedelta(minutes=20),
             heartbeat_timeout=dt.timedelta(minutes=1),
             retry_policy=temporalio.common.RetryPolicy(
-                initial_interval=dt.timedelta(seconds=10),
-                maximum_interval=dt.timedelta(seconds=60),
                 maximum_attempts=1,
             ),
         )
@@ -1619,10 +1688,8 @@ class RunWorkflow(PostHogWorkflow):
         await temporalio.workflow.execute_activity(
             start_run_activity,
             start_run_activity_inputs,
-            start_to_close_timeout=dt.timedelta(minutes=20),
+            start_to_close_timeout=dt.timedelta(minutes=5),
             retry_policy=temporalio.common.RetryPolicy(
-                initial_interval=dt.timedelta(seconds=10),
-                maximum_interval=dt.timedelta(seconds=60),
                 maximum_attempts=1,
             ),
         )
@@ -1633,10 +1700,10 @@ class RunWorkflow(PostHogWorkflow):
             results = await temporalio.workflow.execute_activity(
                 run_dag_activity,
                 run_model_activity_inputs,
-                start_to_close_timeout=dt.timedelta(hours=1),
+                start_to_close_timeout=dt.timedelta(minutes=30),
                 heartbeat_timeout=dt.timedelta(minutes=2),
                 retry_policy=temporalio.common.RetryPolicy(
-                    maximum_attempts=3, non_retryable_error_types=["NonRetryableException"]
+                    maximum_attempts=2, non_retryable_error_types=["NonRetryableException", "CancelledError"]
                 ),
                 cancellation_type=temporalio.workflow.ActivityCancellationType.TRY_CANCEL,
             )
@@ -1652,7 +1719,7 @@ class RunWorkflow(PostHogWorkflow):
                         ),
                         start_to_close_timeout=dt.timedelta(minutes=5),
                         retry_policy=temporalio.common.RetryPolicy(
-                            maximum_attempts=3,
+                            maximum_attempts=2,
                         ),
                     )
                 except Exception as cancel_err:
@@ -1668,9 +1735,9 @@ class RunWorkflow(PostHogWorkflow):
             await temporalio.workflow.execute_activity(
                 fail_jobs_activity,
                 FailJobsActivityInputs(job_id=job_id, error=error_detail, team_id=inputs.team_id),
-                start_to_close_timeout=dt.timedelta(minutes=20),
+                start_to_close_timeout=dt.timedelta(minutes=5),
                 retry_policy=temporalio.common.RetryPolicy(
-                    maximum_attempts=3,
+                    maximum_attempts=2,
                 ),
             )
             raise
@@ -1679,9 +1746,9 @@ class RunWorkflow(PostHogWorkflow):
             await temporalio.workflow.execute_activity(
                 fail_jobs_activity,
                 FailJobsActivityInputs(job_id=job_id, error=error_detail, team_id=inputs.team_id),
-                start_to_close_timeout=dt.timedelta(minutes=20),
+                start_to_close_timeout=dt.timedelta(minutes=5),
                 retry_policy=temporalio.common.RetryPolicy(
-                    maximum_attempts=3,
+                    maximum_attempts=2,
                 ),
             )
             raise
@@ -1718,10 +1785,8 @@ class RunWorkflow(PostHogWorkflow):
         await temporalio.workflow.execute_activity(
             finish_run_activity,
             finish_run_activity_inputs,
-            start_to_close_timeout=dt.timedelta(minutes=20),
+            start_to_close_timeout=dt.timedelta(minutes=5),
             retry_policy=temporalio.common.RetryPolicy(
-                initial_interval=dt.timedelta(seconds=10),
-                maximum_interval=dt.timedelta(seconds=60),
                 maximum_attempts=1,
             ),
         )

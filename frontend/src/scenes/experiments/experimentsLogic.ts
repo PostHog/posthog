@@ -72,10 +72,6 @@ const DEFAULT_MODAL_FILTERS: FeatureFlagModalFilters = {
 }
 
 type ExperimentStatusInput = Pick<Experiment, 'status' | 'start_date' | 'end_date'> | null | undefined
-type ExperimentStatusDisplayInput =
-    | Pick<Experiment, 'status' | 'start_date' | 'end_date' | 'feature_flag'>
-    | null
-    | undefined
 
 export function getExperimentStatus(experiment: ExperimentStatusInput): ExperimentStatus {
     if (!experiment) {
@@ -86,7 +82,7 @@ export function getExperimentStatus(experiment: ExperimentStatusInput): Experime
         return experiment.status
     }
 
-    // Fallback for stale fixtures and older mocked data during the transition.
+    // Fallback for stale fixtures and older mocked data without API-supplied status.
     if (experiment.end_date) {
         return ExperimentStatus.Stopped
     }
@@ -96,12 +92,8 @@ export function getExperimentStatus(experiment: ExperimentStatusInput): Experime
     return ExperimentStatus.Draft
 }
 
-export function isExperimentPaused(experiment: ExperimentStatusDisplayInput): boolean {
-    return (
-        getExperimentStatus(experiment) === ExperimentStatus.Running &&
-        !!experiment?.feature_flag &&
-        !experiment.feature_flag.active
-    )
+export function isExperimentPaused(experiment: ExperimentStatusInput): boolean {
+    return getExperimentStatus(experiment) === ExperimentStatus.Paused
 }
 
 export function isLaunched(experiment: ExperimentStatusInput): boolean {
@@ -136,38 +128,30 @@ export function getShippedVariantKey(experiment: Experiment): string | null {
     )
 }
 
-export function getExperimentStatusLabel(status: ExperimentStatus, isPaused: boolean = false): string {
-    if (isPaused) {
-        return 'Paused'
-    }
-
+export function getExperimentStatusLabel(status: ExperimentStatus): string {
     switch (status) {
         case ExperimentStatus.Draft:
             return 'Draft'
         case ExperimentStatus.Running:
             return 'Running'
+        case ExperimentStatus.Paused:
+            return 'Paused'
         case ExperimentStatus.Stopped:
             return 'Complete'
     }
-
-    return 'Draft'
 }
 
-export function getExperimentStatusColor(status: ExperimentStatus, isPaused: boolean = false): LemonTagType {
-    if (isPaused) {
-        return 'warning'
-    }
-
+export function getExperimentStatusColor(status: ExperimentStatus): LemonTagType {
     switch (status) {
         case ExperimentStatus.Draft:
             return 'default'
         case ExperimentStatus.Running:
             return 'success'
+        case ExperimentStatus.Paused:
+            return 'warning'
         case ExperimentStatus.Stopped:
             return 'completion'
     }
-
-    return 'default'
 }
 
 function normalizeExperimentFilterStatus(status: string | undefined): ExperimentStatus | 'all' {
@@ -307,6 +291,15 @@ export const experimentsLogic = kea<experimentsLogicType>([
                         count: values.experiments.count - 1,
                     }
                 },
+                unarchiveExperiment: async (id: number) => {
+                    await api.create(`api/projects/${values.currentProjectId}/experiments/${id}/unarchive`)
+                    lemonToast.info('Experiment unarchived')
+                    return {
+                        ...values.experiments,
+                        results: values.experiments.results.filter((experiment) => experiment.id !== id),
+                        count: values.experiments.count - 1,
+                    }
+                },
                 duplicateExperiment: async (payload: { id: number; featureFlagKey?: string; name?: string }) => {
                     const data: Record<string, string> = {}
                     if (payload.featureFlagKey) {
@@ -328,6 +321,39 @@ export const experimentsLogic = kea<experimentsLogicType>([
                         results: [duplicatedExperiment, ...values.experiments.results],
                         count: values.experiments.count + 1,
                     }
+                },
+                copyExperimentToProject: async (payload: {
+                    id: number
+                    targetProjectId: number
+                    targetTeamId: number
+                    featureFlagKey?: string
+                    name?: string
+                    onSuccess?: () => void
+                }) => {
+                    const data: Record<string, any> = { target_team_id: payload.targetTeamId }
+                    if (payload.featureFlagKey) {
+                        data.feature_flag_key = payload.featureFlagKey
+                    }
+                    if (payload.name) {
+                        data.name = payload.name
+                    }
+                    const newExperiment = await api.create(
+                        `api/projects/${values.currentProjectId}/experiments/${payload.id}/copy_to_project`,
+                        data
+                    )
+                    lemonToast.success('Experiment copied to project', {
+                        button: {
+                            label: 'Go to experiment',
+                            action: () => {
+                                window.location.href = urls.project(
+                                    payload.targetProjectId,
+                                    urls.experiment(newExperiment.id)
+                                )
+                            },
+                        },
+                    })
+                    payload.onSuccess?.()
+                    return values.experiments
                 },
                 addToExperiments: (experiment: Experiment) => {
                     return {

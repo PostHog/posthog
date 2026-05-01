@@ -144,6 +144,21 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
         except KeyError:
             return None
 
+    @staticmethod
+    def safely_get_organization_id_from_view(view):
+        """
+        Gets the organization_id from a view without throwing.
+
+        `organization_id` on TeamAndOrgViewSetMixin is a @cached_property that can raise
+        `NotFound` when the caller has no current organization or the parent route has
+        no organization_id kwarg. Hence this method mirrors safely_get_team_id_from_view
+        but catches broader exceptions than KeyError.
+        """
+        try:
+            return getattr(view, "organization_id", None)
+        except Exception:
+            return None
+
     def load_team_rate_limit(self, team_id):
         # try loading from cache
         rate_limit_cache_key = f"team_ratelimit_{self.scope}_{team_id}"
@@ -789,6 +804,125 @@ class MaterializationRateThrottle(PersonalApiKeyRateThrottle):
         return super().get_cache_key(request, view)
 
 
+class SubscriptionTestDeliveryThrottle(PersonalApiKeyOrUserRateThrottle):
+    # Rate limit manual test deliveries of subscriptions.
+    #
+    # The viewset already returns 409 for concurrent deliveries on the same
+    # subscription, but that per-subscription dedupe does not stop a caller
+    # rotating across many subscriptions to spam real email / Slack / webhook
+    # recipients, nor does it stop a caller minting extra personal API keys
+    # and splitting traffic across them.
+    #
+    # Keyed per team (not per personal API key, not per subscription) so
+    # neither rotating subscriptions nor rotating API keys bypasses the limit.
+    # Intentionally overrides get_cache_key — sibling throttles
+    # (RunSavedQueryRateThrottle, MaterializationRateThrottle) use "{team_id}_{pk}",
+    # but we want a single team-wide bucket, so we drop pk.
+    #
+    # Extends PersonalApiKeyOrUserRateThrottle (not PersonalApiKeyRateThrottle)
+    # so the limit applies to every authenticated caller — personal API keys,
+    # OAuth access tokens (the MCP OAuth flow forwards bearer tokens that are
+    # not personal API keys), and session-cookie UI users. The sibling
+    # throttles only target PATs because they gate expensive read work; for
+    # this endpoint the real-world side-effect blast radius means we want
+    # every auth method covered.
+    scope = "subscription_test_delivery"
+    rate = "10/minute"
+
+    def get_cache_key(self, request, view):
+        team_id = self.safely_get_team_id_from_view(view)
+        if team_id:
+            return self.cache_format % {"scope": self.scope, "ident": f"team_{team_id}"}
+
+
+class _OrganizationInviteRateThrottleBase(PersonalApiKeyOrUserRateThrottle):
+    # Cap how many organization invites a single organization can create in a
+    # given window. A malicious member can otherwise use the invite flow to
+    # spam arbitrary email addresses with PostHog-branded invitations, since
+    # the target_email is user-controlled.
+    #
+    # Keyed per organization (not per user, not per personal API key) so the
+    # limit cannot be bypassed by rotating keys or by splitting the attack
+    # across multiple members of the same org.
+    #
+    # Counts invites, not requests: the /bulk endpoint accepts up to 20
+    # invites per HTTP request, so counting requests would let a caller emit
+    # num_requests * 20 invites per window. Subclasses define the window
+    # (burst vs sustained); the counting logic lives here.
+    def get_cache_key(self, request, view):
+        organization_id = self.safely_get_organization_id_from_view(view)
+        if organization_id:
+            return self.cache_format % {"scope": self.scope, "ident": f"org_{organization_id}"}
+        return super().get_cache_key(request, view)
+
+    def allow_request(self, request, view):
+        if not is_rate_limit_enabled(round(time.time() / 60)):
+            return True
+
+        if self.rate is None:
+            return True
+        assert self.num_requests is not None
+        assert self.duration is not None
+
+        try:
+            self.key = self.get_cache_key(request, view)
+            if self.key is None:
+                return True
+
+            count = _resolve_invite_count(request)
+            self.history = self.cache.get(self.key, [])
+            self.now = self.timer()
+
+            while self.history and self.history[-1] <= self.now - self.duration:
+                self.history.pop()
+
+            if len(self.history) + count > self.num_requests:
+                return self.throttle_failure()
+
+            self.history = [self.now] * count + self.history
+            self.cache.set(self.key, self.history, self.duration)
+            return True
+        except Exception as e:
+            capture_exception(e)
+            return True
+
+
+def _resolve_invite_count(request) -> int:
+    """Count invites being created by this request: 1 for single-create, len(data) for bulk."""
+    try:
+        data = getattr(request, "data", None)
+    except Exception:
+        return 1
+    if isinstance(data, list):
+        return max(1, len(data))
+    return 1
+
+
+class OrganizationInviteBurstThrottle(_OrganizationInviteRateThrottleBase):
+    scope = "organization_invite_burst"
+    rate = "50/hour"
+
+
+class OrganizationInviteSustainedThrottle(_OrganizationInviteRateThrottleBase):
+    scope = "organization_invite_sustained"
+    rate = "100/day"
+
+
+class GitHubRepositoryRefreshThrottle(PersonalApiKeyOrUserRateThrottle):
+    # Rate limit manual GitHub repository cache refreshes.
+    #
+    # This endpoint can trigger a live GitHub API sync, so we key the throttle
+    # per team to avoid bypass via rotated API keys, sessions, or integrations.
+    scope = "github_repository_refresh"
+    rate = "10/minute"
+
+    def get_cache_key(self, request, view):
+        team_id = self.safely_get_team_id_from_view(view)
+        if team_id:
+            return self.cache_format % {"scope": self.scope, "ident": f"team_{team_id}"}
+        return super().get_cache_key(request, view)
+
+
 class ToolbarOAuthRefreshThrottle(IPThrottle):
     """Rate limit the unauthenticated toolbar OAuth refresh endpoint by IP."""
 
@@ -803,4 +937,35 @@ class EmailVerifyDomainThrottle(UserRateThrottle):
 
 class EmailSendTestThrottle(UserRateThrottle):
     scope = "email_send_test"
-    rate = "1/minute"
+    rate = "6/minute"
+
+
+class TeamsAdminGraphThrottle(UserRateThrottle):
+    """
+    Protect the bot's per-tenant Graph API quota. The TeamsTeamsView /
+    TeamsChannelsView / TeamsInstallAppView / TeamsSelectChannelView endpoints
+    each proxy directly to Graph on every request; a misbehaving admin client
+    could otherwise drive the bot's Graph app-wide quota and get us throttled
+    out for an entire tenant.
+    """
+
+    scope = "teams_admin_graph"
+    rate = "60/minute"
+
+
+class TeamsEventWebhookThrottle(IPThrottle):
+    """
+    Rate limit the unauthenticated Bot Framework inbound webhook by IP.
+    """
+
+    scope = "teams_event_webhook"
+    rate = "300/minute"
+
+
+class TeamsOAuthCallbackThrottle(IPThrottle):
+    """
+    Rate limit the unauthenticated Teams OAuth callback endpoint by IP.
+    """
+
+    scope = "teams_oauth_callback"
+    rate = "30/minute"

@@ -22,7 +22,7 @@ from posthog.rbac.user_access_control import (
     minimum_access_level,
     ordered_access_levels,
 )
-from posthog.scopes import API_SCOPE_OBJECTS, APIScopeObject, APIScopeObjectOrNotSupported
+from posthog.scopes import API_SCOPE_OBJECTS, INTERNAL_API_SCOPE_OBJECTS, APIScopeObject, APIScopeObjectOrNotSupported
 
 from ee.models.rbac.access_control import AccessControl
 from ee.models.rbac.role import Role
@@ -88,8 +88,9 @@ class AccessControlSerializer(serializers.ModelSerializer):
         return field_class, field_kwargs
 
     def validate_resource(self, resource):
-        if resource not in API_SCOPE_OBJECTS:
-            raise serializers.ValidationError("Invalid resource. Must be one of: {}".format(API_SCOPE_OBJECTS))
+        if resource not in API_SCOPE_OBJECTS or resource in INTERNAL_API_SCOPE_OBJECTS:
+            allowed = tuple(s for s in API_SCOPE_OBJECTS if s not in INTERNAL_API_SCOPE_OBJECTS)
+            raise serializers.ValidationError("Invalid resource. Must be one of: {}".format(allowed))
 
         return resource
 

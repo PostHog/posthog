@@ -1,6 +1,6 @@
 import { tryJsonParse } from 'lib/utils'
 import { LiquidRenderer } from 'lib/utils/liquid'
-import { EmailTemplate } from 'scenes/hog-functions/email-templater/emailTemplaterLogic'
+import type { EmailTemplate } from 'scenes/hog-functions/email-templater/types'
 
 import { CyclotronJobInputSchemaType, CyclotronJobInputType } from '~/types'
 

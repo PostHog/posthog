@@ -1,5 +1,4 @@
 import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
-import { InternalCaptureService } from '~/common/services/internal-capture'
 
 import { initializePrometheusLabels } from '../api/router'
 import {
@@ -9,8 +8,18 @@ import {
 } from '../cdp/hog-transformations/hog-transformer.service'
 import { EncryptedFields } from '../cdp/utils/encryption-utils'
 import { CommonConfig } from '../common/config'
-import { defaultConfig } from '../config/config'
+import { defaultConfig, overrideConfigWithEnv } from '../config/config'
 import { createIngestionRedisConnectionConfig } from '../config/redis-pools'
+import {
+    KafkaIngestionProducerEnvConfig,
+    KafkaProducerEnvConfig,
+    KafkaWarpstreamProducerEnvConfig,
+    getDefaultKafkaIngestionProducerEnvConfig,
+    getDefaultKafkaProducerEnvConfig,
+    getDefaultKafkaWarpstreamProducerEnvConfig,
+} from '../ingestion/common/config'
+import { ProducerName } from '../ingestion/common/outputs'
+import { createProducerRegistry } from '../ingestion/common/outputs/registry'
 import {
     DatabaseConnectionConfig,
     KafkaBrokerConfig,
@@ -18,11 +27,14 @@ import {
     PersonHogConfig,
     RedisConnectionsConfig,
 } from '../ingestion/config'
-import { ErrorTrackingConsumerConfig } from '../ingestion/error-tracking/config'
-import { ERROR_TRACKING_OUTPUT_DEFINITIONS } from '../ingestion/error-tracking/config/outputs'
-import { PRODUCER_CONFIG_MAP, ProducerName } from '../ingestion/error-tracking/config/producers'
+import {
+    ErrorTrackingConsumerConfig,
+    ErrorTrackingOutputsConfig,
+    getDefaultErrorTrackingOutputsConfig,
+} from '../ingestion/error-tracking/config'
 import { ErrorTrackingConsumer } from '../ingestion/error-tracking/error-tracking-consumer'
-import { KafkaProducerRegistry, resolveIngestionOutputs } from '../ingestion/outputs'
+import { createOutputsRegistry } from '../ingestion/error-tracking/outputs/registry'
+import { KafkaProducerRegistry } from '../ingestion/outputs/kafka-producer-registry'
 import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from '../ingestion/personhog'
 import { PluginServerService, RedisPool } from '../types'
 import { ServerCommands } from '../utils/commands'
@@ -51,6 +63,10 @@ export type ErrorTrackingServerConfig = BaseServerConfig &
     ErrorTrackingConsumerConfig &
     HogTransformerServiceConfig &
     KafkaBrokerConfig &
+    KafkaProducerEnvConfig &
+    KafkaWarpstreamProducerEnvConfig &
+    KafkaIngestionProducerEnvConfig &
+    ErrorTrackingOutputsConfig &
     DatabaseConnectionConfig &
     RedisConnectionsConfig &
     KafkaConsumerBaseConfig &
@@ -76,7 +92,14 @@ export class ErrorTrackingServer implements NodeServer {
     private pubsub?: PubSub
 
     constructor(config: Partial<ErrorTrackingServerConfig> = {}) {
-        this.config = { ...defaultConfig, ...config }
+        this.config = {
+            ...defaultConfig,
+            ...overrideConfigWithEnv(getDefaultKafkaProducerEnvConfig()),
+            ...overrideConfigWithEnv(getDefaultKafkaWarpstreamProducerEnvConfig()),
+            ...overrideConfigWithEnv(getDefaultKafkaIngestionProducerEnvConfig()),
+            ...overrideConfigWithEnv(getDefaultErrorTrackingOutputsConfig()),
+            ...config,
+        }
         this.lifecycle = new ServerLifecycle(this.config)
     }
 
@@ -104,8 +127,8 @@ export class ErrorTrackingServer implements NodeServer {
         logger.info('👍', 'Postgres Router ready')
 
         logger.info('🤔', 'Connecting to Kafka...')
-        this.producerRegistry = new KafkaProducerRegistry(this.config.KAFKA_CLIENT_RACK, PRODUCER_CONFIG_MAP)
-        const outputs = await resolveIngestionOutputs(this.producerRegistry, ERROR_TRACKING_OUTPUT_DEFINITIONS)
+        this.producerRegistry = await createProducerRegistry(this.config.KAFKA_CLIENT_RACK).build(this.config)
+        const outputs = createOutputsRegistry().build(this.producerRegistry, this.config)
         logger.info('👍', 'Kafka ready')
 
         logger.info('🤔', 'Connecting to ingestion Redis...')
@@ -133,6 +156,7 @@ export class ErrorTrackingServer implements NodeServer {
             personhogClient,
             postgresPersonRepository,
             this.config.PERSONHOG_PERSONS_ROLLOUT_PERCENTAGE,
+            this.config.PERSONHOG_PERSONS_ROLLOUT_TEAM_IDS,
             clientLabel
         )
         const postgresGroupRepository = new PostgresGroupRepository(this.postgres)
@@ -140,11 +164,11 @@ export class ErrorTrackingServer implements NodeServer {
             personhogClient,
             postgresGroupRepository,
             this.config.PERSONHOG_GROUPS_ROLLOUT_PERCENTAGE,
+            this.config.PERSONHOG_GROUPS_ROLLOUT_TEAM_IDS,
             clientLabel
         )
         const encryptedFields = new EncryptedFields(this.config.ENCRYPTION_SALT_KEYS)
         const integrationManager = new IntegrationManagerService(this.pubsub, this.postgres, encryptedFields)
-        const internalCaptureService = new InternalCaptureService(this.config)
 
         const hogTransformerDeps: HogTransformerServiceDeps = {
             geoipService,
@@ -154,7 +178,6 @@ export class ErrorTrackingServer implements NodeServer {
             integrationManager,
             monitoringOutputs: outputs,
             teamManager,
-            internalCaptureService,
         }
 
         // 3. Error tracking consumer
@@ -165,13 +188,14 @@ export class ErrorTrackingServer implements NodeServer {
                 {
                     groupId: this.config.ERROR_TRACKING_CONSUMER_GROUP_ID,
                     topic: this.config.ERROR_TRACKING_CONSUMER_CONSUME_TOPIC,
-                    dlqTopic: this.config.ERROR_TRACKING_CONSUMER_DLQ_TOPIC,
-                    overflowTopic: this.config.ERROR_TRACKING_CONSUMER_OVERFLOW_TOPIC,
-                    outputTopic: this.config.ERROR_TRACKING_CONSUMER_OUTPUT_TOPIC,
                     cymbalBaseUrl: this.config.ERROR_TRACKING_CYMBAL_BASE_URL,
                     cymbalTimeoutMs: this.config.ERROR_TRACKING_CYMBAL_TIMEOUT_MS,
                     cymbalMaxBodyBytes: this.config.ERROR_TRACKING_CYMBAL_MAX_BODY_BYTES,
                     lane: this.config.INGESTION_LANE ?? 'main',
+                    overflowEnabled:
+                        !!this.config.ERROR_TRACKING_CONSUMER_OVERFLOW_TOPIC &&
+                        this.config.ERROR_TRACKING_CONSUMER_OVERFLOW_TOPIC !==
+                            this.config.ERROR_TRACKING_CONSUMER_CONSUME_TOPIC,
                     overflowBucketCapacity: this.config.ERROR_TRACKING_OVERFLOW_BUCKET_CAPACITY,
                     overflowBucketReplenishRate: this.config.ERROR_TRACKING_OVERFLOW_BUCKET_REPLENISH_RATE,
                     statefulOverflowEnabled: this.config.ERROR_TRACKING_STATEFUL_OVERFLOW_ENABLED,

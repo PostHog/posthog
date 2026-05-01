@@ -4,9 +4,9 @@ from typing import Any
 
 from rest_framework import viewsets
 from rest_framework.decorators import action
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
@@ -14,8 +14,8 @@ from products.data_warehouse.backend.models.table import DataWarehouseTable
 
 
 class LineageViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
-    permission_classes = [IsAuthenticated]
-    scope_object = "INTERNAL"
+    scope_object = "warehouse_view"
+    serializer_class = _FallbackSerializer
 
     def safely_get_queryset(self, queryset=None):
         return super().safely_get_queryset(queryset).filter(team_id=self.team_id)
@@ -89,9 +89,10 @@ def get_upstream_dag(team_id: int, model_id: str) -> dict[str, list[Any]]:
 
     while to_process:
         current_id, external_tables = to_process.pop(0)
+        current_external_tables = external_tables if isinstance(external_tables, list) else []
 
         # Batch lookup all external tables at this level
-        unseen_external_tables = [et for et in external_tables if et not in seen_nodes]
+        unseen_external_tables = [et for et in current_external_tables if isinstance(et, str) and et not in seen_nodes]
         if unseen_external_tables:
             saved_queries = {
                 sq.name: sq
@@ -101,7 +102,7 @@ def get_upstream_dag(team_id: int, model_id: str) -> dict[str, list[Any]]:
                 t.name: t for t in DataWarehouseTable.objects.filter(name__in=unseen_external_tables, team_id=team_id)
             }
 
-        for external_table in external_tables:
+        for external_table in current_external_tables:
             edge = {"source": external_table, "target": current_id}
             if edge not in dag["edges"]:
                 dag["edges"].append(edge)

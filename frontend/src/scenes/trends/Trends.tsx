@@ -3,6 +3,8 @@ import { Suspense, lazy } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { BoldNumber } from 'scenes/insights/views/BoldNumber'
 import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
@@ -13,7 +15,6 @@ import { ChartDisplayType, InsightType } from '~/types'
 
 import { trendsDataLogic } from './trendsDataLogic'
 import { ActionsHorizontalBar, ActionsLineGraph, ActionsPie } from './viz'
-
 // Lazy-loaded viz types that are rarely used on dashboards
 const WorldMap = lazy(() => import('scenes/insights/views/WorldMap').then((m) => ({ default: m.WorldMap })))
 const RegionMap = lazy(() => import('scenes/insights/views/RegionMap').then((m) => ({ default: m.RegionMap })))
@@ -21,6 +22,10 @@ const TrendsCalendarHeatMap = lazy(() =>
     import('scenes/insights/views/CalendarHeatMap').then((m) => ({ default: m.TrendsCalendarHeatMap }))
 )
 const BoxPlotChart = lazy(() => import('scenes/insights/views/BoxPlot').then((m) => ({ default: m.BoxPlotChart })))
+// Flag-gated — keep full d3 out of the eager Trends/Dashboard bundle
+const TrendsLineChart = lazy(() =>
+    import('./viz/trends-line-chart/TrendsLineChart').then((m) => ({ default: m.TrendsLineChart }))
+)
 
 interface Props {
     view: InsightType
@@ -33,44 +38,40 @@ interface Props {
 export function TrendInsight({ view, context, embedded, inSharedMode, editMode }: Props): JSX.Element {
     const { insightProps, showPersonsModal: insightLogicShowPersonsModal } = useValues(insightLogic)
     const showPersonsModal = insightLogicShowPersonsModal && !inSharedMode
+    const { featureFlags } = useValues(featureFlagLogic)
 
-    const { display, series, breakdownFilter, hasBreakdownMore, breakdownValuesLoading } = useValues(
-        trendsDataLogic(insightProps)
-    )
+    const { display, series, breakdownFilter, hasBreakdownMore, breakdownValuesLoading, isLifecycle, isStickiness } =
+        useValues(trendsDataLogic(insightProps))
     const { updateBreakdownFilter } = useActions(trendsDataLogic(insightProps))
+
+    const commonProps = {
+        showPersonsModal,
+        context,
+        inCardView: embedded && !inSharedMode,
+        inSharedMode,
+    }
 
     const renderViz = (): JSX.Element | undefined => {
         if (
             !display ||
             display === ChartDisplayType.ActionsLineGraph ||
             display === ChartDisplayType.ActionsLineGraphCumulative ||
-            display === ChartDisplayType.ActionsAreaGraph ||
-            display === ChartDisplayType.ActionsBar ||
-            display === ChartDisplayType.ActionsUnstackedBar
+            display === ChartDisplayType.ActionsAreaGraph
         ) {
-            return (
-                <ActionsLineGraph
-                    showPersonsModal={showPersonsModal}
-                    context={context}
-                    inCardView={embedded && !inSharedMode}
-                    inSharedMode={inSharedMode}
-                />
-            )
+            if (featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS] && !isLifecycle && !isStickiness) {
+                return <TrendsLineChart context={context} inSharedMode={inSharedMode} />
+            }
+            return <ActionsLineGraph {...commonProps} />
+        }
+        if (display === ChartDisplayType.ActionsBar || display === ChartDisplayType.ActionsUnstackedBar) {
+            return <ActionsLineGraph {...commonProps} />
         }
         if (display === ChartDisplayType.BoldNumber) {
-            return (
-                <BoldNumber
-                    showPersonsModal={showPersonsModal}
-                    context={context}
-                    inCardView={embedded && !inSharedMode}
-                    inSharedMode={inSharedMode}
-                />
-            )
+            return <BoldNumber {...commonProps} />
         }
         if (display === ChartDisplayType.ActionsTable) {
-            const ActionsTable = InsightsTable
             return (
-                <ActionsTable
+                <InsightsTable
                     embedded
                     filterKey={`trends_${view}`}
                     canEditSeriesNameInline={editMode}
@@ -80,24 +81,10 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
             )
         }
         if (display === ChartDisplayType.ActionsPie) {
-            return (
-                <ActionsPie
-                    showPersonsModal={showPersonsModal}
-                    context={context}
-                    inCardView={embedded && !inSharedMode}
-                    inSharedMode={inSharedMode}
-                />
-            )
+            return <ActionsPie {...commonProps} />
         }
         if (display === ChartDisplayType.ActionsBarValue) {
-            return (
-                <ActionsHorizontalBar
-                    showPersonsModal={showPersonsModal}
-                    context={context}
-                    inCardView={embedded && !inSharedMode}
-                    inSharedMode={inSharedMode}
-                />
-            )
+            return <ActionsHorizontalBar {...commonProps} />
         }
         if (display === ChartDisplayType.WorldMap) {
             const hasSubdivisionBreakdown =
@@ -108,44 +95,16 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
                 )
 
             if (hasSubdivisionBreakdown) {
-                return (
-                    <RegionMap
-                        showPersonsModal={showPersonsModal}
-                        context={context}
-                        inCardView={embedded && !inSharedMode}
-                        inSharedMode={inSharedMode}
-                    />
-                )
+                return <RegionMap {...commonProps} />
             }
 
-            return (
-                <WorldMap
-                    showPersonsModal={showPersonsModal}
-                    context={context}
-                    inCardView={embedded && !inSharedMode}
-                    inSharedMode={inSharedMode}
-                />
-            )
+            return <WorldMap {...commonProps} />
         }
         if (display === ChartDisplayType.CalendarHeatmap) {
-            return (
-                <TrendsCalendarHeatMap
-                    showPersonsModal={showPersonsModal}
-                    context={context}
-                    inCardView={embedded && !inSharedMode}
-                    inSharedMode={inSharedMode}
-                />
-            )
+            return <TrendsCalendarHeatMap {...commonProps} />
         }
         if (display === ChartDisplayType.BoxPlot) {
-            return (
-                <BoxPlotChart
-                    showPersonsModal={showPersonsModal}
-                    context={context}
-                    inCardView={embedded}
-                    inSharedMode={inSharedMode}
-                />
-            )
+            return <BoxPlotChart {...commonProps} inCardView={embedded} />
         }
     }
 

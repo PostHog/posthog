@@ -6,6 +6,7 @@ import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 import { IconLink } from '../icons'
 import { LemonButton } from '../LemonButton'
+import { More } from '../LemonButton/More'
 import { LemonDivider } from '../LemonDivider'
 import { LemonTable, LemonTableProps } from './LemonTable'
 import { LemonTableLink } from './LemonTableLink'
@@ -450,29 +451,33 @@ export const WithRowActions: Story = {
                     },
                 ]}
                 rowActions={(record) => (
-                    <>
-                        <LemonButton
-                            fullWidth
-                            size="small"
-                            icon={<IconLink />}
-                            onClick={() => alert(`Viewing ${record.name}'s profile`)}
-                        >
-                            View profile
-                        </LemonButton>
-                        <LemonButton fullWidth size="small" onClick={() => alert(`Editing ${record.name}`)}>
-                            Edit
-                        </LemonButton>
-                        <LemonDivider />
-                        <LemonButton
-                            fullWidth
-                            size="small"
-                            status="danger"
-                            icon={<IconTrash />}
-                            onClick={() => alert(`Deleting ${record.name}`)}
-                        >
-                            Delete
-                        </LemonButton>
-                    </>
+                    <More
+                        overlay={
+                            <>
+                                <LemonButton
+                                    fullWidth
+                                    size="small"
+                                    icon={<IconLink />}
+                                    onClick={() => alert(`Viewing ${record.name}'s profile`)}
+                                >
+                                    View profile
+                                </LemonButton>
+                                <LemonButton fullWidth size="small" onClick={() => alert(`Editing ${record.name}`)}>
+                                    Edit
+                                </LemonButton>
+                                <LemonDivider />
+                                <LemonButton
+                                    fullWidth
+                                    size="small"
+                                    status="danger"
+                                    icon={<IconTrash />}
+                                    onClick={() => alert(`Deleting ${record.name}`)}
+                                >
+                                    Delete
+                                </LemonButton>
+                            </>
+                        }
+                    />
                 )}
                 dataSource={MANY_PEOPLE.slice(0, 5)}
             />

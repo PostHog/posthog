@@ -79,7 +79,6 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
         kafka_overflow_topic: "events_plugin_ingestion_overflow".to_string(),
         kafka_historical_topic: "events_plugin_ingestion_historical".to_string(),
         kafka_client_ingestion_warning_topic: "events_plugin_ingestion".to_string(),
-        kafka_exceptions_topic: "events_plugin_ingestion".to_string(),
         kafka_error_tracking_topic: "error_tracking_events".to_string(),
         kafka_heatmaps_topic: "events_plugin_ingestion".to_string(),
         kafka_replay_overflow_topic: "session_recording_snapshot_item_overflow".to_string(),
@@ -96,6 +95,25 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
         kafka_producer_max_in_flight_requests: 1000000,
         kafka_producer_sticky_partitioning_linger_ms: 10,
         kafka_producer_enable_idempotence: false,
+        kafka_producer_partitioner: "murmur2_random".to_string(),
+        kafka_broker_address_family: String::new(),
+        kafka_log_connection_close: true,
+        kafka_producer_queue_buffering_max_messages: 100000,
+        kafka_retry_backoff_max_ms: 1000,
+        kafka_socket_send_buffer_bytes: 0,
+        kafka_socket_receive_buffer_bytes: 0,
+        kafka_traces_hosts: None,
+        kafka_traces_tls: None,
+        kafka_traces_client_id: None,
+        kafka_traces_compression_codec: None,
+        kafka_traces_producer_acks: None,
+        kafka_traces_producer_linger_ms: None,
+        kafka_traces_producer_queue_mib: None,
+        kafka_traces_message_timeout_ms: None,
+        kafka_traces_producer_message_max_bytes: None,
+        kafka_traces_producer_max_retries: None,
+        kafka_traces_topic_metadata_refresh_interval_ms: None,
+        kafka_traces_metadata_max_age_ms: None,
     },
     otel_url: None,
     otel_sampling_rate: 0.0,
@@ -119,14 +137,13 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     http1_header_read_timeout_ms: Some(5000), // 5 seconds default
     body_chunk_read_timeout_ms: None,         // disabled by default in tests
     body_read_chunk_size_kb: 256,             // 256KB default
-    error_tracking_node_rollout_enabled: false,
-    error_tracking_node_rollout_rate: 0.0,
     continuous_profiling: ContinuousProfilingConfig {
         continuous_profiling_enabled: false,
         pyroscope_server_address: String::new(),
         pyroscope_application_name: String::new(),
         pyroscope_sample_rate: 100,
     },
+    capture_v1_sinks: String::new(),
 });
 
 static TRACING_INIT: Once = Once::new();

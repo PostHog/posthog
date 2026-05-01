@@ -163,3 +163,18 @@ message DeletePersonsRequest {
 message DeletePersonsResponse {
   int64 deleted_count = 1;
 }
+
+// DeletePersonsBatchForTeamRequest deletes up to batch_size persons for a team.
+// Also deletes associated posthog_persondistinctid rows (FK is NO ACTION).
+// posthog_featureflaghashkeyoverride rows cascade automatically at the DB level.
+// Callers should loop until deleted_count is 0.
+message DeletePersonsBatchForTeamRequest {
+  int64 team_id = 1;
+  // Max persons to delete per call. Must be > 0 and <= 50000.
+  int64 batch_size = 2;
+}
+
+message DeletePersonsBatchForTeamResponse {
+  // Number of persons deleted. 0 means no more persons to delete.
+  int64 deleted_count = 1;
+}

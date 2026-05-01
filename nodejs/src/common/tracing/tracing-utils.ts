@@ -1,5 +1,5 @@
 import { Attributes, HrTime, SpanKind, SpanStatusCode, Tracer, trace } from '@opentelemetry/api'
-import { Histogram, Summary, exponentialBuckets } from 'prom-client'
+import { Counter, Histogram, Summary, exponentialBuckets } from 'prom-client'
 
 import { defaultConfig } from '~/config/config'
 import { timeoutGuard } from '~/utils/db/utils'
@@ -20,6 +20,12 @@ const instrumentedFunctionDuration = new Histogram({
     // We need to cover a pretty wide range, so buckets are set pretty coarse for now
     // and cover 25ms -> 102seconds. We can revisit them later on.
     buckets: exponentialBuckets(0.025, 4, 7),
+})
+
+const instrumentedFunctionTimeout = new Counter({
+    name: 'instrumented_function_timeout_total',
+    help: 'Number of times an instrumented function exceeded its timeout threshold',
+    labelNames: ['function'],
 })
 
 const logTime = (startTime: number, statsKey: string, error?: any): void => {
@@ -118,7 +124,9 @@ export async function instrumentFn<T>(
     const logExecutionTime = (typeof options === 'string' ? undefined : options.logExecutionTime) ?? false
     const measureTime = (typeof options === 'string' ? undefined : options.measureTime) ?? true
 
-    const t = timeoutGuard(timeoutMessage, getLoggingContext, timeout, sendException)
+    const t = timeoutGuard(timeoutMessage, getLoggingContext, timeout, sendException, () => {
+        instrumentedFunctionTimeout.labels({ function: key }).inc()
+    })
     const startTime = performance.now()
     const end = measureTime ? instrumentedFunctionDuration.startTimer({ function: key }) : undefined
 

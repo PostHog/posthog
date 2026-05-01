@@ -100,7 +100,7 @@ pub struct Config {
     #[envconfig(default = "5000000")]
     pub global_rate_limit_token_distinctid_local_cache_max_entries: u64,
 
-    // --- Token-only limiter config ---
+    // --- Token-only limiter config (not currently used in production, retained for new_token()) ---
     /// Per-token rate limit threshold per window interval
     /// Note: default is too high to trigger limiting in production
     #[envconfig(default = "5000000")]
@@ -238,17 +238,14 @@ pub struct Config {
     #[envconfig(default = "256")]
     pub body_read_chunk_size_kb: usize,
 
-    /// Enable routing of exception events to the Node error tracking pipeline.
-    #[envconfig(default = "false")]
-    pub error_tracking_node_rollout_enabled: bool,
-
-    /// Percentage of exception events routed to the Node pipeline (0.0 to 100.0).
-    /// Only applies when error_tracking_node_rollout_enabled is true.
-    #[envconfig(default = "0.0")]
-    pub error_tracking_node_rollout_rate: f64,
-
     #[envconfig(nested = true)]
     pub continuous_profiling: ContinuousProfilingConfig,
+
+    /// Comma-separated list of active v1 sinks (e.g. "msk" or "msk,ws").
+    /// Parsed by `v1::sinks::load_sinks()` after `Config::init_from_env()`.
+    /// Empty string means the v1 sink layer is disabled.
+    #[envconfig(default = "")]
+    pub capture_v1_sinks: String,
 }
 
 #[derive(Envconfig, Clone)]
@@ -274,8 +271,6 @@ pub struct KafkaConfig {
     pub kafka_historical_topic: String,
     #[envconfig(default = "events_plugin_ingestion")]
     pub kafka_client_ingestion_warning_topic: String,
-    #[envconfig(default = "exceptions_ingestion")]
-    pub kafka_exceptions_topic: String,
     #[envconfig(default = "error_tracking_events")]
     pub kafka_error_tracking_topic: String,
     #[envconfig(default = "heatmaps_ingestion")]
@@ -310,4 +305,33 @@ pub struct KafkaConfig {
     pub kafka_producer_sticky_partitioning_linger_ms: u32, // sticky.partitioning.linger.ms
     #[envconfig(default = "false")] // librdkafka default
     pub kafka_producer_enable_idempotence: bool, // enable.idempotence
+    #[envconfig(default = "murmur2_random")]
+    pub kafka_producer_partitioner: String, // partitioner
+    #[envconfig(default = "")]
+    pub kafka_broker_address_family: String, // broker.address.family - v4, v6, any; empty = don't set
+    #[envconfig(default = "true")] // librdkafka default
+    pub kafka_log_connection_close: bool, // log.connection.close
+    #[envconfig(default = "100000")] // librdkafka default
+    pub kafka_producer_queue_buffering_max_messages: u32, // queue.buffering.max.messages
+    #[envconfig(default = "1000")] // librdkafka default
+    pub kafka_retry_backoff_max_ms: u32, // retry.backoff.max.ms
+    #[envconfig(default = "0")] // librdkafka default (OS auto-tune)
+    pub kafka_socket_send_buffer_bytes: u32, // socket.send.buffer.bytes
+    #[envconfig(default = "0")] // librdkafka default (OS auto-tune)
+    pub kafka_socket_receive_buffer_bytes: u32, // socket.receive.buffer.bytes
+
+    // Traces-cluster overrides (consumed by capture-logs). When unset, the
+    // traces producer reuses the corresponding `kafka_*` value above.
+    pub kafka_traces_hosts: Option<String>,
+    pub kafka_traces_tls: Option<bool>,
+    pub kafka_traces_client_id: Option<String>,
+    pub kafka_traces_compression_codec: Option<String>,
+    pub kafka_traces_producer_acks: Option<String>,
+    pub kafka_traces_producer_linger_ms: Option<u32>,
+    pub kafka_traces_producer_queue_mib: Option<u32>,
+    pub kafka_traces_message_timeout_ms: Option<u32>,
+    pub kafka_traces_producer_message_max_bytes: Option<u32>,
+    pub kafka_traces_producer_max_retries: Option<u32>,
+    pub kafka_traces_topic_metadata_refresh_interval_ms: Option<u32>,
+    pub kafka_traces_metadata_max_age_ms: Option<u32>,
 }

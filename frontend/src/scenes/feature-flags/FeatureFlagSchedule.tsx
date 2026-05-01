@@ -37,7 +37,8 @@ import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/column
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
-import { hasFormErrors } from 'lib/utils'
+import { hasFormErrors, shortTimeZone } from 'lib/utils'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { groupsModel, Noun } from '~/models/groupsModel'
@@ -63,6 +64,31 @@ import { featureFlagScheduleEditLogic } from './featureFlagScheduleEditLogic'
 import { FeatureFlagVariantsForm } from './FeatureFlagVariantsForm'
 
 export const DAYJS_FORMAT = 'MMMM DD, YYYY h:mm A'
+
+/** Shows the project timezone abbreviation (e.g. "PST") with a tooltip linking to settings. */
+function ScheduleTimezoneHint(): JSX.Element | null {
+    const { currentTeam } = useValues(teamLogic)
+    if (!currentTeam) {
+        return null
+    }
+    const tz = shortTimeZone(currentTeam.timezone) ?? currentTeam.timezone
+    return (
+        <Tooltip
+            interactive
+            title={
+                <>
+                    Times are in the{' '}
+                    <Link to={urls.settings('environment-customization', 'date-and-time')} target="_blank">
+                        project's timezone
+                    </Link>{' '}
+                    ({currentTeam.timezone})
+                </>
+            }
+        >
+            <span className="text-muted font-normal">({tz})</span>
+        </Tooltip>
+    )
+}
 
 type AggregationLabel = (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
 
@@ -146,15 +172,19 @@ const RECURRING_SUPPORTED_OPERATIONS = new Set([
 
 function ScheduleStatusTag({ scheduledChange }: { scheduledChange: ScheduledChangeType }): JSX.Element {
     const { executed_at, failure_reason, is_recurring } = scheduledChange
+    const { currentTeam } = useValues(teamLogic)
+    const tz = currentTeam?.timezone || 'UTC'
 
     function getStatus(): { type: LemonTagType; text: string; tooltip?: string } {
         if (failure_reason) {
             return { type: 'danger', text: 'Error', tooltip: `Failed: ${failure_reason}` }
         } else if (executed_at) {
+            const executedAt = dayjs(executed_at)
+            const tzShort = shortTimeZone(tz, executedAt.toDate()) ?? tz
             return {
                 type: 'completion',
                 text: 'Complete',
-                tooltip: `Completed: ${dayjs(executed_at).format('MMMM D, YYYY h:mm A')}`,
+                tooltip: `Completed: ${executedAt.tz(tz).format('MMMM D, YYYY h:mm A')} (${tzShort})`,
             }
         } else if (isSchedulePaused(scheduledChange)) {
             return {
@@ -231,8 +261,11 @@ function ChangeDescription({
 }
 
 function ScheduleTiming({ scheduledChange }: { scheduledChange: ScheduledChangeType }): JSX.Element {
-    const scheduledAt = dayjs(scheduledChange.scheduled_at)
-    const formattedDate = scheduledAt.format(DAYJS_FORMAT)
+    const { currentTeam } = useValues(teamLogic)
+    const tz = currentTeam?.timezone || 'UTC'
+    const scheduledAt = dayjs(scheduledChange.scheduled_at).tz(tz)
+    const tzShort = shortTimeZone(tz, scheduledAt.toDate()) ?? tz
+    const formattedDate = `${scheduledAt.format(DAYJS_FORMAT)} (${tzShort})`
     const timeStr = scheduledAt.format('h:mm A')
 
     // Determine the recurring description from either a cron expression or a fixed interval
@@ -272,7 +305,7 @@ function ScheduleTiming({ scheduledChange }: { scheduledChange: ScheduledChangeT
         }
 
         const endDateStr = scheduledChange.end_date
-            ? ` · Ends ${dayjs(scheduledChange.end_date).format('MMM D, YYYY')}`
+            ? ` · Ends ${dayjs(scheduledChange.end_date).tz(tz).format('MMM D, YYYY')}`
             : ''
         return (
             <Tooltip title={`Next: ${formattedDate}${endDateStr}`}>
@@ -491,7 +524,9 @@ function FeatureFlagScheduleV2(): JSX.Element {
                                             <span>Next run</span>
                                         </Tooltip>
                                     ) : (
-                                        'Date and time'
+                                        <>
+                                            Date and time <ScheduleTimezoneHint />
+                                        </>
                                     )}
                                 </label>
                                 <LemonCalendarSelectInput
@@ -743,9 +778,14 @@ function FeatureFlagScheduleV2(): JSX.Element {
                         <div className="rounded border p-4 flex flex-col gap-2">
                             <p className="text-muted text-sm m-0">
                                 The flag will be <strong>{schedulePayload.active ? 'enabled' : 'disabled'}</strong>
-                                {scheduleDateMarker
-                                    ? ` on ${scheduleDateMarker.format(DAYJS_FORMAT)}`
-                                    : ' on the scheduled date'}
+                                {scheduleDateMarker ? (
+                                    <>
+                                        {` on ${scheduleDateMarker.format(DAYJS_FORMAT)} `}
+                                        <ScheduleTimezoneHint />
+                                    </>
+                                ) : (
+                                    ' on the scheduled date'
+                                )}
                                 .
                             </p>
                             <LemonSwitch
@@ -998,7 +1038,13 @@ function FeatureFlagScheduleV2(): JSX.Element {
 
                     <div className="flex flex-col gap-1">
                         <label className="text-xs font-medium text-muted">
-                            {editRepeatsValue === 'cron' ? 'Next run' : 'Date and time'}
+                            {editRepeatsValue === 'cron' ? (
+                                'Next run'
+                            ) : (
+                                <>
+                                    Date and time <ScheduleTimezoneHint />
+                                </>
+                            )}
                         </label>
                         <LemonCalendarSelectInput
                             value={editScheduledAt}
@@ -1116,6 +1162,8 @@ function FeatureFlagScheduleLegacy(): JSX.Element {
     } = useActions(featureFlagLogic)
     const { aggregationLabel } = useValues(groupsModel)
     const { featureFlags } = useValues(enabledFeaturesLogic)
+    const { currentTeam } = useValues(teamLogic)
+    const tz = currentTeam?.timezone || 'UTC'
 
     const aggregationGroupTypeIndex = featureFlag.filters.aggregation_group_type_index
 
@@ -1179,8 +1227,9 @@ function FeatureFlagScheduleLegacy(): JSX.Element {
             title: 'Scheduled at',
             dataIndex: 'scheduled_at',
             render: function Render(_, scheduledChange: ScheduledChangeType) {
-                const scheduledAt = dayjs(scheduledChange.scheduled_at)
-                const formattedDate = scheduledAt.format(DAYJS_FORMAT)
+                const scheduledAt = dayjs(scheduledChange.scheduled_at).tz(tz)
+                const tzShort = shortTimeZone(tz, scheduledAt.toDate()) ?? tz
+                const formattedDate = `${scheduledAt.format(DAYJS_FORMAT)} (${tzShort})`
                 const timeStr = scheduledAt.format('h:mm A')
                 const isPaused = !scheduledChange.is_recurring && !!scheduledChange.recurrence_interval
 
@@ -1215,7 +1264,7 @@ function FeatureFlagScheduleLegacy(): JSX.Element {
                     }
 
                     const endDateStr = scheduledChange.end_date
-                        ? `\nEnds: ${dayjs(scheduledChange.end_date).format('MMMM D, YYYY')}`
+                        ? `\nEnds: ${dayjs(scheduledChange.end_date).tz(tz).format('MMMM D, YYYY')}`
                         : ''
                     return (
                         <Tooltip title={`Next: ${formattedDate}${endDateStr}`}>
@@ -1236,7 +1285,7 @@ function FeatureFlagScheduleLegacy(): JSX.Element {
                 if (!scheduledChange.end_date) {
                     return <span className="text-muted">No end date</span>
                 }
-                return dayjs(scheduledChange.end_date).format('MMM D, YYYY')
+                return dayjs(scheduledChange.end_date).tz(tz).format('MMM D, YYYY')
             },
         },
         createdAtColumn() as LemonTableColumn<ScheduledChangeType, keyof ScheduledChangeType | undefined>,
@@ -1252,10 +1301,12 @@ function FeatureFlagScheduleLegacy(): JSX.Element {
                     if (failure_reason) {
                         return { type: 'danger', text: 'Error', tooltip: `Failed: ${failure_reason}` }
                     } else if (executed_at) {
+                        const executedAt = dayjs(executed_at)
+                        const tzShort = shortTimeZone(tz, executedAt.toDate()) ?? tz
                         return {
                             type: 'completion',
                             text: 'Complete',
-                            tooltip: `Completed: ${dayjs(executed_at).format('MMMM D, YYYY h:mm A')}`,
+                            tooltip: `Completed: ${executedAt.tz(tz).format('MMMM D, YYYY h:mm A')} (${tzShort})`,
                         }
                     } else if (isPaused) {
                         return {
@@ -1352,7 +1403,9 @@ function FeatureFlagScheduleLegacy(): JSX.Element {
                             />
                         </div>
                         <div className="w-50">
-                            <div className="font-semibold leading-6 h-6 mb-1">Date and time</div>
+                            <div className="font-semibold leading-6 h-6 mb-1">
+                                Date and time <ScheduleTimezoneHint />
+                            </div>
                             <LemonCalendarSelectInput
                                 value={scheduleDateMarker}
                                 onChange={(value) => setScheduleDateMarker(value)}

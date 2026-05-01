@@ -12,7 +12,7 @@ const thingsCreate = (): ToolBase<typeof ThingsCreateSchema, unknown> => ({
         const parsedParams = ThingsCreateSchema.parse(params)
         const result = await context.api.request<unknown>({
             method: 'POST',
-            path: \`/api/projects/\${projectId}/things/\`,
+            path: \`/api/projects/\${encodeURIComponent(String(projectId))}/things/\`,
             body: parsedParams,
         })
         return await withPostHogUrl(context, result, \`/things/\${result.id}\`)
@@ -33,12 +33,12 @@ const thingsList = (): ToolBase<typeof ThingsListSchema, unknown> => ({
         const parsedParams = ThingsListSchema.parse(params)
         const result = await context.api.request<unknown>({
             method: 'GET',
-            path: \`/api/projects/\${projectId}/things/\`,
+            path: \`/api/projects/\${encodeURIComponent(String(projectId))}/things/\`,
             query: parsedParams,
         })
         return await withPostHogUrl(context, {
             ...result,
-            results: await Promise.all(result.results.map((item) => withPostHogUrl(context, item, \`/things/\${item.id}\`))),
+            results: await Promise.all((result.results ?? []).map((item) => withPostHogUrl(context, item, \`/things/\${item.id}\`))),
         }, '/things')
     },
 })
@@ -57,7 +57,7 @@ const thingsCreate = (): ToolBase<typeof ThingsCreateSchema, unknown> => ({
         const parsedParams = ThingsCreateSchema.parse(params)
         const result = await context.api.request<unknown>({
             method: 'POST',
-            path: \`/api/projects/\${projectId}/things/\`,
+            path: \`/api/projects/\${encodeURIComponent(String(projectId))}/things/\`,
             body: parsedParams,
         })
         return result

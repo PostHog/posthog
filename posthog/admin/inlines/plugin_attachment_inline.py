@@ -1,6 +1,8 @@
 import json
 
 from django.contrib import admin
+from django.db.models import Model
+from django.http import HttpRequest
 from django.utils.html import format_html
 
 from posthog.models import PluginAttachment
@@ -36,11 +38,11 @@ class PluginAttachmentInline(admin.StackedInline):
         except Exception as err:
             return format_html("cannot preview: {}", err)
 
-    def has_add_permission(self, request, obj):
+    def has_add_permission(self, request: HttpRequest, obj: Model | None = None) -> bool:
         return False
 
-    def has_change_permission(self, request, obj):
+    def has_change_permission(self, request: HttpRequest, obj: Model | None = None) -> bool:
         return False
 
-    def has_delete_permission(self, request, obj):
+    def has_delete_permission(self, request: HttpRequest, obj: Model | None = None) -> bool:
         return False

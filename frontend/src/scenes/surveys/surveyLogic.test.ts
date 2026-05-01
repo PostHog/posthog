@@ -1,6 +1,7 @@
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 
+import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import {
     mergeResponsesByQuestion,
@@ -17,6 +18,7 @@ import {
     AnyPropertyFilter,
     ChoiceQuestionProcessedResponses,
     EventPropertyFilter,
+    LinkSurveyQuestion,
     OpenQuestionProcessedResponses,
     PropertyFilterType,
     PropertyOperator,
@@ -33,6 +35,13 @@ import {
     SurveyStats,
     SurveyType,
 } from '~/types'
+
+import { surveysGenerateTranslationsCreate } from 'products/surveys/frontend/generated/api'
+
+jest.mock('products/surveys/frontend/generated/api', () => ({
+    __esModule: true,
+    surveysGenerateTranslationsCreate: jest.fn(),
+}))
 
 const MULTIPLE_CHOICE_SURVEY: Survey = {
     id: '018b22a3-09b1-0000-2f5b-1bd8352ceec9',
@@ -98,6 +107,19 @@ const createPersistedSurvey = (): Survey => ({
     ],
 })
 
+const createSurveyWithLinkQuestion = (questionOverrides: Partial<LinkSurveyQuestion> = {}): Survey => ({
+    ...createPersistedSurvey(),
+    questions: [
+        {
+            type: SurveyQuestionType.Link,
+            question: 'Open the documentation',
+            description: '',
+            link: 'https://posthog.com/docs',
+            ...questionOverrides,
+        },
+    ],
+})
+
 describe('editor sync', () => {
     beforeEach(() => {
         initKeaTests()
@@ -156,6 +178,159 @@ describe('editor sync', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.survey.name).toBe('Unsaved tabbed name')
+    })
+})
+
+describe('translation validation', () => {
+    let logic: ReturnType<typeof surveyLogic.build>
+
+    beforeEach(() => {
+        initKeaTests()
+        jest.clearAllMocks()
+        logic = surveyLogic({ id: 'new' })
+        logic.mount()
+    })
+
+    it('validates placeholders and translated link URLs', async () => {
+        const survey = createSurveyWithLinkQuestion({
+            translations: {
+                fr: { question: 'Ouvrir la documentation', link: 'https:not-valid' },
+                es: { question: 'Abrir la documentacion', link: '' },
+                de: { question: 'Dokumentation offnen', link: 'https://posthog.com/docs' },
+                it: { question: '[Translation needed]' },
+            },
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.loadSurveySuccess(survey)
+        }).toMatchValues({
+            translationValidationErrors: expect.arrayContaining([
+                {
+                    language: 'fr',
+                    questionIndex: 0,
+                    field: 'link',
+                    error: 'Must start with https:// or mailto:',
+                },
+                {
+                    language: 'es',
+                    questionIndex: 0,
+                    field: 'link',
+                    error: 'Cannot be empty',
+                },
+                {
+                    language: 'it',
+                    questionIndex: 0,
+                    field: 'question',
+                    error: 'Contains placeholder "[Translation needed]"',
+                },
+            ]),
+        })
+
+        expect(
+            logic.values.translationValidationErrors.some((error) => error.language === 'de' && error.field === 'link')
+        ).toBe(false)
+    })
+
+    it('validates default link URLs without requiring translations', async () => {
+        const survey = createSurveyWithLinkQuestion({ link: 'https:not-valid' })
+
+        await expectLogic(logic, () => {
+            logic.actions.loadSurveySuccess(survey)
+        }).toMatchValues({
+            translationValidationErrors: [
+                {
+                    language: 'default',
+                    questionIndex: 0,
+                    field: 'link',
+                    error: 'Must start with https:// or mailto:',
+                },
+            ],
+        })
+    })
+
+    it('does not validate survey root description translations', async () => {
+        const survey = {
+            ...createPersistedSurvey(),
+            description: '',
+            translations: {
+                fr: {
+                    name: 'Enquete',
+                    description: 'Description traduite',
+                },
+            },
+        } as Survey
+
+        await expectLogic(logic, () => {
+            logic.actions.loadSurveySuccess(survey)
+        })
+
+        expect(
+            logic.values.translationValidationErrors.some(
+                (error) => error.questionIndex === -1 && error.field === 'description'
+            )
+        ).toBe(false)
+    })
+
+    it('deep merges generated translation drafts without dropping manual fields', async () => {
+        const generateTranslations = surveysGenerateTranslationsCreate as jest.MockedFunction<
+            typeof surveysGenerateTranslationsCreate
+        >
+        generateTranslations.mockResolvedValue({
+            translations: { es: { thankYouMessageHeader: 'Gracias' } },
+            questions: [{ id: '__draft_question_0', translations: { es: { buttonText: 'Enviar' } } }],
+            generated_field_paths: ['translations.es.thankYouMessageHeader'],
+            trace_id: 'trace-1',
+        })
+        const survey = {
+            ...createPersistedSurvey(),
+            translations: { es: { name: 'Manual name', thankYouMessageHeader: 'Thanks' } },
+            questions: [
+                {
+                    ...createPersistedSurvey().questions[0],
+                    id: undefined,
+                    translations: { es: { question: 'Manual question' } },
+                },
+            ],
+        } as Survey
+
+        await expectLogic(logic, () => {
+            logic.actions.loadSurveySuccess(survey)
+            logic.actions.generateTranslationDrafts('es')
+        }).toFinishAllListeners()
+
+        const requestBody = generateTranslations.mock.calls[0][2]
+        const draftSurvey = requestBody.survey as Record<string, unknown>
+        expect(requestBody).toEqual(
+            expect.objectContaining({
+                target_language: 'es',
+                overwrite: true,
+            })
+        )
+        expect(draftSurvey).toEqual(
+            expect.objectContaining({
+                name: 'Saved survey',
+                appearance: expect.objectContaining({
+                    thankYouMessageHeader: 'Thank you for your feedback!',
+                }),
+                questions: [
+                    expect.objectContaining({
+                        id: '__draft_question_0',
+                        question: 'What do you think?',
+                    }),
+                ],
+            })
+        )
+        expect(draftSurvey).not.toHaveProperty('linked_flag')
+        expect(draftSurvey).not.toHaveProperty('targeting_flag')
+        expect(logic.values.survey.translations?.es).toEqual({
+            name: 'Manual name',
+            thankYouMessageHeader: 'Gracias',
+        })
+        expect(logic.values.survey.questions[0].translations?.es).toEqual({
+            question: 'Manual question',
+            buttonText: 'Enviar',
+        })
+        expect(logic.values.aiGeneratedTranslationFields).toEqual(['translations.es.thankYouMessageHeader'])
     })
 })
 
@@ -1495,6 +1670,52 @@ describe('surveyLogic filters for surveys responses', () => {
         }).toDispatchActions(['setAnswerFilters', 'loadSurveyBaseStats', 'loadSurveyDismissedAndSentCount'])
     })
 
+    it('clears filters with a single results reload', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.loadSurveySuccess(MULTIPLE_CHOICE_SURVEY)
+            logic.actions.setAnswerFilters(
+                [
+                    {
+                        key: SurveyEventProperties.SURVEY_RESPONSE,
+                        value: 'test response',
+                        operator: PropertyOperator.IContains,
+                        type: PropertyFilterType.Event,
+                    },
+                ],
+                false
+            )
+            logic.actions.setPropertyFilters(
+                [
+                    {
+                        key: 'email',
+                        value: 'test@posthog.com',
+                        operator: PropertyOperator.Exact,
+                        type: PropertyFilterType.Person,
+                    },
+                ],
+                false
+            )
+            logic.actions.setDateRange(
+                {
+                    date_from: dayjs().subtract(7, 'day').format('YYYY-MM-DD'),
+                    date_to: dayjs().format('YYYY-MM-DD'),
+                },
+                false
+            )
+        }).toDispatchActions(['loadSurveySuccess'])
+
+        await expectLogic(logic, () => {
+            logic.actions.clearFilters()
+        }).toDispatchActions([
+            'clearFilters',
+            'setAnswerFilters',
+            'setPropertyFilters',
+            'setDateRange',
+            'loadSurveyBaseStats',
+            'loadSurveyDismissedAndSentCount',
+        ])
+    })
+
     describe('interval selection', () => {
         it('starts with null interval', async () => {
             await expectLogic(logic).toMatchValues({
@@ -1808,6 +2029,45 @@ describe('survey stats calculation', () => {
             processedSurveyStats: expectedStats,
             surveyRates: expectedRates,
         })
+    })
+})
+
+describe('surveyLogic archived response refresh', () => {
+    let logic: ReturnType<typeof surveyLogic.build>
+
+    beforeEach(async () => {
+        initKeaTests()
+
+        useMocks({
+            get: {
+                '/api/projects/:team/surveys/': () => [200, { count: 0, results: [], next: null, previous: null }],
+                '/api/projects/:team/surveys/test-survey/': () => [200, createPersistedSurvey()],
+                '/api/projects/:team/surveys/test-survey/archived-response-uuids/': () => [200, []],
+            },
+        })
+
+        jest.spyOn(api, 'queryHogQL').mockResolvedValue({ results: [] } as any)
+        jest.spyOn(api.surveys, 'archiveResponse').mockResolvedValue({ success: true })
+
+        logic = surveyLogic({ id: 'test-survey' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        jest.clearAllMocks()
+    })
+
+    it('reloads survey results explicitly after archiving a response', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.archiveResponse('response-1')
+        }).toDispatchActions([
+            'archiveResponse',
+            'startResultsRequery',
+            'loadArchivedResponseUuidsSuccess',
+            'loadSurveyBaseStats',
+            'loadSurveyDismissedAndSentCount',
+        ])
+
+        expect(api.surveys.archiveResponse).toHaveBeenCalledWith('test-survey', 'response-1')
     })
 })
 

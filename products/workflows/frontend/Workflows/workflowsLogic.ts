@@ -1,4 +1,3 @@
-import FuseClass from 'fuse.js'
 import { actions, kea, key, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
@@ -6,15 +5,13 @@ import { router } from 'kea-router'
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { createFuse, Fuse } from 'lib/utils/fuseSearch'
 import { urls } from 'scenes/urls'
 
 import { deleteFromTree } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 
 import type { HogFlow } from './hogflows/types'
 import type { workflowsLogicType } from './workflowsLogicType'
-
-// Helping kea-typegen navigate the exported default class for Fuse
-export interface Fuse extends FuseClass<HogFlow> {}
 
 export type WorkflowStatusFilter = 'all' | 'active' | 'draft' | 'archived'
 
@@ -184,8 +181,8 @@ export const workflowsLogic = kea<workflowsLogicType>([
     selectors({
         workflowsFuse: [
             (s) => [s.workflows],
-            (workflows): Fuse => {
-                return new FuseClass(workflows || [], {
+            (workflows): Fuse<HogFlow> => {
+                return createFuse(workflows || [], {
                     keys: [{ name: 'name', weight: 2 }, 'description'],
                     threshold: 0.3,
                     ignoreLocation: true,

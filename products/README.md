@@ -130,11 +130,15 @@ bin/hogli product:lint your_product_name
 The lint command validates:
 
 - **Presence**: `backend:test` must exist; isolated products must also have `backend:contract-check`
-- **Absence**: Non-isolated products must NOT have `backend:contract-check` — turbo-discover uses this key to classify products as isolated, which causes the full Django test suite to be skipped when that product changes
+- **Absence**: products must NOT have `backend:contract-check` if they are not isolated or have legacy interface leaks (where core still imports internals) — turbo-discover uses this key to classify products as isolated, which causes the full Django test suite to be skipped when that product changes
+- **Legacy leaks**: products with TODO legacy leak blocks in `tach.toml` show a `⚠` warning in the tach boundaries check
 - **Script content** (for `backend:test`):
   - No `|| true` or `|| exit 0` — these swallow test failures in CI
   - No no-op scripts (e.g., `echo 'No backend tests'`) when `backend/` contains actual test files
   - Pytest paths referenced in the command must exist on disk and contain discoverable tests
+
+> [!NOTE]
+> To migrate a product to full isolation (facade + contracts + selective testing), use the `isolating-product-facade-contracts` skill. See [products/architecture.md](architecture.md) for the target architecture.
 
 ### Manual setup
 

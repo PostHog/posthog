@@ -349,8 +349,7 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
                 {events_session_id} IS NOT NULL,
                 {event_type_expr},
                 {inside_timestamp_period},
-                {all_properties},
-                {where_breakdown}
+                {all_properties}
             )
             GROUP BY session_id, breakdown_value
             """,
@@ -364,7 +363,6 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
                 "all_properties": property_to_expr(
                     self.runner.query.properties + self.runner._test_account_filters, team=self.runner.team
                 ),
-                "where_breakdown": self.runner.where_breakdown(),
             },
         )
 

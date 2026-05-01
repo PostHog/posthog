@@ -1,15 +1,24 @@
 import { useValues } from 'kea'
+import { type ReactNode, useMemo } from 'react'
 
 import { IconClock } from '@posthog/icons'
 import { LemonCollapse, LemonDivider, ProfilePicture, Spinner, Tooltip } from '@posthog/lemon-ui'
 
-import { ListHog, SleepingHog } from 'lib/components/hedgehogs'
+import { ListHog } from 'lib/components/hedgehogs'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { LogsViewer } from 'scenes/hog-functions/logs/LogsViewer'
 
 import { batchWorkflowJobsLogic } from './batchWorkflowJobsLogic'
+import { OccurrencesList } from './hogflows/steps/components/OccurrencesList'
+import {
+    buildSummary,
+    computePreviewOccurrences,
+    fakeUtcToReal,
+    isOneTimeSchedule,
+    parseRRuleToState,
+} from './hogflows/steps/components/rrule-helpers'
 import { HogFlowBatchJob } from './hogflows/types'
 import { renderWorkflowLogMessage } from './logs/log-utils'
 import { WorkflowLogicProps, workflowLogic } from './workflowLogic'
@@ -36,15 +45,6 @@ function BatchRunHeader({ job }: { job: HogFlowBatchJob }): JSX.Element {
         <div className="flex gap-2 w-full justify-between">
             <strong>{job.id}</strong>
             <div className="flex items-center gap-2">
-                {job.scheduled_at && (
-                    <Tooltip title="This job was scheduled to run in advance" placement="left">
-                        <div className="flex items-center gap-2 text-muted">
-                            <IconClock className="text-lg" />
-                            <TZLabel title="Scheduled at" time={job.scheduled_at} />
-                            {' ⋅ '}
-                        </div>
-                    </Tooltip>
-                )}
                 <TZLabel title="Created at" time={job.created_at} />
                 <LemonDivider vertical className="h-full" />
 
@@ -65,24 +65,6 @@ function BatchRunHeader({ job }: { job: HogFlowBatchJob }): JSX.Element {
 function BatchRunInfo({ job }: { job: HogFlowBatchJob }): JSX.Element {
     const { workflow } = useValues(workflowLogic)
 
-    const isFutureJob = job.scheduled_at && dayjs(job.scheduled_at).isAfter(dayjs())
-
-    const logsSection = isFutureJob ? (
-        <div className="flex flex-col w-full bg-surface-primary rounded py-8 items-center text-center">
-            <SleepingHog width="100" height="100" className="mb-4" />
-            <h2 className="text-xl leading-tight">This job hasn't started yet</h2>
-            <p className="text-sm text-balance text-tertiary">Once the job starts executing, logs will appear here.</p>
-        </div>
-    ) : (
-        <LogsViewer
-            sourceType="hog_flow"
-            sourceId={job.id}
-            groupByInstanceId
-            instanceLabel="workflow job"
-            renderMessage={(m) => renderWorkflowLogMessage(workflow, m)}
-        />
-    )
-
     return (
         <div className="flex flex-col gap-2">
             <div className="flex flex-col gap-2 items-start w-full">
@@ -92,13 +74,77 @@ function BatchRunInfo({ job }: { job: HogFlowBatchJob }): JSX.Element {
                 />
             </div>
             <span className="text-muted">Logs</span>
-            {logsSection}
+            <LogsViewer
+                sourceType="hog_flow"
+                sourceId={job.id}
+                groupByInstanceId
+                instanceLabel="workflow job"
+                renderMessage={(m) => renderWorkflowLogMessage(workflow, m)}
+            />
         </div>
     )
 }
 
+function UpcomingOccurrences(): JSX.Element | null {
+    const { currentSchedule } = useValues(workflowLogic)
+
+    const scheduleState = useMemo(() => {
+        if (!currentSchedule?.rrule || isOneTimeSchedule(currentSchedule.rrule)) {
+            return null
+        }
+        return parseRRuleToState(currentSchedule.rrule)
+    }, [currentSchedule])
+
+    const occurrences = useMemo(() => {
+        if (!scheduleState || !currentSchedule) {
+            return []
+        }
+        return computePreviewOccurrences(scheduleState, currentSchedule.starts_at, currentSchedule.timezone)
+    }, [scheduleState, currentSchedule])
+
+    const summary = scheduleState ? buildSummary(scheduleState, currentSchedule?.starts_at ?? null) : null
+    const timezone = currentSchedule?.timezone
+    const hasFutureOccurrences = occurrences.some((d) => fakeUtcToReal(d, timezone).isAfter(dayjs()))
+
+    if (!hasFutureOccurrences) {
+        return null
+    }
+
+    return (
+        <div>
+            <SectionHeading>Upcoming</SectionHeading>
+            <div className="border rounded-lg p-3 bg-bg-light max-w-xl">
+                {summary && (
+                    <div className="flex items-center gap-2 mb-3">
+                        <IconClock className="text-muted shrink-0" />
+                        <span className="text-sm">{summary}</span>
+                    </div>
+                )}
+                <div className="text-xs text-muted mb-2">
+                    <span className="font-semibold uppercase tracking-wide">Next occurrences</span>
+                    {timezone ? ` in ${timezone}` : ''}
+                </div>
+                <div className="space-y-1.5">
+                    <OccurrencesList
+                        occurrences={occurrences}
+                        isFinite={scheduleState?.endType !== 'never'}
+                        timezone={timezone}
+                        showRelativeTime
+                    />
+                </div>
+            </div>
+        </div>
+    )
+}
+
+function SectionHeading({ children }: { children: ReactNode }): JSX.Element {
+    return <h3 className="text-xs font-semibold uppercase tracking-wide text-muted mb-1">{children}</h3>
+}
+
 function WorkflowBatchRunLogs(props: WorkflowLogicProps): JSX.Element {
-    const { futureJobs, pastJobs, batchWorkflowJobsLoading } = useValues(batchWorkflowJobsLogic(props))
+    const { jobs, batchWorkflowJobsLoading } = useValues(batchWorkflowJobsLogic(props))
+    const { currentSchedule } = useValues(workflowLogic)
+    const hasSchedule = !!currentSchedule?.rrule && !isOneTimeSchedule(currentSchedule.rrule)
 
     if (batchWorkflowJobsLoading) {
         return (
@@ -108,31 +154,36 @@ function WorkflowBatchRunLogs(props: WorkflowLogicProps): JSX.Element {
         )
     }
 
-    if (!futureJobs.length && !pastJobs.length) {
+    if (!jobs.length) {
         return (
-            <div className="flex flex-col bg-surface-primary rounded px-4 py-8 items-center text-center mx-auto">
-                <ListHog width="100" height="100" className="mb-4" />
-                <h2 className="text-xl leading-tight">No batch workflow jobs have been run yet</h2>
-                <p className="text-sm text-balance text-tertiary">
-                    Once a batch workflow job is triggered, execution logs will appear here.
-                </p>
+            <div className="flex flex-col gap-4">
+                <UpcomingOccurrences />
+                <div className="flex flex-col bg-surface-primary rounded px-4 py-8 items-center text-center mx-auto">
+                    <ListHog width="100" height="100" className="mb-4" />
+                    <h2 className="text-xl leading-tight">No batch workflow jobs have been run yet</h2>
+                    <p className="text-sm text-balance text-tertiary">
+                        Once a batch workflow job is triggered, execution logs will appear here.
+                    </p>
+                </div>
             </div>
         )
     }
 
-    const pastJobsSection = pastJobs.length ? (
-        <LemonCollapse
-            panels={pastJobs.map((job) => ({
-                key: job.id,
-                header: <BatchRunHeader job={job} />,
-                content: <BatchRunInfo job={job} />,
-            }))}
-        />
-    ) : (
-        <div className="border rounded bg-surface-primary p-2 text-muted">No past jobs.</div>
+    return (
+        <div className="flex flex-col gap-4">
+            <UpcomingOccurrences />
+            <div>
+                {hasSchedule && <SectionHeading>Past invocations</SectionHeading>}
+                <LemonCollapse
+                    panels={jobs.map((job) => ({
+                        key: job.id,
+                        header: <BatchRunHeader job={job} />,
+                        content: <BatchRunInfo job={job} />,
+                    }))}
+                />
+            </div>
+        </div>
     )
-
-    return <div className="flex flex-col gap-2">{pastJobsSection}</div>
 }
 
 export function WorkflowLogs({ id }: WorkflowLogsProps): JSX.Element {

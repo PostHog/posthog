@@ -3,6 +3,7 @@ import { actions, events, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import type { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
+import { createFuse } from 'lib/utils/fuseSearch'
 
 import {
     GitHubFileContent,
@@ -86,7 +87,7 @@ export const repoBrowserLogic = kea<repoBrowserLogicType>([
         fuzzyIndex: [
             (s) => [s.relevantFiles],
             (relevantFiles: GitHubTreeItem[]): Fuse<GitHubTreeItem> => {
-                return new _Fuse(relevantFiles, {
+                return createFuse(relevantFiles, {
                     keys: ['path', 'name'],
                     threshold: 0.3,
                 })

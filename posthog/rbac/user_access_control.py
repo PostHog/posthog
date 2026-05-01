@@ -11,7 +11,7 @@ from rest_framework import serializers
 
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team, User
-from posthog.scopes import API_SCOPE_OBJECTS, APIScopeObject
+from posthog.scopes import API_SCOPE_OBJECTS, INTERNAL_API_SCOPE_OBJECTS, APIScopeObject
 from posthog.settings import EE_AVAILABLE
 
 if TYPE_CHECKING:
@@ -57,6 +57,7 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "dashboard",
     "experiment",
     "external_data_source",
+    "warehouse_objects",
     "feature_flag",
     "insight",
     "llm_analytics",
@@ -75,12 +76,17 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
 RESOURCE_INHERITANCE_MAP: dict[APIScopeObject, APIScopeObject] = {
     "session_recording_playlist": "session_recording",
     "external_data_schema": "external_data_source",
+    "warehouse_table": "warehouse_objects",
+    "warehouse_view": "warehouse_objects",
     "evaluation": "llm_analytics",
+    "tagger": "llm_analytics",
     "dataset": "llm_analytics",
     "llm_provider_key": "llm_analytics",
     "llm_prompt": "llm_analytics",
+    "llm_skill": "llm_analytics",
     "customer_journey": "customer_analytics",
     "experiment_saved_metric": "experiment",
+    "dashboard_template": "dashboard",
 }
 
 
@@ -121,6 +127,9 @@ def resource_to_display_name(resource: APIScopeObject) -> str:
         return "organization"  # singular
     if resource == "external_data_source":
         return "data warehouse sources"
+    if resource == "warehouse_objects":
+        # Umbrella label for both warehouse tables and views (both children inherit from this)
+        return "data warehouse tables & views"
 
     # Default: replace underscores and add 's' for plural
     return f"{resource.replace('_', ' ')}s"
@@ -275,10 +284,16 @@ def model_to_resource(model: Model) -> Optional[APIScopeObject]:
         return "external_data_source"
     if name == "externaldataschema":
         return "external_data_schema"
+    if name == "datawarehousesavedquery":
+        return "warehouse_view"
+    if name == "datawarehousesavedqueryfolder":
+        return "warehouse_view"
+    if name == "datawarehousetable":
+        return "warehouse_table"
     if name == "customerjourney":
         return "customer_journey"
 
-    if name not in API_SCOPE_OBJECTS:
+    if name not in API_SCOPE_OBJECTS or name in INTERNAL_API_SCOPE_OBJECTS:
         return None
 
     return cast(APIScopeObject, name)
@@ -721,6 +736,16 @@ class UserAccessControl:
             # If there is no team, then there can't be any access controls on this resource
             return False
 
+        # Inheriting children (e.g. warehouse_view -> warehouse_objects) intentionally
+        # bypass their own resource-level rows: only the parent (umbrella) is consulted.
+        # This keeps the AC picker simple — admins configure one umbrella scope instead
+        # of N child scopes — at the cost of ignoring any standalone resource-level row
+        # written against a child. Object-level rows on the child are still honored via
+        # specific_access_level_for_object, which queries the child resource directly.
+        parent_resource = RESOURCE_INHERITANCE_MAP.get(resource)
+        if parent_resource:
+            return self.has_access_levels_for_resource(parent_resource)
+
         filters = self._access_controls_filters_for_resource(resource)
         access_controls = self._get_access_controls(filters)
         return bool(access_controls)
@@ -817,7 +842,7 @@ class UserAccessControl:
     # Filtering querysets
     # ------------------------------------------------------------
 
-    def filter_queryset_by_access_level(self, queryset: QuerySet, include_all_if_admin=False) -> QuerySet:
+    def filter_queryset_by_access_level(self, queryset: QuerySet, include_all_if_admin: bool = False) -> QuerySet:
         # Filter queryset based on access controls, handling cases where user has "none" resource access
         # but may have specific object access
 

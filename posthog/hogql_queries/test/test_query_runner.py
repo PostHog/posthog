@@ -1,4 +1,6 @@
-from datetime import datetime, timedelta
+import re
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any, Literal, Optional
 from zoneinfo import ZoneInfo
 
@@ -11,20 +13,25 @@ from django.core.cache import cache
 
 from parameterized import parameterized
 from pydantic import BaseModel
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     BounceRatePageViewMode,
     CacheMissResponse,
     CurrencyCode,
+    DataTableNode,
+    DataVisualizationNode,
     EventsNode,
     HogQLQuery,
     HogQLQueryModifiers,
     InCohortVia,
     InlineCohortCalculation,
+    InsightVizNode,
     IntervalType,
     MaterializationMode,
     PersonsArgMaxVersion,
     PersonsOnEventsMode,
+    QueryLogTags,
     SessionsV2JoinMode,
     SessionTableVersion,
     TestBasicQueryResponse as TheTestBasicQueryResponse,
@@ -35,7 +42,13 @@ from posthog.schema import (
 from posthog.hogql.constants import LimitContext
 
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
-from posthog.hogql_queries.query_runner import ExecutionMode, QueryRunner
+from posthog.hogql_queries.query_runner import (
+    SHARED_FORCE_BLOCKING_MIN_AGE,
+    ExecutionMode,
+    QueryRunner,
+    get_query_runner,
+    shared_insights_execution_mode,
+)
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team, WeekStartDay
 
@@ -59,6 +72,7 @@ class TheTestQuery(BaseModel):
     kind: Literal["TestQuery"] = "TestQuery"
     some_attr: str
     other_attr: Optional[list[Any]] = []
+    tags: QueryLogTags | None = None
 
 
 class TestQueryRunner(BaseTest):
@@ -75,7 +89,7 @@ class TestQueryRunner(BaseTest):
             query: TheTestQuery
             cached_response: TheTestCachedBasicQueryResponse
 
-            def calculate(self):
+            def _calculate(self):
                 return TheTestBasicQueryResponse(
                     results=[
                         ["row", 1, 2, 3],
@@ -98,6 +112,21 @@ class TestQueryRunner(BaseTest):
 
         return TestQueryRunner
 
+    def test_calculate_runs_validators_before_calculation(self):
+        TestQueryRunner = self.setup_test_query_runner_class()
+        validation_rule = mock.MagicMock()
+        validation_rule.validate.side_effect = ValidationError("Validation failed")
+        TestQueryRunner.validators = lambda self: (validation_rule,)
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+
+        with mock.patch.object(TestQueryRunner, "_calculate", autospec=True) as mock_calculate:
+            with self.assertRaises(ValidationError) as context:
+                runner.calculate()
+
+        self.assertIn("Validation failed", str(context.exception))
+        validation_rule.validate.assert_called_once_with(runner.validation_context)
+        mock_calculate.assert_not_called()
+
     def test_init_with_query_instance(self):
         TestQueryRunner = self.setup_test_query_runner_class()
 
@@ -111,6 +140,45 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
 
         self.assertEqual(runner.query, TheTestQuery(some_attr="bla"))
+
+    @parameterized.expand(
+        [
+            [
+                DataVisualizationNode(source=HogQLQuery(query="SELECT 1")),
+                HogQLQuery(query="SELECT 1"),
+            ],
+            [
+                {"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery", "query": "SELECT 1"}},
+                HogQLQuery(query="SELECT 1"),
+            ],
+            [
+                DataTableNode(source=HogQLQuery(query="SELECT 2")),
+                HogQLQuery(query="SELECT 2"),
+            ],
+            [
+                {"kind": "DataTableNode", "source": {"kind": "HogQLQuery", "query": "SELECT 2"}},
+                HogQLQuery(query="SELECT 2"),
+            ],
+            [
+                InsightVizNode(source=TrendsQuery(series=[EventsNode(event="$pageview")])),
+                TrendsQuery(series=[EventsNode(event="$pageview")]),
+            ],
+            [
+                {
+                    "kind": "InsightVizNode",
+                    "source": {
+                        "kind": "TrendsQuery",
+                        "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                    },
+                },
+                TrendsQuery(series=[EventsNode(event="$pageview")]),
+            ],
+        ]
+    )
+    def test_get_query_runner_uses_source_query_for_wrappers(self, query, expected_source_query):
+        runner = get_query_runner(query=query, team=self.team)
+
+        self.assertEqual(runner.query, expected_source_query)
 
     def test_cache_payload(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -148,6 +216,7 @@ class TestQueryRunner(BaseTest):
                 "optimizeProjections": True,
                 "personsArgMaxVersion": PersonsArgMaxVersion.AUTO,
                 "personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
+                "sessionIdPushdown": False,
                 "sessionTableVersion": SessionTableVersion.AUTO,
                 "sessionsV2JoinMode": SessionsV2JoinMode.UUID,
                 "useMaterializedViews": True,
@@ -229,12 +298,12 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_2e7695f8ad7a4ad5e296e1945fa866647d8cbccd0c6c3dfebc0ece67ecb878fc"
+        assert cache_key == "cache_42_68a2c8e2bf539173ac6e464a103418bb433834fbce3157ed121192f403d69a0c"
 
     def test_cache_key_runner_subclass(self):
         TestQueryRunner = self.setup_test_query_runner_class()
 
-        class TestSubclassQueryRunner(TestQueryRunner):
+        class TestSubclassQueryRunner(TestQueryRunner):  # type: ignore[misc, valid-type]
             pass
 
         # set the pk directly as it affects the hash in the _cache_key call
@@ -243,7 +312,7 @@ class TestQueryRunner(BaseTest):
         runner = TestSubclassQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_69c671108c15496f62a1f6a722891039279b5746f4d5f5ee401d9ebddf4d080e"
+        assert cache_key == "cache_42_4eb789b3c70480ba14a762c56a648f2bf7a117a3c31b60ed3c5cb826444ddf4c"
 
     def test_cache_key_different_timezone(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -254,7 +323,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_ff888ce61e00a0bf5be0521f24b4225b723fd59d67b74bb104a56b1f01cfb1c4"
+        assert cache_key == "cache_42_f67778c870f29df1c38c85726fd6f2b319b920f6f3414acf2de1927271503977"
 
     @mock.patch("django.db.transaction.on_commit")
     def test_cache_response(self, mock_on_commit):
@@ -486,6 +555,66 @@ class TestQueryRunner(BaseTest):
             == before_failure
         )
         assert QUERY_EXECUTION_DURATION.labels(query_type="TestQuery")._sum.get() == before_duration_sum
+
+    @parameterized.expand(
+        [
+            ("success", None, None, 1, 0),
+            ("error_result", "error", None, 1, 0),
+            ("exception", "raise", ValueError, 0, 1),
+        ]
+    )
+    def test_survey_query_execution_metrics(
+        self, _name, calculate_mode, expected_exception, success_delta, failure_delta
+    ):
+        from posthog.hogql_queries.query_runner import SURVEY_QUERY_EXECUTION_DURATION, SURVEY_QUERY_EXECUTION_TOTAL
+
+        TestQueryRunner = self.setup_test_query_runner_class()
+        query_labels = {
+            "query_type": "TestQuery",
+            "query_name": "test_query_name",
+        }
+        if calculate_mode == "error":
+            TestQueryRunner.calculate = lambda self: TheTestBasicQueryResponse(results=[], error="Some error occurred")
+        elif calculate_mode == "raise":
+
+            def calculate_raises(self):
+                raise ValueError("Query execution failed")
+
+            TestQueryRunner.calculate = calculate_raises
+
+        runner = TestQueryRunner(
+            query={
+                "some_attr": "bla",
+                "tags": {"productKey": "surveys", "scene": "TestScene", "name": "test_query_name"},
+            },
+            team=self.team,
+        )
+
+        before_success = SURVEY_QUERY_EXECUTION_TOTAL.labels(
+            **query_labels, category="success", error_type="none"
+        )._value.get()
+        before_failure = SURVEY_QUERY_EXECUTION_TOTAL.labels(
+            **query_labels, category="error", error_type="ValueError"
+        )._value.get()
+        before_duration_sum = SURVEY_QUERY_EXECUTION_DURATION.labels(**query_labels)._sum.get()
+
+        if expected_exception:
+            with pytest.raises(expected_exception):
+                runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        else:
+            runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
+        assert (
+            SURVEY_QUERY_EXECUTION_TOTAL.labels(**query_labels, category="success", error_type="none")._value.get()
+            - before_success
+            == success_delta
+        )
+        assert (
+            SURVEY_QUERY_EXECUTION_TOTAL.labels(**query_labels, category="error", error_type="ValueError")._value.get()
+            - before_failure
+            == failure_delta
+        )
+        assert SURVEY_QUERY_EXECUTION_DURATION.labels(**query_labels)._sum.get() > before_duration_sum
 
 
 class TestSeriesCustomNameCaching(BaseTest):
@@ -751,7 +880,7 @@ class TestApplySeriesCustomNames(BaseTest):
 
         from posthog.schema import CachedStickinessQueryResponse, StickinessQuery
 
-        from posthog.hogql_queries.insights.stickiness_query_runner import StickinessQueryRunner
+        from posthog.hogql_queries.insights.stickiness.stickiness_query_runner import StickinessQueryRunner
 
         query = StickinessQuery(
             series=[
@@ -816,7 +945,7 @@ class TestApplySeriesCustomNames(BaseTest):
 
         from posthog.schema import CachedLifecycleQueryResponse, LifecycleQuery
 
-        from posthog.hogql_queries.insights.lifecycle_query_runner import LifecycleQueryRunner
+        from posthog.hogql_queries.insights.lifecycle.lifecycle_query_runner import LifecycleQueryRunner
 
         query = LifecycleQuery(
             series=[
@@ -905,3 +1034,99 @@ class TestApplySeriesCustomNames(BaseTest):
         _, was_modified = runner.apply_series_custom_names(cached_response)
 
         self.assertEqual(was_modified, expect_modified)
+
+
+class TestSharedInsightsExecutionMode(BaseTest):
+    @parameterized.expand(
+        [
+            # name, execution_mode, last_refresh_offset (None = no signal, timedelta = age), expected_mode
+            (
+                "force_blocking_no_last_refresh_downgrades",
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                None,
+                ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+            ),
+            (
+                "force_blocking_just_refreshed_downgrades",
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                timedelta(seconds=10),
+                ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+            ),
+            (
+                "force_blocking_just_under_threshold_downgrades",
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                timedelta(minutes=29, seconds=59),
+                ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+            ),
+            (
+                "force_blocking_at_threshold_passes_through",
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                timedelta(minutes=30),
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+            ),
+            (
+                "force_blocking_long_stale_passes_through",
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                timedelta(hours=24),
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+            ),
+            (
+                "cache_only_remaps_to_extended_async",
+                ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
+                timedelta(seconds=10),
+                ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE,
+            ),
+            (
+                "recent_cache_async_passes_through",
+                ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
+                None,
+                ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
+            ),
+            (
+                "unlisted_blocking_if_stale_falls_back_to_extended_async",
+                ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+                None,
+                ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE,
+            ),
+        ]
+    )
+    def test_shared_insights_execution_mode(
+        self,
+        _name: str,
+        execution_mode: ExecutionMode,
+        last_refresh_offset: timedelta | None,
+        expected_mode: ExecutionMode,
+    ) -> None:
+        last_refresh = None if last_refresh_offset is None else datetime.now(UTC) - last_refresh_offset
+        result = shared_insights_execution_mode(execution_mode, last_refresh=last_refresh)
+        self.assertEqual(result, expected_mode)
+
+    def test_shared_force_blocking_min_age_matches_frontend_auto_refresh_interval(self) -> None:
+        """Backend throttle must match frontend auto-refresh interval — drift would silently throttle periodic refreshes."""
+        frontend_file = (
+            Path(__file__).resolve().parents[3] / "frontend" / "src" / "scenes" / "dashboard" / "dashboardUtils.ts"
+        )
+        source = frontend_file.read_text()
+
+        interval_match = re.search(
+            r"export\s+const\s+AUTO_REFRESH_INITIAL_INTERVAL_SECONDS\s*=\s*(\d+)\s*",
+            source,
+        )
+        assert interval_match, f"Could not find AUTO_REFRESH_INITIAL_INTERVAL_SECONDS in {frontend_file}"
+        frontend_interval_minutes = int(interval_match.group(1)) // 60
+
+        stale_match = re.search(
+            r"export\s+const\s+SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES\s*=\s*AUTO_REFRESH_INITIAL_INTERVAL_SECONDS\s*/\s*60",
+            source,
+        )
+        assert stale_match, (
+            f"SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES must be derived from "
+            f"AUTO_REFRESH_INITIAL_INTERVAL_SECONDS / 60 in {frontend_file}."
+        )
+
+        backend_minutes = int(SHARED_FORCE_BLOCKING_MIN_AGE.total_seconds() // 60)
+        self.assertEqual(
+            backend_minutes,
+            frontend_interval_minutes,
+            f"Backend ({backend_minutes}m) must equal frontend ({frontend_interval_minutes}m).",
+        )

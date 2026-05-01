@@ -9,10 +9,13 @@
 # end_date: "2026-03-01"
 # seed: 42
 
-# --- Customer metadata (injected into every customer.metadata field) ---
+# --- Metadata (injected into the metadata field of each object type) ---
 # customer_metadata:
 #   source: "stripe-mock"
 #   environment: "development"
+# subscription_metadata:
+#   posthog_person_distinct_id: "your_distinct_id"
+# charge_metadata: {}
 
 # --- Customer persona distribution (count per type) ---
 # customer_types:

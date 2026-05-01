@@ -1259,6 +1259,11 @@ Here is the taxonomy for event properties:
             "description": "The Python version that was used to capture the event.",
             "examples": ["3.11.5"],
         },
+        "$go_version": {
+            "label": "Go version",
+            "description": "The Go version that was used to capture the event.",
+            "examples": ["go1.23.0"],
+        },
         "$sdk_debug_replay_internal_buffer_length": {
             "label": "Replay internal buffer length",
             "description": "Useful for debugging. The internal buffer length for replay.",
@@ -1820,6 +1825,11 @@ Here is the taxonomy for event properties:
             "label": "OS version",
             "description": "The Operating System version.",
             "examples": ["15.5"],
+        },
+        "$os_distro": {
+            "label": "OS distro",
+            "description": "The distribution name in case of Linux.",
+            "examples": ["Ubuntu", "Debian", "Fedora"],
         },
         "$timezone": {
             "label": "Timezone",

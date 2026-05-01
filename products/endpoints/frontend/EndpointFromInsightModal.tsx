@@ -11,7 +11,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { slugify } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
-import { HogQLQuery, InsightQueryNode } from '~/queries/schema/schema-general'
+import { EndpointQueryNode, HogQLQuery } from '~/queries/schema/schema-general'
 
 import { validateEndpointName } from './common'
 import { endpointLogic } from './endpointLogic'
@@ -19,7 +19,7 @@ import { endpointsLogic } from './endpointsLogic'
 
 export interface EndpointFromInsightModalProps {
     tabId: string
-    insightQuery: HogQLQuery | InsightQueryNode
+    insightQuery: HogQLQuery | EndpointQueryNode
     insightShortId?: string
 }
 

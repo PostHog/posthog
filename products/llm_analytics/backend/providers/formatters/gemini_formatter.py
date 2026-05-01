@@ -36,4 +36,4 @@ def convert_anthropic_messages_to_gemini(messages: list[dict[str, Any]]) -> Cont
 
         contents.append(Content(role="model" if message["role"] == "assistant" else "user", parts=parts))
 
-    return contents
+    return cast(ContentListUnion, contents)

@@ -61,7 +61,7 @@ export type OnboardingStepType = OnboardingStepElement
 export const getOnboardingCompleteRedirectUri = (productKey: ProductKey): string => {
     switch (productKey) {
         case ProductKey.PRODUCT_ANALYTICS:
-            return urls.insightOptions()
+            return urls.insightQuickStart()
         case ProductKey.WEB_ANALYTICS:
             return urls.webAnalytics()
         case ProductKey.SESSION_REPLAY:

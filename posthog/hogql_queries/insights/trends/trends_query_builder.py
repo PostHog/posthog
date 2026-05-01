@@ -7,7 +7,6 @@ from posthog.schema import (
     Breakdown as BreakdownSchema,
     ChartDisplayType,
     DataWarehouseNode,
-    DataWarehousePropertyFilter,
     EventsNode,
     GroupNode,
     HogQLQueryModifiers,
@@ -604,9 +603,20 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         if self._trends_display.display_type == ChartDisplayType.WORLD_MAP:
             return 250
 
-        return (
-            self.query.breakdownFilter and self.query.breakdownFilter.breakdown_limit
-        ) or get_breakdown_limit_for_context(self.limit_context)
+        breakdown_filter = self.query.breakdownFilter
+        breakdown_limit = breakdown_filter.breakdown_limit if breakdown_filter else None
+        limit = breakdown_limit or get_breakdown_limit_for_context(self.limit_context)
+
+        # Cohorts are a user-picked, enumerable set — a smaller limit would push declared
+        # cohorts into "Other", which crashes the label lookup in `build_series_response`.
+        if (
+            breakdown_filter is not None
+            and breakdown_filter.breakdown_type == "cohort"
+            and isinstance(breakdown_filter.breakdown, list)
+        ):
+            limit = max(limit, len(breakdown_filter.breakdown))
+
+        return limit
 
     def _inner_breakdown_subquery(self, query: ast.SelectQuery, breakdown: Breakdown) -> ast.SelectQuery:
         assert self.query.breakdownFilter is not None  # type checking
@@ -796,13 +806,6 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
     ) -> ast.Expr:
         series = self.series
         filters: list[ast.Expr] = []
-        is_data_warehouse_event_series = (
-            isinstance(series, DataWarehouseNode)
-            and self.modifiers.dataWarehouseEventsModifiers is not None
-            and any(
-                series.table_name == modifier.table_name for modifier in self.modifiers.dataWarehouseEventsModifiers
-            )
-        )
 
         # Dates
         if not self._aggregation_operation.requires_query_orchestration():
@@ -829,35 +832,11 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             and len(self.team.test_account_filters) > 0
         ):
             for property in self.team.test_account_filters:
-                if is_data_warehouse_event_series:
-                    property_clone = property.copy()
-                    if property_clone["type"] in ("event", "person"):
-                        if property_clone["type"] == "event":
-                            property_clone["key"] = f"events.properties.{property_clone['key']}"
-                        elif property_clone["type"] == "person":
-                            property_clone["key"] = f"events.person.properties.{property_clone['key']}"
-                        property_clone["type"] = "data_warehouse"
-                    expr = property_to_expr(property_clone, self.team)
-                    if (
-                        property_clone["type"] in ("group", "element")
-                        and isinstance(expr, ast.CompareOperation)
-                        and isinstance(expr.left, ast.Field)
-                    ):
-                        expr.left.chain = ["events", *expr.left.chain]
-                    filters.append(expr)
-                else:
-                    filters.append(property_to_expr(property, self.team))
+                filters.append(property_to_expr(property, self.team))
 
         # Properties
         if self.query.properties is not None and self.query.properties != []:
-            if is_data_warehouse_event_series:
-                data_warehouse_properties = [
-                    p for p in self.query.properties if isinstance(p, DataWarehousePropertyFilter)
-                ]
-                if data_warehouse_properties:
-                    filters.append(property_to_expr(data_warehouse_properties, self.team))
-            else:
-                filters.append(property_to_expr(self.query.properties, self.team))
+            filters.append(property_to_expr(self.query.properties, self.team))
 
         # Series Filters
         if series.properties is not None and series.properties != []:

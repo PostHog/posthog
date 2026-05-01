@@ -62,6 +62,12 @@ def _noop_emitter(_team_id: int, _record: dict[str, Any]) -> SignalEmitterOutput
     return None
 
 
+def _noop_fetcher(_team: Any, _config: SignalSourceTableConfig, _context: dict[str, Any]) -> list[dict[str, Any]]:
+    # Error tracking eval cases never go through the fetcher path — content is rendered directly
+    # via _render_error_tracking_description. The fetcher only exists to satisfy the registry contract.
+    return []
+
+
 @dataclass
 class EvalSignalSpec:
     """Specification for a single synthetic signal."""
@@ -89,6 +95,7 @@ class EvalSignalSpec:
                 source_product="error_tracking",
                 source_type=self.source_type_override,
                 emitter=_noop_emitter,
+                record_fetcher=_noop_fetcher,
                 partition_field="",
                 fields=(),
             )

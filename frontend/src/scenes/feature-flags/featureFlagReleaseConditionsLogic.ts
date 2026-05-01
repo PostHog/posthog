@@ -137,6 +137,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
         setOpenConditions: (openConditions: string[]) => ({ openConditions }),
         openCondition: (sortKey: string) => ({ sortKey }),
         setIsMixedTargeting: (isMixedTargeting: boolean) => ({ isMixedTargeting }),
+        switchToMixedTargeting: true,
         setMixedGroupTypeIndex: (mixedGroupTypeIndex: number) => ({ mixedGroupTypeIndex }),
         setIsAnyItemDragging: (isAnyItemDragging: boolean) => ({ isAnyItemDragging }),
         setDraggedGroup: (draggedGroup: FeatureFlagGroupType | null) => ({ draggedGroup }),
@@ -165,23 +166,50 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 return { ...filters, groups: groupsWithKeys }
             },
             setAggregationGroupTypeIndex: (state, { value }) => {
-                if (!state || state.aggregation_group_type_index == value) {
+                if (!state) {
                     return state
                 }
 
-                const originalRolloutPercentage = state.groups[0].rollout_percentage
+                const globalUnchanged = state.aggregation_group_type_index == value
+                const hasPerConditionAggregations = state.groups.some((g) => g.aggregation_group_type_index != null)
 
+                if (globalUnchanged && !hasPerConditionAggregations) {
+                    return state
+                }
+
+                // Coming from mixed mode: selectively preserve conditions whose
+                // aggregation scope matches the new target
+                if (hasPerConditionAggregations) {
+                    return {
+                        ...state,
+                        aggregation_group_type_index: value,
+                        groups: state.groups.map((group) => {
+                            const previousEffective =
+                                group.aggregation_group_type_index ?? state.aggregation_group_type_index ?? null
+                            // Use == to treat null and undefined equivalently
+                            const scopeChanged = previousEffective != value
+                            return {
+                                ...group,
+                                aggregation_group_type_index: undefined,
+                                properties: scopeChanged ? [] : group.properties,
+                            }
+                        }) as FeatureFlagGroupTypeWithSortKey[],
+                    }
+                }
+
+                // Direct transition between incompatible types (user ↔ group):
+                // full reset since property filters from one scope don't apply to another
+                const originalRolloutPercentage = state.groups[0]?.rollout_percentage
                 return {
                     ...state,
                     aggregation_group_type_index: value,
-                    // :TRICKY: We reset property filters after changing what you're aggregating by.
                     groups: [
                         {
                             properties: [],
                             rollout_percentage: originalRolloutPercentage,
                             variant: null,
                             sort_key: uuidv4(),
-                        },
+                        } as FeatureFlagGroupTypeWithSortKey,
                     ],
                 }
             },
@@ -227,6 +255,22 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 }
 
                 return { ...state, groups }
+            },
+            switchToMixedTargeting: (state) => {
+                if (!state) {
+                    return state
+                }
+                const previousGlobal = state.aggregation_group_type_index
+                return {
+                    ...state,
+                    aggregation_group_type_index: null,
+                    // Each condition inherits the global aggregation type as its
+                    // per-condition value, so properties remain valid
+                    groups: state.groups.map((group) => ({
+                        ...group,
+                        aggregation_group_type_index: group.aggregation_group_type_index ?? previousGlobal ?? null,
+                    })) as FeatureFlagGroupTypeWithSortKey[],
+                }
             },
             setConditionAggregation: (state, { index, groupTypeIndex }) => {
                 if (!state) {
@@ -342,6 +386,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             false as boolean,
             {
                 setIsMixedTargeting: (_, { isMixedTargeting }) => isMixedTargeting,
+                switchToMixedTargeting: () => true,
             },
         ],
         mixedGroupTypeIndex: [
@@ -454,6 +499,9 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             if (newOpenConditions.length !== values.openConditions.length) {
                 actions.setOpenConditions(newOpenConditions)
             }
+        },
+        switchToMixedTargeting: () => {
+            actions.calculateBlastRadius()
         },
         setAggregationGroupTypeIndex: () => {
             actions.calculateBlastRadius()

@@ -1,15 +1,12 @@
-import FuseClass from 'fuse.js'
 import { actions, afterMount, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
+import { createFuse, Fuse } from 'lib/utils/fuseSearch'
 
 import type { HogFlowTemplate } from '../hogflows/types'
 import type { workflowTemplatesLogicType } from './workflowTemplatesLogicType'
-
-// Helping kea-typegen navigate the exported default class for Fuse
-export interface Fuse extends FuseClass<HogFlowTemplate> {}
 
 export const workflowTemplatesLogic = kea<workflowTemplatesLogicType>([
     path(['products', 'workflows', 'frontend', 'Workflows', 'workflowTemplatesLogic']),
@@ -50,8 +47,8 @@ export const workflowTemplatesLogic = kea<workflowTemplatesLogicType>([
     selectors({
         workflowTemplateFuse: [
             (s) => [s.workflowTemplates],
-            (workflowTemplates: HogFlowTemplate[]): Fuse => {
-                return new FuseClass(workflowTemplates || [], {
+            (workflowTemplates: HogFlowTemplate[]): Fuse<HogFlowTemplate> => {
+                return createFuse(workflowTemplates || [], {
                     keys: [{ name: 'name', weight: 2 }, 'description'],
                     threshold: 0.3,
                     ignoreLocation: true,
@@ -64,7 +61,7 @@ export const workflowTemplatesLogic = kea<workflowTemplatesLogicType>([
                 workflowTemplates: HogFlowTemplate[],
                 templateFilter: string,
                 tagFilter: string | null,
-                workflowTemplateFuse: Fuse
+                workflowTemplateFuse: Fuse<HogFlowTemplate>
             ): HogFlowTemplate[] => {
                 let filtered = workflowTemplates
 

@@ -9,6 +9,7 @@ use axum::{
     response::IntoResponse,
     routing::Router,
 };
+use common_metrics::normalize_unmatched_path;
 use metrics::gauge;
 
 // Global atomic counter for active connections
@@ -40,7 +41,7 @@ pub async fn track_metrics(req: Request<Body>, next: Next) -> impl IntoResponse 
     let path = if let Some(matched_path) = req.extensions().get::<MatchedPath>() {
         matched_path.as_str().to_owned()
     } else {
-        req.uri().path().to_owned()
+        normalize_unmatched_path(req.uri().path())
     };
 
     let method = req.method().clone();
@@ -86,7 +87,11 @@ where
             move |req: axum::extract::Request, next: axum::middleware::Next| async move {
                 let start = std::time::Instant::now();
                 let method = req.method().to_string();
-                let path = req.uri().path().to_string();
+                let path = if let Some(matched) = req.extensions().get::<MatchedPath>() {
+                    matched.as_str().to_owned()
+                } else {
+                    normalize_unmatched_path(req.uri().path())
+                };
                 let client_ip = req
                     .headers()
                     .get("X-Forwarded-For")

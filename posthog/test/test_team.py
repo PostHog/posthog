@@ -20,7 +20,7 @@ from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
 from .base import BaseTest
 
-util.can_enable_actor_on_events = True
+util.can_enable_actor_on_events = True  # ty: ignore[invalid-assignment]
 
 
 class TestModelCache(TestCase):
@@ -184,7 +184,7 @@ class TestTeam(BaseTest):
                     group_properties={
                         "organization": {
                             "id": str(self.organization.id),
-                            "created_at": self.organization.created_at,
+                            "created_at": self.organization.created_at.isoformat(),
                         }
                     },
                     only_evaluate_locally=True,

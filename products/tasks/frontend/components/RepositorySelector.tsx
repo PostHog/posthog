@@ -19,7 +19,21 @@ export interface RepositorySelectorProps {
 }
 
 export function RepositorySelector({ value, onChange }: RepositorySelectorProps): JSX.Element {
-    const { integrationsLoading } = useValues(integrationsLogic)
+    const { integrations, integrationsLoading } = useValues(integrationsLogic)
+
+    // The picker uses plain repo names as keys, but the Task API expects owner/repo format
+    const pickerValue = value.repository?.split('/')?.pop() ?? ''
+
+    const handleRepositoryChange = (repoName: string): void => {
+        if (!repoName) {
+            onChange({ ...value, repository: undefined })
+            return
+        }
+        const integration = integrations?.find((i) => i.id === value.integrationId)
+        const owner = integration?.config?.account?.name || integration?.config?.account?.login
+        const repository = owner ? `${owner}/${repoName}` : repoName
+        onChange({ ...value, repository })
+    }
 
     if (integrationsLoading) {
         return <LemonSkeleton className="h-24" />
@@ -48,8 +62,8 @@ export function RepositorySelector({ value, onChange }: RepositorySelectorProps)
                     <label className="block text-sm font-medium mb-2">Repository</label>
                     <GitHubRepositoryPicker
                         integrationId={value.integrationId}
-                        value={value.repository ?? ''}
-                        onChange={(repo) => onChange({ ...value, repository: repo ?? undefined })}
+                        value={pickerValue}
+                        onChange={handleRepositoryChange}
                     />
                 </div>
             ) : null}

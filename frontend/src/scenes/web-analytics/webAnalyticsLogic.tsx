@@ -25,6 +25,7 @@ import {
 } from 'lib/utils'
 import { isDefinitionStale } from 'lib/utils/definitions'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -76,8 +77,10 @@ import {
     WebAnalyticsFiltersConfig,
 } from '~/types'
 
+import { botAnalyticsLogic } from './botAnalyticsLogic'
 import {
     ActiveHoursTab,
+    BotTrafficFilter,
     ConversionGoalWarning,
     DeviceTab,
     DeviceType,
@@ -124,8 +127,6 @@ export interface DateFilterState {
     isIntervalManuallySet: boolean
 }
 
-const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
-const persistConfig = { persist: true, prefix: `${teamId}__` }
 export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
     path(['scenes', 'webAnalytics', 'webAnalyticsSceneLogic']),
     connect(() => ({
@@ -155,6 +156,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 'compareFilter',
                 'hasHostFilter',
                 'validatedDomainFilter',
+                'selectedHost',
                 'authorizedDomains',
             ],
         ],
@@ -209,6 +211,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         }),
         setIsPathCleaningEnabled: (isPathCleaningEnabled: boolean) => ({ isPathCleaningEnabled }),
         setShouldFilterTestAccounts: (shouldFilterTestAccounts: boolean) => ({ shouldFilterTestAccounts }),
+        setBotTrafficFilter: (botTrafficFilter: BotTrafficFilter) => ({ botTrafficFilter }),
         setShouldStripQueryParams: (shouldStripQueryParams: boolean) => ({ shouldStripQueryParams }),
         setIncludeHostPath: (includeHostPath: boolean) => ({ includeHostPath }),
         setConversionGoal: (conversionGoal: WebAnalyticsConversionGoal | null) => ({ conversionGoal }),
@@ -270,227 +273,238 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             },
         },
     })),
-    reducers({
-        surveyModalPath: [
-            null as string | null,
-            {
-                openSurveyModal: (_, { path }) => path,
-                closeSurveyModal: () => null,
-            },
-        ],
-        _graphsTab: [
-            null as string | null,
-            persistConfig,
-            {
-                setGraphsTab: (_, { tab }) => tab,
-                togglePropertyFilter: (oldTab, { tabChange }) => tabChange?.graphsTab || oldTab,
-                setConversionGoal: (oldTab, { conversionGoal }) => {
-                    if (conversionGoal) {
-                        return GraphsTab.UNIQUE_CONVERSIONS
-                    }
-                    return oldTab
+    reducers(() => {
+        const persistConfig = { persist: true, prefix: `${getCurrentTeamId()}__` }
+        return {
+            surveyModalPath: [
+                null as string | null,
+                {
+                    openSurveyModal: (_, { path }) => path,
+                    closeSurveyModal: () => null,
                 },
-            },
-        ],
-        _sourceTab: [
-            null as string | null,
-            persistConfig,
-            {
-                setSourceTab: (_, { tab }) => tab,
-                togglePropertyFilter: (oldTab, { tabChange }) => tabChange?.sourceTab || oldTab,
-            },
-        ],
-        _deviceTab: [
-            null as string | null,
-            persistConfig,
-            {
-                setDeviceTab: (_, { tab }) => tab,
-                togglePropertyFilter: (oldTab, { tabChange }) => tabChange?.deviceTab || oldTab,
-            },
-        ],
-        _pathTab: [
-            null as string | null,
-            persistConfig,
-            {
-                setPathTab: (_, { tab }) => tab,
-                togglePropertyFilter: (oldTab, { tabChange }) => tabChange?.pathTab || oldTab,
-            },
-        ],
-        _geographyTab: [
-            null as string | null,
-            persistConfig,
-            {
-                setGeographyTab: (_, { tab }) => tab,
-                togglePropertyFilter: (oldTab, { tabChange }) => tabChange?.geographyTab || oldTab,
-            },
-        ],
-        _activeHoursTab: [
-            null as string | null,
-            persistConfig,
-            {
-                setActiveHoursTab: (_, { tab }) => tab,
-            },
-        ],
-        _isPathCleaningEnabled: [
-            true as boolean,
-            persistConfig,
-            {
-                setIsPathCleaningEnabled: (_, { isPathCleaningEnabled }) => isPathCleaningEnabled,
-                clearFilters: () => true,
-            },
-        ],
-        tablesOrderBy: [
-            null as WebAnalyticsOrderBy | null,
-            persistConfig,
-            {
-                setTablesOrderBy: (_, { orderBy, direction }) => [orderBy, direction],
-                clearTablesOrderBy: () => null,
+            ],
+            _graphsTab: [
+                null as string | null,
+                persistConfig,
+                {
+                    setGraphsTab: (_, { tab }) => tab,
+                    togglePropertyFilter: (oldTab, { tabChange }) => tabChange?.graphsTab || oldTab,
+                    setConversionGoal: (oldTab, { conversionGoal }) => {
+                        if (conversionGoal) {
+                            return GraphsTab.UNIQUE_CONVERSIONS
+                        }
+                        return oldTab
+                    },
+                },
+            ],
+            _sourceTab: [
+                null as string | null,
+                persistConfig,
+                {
+                    setSourceTab: (_, { tab }) => tab,
+                    togglePropertyFilter: (oldTab, { tabChange }) => tabChange?.sourceTab || oldTab,
+                },
+            ],
+            _deviceTab: [
+                null as string | null,
+                persistConfig,
+                {
+                    setDeviceTab: (_, { tab }) => tab,
+                    togglePropertyFilter: (oldTab, { tabChange }) => tabChange?.deviceTab || oldTab,
+                },
+            ],
+            _pathTab: [
+                null as string | null,
+                persistConfig,
+                {
+                    setPathTab: (_, { tab }) => tab,
+                    togglePropertyFilter: (oldTab, { tabChange }) => tabChange?.pathTab || oldTab,
+                },
+            ],
+            _geographyTab: [
+                null as string | null,
+                persistConfig,
+                {
+                    setGeographyTab: (_, { tab }) => tab,
+                    togglePropertyFilter: (oldTab, { tabChange }) => tabChange?.geographyTab || oldTab,
+                },
+            ],
+            _activeHoursTab: [
+                null as string | null,
+                persistConfig,
+                {
+                    setActiveHoursTab: (_, { tab }) => tab,
+                },
+            ],
+            _isPathCleaningEnabled: [
+                true as boolean,
+                persistConfig,
+                {
+                    setIsPathCleaningEnabled: (_, { isPathCleaningEnabled }) => isPathCleaningEnabled,
+                    clearFilters: () => true,
+                },
+            ],
+            tablesOrderBy: [
+                null as WebAnalyticsOrderBy | null,
+                persistConfig,
+                {
+                    setTablesOrderBy: (_, { orderBy, direction }) => [orderBy, direction],
+                    clearTablesOrderBy: () => null,
 
-                // Reset the order by when the conversion goal changes because most of the columns are different
-                setConversionGoal: () => null,
-            },
-        ],
-        dateFilter: [
-            {
-                dateFrom: INITIAL_DATE_FROM,
-                dateTo: INITIAL_DATE_TO,
-                interval: INITIAL_INTERVAL,
-                isIntervalManuallySet: false,
-            } as DateFilterState,
-            persistConfig,
-            {
-                setDates: ({ interval, isIntervalManuallySet }, { dateTo, dateFrom }) => {
-                    if (dateTo && !isValidRelativeOrAbsoluteDate(dateTo)) {
-                        dateTo = INITIAL_DATE_TO
-                    }
-                    if (dateFrom && !isValidRelativeOrAbsoluteDate(dateFrom)) {
-                        dateFrom = INITIAL_DATE_FROM
-                    }
-                    return {
-                        dateTo,
-                        dateFrom,
-                        interval: isIntervalManuallySet ? interval : getDefaultInterval(dateFrom, dateTo),
-                        isIntervalManuallySet,
-                    }
+                    // Reset the order by when the conversion goal changes because most of the columns are different
+                    setConversionGoal: () => null,
                 },
-                setDateInterval: ({ dateFrom, dateTo }, { interval }) => ({
-                    dateTo,
-                    dateFrom,
-                    interval,
-                    isIntervalManuallySet: true,
-                }),
-                setDatesAndInterval: (_, { dateTo, dateFrom, interval }) => {
-                    if (!dateFrom && !dateTo) {
-                        dateFrom = INITIAL_DATE_FROM
-                        dateTo = INITIAL_DATE_TO
-                    }
-                    if (dateTo && !isValidRelativeOrAbsoluteDate(dateTo)) {
-                        dateTo = INITIAL_DATE_TO
-                    }
-                    if (dateFrom && !isValidRelativeOrAbsoluteDate(dateFrom)) {
-                        dateFrom = INITIAL_DATE_FROM
-                    }
-                    return {
-                        dateTo,
-                        dateFrom,
-                        interval: interval || getDefaultInterval(dateFrom, dateTo),
-                        isIntervalManuallySet: !!interval,
-                    }
-                },
-                clearFilters: () => ({
+            ],
+            dateFilter: [
+                {
                     dateFrom: INITIAL_DATE_FROM,
                     dateTo: INITIAL_DATE_TO,
                     interval: INITIAL_INTERVAL,
                     isIntervalManuallySet: false,
-                }),
-            },
-        ],
-        preZoomDateFilter: [
-            null as { dateFrom: string | null; dateTo: string | null; interval: IntervalType } | null,
-            {
-                setPreZoomDateFilter: (_, { filter }) => filter,
-                setDates: () => null,
-                setDateInterval: () => null,
-                clearFilters: () => null,
-            },
-        ],
-        shouldFilterTestAccounts: [
-            false as boolean,
-            persistConfig,
-            {
-                setShouldFilterTestAccounts: (_, { shouldFilterTestAccounts }) => shouldFilterTestAccounts,
-                clearFilters: () => false,
-            },
-        ],
-        shouldStripQueryParams: [
-            false as boolean,
-            persistConfig,
-            {
-                setShouldStripQueryParams: (_, { shouldStripQueryParams }) => shouldStripQueryParams,
-            },
-        ],
-        includeHostPath: [
-            false as boolean,
-            persistConfig,
-            {
-                setIncludeHostPath: (_, { includeHostPath }) => includeHostPath,
-            },
-        ],
-        conversionGoal: [
-            null as WebAnalyticsConversionGoal | null,
-            persistConfig,
-            {
-                setConversionGoal: (_, { conversionGoal }) => conversionGoal,
-                clearFilters: () => null,
-            },
-        ],
-        conversionGoalWarning: [
-            null as ConversionGoalWarning | null,
-            {
-                setConversionGoalWarning: (_, { warning }) => warning,
-            },
-        ],
-        productTab: [
-            ProductTab.ANALYTICS as ProductTab,
-            {
-                setProductTab: (_, { tab }) => tab,
-            },
-        ],
-        webVitalsPercentile: [
-            PropertyMathType.P90 as WebVitalsPercentile,
-            persistConfig,
-            {
-                setWebVitalsPercentile: (_, { percentile }) => percentile,
-            },
-        ],
-        webVitalsTab: [
-            'INP' as WebVitalsMetric,
-            {
-                setWebVitalsTab: (_, { tab }) => tab,
-            },
-        ],
-        tileVisualizations: [
-            {} as Record<TileId, TileVisualizationOption>,
-            {
-                setTileVisualization: (state, { tileId, visualization }) => ({
-                    ...state,
-                    [tileId]: visualization,
-                }),
-            },
-        ],
-        hiddenTiles: [
-            [] as TileId[],
-            persistConfig,
-            {
-                setTileVisibility: (state, { tileId, visible }) => {
-                    if (visible) {
-                        return state.filter((id) => id !== tileId)
-                    }
-                    return state.includes(tileId) ? state : [...state, tileId]
+                } as DateFilterState,
+                persistConfig,
+                {
+                    setDates: ({ interval, isIntervalManuallySet }, { dateTo, dateFrom }) => {
+                        if (dateTo && !isValidRelativeOrAbsoluteDate(dateTo)) {
+                            dateTo = INITIAL_DATE_TO
+                        }
+                        if (dateFrom && !isValidRelativeOrAbsoluteDate(dateFrom)) {
+                            dateFrom = INITIAL_DATE_FROM
+                        }
+                        return {
+                            dateTo,
+                            dateFrom,
+                            interval: isIntervalManuallySet ? interval : getDefaultInterval(dateFrom, dateTo),
+                            isIntervalManuallySet,
+                        }
+                    },
+                    setDateInterval: ({ dateFrom, dateTo }, { interval }) => ({
+                        dateTo,
+                        dateFrom,
+                        interval,
+                        isIntervalManuallySet: true,
+                    }),
+                    setDatesAndInterval: (_, { dateTo, dateFrom, interval }) => {
+                        if (!dateFrom && !dateTo) {
+                            dateFrom = INITIAL_DATE_FROM
+                            dateTo = INITIAL_DATE_TO
+                        }
+                        if (dateTo && !isValidRelativeOrAbsoluteDate(dateTo)) {
+                            dateTo = INITIAL_DATE_TO
+                        }
+                        if (dateFrom && !isValidRelativeOrAbsoluteDate(dateFrom)) {
+                            dateFrom = INITIAL_DATE_FROM
+                        }
+                        return {
+                            dateTo,
+                            dateFrom,
+                            interval: interval || getDefaultInterval(dateFrom, dateTo),
+                            isIntervalManuallySet: !!interval,
+                        }
+                    },
+                    clearFilters: () => ({
+                        dateFrom: INITIAL_DATE_FROM,
+                        dateTo: INITIAL_DATE_TO,
+                        interval: INITIAL_INTERVAL,
+                        isIntervalManuallySet: false,
+                    }),
                 },
-                resetTileVisibility: () => [],
-            },
-        ],
+            ],
+            preZoomDateFilter: [
+                null as { dateFrom: string | null; dateTo: string | null; interval: IntervalType } | null,
+                {
+                    setPreZoomDateFilter: (_, { filter }) => filter,
+                    setDates: () => null,
+                    setDateInterval: () => null,
+                    clearFilters: () => null,
+                },
+            ],
+            shouldFilterTestAccounts: [
+                false as boolean,
+                persistConfig,
+                {
+                    setShouldFilterTestAccounts: (_, { shouldFilterTestAccounts }) => shouldFilterTestAccounts,
+                    clearFilters: () => false,
+                },
+            ],
+            botTrafficFilter: [
+                'regular' as BotTrafficFilter,
+                persistConfig,
+                {
+                    setBotTrafficFilter: (_, { botTrafficFilter }) => botTrafficFilter,
+                    clearFilters: () => 'regular' as BotTrafficFilter,
+                },
+            ],
+            shouldStripQueryParams: [
+                false as boolean,
+                persistConfig,
+                {
+                    setShouldStripQueryParams: (_, { shouldStripQueryParams }) => shouldStripQueryParams,
+                },
+            ],
+            includeHostPath: [
+                false as boolean,
+                persistConfig,
+                {
+                    setIncludeHostPath: (_, { includeHostPath }) => includeHostPath,
+                },
+            ],
+            conversionGoal: [
+                null as WebAnalyticsConversionGoal | null,
+                persistConfig,
+                {
+                    setConversionGoal: (_, { conversionGoal }) => conversionGoal,
+                    clearFilters: () => null,
+                },
+            ],
+            conversionGoalWarning: [
+                null as ConversionGoalWarning | null,
+                {
+                    setConversionGoalWarning: (_, { warning }) => warning,
+                },
+            ],
+            productTab: [
+                ProductTab.ANALYTICS as ProductTab,
+                {
+                    setProductTab: (_, { tab }) => tab,
+                },
+            ],
+            webVitalsPercentile: [
+                PropertyMathType.P90 as WebVitalsPercentile,
+                persistConfig,
+                {
+                    setWebVitalsPercentile: (_, { percentile }) => percentile,
+                },
+            ],
+            webVitalsTab: [
+                'INP' as WebVitalsMetric,
+                {
+                    setWebVitalsTab: (_, { tab }) => tab,
+                },
+            ],
+            tileVisualizations: [
+                {} as Record<TileId, TileVisualizationOption>,
+                {
+                    setTileVisualization: (state, { tileId, visualization }) => ({
+                        ...state,
+                        [tileId]: visualization,
+                    }),
+                },
+            ],
+            hiddenTiles: [
+                [] as TileId[],
+                persistConfig,
+                {
+                    setTileVisibility: (state, { tileId, visible }) => {
+                        if (visible) {
+                            return state.filter((id) => id !== tileId)
+                        }
+                        return state.includes(tileId) ? state : [...state, tileId]
+                    },
+                    resetTileVisibility: () => [],
+                },
+            ],
+        }
     }),
     windowValues({
         isGreaterThanMd: (window: Window) => window.innerWidth > 768,
@@ -601,25 +615,62 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             }),
         ],
         webAnalyticsFilters: [
-            (s) => [s.rawWebAnalyticsFilters, s.isPathCleaningEnabled, s.validatedDomainFilter, s.deviceTypeFilter],
+            (s) => [
+                s.rawWebAnalyticsFilters,
+                s.isPathCleaningEnabled,
+                s.selectedHost,
+                s.deviceTypeFilter,
+                s.botTrafficFilter,
+                s.featureFlags,
+            ],
             (
                 rawWebAnalyticsFilters: WebAnalyticsPropertyFilters,
                 isPathCleaningEnabled: boolean,
-                domainFilter: string | null,
-                deviceTypeFilter: DeviceType | null
+                selectedHost: string | null,
+                deviceTypeFilter: DeviceType | null,
+                botTrafficFilter: BotTrafficFilter,
+                featureFlags: Record<string, boolean | string | undefined>
             ) => {
                 let filters = rawWebAnalyticsFilters
 
-                // Add domain filter if set
-                if (domainFilter && domainFilter !== 'all') {
-                    // Remove the leading protocol if it exists
-                    const value = domainFilter.replace(/^https?:\/\//, '')
+                // Add bot traffic filter (only when feature flag is enabled)
+                if (featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS]) {
+                    if (botTrafficFilter === 'regular') {
+                        filters = [
+                            ...filters,
+                            {
+                                key: '$virt_is_bot',
+                                value: ['false'],
+                                operator: PropertyOperator.Exact,
+                                type: PropertyFilterType.Event,
+                            },
+                        ]
+                    } else if (botTrafficFilter === 'bot') {
+                        filters = [
+                            ...filters,
+                            {
+                                key: '$virt_is_bot',
+                                value: ['true'],
+                                operator: PropertyOperator.Exact,
+                                type: PropertyFilterType.Event,
+                            },
+                            {
+                                // Exclude events with no user agent — these are missing data, not confirmed bots
+                                key: '$virt_traffic_category',
+                                value: ['no_user_agent'],
+                                operator: PropertyOperator.IsNot,
+                                type: PropertyFilterType.Event,
+                            },
+                        ]
+                    }
+                }
 
+                if (selectedHost) {
                     filters = [
                         ...filters,
                         {
                             key: '$host',
-                            value: value,
+                            value: selectedHost,
                             operator: PropertyOperator.Exact,
                             type: PropertyFilterType.Event,
                         },
@@ -2210,6 +2261,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                           }
                         : null,
                 ]
+
+                // Bot analytics tiles live in `botAnalyticsLogic` so the bot tab keeps its own
+                // filter state. `MainContent` reads them directly when productTab === BOT_ANALYTICS.
+                if (productTab === ProductTab.BOT_ANALYTICS) {
+                    return []
+                }
+
                 return allTiles
                     .filter(isNotNil)
                     .filter((tile) =>
@@ -2255,6 +2313,20 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 return urls.webAnalyticsHealth()
             } else if (productTab === ProductTab.LIVE) {
                 return '/web/live'
+            } else if (productTab === ProductTab.BOT_ANALYTICS) {
+                // Bot tab maintains its own filter state in `botAnalyticsLogic`, so we serialize
+                // those filters here instead of `rawWebAnalyticsFilters` (which only describes the
+                // regular Analytics tab). Date/interval are shared across tabs.
+                const rawBotAnalyticsFilters = botAnalyticsLogic.findMounted()?.values.rawBotAnalyticsFilters ?? []
+                if (rawBotAnalyticsFilters.length > 0) {
+                    urlParams.set('filters', JSON.stringify(rawBotAnalyticsFilters))
+                }
+                if (dateFrom !== INITIAL_DATE_FROM || dateTo !== INITIAL_DATE_TO || interval !== INITIAL_INTERVAL) {
+                    urlParams.set('date_from', dateFrom ?? '')
+                    urlParams.set('date_to', dateTo ?? '')
+                    urlParams.set('interval', interval ?? '')
+                }
+                return `/web/bots${urlParams.toString() ? '?' + urlParams.toString() : ''}`
             }
 
             // Make sure we're storing the raw filters only, or else we'll have issues with the domain/device type filters
@@ -2392,14 +2464,31 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     ProductTab.PAGE_REPORTS,
                     ProductTab.HEALTH,
                     ProductTab.LIVE,
+                    ProductTab.BOT_ANALYTICS,
                 ].includes(productTab)
             ) {
                 return
             }
 
+            // Redirect away from bot analytics tab if the feature flag is disabled
+            if (
+                productTab === ProductTab.BOT_ANALYTICS &&
+                !values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS]
+            ) {
+                router.actions.replace(urls.webAnalytics())
+                return
+            }
+
             const parsedFilters = filters ? (isWebAnalyticsPropertyFilters(filters) ? filters : []) : undefined
-            if (parsedFilters && !objectsEqual(parsedFilters, values.rawWebAnalyticsFilters)) {
-                actions.setWebAnalyticsFilters(parsedFilters)
+            if (parsedFilters) {
+                if (productTab === ProductTab.BOT_ANALYTICS) {
+                    const botLogic = botAnalyticsLogic.findMounted()
+                    if (botLogic && !objectsEqual(parsedFilters, botLogic.values.rawBotAnalyticsFilters)) {
+                        botLogic.actions.setBotAnalyticsFilters(parsedFilters)
+                    }
+                } else if (!objectsEqual(parsedFilters, values.rawWebAnalyticsFilters)) {
+                    actions.setWebAnalyticsFilters(parsedFilters)
+                }
             }
             if (
                 conversionGoalActionId &&
@@ -2476,7 +2565,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             }
         }
 
-        return { '/web': toAction, '/web/:productTab': toAction, '/web/page-reports': toAction }
+        return {
+            '/web': toAction,
+            '/web/bots': (_, searchParams) => {
+                toAction({ productTab: ProductTab.BOT_ANALYTICS }, searchParams)
+            },
+            '/web/:productTab': toAction,
+        }
     }),
 
     listeners(({ values, actions }) => {
@@ -2587,6 +2682,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 actions.cancelAllLoading()
                 if (tab === ProductTab.HEALTH) {
                     actions.trackTabViewed()
+                }
+                if (tab === ProductTab.BOT_ANALYTICS && values.dateFilter.dateFrom === INITIAL_DATE_FROM) {
+                    actions.setDates('-1d', null)
                 }
             },
             setGraphsTab: ({ tab }) => {

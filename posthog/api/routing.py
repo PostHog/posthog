@@ -20,7 +20,7 @@ from posthog.auth import (
     SharingAccessTokenAuthentication,
     SharingPasswordProtectedAuthentication,
 )
-from posthog.clickhouse.query_tagging import tag_queries
+from posthog.clickhouse.query_tagging import get_team_query_tags, tag_queries
 from posthog.models.organization import Organization
 from posthog.models.project import Project
 from posthog.models.team import Team
@@ -190,8 +190,8 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
         # NOTE: Half implemented - for admins, they may want to include listing of results that are not accessible (like private resources)
         include_all_if_admin = self.request.GET.get("admin_include_all") == "true"
 
-        # Additionally "projects" is a special one where we always want to include all projects if you're an org admin
-        if self.scope_object == "project":
+        # Projects and dashboards: org admins have implicit access; list must match retrieve (see issue #44364).
+        if self.scope_object in ("project", "dashboard"):
             include_all_if_admin = True
 
         # "insights" are a special case where we want to use include_all_if_admin if listing with short_id because
@@ -266,7 +266,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
         if team_from_token := self._get_team_from_request():
             team = team_from_token
         elif self._is_project_view:
-            team = Team.objects.get(
+            team = Team.objects.select_related("organization").get(
                 id=self.project_id  # KLUDGE: This is just for the period of transition to project environments
             )
         elif self.param_derived_from_user_current_team == "team_id":
@@ -275,13 +275,13 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
             team = user.team
         else:
             try:
-                team = Team.objects.get(id=self.team_id)
+                team = Team.objects.select_related("organization").get(id=self.team_id)
             except (Team.DoesNotExist, ValueError):
                 raise NotFound(
                     detail="Project not found."  # TODO: "Environment" instead of "Project" when project environments are rolled out
                 )
 
-        tag_queries(team_id=team.pk)
+        tag_queries(**get_team_query_tags(team))
         return team
 
     @cached_property

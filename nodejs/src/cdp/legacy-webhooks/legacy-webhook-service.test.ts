@@ -415,6 +415,7 @@ describe('LegacyWebhookService', () => {
                 hub.groupRepository,
                 mockGrpcClient as unknown as PersonHogClient,
                 100,
+                new Set(),
                 'test'
             )
 

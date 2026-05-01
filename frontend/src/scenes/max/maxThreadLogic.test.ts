@@ -1178,6 +1178,90 @@ describe('maxThreadLogic', () => {
             expect(logic.values.threadRaw).toEqual([])
         })
 
+        it('loads full conversation details when mounted from a history entry without messages', async () => {
+            const conversationWithoutMessages: ConversationDetail = {
+                id: MOCK_CONVERSATION_ID,
+                status: ConversationStatus.Idle,
+                title: 'History entry',
+                user: MOCK_DEFAULT_BASIC_USER,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+                type: ConversationType.Assistant,
+            }
+
+            logic.unmount()
+            logic = maxThreadLogic({
+                conversationId: MOCK_CONVERSATION_ID,
+                tabId: 'test',
+                conversation: conversationWithoutMessages,
+            })
+
+            await expectLogic(logic, () => {
+                logic.mount()
+            }).toDispatchActions(['loadConversation'])
+        })
+
+        it('populates the thread before reconnecting when mounted on an in-progress stream', async () => {
+            // afterMount must load the conversation and hydrate threadRaw BEFORE calling
+            // reconnectToStream — otherwise the propsChanged-driven setThread would fire
+            // after the reconnected stream has already pushed tokens, clobbering them.
+            const loadedMessages = [
+                { type: AssistantMessageType.Human, content: 'first question', id: 'human-1' },
+                { type: AssistantMessageType.Assistant, content: 'first answer', id: 'assistant-1' },
+            ]
+            logic.unmount()
+            const getSpy = jest.spyOn(api.conversations, 'get').mockResolvedValue({
+                ...MOCK_IN_PROGRESS_CONVERSATION,
+                messages: loadedMessages,
+            } as ConversationDetail)
+            const streamSpy = mockStream()
+
+            logic = maxThreadLogic({
+                conversationId: MOCK_CONVERSATION_ID,
+                tabId: 'test',
+                conversation: {
+                    // No messages field — simulates a list-level cache entry for an in-progress chat.
+                    ...MOCK_IN_PROGRESS_CONVERSATION,
+                } as ConversationDetail,
+            })
+            logic.mount()
+            // Drain pending microtasks/timers so the async afterMount runs to completion.
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(getSpy).toHaveBeenCalledWith(MOCK_CONVERSATION_ID)
+            // The loaded history must be present in threadRaw — proving setThread ran.
+            expect(logic.values.threadRaw).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({ id: 'human-1', content: 'first question', status: 'completed' }),
+                    expect.objectContaining({ id: 'assistant-1', content: 'first answer', status: 'completed' }),
+                ])
+            )
+            // And reconnectToStream must have fired — proving the load-then-reconnect flow ran
+            // end to end, not just the load.
+            expect(streamSpy).toHaveBeenCalledWith(
+                expect.objectContaining({ conversation: MOCK_CONVERSATION_ID, content: null }),
+                expect.any(Object)
+            )
+        })
+
+        it('does not fetch or reconnect when mounted for a new chat', async () => {
+            // parentConversationId (from maxLogic.conversationId) is the real signal for "existing
+            // backend conversation". The local maxThreadLogic.conversationId selector falls back
+            // to the frontend-generated UUID, so gating on it would fire loadConversation on every
+            // new chat and 404.
+            logic.unmount()
+            maxLogicInstance.actions.startNewConversation()
+            const getSpy = jest.spyOn(api.conversations, 'get')
+            const streamSpy = mockStream()
+
+            logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, tabId: 'test' })
+            logic.mount()
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(getSpy).not.toHaveBeenCalled()
+            expect(streamSpy).not.toHaveBeenCalled()
+        })
+
         it('updates threadRaw with status fields when conversation prop changes with new messages', async () => {
             // Start with empty conversation
             const initialConversation: ConversationDetail = {

@@ -179,6 +179,7 @@ describe('GroupsManagerService + PersonHogGroupRepository integration', () => {
                 mockPostgres,
                 mockGrpc as unknown as PersonHogClient,
                 rolloutPercentage,
+                new Set(),
                 'test'
             )
             groupsManager = new GroupsManagerService(mockTeamManager, personhogRepo)
@@ -319,6 +320,7 @@ describe('GroupsManagerService + PersonHogGroupRepository integration', () => {
                 mockPostgres,
                 mockGrpc as unknown as PersonHogClient,
                 100,
+                new Set(),
                 'test'
             )
             const manager = new GroupsManagerService(
@@ -359,6 +361,7 @@ describe('GroupsManagerService + PersonHogGroupRepository integration', () => {
                 mockPostgres,
                 mockGrpc as unknown as PersonHogClient,
                 100,
+                new Set(),
                 'test'
             )
             groupsManager = new GroupsManagerService(mockTeamManager, personhogRepo)
@@ -426,6 +429,7 @@ describe('GroupsManagerService + PersonHogGroupRepository integration', () => {
                 mockPostgres,
                 mockGrpc as unknown as PersonHogClient,
                 0,
+                new Set(),
                 'test'
             )
             const postgresManager = new GroupsManagerService(mockTeamManager, postgresRepo)

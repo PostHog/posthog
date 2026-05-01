@@ -20,7 +20,13 @@ import {
     SurveyQuestionType,
 } from '~/types'
 
-import { NewSurvey, SurveyTheme, WEB_SAFE_FONTS, defaultSurveyAppearance, surveyThemes } from '../../constants'
+import {
+    NewSurvey,
+    SurveyTheme,
+    WEB_SAFE_FONTS,
+    defaultSurveyAppearance,
+    getMatchingSurveyThemeId,
+} from '../../constants'
 import { SurveyAppearancePreview } from '../../SurveyAppearancePreview'
 import { surveyLogic } from '../../surveyLogic'
 import { surveysLogic } from '../../surveysLogic'
@@ -39,18 +45,9 @@ export function AppearanceStep(): JSX.Element {
     const [previewBackground, setPreviewBackground] = useState<'light' | 'dark'>(() =>
         isDarkModeOn ? 'dark' : 'light'
     )
-    const [selectedThemeId, setSelectedThemeId] = useState<string | null>(() => {
-        const currentAppearance = survey.appearance
-        if (!currentAppearance) {
-            return 'clean'
-        }
-        const matchingTheme = surveyThemes.find(
-            (theme) =>
-                theme.appearance.backgroundColor === currentAppearance.backgroundColor &&
-                theme.appearance.submitButtonColor === currentAppearance.submitButtonColor
-        )
-        return matchingTheme?.id || null
-    })
+    const [selectedThemeId, setSelectedThemeId] = useState<string | null>(() =>
+        getMatchingSurveyThemeId(survey.appearance)
+    )
 
     const appearance: SurveyAppearance = { ...defaultSurveyAppearance, ...survey.appearance }
     const hasRatingButtons = survey.questions?.some((q) => q.type === SurveyQuestionType.Rating)

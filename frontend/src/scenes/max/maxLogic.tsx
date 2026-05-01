@@ -315,6 +315,13 @@ export const maxLogic = kea<maxLogicType>([
             },
         ],
 
+        messagesLoading: [
+            (s) => [s.conversation, s.conversationId],
+            (conversation, conversationId) => {
+                return !!conversationId && !!conversation && conversation.messages === undefined
+            },
+        ],
+
         threadVisible: [(s) => [s.conversationId], (conversationId) => !!conversationId],
 
         backButtonDisabled: [
@@ -948,8 +955,8 @@ export function mergeConversationHistory(
 }
 
 /**
- * Stream returns a `Conversation` object, which doesn't have a `messages` property.
- * However, when we load the conversation history, we get `ConversationDetail` objects.
+ * Streaming and history list responses return `Conversation` objects, which don't have a `messages` property.
+ * Full thread loads return `ConversationDetail` objects.
  * This function merges the two types so that we can use the same logic for both.
  */
 export function mergeConversations(
@@ -961,7 +968,8 @@ export function mergeConversations(
     }
 
     return {
+        ...oldObj,
         ...newObj,
-        messages: oldObj?.messages ?? [],
+        messages: oldObj?.messages,
     }
 }

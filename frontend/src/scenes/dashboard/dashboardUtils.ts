@@ -3,6 +3,7 @@ import { ResponsiveLayouts } from 'react-grid-layout'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
+import type { Dayjs } from 'lib/dayjs'
 import { currentSessionId } from 'lib/internalMetrics'
 import { objectClean, shouldCancelQuery, toParams } from 'lib/utils'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
@@ -14,12 +15,65 @@ import {
     AccessControlLevel,
     AccessControlResourceType,
     DashboardLayoutSize,
+    DashboardTemplateEditorType,
     DashboardTile,
+    DashboardType,
     DashboardWidgetType,
     InsightModel,
     QueryBasedInsightModel,
     TileLayout,
 } from '~/types'
+
+/** Shape used for staff JSON export, customer save-as-template, and API `create_from_template_json`. */
+export function dashboardToSaveableTemplate(
+    dashboard: DashboardType<InsightModel> | null | undefined
+): DashboardTemplateEditorType | undefined {
+    if (!dashboard) {
+        return undefined
+    }
+    return {
+        template_name: dashboard.name,
+        dashboard_description: dashboard.description,
+        dashboard_filters: dashboard.filters,
+        tags: dashboard.tags || [],
+        tiles: dashboard.tiles
+            .filter((tile) => !tile.error)
+            .map((tile) => {
+                if (tile.text) {
+                    return {
+                        type: 'TEXT' as const,
+                        body: tile.text.body,
+                        layouts: tile.layouts,
+                        color: tile.color,
+                    }
+                }
+                if (tile.insight) {
+                    return {
+                        type: 'INSIGHT' as const,
+                        name: tile.insight.name,
+                        description: tile.insight.description || '',
+                        query: tile.insight.query,
+                        layouts: tile.layouts,
+                        color: tile.color,
+                    }
+                }
+                if (tile.button_tile) {
+                    return {
+                        button_tile: {
+                            url: tile.button_tile.url,
+                            text: tile.button_tile.text,
+                            placement: tile.button_tile.placement,
+                            style: tile.button_tile.style,
+                        },
+                        layouts: tile.layouts,
+                        color: tile.color,
+                    }
+                }
+                throw new Error('Unknown tile type')
+            }),
+        variables: [],
+    }
+}
 
 /** Which widget payload is set on a dashboard tile row. Add a branch per `DashboardWidgetType` when new tile kinds ship. */
 export function getDashboardWidgetType(
@@ -63,6 +117,49 @@ const RATE_LIMIT_ERROR_MESSAGE = 'concurrency_limit_exceeded'
 
 export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 1800
 export const QUICK_FILTER_DEBOUNCE_MS = 1500
+
+/**
+ * Cold-start one-shot threshold: if data is older than this when a shared dashboard loads,
+ * trigger one immediate force_blocking refresh. Aligned with the periodic interval and the
+ * backend throttle (`SHARED_FORCE_BLOCKING_MIN_AGE`).
+ */
+export const SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES = AUTO_REFRESH_INITIAL_INTERVAL_SECONDS / 60
+
+function staleAgeMinutes(effectiveLastRefresh: Dayjs | null): number | null {
+    if (!effectiveLastRefresh) {
+        return null
+    }
+    if (!effectiveLastRefresh.isValid()) {
+        return null
+    }
+    const ms = Number(effectiveLastRefresh.valueOf())
+    if (!Number.isFinite(ms)) {
+        return null
+    }
+    return (Date.now() - ms) / 60_000
+}
+
+export function shouldSharedDashboardAutoForceForStaleTime(effectiveLastRefresh: Dayjs | null): boolean {
+    const ageMinutes = staleAgeMinutes(effectiveLastRefresh)
+    return ageMinutes !== null && ageMinutes >= SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES
+}
+
+/**
+ * Trigger one force_blocking refresh on initial shared-dashboard load if the stalest tile is too old.
+ * Idempotent across reloads since the follow-up run uses `forceRefresh` + non-initial action.
+ */
+export function scheduleSharedDashboardStaleAutoForceIfEligible(options: {
+    effectiveLastRefresh: Dayjs | null
+    triggerDashboardRefresh: () => void
+}): void {
+    const { effectiveLastRefresh, triggerDashboardRefresh } = options
+    if (!shouldSharedDashboardAutoForceForStaleTime(effectiveLastRefresh)) {
+        return
+    }
+    queueMicrotask(() => {
+        triggerDashboardRefresh()
+    })
+}
 
 // Helper function for exponential backoff
 const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
@@ -258,9 +355,12 @@ export async function getInsightWithRetry(
 export const parseURLVariables = (searchParams: Record<string, any>): Record<string, Partial<HogQLVariable>> => {
     const variables: Record<string, Partial<HogQLVariable>> = {}
 
-    if (searchParams[SEARCH_PARAM_QUERY_VARIABLES_KEY]) {
+    const raw = searchParams[SEARCH_PARAM_QUERY_VARIABLES_KEY]
+    if (raw) {
         try {
-            const parsedVariables = JSON.parse(searchParams[SEARCH_PARAM_QUERY_VARIABLES_KEY])
+            // kea-router auto-parses JSON-like values from the URL, so the value
+            // may already be an object when the URL doesn't have a trailing space.
+            const parsedVariables = typeof raw === 'string' ? JSON.parse(raw) : raw
             Object.assign(variables, parsedVariables)
         } catch (e) {
             console.error('Failed to parse query_variables from URL:', e)
@@ -283,9 +383,12 @@ export const encodeURLVariables = (variables: Record<string, string>): Record<st
 export const parseURLFilters = (searchParams: Record<string, any>): DashboardFilter => {
     const filters: DashboardFilter = {}
 
-    if (searchParams[SEARCH_PARAM_FILTERS_KEY]) {
+    const raw = searchParams[SEARCH_PARAM_FILTERS_KEY]
+    if (raw) {
         try {
-            const parsedFilters = JSON.parse(searchParams[SEARCH_PARAM_FILTERS_KEY])
+            // kea-router auto-parses JSON-like values from the URL, so the value
+            // may already be an object when the URL doesn't have a trailing space.
+            const parsedFilters = typeof raw === 'string' ? JSON.parse(raw) : raw
             Object.assign(filters, parsedFilters)
         } catch (e) {
             console.error(`Failed to parse ${SEARCH_PARAM_FILTERS_KEY} from URL:`, e)

@@ -11840,7 +11840,7 @@ exports[`segment templates template segment-actions-koala-cloud matches expected
   "code_language": "javascript",
   "description": "Send event data to Koala (Cloud)",
   "free": false,
-  "icon_url": "/static/services/koala.com.png",
+  "icon_url": "/static/services/getkoala.com.png",
   "id": "segment-actions-koala-cloud",
   "inputs_schema": [
     {

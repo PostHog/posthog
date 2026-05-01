@@ -1,7 +1,0 @@
-@import '@posthog/quill-tokens/color-system.css';
-@import '@posthog/quill-tokens/tailwind-lib.css';
-@import 'tw-animate-css';
-@import 'shadcn/tailwind.css';
-
-/* Scan this package's component source files for Tailwind utility classes */
-@source "./";

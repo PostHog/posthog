@@ -13,6 +13,12 @@ pub enum FeatureFlagMatchReason {
     OutOfRolloutBound,
     #[strum(serialize = "no_group_type")]
     NoGroupType,
+    /// Person conditions were evaluated and didn't match, AND one or more group
+    /// conditions were skipped because the caller didn't provide the required group
+    /// type. Serializes as `no_condition_match` for backward compatibility — the
+    /// enriched description carries the extra signal about skipped groups.
+    #[strum(serialize = "no_condition_match_groups_not_evaluated")]
+    NoConditionMatchGroupsNotEvaluated,
     #[strum(serialize = "holdout_condition_value")]
     HoldoutConditionValue,
     #[strum(serialize = "flag_disabled")]
@@ -23,13 +29,20 @@ pub enum FeatureFlagMatchReason {
 
 impl FeatureFlagMatchReason {
     pub fn score(&self) -> i32 {
+        // Higher scores win when multiple conditions report different non-matching reasons.
+        // The intent is to surface the most informative reason for the caller:
+        // a real evaluation result outranks a "this condition wasn't applicable to you"
+        // signal. NoGroupType sits below NoConditionMatch and OutOfRolloutBound so that
+        // mixed-targeting flags don't bury a person-condition's actual result behind a
+        // skipped group condition.
         match self {
             FeatureFlagMatchReason::SuperConditionValue => 6,
             FeatureFlagMatchReason::HoldoutConditionValue => 5,
             FeatureFlagMatchReason::ConditionMatch => 4,
-            FeatureFlagMatchReason::NoGroupType => 3,
-            FeatureFlagMatchReason::OutOfRolloutBound => 2,
-            FeatureFlagMatchReason::NoConditionMatch => 1,
+            FeatureFlagMatchReason::OutOfRolloutBound => 3,
+            FeatureFlagMatchReason::NoConditionMatch => 2,
+            FeatureFlagMatchReason::NoConditionMatchGroupsNotEvaluated => 2,
+            FeatureFlagMatchReason::NoGroupType => 1,
             FeatureFlagMatchReason::FlagDisabled => 0,
             FeatureFlagMatchReason::MissingDependency => -1,
         }
@@ -57,6 +70,7 @@ impl std::fmt::Display for FeatureFlagMatchReason {
                 FeatureFlagMatchReason::SuperConditionValue => "super_condition_value",
                 FeatureFlagMatchReason::ConditionMatch => "condition_match",
                 FeatureFlagMatchReason::NoConditionMatch => "no_condition_match",
+                FeatureFlagMatchReason::NoConditionMatchGroupsNotEvaluated => "no_condition_match",
                 FeatureFlagMatchReason::OutOfRolloutBound => "out_of_rollout_bound",
                 FeatureFlagMatchReason::NoGroupType => "no_group_type",
                 FeatureFlagMatchReason::HoldoutConditionValue => "holdout_condition_value",
@@ -74,14 +88,15 @@ mod tests {
     #[test]
     fn test_ordering() {
         let reasons = vec![
-            FeatureFlagMatchReason::MissingDependency,     // -1
-            FeatureFlagMatchReason::FlagDisabled,          // 0
-            FeatureFlagMatchReason::NoConditionMatch,      // 1
-            FeatureFlagMatchReason::OutOfRolloutBound,     // 2
-            FeatureFlagMatchReason::NoGroupType,           // 3
-            FeatureFlagMatchReason::ConditionMatch,        // 4
+            FeatureFlagMatchReason::MissingDependency, // -1
+            FeatureFlagMatchReason::FlagDisabled,      // 0
+            FeatureFlagMatchReason::NoGroupType,       // 1
+            FeatureFlagMatchReason::NoConditionMatch,  // 2
+            FeatureFlagMatchReason::NoConditionMatchGroupsNotEvaluated, // 2 (same tier)
+            FeatureFlagMatchReason::OutOfRolloutBound, // 3
+            FeatureFlagMatchReason::ConditionMatch,    // 4
             FeatureFlagMatchReason::HoldoutConditionValue, // 5
-            FeatureFlagMatchReason::SuperConditionValue,   // 6
+            FeatureFlagMatchReason::SuperConditionValue, // 6
         ];
 
         let mut sorted_reasons = reasons.clone();
@@ -111,6 +126,10 @@ mod tests {
         assert_eq!(
             FeatureFlagMatchReason::NoGroupType.to_string(),
             "no_group_type"
+        );
+        assert_eq!(
+            FeatureFlagMatchReason::NoConditionMatchGroupsNotEvaluated.to_string(),
+            "no_condition_match"
         );
         assert_eq!(
             FeatureFlagMatchReason::FlagDisabled.to_string(),

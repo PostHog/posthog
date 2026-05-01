@@ -167,6 +167,7 @@ class TestCreateExperimentTool(APIBaseTest):
             "has_description": False,
             "variant_count": 2,
             "created_at": ANY,
+            "creation_mode": "new",
             "source": EventSource.POSTHOG_AI,
         }
         assert mock_report_user_action.call_args.kwargs["team"] == self.team

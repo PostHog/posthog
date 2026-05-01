@@ -78,9 +78,9 @@ fn validate_events(context: &Context, batch: Batch) -> Result<HashMap<Uuid, Wrap
     let mut events: HashMap<Uuid, WrappedEvent> = HashMap::with_capacity(batch.batch.len());
 
     for event in batch.batch.into_iter() {
-        let uuid = Uuid::parse_str(&event.uuid).map_err(|_| Error::MissingEventUuid)?;
+        let uuid = Uuid::parse_str(event.uuid()).map_err(|_| Error::MissingEventUuid)?;
         if events.contains_key(&uuid) {
-            return Err(Error::DuplicateEventUuid(event.uuid));
+            return Err(Error::DuplicateEventUuid(event.uuid().to_owned()));
         }
 
         match validate_event(&event) {
@@ -259,7 +259,7 @@ async fn apply_restrictions(
             distinct_id: Some(&event.event.distinct_id),
             session_id: event.event.session_id.as_deref(),
             event_name: Some(&event.event.event),
-            event_uuid: Some(&event.event.uuid),
+            event_uuid: Some(event.event.uuid()),
             now_ts,
         };
 
@@ -306,8 +306,7 @@ async fn apply_token_distinct_id_limits(
             GlobalRateLimitKey::TokenDistinctId(&context.api_token, &event.event.distinct_id)
                 .to_cache_key();
         if limiter.is_limited(&cache_key, 1).await.is_some() {
-            event.result = EventResult::Limited;
-            event.destination = Destination::Drop;
+            event.skip_person_processing = true;
             event.details = Some(DETAIL_RATE_LIMITED_TOKEN_DISTINCT_ID);
             limited_distinct_ids.insert(event.event.distinct_id.as_str());
         } else {
@@ -343,7 +342,7 @@ async fn apply_token_distinct_id_limits(
         crate::ctx_log!(Level::WARN, context,
             limited_count = limited_count,
             distinct_ids = %preview,
-            "events rate limited by distinct_id"
+            "events rate limited by distinct_id -- person processing disabled"
         );
     }
 }
@@ -353,7 +352,6 @@ mod tests {
     use std::time::Duration as StdDuration;
 
     use chrono::{DateTime, Duration, Utc};
-    use serde_json::value::RawValue;
     use uuid::Uuid;
 
     use super::*;
@@ -363,33 +361,11 @@ mod tests {
     };
     use crate::v1::analytics::types::{Batch, Event, Options};
     use crate::v1::sinks::Destination;
+    use crate::v1::test_utils::{
+        self, events_map, find_by_did, malformed_wrapped_event, raw_obj, valid_event,
+        wrapped_event, wrapped_event_at,
+    };
     use crate::v1::Error;
-
-    fn raw_obj(s: &str) -> Box<RawValue> {
-        RawValue::from_string(s.to_owned()).unwrap()
-    }
-
-    fn default_options() -> Options {
-        Options {
-            cookieless_mode: None,
-            disable_skew_adjustment: None,
-            product_tour_id: None,
-            process_person_profile: None,
-        }
-    }
-
-    fn valid_event() -> Event {
-        Event {
-            event: "$pageview".to_string(),
-            uuid: Uuid::new_v4().to_string(),
-            distinct_id: "user-42".to_string(),
-            timestamp: "2026-03-19T14:29:58.123Z".to_string(),
-            session_id: None,
-            window_id: None,
-            options: default_options(),
-            properties: raw_obj("{}"),
-        }
-    }
 
     fn valid_batch(events: Vec<Event>) -> Batch {
         Batch {
@@ -589,14 +565,14 @@ mod tests {
 
     #[test]
     fn validate_events_performance_event_dropped_others_ok() {
-        let ctx = validation_context();
+        let ctx = test_utils::test_context();
         let perf = Event {
             event: "$performance_event".to_string(),
             ..valid_event()
         };
-        let perf_uuid = Uuid::parse_str(&perf.uuid).unwrap();
+        let perf_uuid = Uuid::parse_str(perf.uuid()).unwrap();
         let normal = valid_event();
-        let normal_uuid = Uuid::parse_str(&normal.uuid).unwrap();
+        let normal_uuid = Uuid::parse_str(normal.uuid()).unwrap();
         let batch = valid_batch(vec![perf, normal]);
         let events = validate_events(&ctx, batch).unwrap();
         assert_eq!(events.len(), 2);
@@ -609,7 +585,7 @@ mod tests {
 
     #[test]
     fn validate_events_all_performance_events_dropped() {
-        let ctx = validation_context();
+        let ctx = test_utils::test_context();
         let p1 = Event {
             event: "$performance_event".to_string(),
             ..valid_event()
@@ -629,30 +605,9 @@ mod tests {
 
     // --- validate_events ---
 
-    fn validation_context() -> Context {
-        Context {
-            api_token: "phc_test".to_string(),
-            user_agent: "test/1.0".to_string(),
-            content_type: "application/json".to_string(),
-            content_encoding: None,
-            sdk_info: "test/1.0".to_string(),
-            attempt: 1,
-            request_id: Uuid::new_v4(),
-            client_timestamp: Utc::now(),
-            client_ip: std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
-            query: crate::v1::analytics::query::Query::default(),
-            method: axum::http::Method::POST,
-            path: "/i/v1/general/events".to_string(),
-            server_received_at: Utc::now(),
-            created_at: None,
-            capture_internal: false,
-            historical_migration: false,
-        }
-    }
-
     #[test]
     fn validate_events_duplicate_uuid_bails_batch() {
-        let ctx = validation_context();
+        let ctx = test_utils::test_context();
         let shared_uuid = Uuid::new_v4().to_string();
         let batch = Batch {
             created_at: "2026-03-19T14:30:00.000Z".to_string(),
@@ -675,7 +630,7 @@ mod tests {
 
     #[test]
     fn validate_events_missing_uuid_bails_batch() {
-        let ctx = validation_context();
+        let ctx = test_utils::test_context();
         let batch = Batch {
             created_at: "2026-03-19T14:30:00.000Z".to_string(),
             historical_migration: false,
@@ -691,7 +646,7 @@ mod tests {
 
     #[test]
     fn validate_events_empty_uuid_bails_batch() {
-        let ctx = validation_context();
+        let ctx = test_utils::test_context();
         let batch = Batch {
             created_at: "2026-03-19T14:30:00.000Z".to_string(),
             historical_migration: false,
@@ -707,12 +662,12 @@ mod tests {
 
     #[test]
     fn validate_events_malformed_properties() {
-        let ctx = validation_context();
+        let ctx = test_utils::test_context();
         let bad_event = Event {
             properties: raw_obj("[1,2,3]"),
             ..valid_event()
         };
-        let uuid = Uuid::parse_str(&bad_event.uuid).unwrap();
+        let uuid = Uuid::parse_str(bad_event.uuid()).unwrap();
         let batch = Batch {
             created_at: "2026-03-19T14:30:00.000Z".to_string(),
             historical_migration: false,
@@ -842,63 +797,6 @@ mod tests {
     }
 
     // --- apply_restrictions ---
-
-    fn wrapped_event(event_name: &str, distinct_id: &str) -> WrappedEvent {
-        WrappedEvent {
-            event: Event {
-                event: event_name.to_string(),
-                uuid: Uuid::new_v4().to_string(),
-                distinct_id: distinct_id.to_string(),
-                timestamp: "2026-03-19T14:29:58.123Z".to_string(),
-                session_id: None,
-                window_id: None,
-                options: default_options(),
-                properties: raw_obj("{}"),
-            },
-            adjusted_timestamp: Some(dt("2026-03-19T14:29:58.123Z")),
-            result: EventResult::Ok,
-            details: None,
-            destination: Destination::default(),
-            skip_person_processing: false,
-        }
-    }
-
-    fn malformed_wrapped_event() -> WrappedEvent {
-        WrappedEvent {
-            event: Event {
-                event: String::new(),
-                uuid: Uuid::new_v4().to_string(),
-                distinct_id: "user-1".to_string(),
-                timestamp: "bad".to_string(),
-                session_id: None,
-                window_id: None,
-                options: default_options(),
-                properties: raw_obj("{}"),
-            },
-            adjusted_timestamp: None,
-            result: EventResult::Drop,
-            details: Some("missing_event_name"),
-            destination: Destination::default(),
-            skip_person_processing: false,
-        }
-    }
-
-    fn events_map(events: Vec<WrappedEvent>) -> HashMap<Uuid, WrappedEvent> {
-        events
-            .into_iter()
-            .map(|e| (Uuid::parse_str(&e.event.uuid).unwrap(), e))
-            .collect()
-    }
-
-    fn find_by_did<'a>(
-        events: &'a HashMap<Uuid, WrappedEvent>,
-        distinct_id: &str,
-    ) -> &'a WrappedEvent {
-        events
-            .values()
-            .find(|e| e.event.distinct_id == distinct_id)
-            .unwrap()
-    }
 
     async fn restriction_service(
         token: &str,
@@ -1194,7 +1092,7 @@ mod tests {
     }
 
     fn td_context() -> Context {
-        let mut ctx = test_context(false);
+        let mut ctx = test_utils::test_context();
         ctx.api_token = "phc_tok".to_string();
         ctx
     }
@@ -1233,8 +1131,9 @@ mod tests {
         assert_eq!(ok_ev.destination, Destination::AnalyticsMain);
         assert!(ok_ev.details.is_none());
         let limited_ev = find_by_did(&events, "user-2");
-        assert_eq!(limited_ev.result, EventResult::Limited);
-        assert_eq!(limited_ev.destination, Destination::Drop);
+        assert_eq!(limited_ev.result, EventResult::Ok);
+        assert_eq!(limited_ev.destination, Destination::AnalyticsMain);
+        assert!(limited_ev.skip_person_processing);
         assert_eq!(
             limited_ev.details,
             Some(DETAIL_RATE_LIMITED_TOKEN_DISTINCT_ID)
@@ -1268,8 +1167,13 @@ mod tests {
         apply_token_distinct_id_limits(&limiter, &ctx, &mut events).await;
 
         for ev in events.values() {
-            assert_eq!(ev.result, EventResult::Limited, "should be Limited");
-            assert_eq!(ev.destination, Destination::Drop, "should be Drop");
+            assert_eq!(ev.result, EventResult::Ok, "should stay Ok");
+            assert_eq!(
+                ev.destination,
+                Destination::AnalyticsMain,
+                "should stay on main topic"
+            );
+            assert!(ev.skip_person_processing, "should skip person processing");
             assert_eq!(
                 ev.details,
                 Some(DETAIL_RATE_LIMITED_TOKEN_DISTINCT_ID),
@@ -1283,7 +1187,7 @@ mod tests {
         let limiter = mock_limiter(vec!["phc_tok:user-2"]);
         let ctx = td_context();
         let pre_drop = wrapped_event("$pageview", "user-1");
-        let pre_drop_uuid = Uuid::parse_str(&pre_drop.event.uuid).unwrap();
+        let pre_drop_uuid = Uuid::parse_str(pre_drop.event.uuid()).unwrap();
         let mut events = events_map(vec![pre_drop, wrapped_event("$identify", "user-2")]);
         // Simulate event already dropped by restrictions
         events.get_mut(&pre_drop_uuid).unwrap().result = EventResult::Drop;
@@ -1295,66 +1199,21 @@ mod tests {
         let dropped = find_by_did(&events, "user-1");
         assert_eq!(dropped.result, EventResult::Drop);
         assert_eq!(dropped.destination, Destination::Drop);
-        // Other event rate-limited
+        // Other event rate-limited (person processing disabled, stays on main topic)
         let limited = find_by_did(&events, "user-2");
-        assert_eq!(limited.result, EventResult::Limited);
-        assert_eq!(limited.destination, Destination::Drop);
+        assert_eq!(limited.result, EventResult::Ok);
+        assert_eq!(limited.destination, Destination::AnalyticsMain);
+        assert!(limited.skip_person_processing);
         assert_eq!(limited.details, Some(DETAIL_RATE_LIMITED_TOKEN_DISTINCT_ID));
     }
 
     // --- apply_historical_rerouting ---
 
-    use std::net::{IpAddr, Ipv4Addr};
-
-    use axum::http::Method;
-
-    use crate::v1::analytics::query::Query;
-
-    fn test_context(historical_migration: bool) -> Context {
-        Context {
-            api_token: "phc_test_token".to_string(),
-            user_agent: "test-agent/1.0".to_string(),
-            content_type: "application/json".to_string(),
-            content_encoding: None,
-            sdk_info: "posthog-rust/1.0.0".to_string(),
-            attempt: 1,
-            request_id: Uuid::new_v4(),
-            client_timestamp: Utc::now(),
-            client_ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
-            query: Query::default(),
-            method: Method::POST,
-            path: "/i/v1/general/events".to_string(),
-            server_received_at: Utc::now(),
-            created_at: Some("2026-03-19T14:30:00.000Z".to_string()),
-            capture_internal: false,
-            historical_migration,
-        }
-    }
-
-    fn wrapped_event_at(timestamp: DateTime<Utc>) -> WrappedEvent {
-        WrappedEvent {
-            event: Event {
-                event: "$pageview".to_string(),
-                uuid: Uuid::new_v4().to_string(),
-                distinct_id: "user-1".to_string(),
-                timestamp: timestamp.to_rfc3339(),
-                session_id: None,
-                window_id: None,
-                options: default_options(),
-                properties: raw_obj("{}"),
-            },
-            adjusted_timestamp: Some(timestamp),
-            result: EventResult::Ok,
-            details: None,
-            destination: Destination::default(),
-            skip_person_processing: false,
-        }
-    }
-
     #[test]
     fn historical_batch_flag_reroutes_all_events() {
         let cfg = router::HistoricalConfig::new(false, 1);
-        let ctx = test_context(true);
+        let mut ctx = test_utils::test_context();
+        ctx.historical_migration = true;
         let mut events = events_map(vec![
             wrapped_event("$pageview", "user-1"),
             wrapped_event("$identify", "user-2"),
@@ -1370,7 +1229,7 @@ mod tests {
     #[test]
     fn historical_timestamp_reroutes_old_event() {
         let cfg = router::HistoricalConfig::new(true, 30);
-        let ctx = test_context(false);
+        let ctx = test_utils::test_context();
         let old_ts = Utc::now() - Duration::days(60);
         let mut events = events_map(vec![wrapped_event_at(old_ts)]);
 
@@ -1383,7 +1242,7 @@ mod tests {
     #[test]
     fn historical_timestamp_keeps_recent_event() {
         let cfg = router::HistoricalConfig::new(true, 30);
-        let ctx = test_context(false);
+        let ctx = test_utils::test_context();
         let recent_ts = Utc::now() - Duration::hours(1);
         let mut events = events_map(vec![wrapped_event_at(recent_ts)]);
 
@@ -1396,7 +1255,7 @@ mod tests {
     #[test]
     fn historical_rerouting_disabled_no_change() {
         let cfg = router::HistoricalConfig::new(false, 30);
-        let ctx = test_context(false);
+        let ctx = test_utils::test_context();
         let old_ts = Utc::now() - Duration::days(60);
         let mut events = events_map(vec![wrapped_event_at(old_ts)]);
 
@@ -1409,9 +1268,10 @@ mod tests {
     #[test]
     fn historical_skips_non_analytics_main() {
         let cfg = router::HistoricalConfig::new(true, 30);
-        let ctx = test_context(true);
+        let mut ctx = test_utils::test_context();
+        ctx.historical_migration = true;
         let ev = wrapped_event("$pageview", "user-1");
-        let uuid = Uuid::parse_str(&ev.event.uuid).unwrap();
+        let uuid = Uuid::parse_str(ev.event.uuid()).unwrap();
         let mut events = events_map(vec![ev]);
         events.get_mut(&uuid).unwrap().destination = Destination::Overflow;
 
@@ -1426,9 +1286,10 @@ mod tests {
     #[test]
     fn historical_skips_dropped_events() {
         let cfg = router::HistoricalConfig::new(true, 30);
-        let ctx = test_context(true);
+        let mut ctx = test_utils::test_context();
+        ctx.historical_migration = true;
         let ev = wrapped_event("$pageview", "user-1");
-        let uuid = Uuid::parse_str(&ev.event.uuid).unwrap();
+        let uuid = Uuid::parse_str(ev.event.uuid()).unwrap();
         let mut events = events_map(vec![ev]);
         let e = events.get_mut(&uuid).unwrap();
         e.result = EventResult::Drop;
@@ -1442,7 +1303,8 @@ mod tests {
     #[test]
     fn historical_skips_malformed_events() {
         let cfg = router::HistoricalConfig::new(true, 30);
-        let ctx = test_context(true);
+        let mut ctx = test_utils::test_context();
+        ctx.historical_migration = true;
         let mut events = events_map(vec![malformed_wrapped_event()]);
 
         apply_historical_rerouting(&cfg, &ctx, &mut events);
@@ -1454,9 +1316,10 @@ mod tests {
     #[test]
     fn historical_mixed_batch_flag_and_already_redirected() {
         let cfg = router::HistoricalConfig::new(false, 1);
-        let ctx = test_context(true);
+        let mut ctx = test_utils::test_context();
+        ctx.historical_migration = true;
         let dlq_ev = wrapped_event("$identify", "user-2");
-        let dlq_uuid = Uuid::parse_str(&dlq_ev.event.uuid).unwrap();
+        let dlq_uuid = Uuid::parse_str(dlq_ev.event.uuid()).unwrap();
         let mut events = events_map(vec![wrapped_event("$pageview", "user-1"), dlq_ev]);
         events.get_mut(&dlq_uuid).unwrap().destination = Destination::Dlq;
 

@@ -2,7 +2,7 @@ import { combineUrl } from 'kea-router'
 
 import { urls } from 'scenes/urls'
 
-import { ProductKey } from '~/queries/schema/schema-general'
+import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 
 import { ProductManifest, RecordingUniversalFilters, ReplayTabs } from '../../frontend/src/types'
 
@@ -50,7 +50,7 @@ export const manifest: ProductManifest = {
         {
             path: 'Session replay',
             intents: [ProductKey.SESSION_REPLAY, ProductKey.MOBILE_REPLAY],
-            category: 'Behavior',
+            category: ProductItemCategory.BEHAVIOR,
             href: urls.replay(ReplayTabs.Home),
             type: 'session_recording_playlist',
             iconType: 'session_replay',
@@ -69,7 +69,7 @@ export const manifest: ProductManifest = {
         {
             path: 'Heatmaps',
             intents: [ProductKey.HEATMAPS],
-            category: 'Behavior',
+            category: ProductItemCategory.BEHAVIOR,
             iconType: 'heatmap',
             iconColor: ['var(--color-product-heatmaps-light)', 'var(--color-product-heatmaps-dark)'],
             href: urls.heatmaps(),

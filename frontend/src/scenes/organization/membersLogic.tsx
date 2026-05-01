@@ -5,6 +5,7 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { createFuse } from 'lib/utils/fuseSearch'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { membershipLevelToName } from 'lib/utils/permissioning'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -143,9 +144,8 @@ export const membersLogic = kea<membersLogicType>([
         membersFuse: [
             (s) => [s.meFirstMembers],
             (members): MembersFuse =>
-                new Fuse<OrganizationMemberType>(members ?? [], {
+                createFuse<OrganizationMemberType>(members ?? [], {
                     keys: ['user.first_name', 'user.last_name', 'user.email'],
-                    threshold: 0.3,
                 }),
         ],
         filteredMembers: [

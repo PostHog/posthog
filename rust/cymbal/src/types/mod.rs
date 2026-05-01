@@ -6,7 +6,6 @@ use sha2::{Digest, Sha512};
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 use std::ops::{Deref, DerefMut};
-use tiktoken_rs::cl100k_base;
 use uuid::Uuid;
 
 use crate::fingerprinting::{
@@ -17,6 +16,7 @@ use crate::frames::{Frame, RawFrame};
 use crate::issue_resolution::Issue;
 use crate::langs::apple::AppleDebugImage;
 use crate::metric_consts::POSTHOG_SDK_EXCEPTION_RESOLVED;
+use crate::tokenizer::CL100K_BPE;
 
 mod exception;
 mod stacktrace;
@@ -385,7 +385,7 @@ impl OutputErrProps {
             return full;
         };
 
-        let bpe = cl100k_base().unwrap();
+        let bpe = &*CL100K_BPE;
         let tokens = bpe.encode_with_special_tokens(&full);
 
         if tokens.len() <= limit {

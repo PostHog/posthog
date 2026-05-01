@@ -39,11 +39,13 @@ import { Query } from '~/queries/Query/Query'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { ActivityScope, PersonType, PersonsTabType, PropertyDefinitionType } from '~/types'
 
+import { FeedbackButton } from 'products/customer_analytics/frontend/components/FeedbackButton'
+
 import { MergeSplitPerson } from './MergeSplitPerson'
 import { asDisplay } from './person-utils'
 import { PersonCohorts } from './PersonCohorts'
 import PersonProfileCanvas from './PersonProfileCanvas'
-import { PersonsLogicProps, personsLogic } from './personsLogic'
+import { PERSON_EVENTS_CONTEXT_KEY, PersonsLogicProps, personsLogic } from './personsLogic'
 import { RelatedFeatureFlags } from './RelatedFeatureFlags'
 
 export const scene: SceneExport<PersonsLogicProps> = {
@@ -162,7 +164,7 @@ function LaunchToolbarButton({ distinctId }: LaunchToolbarButtonProps): JSX.Elem
     )
 }
 
-export function PersonScene(): JSX.Element | null {
+export function PersonScene({ tabId }: { tabId?: string }): JSX.Element | null {
     const mountedPersonsLogic = useMountedLogic(personsLogic)
     const {
         feedEnabled,
@@ -195,6 +197,7 @@ export function PersonScene(): JSX.Element | null {
     const { currentTeam } = useValues(teamLogic)
     const { addProductIntentForCrossSell } = useActions(teamLogic)
     const { user } = useValues(userLogic)
+    const eventsQueryLogicKey = `${PERSON_EVENTS_CONTEXT_KEY}-${tabId ?? mountedPersonsLogic.key}`
 
     if (personError) {
         return <NotFound object="person" meta={{ urlId }} />
@@ -217,6 +220,7 @@ export function PersonScene(): JSX.Element | null {
                 }}
                 actions={
                     <>
+                        <FeedbackButton id="customer-analytics-person-profile-feedback-button" />
                         {user?.is_staff && <OpenInAdminPanelButton />}
                         <NotebookSelectButton
                             resource={{
@@ -293,8 +297,16 @@ export function PersonScene(): JSX.Element | null {
                         content: (
                             <Query
                                 uniqueKey="person-profile-events"
+                                attachTo={mountedPersonsLogic}
                                 query={eventsQuery}
                                 setQuery={(q) => setEventsQuery(q)}
+                                context={{
+                                    insightProps: {
+                                        dashboardItemId: `new-${PERSON_EVENTS_CONTEXT_KEY}`,
+                                        tabId,
+                                        dataNodeCollectionId: eventsQueryLogicKey,
+                                    },
+                                }}
                             />
                         ),
                     },
@@ -440,7 +452,7 @@ export function PersonScene(): JSX.Element | null {
                 ]}
             />
 
-            {splitMergeModalShown && person && <MergeSplitPerson person={person} />}
+            {splitMergeModalShown && person && <MergeSplitPerson person={person} tabId={tabId} />}
         </SceneContent>
     )
 }

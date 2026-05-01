@@ -74,6 +74,7 @@ export const getStorybookAppContext = (): AppContext => ({
         action: 'manager',
         feature_flag: 'manager',
         dashboard: 'manager',
+        dashboard_template: 'manager',
         insight: 'manager',
         notebook: 'manager',
         session_recording: 'manager',

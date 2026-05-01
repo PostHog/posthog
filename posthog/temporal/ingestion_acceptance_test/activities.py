@@ -24,8 +24,7 @@ async def run_ingestion_acceptance_tests() -> dict:
     Configuration is loaded from environment variables:
     - INGESTION_ACCEPTANCE_TEST_API_HOST
     - INGESTION_ACCEPTANCE_TEST_PROJECT_API_KEY
-    - INGESTION_ACCEPTANCE_TEST_PROJECT_ID
-    - INGESTION_ACCEPTANCE_TEST_PERSONAL_API_KEY
+    - INGESTION_ACCEPTANCE_TEST_TEAM_ID
     - INGESTION_ACCEPTANCE_TEST_EVENT_TIMEOUT_SECONDS (optional, default 3600)
     - INGESTION_ACCEPTANCE_TEST_POLL_INTERVAL_SECONDS (optional, default 10.0)
     - INGESTION_ACCEPTANCE_TEST_ACTIVITY_TIMEOUT_SECONDS (optional, default 3600)
@@ -42,7 +41,7 @@ async def run_ingestion_acceptance_tests() -> dict:
     logger.info(
         "Loaded config",
         api_host=config.api_host,
-        project_id=config.project_id,
+        team_id=config.team_id,
     )
 
     posthog_sdk = posthoganalytics.Posthog(
@@ -55,15 +54,18 @@ async def run_ingestion_acceptance_tests() -> dict:
     tests = discover_tests()
     client = PostHogClient(config, posthog_sdk)
     running_tests = RunningTests()
+    executor = ThreadPoolExecutor()
     try:
-        with ThreadPoolExecutor() as executor:
-            result: TestSuiteResult = await asyncio.wait_for(
-                asyncio.to_thread(run_tests, config, tests, client, executor, running_tests),
-                timeout=config.activity_timeout_seconds,
-            )
+        result: TestSuiteResult = await asyncio.wait_for(
+            asyncio.to_thread(run_tests, config, tests, client, executor, running_tests),
+            timeout=config.activity_timeout_seconds,
+        )
     except TimeoutError:
-        send_slack_timeout_notification(config, running_tests=running_tests.snapshot())
+        still_running = running_tests.snapshot_with_polls(client)
+        send_slack_timeout_notification(config, running_tests=still_running)
         raise
+    finally:
+        executor.shutdown(wait=False, cancel_futures=True)
 
     logger.info(
         "Ingestion acceptance tests completed",

@@ -10,6 +10,7 @@ from posthog.schema import ProductIntentContext, ProductKey
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.feature_flag.feature_flag import FeatureFlag
+from posthog.models.hog_flow.hog_flow import HogFlow
 from posthog.models.insight import Insight
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -19,6 +20,7 @@ from posthog.utils import get_instance_realm
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.error_tracking.backend.models import ErrorTrackingIssue
+from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.experiments.backend.models.experiment import Experiment
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
@@ -180,6 +182,28 @@ class ProductIntent(UUIDTModel, RootTeamMixin):
 
         return self.team.ingested_event
 
+    def has_activated_llm_analytics(self) -> bool:
+        has_ai_generation = EventDefinition.objects.filter(team=self.team, name="$ai_generation").exists()
+        if not has_ai_generation:
+            return False
+
+        intent = ProductIntent.objects.filter(
+            team=self.team,
+            product_type="llm_analytics",
+        ).first()
+
+        if not intent:
+            return False
+
+        contexts = intent.contexts or {}
+
+        # Activated when the user has engaged with the dashboard (15s dwell) or viewed a trace
+        return contexts.get("llm_analytics_viewed", 0) >= 1 or contexts.get("llm_analytics_trace_viewed", 0) >= 1
+
+    def has_activated_workflows(self) -> bool:
+        # At least one workflow needs to be active (not just drafted)
+        return HogFlow.objects.filter(team=self.team, status=HogFlow.State.ACTIVE).exists()
+
     def check_and_update_activation(self, skip_reporting: bool = False) -> bool:
         # If the intent is already activated, we don't need to check again
         if self.activated_at:
@@ -197,6 +221,8 @@ class ProductIntent(UUIDTModel, RootTeamMixin):
             "error_tracking": self.has_activated_error_tracking,
             "product_analytics": self.has_activated_product_analytics,
             "surveys": self.has_activated_surveys,
+            "llm_analytics": self.has_activated_llm_analytics,
+            "workflows": self.has_activated_workflows,
         }
 
         if self.product_type in activation_checks and activation_checks[self.product_type]():

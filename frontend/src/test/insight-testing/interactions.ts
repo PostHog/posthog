@@ -1,12 +1,17 @@
-import { screen, waitFor } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
+import { clickAtIndex, hoverAtIndex } from 'lib/hog-charts/test-helpers'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
+import { IndexedTrendResult } from 'scenes/trends/types'
 
 import { TrendsQuery } from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'
 
 import { INSIGHT_TEST_ID } from './render-insight'
+import { trendsSeries } from './test-data'
+import { type TooltipAccessor, createTooltipAccessor } from './tooltip-helpers'
 
 const DEBOUNCE_TIMEOUT = 3000
 
@@ -89,6 +94,35 @@ export const display = {
     },
 }
 
+export const legend = {
+    /** Toggle a series' hidden state by matching its label. Drives `toggleResultHidden`
+     *  on trendsDataLogic so the chart's getTrendsHidden updates as if the user had
+     *  clicked the series in the legend / insights table. */
+    async toggle(label: string): Promise<void> {
+        const props: InsightLogicProps = { dashboardItemId: INSIGHT_TEST_ID }
+        const logic = trendsDataLogic(props)
+        const dataset = (logic.values.indexedResults as IndexedTrendResult[]).find(
+            (d) => (d.label ?? d.action?.name) === label
+        )
+        if (!dataset) {
+            const available = (logic.values.indexedResults as IndexedTrendResult[])
+                .map((d) => `"${d.label ?? d.action?.name}"`)
+                .join(', ')
+            throw new Error(`No series labeled "${label}". Available: ${available}`)
+        }
+        const before = logic.values.getTrendsHidden(dataset)
+        logic.actions.toggleResultHidden(dataset)
+        // updateInsightFilter has a 300ms debounce; grant headroom to let the
+        // resulting querySource update propagate back to getTrendsHidden.
+        await waitFor(
+            () => {
+                expect(logic.values.getTrendsHidden(dataset)).toBe(!before)
+            },
+            { timeout: DEBOUNCE_TIMEOUT }
+        )
+    },
+}
+
 export const compare = {
     async enable(): Promise<void> {
         await clickSelect('compare-filter', 'Compare to previous period')
@@ -99,4 +133,46 @@ export const compare = {
 
 export function getQuerySource(): TrendsQuery {
     return getLogic().values.querySource as TrendsQuery
+}
+
+const HOG_CHARTS_TOOLTIP_SELECTOR = '[data-hog-charts-tooltip]'
+
+export const chart = {
+    /** Current chart tooltip element, or null if none is rendered. */
+    getTooltip(): HTMLElement | null {
+        return document.querySelector(HOG_CHARTS_TOOLTIP_SELECTOR)
+    },
+    async hoverTooltip(index: number, totalLabels = trendsSeries.pageviews.labels.length): Promise<TooltipAccessor> {
+        const canvas = await screen.findByRole('img', { name: /chart with/i })
+        const wrapper = canvas.parentElement!
+
+        hoverAtIndex(wrapper, index, totalLabels)
+
+        let tooltip!: HTMLElement
+        await waitFor(() => {
+            const el = chart.getTooltip()
+            expect(el).not.toBeNull()
+            tooltip = el as HTMLElement
+        })
+        return createTooltipAccessor(tooltip)
+    },
+    async clickAtIndex(index: number, totalLabels = trendsSeries.pageviews.labels.length): Promise<void> {
+        const canvas = await screen.findByRole('img', { name: /chart with/i })
+        const wrapper = canvas.parentElement!
+        await clickAtIndex(wrapper, index, totalLabels)
+    },
+    /** Click a row inside the pinned tooltip by matching its label text. Use
+     *  after `clickAtIndex` has pinned a multi-series tooltip. */
+    async clickTooltipRow(label: string | RegExp): Promise<void> {
+        const tooltip = await waitFor(() => {
+            const el = chart.getTooltip()
+            if (!el) {
+                throw new Error('tooltip not pinned')
+            }
+            return el
+        })
+        const row = within(tooltip).getByText(label)
+        const clickable = row.closest('tr') ?? row
+        fireEvent.click(clickable)
+    },
 }

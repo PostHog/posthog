@@ -34,12 +34,17 @@ export function cleanLiveEventsColumns(columns: string[]): string[] {
 export function getDefaultEventsQueryForTeam(team: Partial<TeamType>): EventsQuery | null {
     const liveColumns = team?.live_events_columns ? cleanLiveEventsColumns(team.live_events_columns) : null
 
-    return liveColumns
+    // Always prepend '*' — the column configurator saves `live_events_columns` without it
+    // (see ColumnConfigurator.tsx), but the row-expand toggle relies on '*' being present in
+    // the response columns.
+    const select = liveColumns ? (liveColumns.includes('*') ? liveColumns : ['*', ...liveColumns]) : null
+
+    return select
         ? {
               kind: NodeKind.EventsQuery,
-              select: liveColumns,
+              select,
               after: '-1h',
-              orderBy: liveColumns.includes('timestamp') ? ['timestamp DESC'] : [],
+              orderBy: select.includes('timestamp') ? ['timestamp DESC'] : [],
           }
         : null
 }

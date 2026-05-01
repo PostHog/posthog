@@ -4,6 +4,7 @@
 # dependencies = [
 #     "claude-agent-sdk",
 #     "anthropic",
+#     "posthoganalytics",
 # ]
 # ///
 # ruff: noqa: T201
@@ -43,6 +44,17 @@ from gates import (
 )
 from github import PRData, check_team_membership, fetch_pr
 from reviewer import Reviewer
+
+try:
+    import os
+
+    import posthoganalytics
+
+    posthoganalytics.api_key = os.environ.get("POSTHOG_API_KEY", "")  # ty: ignore[invalid-assignment]
+    posthoganalytics.host = os.environ.get("POSTHOG_HOST", "https://us.i.posthog.com")  # ty: ignore[invalid-assignment]
+    _POSTHOG_AVAILABLE = bool(posthoganalytics.api_key)
+except ImportError:
+    _POSTHOG_AVAILABLE = False
 
 # ── Repo root detection ──────────────────────────────────────────
 
@@ -352,6 +364,39 @@ class Pipeline:
             self.final_verdict = "ESCALATE"
             print(f"\n{_warn('ESCALATE')} — needs human review")
 
+        self._capture_review_completed(gate_verdict, llm_verdict)
+
+    def _capture_review_completed(self, gate_verdict: str, llm_verdict: str) -> None:
+        """Send a stamphog_review_completed event with all verdict data."""
+        if not _POSTHOG_AVAILABLE:
+            return
+
+        cl = self.classification
+        pr = self.pr
+        posthoganalytics.capture(
+            distinct_id=pr.author,
+            event="stamphog_review_completed",
+            properties={
+                "ai_product": "stamphog",
+                "stamphog_pr_number": pr.number,
+                "stamphog_repo": pr.repo,
+                "stamphog_author": pr.author,
+                "stamphog_pr_title": pr.title,
+                "stamphog_tier": cl.get("tier", ""),
+                "stamphog_t1_subclass": cl.get("t1_subclass", ""),
+                "stamphog_breadth": cl.get("breadth", ""),
+                "stamphog_commit_type": cl.get("commit_type") or "",
+                "stamphog_files_changed": len(pr.files),
+                "stamphog_lines_total": pr.lines_total,
+                "stamphog_gate_verdict": gate_verdict,
+                "stamphog_llm_verdict": llm_verdict,
+                "stamphog_final_verdict": self.final_verdict,
+                "stamphog_llm_reasoning": (self.reviewer_output or {}).get("reasoning", ""),
+                "stamphog_llm_risk": (self.reviewer_output or {}).get("risk", ""),
+                "stamphog_llm_issues": (self.reviewer_output or {}).get("issues", []),
+            },
+        )
+
     # ── Output ───────────────────────────────────────────────────
 
     def to_dict(self) -> dict:
@@ -360,6 +405,7 @@ class Pipeline:
             "repo": self.pr.repo,
             "title": self.pr.title,
             "author": self.pr.author,
+            "head_sha": self.pr.head_sha,
             "classification": {
                 "tier": self.classification["tier"],
                 "t1_subclass": self.classification.get("t1_subclass", ""),
@@ -405,6 +451,9 @@ def main() -> None:
 
     if args.output_json:
         pipeline.save_json(args.output_json)
+
+    if _POSTHOG_AVAILABLE:
+        posthoganalytics.flush()
 
 
 if __name__ == "__main__":

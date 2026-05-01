@@ -7,6 +7,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin
 from posthog.event_usage import groups
 from posthog.models import EventDefinition, ObjectMediaPreview
+from posthog.models.organization import OrganizationMembership
 
 from ee.models.event_definition import EnterpriseEventDefinition
 
@@ -23,6 +24,17 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
     post_to_slack = serializers.BooleanField(default=False)
     default_columns = serializers.ListField(child=serializers.CharField(), required=False)
     media_preview_urls = serializers.SerializerMethodField(read_only=True)
+    promoted_property = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=False,
+        max_length=400,
+        help_text=(
+            "Name of a single property on this event that PostHog UIs should display alongside the event "
+            "(for example `$pathname` on `$pageview`). When set, surfaces like the session replay inspector "
+            "show the property's value next to the event name without the user having to open the event."
+        ),
+    )
 
     class Meta:
         model = EnterpriseEventDefinition
@@ -42,6 +54,7 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
             "verified_by",
             "hidden",
             "enforcement_mode",
+            "promoted_property",
             # Action fields
             "is_action",
             "action_id",
@@ -77,6 +90,17 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
             extra_kwargs["name"] = {"read_only": False}
 
         return extra_kwargs
+
+    def validate_owner(self, value):
+        if value is None:
+            return value
+        view = self.context.get("view")
+        organization_id = getattr(view, "organization_id", None) if view else None
+        if organization_id is None:
+            raise serializers.ValidationError("Cannot assign owner without organization context")
+        if not OrganizationMembership.objects.filter(organization_id=organization_id, user=value).exists():
+            raise serializers.ValidationError("Owner must be a member of this organization")
+        return value
 
     def validate_name(self, value):
         # For creation, check if event definition with this name already exists

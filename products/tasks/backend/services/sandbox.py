@@ -11,11 +11,14 @@ This module exports:
 
 from __future__ import annotations
 
+import os
+import shlex
+from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from enum import Enum
 from types import TracebackType
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Protocol, Self
 
 from django.conf import settings
 
@@ -57,7 +60,7 @@ class ExecutionStream(Protocol):
     def wait(self) -> ExecutionResult: ...
 
 
-SANDBOX_TTL_SECONDS = 60 * 30  # 30 minutes
+SANDBOX_TTL_SECONDS = 60 * 120  # 2 hours (safety net; workflow inactivity timeout handles cleanup)
 
 
 class SandboxConfig(BaseModel):
@@ -74,42 +77,114 @@ class SandboxConfig(BaseModel):
     disk_size_gb: float = 64
 
 
-class SandboxProtocol(Protocol):
+WORKING_DIR = "/tmp/workspace"
+
+PUBLIC_SANDBOX_REPOS: frozenset[str] = frozenset({"posthog/hedgebox"})
+"""Repos the sandbox is allowed to clone unauthenticated, even when the team has no GitHub integration."""
+
+
+def is_public_sandbox_repo(repository: str | None) -> bool:
+    return repository is not None and repository.lower() in PUBLIC_SANDBOX_REPOS
+
+
+def build_agent_runtime_env_prefix(
+    *,
+    interaction_origin: str | None = None,
+    runtime_adapter: str | None = None,
+    provider: str | None = None,
+    model: str | None = None,
+    reasoning_effort: str | None = None,
+) -> str:
+    env_vars = {
+        "POSTHOG_CODE_INTERACTION_ORIGIN": interaction_origin,
+        "POSTHOG_CODE_RUNTIME_ADAPTER": runtime_adapter,
+        "POSTHOG_CODE_PROVIDER": provider,
+        "POSTHOG_CODE_MODEL": model,
+        "POSTHOG_CODE_REASONING_EFFORT": reasoning_effort,
+    }
+    assignments = " ".join(
+        f"{name}={shlex.quote(value)}" for name, value in env_vars.items() if value is not None and value != ""
+    )
+    return f"env {assignments} " if assignments else ""
+
+
+class SandboxBase(ABC):
     id: str
     config: SandboxConfig
 
     @property
+    @abstractmethod
     def sandbox_url(self) -> str | None:
         """Return the URL for connecting to the agent server, or None if not available."""
         ...
 
     @staticmethod
-    def create(config: SandboxConfig) -> SandboxProtocol: ...
+    @abstractmethod
+    def create(config: SandboxConfig) -> SandboxBase: ...
 
     @staticmethod
-    def get_by_id(sandbox_id: str) -> SandboxProtocol: ...
+    @abstractmethod
+    def get_by_id(sandbox_id: str) -> SandboxBase: ...
 
     @staticmethod
+    @abstractmethod
     def delete_snapshot(external_id: str) -> None: ...
 
+    @abstractmethod
     def get_status(self) -> SandboxStatus: ...
 
+    @abstractmethod
     def execute(self, command: str, timeout_seconds: int | None = None) -> ExecutionResult: ...
 
+    @abstractmethod
     def execute_stream(self, command: str, timeout_seconds: int | None = None) -> ExecutionStream: ...
 
+    @abstractmethod
     def write_file(self, path: str, payload: bytes) -> ExecutionResult: ...
 
-    def clone_repository(self, repository: str, github_token: str | None = "") -> ExecutionResult: ...
+    def clone_repository(self, repository: str, github_token: str | None = "", shallow: bool = True) -> ExecutionResult:
+        if not self.is_running():
+            raise RuntimeError("Sandbox not in running state.")
 
+        org, repo = repository.lower().split("/")
+        repo_url = (
+            f"https://x-access-token:{github_token}@github.com/{org}/{repo}.git"
+            if github_token
+            else f"https://github.com/{org}/{repo}.git"
+        )
+
+        target_path = f"{WORKING_DIR}/repos/{org}/{repo}"
+        org_path = f"{WORKING_DIR}/repos/{org}"
+
+        depth_flag = f" --depth {shlex.quote('1')}" if shallow else ""
+        # Skip blobs over 128kB during full clones — large test snapshots and auto-generated
+        # files get fetched on demand. Shallow clones are already small enough.
+        blob_filter = "" if shallow else " --filter=blob:limit=128k"
+        clone_command = (
+            f"rm -rf {shlex.quote(target_path)} && "
+            f"mkdir -p {shlex.quote(org_path)} && "
+            f"cd {shlex.quote(org_path)} && "
+            f"git clone --single-branch{blob_filter}{depth_flag} {shlex.quote(repo_url)} {shlex.quote(repo)}"
+        )
+        _logger.info(f"Cloning repository {repository} to {target_path} in sandbox {self.id} (shallow={shallow})")
+        return self.execute(clone_command, timeout_seconds=5 * 60)
+
+    @abstractmethod
     def setup_repository(self, repository: str) -> ExecutionResult: ...
 
+    @abstractmethod
     def is_git_clean(self, repository: str) -> tuple[bool, str]: ...
 
+    @abstractmethod
     def execute_task(
-        self, task_id: str, run_id: str, repository: str | None = None, create_pr: bool = True
+        self,
+        task_id: str,
+        run_id: str,
+        repository: str | None = None,
+        create_pr: bool = True,
     ) -> ExecutionResult: ...
 
+    @abstractmethod
     def get_connect_credentials(self) -> AgentServerResult:
         """Get connect credentials (URL and token) for this sandbox.
 
@@ -118,14 +193,20 @@ class SandboxProtocol(Protocol):
         """
         ...
 
+    @abstractmethod
     def start_agent_server(
         self,
         repository: str | None,
         task_id: str,
         run_id: str,
         mode: str = "background",
+        create_pr: bool = True,
         interaction_origin: str | None = None,
         branch: str | None = None,
+        runtime_adapter: str | None = None,
+        provider: str | None = None,
+        model: str | None = None,
+        reasoning_effort: str | None = None,
         mcp_configs: list[McpServerConfig] | None = None,
         allowed_domains: list[str] | None = None,
     ) -> None:
@@ -136,25 +217,58 @@ class SandboxProtocol(Protocol):
         """
         ...
 
+    @abstractmethod
     def create_snapshot(self) -> str: ...
 
+    @abstractmethod
     def destroy(self) -> None: ...
 
+    @abstractmethod
     def is_running(self) -> bool: ...
 
-    def __enter__(self) -> SandboxProtocol: ...
+    def __enter__(self) -> Self:
+        return self
 
     def __exit__(
         self,
         exc_type: type[BaseException] | None,
         exc_val: BaseException | None,
         exc_tb: TracebackType | None,
-    ) -> None: ...
+    ) -> None:
+        self.destroy()
 
 
 _ExecuteFn = Callable[..., ExecutionResult]
 
 _logger = structlog.get_logger(__name__)
+
+
+def parse_sandbox_repo_mount_map() -> dict[str, str]:
+    """Parse SANDBOX_REPO_MOUNT_MAP into {lower(org/repo): expanded_local_path}.
+
+    Used by Docker sandbox for bind mounts and by task activities for user-facing logs.
+    Format: ``org/repo:/local/path,org2/repo2:~/other/path``
+    """
+    raw = os.environ.get("SANDBOX_REPO_MOUNT_MAP", "")
+    if not raw:
+        return {}
+
+    result: dict[str, str] = {}
+    for entry in raw.split(","):
+        entry = entry.strip()
+        if not entry:
+            continue
+        parts = entry.split(":", 1)
+        if len(parts) != 2 or "/" not in parts[0]:
+            _logger.warning(f"Ignoring malformed SANDBOX_REPO_MOUNT_MAP entry: {entry}")
+            continue
+        repo_key = parts[0].strip().lower()
+        local_path = os.path.expanduser(parts[1].strip())
+        if not os.path.isdir(local_path):
+            _logger.warning(f"SANDBOX_REPO_MOUNT_MAP: path does not exist, skipping: {local_path}")
+            continue
+        result[repo_key] = os.path.abspath(local_path)
+    return result
 
 
 def wait_for_health_check(
@@ -171,8 +285,15 @@ def wait_for_health_check(
     """
     health_script = (
         f"for i in $(seq 1 {max_attempts}); do "
-        f"  status=$(curl -s -o /dev/null -w '%{{http_code}}' http://localhost:{port}/health); "
-        f'  [ "$status" = "200" ] && echo "ok:$i" && exit 0; '
+        f"  body=$(curl -s http://localhost:{port}/health); "
+        "  status=$?; "
+        '  if [ "$status" = "0" ]; then '
+        "    python3 -c '"
+        "import json, sys; "
+        "payload = json.loads(sys.argv[1]); "
+        'sys.exit(0 if payload.get("status") == "ok" and payload.get("hasSession") is True else 1)'
+        f'\' "$body" && echo "ok:$i" && exit 0; '
+        "  fi; "
         f"  sleep {poll_interval}; "
         f"done; "
         f"exit 1"
@@ -184,7 +305,7 @@ def wait_for_health_check(
     return False
 
 
-SandboxClass = type[SandboxProtocol]
+SandboxClass = type[SandboxBase]
 
 
 def _get_docker_sandbox_class() -> SandboxClass:
@@ -254,7 +375,9 @@ __all__ = [
     "ExecutionResult",
     "ExecutionStream",
     "SANDBOX_TTL_SECONDS",
-    "SandboxProtocol",
+    "SandboxBase",
+    "WORKING_DIR",
+    "parse_sandbox_repo_mount_map",
     "get_sandbox_class",
     "get_sandbox_class_for_backend",
     "wait_for_health_check",

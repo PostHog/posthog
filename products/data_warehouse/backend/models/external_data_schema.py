@@ -8,12 +8,12 @@ from django.db import models
 import numpy
 from dateutil import parser
 from django_deprecate_fields import deprecate_field
-from dlt.common.normalizers.naming.snake_case import NamingConvention
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 from posthog.sync import database_sync_to_async
+from posthog.temporal.data_imports.naming_convention import NamingConvention
 from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat, PartitionMode
 
 from products.data_warehouse.backend.data_load.service import (
@@ -42,6 +42,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         INCREMENTAL = "incremental", "incremental"
         APPEND = "append", "append"
         WEBHOOK = "webhook", "webhook"
+        CDC = "cdc", "cdc"
 
     class SyncFrequency(models.TextChoices):
         DAILY = "day", "Daily"
@@ -57,15 +58,15 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     latest_error = models.TextField(null=True, help_text="The latest error that occurred when syncing this schema.")
     status = models.CharField(max_length=400, null=True, blank=True)
     last_synced_at = models.DateTimeField(null=True, blank=True)
-    sync_type = models.CharField(max_length=128, choices=SyncType.choices, null=True, blank=True)
-    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "incremental_field_earliest_value": any, "reset_pipeline": bool, "partitioning_enabled": bool, "partition_count": int, "partition_size": int, "partition_mode": str, "partitioning_keys": list[str], "chunk_size_override": int | None }
+    sync_type = models.CharField(max_length=128, choices=SyncType, null=True, blank=True)
+    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "incremental_field_earliest_value": any, "reset_pipeline": bool, "partitioning_enabled": bool, "partition_count": int, "partition_size": int, "partition_mode": str, "partitioning_keys": list[str], "chunk_size_override": int | None, "primary_key_columns": list[str] | None }
     sync_type_config = models.JSONField(
         default=dict,
         blank=True,
     )
     # Deprecated in favour of `sync_frequency_interval`
     sync_frequency = deprecate_field(
-        models.CharField(max_length=128, choices=SyncFrequency.choices, default=SyncFrequency.DAILY, blank=True)
+        models.CharField(max_length=128, choices=SyncFrequency, default=SyncFrequency.DAILY, blank=True)
     )
     sync_frequency_interval = models.DurationField(default=timedelta(hours=6), null=True, blank=True)
     sync_time_of_day = models.TimeField(null=True, blank=True, help_text="Time of day to run the sync (UTC)")
@@ -82,7 +83,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
 
     @property
     def normalized_name(self):
-        return NamingConvention().normalize_identifier(self.name)
+        return NamingConvention.normalize_identifier(self.name)
 
     @property
     def is_incremental(self):
@@ -95,6 +96,28 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     @property
     def is_webhook(self):
         return self.sync_type == self.SyncType.WEBHOOK
+
+    @property
+    def is_cdc(self):
+        return self.sync_type == self.SyncType.CDC
+
+    @property
+    def cdc_mode(self) -> Literal["snapshot", "streaming"] | None:
+        if self.sync_type_config:
+            return self.sync_type_config.get("cdc_mode")
+        return None
+
+    @property
+    def cdc_last_log_position(self) -> str | None:
+        if self.sync_type_config:
+            return self.sync_type_config.get("cdc_last_log_position")
+        return None
+
+    @property
+    def cdc_table_mode(self) -> Literal["consolidated", "cdc_only", "both"]:
+        if self.sync_type_config:
+            return self.sync_type_config.get("cdc_table_mode", "consolidated")
+        return "consolidated"
 
     @property
     def should_use_incremental_field(self):
@@ -185,6 +208,13 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     def partitioning_keys(self) -> list[str] | None:
         if self.sync_type_config:
             return self.sync_type_config.get("partitioning_keys", None)
+
+        return None
+
+    @property
+    def primary_key_columns(self) -> list[str] | None:
+        if self.sync_type_config:
+            return self.sync_type_config.get("primary_key_columns", None)
 
         return None
 
@@ -467,6 +497,8 @@ def sync_old_schemas_with_new_schemas(
 def sync_frequency_to_sync_frequency_interval(frequency: str) -> timedelta | None:
     if frequency == "never":
         return None
+    if frequency == "1min":
+        return timedelta(minutes=1)
     if frequency == "5min":
         return timedelta(minutes=5)
     if frequency == "15min":
@@ -492,6 +524,8 @@ def sync_frequency_to_sync_frequency_interval(frequency: str) -> timedelta | Non
 def sync_frequency_interval_to_sync_frequency(sync_frequency_interval: timedelta | None) -> str | None:
     if sync_frequency_interval is None:
         return None
+    if sync_frequency_interval == timedelta(minutes=1):
+        return "1min"
     if sync_frequency_interval == timedelta(minutes=5):
         return "5min"
     if sync_frequency_interval == timedelta(minutes=15):

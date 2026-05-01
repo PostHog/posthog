@@ -1,5 +1,6 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
+import { createElement, Fragment } from 'react'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -11,10 +12,37 @@ import { DashboardTemplateEditorType, DashboardTemplateType, MonacoMarker } from
 import { dashboardTemplatesLogic } from './dashboards/templates/dashboardTemplatesLogic'
 import type { dashboardTemplateEditorLogicType } from './dashboardTemplateEditorLogicType'
 
+/**
+ * Refresh every mounted `dashboardTemplatesLogic` slice we use in-product:
+ * - templates tab: `default-all-templatesTab` (via callback)
+ * - new dashboard chooser: `default-all` / `feature_flag-all`
+ * - dashboards page featured row: `default-featured`
+ */
+function refreshDashboardTemplateListsAfterMutation(templatesTabListGetAll: () => void): void {
+    templatesTabListGetAll()
+    dashboardTemplatesLogic.findMounted({ scope: 'default' })?.actions.getAllTemplates()
+    dashboardTemplatesLogic.findMounted({ scope: 'feature_flag' })?.actions.getAllTemplates()
+    dashboardTemplatesLogic
+        .findMounted({ scope: 'default', listQuery: { is_featured: true } })
+        ?.actions.getAllTemplates()
+}
+
+function parseDashboardTemplateEditorPayload(raw: string | undefined): DashboardTemplateEditorType | undefined {
+    const trimmed = raw?.trim()
+    if (!trimmed) {
+        return undefined
+    }
+    try {
+        return JSON.parse(trimmed) as DashboardTemplateEditorType
+    } catch {
+        return undefined
+    }
+}
+
 export const dashboardTemplateEditorLogic = kea<dashboardTemplateEditorLogicType>([
     path(['scenes', 'dashboard', 'dashboardTemplateEditorLogic']),
     connect(() => ({
-        actions: [dashboardTemplatesLogic({ scope: 'default' }), ['getAllTemplates']],
+        actions: [dashboardTemplatesLogic({ scope: 'default', templatesTabList: true }), ['getAllTemplates']],
         values: [featureFlagLogic, ['featureFlags']],
     })),
     actions({
@@ -23,7 +51,11 @@ export const dashboardTemplateEditorLogic = kea<dashboardTemplateEditorLogicType
             dashboardTemplate,
         }),
         clear: true,
-        setDashboardTemplateId: (id: string | null) => ({ id }),
+        setDashboardTemplateId: (id: string | null, options?: { hydrateEditorFromApi?: boolean }) => ({
+            id,
+            /** When false, editor JSON was already set (e.g. metadata modal merge); avoid GET overwriting it. Default true. */
+            hydrateEditorFromApi: options?.hydrateEditorFromApi ?? true,
+        }),
         openDashboardTemplateEditor: true,
         closeDashboardTemplateEditor: true,
         updateValidationErrors: (markers: MonacoMarker[] | undefined) => ({ markers }),
@@ -70,16 +102,27 @@ export const dashboardTemplateEditorLogic = kea<dashboardTemplateEditorLogicType
             },
         ],
     }),
-    loaders(({ values }) => ({
+    loaders(({ values, actions }) => ({
         dashboardTemplate: [
             undefined as DashboardTemplateEditorType | undefined | null,
             {
                 createDashboardTemplate: async (): Promise<DashboardTemplateEditorType | undefined> => {
-                    if (!values.dashboardTemplate) {
+                    const raw = values.editorValue?.trim()
+                    let payload: DashboardTemplateEditorType | undefined
+                    if (raw) {
+                        payload = parseDashboardTemplateEditorPayload(values.editorValue)
+                        if (!payload) {
+                            lemonToast.error('Unable to parse dashboard template JSON')
+                            return
+                        }
+                    } else {
+                        payload = values.dashboardTemplate ?? undefined
+                    }
+                    if (!payload) {
                         lemonToast.error('Unable to create dashboard template')
                         return
                     }
-                    const response = await api.dashboardTemplates.create(values.dashboardTemplate)
+                    const response = await api.dashboardTemplates.create(payload)
                     lemonToast.success('Dashboard template created')
                     return response
                 },
@@ -97,18 +140,81 @@ export const dashboardTemplateEditorLogic = kea<dashboardTemplateEditorLogicType
                     let response = null
                     if (dashboardTemplateUpdates) {
                         response = await api.dashboardTemplates.update(id, dashboardTemplateUpdates)
-                    } else if (values.dashboardTemplate) {
-                        response = await api.dashboardTemplates.update(id, values.dashboardTemplate)
                     } else {
-                        lemonToast.error('Unable to update dashboard template')
-                        return
+                        const raw = values.editorValue?.trim()
+                        let payload: DashboardTemplateEditorType | undefined
+                        if (raw) {
+                            payload = parseDashboardTemplateEditorPayload(values.editorValue)
+                            if (!payload) {
+                                lemonToast.error('Unable to parse dashboard template JSON')
+                                return
+                            }
+                        } else {
+                            payload = values.dashboardTemplate ?? undefined
+                        }
+                        if (!payload) {
+                            lemonToast.error('Unable to update dashboard template')
+                            return
+                        }
+                        response = await api.dashboardTemplates.update(id, payload)
                     }
                     lemonToast.success('Dashboard template updated')
                     return response
                 },
-                deleteDashboardTemplate: async (id: string): Promise<null> => {
-                    await api.dashboardTemplates.delete(id)
-                    lemonToast.success('Dashboard template deleted')
+                deleteDashboardTemplate: async ({
+                    id,
+                    templateName,
+                }: {
+                    id: string
+                    templateName: string
+                }): Promise<null> => {
+                    try {
+                        await api.dashboardTemplates.update(id, { deleted: true })
+                    } catch (e: any) {
+                        lemonToast.error(e?.detail || e?.message || 'Could not delete dashboard template')
+                        throw e
+                    }
+                    const trimmedName = templateName.trim()
+                    lemonToast.info(
+                        trimmedName
+                            ? createElement(
+                                  Fragment,
+                                  null,
+                                  'Dashboard template ',
+                                  createElement('b', null, trimmedName),
+                                  ' has been deleted'
+                              )
+                            : 'Dashboard template has been deleted',
+                        {
+                            toastId: `delete-dashboard-template-${id}`,
+                            button: {
+                                label: 'Undo',
+                                dataAttr: 'undo-dashboard-template-delete',
+                                action: async () => {
+                                    try {
+                                        await api.dashboardTemplates.update(id, { deleted: false })
+                                        refreshDashboardTemplateListsAfterMutation(actions.getAllTemplates)
+                                        lemonToast.success(
+                                            trimmedName
+                                                ? createElement(
+                                                      Fragment,
+                                                      null,
+                                                      'Dashboard template ',
+                                                      createElement('b', null, trimmedName),
+                                                      ' has been restored'
+                                                  )
+                                                : 'Dashboard template has been restored',
+                                            { toastId: `undo-dashboard-template-${id}` }
+                                        )
+                                    } catch (err: any) {
+                                        lemonToast.error(
+                                            err?.detail || err?.message || 'Could not restore dashboard template'
+                                        )
+                                    }
+                                },
+                            },
+                        }
+                    )
                     return null
                 },
             },
@@ -125,20 +231,20 @@ export const dashboardTemplateEditorLogic = kea<dashboardTemplateEditorLogicType
     listeners(({ values, actions }) => ({
         createDashboardTemplateSuccess: async () => {
             actions.closeDashboardTemplateEditor()
-            actions.getAllTemplates()
+            refreshDashboardTemplateListsAfterMutation(actions.getAllTemplates)
         },
         updateDashboardTemplateSuccess: async () => {
             actions.closeDashboardTemplateEditor()
-            actions.getAllTemplates()
+            refreshDashboardTemplateListsAfterMutation(actions.getAllTemplates)
         },
         deleteDashboardTemplateSuccess: async () => {
-            actions.getAllTemplates()
+            refreshDashboardTemplateListsAfterMutation(actions.getAllTemplates)
         },
         closeDashboardTemplateEditor: () => {
             actions.clear()
         },
-        setDashboardTemplateId: ({ id }) => {
-            if (id) {
+        setDashboardTemplateId: ({ id, hydrateEditorFromApi }) => {
+            if (id && hydrateEditorFromApi) {
                 actions.getDashboardTemplate(id)
             }
         },

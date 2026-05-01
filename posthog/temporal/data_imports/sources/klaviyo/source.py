@@ -34,7 +34,7 @@ class KlaviyoSource(ResumableSource[KlaviyoSourceConfig, KlaviyoResumeConfig]):
         return SourceConfig(
             name=SchemaExternalDataSourceType.KLAVIYO,
             label="Klaviyo",
-            betaSource=True,
+            releaseStatus="beta",
             caption="""Enter your Klaviyo API key to automatically pull your Klaviyo data into the PostHog Data warehouse.
 
 You can create a private API key in your [Klaviyo account settings](https://www.klaviyo.com/settings/account/api-keys).
@@ -59,6 +59,7 @@ Make sure to grant the following read permissions:
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="pk_...",
+                        secret=True,
                     ),
                 ],
             ),

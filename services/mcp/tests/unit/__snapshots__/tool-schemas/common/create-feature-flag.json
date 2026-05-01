@@ -187,7 +187,7 @@
                                                 },
                                                 "operator": {
                                                     "description": "Date comparison operator.\n\n* `is_date_exact` - is_date_exact\n* `is_date_after` - is_date_after\n* `is_date_before` - is_date_before",
-                                                    "enum": ["is_date_exact", "is_date_after", "is_date_before"],
+                                                    "enum": ["is_date_exact", "is_date_before", "is_date_after"],
                                                     "type": "string"
                                                 },
                                                 "type": {

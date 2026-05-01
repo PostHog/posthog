@@ -470,6 +470,7 @@ describe('BatchExportHogFunctionService', () => {
                 hub.groupRepository,
                 mockGrpc as unknown as PersonHogClient,
                 100,
+                new Set(),
                 'test'
             )
             const personhogGroupsManager = new GroupsManagerService(hub.teamManager, personhogRepo)

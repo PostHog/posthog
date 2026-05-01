@@ -306,9 +306,13 @@ export const SurveyStatsSummary = memo(function SurveyStatsSummary(): JSX.Elemen
         surveyRates,
         surveyBaseStatsLoading,
         surveyDismissedAndSentCountLoading,
+        resultsRequeryInProgress,
     } = useValues(surveyLogic)
 
-    if (surveyBaseStatsLoading || surveyDismissedAndSentCountLoading) {
+    if (
+        !processedSurveyStats &&
+        (surveyBaseStatsLoading || surveyDismissedAndSentCountLoading || resultsRequeryInProgress)
+    ) {
         return <SurveyStatsSummarySkeleton />
     }
 

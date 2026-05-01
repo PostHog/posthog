@@ -739,3 +739,18 @@ fn test_datadog_log_overridden_timestamp_tracking() {
     // User's originalTimestamp should still be in attributes
     assert!(row_user_attr.attributes.contains_key("originalTimestamp"));
 }
+
+#[test]
+fn test_datadog_log_timestamp_as_numeric_string() {
+    let json_data = r#"{"timestamp": "1700000000000", "message": "hello"}"#;
+    let log: DatadogLog = serde_json::from_str(json_data).unwrap();
+    assert_eq!(log.timestamp, Some(1700000000000));
+}
+
+#[test]
+fn test_datadog_log_timestamp_as_rfc3339_string() {
+    let json_data = r#"{"timestamp": "2024-01-15T10:30:00Z", "message": "hello"}"#;
+    let log: DatadogLog = serde_json::from_str(json_data).unwrap();
+    // 2024-01-15T10:30:00Z in milliseconds
+    assert_eq!(log.timestamp, Some(1705314600000));
+}

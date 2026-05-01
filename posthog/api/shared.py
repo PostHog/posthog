@@ -233,13 +233,14 @@ class OrganizationBasicSerializer(serializers.ModelSerializer):
             "members_can_use_personal_api_keys",
             "is_active",
             "is_not_active_reason",
+            "is_pending_deletion",
         ]
 
     def get_membership_level(self, organization: Organization) -> Optional[OrganizationMembership.Level]:
         membership = OrganizationMembership.objects.filter(
             organization=organization, user=self.context["request"].user
         ).first()
-        return membership.level if membership is not None else None
+        return OrganizationMembership.Level(membership.level) if membership is not None else None
 
 
 class FilterBaseSerializer(serializers.Serializer):

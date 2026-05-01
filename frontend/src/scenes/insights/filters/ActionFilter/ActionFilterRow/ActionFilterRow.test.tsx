@@ -297,13 +297,13 @@ describe('ActionFilterRow', () => {
             it('shown when showCombine and not singleFilter', () => {
                 const { logic } = setup()
                 renderRow(logic, { ...INLINE_CONTEXT, showCombine: true, singleFilter: false })
-                expect(screen.getByTitle('Count multiple events as a single event')).toBeInTheDocument()
+                expect(screen.getByTestId('show-prop-combine-0')).toBeInTheDocument()
             })
 
             it('hidden when singleFilter', () => {
                 const { logic } = setup()
                 renderRow(logic, { ...INLINE_CONTEXT, showCombine: true, singleFilter: true })
-                expect(screen.queryByTitle('Count multiple events as a single event')).not.toBeInTheDocument()
+                expect(screen.queryByTestId('show-prop-combine-0')).not.toBeInTheDocument()
             })
 
             it('hidden for data warehouse entities', () => {
@@ -314,7 +314,7 @@ describe('ActionFilterRow', () => {
                     singleFilter: false,
                     filter: { ...DEFAULT_FILTER, type: EntityTypes.DATA_WAREHOUSE },
                 })
-                expect(screen.queryByTitle('Count multiple events as a single event')).not.toBeInTheDocument()
+                expect(screen.queryByTestId('show-prop-combine-0')).not.toBeInTheDocument()
             })
         })
 
@@ -409,7 +409,7 @@ describe('ActionFilterRow', () => {
         it('dispatches convertFilterToGroup on combine click', async () => {
             const { logic, setFilters } = setup()
             renderRow(logic, { ...INLINE_CONTEXT, showCombine: true, singleFilter: false })
-            await userEvent.click(screen.getByTitle('Count multiple events as a single event'))
+            await userEvent.click(screen.getByTestId('show-prop-combine-0'))
             expect(setFilters).toHaveBeenCalledWith(
                 expect.objectContaining({
                     events: expect.arrayContaining([expect.objectContaining({ id: '$pageview' })]),
@@ -475,6 +475,24 @@ describe('ActionFilterRow', () => {
             })
             expect(screen.getByTestId('math-hogql-select-0')).toBeInTheDocument()
             expect(screen.getByText('sum(price)')).toBeInTheDocument()
+        })
+
+        it('defaults HogQL math expression to person_id for stickiness insights', async () => {
+            const { logic, setFilters } = setup({ insight: InsightType.STICKINESS })
+            renderRow(logic, {
+                mathAvailability: MathAvailability.All,
+                insightType: InsightType.STICKINESS,
+            })
+
+            await userEvent.click(screen.getByTestId('math-selector-0'))
+            await waitFor(() => expect(screen.getByText('SQL expression')).toBeInTheDocument())
+            await userEvent.click(screen.getByText('SQL expression'))
+
+            expect(setFilters).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    events: expect.arrayContaining([expect.objectContaining({ math_hogql: 'person_id' })]),
+                })
+            )
         })
 
         it('does not show math selector inline for FunnelsOnly (it goes in the popup menu)', () => {
@@ -620,7 +638,7 @@ describe('ActionFilterRow', () => {
             })
         })
 
-        it('shows property filter and combine buttons outside the popup menu', () => {
+        it('shows property filter outside the popup menu', () => {
             const { logic } = setup({ insight: InsightType.FUNNELS })
             renderRow(logic, {
                 mathAvailability: MathAvailability.FunnelsOnly,
@@ -628,9 +646,8 @@ describe('ActionFilterRow', () => {
                 showCombine: true,
             })
 
-            // Filter and combine always visible, not inside the menu
+            // Filter button always visible outside the menu
             expect(screen.getByTitle('Show filters')).toBeInTheDocument()
-            expect(screen.getByTitle('Count multiple events as a single event')).toBeInTheDocument()
         })
     })
 

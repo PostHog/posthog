@@ -401,14 +401,14 @@ class TestPythonGeneratorAPI(APIBaseTest):
 
         self._test_telemetry_called(mock_report)
 
-    def test_python_endpoint_excludes_non_whitelisted_system_events(self):
-        EventDefinition.objects.create(team=self.team, project=self.project, name="$autocapture")
+    def test_python_endpoint_excludes_non_core_system_events(self):
+        EventDefinition.objects.create(team=self.team, project=self.project, name="$money")
         EventDefinition.objects.create(team=self.team, project=self.project, name="$pageview")
 
         response = self.client.get(f"/api/projects/{self.project.id}/event_definitions/python")
 
         code = response.json()["content"]
-        self.assertNotIn("capture_autocapture", code)
+        self.assertNotIn("capture_money", code)
         self.assertIn("capture_pageview", code)
 
     @patch("posthog.api.event_definition_generators.base.report_user_action")

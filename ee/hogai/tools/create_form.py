@@ -42,13 +42,14 @@ There are three question types:
 
 ### `select` (default) — single-select radio buttons
 - Requires `options`: 2-4 choices with `value` and optional `description`
-- `allow_custom_answer`: Set to false only when custom answers don't make sense
+- `allow_custom_answer` (default: true): Always leave enabled unless the values are truly constrained (e.g. fixed time ranges, system-defined enums). Be generous — the user may have context the agent doesn't. Only set to false for closed sets where a custom value would be meaningless (e.g. "Last 7 days" / "Last 30 days").
 - Include descriptions when options need clarification or are domain-specific
 - Omit descriptions when options are self-explanatory (e.g., "7 days", "30 days")
 
 ### `multi_select` — checkboxes for multiple selections
 - Requires `options`: 2-4 choices with `value` and optional `description`
-- Returns an array of selected values
+- `allow_custom_answer` (default: true): Same rule as select — always leave enabled unless the value set is closed. The user can type additional options beyond the predefined choices.
+- Returns an array of selected values (including any custom entries the user typed)
 
 ### `multi_field` — multiple compact fields grouped on one page
 - Set `type` to `multi_field` and provide a `fields` array
@@ -94,6 +95,7 @@ All field types support `optional: true` to let the user skip the field.
 - Do not write "(optional)" in the label — the UI adds it automatically for optional fields
 - Use sentence casing for all text
 - Maximum 4 questions per form, maximum 1 `multi_field` question per form
+- Default to `allow_custom_answer: true` for both `select` and `multi_select`. Only set it to `false` when values are constrained to a known closed set.
 
 ## Examples
 
@@ -260,7 +262,8 @@ class CreateFormTool(MaxTool):
             if answer is None:
                 return "(skipped)"
             if isinstance(answer, list):
-                return ", ".join(answer)
+                formatted = [f'"{v}"' if "," in v else v for v in answer]
+                return ", ".join(formatted)
             return answer
 
         lines: list[str] = []

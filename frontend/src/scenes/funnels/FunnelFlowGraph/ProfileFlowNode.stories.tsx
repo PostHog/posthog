@@ -6,7 +6,7 @@ import { Node, NodeTypes } from '@xyflow/react'
 import { FunnelStepWithConversionMetrics } from '~/types'
 
 import { makeStep, NodeCanvas } from './__mocks__/nodeStoryUtils'
-import { FunnelFlowNodeData, PROFILE_NODE_WIDTH } from './funnelFlowGraphLogic'
+import { FunnelFlowNodeData, PROFILE_FIT_VIEW_OPTIONS, PROFILE_NODE_WIDTH } from './funnelFlowGraphLogic'
 import { ProfileFlowNode } from './FunnelFlowNode'
 
 const nodeTypes: NodeTypes = { profile: ProfileFlowNode }
@@ -79,5 +79,29 @@ export const AllVariants: Story = {
             profileNode('s3', makeStep('Optional not completed', 3, 0, 1), 3, true, spacing * 3),
         ]
         return <NodeCanvas nodes={nodes} nodeTypes={nodeTypes} />
+    },
+}
+
+export const AllVariantsUltrawide: Story = {
+    render: () => {
+        const spacing = PROFILE_NODE_WIDTH + 40
+        const nodes = [
+            profileNode('s0', makeStep('Completed', 0, 1, 1), 0, false, 0),
+            profileNode('s1', makeStep('Not completed', 1, 0, 1), 1, false, spacing),
+            profileNode('s2', makeStep('Optional completed', 2, 1, 1), 2, true, spacing * 2),
+            profileNode('s3', makeStep('Optional not completed', 3, 0, 1), 3, true, spacing * 3),
+        ]
+        return (
+            <NodeCanvas
+                nodes={nodes}
+                nodeTypes={nodeTypes}
+                width={2560}
+                padding={PROFILE_FIT_VIEW_OPTIONS.padding}
+                maxZoom={PROFILE_FIT_VIEW_OPTIONS.maxZoom}
+            />
+        )
+    },
+    parameters: {
+        viewport: { width: 2560, height: 600 },
     },
 }

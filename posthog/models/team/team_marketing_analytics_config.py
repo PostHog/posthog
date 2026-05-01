@@ -273,7 +273,7 @@ class TeamMarketingAnalyticsConfig(models.Model):
             max_length=20,
             default=AttributionMode.LAST_TOUCH,
             choices=[(mode.value, mode.value.replace("_", " ").title()) for mode in AttributionMode],
-            help_text="Attribution mode: first_touch or last_touch",
+            help_text="Attribution mode: first_touch, last_touch, linear, time_decay, or position_based",
         ),
         "project",
         "admin",

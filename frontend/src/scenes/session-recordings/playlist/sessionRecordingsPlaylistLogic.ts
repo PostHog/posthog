@@ -546,7 +546,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
     props({} as SessionRecordingPlaylistLogicProps),
     key(
         (props: SessionRecordingPlaylistLogicProps) =>
-            `${props.logicKey}-${props.personUUID}-${props.updateSearchParams ? '-with-search' : ''}`
+            `${props.logicKey ?? ''}-${props.personUUID ?? ''}-${props.updateSearchParams ? '-with-search' : ''}`
     ),
     connect(() => ({
         actions: [
@@ -1404,19 +1404,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         ? 0
                         : 1)
                 )
-            },
-        ],
-
-        summarizeDisabledReason: [
-            (s) => [s.totalFiltersCount, s.recordings, (_, props) => props.type],
-            (totalFiltersCount, recordings, type): string | undefined => {
-                if (recordings.length === 0) {
-                    return 'No recordings in the list'
-                }
-                if (!type && totalFiltersCount === 0) {
-                    return 'Add filters to summarize recordings'
-                }
-                return undefined
             },
         ],
 

@@ -9,13 +9,9 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    width: var(--annotations-overlay-tick-interval);
+    width: var(--annotations-badge-width);
     height: 3rem;
-    margin-left: calc(
-        var(--annotations-overlay-tick-interval) *
-            var(--annotations-badge-index) - var(--annotations-overlay-chart-area-left) +
-            var(--annotations-overlay-first-tick-left)
-    );
+    margin-left: var(--annotations-badge-left);
     appearance: none !important;
     cursor: pointer;
     background: none;

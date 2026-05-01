@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
+import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
@@ -29,7 +30,8 @@ export const TaxonomicBreakdownPopover = ({
     breakdownValue,
 }: TaxonomicBreakdownPopoverProps): JSX.Element => {
     const { insightProps } = useValues(insightLogic)
-    const { allEventNames, query } = useValues(insightVizDataLogic(insightProps))
+    const { allEventNames, query, hasDataWarehouseSeries } = useValues(insightVizDataLogic(insightProps))
+    const { databaseLoading } = useValues(databaseTableListLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
     const { includeSessions, taxonomicBreakdownType } = useValues(taxonomicBreakdownFilterLogic)
 
@@ -37,12 +39,16 @@ export const TaxonomicBreakdownPopover = ({
     const { addBreakdown, replaceBreakdown } = useActions(taxonomicBreakdownFilterLogic)
 
     let taxonomicGroupTypes: TaxonomicFilterGroupType[]
-    if (taxonomicBreakdownType === TaxonomicFilterGroupType.CohortsWithAllUsers) {
+    if (hasDataWarehouseSeries) {
+        taxonomicGroupTypes = [TaxonomicFilterGroupType.DataWarehouseProperties]
+    } else if (taxonomicBreakdownType === TaxonomicFilterGroupType.CohortsWithAllUsers) {
         taxonomicGroupTypes = [TaxonomicFilterGroupType.CohortsWithAllUsers]
     } else if (isRetentionQuery(query) || (isInsightVizNode(query) && isRetentionQuery(query.source))) {
         taxonomicGroupTypes = [
             TaxonomicFilterGroupType.EventProperties,
             TaxonomicFilterGroupType.PersonProperties,
+            TaxonomicFilterGroupType.EventFeatureFlags,
+            ...groupsTaxonomicTypes,
             TaxonomicFilterGroupType.CohortsWithAllUsers,
             TaxonomicFilterGroupType.DataWarehousePersonProperties,
         ]
@@ -68,6 +74,7 @@ export const TaxonomicBreakdownPopover = ({
                 <TaxonomicFilter
                     groupType={taxonomicType}
                     value={breakdownValue}
+                    hogQLExpressionShowBreakdownLabelHint
                     onChange={(taxonomicGroup, value) => {
                         if (breakdownValue && breakdownType) {
                             replaceBreakdown(
@@ -89,6 +96,7 @@ export const TaxonomicBreakdownPopover = ({
                     eventNames={allEventNames}
                     taxonomicGroupTypes={taxonomicGroupTypes}
                     schemaColumns={currentDataWarehouseSchemaColumns}
+                    schemaColumnsLoading={hasDataWarehouseSeries && databaseLoading}
                 />
             }
             visible={open}

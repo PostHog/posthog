@@ -31,7 +31,7 @@ from ee.hogai.session_summaries.constants import (
     FAILED_PATTERNS_ASSIGNMENT_MIN_RATIO,
     PATTERNS_ASSIGNMENT_CHUNK_SIZE,
     PATTERNS_EXTRACTION_MAX_TOKENS,
-    SESSION_SUMMARIES_SYNC_MODEL,
+    SESSION_SUMMARIES_MODEL,
     SINGLE_ENTITY_MAX_TOKENS,
 )
 from ee.hogai.session_summaries.llm.consume import (
@@ -111,7 +111,7 @@ async def split_session_summaries_into_chunks_for_patterns_extraction_activity(
     )
     # Estimate base template tokens (without session summaries)
     base_template_tokens = estimate_tokens_from_strings(
-        strings=[prompt.system_prompt, prompt.patterns_prompt], model=SESSION_SUMMARIES_SYNC_MODEL
+        strings=[prompt.system_prompt, prompt.patterns_prompt], model=SESSION_SUMMARIES_MODEL
     )
     # Get ready session summaries from DB
     # Disable thread-sensitive as the call is heavy (N summaries through pagination)
@@ -130,7 +130,7 @@ async def split_session_summaries_into_chunks_for_patterns_extraction_activity(
     for summary in ready_summaries:
         summary_str = json.dumps(remove_excessive_content_from_session_summary_for_llm(summary.summary).data)
         tokens_per_session[summary.session_id] = estimate_tokens_from_strings(
-            strings=[summary_str], model=SESSION_SUMMARIES_SYNC_MODEL
+            strings=[summary_str], model=SESSION_SUMMARIES_MODEL
         )
     # Create chunks ensuring each stays under the token limit
     chunks = []
@@ -234,6 +234,7 @@ async def extract_session_group_patterns_activity(inputs: SessionGroupSummaryOfS
         trace_id=temporalio.activity.info().workflow_id,
         user_id=inputs.user_id,
         user_distinct_id=inputs.user_distinct_id_to_log,
+        trigger_session_id=inputs.trigger_session_id,
     )
     patterns_extraction_str = patterns_extraction.model_dump_json(exclude_none=True)
     # Store the extracted patterns in Redis
@@ -256,6 +257,7 @@ async def _generate_patterns_assignments_per_chunk(
     extra_summary_context: ExtraSummaryContext | None,
     trace_id: str | None = None,
     user_distinct_id: str | None = None,
+    trigger_session_id: str | None = None,
 ) -> RawSessionGroupPatternAssignmentsList | Exception:
     """Assign events to patterns for a single chunk of summaries."""
     try:
@@ -271,6 +273,7 @@ async def _generate_patterns_assignments_per_chunk(
             trace_id=trace_id,
             user_id=user_id,
             user_distinct_id=user_distinct_id,
+            trigger_session_id=trigger_session_id,
         )
         # Send progress signal to workflow
         await workflow_handle.signal("update_pattern_assignments_progress", len(session_summaries_chunk_str))
@@ -289,6 +292,7 @@ async def _generate_patterns_assignments(
     extra_summary_context: ExtraSummaryContext | None,
     trace_id: str | None = None,
     user_distinct_id: str | None = None,
+    trigger_session_id: str | None = None,
 ) -> list[RawSessionGroupPatternAssignmentsList]:
     """Run pattern assignments concurrently for multiple chunks."""
     patterns_assignments_list_of_lists = []
@@ -297,6 +301,8 @@ async def _generate_patterns_assignments(
     # TODO: Replace later by splitting `_generate_patterns_assignments` into separate activity
     temporal_client = await async_connect()
     info = temporalio.activity.info()
+    assert info.workflow_id  # Will always be defined if this activity was started by a workflow
+
     workflow_handle = temporal_client.get_workflow_handle(info.workflow_id, run_id=info.workflow_run_id)
     # Send initial progress
     await workflow_handle.signal("update_pattern_assignments_progress", 0)
@@ -314,6 +320,7 @@ async def _generate_patterns_assignments(
                     trace_id=trace_id,
                     user_id=user_id,
                     user_distinct_id=user_distinct_id,
+                    trigger_session_id=trigger_session_id,
                 )
             )
     # Process results and send progress updates
@@ -408,6 +415,7 @@ async def assign_events_to_patterns_activity(
         trace_id=temporalio.activity.info().workflow_id,
         user_id=inputs.user_id,
         user_distinct_id=inputs.user_distinct_id_to_log,
+        trigger_session_id=inputs.trigger_session_id,
     )
     # Create event ids mappings from ready summaries to identify events and sessions assigned to patterns
     combined_event_ids_mappings = create_event_ids_mapping_from_ready_summaries(
@@ -523,6 +531,7 @@ async def combine_patterns_from_chunks_activity(inputs: SessionGroupSummaryPatte
         trace_id=temporalio.activity.info().workflow_id,
         user_id=inputs.user_id,
         user_distinct_id=inputs.user_distinct_id_to_log,
+        trigger_session_id=inputs.trigger_session_id,
     )
 
     # Store the combined patterns in Redis with 24-hour TTL

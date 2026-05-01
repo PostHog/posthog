@@ -4,6 +4,7 @@ import json
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.schema import (
@@ -824,3 +825,58 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("boundary-log-dec17-midnight-plus1us", bodies)
         self.assertIn("boundary-log-dec17-afternoon", bodies)
         self.assertNotIn("boundary-log-dec18-early", bodies)
+
+    # ── _normalize_filter_group tests ──────────────────────────────────
+
+    _FLAT_FILTERS = [
+        {"key": "message", "operator": "icontains", "type": "log", "value": "error"},
+        {"key": "http.status_code", "operator": "exact", "type": "log_attribute", "value": "500"},
+    ]
+
+    @parameterized.expand(
+        [
+            ("none", None, {"type": "AND", "values": []}),
+            ("empty_list", [], {"type": "AND", "values": []}),
+            ("flat_list", _FLAT_FILTERS, {"type": "AND", "values": [{"type": "AND", "values": _FLAT_FILTERS}]}),
+            (
+                "already_nested",
+                {"type": "AND", "values": [{"type": "AND", "values": []}]},
+                {"type": "AND", "values": [{"type": "AND", "values": []}]},
+            ),
+        ]
+    )
+    def test_normalize_filter_group(self, _name, input_value, expected):
+        from products.logs.backend.api import LogsViewSet
+
+        self.assertEqual(LogsViewSet._normalize_filter_group(input_value), expected)
+
+    @freeze_time("2025-12-16T10:33:00Z")
+    def test_query_with_flat_filter_group(self):
+        """The query endpoint normalizes flat filter arrays to nested PropertyGroupFilter."""
+        query_params = {
+            "dateRange": {"date_from": "2025-12-16 09:32:36.178572Z", "date_to": None},
+            "limit": 10,
+            "filterGroup": [
+                {
+                    "key": "k8s.pod.name",
+                    "value": "efs-csi-node",
+                    "operator": "icontains",
+                    "type": "log_resource_attribute",
+                },
+            ],
+        }
+        response = self._make_logs_api_request(query_params)
+        self.assertGreater(len(response["results"]), 0)
+        for result in response["results"]:
+            self.assertIn("efs-csi-node", result["resource_attributes"].get("k8s.pod.name", ""))
+
+    @freeze_time("2025-12-16T10:33:00Z")
+    def test_query_with_empty_flat_filter_group(self):
+        """Empty flat filter array should return results (no filtering)."""
+        query_params = {
+            "dateRange": {"date_from": "2025-12-16T10:32:36.184820Z", "date_to": None},
+            "limit": 10,
+            "filterGroup": [],
+        }
+        response = self._make_logs_api_request(query_params)
+        self.assertGreater(len(response["results"]), 0)

@@ -26,6 +26,11 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         WAREHOUSE = "warehouse", "warehouse"
         DIRECT = "direct", "direct"
 
+    class CreatedVia(models.TextChoices):
+        WEB = "web", "web"
+        API = "api", "api"
+        MCP = "mcp", "mcp"
+
     class Status(models.TextChoices):
         RUNNING = "Running", "Running"
         PAUSED = "Paused", "Paused"
@@ -46,19 +51,20 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
 
     # Deprecated, use `ExternalDataSchema.sync_frequency_interval`
-    sync_frequency = models.CharField(
-        max_length=128, choices=SyncFrequency.choices, default=SyncFrequency.DAILY, blank=True
-    )
+    sync_frequency = models.CharField(max_length=128, choices=SyncFrequency, default=SyncFrequency.DAILY, blank=True)
 
     # `status` is deprecated in favour of external_data_schema.status
     status = models.CharField(max_length=400)
-    source_type = models.CharField(max_length=128, choices=ExternalDataSourceType.choices)
+    source_type = models.CharField(max_length=128, choices=ExternalDataSourceType)
     job_inputs = EncryptedJSONField(null=True, blank=True)
     connection_metadata = models.JSONField(default=dict, blank=True, null=True)
     are_tables_created = models.BooleanField(default=False)
     prefix = models.CharField(max_length=100, null=True, blank=True)
     description = models.CharField(max_length=400, null=True, blank=True)
-    access_method = models.CharField(max_length=32, choices=AccessMethod.choices, default=AccessMethod.WAREHOUSE)
+    # How this source was created — e.g. web UI, direct API call, or MCP tool. Required for new rows
+    # via the serializer; NULL on historical rows created before this field existed.
+    created_via = models.CharField(max_length=20, choices=CreatedVia, null=True, blank=True)
+    access_method = models.CharField(max_length=32, choices=AccessMethod, default=AccessMethod.WAREHOUSE)
 
     # DEPRECATED: Check inside `revenue_analytics_config` instead
     revenue_analytics_enabled = models.BooleanField(default=False, blank=True, null=True)
@@ -105,6 +111,11 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         self.deleted = True
         self.deleted_at = datetime.now()
         self.save()
+
+        # Lazy import to avoid circular: SourceRegistry → helpers.py → this module.
+        from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
+
+        SourceRegistry.get_source(ExternalDataSourceType(self.source_type)).cleanup_cdc_resources_on_deletion(self)
 
     def reload_schemas(self):
         from products.data_warehouse.backend.data_load.service import (

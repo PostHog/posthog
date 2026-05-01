@@ -3,6 +3,7 @@ from typing import Any
 
 from structlog import get_logger
 
+from posthog.temporal.data_imports.signals.fetchers.data_warehouse import data_warehouse_record_fetcher
 from posthog.temporal.data_imports.signals.registry import SignalEmitterOutput, SignalSourceTableConfig
 
 logger = get_logger(__name__)
@@ -124,6 +125,7 @@ ZENDESK_TICKETS_CONFIG = SignalSourceTableConfig(
     source_product="zendesk",
     source_type="ticket",
     emitter=zendesk_ticket_emitter,
+    record_fetcher=data_warehouse_record_fetcher,
     partition_field="created_at",
     fields=REQUIRED_FIELDS + EXTRA_FIELDS,
     where_clause=f"status NOT IN ({', '.join(repr(s) for s in ZENDESK_IGNORED_STATUSES)})",

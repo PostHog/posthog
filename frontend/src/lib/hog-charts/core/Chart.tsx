@@ -1,24 +1,26 @@
-import React, { useMemo } from 'react'
+import React, { useCallback, useMemo } from 'react'
 
 import { AxisLabels } from '../overlays/AxisLabels'
-import { Crosshair } from '../overlays/Crosshair'
 import { DefaultTooltip } from '../overlays/DefaultTooltip'
-import { GoalLines } from '../overlays/GoalLines'
 import { Tooltip } from '../overlays/Tooltip'
-import { ChartContext } from './chart-context'
-import { ChartErrorBoundary } from './ChartErrorBoundary'
+import { composeDrawHoverWithCrosshair } from './canvas-renderer'
+import { ChartHoverContext, ChartLayoutContext } from './chart-context'
+import type { ChartHoverContextValue, ChartLayoutContextValue } from './chart-context'
 import { useChartCanvas } from './hooks/useChartCanvas'
 import { useChartDraw } from './hooks/useChartDraw'
 import { useChartInteraction } from './hooks/useChartInteraction'
-import { autoFormatYTick } from './scales'
+import { useChartMargins } from './hooks/useChartMargins'
+import { useLatest } from './hooks/useLatest'
+import { useResolvedYFormatters } from './hooks/useResolvedYFormatters'
+import { useStableResolveValue } from './hooks/useStableResolveValue'
 import type {
     ChartConfig,
     ChartDrawArgs,
-    ChartMargins,
     ChartScales,
     ChartTheme,
     CreateScalesFn,
     PointClickData,
+    ResolvedSeries,
     ResolveValueFn,
     Series,
     TooltipContext,
@@ -33,65 +35,104 @@ const OVERLAY_STYLE: React.CSSProperties = {
     pointerEvents: 'none',
 }
 
+const WRAPPER_STYLE_BASE: React.CSSProperties = {
+    position: 'relative',
+    width: '100%',
+    flex: 1,
+    minHeight: 0,
+    overflow: 'hidden',
+}
+const WRAPPER_STYLE_DEFAULT: React.CSSProperties = { ...WRAPPER_STYLE_BASE, cursor: 'default' }
+const WRAPPER_STYLE_POINTER: React.CSSProperties = { ...WRAPPER_STYLE_BASE, cursor: 'pointer' }
+
+const STATIC_CANVAS_STYLE: React.CSSProperties = { position: 'absolute', top: 0, left: 0 }
+const OVERLAY_CANVAS_STYLE: React.CSSProperties = {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    pointerEvents: 'none',
+}
+
 function OverlayLayer({ children }: { children: React.ReactNode }): React.ReactElement {
     return <div style={OVERLAY_STYLE}>{children}</div>
 }
 
-export interface ChartProps {
-    series: Series[]
+export interface ChartProps<Meta = unknown> {
+    series: Series<Meta>[]
     labels: string[]
     config?: ChartConfig
     theme: ChartTheme
     createScales: CreateScalesFn
-    draw: (args: ChartDrawArgs) => void
-    tooltip?: (ctx: TooltipContext) => React.ReactNode
-    onPointClick?: (data: PointClickData) => void
+    /** Static layer — grid, lines, areas, points. Redrawn only when chart inputs change. */
+    drawStatic: (args: ChartDrawArgs) => void
+    /** Hover overlay — highlight rings only. Redrawn on every hoverIndex change. */
+    drawHover: (args: ChartDrawArgs) => void
+    tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
+    onPointClick?: (data: PointClickData<Meta>) => void
     className?: string
+    /** `data-attr` applied to the chart wrapper. Lets product-level tests
+     *  (`waitForSelector: '[data-attr=…] > canvas'`) target a chart instance
+     *  without having to know its className. */
+    dataAttr?: string
     children?: React.ReactNode
-    /** Resolves the y-value for a series at a given index. Defaults to series.data[index]. */
+    /** Resolves the y-value for a series at a given index. Defaults to series.data[index].
+     *  Identity is read live for tooltip values and overlays, but the pinned-tooltip
+     *  rebuild only refires when `series`, `labels`, or `scales` change. Callers that
+     *  derive values from data not reflected in those (e.g. an external "%" toggle)
+     *  should ensure that toggle also updates `series` or the chart's scales — otherwise
+     *  a held pin will keep showing values from the previous resolver. */
     resolveValue?: ResolveValueFn
+    /** Required for horizontal orientation — maps labels to the coordinate on the categorical
+     *  axis (y in horizontal mode). Should be referentially stable; non-stable identities
+     *  invalidate the interaction memo on every render. */
+    labelToCoord?: (label: string) => number | undefined
 }
 
-const DEFAULT_MARGINS: ChartMargins = { top: 16, right: 16, bottom: 32, left: 48 }
-
-export function Chart({
+export function Chart<Meta = unknown>({
     series,
     labels,
     config,
     theme,
     createScales: createScalesFn,
-    draw,
+    drawStatic,
+    drawHover,
     tooltip: renderTooltip = DefaultTooltip,
     onPointClick,
     className,
+    dataAttr,
     children,
     resolveValue,
-}: ChartProps): React.ReactElement {
+    labelToCoord,
+}: ChartProps<Meta>): React.ReactElement {
     const {
         xTickFormatter,
         yTickFormatter,
         hideXAxis = false,
         hideYAxis = false,
-        showTooltip = true,
-        pinnableTooltip = false,
+        tooltip: tooltipConfig,
         showCrosshair = false,
-        goalLines,
+        axisOrientation = 'vertical',
     } = config ?? {}
+    const interactionAxis: 'x' | 'y' = axisOrientation === 'horizontal' ? 'y' : 'x'
+    const {
+        enabled: showTooltip = true,
+        pinnable: pinnableTooltip = false,
+        placement: tooltipPlacement = 'follow-data',
+    } = tooltipConfig ?? {}
 
-    const margins = useMemo<ChartMargins>(() => {
-        const m = { ...DEFAULT_MARGINS }
-        if (hideXAxis) {
-            m.bottom = 8
-        }
-        if (hideYAxis) {
-            m.left = 8
-        }
-        return m
-    }, [hideXAxis, hideYAxis])
+    const margins = useChartMargins({
+        series,
+        labels,
+        hideXAxis,
+        hideYAxis,
+        xTickFormatter,
+        yTickFormatter,
+        axisOrientation,
+    })
 
-    const { canvasRef, wrapperRef, dimensions, ctx } = useChartCanvas({ margins })
+    const { canvasRef, overlayCanvasRef, wrapperRef, dimensions, ctx, overlayCtx } = useChartCanvas({ margins })
 
-    const coloredSeries = useMemo(
+    const coloredSeries = useMemo<ResolvedSeries<Meta>[]>(
         () =>
             series.map((s, i) => ({
                 ...s,
@@ -107,16 +148,9 @@ export function Chart({
         return createScalesFn(coloredSeries, labels, dimensions)
     }, [coloredSeries, labels, dimensions, createScalesFn])
 
-    const resolvedYFormatter = useMemo(() => {
-        if (yTickFormatter) {
-            return yTickFormatter
-        }
-        const ticks = scales?.yTicks() ?? []
-        const domainMax = ticks.length > 0 ? Math.abs(Math.max(...ticks)) : 1
-        return (v: number) => autoFormatYTick(v, domainMax)
-    }, [yTickFormatter, scales])
+    const { left: resolvedYFormatter, right: resolvedYRightFormatter } = useResolvedYFormatters(scales, yTickFormatter)
 
-    const { hoverIndex, tooltipCtx, handlers } = useChartInteraction({
+    const { hoverIndex, tooltipCtx, handlers } = useChartInteraction<Meta>({
         scales,
         dimensions,
         labels,
@@ -127,22 +161,51 @@ export function Chart({
         pinnable: pinnableTooltip,
         onPointClick,
         resolveValue,
+        interactionAxis,
+        labelToCoord,
     })
+
+    // ref keeps composedDrawHover stable across drawHover identity changes
+    const drawHoverRef = useLatest(drawHover)
+    const composedDrawHover = useMemo(
+        () =>
+            composeDrawHoverWithCrosshair(() => drawHoverRef.current, {
+                crosshairColor: theme.crosshairColor,
+                showCrosshair,
+                axisOrientation,
+                labelToCoord,
+            }),
+        [showCrosshair, theme.crosshairColor, axisOrientation, labelToCoord]
+    )
 
     useChartDraw({
         ctx,
+        overlayCtx,
         dimensions,
         scales,
         series: coloredSeries,
         labels,
         hoverIndex,
         theme,
-        draw,
+        drawStatic,
+        drawHover: composedDrawHover,
     })
 
-    const cursorStyle = hoverIndex >= 0 && onPointClick ? 'pointer' : 'default'
+    const wrapperStyle = hoverIndex >= 0 && onPointClick ? WRAPPER_STYLE_POINTER : WRAPPER_STYLE_DEFAULT
 
-    const contextValue = useMemo(() => {
+    const ariaLabel = useMemo(() => {
+        const visible = coloredSeries.reduce((n, s) => n + (s.visibility?.excluded ? 0 : 1), 0)
+        return `Chart with ${visible} data series`
+    }, [coloredSeries])
+
+    const canvasBounds = useCallback(
+        (): DOMRect | null => canvasRef.current?.getBoundingClientRect() ?? null,
+        [canvasRef]
+    )
+
+    const stableResolveValue = useStableResolveValue(resolveValue)
+
+    const layoutValue = useMemo<ChartLayoutContextValue | null>(() => {
         if (!scales || !dimensions) {
             return null
         }
@@ -151,56 +214,55 @@ export function Chart({
             dimensions,
             labels,
             series: coloredSeries,
-            hoverIndex,
+            theme,
+            resolveValue: stableResolveValue,
+            canvasBounds,
         }
-    }, [scales, dimensions, labels, coloredSeries, hoverIndex])
+    }, [scales, dimensions, labels, coloredSeries, theme, stableResolveValue, canvasBounds])
+
+    const hoverValue = useMemo<ChartHoverContextValue>(() => ({ hoverIndex }), [hoverIndex])
 
     return (
-        <ChartErrorBoundary>
-            <ChartContext.Provider value={contextValue}>
+        <ChartLayoutContext.Provider value={layoutValue}>
+            <ChartHoverContext.Provider value={hoverValue}>
                 <div
                     ref={wrapperRef}
                     className={className}
-                    style={{ position: 'relative', width: '100%', flex: 1, minHeight: 0, cursor: cursorStyle }}
+                    data-attr={dataAttr}
+                    style={wrapperStyle}
                     onMouseMove={handlers.onMouseMove}
                     onMouseLeave={handlers.onMouseLeave}
                     onClick={handlers.onClick}
                 >
-                    <canvas
-                        ref={canvasRef}
-                        role="img"
-                        aria-label={`Chart with ${coloredSeries.reduce((n, s) => n + (s.hidden ? 0 : 1), 0)} data series`}
-                        style={{
-                            position: 'absolute',
-                            top: 0,
-                            left: 0,
-                            cursor: cursorStyle,
-                        }}
-                    />
+                    <canvas ref={canvasRef} role="img" aria-label={ariaLabel} style={STATIC_CANVAS_STYLE} />
+                    <canvas ref={overlayCanvasRef} aria-hidden="true" style={OVERLAY_CANVAS_STYLE} />
 
                     {dimensions && scales && (
                         <OverlayLayer>
                             <AxisLabels
                                 xTickFormatter={xTickFormatter}
                                 yTickFormatter={resolvedYFormatter}
+                                yRightTickFormatter={resolvedYRightFormatter}
                                 hideXAxis={hideXAxis}
                                 hideYAxis={hideYAxis}
                                 axisColor={theme.axisColor}
+                                orientation={axisOrientation}
+                                labelToCoord={labelToCoord}
                             />
 
-                            {showCrosshair && <Crosshair color={theme.crosshairColor} />}
-
-                            {goalLines && goalLines.length > 0 && <GoalLines goalLines={goalLines} />}
+                            {children}
 
                             {tooltipCtx && showTooltip && (
-                                <Tooltip context={tooltipCtx} renderTooltip={renderTooltip} />
+                                <Tooltip
+                                    context={tooltipCtx}
+                                    renderTooltip={renderTooltip}
+                                    placement={tooltipPlacement}
+                                />
                             )}
-
-                            {children}
                         </OverlayLayer>
                     )}
                 </div>
-            </ChartContext.Provider>
-        </ChartErrorBoundary>
+            </ChartHoverContext.Provider>
+        </ChartLayoutContext.Provider>
     )
 }

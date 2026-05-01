@@ -98,7 +98,16 @@ export const getExperimentChangeDescription = (
                 )
             }
 
-            return null
+            if (action === 'changed' && after !== null) {
+                return (
+                    <span>
+                        changed the conclusion to <ExperimentConclusionTag conclusion={after as ExperimentConclusion} />
+                        &nbsp;for
+                    </span>
+                )
+            }
+
+            return 'updated conclusion for'
         })
         .with({ field: 'metrics', action: 'created', before: null }, () => 'added the first metric to')
         .with({ field: 'metrics', action: 'changed' }, ({ before, after }) =>
@@ -171,5 +180,13 @@ export const getExperimentChangeDescription = (
 
             return changes.filter(Boolean) as (string | JSX.Element)[]
         })
-        .otherwise(() => null)
+        .otherwise(({ field, action }) => {
+            // Fallback for unhandled fields - ensures all activity is visible
+            const fieldName = field.replace(/_/g, ' ')
+            return match(action)
+                .with('created', () => `added ${fieldName}`)
+                .with('deleted', () => `removed ${fieldName}`)
+                .with('changed', () => `updated ${fieldName}`)
+                .otherwise(() => `modified ${fieldName}`)
+        })
 }

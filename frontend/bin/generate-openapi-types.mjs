@@ -29,6 +29,9 @@ if (!fs.existsSync(schemaPath)) {
 // Useful for finding type overlaps to identify which viewsets need tagging
 const generateAll = process.argv.includes('--all')
 
+// --no-zod flag: skip Zod schema generation
+const skipZod = process.argv.includes('--no-zod')
+
 /**
  * Load product mappings for routing endpoints to output directories.
  *
@@ -380,8 +383,44 @@ let generated = 0
 let failed = 0
 const entries = [...schemasByOutput.entries()]
 
+/**
+ * Orval emits `export const fooDefault = null` + `.default(fooDefault)` for
+ * serializer fields with `default=None`. Zod rejects `.default(null)` on typed
+ * schemas (number, string, etc.). Replace with `.nullish().default(null)` to
+ * preserve Django's default=None semantics (missing key → null, not undefined).
+ */
+function fixNullDefaults(filePath) {
+    let content = fs.readFileSync(filePath, 'utf-8')
+
+    const nullConsts = new Set()
+    for (const m of content.matchAll(/export const (\w+Default)\s*=\s*null\s*;/g)) {
+        nullConsts.add(m[1])
+    }
+    if (nullConsts.size === 0) {
+        return
+    }
+
+    const namesPattern = [...nullConsts].map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')
+    const defaultRe = new RegExp('\\.default\\(\\s*(?:' + namesPattern + ')\\s*[,)]', 'g')
+    const constRe = new RegExp('export const (?:' + namesPattern + ')\\s*=\\s*null\\s*;', 'g')
+    content = content.replace(defaultRe, '.nullish().default(null)')
+    content = content.replace(constRe, '')
+
+    fs.writeFileSync(filePath, content)
+}
+
+/**
+ * Annotate top-level Zod exports with @__PURE__ so bundlers can tree-shake
+ * unused schemas out of the bundle.
+ */
+function annotatePureZodExports(filePath) {
+    const content = fs.readFileSync(filePath, 'utf-8')
+    const annotated = content.replace(/^(export const \w+ =) (zod\.)/gm, '$1 /* @__PURE__ */ $2')
+    fs.writeFileSync(filePath, annotated)
+}
+
 // Prepare all jobs first (write temp files, log info)
-const jobs = entries.map(([outputDir, groupedSchema]) => {
+const fetchJobs = entries.map(([outputDir, groupedSchema]) => {
     const pathCount = Object.keys(groupedSchema.paths).length
     const schemaCount = Object.keys(groupedSchema.components?.schemas || {}).length
     // Use product folder name as label (e.g., "batch_exports" from "products/batch_exports/frontend/generated")
@@ -432,27 +471,178 @@ const jobs = entries.map(([outputDir, groupedSchema]) => {
         },
     }
 
-    return { tempFile, outputDir, label, config }
+    return { tempFile, outputDir, label, config, kind: 'fetch' }
 })
 
+/**
+ * Detect schemas that would cause Orval's Zod output to blow up and replace
+ * them with opaque { type: 'object' }.
+ *
+ * Orval's Zod client fully inlines every $ref instead of using z.lazy(),
+ * so recursive types and deeply nested unions (like HogQL query schemas)
+ * expand exponentially. TypeScript interfaces handle this fine via forward
+ * references, so this transform only runs for the Zod pass.
+ *
+ * We estimate each schema's "expanded node count" — how many AST nodes
+ * would result if all $refs were recursively inlined. Anything above the
+ * threshold gets replaced with an opaque object.
+ *
+ * Mutates the schema in place. Returns the set of opaqued schema names.
+ */
+const ZOD_EXPANDED_NODE_LIMIT = 1000
+
+function opaqueDeepSchemas(schema) {
+    const allSchemas = schema.components?.schemas ?? {}
+    const cache = new Map()
+
+    function expandedSize(name, seen) {
+        if (cache.has(name)) {
+            return cache.get(name)
+        }
+        if (seen.has(name)) {
+            return Infinity
+        } // true cycle — will exceed any limit
+        const defn = allSchemas[name]
+        if (!defn) {
+            return 1
+        }
+
+        const nextSeen = new Set(seen)
+        nextSeen.add(name)
+
+        function countNodes(obj) {
+            if (!obj || typeof obj !== 'object') {
+                return 1
+            }
+            if (Array.isArray(obj)) {
+                return obj.reduce((sum, item) => sum + countNodes(item), 0)
+            }
+            if (obj.$ref) {
+                const refName = obj.$ref.replace('#/components/schemas/', '')
+                return expandedSize(refName, nextSeen)
+            }
+            let total = 0
+            for (const v of Object.values(obj)) {
+                total += countNodes(v)
+            }
+            return Math.max(total, 1)
+        }
+
+        const size = countNodes(defn)
+        cache.set(name, size)
+        return size
+    }
+
+    // Compute expanded sizes and collect schemas that exceed the limit
+    const opaqued = new Set()
+    for (const name of Object.keys(allSchemas)) {
+        if (expandedSize(name, new Set()) > ZOD_EXPANDED_NODE_LIMIT) {
+            opaqued.add(name)
+        }
+    }
+
+    // Replace with opaque object type
+    for (const name of opaqued) {
+        allSchemas[name] = {
+            type: 'object',
+            description: `Deep/recursive schema (opaque in Zod — use TypeScript types for full shape)`,
+            additionalProperties: true,
+        }
+    }
+
+    return opaqued
+}
+
+// Prepare Zod schema jobs — use a separate schema copy with cyclic refs opaqued
+const zodJobs = skipZod
+    ? []
+    : fetchJobs.map((fetchJob) => {
+          // Deep-copy the schema and opaque deeply nested schemas for Zod
+          const zodSchema = JSON.parse(fs.readFileSync(fetchJob.tempFile, 'utf-8'))
+          const opaqued = opaqueDeepSchemas(zodSchema)
+          const zodTempFile = path.join(tmpDir, `${fetchJob.label}.zod.json`)
+          fs.writeFileSync(zodTempFile, JSON.stringify(zodSchema, null, 2))
+          if (opaqued.size > 0) {
+              console.log(
+                  `   🔄 ${fetchJob.label}: opaqued ${opaqued.size} recursive schema(s): ${[...opaqued].join(', ')}`
+              )
+          }
+
+          const zodOutputFile = path.join(fetchJob.outputDir, 'api.zod.ts')
+          const config = {
+              input: zodTempFile,
+              output: {
+                  target: zodOutputFile,
+                  mode: 'split',
+                  client: 'zod',
+                  prettier: false,
+                  override: {
+                      header: (info) => [
+                          'Auto-generated Zod validation schemas from the Django backend OpenAPI schema.',
+                          'To modify these schemas, update the Django serializers or views, then run:',
+                          '  hogli build:openapi',
+                          'Questions or issues? #team-devex on Slack',
+                          '',
+                          ...(info?.title ? [info.title] : []),
+                          ...(info?.version ? ['OpenAPI spec version: ' + info.version] : []),
+                      ],
+                      zod: {
+                          generate: {
+                              param: false,
+                              query: false,
+                              header: false,
+                              body: true,
+                              response: false,
+                          },
+                      },
+                      components: {
+                          schemas: { suffix: 'Api' },
+                      },
+                  },
+              },
+          }
+          return {
+              tempFile: zodTempFile,
+              outputDir: fetchJob.outputDir,
+              label: fetchJob.label,
+              config,
+              kind: 'zod',
+          }
+      })
+
+const allJobs = [...fetchJobs, ...zodJobs]
+
 console.log('')
-console.log(`Running ${jobs.length} orval generations in parallel...`)
+if (zodJobs.length > 0) {
+    console.log(`Running ${fetchJobs.length} fetch + ${zodJobs.length} zod generations in parallel...`)
+} else {
+    console.log(`Running ${fetchJobs.length} orval generations in parallel...`)
+}
 console.log('')
 
 // Run all orval generations in parallel (in-process, no subprocess overhead)
-const results = await runOrvalParallel(jobs.map((j) => ({ config: j.config, label: j.label })))
+const results = await runOrvalParallel(allJobs.map((j) => ({ config: j.config, label: `${j.label}:${j.kind}` })))
 
 // Report results and collect output dirs for formatting
 const outputDirs = []
 for (let i = 0; i < results.length; i++) {
     const result = results[i]
-    const job = jobs[i]
+    const job = allJobs[i]
     if (result.status === 'fulfilled') {
-        console.log(`   ✓ ${job.label} → ${path.relative(repoRoot, job.outputDir)}`)
-        outputDirs.push(job.outputDir)
-        generated++
+        if (job.kind === 'zod') {
+            const zodFile = path.join(job.outputDir, 'api.zod.ts')
+            fixNullDefaults(zodFile)
+            annotatePureZodExports(zodFile)
+        }
+        console.log(`   ✓ ${job.label}:${job.kind} → ${path.relative(repoRoot, job.outputDir)}`)
+        if (!outputDirs.includes(job.outputDir)) {
+            outputDirs.push(job.outputDir)
+        }
+        if (job.kind === 'fetch') {
+            generated++
+        }
     } else {
-        console.error(`   ✗ ${job.label}: ${result.reason?.message || result.reason}`)
+        console.error(`   ✗ ${job.label}:${job.kind}: ${result.reason?.message || result.reason}`)
         failed++
     }
 }

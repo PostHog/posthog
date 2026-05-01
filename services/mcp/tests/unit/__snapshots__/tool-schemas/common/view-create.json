@@ -1,6 +1,5 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "description": "Shared methods for DataWarehouseSavedQuery serializers.\n\nThis mixin is intended to be used with serializers.ModelSerializer subclasses.",
     "properties": {
         "dag_id": {
             "anyOf": [
@@ -29,7 +28,7 @@
             "type": "boolean"
         },
         "name": {
-            "description": "Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.",
+            "description": "Unique name for the view. Used as the table name in HogQL queries. Must not conflict with existing table names.",
             "maxLength": 128,
             "type": "string"
         },
@@ -40,7 +39,7 @@
                     "type": "null"
                 }
             ],
-            "description": "HogQL query definition as a JSON object with a \"query\" key containing the SQL string and a \"kind\" key containing the query type. Example: {\"query\": \"SELECT * FROM events LIMIT 100\", \"kind\": \"HogQLQuery\"}"
+            "description": "HogQL query definition as a JSON object. Must contain a \"query\" key with the SQL string. Example: {\"query\": \"SELECT * FROM events LIMIT 100\"}"
         }
     },
     "required": ["name"],

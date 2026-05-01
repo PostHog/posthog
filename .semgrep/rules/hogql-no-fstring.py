@@ -478,6 +478,33 @@ class TestFstringSafeComputedExpressions:
 # ============================================================================
 
 
+class TestFstringSafeExperimentQueryBuilder:
+    def test_common_ctes(self):
+        common_ctes = "exposures AS (...), metric_events AS (...)"
+        # ok: hogql-fstring-audit
+        parse_select(f"WITH {common_ctes} SELECT variant, count(entity_id) FROM entity_metrics")
+
+    def test_ctes_sql(self):
+        ctes_sql = "exposures AS (...)"
+        # ok: hogql-fstring-audit
+        parse_select(f"WITH {ctes_sql} SELECT variant FROM entity_metrics")
+
+    def test_events_alias(self):
+        events_alias = "metric_events"
+        # ok: hogql-fstring-audit
+        parse_expr(f"{events_alias}.timestamp >= exposures.first_exposure_time")
+
+    def test_column_ref(self):
+        column_ref = "metric_events.value"
+        # ok: hogql-fstring-audit
+        parse_expr(f"coalesce(min(toFloat({column_ref})), 0)")
+
+
+# ============================================================================
+# hogql-fstring-audit: SHOULD NOT FIND - Date filter patterns
+# ============================================================================
+
+
 class TestFstringSafeDateFilters:
     def test_date_to_filter(self):
         date_to_filter = "toDateTime('2024-01-01')"

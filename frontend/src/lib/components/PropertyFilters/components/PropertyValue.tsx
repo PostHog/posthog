@@ -13,6 +13,7 @@ import { AssigneeSelect } from '@posthog/products-error-tracking/frontend/compon
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
+import { DistinctIdSelect } from 'lib/components/PropertyFilters/components/DistinctIdSelect'
 import { GroupKeySelect } from 'lib/components/PropertyFilters/components/GroupKeySelect'
 import { PropertyFilterBetween } from 'lib/components/PropertyFilters/components/PropertyFilterBetween'
 import { PropertyFilterDatePicker } from 'lib/components/PropertyFilters/components/PropertyFilterDatePicker'
@@ -21,7 +22,15 @@ import { propertyFilterTypeToPropertyDefinitionType } from 'lib/components/Prope
 import { dayjs } from 'lib/dayjs'
 import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
-import { formatDate, isOperatorBetween, isOperatorDate, isOperatorFlag, isOperatorMulti, toString } from 'lib/utils'
+import {
+    formatDate,
+    isOperatorBetween,
+    isOperatorDate,
+    isOperatorFlag,
+    isOperatorMulti,
+    isOperatorRegex,
+    toString,
+} from 'lib/utils'
 
 import {
     PROPERTY_FILTER_TYPES_WITH_ALL_TIME_SUGGESTIONS,
@@ -94,8 +103,10 @@ export function PropertyValue({
 
     const isNumericProperty =
         propertyKey && describeProperty(propertyKey, propertyDefinitionType) === PropertyType.Numeric
+    const shouldRestrictToNumericInput = isNumericProperty && !isOperatorRegex(operator)
 
     const isGroupKeyProperty = propertyKey === '$group_key' && groupTypeIndex != null
+    const isDistinctIdProperty = propertyKey === 'distinct_id' && type === PropertyFilterType.Person
 
     // TODO: Add semver input validation when a semver operator is selected.
     // This will require detecting isOperatorSemver(operator) and validating the input
@@ -131,6 +142,7 @@ export function PropertyValue({
     useEffect(() => {
         if (
             !isGroupKeyProperty &&
+            !isDistinctIdProperty &&
             !isAssigneeProperty &&
             preloadValues &&
             propertyOptions?.status !== 'loading' &&
@@ -138,12 +150,13 @@ export function PropertyValue({
         ) {
             load('')
         }
-    }, [preloadValues, load, propertyOptions?.status, isGroupKeyProperty, isAssigneeProperty])
+    }, [preloadValues, load, propertyOptions?.status, isGroupKeyProperty, isDistinctIdProperty, isAssigneeProperty])
 
     // load options when propertyKey changes, unless it's a date/time property (since those don't have options to load)
     useEffect(() => {
         if (
             !isGroupKeyProperty &&
+            !isDistinctIdProperty &&
             !isAssigneeProperty &&
             !isDateTimeProperty &&
             propertyOptions?.status !== 'loading' &&
@@ -151,7 +164,15 @@ export function PropertyValue({
         ) {
             load('')
         }
-    }, [propertyKey, isDateTimeProperty, isGroupKeyProperty, isAssigneeProperty, load, propertyOptions?.status])
+    }, [
+        propertyKey,
+        isDateTimeProperty,
+        isGroupKeyProperty,
+        isDistinctIdProperty,
+        isAssigneeProperty,
+        load,
+        propertyOptions?.status,
+    ])
 
     // set initial suggested values when options are loaded, but only if there is no search input
     // (to avoid overwriting suggestions based on search input)
@@ -258,6 +279,19 @@ export function PropertyValue({
             <GroupKeySelect
                 value={value ?? null}
                 groupTypeIndex={groupTypeIndex}
+                operator={operator}
+                onChange={setValue}
+                size={size}
+                autoFocus={autoFocus}
+                forceSingleSelect={forceSingleSelect}
+            />
+        )
+    }
+
+    if (isDistinctIdProperty && editable) {
+        return (
+            <DistinctIdSelect
+                value={value ?? null}
                 operator={operator}
                 onChange={setValue}
                 size={size}
@@ -395,7 +429,7 @@ export function PropertyValue({
                 singleValueAsSnack
                 allowCustomValues={propertyOptions?.allowCustomValues ?? true}
                 inputTransform={
-                    isNumericProperty
+                    shouldRestrictToNumericInput
                         ? (input: string) => {
                               // Only allow numeric characters, decimal point, and +/- signs
                               return input.replace(/[^0-9+\-.]/g, '')

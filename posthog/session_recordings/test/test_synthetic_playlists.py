@@ -231,9 +231,7 @@ class TestSyntheticPlaylists(APIBaseTest):
         expected_synthetic_count = 7 if HAS_EE else 6
 
         page1_data = self._get_playlists_response("?limit=20")
-        page1_synthetic_count = self._count_synthetic_playlists(page1_data["results"])
-
-        assert page1_synthetic_count == expected_synthetic_count
+        assert len(page1_data["results"]) == 20
         assert page1_data["count"] == 25 + expected_synthetic_count
 
         page2_data = self._get_playlists_response("?limit=20&offset=20")
@@ -241,6 +239,15 @@ class TestSyntheticPlaylists(APIBaseTest):
 
         assert page2_synthetic_count == 0
         assert page2_data["count"] == 25 + expected_synthetic_count
+
+    def test_pagination_limit_constrains_combined_results(self) -> None:
+        expected_synthetic_count = 7 if HAS_EE else 6
+
+        # With no DB playlists, requesting limit=3 should return at most 3
+        # synthetic playlists, not all of them.
+        data = self._get_playlists_response("?limit=3")
+        assert len(data["results"]) == 3
+        assert data["count"] == expected_synthetic_count
 
     @parameterized.expand(
         [

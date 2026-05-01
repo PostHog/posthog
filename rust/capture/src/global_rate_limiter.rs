@@ -25,6 +25,7 @@ fn truncate_str(s: &str, max_chars: usize) -> &str {
 }
 
 pub enum GlobalRateLimitKey<'a> {
+    /// Token-only key. Not currently used in production call sites.
     Token(&'a str),
     TokenDistinctId(&'a str, &'a str),
 }
@@ -45,21 +46,17 @@ pub struct GlobalRateLimiter {
 }
 
 impl GlobalRateLimiter {
-    /// Build both rate limiter instances from the capture config, sharing a single
-    /// Redis client. If a dedicated Redis URL is configured, creates a separate client
-    /// (optionally with read/write split). Falls back to `shared_redis` when no
+    /// Build the token+distinct_id rate limiter from the capture config, sharing a
+    /// single Redis client. If a dedicated Redis URL is configured, creates a separate
+    /// client (optionally with read/write split). Falls back to `shared_redis` when no
     /// dedicated URL is set.
-    ///
-    /// Returns `(token_distinct_id_limiter, token_limiter)`.
     pub async fn try_from_config(
         config: &Config,
         shared_redis: Arc<dyn Client + Send + Sync>,
-    ) -> anyhow::Result<(Self, Self)> {
+    ) -> anyhow::Result<Self> {
         let redis_client = Self::build_redis_client(config, shared_redis).await?;
         let redis_instances = vec![redis_client];
-        let td_limiter = Self::new_token_distinct_id(config, redis_instances.clone())?;
-        let token_limiter = Self::new_token(config, redis_instances)?;
-        Ok((td_limiter, token_limiter))
+        Self::new_token_distinct_id(config, redis_instances)
     }
 
     /// Create a per-(token, distinct_id) rate limiter sharing the given Redis instances.
@@ -86,6 +83,7 @@ impl GlobalRateLimiter {
     }
 
     /// Create a per-token rate limiter sharing the given Redis instances.
+    /// Not currently wired into production call sites -- retained for future use.
     pub fn new_token(
         config: &Config,
         redis_instances: Vec<Arc<dyn Client + Send + Sync>>,
@@ -234,6 +232,61 @@ impl GlobalRateLimiter {
         Self {
             limiter: Box::new(limiter),
         }
+    }
+
+    /// Test helper: build a `GlobalRateLimiter` that returns `Limited` for any
+    /// key in `limited_keys` and `Allowed` otherwise. Custom limits always
+    /// return `NotApplicable`. Shared across capture pipeline tests that need
+    /// to simulate per-key global rate limiting.
+    #[cfg(test)]
+    pub(crate) fn mock_limiting(limited_keys: &[&str]) -> Self {
+        use async_trait::async_trait;
+        use std::collections::HashSet;
+
+        struct MockLimitingLimiter {
+            limited_keys: HashSet<String>,
+        }
+
+        #[async_trait]
+        impl CommonGlobalRateLimiter for MockLimitingLimiter {
+            async fn check_limit(
+                &self,
+                key: &str,
+                _count: u64,
+                _timestamp: Option<DateTime<Utc>>,
+            ) -> EvalResult {
+                if self.limited_keys.contains(key) {
+                    EvalResult::Limited(GlobalRateLimitResponse {
+                        key: key.to_string(),
+                        current_count: 100.0,
+                        threshold: 10,
+                        window_interval: std::time::Duration::from_secs(60),
+                        sync_interval: std::time::Duration::from_secs(15),
+                        is_custom_limited: false,
+                    })
+                } else {
+                    EvalResult::Allowed
+                }
+            }
+
+            async fn check_custom_limit(
+                &self,
+                _key: &str,
+                _count: u64,
+                _timestamp: Option<DateTime<Utc>>,
+            ) -> EvalResult {
+                EvalResult::NotApplicable
+            }
+
+            fn is_custom_key(&self, _key: &str) -> bool {
+                false
+            }
+
+            fn shutdown(&mut self) {}
+        }
+
+        let limited_keys: HashSet<String> = limited_keys.iter().map(|k| k.to_string()).collect();
+        Self::new_with(MockLimitingLimiter { limited_keys })
     }
 
     // In capture deploys, the custom keys and rate limit thresholds should be

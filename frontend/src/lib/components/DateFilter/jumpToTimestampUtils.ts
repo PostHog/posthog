@@ -83,24 +83,30 @@ export function computeDateRange(
     direction: WindowDirection
 ): { date_from: string; date_to: string } {
     const minutes = WINDOW_MINUTES[windowSize]
-    const fmt = 'YYYY-MM-DDTHH:mm:ss'
+    const fmt = 'YYYY-MM-DDTHH:mm:ss[Z]'
 
     switch (direction) {
         case 'before':
             return {
-                date_from: timestamp.subtract(minutes, 'minute').format(fmt),
-                date_to: timestamp.format(fmt),
+                date_from: timestamp.subtract(minutes, 'minute').utc().format(fmt),
+                date_to: timestamp.utc().format(fmt),
             }
         case 'after':
             return {
-                date_from: timestamp.format(fmt),
-                date_to: timestamp.add(minutes, 'minute').format(fmt),
+                date_from: timestamp.utc().format(fmt),
+                date_to: timestamp.add(minutes, 'minute').utc().format(fmt),
             }
         case 'around':
         default:
             return {
-                date_from: timestamp.subtract(minutes / 2, 'minute').format(fmt),
-                date_to: timestamp.add(minutes / 2, 'minute').format(fmt),
+                date_from: timestamp
+                    .subtract(minutes / 2, 'minute')
+                    .utc()
+                    .format(fmt),
+                date_to: timestamp
+                    .add(minutes / 2, 'minute')
+                    .utc()
+                    .format(fmt),
             }
     }
 }

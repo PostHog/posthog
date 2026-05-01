@@ -1,6 +1,6 @@
 import { Position, Edge as ReactFlowEdge, Node as ReactFlowNode } from '@xyflow/react'
 
-import { DataModelingJobStatus, DataModelingNodeType, DataWarehouseSyncInterval } from '~/types'
+import { DataModelingJobStatus, DataModelingNodeType, DataModelingSyncInterval } from '~/types'
 
 export interface NodeHandle {
     id?: string
@@ -27,7 +27,7 @@ export interface NodeData extends Record<string, unknown> {
     userTag?: string
     lastRunAt?: string
     lastJobStatus?: DataModelingJobStatus
-    syncInterval?: DataWarehouseSyncInterval
+    syncInterval?: DataModelingSyncInterval
 }
 
 export interface EdgeData extends Record<string, unknown> {

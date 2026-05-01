@@ -10,9 +10,10 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 
-import { DataModelingJobStatus, DataModelingNodeType, DataWarehouseSyncInterval } from '~/types'
+import { DataModelingJobStatus, DataModelingNodeType, DataModelingSyncInterval } from '~/types'
 
-import { syncIntervalToShorthand } from '../../utils'
+import { syncIntervalToShorthand } from 'products/data_warehouse/frontend/utils'
+
 import { dataModelingLogic } from '../dataModelingLogic'
 import type { ElkDirection, NodeData, NodeHandle } from './types'
 
@@ -156,7 +157,7 @@ function NodeMetadata({
     lastJobStatus,
 }: {
     type: DataModelingNodeType
-    syncInterval?: DataWarehouseSyncInterval
+    syncInterval?: DataModelingSyncInterval
     lastRunAt?: string
     lastJobStatus?: DataModelingJobStatus | null
 }): JSX.Element | null {

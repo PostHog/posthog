@@ -33,7 +33,7 @@
                      WHERE team_id = 99999
                      GROUP BY id
                      HAVING is_deleted = 0)
-                  WHERE has(['1@posthog.com'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '')) ) ))
+                  WHERE has(['1@posthog.com'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '')))))
          OR (distinct_id IN
                (SELECT distinct_id
                 FROM
@@ -53,7 +53,7 @@
                         WHERE team_id = 99999
                         GROUP BY id
                         HAVING is_deleted = 0)
-                     WHERE has(['2@posthog.com'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '')) ) )))
+                     WHERE has(['2@posthog.com'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', ''))))))
   '''
 # ---
 # name: test_parse_groups_persons_edge_case_with_single_filter

@@ -112,11 +112,7 @@ async def test_interceptor_calls_histogram_metrics(
         )
 
         mocked_meter.assert_any_call(
-            {
-                "interval": "hour",
-                "status": "COMPLETED",
-                "exception": "",
-            }
+            {"interval": "hour", "status": "COMPLETED", "exception": "", "workflow_type": "postgres-export"}
         )
         mocked_meter.return_value.create_histogram_timedelta.assert_any_call(
             name="batch_exports_workflow_interval_execution_latency",

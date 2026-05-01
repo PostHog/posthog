@@ -1,9 +1,10 @@
-import FuseClass from 'fuse.js'
+import FuseClass, { FuseResult } from 'fuse.js'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { createFuse } from 'lib/utils/fuseSearch'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -64,9 +65,8 @@ export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>([
         dashboardsFuse: [
             () => [dashboardsModel.selectors.nameSortedDashboards],
             (nameSortedDashboards): Fuse => {
-                return new FuseClass(nameSortedDashboards || [], {
+                return createFuse(nameSortedDashboards || [], {
                     keys: ['name', 'description', 'tags'],
-                    threshold: 0.3,
                 })
             },
         ],
@@ -74,7 +74,7 @@ export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>([
             (s) => [s.searchQuery, s.dashboardsFuse, dashboardsModel.selectors.nameSortedDashboards],
             (searchQuery, dashboardsFuse, nameSortedDashboards): DashboardBasicType[] =>
                 searchQuery.length
-                    ? dashboardsFuse.search(searchQuery).map((r: FuseClass.FuseResult<DashboardType>) => r.item)
+                    ? dashboardsFuse.search(searchQuery).map((r: FuseResult<DashboardType>) => r.item)
                     : nameSortedDashboards,
         ],
         currentDashboards: [

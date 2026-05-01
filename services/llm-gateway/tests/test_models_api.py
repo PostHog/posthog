@@ -79,12 +79,6 @@ MOCK_COST_DATA: dict[str, ModelCost] = {
         "supports_vision": True,
         "mode": "chat",
     },
-    "gemini-2.0-flash": {
-        "litellm_provider": "vertex_ai",
-        "max_input_tokens": 1048576,
-        "supports_vision": True,
-        "mode": "chat",
-    },
     "claude-sonnet-4-5-20260101": {
         "litellm_provider": "anthropic",
         "max_input_tokens": 200000,
@@ -118,7 +112,6 @@ def create_mock_settings() -> MagicMock:
     settings = MagicMock()
     settings.openai_api_key = "sk-test"
     settings.anthropic_api_key = "sk-ant-test"
-    settings.gemini_api_key = "gemini-test"
     settings.openrouter_api_key = "or-test"
     settings.fireworks_api_key = "fw-test"
     return settings
@@ -174,6 +167,14 @@ class TestListModelsEndpoint:
         assert "context_window" in model
         assert "supports_streaming" in model
         assert "supports_vision" in model
+
+    def test_truncation_policy_limit_is_non_zero(self, client: TestClient):
+        # Ensure truncation_policy.limit is always > 0 (prevents tool output breakage).
+        response = client.get("/v1/models")
+        for model in response.json()["data"]:
+            policy = model["truncation_policy"]
+            assert policy["mode"] in {"bytes", "tokens"}
+            assert policy["limit"] > 0, f"{model['id']} would truncate tool output to zero"
 
 
 class TestListModelsForProductEndpoint:

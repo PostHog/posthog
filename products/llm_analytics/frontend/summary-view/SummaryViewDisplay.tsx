@@ -143,7 +143,7 @@ export function SummaryViewDisplay({ trace, event, tree, autoGenerate }: Summary
 
             {summaryDataLoading && (
                 <div className="flex flex-col items-center gap-4 py-8">
-                    <Spinner />
+                    <Spinner captureTime />
                     <div className="text-muted">Generating summary...</div>
                 </div>
             )}

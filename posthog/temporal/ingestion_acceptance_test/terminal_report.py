@@ -24,7 +24,7 @@ def _format_header(result: TestSuiteResult) -> str:
 def _format_environment(result: TestSuiteResult) -> str:
     return (
         f"Environment: {result.environment.get('api_host', 'unknown')}\n"
-        f"Project ID:  {result.environment.get('project_id', 'unknown')}\n"
+        f"Team ID:     {result.environment.get('team_id', 'unknown')}\n"
         f"Timestamp:   {result.timestamp}\n"
     )
 

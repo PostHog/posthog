@@ -27,6 +27,6 @@ SESSION_RECORDING_V2_S3_BUCKET = os.getenv("SESSION_RECORDING_V2_S3_BUCKET", "po
 SESSION_RECORDING_V2_S3_PREFIX = os.getenv("SESSION_RECORDING_V2_S3_PREFIX", "session_recordings")
 
 if TEST or DEBUG:
-    RECORDING_API_URL = os.getenv("RECORDING_API_URL", "http://localhost:6738")
+    RECORDING_API_URL = os.getenv("RECORDING_API_URL", "http://localhost:6741")
 else:
     RECORDING_API_URL = os.getenv("RECORDING_API_URL", "")

@@ -57,6 +57,9 @@ class PluginAdmin(admin.ModelAdmin):
     ]
 
     def organization_link(self, plugin: Plugin):
+        if plugin.organization is None:
+            return "-"
+
         return format_html(
             '<a href="/admin/posthog/organization/{}/change/">{}</a>',
             plugin.organization.pk,

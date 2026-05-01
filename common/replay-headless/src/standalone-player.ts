@@ -32,7 +32,7 @@ async function init(config: PlayerConfig, bridge: HostBridge): Promise<void> {
         firstTimestamp,
         {
             skipInactivity: config.skipInactivity,
-            endTimestamp: config.endTimestamp,
+            endOffsetS: config.endOffsetS,
         },
         bridge
     )
@@ -45,7 +45,7 @@ async function init(config: PlayerConfig, bridge: HostBridge): Promise<void> {
     bridge.publishSegments(segments, firstTimestamp)
     bridge.signalStarted()
 
-    const startOffset = config.startTimestamp ? config.startTimestamp - setup.events[0].timestamp : 0
+    const startOffset = config.startOffsetS != null ? config.startOffsetS * 1000 : 0
     await bridge.waitForStart()
     controller.start(Math.max(0, startOffset))
 }

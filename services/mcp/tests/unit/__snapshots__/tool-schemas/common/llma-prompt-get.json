@@ -1,0 +1,22 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "content": {
+            "default": "full",
+            "description": "Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The outline field is always included.\n\n* `full` - full\n* `preview` - preview\n* `none` - none",
+            "enum": ["full", "preview", "none"],
+            "type": "string"
+        },
+        "prompt_name": {
+            "pattern": "^[^/]+$",
+            "type": "string"
+        },
+        "version": {
+            "description": "Specific prompt version to fetch. If omitted, the latest version is returned.",
+            "minimum": 1,
+            "type": "number"
+        }
+    },
+    "required": ["prompt_name"],
+    "type": "object"
+}

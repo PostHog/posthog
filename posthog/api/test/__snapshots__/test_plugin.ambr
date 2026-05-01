@@ -59,6 +59,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -96,6 +97,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -142,6 +144,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -164,6 +167,7 @@
          "posthog_organizationmembership"."level",
          "posthog_organizationmembership"."joined_at",
          "posthog_organizationmembership"."updated_at",
+         "posthog_organizationmembership"."invited_by_id",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -185,6 +189,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -235,7 +240,7 @@
   WHERE ("posthog_plugin"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
          OR "posthog_plugin"."is_global"
          OR "posthog_plugin"."id" IN
-           (SELECT U0."plugin_id"
+           (SELECT U0."plugin_id" AS "plugin_id"
             FROM "posthog_pluginconfig" U0
             INNER JOIN "posthog_team" U1 ON (U0."team_id" = U1."id")
             WHERE (NOT U0."deleted"
@@ -290,6 +295,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -304,7 +310,7 @@
   WHERE ("posthog_plugin"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
          OR "posthog_plugin"."is_global"
          OR "posthog_plugin"."id" IN
-           (SELECT U0."plugin_id"
+           (SELECT U0."plugin_id" AS "plugin_id"
             FROM "posthog_pluginconfig" U0
             INNER JOIN "posthog_team" U1 ON (U0."team_id" = U1."id")
             WHERE (NOT U0."deleted"
@@ -372,6 +378,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -409,6 +416,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -446,6 +454,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -492,6 +501,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -514,6 +524,7 @@
          "posthog_organizationmembership"."level",
          "posthog_organizationmembership"."joined_at",
          "posthog_organizationmembership"."updated_at",
+         "posthog_organizationmembership"."invited_by_id",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -535,6 +546,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -585,7 +597,7 @@
   WHERE ("posthog_plugin"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
          OR "posthog_plugin"."is_global"
          OR "posthog_plugin"."id" IN
-           (SELECT U0."plugin_id"
+           (SELECT U0."plugin_id" AS "plugin_id"
             FROM "posthog_pluginconfig" U0
             INNER JOIN "posthog_team" U1 ON (U0."team_id" = U1."id")
             WHERE (NOT U0."deleted"
@@ -640,6 +652,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -654,7 +667,7 @@
   WHERE ("posthog_plugin"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
          OR "posthog_plugin"."is_global"
          OR "posthog_plugin"."id" IN
-           (SELECT U0."plugin_id"
+           (SELECT U0."plugin_id" AS "plugin_id"
             FROM "posthog_pluginconfig" U0
             INNER JOIN "posthog_team" U1 ON (U0."team_id" = U1."id")
             WHERE (NOT U0."deleted"
@@ -722,6 +735,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -759,6 +773,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -814,6 +829,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -836,6 +852,7 @@
          "posthog_organizationmembership"."level",
          "posthog_organizationmembership"."joined_at",
          "posthog_organizationmembership"."updated_at",
+         "posthog_organizationmembership"."invited_by_id",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -857,6 +874,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -907,7 +925,7 @@
   WHERE ("posthog_plugin"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
          OR "posthog_plugin"."is_global"
          OR "posthog_plugin"."id" IN
-           (SELECT U0."plugin_id"
+           (SELECT U0."plugin_id" AS "plugin_id"
             FROM "posthog_pluginconfig" U0
             INNER JOIN "posthog_team" U1 ON (U0."team_id" = U1."id")
             WHERE (NOT U0."deleted"
@@ -962,6 +980,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -976,7 +995,7 @@
   WHERE ("posthog_plugin"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
          OR "posthog_plugin"."is_global"
          OR "posthog_plugin"."id" IN
-           (SELECT U0."plugin_id"
+           (SELECT U0."plugin_id" AS "plugin_id"
             FROM "posthog_pluginconfig" U0
             INNER JOIN "posthog_team" U1 ON (U0."team_id" = U1."id")
             WHERE (NOT U0."deleted"
@@ -1007,6 +1026,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -1029,6 +1049,7 @@
          "posthog_organizationmembership"."level",
          "posthog_organizationmembership"."joined_at",
          "posthog_organizationmembership"."updated_at",
+         "posthog_organizationmembership"."invited_by_id",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -1050,6 +1071,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -1100,7 +1122,7 @@
   WHERE ("posthog_plugin"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
          OR "posthog_plugin"."is_global"
          OR "posthog_plugin"."id" IN
-           (SELECT U0."plugin_id"
+           (SELECT U0."plugin_id" AS "plugin_id"
             FROM "posthog_pluginconfig" U0
             INNER JOIN "posthog_team" U1 ON (U0."team_id" = U1."id")
             WHERE (NOT U0."deleted"
@@ -1167,6 +1189,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",

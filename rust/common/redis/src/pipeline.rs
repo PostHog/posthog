@@ -78,7 +78,7 @@ pub enum PipelineCommand {
     HIncrBy {
         key: String,
         field: String,
-        count: i32,
+        count: i64,
     },
     Scard {
         key: String,
@@ -228,7 +228,7 @@ impl<C> Pipeline<C> {
     }
 
     /// Add an HINCRBY command to the pipeline.
-    pub fn hincrby(mut self, key: impl Into<String>, field: impl Into<String>, count: i32) -> Self {
+    pub fn hincrby(mut self, key: impl Into<String>, field: impl Into<String>, count: i64) -> Self {
         self.commands.push(PipelineCommand::HIncrBy {
             key: key.into(),
             field: field.into(),

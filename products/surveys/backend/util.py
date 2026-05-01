@@ -3,6 +3,8 @@ from uuid import UUID
 
 from posthog.hogql.escape_sql import escape_clickhouse_string
 
+from posthog.models.property.util import get_property_string_expr
+
 from products.surveys.backend.models import SurveyResponseArchive
 
 
@@ -22,6 +24,23 @@ class SurveyEventProperties(StrEnum):
     SURVEY_DISMISSED = "$survey_dismissed"
     SURVEY_COMPLETED = "$survey_completed"
     SURVEY_LAST_SEEN_DATE = "$last_seen_survey_date"
+
+
+def get_survey_property_string_expr(property_name: SurveyEventProperties, table_alias: str | None = None) -> str:
+    expression, _ = get_property_string_expr(
+        "events",
+        str(property_name),
+        escape_clickhouse_string(str(property_name)),
+        "properties",
+        table_alias=table_alias,
+    )
+    return expression
+
+
+def get_survey_property_bool_expr(property_name: SurveyEventProperties, table_alias: str | None = None) -> str:
+    expression = get_survey_property_string_expr(property_name, table_alias)
+    normalized_expression = f"toString(nullIf(nullIf({expression}, ''), 'null'))"
+    return f"toBool(transform({normalized_expression}, ['true', 'false'], [1, 0], NULL))"
 
 
 def get_survey_response_clickhouse_query(
@@ -78,7 +97,7 @@ def _build_multiple_choice_query(_DANGEROUS_id_based_key: str, index_based_key: 
 def filter_survey_sent_events_by_unique_submission(survey_id: str, team_id: int | None = None) -> str:
     """
     Generates a SQL condition string to filter 'survey sent' events, ensuring uniqueness based on submission ID,
-    using an optimized approach with argMax(). Usage with uniqueSurveySubmissionsFilter(survey_id, team_id).
+    using an optimized approach with argMax().
 
     This handles two scenarios for identifying relevant 'survey sent' events:
     1. Events recorded before the introduction of `$survey_submission_id` (submission_id is empty/null):
@@ -95,7 +114,7 @@ def filter_survey_sent_events_by_unique_submission(survey_id: str, team_id: int 
         Example: "uuid IN (SELECT argMax(uuid, timestamp) FROM ... GROUP BY ...)"
     """
     # Define the column for submission ID to avoid repetition and enhance readability
-    submission_id_col = f"JSONExtractString(properties, '{SurveyEventProperties.SURVEY_SUBMISSION_ID}')"
+    submission_id_col = get_survey_property_string_expr(SurveyEventProperties.SURVEY_SUBMISSION_ID)
 
     # Define the grouping key expression. This determines how events are grouped for deduplication.
     # If $survey_submission_id is present, group by it. Otherwise, group by uuid (making each old event unique).
@@ -112,11 +131,10 @@ def filter_survey_sent_events_by_unique_submission(survey_id: str, team_id: int 
             argMax(uuid, timestamp) -- Selects the UUID of the event with the latest timestamp within each group
         FROM events
         WHERE event = '{SurveyEventName.SENT}' -- Filter for 'survey sent' events
-          AND JSONExtractString(properties, '{SurveyEventProperties.SURVEY_ID}') = {escape_clickhouse_string(survey_id)} -- Filter for the specific survey
+          AND {get_survey_property_string_expr(SurveyEventProperties.SURVEY_ID)} = {escape_clickhouse_string(survey_id)} -- Filter for the specific survey
           {extra_filters}
-          -- Date range filters from the outer query are intentionally NOT included here.
-          -- This ensures we find the globally latest unique submission, which is then
-          -- filtered by the outer query's date range.
+          -- Callers that need bounded deduplication should add the same timestamp filters
+          -- to the outer query and this subquery.
         GROUP BY {grouping_key_expr} -- Group events by the effective submission identifier
     )"""
     return query
@@ -138,7 +156,7 @@ def get_unique_survey_event_uuids_sql_subquery(
                              Callers should ensure "event = 'survey sent'" is included if that's the target.
         group_by_prefix_expressions: A list of SQL expressions to prefix the GROUP BY clause.
                                      These define the segments within which deduplication occurs.
-                                     Example: ['team_id', "JSONExtractString(properties, '$survey_id')"]
+                                     Example: ['team_id', "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$survey_id'), ''), 'null'), '^\"|\"$', '')"]
                                      If empty, deduplication is based purely on submission ID / UUID across
                                      all events matching base_conditions_sql.
 
@@ -159,12 +177,13 @@ def get_unique_survey_event_uuids_sql_subquery(
         sql_conditions = base_conditions_sql
 
     # Always include the survey_id in the group by
-    if group_by_prefix_expressions.count(f"JSONExtractString(properties, '{SurveyEventProperties.SURVEY_ID}')") == 0:
-        group_by_prefix_expressions.append(f"JSONExtractString(properties, '{SurveyEventProperties.SURVEY_ID}')")
+    survey_id_expr = get_survey_property_string_expr(SurveyEventProperties.SURVEY_ID)
+    if survey_id_expr not in group_by_prefix_expressions:
+        group_by_prefix_expressions.append(survey_id_expr)
 
     where_clause = " AND ".join(sql_conditions)
 
-    submission_id_col = f"JSONExtractString(properties, '{SurveyEventProperties.SURVEY_SUBMISSION_ID}')"
+    submission_id_col = get_survey_property_string_expr(SurveyEventProperties.SURVEY_SUBMISSION_ID)
     deduplication_group_by_key = (
         f"CASE WHEN COALESCE({submission_id_col}, '') = '' THEN toString(uuid) ELSE {submission_id_col} END"
     )

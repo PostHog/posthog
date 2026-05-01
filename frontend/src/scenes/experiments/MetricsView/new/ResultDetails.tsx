@@ -71,8 +71,12 @@ function convertExperimentResultToFunnelSteps(
                 const series = metric.series[stepIndex - 1]
                 if (series.kind === NodeKind.EventsNode) {
                     stepName = series.custom_name || series.name || series.event || `Step ${stepIndex}`
-                } else {
+                } else if (series.kind === NodeKind.ActionsNode) {
                     stepName = series.custom_name || series.name || `Action ${series.id}`
+                } else if (series.kind === NodeKind.ExperimentDataWarehouseNode) {
+                    stepName = series.custom_name || series.name || series.table_name || `Step ${stepIndex}`
+                } else {
+                    stepName = `Step ${stepIndex}`
                 }
             } else {
                 stepName = `Step ${stepIndex}`

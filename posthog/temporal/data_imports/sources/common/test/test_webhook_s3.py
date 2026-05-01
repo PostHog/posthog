@@ -529,7 +529,7 @@ class TestWebhookSourceManagerWithMinIO:
         assert len(tables) == 1
         assert tables[0].column_names == ["id"]
 
-    async def test_get_items_processes_multiple_files_in_order(self, minio_client):
+    async def test_get_items_batches_multiple_small_files(self, minio_client):
         team_id = 99
         schema_id = "test-schema-multi"
         prefix = f"source_webhook_producer/{team_id}/{schema_id}"
@@ -544,11 +544,39 @@ class TestWebhookSourceManagerWithMinIO:
         manager = _make_manager(team_id=team_id, schema_id=schema_id)
         tables = [table async for table in manager.get_items()]
 
-        assert len(tables) == 2
-        ids = sorted([t.column("id").to_pylist()[0] for t in tables])  # type: ignore
+        # Small files are batched into a single table
+        assert len(tables) == 1
+        ids = sorted(id for id in tables[0].column("id").to_pylist() if id is not None)
         assert ids == ["a", "b"]
 
         # Both files should be deleted
+        response = await minio_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=prefix)
+        assert response.get("Contents", []) == []
+
+    async def test_get_items_yields_multiple_batches_when_row_limit_exceeded(self, minio_client):
+        team_id = 99
+        schema_id = "test-schema-batch-limit"
+        prefix = f"source_webhook_producer/{team_id}/{schema_id}"
+
+        await _upload_parquet_to_minio(
+            minio_client, f"{prefix}/batch_a.parquet", [{"id": "a"}], team_id=team_id, schema_id=schema_id
+        )
+        await _upload_parquet_to_minio(
+            minio_client, f"{prefix}/batch_b.parquet", [{"id": "b"}], team_id=team_id, schema_id=schema_id
+        )
+        await _upload_parquet_to_minio(
+            minio_client, f"{prefix}/batch_c.parquet", [{"id": "c"}], team_id=team_id, schema_id=schema_id
+        )
+
+        manager = _make_manager(team_id=team_id, schema_id=schema_id)
+        # Set row limit to 2 so that 3 files (1 row each) produce 2 batches
+        tables = [table async for table in manager.get_items(batch_row_limit=2)]
+
+        assert len(tables) == 2
+        all_ids = sorted([row for t in tables for row in t.column("id").to_pylist() if row is not None])
+        assert all_ids == ["a", "b", "c"]
+
+        # All files should be deleted
         response = await minio_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=prefix)
         assert response.get("Contents", []) == []
 

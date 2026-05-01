@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 8 enabled ops
+ * PostHog API - MCP 9 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -50,13 +50,14 @@ export const EndpointsCreateBody = /* @__PURE__ */ zod
             .nullish()
             .describe('HogQL or insight query this endpoint executes. Changing this auto-creates a new version.'),
         description: zod.string().nullish().describe('Human-readable description of what this endpoint returns.'),
-        cache_age_seconds: zod.number().nullish().describe('Cache TTL in seconds (60–86400).'),
+        data_freshness_seconds: zod
+            .number()
+            .nullish()
+            .describe(
+                'How fresh the data should be, in seconds. Must be one of: 900 (15 min), 1800 (30 min), 3600 (1 h), 21600 (6 h), 43200 (12 h), 86400 (24 h, default), 604800 (7 d). Controls cache TTL and materialization sync frequency.'
+            ),
         is_active: zod.boolean().nullish().describe('Whether this endpoint is available for execution via the API.'),
         is_materialized: zod.boolean().nullish().describe('Whether query results are materialized to S3.'),
-        sync_frequency: zod
-            .string()
-            .nullish()
-            .describe("Materialization refresh frequency (e.g. 'every_hour', 'every_day')."),
         derived_from_insight: zod
             .string()
             .nullish()
@@ -112,13 +113,14 @@ export const EndpointsPartialUpdateBody = /* @__PURE__ */ zod
             .nullish()
             .describe('HogQL or insight query this endpoint executes. Changing this auto-creates a new version.'),
         description: zod.string().nullish().describe('Human-readable description of what this endpoint returns.'),
-        cache_age_seconds: zod.number().nullish().describe('Cache TTL in seconds (60–86400).'),
+        data_freshness_seconds: zod
+            .number()
+            .nullish()
+            .describe(
+                'How fresh the data should be, in seconds. Must be one of: 900 (15 min), 1800 (30 min), 3600 (1 h), 21600 (6 h), 43200 (12 h), 86400 (24 h, default), 604800 (7 d). Controls cache TTL and materialization sync frequency.'
+            ),
         is_active: zod.boolean().nullish().describe('Whether this endpoint is available for execution via the API.'),
         is_materialized: zod.boolean().nullish().describe('Whether query results are materialized to S3.'),
-        sync_frequency: zod
-            .string()
-            .nullish()
-            .describe("Materialization refresh frequency (e.g. 'every_hour', 'every_day')."),
         derived_from_insight: zod
             .string()
             .nullish()
@@ -162,6 +164,25 @@ export const EndpointsMaterializationStatusRetrieveParams = /* @__PURE__ */ zod.
 })
 
 /**
+ * Get OpenAPI 3.0 specification for this endpoint. Use this to generate typed SDK clients.
+ */
+export const EndpointsOpenapiJsonRetrieveParams = /* @__PURE__ */ zod.object({
+    name: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const EndpointsOpenapiJsonRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    version: zod
+        .number()
+        .optional()
+        .describe('Specific endpoint version to generate the spec for. Defaults to latest.'),
+})
+
+/**
  * Execute endpoint with optional materialization. Supports version parameter, runs latest version if not set.
  */
 export const EndpointsRunCreateParams = /* @__PURE__ */ zod.object({
@@ -174,27 +195,32 @@ export const EndpointsRunCreateParams = /* @__PURE__ */ zod.object({
 })
 
 export const endpointsRunCreateBodyDebugDefault = false
-export const endpointsRunCreateBodyFiltersOverrideBreakdownFilterBreakdownsMax = 3
+export const endpointsRunCreateBodyFiltersOverrideOneBreakdownFilterOneBreakdownTypeDefault = `event`
+export const endpointsRunCreateBodyFiltersOverrideOneBreakdownFilterOneBreakdownsMax = 3
 
-export const endpointsRunCreateBodyFiltersOverridePropertiesItemOneTypeDefault = `event`
-export const endpointsRunCreateBodyFiltersOverridePropertiesItemTwoTypeDefault = `person`
-export const endpointsRunCreateBodyFiltersOverridePropertiesItemThreeTypeDefault = `element`
-export const endpointsRunCreateBodyFiltersOverridePropertiesItemFourTypeDefault = `event_metadata`
-export const endpointsRunCreateBodyFiltersOverridePropertiesItemFiveTypeDefault = `session`
-export const endpointsRunCreateBodyFiltersOverridePropertiesItemSixKeyDefault = `id`
-export const endpointsRunCreateBodyFiltersOverridePropertiesItemSixTypeDefault = `cohort`
-export const endpointsRunCreateBodyFiltersOverridePropertiesItemSevenTypeDefault = `recording`
-export const endpointsRunCreateBodyFiltersOverridePropertiesItemEightTypeDefault = `log_entry`
-export const endpointsRunCreateBodyFiltersOverridePropertiesItemNineTypeDefault = `group`
-export const endpointsRunCreateBodyFiltersOverridePropertiesItemOnezeroTypeDefault = `feature`
-export const endpointsRunCreateBodyFiltersOverridePropertiesItemOneoneOperatorDefault = `flag_evaluates_to`
-export const endpointsRunCreateBodyFiltersOverridePropertiesItemOneoneTypeDefault = `flag`
-export const endpointsRunCreateBodyFiltersOverridePropertiesItemOnetwoTypeDefault = `hogql`
-export const endpointsRunCreateBodyFiltersOverridePropertiesItemOnethreeTypeDefault = `empty`
-export const endpointsRunCreateBodyFiltersOverridePropertiesItemOnefourTypeDefault = `data_warehouse`
-export const endpointsRunCreateBodyFiltersOverridePropertiesItemOnefiveTypeDefault = `data_warehouse_person_property`
-export const endpointsRunCreateBodyFiltersOverridePropertiesItemOnesixTypeDefault = `error_tracking_issue`
-export const endpointsRunCreateBodyFiltersOverridePropertiesItemOnenineTypeDefault = `revenue_analytics`
+export const endpointsRunCreateBodyFiltersOverrideOnePropertiesItemOneOperatorDefault = `exact`
+export const endpointsRunCreateBodyFiltersOverrideOnePropertiesItemOneTypeDefault = `event`
+export const endpointsRunCreateBodyFiltersOverrideOnePropertiesItemTwoTypeDefault = `person`
+export const endpointsRunCreateBodyFiltersOverrideOnePropertiesItemThreeTypeDefault = `element`
+export const endpointsRunCreateBodyFiltersOverrideOnePropertiesItemFourTypeDefault = `event_metadata`
+export const endpointsRunCreateBodyFiltersOverrideOnePropertiesItemFiveTypeDefault = `session`
+export const endpointsRunCreateBodyFiltersOverrideOnePropertiesItemSixKeyDefault = `id`
+export const endpointsRunCreateBodyFiltersOverrideOnePropertiesItemSixOperatorDefault = `in`
+export const endpointsRunCreateBodyFiltersOverrideOnePropertiesItemSixTypeDefault = `cohort`
+export const endpointsRunCreateBodyFiltersOverrideOnePropertiesItemSevenTypeDefault = `recording`
+export const endpointsRunCreateBodyFiltersOverrideOnePropertiesItemEightTypeDefault = `log_entry`
+export const endpointsRunCreateBodyFiltersOverrideOnePropertiesItemNineTypeDefault = `group`
+export const endpointsRunCreateBodyFiltersOverrideOnePropertiesItemOnezeroTypeDefault = `feature`
+export const endpointsRunCreateBodyFiltersOverrideOnePropertiesItemOneoneOperatorDefault = `flag_evaluates_to`
+export const endpointsRunCreateBodyFiltersOverrideOnePropertiesItemOneoneTypeDefault = `flag`
+export const endpointsRunCreateBodyFiltersOverrideOnePropertiesItemOnetwoTypeDefault = `hogql`
+export const endpointsRunCreateBodyFiltersOverrideOnePropertiesItemOnethreeTypeDefault = `empty`
+export const endpointsRunCreateBodyFiltersOverrideOnePropertiesItemOnefourTypeDefault = `data_warehouse`
+export const endpointsRunCreateBodyFiltersOverrideOnePropertiesItemOnefiveTypeDefault = `data_warehouse_person_property`
+export const endpointsRunCreateBodyFiltersOverrideOnePropertiesItemOnesixTypeDefault = `error_tracking_issue`
+export const endpointsRunCreateBodyFiltersOverrideOnePropertiesItemOnenineTypeDefault = `revenue_analytics`
+export const endpointsRunCreateBodyFiltersOverrideOnePropertiesItemTwozeroTypeDefault = `workflow_variable`
+export const endpointsRunCreateBodyRefreshDefault = `cache`
 
 export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
     client_query_id: zod
@@ -231,7 +257,7 @@ export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
                             'data_warehouse_person_property',
                             'revenue_analytics',
                         ])
-                        .nullish(),
+                        .default(endpointsRunCreateBodyFiltersOverrideOneBreakdownFilterOneBreakdownTypeDefault),
                     breakdowns: zod
                         .array(
                             zod.object({
@@ -241,20 +267,21 @@ export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
                                 property: zod.union([zod.string(), zod.number()]),
                                 type: zod
                                     .enum([
-                                        'cohort',
                                         'person',
                                         'event',
                                         'event_metadata',
                                         'group',
                                         'session',
                                         'hogql',
-                                        'data_warehouse_person_property',
+                                        'cohort',
                                         'revenue_analytics',
+                                        'data_warehouse',
+                                        'data_warehouse_person_property',
                                     ])
                                     .nullish(),
                             })
                         )
-                        .max(endpointsRunCreateBodyFiltersOverrideBreakdownFilterBreakdownsMax)
+                        .max(endpointsRunCreateBodyFiltersOverrideOneBreakdownFilterOneBreakdownsMax)
                         .nullish(),
                 })
                 .nullish(),
@@ -304,10 +331,10 @@ export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
                                     'icontains_multi',
                                     'not_icontains_multi',
                                 ])
-                                .nullish(),
+                                .default(endpointsRunCreateBodyFiltersOverrideOnePropertiesItemOneOperatorDefault),
                             type: zod
                                 .enum(['event'])
-                                .default(endpointsRunCreateBodyFiltersOverridePropertiesItemOneTypeDefault)
+                                .default(endpointsRunCreateBodyFiltersOverrideOnePropertiesItemOneTypeDefault)
                                 .describe('Event properties'),
                             value: zod
                                 .union([
@@ -359,7 +386,7 @@ export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
                             ]),
                             type: zod
                                 .enum(['person'])
-                                .default(endpointsRunCreateBodyFiltersOverridePropertiesItemTwoTypeDefault)
+                                .default(endpointsRunCreateBodyFiltersOverrideOnePropertiesItemTwoTypeDefault)
                                 .describe('Person properties'),
                             value: zod
                                 .union([
@@ -411,7 +438,7 @@ export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
                             ]),
                             type: zod
                                 .enum(['element'])
-                                .default(endpointsRunCreateBodyFiltersOverridePropertiesItemThreeTypeDefault),
+                                .default(endpointsRunCreateBodyFiltersOverrideOnePropertiesItemThreeTypeDefault),
                             value: zod
                                 .union([
                                     zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -462,7 +489,7 @@ export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
                             ]),
                             type: zod
                                 .enum(['event_metadata'])
-                                .default(endpointsRunCreateBodyFiltersOverridePropertiesItemFourTypeDefault),
+                                .default(endpointsRunCreateBodyFiltersOverrideOnePropertiesItemFourTypeDefault),
                             value: zod
                                 .union([
                                     zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -513,7 +540,7 @@ export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
                             ]),
                             type: zod
                                 .enum(['session'])
-                                .default(endpointsRunCreateBodyFiltersOverridePropertiesItemFiveTypeDefault),
+                                .default(endpointsRunCreateBodyFiltersOverrideOnePropertiesItemFiveTypeDefault),
                             value: zod
                                 .union([
                                     zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -527,7 +554,7 @@ export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
                             cohort_name: zod.string().nullish(),
                             key: zod
                                 .enum(['id'])
-                                .default(endpointsRunCreateBodyFiltersOverridePropertiesItemSixKeyDefault),
+                                .default(endpointsRunCreateBodyFiltersOverrideOnePropertiesItemSixKeyDefault),
                             label: zod.string().nullish(),
                             operator: zod
                                 .enum([
@@ -566,10 +593,10 @@ export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
                                     'icontains_multi',
                                     'not_icontains_multi',
                                 ])
-                                .nullish(),
+                                .default(endpointsRunCreateBodyFiltersOverrideOnePropertiesItemSixOperatorDefault),
                             type: zod
                                 .enum(['cohort'])
-                                .default(endpointsRunCreateBodyFiltersOverridePropertiesItemSixTypeDefault),
+                                .default(endpointsRunCreateBodyFiltersOverrideOnePropertiesItemSixTypeDefault),
                             value: zod.number(),
                         }),
                         zod.object({
@@ -616,7 +643,7 @@ export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
                             ]),
                             type: zod
                                 .enum(['recording'])
-                                .default(endpointsRunCreateBodyFiltersOverridePropertiesItemSevenTypeDefault),
+                                .default(endpointsRunCreateBodyFiltersOverrideOnePropertiesItemSevenTypeDefault),
                             value: zod
                                 .union([
                                     zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -667,7 +694,7 @@ export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
                             ]),
                             type: zod
                                 .enum(['log_entry'])
-                                .default(endpointsRunCreateBodyFiltersOverridePropertiesItemEightTypeDefault),
+                                .default(endpointsRunCreateBodyFiltersOverrideOnePropertiesItemEightTypeDefault),
                             value: zod
                                 .union([
                                     zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -720,7 +747,7 @@ export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
                             ]),
                             type: zod
                                 .enum(['group'])
-                                .default(endpointsRunCreateBodyFiltersOverridePropertiesItemNineTypeDefault),
+                                .default(endpointsRunCreateBodyFiltersOverrideOnePropertiesItemNineTypeDefault),
                             value: zod
                                 .union([
                                     zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -771,7 +798,7 @@ export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
                             ]),
                             type: zod
                                 .enum(['feature'])
-                                .default(endpointsRunCreateBodyFiltersOverridePropertiesItemOnezeroTypeDefault)
+                                .default(endpointsRunCreateBodyFiltersOverrideOnePropertiesItemOnezeroTypeDefault)
                                 .describe('Event property with "$feature/" prepended'),
                             value: zod
                                 .union([
@@ -787,11 +814,11 @@ export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
                             label: zod.string().nullish(),
                             operator: zod
                                 .enum(['flag_evaluates_to'])
-                                .default(endpointsRunCreateBodyFiltersOverridePropertiesItemOneoneOperatorDefault)
+                                .default(endpointsRunCreateBodyFiltersOverrideOnePropertiesItemOneoneOperatorDefault)
                                 .describe('Only flag_evaluates_to operator is allowed for flag dependencies'),
                             type: zod
                                 .enum(['flag'])
-                                .default(endpointsRunCreateBodyFiltersOverridePropertiesItemOneoneTypeDefault)
+                                .default(endpointsRunCreateBodyFiltersOverrideOnePropertiesItemOneoneTypeDefault)
                                 .describe('Feature flag dependency'),
                             value: zod
                                 .union([zod.boolean(), zod.string()])
@@ -802,7 +829,7 @@ export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
                             label: zod.string().nullish(),
                             type: zod
                                 .enum(['hogql'])
-                                .default(endpointsRunCreateBodyFiltersOverridePropertiesItemOnetwoTypeDefault),
+                                .default(endpointsRunCreateBodyFiltersOverrideOnePropertiesItemOnetwoTypeDefault),
                             value: zod
                                 .union([
                                     zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -815,7 +842,7 @@ export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
                         zod.object({
                             type: zod
                                 .enum(['empty'])
-                                .default(endpointsRunCreateBodyFiltersOverridePropertiesItemOnethreeTypeDefault),
+                                .default(endpointsRunCreateBodyFiltersOverrideOnePropertiesItemOnethreeTypeDefault),
                         }),
                         zod.object({
                             key: zod.string(),
@@ -858,7 +885,7 @@ export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
                             ]),
                             type: zod
                                 .enum(['data_warehouse'])
-                                .default(endpointsRunCreateBodyFiltersOverridePropertiesItemOnefourTypeDefault),
+                                .default(endpointsRunCreateBodyFiltersOverrideOnePropertiesItemOnefourTypeDefault),
                             value: zod
                                 .union([
                                     zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -909,7 +936,7 @@ export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
                             ]),
                             type: zod
                                 .enum(['data_warehouse_person_property'])
-                                .default(endpointsRunCreateBodyFiltersOverridePropertiesItemOnefiveTypeDefault),
+                                .default(endpointsRunCreateBodyFiltersOverrideOnePropertiesItemOnefiveTypeDefault),
                             value: zod
                                 .union([
                                     zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -960,7 +987,7 @@ export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
                             ]),
                             type: zod
                                 .enum(['error_tracking_issue'])
-                                .default(endpointsRunCreateBodyFiltersOverridePropertiesItemOnesixTypeDefault),
+                                .default(endpointsRunCreateBodyFiltersOverrideOnePropertiesItemOnesixTypeDefault),
                             value: zod
                                 .union([
                                     zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -1109,7 +1136,58 @@ export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
                             ]),
                             type: zod
                                 .enum(['revenue_analytics'])
-                                .default(endpointsRunCreateBodyFiltersOverridePropertiesItemOnenineTypeDefault),
+                                .default(endpointsRunCreateBodyFiltersOverrideOnePropertiesItemOnenineTypeDefault),
+                            value: zod
+                                .union([
+                                    zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                    zod.string(),
+                                    zod.number(),
+                                    zod.boolean(),
+                                ])
+                                .nullish(),
+                        }),
+                        zod.object({
+                            key: zod.string(),
+                            label: zod.string().nullish(),
+                            operator: zod.enum([
+                                'exact',
+                                'is_not',
+                                'icontains',
+                                'not_icontains',
+                                'regex',
+                                'not_regex',
+                                'gt',
+                                'gte',
+                                'lt',
+                                'lte',
+                                'is_set',
+                                'is_not_set',
+                                'is_date_exact',
+                                'is_date_before',
+                                'is_date_after',
+                                'between',
+                                'not_between',
+                                'min',
+                                'max',
+                                'in',
+                                'not_in',
+                                'is_cleaned_path_exact',
+                                'flag_evaluates_to',
+                                'semver_eq',
+                                'semver_neq',
+                                'semver_gt',
+                                'semver_gte',
+                                'semver_lt',
+                                'semver_lte',
+                                'semver_tilde',
+                                'semver_caret',
+                                'semver_wildcard',
+                                'icontains_multi',
+                                'not_icontains_multi',
+                            ]),
+                            type: zod
+                                .enum(['workflow_variable'])
+                                .default(endpointsRunCreateBodyFiltersOverrideOnePropertiesItemTwozeroTypeDefault),
                             value: zod
                                 .union([
                                     zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -1132,7 +1210,7 @@ export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
         .number()
         .nullish()
         .describe('Number of results to skip. Must be used together with limit. Only supported for HogQL endpoints.'),
-    refresh: zod.enum(['cache', 'force', 'direct']).nullish(),
+    refresh: zod.enum(['cache', 'force', 'direct']).default(endpointsRunCreateBodyRefreshDefault),
     variables: zod
         .record(zod.string(), zod.unknown())
         .nullish()

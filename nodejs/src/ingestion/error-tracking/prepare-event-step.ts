@@ -1,6 +1,7 @@
 import { PluginEvent } from '~/plugin-scaffold'
 import { EventHeaders, ISOTimestamp, Person, PreIngestionEvent, Team } from '~/types'
 
+import { stripBloatProperties } from '../event-processing/strip-bloat-properties'
 import { ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 
@@ -50,6 +51,12 @@ export function createErrorTrackingPrepareEventStep<T extends ErrorTrackingPrepa
         const properties = event.properties ?? {}
         delete properties.$set
         delete properties.$set_once
+
+        if (properties['$ip'] && input.team.anonymize_ips) {
+            delete properties['$ip']
+        }
+
+        stripBloatProperties(properties)
 
         // Timestamp is already validated by the cymbal processing step
         const timestamp = event.timestamp as ISOTimestamp

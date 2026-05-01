@@ -69,6 +69,16 @@
             }
         }
 
+        .taxonomic-list-row-pin {
+            display: flex;
+            flex-shrink: 0;
+            align-items: center;
+            justify-content: center;
+            width: 1rem;
+            margin-left: 0.5rem;
+            pointer-events: none;
+        }
+
         &.hover,
         &.active {
             background-color: var(--color-bg-primary);

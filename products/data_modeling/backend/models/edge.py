@@ -54,11 +54,19 @@ class Edge(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     objects = DataModelingEdgeManager()
 
     team = models.ForeignKey(Team, on_delete=models.CASCADE, editable=False)
+    team_id: int
+
     # the source node of the edge (i.e. the node this edge is pointed away from)
     source = models.ForeignKey(Node, related_name="outgoing_edges", on_delete=models.CASCADE, editable=False)
+    source_id: int
+
     # the target node of the edge (i.e. the node this edge is pointed toward)
     target = models.ForeignKey(Node, related_name="incoming_edges", on_delete=models.CASCADE, editable=False)
+    target_id: int
+
     dag = models.ForeignKey(DAG, on_delete=models.CASCADE, db_column="dag_fk_id")
+    dag_id: int
+
     properties = models.JSONField(default=dict)
 
     class Meta:

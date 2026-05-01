@@ -66,23 +66,24 @@ def add_postgres_foreign_key_lazy_joins(
         if hogql_table.fields.get(field_name):
             continue
 
-        target_table_name = _find_inferred_target_table_name(
+        inferred_foreign_key = _find_inferred_foreign_key(
+            column=column_name,
             base_name=field_name,
             namespace=namespace,
             hogql_table=hogql_table,
             warehouse_table=warehouse_table,
             database=database,
         )
-        if target_table_name is None:
+        if inferred_foreign_key is None:
             continue
 
         _add_foreign_key_lazy_join(
             hogql_table=hogql_table,
             warehouse_table=warehouse_table,
             database=database,
-            column=column_name,
-            target_table=target_table_name,
-            target_column="id",
+            column=inferred_foreign_key.column,
+            target_table=inferred_foreign_key.target_table,
+            target_column=inferred_foreign_key.target_column,
         )
 
 
@@ -279,20 +280,41 @@ def _reverse_foreign_key_field_name(from_table: str, target_table: str) -> str:
     return reverse_name
 
 
-def _find_inferred_target_table_name(
+def _find_inferred_foreign_key(
     *,
+    column: str,
     base_name: str,
     namespace: list[str],
     hogql_table: Table,
     warehouse_table: DataWarehouseTable,
     database: DatabaseTableLookup,
-) -> str | None:
+) -> WarehouseForeignKey | None:
+    source_table_name = hogql_table.name if isinstance(hogql_table.name, str) else None
+
     for candidate in _candidate_target_tables(base_name=base_name, namespace=namespace):
         if not database.has_table(candidate):
             continue
 
         target_hogql_table = database.get_table(candidate)
-        if _is_same_external_scope(hogql_table, target_hogql_table, warehouse_table):
+        target_table_name = target_hogql_table.name if isinstance(target_hogql_table.name, str) else None
+        if source_table_name is not None and target_table_name == source_table_name:
+            continue
+
+        if not _is_same_external_scope(hogql_table, target_hogql_table, warehouse_table):
+            continue
+
+        target_column = _find_inferred_target_column(column=column, target_hogql_table=target_hogql_table)
+        if target_column is None:
+            continue
+
+        return WarehouseForeignKey(column=column, target_table=candidate, target_column=target_column)
+
+    return None
+
+
+def _find_inferred_target_column(*, column: str, target_hogql_table: Table) -> str | None:
+    for candidate in (column, "id"):
+        if target_hogql_table.fields.get(candidate) is not None:
             return candidate
 
     return None

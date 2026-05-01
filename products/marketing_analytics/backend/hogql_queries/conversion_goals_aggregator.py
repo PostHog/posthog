@@ -102,9 +102,13 @@ class ConversionGoalsAggregator:
         id_field_expr = ast.Field(chain=[subquery_alias, self.config.id_field])
         source_field_expr = ast.Field(chain=[subquery_alias, self.config.source_field])
 
-        if level in (MarketingAnalyticsDrillDownLevel.CHANNEL, MarketingAnalyticsDrillDownLevel.SOURCE):
-            # At channel/source level, the individual processor queries already compute
-            # channel_type or source_name into campaign_field. Just group by that.
+        if level in (
+            MarketingAnalyticsDrillDownLevel.CHANNEL,
+            MarketingAnalyticsDrillDownLevel.SOURCE,
+            MarketingAnalyticsDrillDownLevel.MEDIUM,
+            MarketingAnalyticsDrillDownLevel.CONTENT,
+            MarketingAnalyticsDrillDownLevel.TERM,
+        ):
             final_select: list[ast.Expr] = [
                 ast.Alias(alias=self.config.campaign_field, expr=campaign_field_expr),
                 ast.Alias(alias=self.config.id_field, expr=ast.Constant(value="")),
@@ -336,35 +340,58 @@ class ConversionGoalsAggregator:
 
         return columns
 
-    def get_coalesce_fallback_columns(self) -> dict[str, ast.Expr]:
-        """Get COALESCE columns that fall back to unified conversion goals for campaign/id/source"""
+    def get_coalesce_fallback_columns(self, campaign_costs_joined: bool = True) -> dict[str, ast.Expr]:
+        """Get COALESCE columns that fall back to unified conversion goals for campaign/id/source.
+
+        Args:
+            campaign_costs_joined: Whether the outer query joins with campaign_costs CTE.
+                When False (e.g. UTM levels that bypass campaign_costs), the COALESCE
+                only references the unified conversion goals side.
+        """
         level = self.config.drill_down_level
         group_by_fields = self.config.group_by_fields
 
-        if level in (MarketingAnalyticsDrillDownLevel.CHANNEL, MarketingAnalyticsDrillDownLevel.SOURCE):
-            # At channel/source level both CTEs store the grouping value (channel/source) in campaign_field.
-            # group_by_fields[0] differs per level (campaign_field vs source_field), but the unified
-            # conversion CTE always writes the value into campaign_field, so we must reference that.
+        if level in (
+            MarketingAnalyticsDrillDownLevel.CHANNEL,
+            MarketingAnalyticsDrillDownLevel.SOURCE,
+            MarketingAnalyticsDrillDownLevel.MEDIUM,
+            MarketingAnalyticsDrillDownLevel.CONTENT,
+            MarketingAnalyticsDrillDownLevel.TERM,
+        ):
             campaign_field = self.config.campaign_field
-            fallback = "Unknown" if level == MarketingAnalyticsDrillDownLevel.CHANNEL else self.config.organic_source
+            # "Unknown" = DefaultChannelTypes.UNKNOWN; "(none)" = BREAKDOWN_NULL_DISPLAY for UTM fields.
+            fallback_map = {
+                MarketingAnalyticsDrillDownLevel.CHANNEL: "Unknown",
+                MarketingAnalyticsDrillDownLevel.SOURCE: self.config.organic_source,
+                MarketingAnalyticsDrillDownLevel.MEDIUM: "(none)",
+                MarketingAnalyticsDrillDownLevel.CONTENT: "(none)",
+                MarketingAnalyticsDrillDownLevel.TERM: "(none)",
+            }
+            fallback = fallback_map[level]
             campaign_alias = self.config.get_campaign_column_alias()
-            campaign_args = [
-                ast.Call(
-                    name="nullif",
-                    args=[
-                        ast.Field(chain=self.config.get_campaign_cost_field_chain(campaign_field)),
-                        ast.Constant(value=""),
-                    ],
-                ),
-                ast.Call(
-                    name="nullif",
-                    args=[
-                        ast.Field(chain=self.config.get_unified_conversion_field_chain(campaign_field)),
-                        ast.Constant(value=""),
-                    ],
-                ),
-                ast.Constant(value=fallback),
-            ]
+            campaign_args: list[ast.Expr] = []
+            if campaign_costs_joined:
+                campaign_args.append(
+                    ast.Call(
+                        name="nullif",
+                        args=[
+                            ast.Field(chain=self.config.get_campaign_cost_field_chain(campaign_field)),
+                            ast.Constant(value=""),
+                        ],
+                    )
+                )
+            campaign_args.extend(
+                [
+                    ast.Call(
+                        name="nullif",
+                        args=[
+                            ast.Field(chain=self.config.get_unified_conversion_field_chain(campaign_field)),
+                            ast.Constant(value=""),
+                        ],
+                    ),
+                    ast.Constant(value=fallback),
+                ]
+            )
             return {
                 campaign_alias: ast.Alias(alias=campaign_alias, expr=ast.Call(name="coalesce", args=campaign_args)),
             }

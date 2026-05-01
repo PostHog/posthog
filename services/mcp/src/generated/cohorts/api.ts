@@ -87,6 +87,7 @@ export const CohortsCreateBody = /* @__PURE__ */ zod.object({
                                     )
                                     .nullish(),
                                 explicit_datetime: zod.string().nullish(),
+                                explicit_datetime_to: zod.string().nullish(),
                             }),
                             zod.object({
                                 bytecode: zod.array(zod.unknown()).nullish(),
@@ -165,7 +166,6 @@ export const cohortsPartialUpdateBodyDescriptionMax = 1000
 export const cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemOneNegationDefault = false
 export const cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemTwoNegationDefault = false
 export const cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemThreeNegationDefault = false
-export const cohortsPartialUpdateBodyCreateStaticPersonIdsDefault = []
 
 export const CohortsPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(cohortsPartialUpdateBodyNameMax).nullish(),
@@ -217,6 +217,7 @@ export const CohortsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                     )
                                     .nullish(),
                                 explicit_datetime: zod.string().nullish(),
+                                explicit_datetime_to: zod.string().nullish(),
                             }),
                             zod.object({
                                 bytecode: zod.array(zod.unknown()).nullish(),
@@ -269,7 +270,7 @@ export const CohortsPartialUpdateBody = /* @__PURE__ */ zod.object({
             'Type of cohort based on filter complexity\n\n* `static` - static\n* `person_property` - person_property\n* `behavioral` - behavioral\n* `realtime` - realtime\n* `analytical` - analytical'
         ),
     _create_in_folder: zod.string().optional(),
-    _create_static_person_ids: zod.array(zod.string()).default(cohortsPartialUpdateBodyCreateStaticPersonIdsDefault),
+    _create_static_person_ids: zod.array(zod.string()).optional(),
 })
 
 export const CohortsAddPersonsToStaticCohortPartialUpdateParams = /* @__PURE__ */ zod.object({

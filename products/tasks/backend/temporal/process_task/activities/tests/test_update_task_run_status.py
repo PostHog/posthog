@@ -1,4 +1,5 @@
 import pytest
+from unittest.mock import patch
 
 from asgiref.sync import async_to_sync
 
@@ -44,6 +45,15 @@ class TestUpdateTaskRunStatusActivity:
 
         test_task_run.refresh_from_db()
         assert test_task_run.error_message == error_msg
+
+    @pytest.mark.django_db
+    @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
+    def test_publishes_stream_state_event(self, mock_publish_stream_state_event, activity_environment, test_task_run):
+        input_data = UpdateTaskRunStatusInput(run_id=str(test_task_run.id), status=TaskRun.Status.IN_PROGRESS)
+
+        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+
+        mock_publish_stream_state_event.assert_called_once()
 
     @pytest.mark.django_db
     def test_handles_non_existent_task_run(self, activity_environment):

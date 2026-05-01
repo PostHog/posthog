@@ -5,6 +5,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
 import { LemonDrawer, LemonDrawerProps } from './LemonDrawer'
 
+// Storybook stories for LemonDrawer
 const meta: Meta<LemonDrawerProps> = {
     title: 'Lemon UI/Lemon Drawer',
     component: LemonDrawer,
@@ -82,6 +83,40 @@ export const CustomWidth: Story = {
                 </LemonButton>
                 <LemonDrawer isOpen={isOpen} onClose={() => setIsOpen(false)} title="Wide drawer" width="60vw">
                     <p>This drawer uses a custom width of 60vw.</p>
+                </LemonDrawer>
+            </>
+        )
+    },
+}
+
+export const Resizable: Story = {
+    render: () => {
+        const [isOpen, setIsOpen] = useState(false)
+        return (
+            <>
+                <LemonButton type="primary" onClick={() => setIsOpen(true)}>
+                    Open resizable drawer
+                </LemonButton>
+                <LemonDrawer
+                    isOpen={isOpen}
+                    onClose={() => setIsOpen(false)}
+                    title="Resizable drawer"
+                    description="Drag the left edge to resize"
+                    resizable
+                    width="40rem"
+                    footer={
+                        <>
+                            <LemonButton type="secondary" onClick={() => setIsOpen(false)}>
+                                Cancel
+                            </LemonButton>
+                            <LemonButton type="primary">Save</LemonButton>
+                        </>
+                    }
+                >
+                    <p>
+                        This drawer can be resized by dragging the left edge. You can also use the arrow keys when the
+                        resize handle is focused.
+                    </p>
                 </LemonDrawer>
             </>
         )

@@ -595,6 +595,29 @@ describe('LogsRateLimiterService', () => {
                 expect(result.dropped).toHaveLength(0)
             })
 
+            it('should refill from newest timestamp when batch spans an old timestamp (catch-up scenario)', async () => {
+                // First batch drains the bucket at t0.
+                const t0 = new Date('2024-01-01T00:00:00Z').toISOString()
+                const messages1 = [createMessageWithHeaders(1, 10000, [{ created_at: t0 }])] // 10KB = full bucket
+                const result1 = await rateLimiter.filterMessages(messages1)
+                expect(result1.allowed).toHaveLength(1)
+
+                // Second batch (catch-up) spans 10 seconds — oldest message is at t0 (matches previous
+                // batch), newest at t10. Refill rate is 1KB/s, so 10 seconds of producer time => 10KB.
+                // If we used the oldest timestamp the Lua would compute timeDiff=0 and not refill,
+                // dropping the messages.
+                const t10 = new Date('2024-01-01T00:00:10Z').toISOString()
+                const messages2 = [
+                    createMessageWithHeaders(1, 5120, [{ created_at: t0 }]), // 5KB at t0
+                    createMessageWithHeaders(1, 3072, [{ created_at: t10 }]), // 3KB at t10
+                ]
+
+                const result2 = await rateLimiter.filterMessages(messages2)
+
+                expect(result2.allowed).toHaveLength(2)
+                expect(result2.dropped).toHaveLength(0)
+            })
+
             it('should allow more throughput when batch spans time (backfill scenario)', async () => {
                 // Simulate backfill: first batch drains the bucket
                 const t0 = new Date('2024-01-01T00:00:00Z').toISOString()
@@ -604,8 +627,8 @@ describe('LogsRateLimiterService', () => {
 
                 // Second batch arrives 10 seconds later.
                 // Bucket is empty, refill rate is 1KB/s, so 10 seconds of refill = 10KB.
-                // filterMessages uses the oldest timestamp per team, so all messages
-                // need to be at t10 for the refill to kick in.
+                // filterMessages uses the newest timestamp per team for refill, so the batch
+                // gets credit for the full producer-time span it covers.
                 const t10 = new Date('2024-01-01T00:00:10Z').toISOString()
                 const messages2 = [
                     createMessageWithHeaders(1, 5120, [{ created_at: t10 }]), // 5KB at t0+10s
@@ -614,7 +637,7 @@ describe('LogsRateLimiterService', () => {
 
                 const result2 = await rateLimiter.filterMessages(messages2)
 
-                // Oldest timestamp t10 gives 10KB refill from t0, enough for 5+3=8KB
+                // Newest timestamp t10 gives 10KB refill from t0, enough for 5+3=8KB
                 expect(result2.allowed).toHaveLength(2)
                 expect(result2.dropped).toHaveLength(0)
             })

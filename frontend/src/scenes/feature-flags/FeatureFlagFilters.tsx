@@ -23,6 +23,7 @@ interface FeatureFlagFiltersProps {
     setFeatureFlagsFilters: (filters: Partial<FeatureFlagsFilters>, replace?: boolean) => void
     searchPlaceholder?: string
     filtersConfig?: FeatureFlagFiltersConfig
+    countText?: JSX.Element | null
 }
 
 export function FeatureFlagFiltersSection({
@@ -30,6 +31,7 @@ export function FeatureFlagFiltersSection({
     setFeatureFlagsFilters,
     searchPlaceholder = 'Search for feature flags',
     filtersConfig = {},
+    countText,
 }: FeatureFlagFiltersProps): JSX.Element {
     const config = {
         search: false,
@@ -44,16 +46,19 @@ export function FeatureFlagFiltersSection({
 
     return (
         <div className="flex justify-between gap-2 flex-wrap">
-            {config.search && (
-                <LemonInput
-                    className="w-[335px] !max-w-[335px]"
-                    type="search"
-                    placeholder={searchPlaceholder}
-                    onChange={(search) => setFeatureFlagsFilters({ search, page: 1 })}
-                    value={filters.search || ''}
-                    data-attr="feature-flag-search"
-                />
-            )}
+            <div className="flex items-center gap-2">
+                {config.search && (
+                    <LemonInput
+                        className="w-[335px] !max-w-[335px]"
+                        type="search"
+                        placeholder={searchPlaceholder}
+                        onChange={(search) => setFeatureFlagsFilters({ search, page: 1 })}
+                        value={filters.search || ''}
+                        data-attr="feature-flag-search"
+                    />
+                )}
+                {countText}
+            </div>
             {hasNonSearchFilters && (
                 <div className="flex items-center gap-2">
                     {config.type && (

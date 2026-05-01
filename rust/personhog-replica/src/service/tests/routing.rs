@@ -26,13 +26,13 @@ use std::sync::Arc;
 
 use personhog_proto::personhog::replica::v1::person_hog_replica_server::PersonHogReplica;
 use personhog_proto::personhog::types::v1::{
-    CheckCohortMembershipRequest, GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonsRequest,
-    GetGroupRequest, GetGroupTypeMappingsByProjectIdRequest,
+    CheckCohortMembershipRequest, CountCohortMembersRequest, GetDistinctIdsForPersonRequest,
+    GetDistinctIdsForPersonsRequest, GetGroupRequest, GetGroupTypeMappingsByProjectIdRequest,
     GetGroupTypeMappingsByProjectIdsRequest, GetGroupTypeMappingsByTeamIdRequest,
     GetGroupTypeMappingsByTeamIdsRequest, GetGroupsBatchRequest, GetGroupsRequest,
     GetHashKeyOverrideContextRequest, GetPersonByDistinctIdRequest, GetPersonByUuidRequest,
     GetPersonRequest, GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest,
-    GetPersonsByUuidsRequest, GetPersonsRequest, TeamDistinctId,
+    GetPersonsByUuidsRequest, GetPersonsRequest, ListCohortMemberIdsRequest, TeamDistinctId,
 };
 use tonic::Request;
 
@@ -569,6 +569,186 @@ async fn test_check_cohort_membership_routes_eventual_to_replica() {
             person_id: 1,
             cohort_ids: vec![1],
             read_options: eventual_consistency(),
+        }))
+        .await
+        .expect("RPC should succeed");
+
+    assert_eq!(
+        tracking_storage.last_consistency(),
+        Some(storage::postgres::ConsistencyLevel::Eventual)
+    );
+}
+
+#[tokio::test]
+async fn test_count_cohort_members_accepts_strong_consistency() {
+    let service = PersonHogReplicaService::new(Arc::new(SuccessStorage));
+
+    let result = service
+        .count_cohort_members(Request::new(CountCohortMembersRequest {
+            cohort_ids: vec![1],
+            read_options: strong_consistency(),
+        }))
+        .await;
+
+    assert!(result.is_ok());
+}
+
+#[tokio::test]
+async fn test_count_cohort_members_accepts_eventual_consistency() {
+    let service = PersonHogReplicaService::new(Arc::new(SuccessStorage));
+
+    let result = service
+        .count_cohort_members(Request::new(CountCohortMembersRequest {
+            cohort_ids: vec![1],
+            read_options: eventual_consistency(),
+        }))
+        .await;
+
+    assert!(result.is_ok());
+}
+
+#[tokio::test]
+async fn test_count_cohort_members_routes_strong_to_primary() {
+    let tracking_storage = Arc::new(ConsistencyTrackingStorage::new());
+    let service = PersonHogReplicaService::new(tracking_storage.clone());
+
+    service
+        .count_cohort_members(Request::new(CountCohortMembersRequest {
+            cohort_ids: vec![1],
+            read_options: strong_consistency(),
+        }))
+        .await
+        .expect("RPC should succeed");
+
+    assert_eq!(
+        tracking_storage.last_consistency(),
+        Some(storage::postgres::ConsistencyLevel::Strong)
+    );
+}
+
+#[tokio::test]
+async fn test_count_cohort_members_routes_eventual_to_replica() {
+    let tracking_storage = Arc::new(ConsistencyTrackingStorage::new());
+    let service = PersonHogReplicaService::new(tracking_storage.clone());
+
+    service
+        .count_cohort_members(Request::new(CountCohortMembersRequest {
+            cohort_ids: vec![1],
+            read_options: eventual_consistency(),
+        }))
+        .await
+        .expect("RPC should succeed");
+
+    assert_eq!(
+        tracking_storage.last_consistency(),
+        Some(storage::postgres::ConsistencyLevel::Eventual)
+    );
+}
+
+#[tokio::test]
+async fn test_count_cohort_members_routes_unspecified_to_replica() {
+    let tracking_storage = Arc::new(ConsistencyTrackingStorage::new());
+    let service = PersonHogReplicaService::new(tracking_storage.clone());
+
+    service
+        .count_cohort_members(Request::new(CountCohortMembersRequest {
+            cohort_ids: vec![1],
+            read_options: None,
+        }))
+        .await
+        .expect("RPC should succeed");
+
+    assert_eq!(
+        tracking_storage.last_consistency(),
+        Some(storage::postgres::ConsistencyLevel::Eventual)
+    );
+}
+
+#[tokio::test]
+async fn test_list_cohort_member_ids_accepts_strong_consistency() {
+    let service = PersonHogReplicaService::new(Arc::new(SuccessStorage));
+
+    let result = service
+        .list_cohort_member_ids(Request::new(ListCohortMemberIdsRequest {
+            cohort_id: 1,
+            cursor: 0,
+            limit: 100,
+            read_options: strong_consistency(),
+        }))
+        .await;
+
+    assert!(result.is_ok());
+}
+
+#[tokio::test]
+async fn test_list_cohort_member_ids_accepts_eventual_consistency() {
+    let service = PersonHogReplicaService::new(Arc::new(SuccessStorage));
+
+    let result = service
+        .list_cohort_member_ids(Request::new(ListCohortMemberIdsRequest {
+            cohort_id: 1,
+            cursor: 0,
+            limit: 100,
+            read_options: eventual_consistency(),
+        }))
+        .await;
+
+    assert!(result.is_ok());
+}
+
+#[tokio::test]
+async fn test_list_cohort_member_ids_routes_strong_to_primary() {
+    let tracking_storage = Arc::new(ConsistencyTrackingStorage::new());
+    let service = PersonHogReplicaService::new(tracking_storage.clone());
+
+    service
+        .list_cohort_member_ids(Request::new(ListCohortMemberIdsRequest {
+            cohort_id: 1,
+            cursor: 0,
+            limit: 100,
+            read_options: strong_consistency(),
+        }))
+        .await
+        .expect("RPC should succeed");
+
+    assert_eq!(
+        tracking_storage.last_consistency(),
+        Some(storage::postgres::ConsistencyLevel::Strong)
+    );
+}
+
+#[tokio::test]
+async fn test_list_cohort_member_ids_routes_eventual_to_replica() {
+    let tracking_storage = Arc::new(ConsistencyTrackingStorage::new());
+    let service = PersonHogReplicaService::new(tracking_storage.clone());
+
+    service
+        .list_cohort_member_ids(Request::new(ListCohortMemberIdsRequest {
+            cohort_id: 1,
+            cursor: 0,
+            limit: 100,
+            read_options: eventual_consistency(),
+        }))
+        .await
+        .expect("RPC should succeed");
+
+    assert_eq!(
+        tracking_storage.last_consistency(),
+        Some(storage::postgres::ConsistencyLevel::Eventual)
+    );
+}
+
+#[tokio::test]
+async fn test_list_cohort_member_ids_routes_unspecified_to_replica() {
+    let tracking_storage = Arc::new(ConsistencyTrackingStorage::new());
+    let service = PersonHogReplicaService::new(tracking_storage.clone());
+
+    service
+        .list_cohort_member_ids(Request::new(ListCohortMemberIdsRequest {
+            cohort_id: 1,
+            cursor: 0,
+            limit: 100,
+            read_options: None,
         }))
         .await
         .expect("RPC should succeed");

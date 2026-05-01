@@ -1,4 +1,4 @@
-import { MessageTemplate } from './messageTemplatesLogic'
+import { MessageTemplate } from './types'
 
 export const NEW_TEMPLATE: MessageTemplate = {
     id: 'new',

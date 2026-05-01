@@ -5,6 +5,8 @@ from datetime import timedelta
 from django.conf import settings
 
 import structlog
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
@@ -14,8 +16,9 @@ from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.client import query_with_columns
-from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.event_usage import report_user_action
+from posthog.hogql_queries.ai.ai_table_resolver import is_ai_events_enabled
+from posthog.hogql_queries.ai.utils import HEAVY_COLUMN_NAMES, HEAVY_COLUMN_TO_PROPERTY, merge_heavy_properties
 from posthog.permissions import AccessControlPermission
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.llm_analytics.run_evaluation import RunEvaluationInputs
@@ -28,17 +31,25 @@ logger = structlog.get_logger(__name__)
 
 
 class EvaluationRunRequestSerializer(serializers.Serializer):
-    evaluation_id = serializers.UUIDField(required=True)
-    target_event_id = serializers.UUIDField(required=True)
-    timestamp = serializers.DateTimeField(required=True)
-    event = serializers.CharField(required=True)
-    distinct_id = serializers.CharField(required=False, allow_null=True)
+    evaluation_id = serializers.UUIDField(required=True, help_text="UUID of the evaluation to run.")
+    target_event_id = serializers.UUIDField(required=True, help_text="UUID of the $ai_generation event to evaluate.")
+    timestamp = serializers.DateTimeField(
+        required=True, help_text="ISO 8601 timestamp of the target event (needed for efficient ClickHouse lookup)."
+    )
+    event = serializers.CharField(
+        required=False, default="$ai_generation", help_text="Event name. Defaults to '$ai_generation'."
+    )
+    distinct_id = serializers.CharField(
+        required=False, allow_null=True, help_text="Distinct ID of the event (optional, improves lookup performance)."
+    )
 
 
+@extend_schema(tags=["llm_analytics"])
 class EvaluationRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "evaluation"
     permission_classes = [IsAuthenticated, AccessControlPermission]
 
+    @extend_schema(request=EvaluationRunRequestSerializer, responses={200: OpenApiTypes.OBJECT})
     @llma_track_latency("llma_evaluation_runs_create")
     @monitor(feature=None, endpoint="llma_evaluation_runs_create", method="POST")
     def create(self, request: Request, **kwargs) -> Response:
@@ -64,15 +75,14 @@ class EvaluationRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         except Evaluation.DoesNotExist:
             return Response({"error": f"Evaluation {evaluation_id} not found"}, status=404)
 
-        # Fetch event data from ClickHouse efficiently using available index keys
-        # The compound index is (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid))
+        # Fetch event data from ClickHouse using available keys
         where_clauses = [
             "team_id = %(team_id)s",
             "toDate(timestamp) = toDate(%(timestamp)s)",
             "event = %(event)s",
             "uuid = %(event_id)s",
         ]
-        params = {
+        params: dict[str, object] = {
             "team_id": self.team_id,
             "event_id": target_event_id.replace("-", ""),
             "timestamp": timestamp,
@@ -83,30 +93,60 @@ class EvaluationRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             where_clauses.append("distinct_id = %(distinct_id)s")
             params["distinct_id"] = distinct_id
 
-        tag_queries(product=Product.LLM_ANALYTICS, feature=Feature.QUERY)
-        query_result = query_with_columns(
-            f"""
-            SELECT
-                uuid,
-                event,
-                properties,
-                timestamp,
-                team_id,
-                distinct_id,
-                elements_chain,
-                created_at,
-                person_id
-            FROM events
-            WHERE {" AND ".join(where_clauses)}
-            LIMIT 1
-            """,
-            params,
-            team_id=self.team_id,
-        )
+        # Try ai_events first (unless kill switch is off), fall back to events
+        query_result: list[dict] = []
+        used_ai_events = False
+
+        if is_ai_events_enabled(self.team):
+            heavy_cols = ",\n                    ".join(HEAVY_COLUMN_NAMES)
+            query_result = query_with_columns(
+                f"""
+                SELECT
+                    uuid,
+                    event,
+                    properties,
+                    timestamp,
+                    team_id,
+                    distinct_id,
+                    person_id,
+                    {heavy_cols}
+                FROM ai_events
+                WHERE {" AND ".join(where_clauses)}
+                LIMIT 1
+                """,
+                params,
+                team_id=self.team_id,
+            )
+            used_ai_events = len(query_result) > 0
+
+        if not query_result:
+            query_result = query_with_columns(
+                f"""
+                SELECT
+                    uuid,
+                    event,
+                    properties,
+                    timestamp,
+                    team_id,
+                    distinct_id,
+                    person_id
+                FROM events
+                WHERE {" AND ".join(where_clauses)}
+                LIMIT 1
+                """,
+                params,
+                team_id=self.team_id,
+            )
+
         if len(query_result) == 0:
             return Response({"error": f"Event {target_event_id} not found"}, status=404)
 
         event_data = query_result[0]
+
+        if used_ai_events:
+            # Merge heavy columns back into properties for the evaluation workflow
+            heavy_columns = {col: event_data.pop(col, "") for col in HEAVY_COLUMN_TO_PROPERTY}
+            event_data["properties"] = merge_heavy_properties(event_data["properties"], heavy_columns)
 
         # Build workflow inputs
         inputs = RunEvaluationInputs(

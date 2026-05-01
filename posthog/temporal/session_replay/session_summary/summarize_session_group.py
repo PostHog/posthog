@@ -6,7 +6,6 @@ import dataclasses
 from collections.abc import AsyncGenerator
 from datetime import datetime, timedelta
 from math import ceil
-from typing import Literal
 
 from django.conf import settings
 
@@ -63,7 +62,7 @@ from ee.hogai.session_summaries.constants import (
     FAILED_SESSION_SUMMARIES_MIN_RATIO,
     MIN_SESSION_DURATION_FOR_SUMMARY_MS,
     SESSION_GROUP_SUMMARIES_WORKFLOW_POLLING_INTERVAL_MS,
-    SESSION_SUMMARIES_SYNC_MODEL,
+    SESSION_SUMMARIES_MODEL,
 )
 from ee.hogai.session_summaries.session.input_data import add_context_and_filter_events
 from ee.hogai.session_summaries.session.summarize_session import (
@@ -252,6 +251,7 @@ async def fetch_session_batch_events_activity(
             user_distinct_id_to_log=inputs.user_distinct_id_to_log,
             summary_data=summary_data,
             model_to_use=inputs.model_to_use,
+            trigger_session_id=inputs.trigger_session_id,
         )
         # Store the input data in Redis
         session_data_key = generate_state_key(
@@ -390,7 +390,8 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
                 model_to_use=inputs.model_to_use,
                 extra_summary_context=inputs.extra_summary_context,
                 local_reads_prod=inputs.local_reads_prod,
-                video_validation_enabled=inputs.video_validation_enabled,
+                video_based=inputs.video_based,
+                trigger_session_id=inputs.trigger_session_id,
             )
             session_inputs.append(single_session_input)
         # Update total to exclude skipped sessions so progress reflects actual work
@@ -550,6 +551,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
                     model_to_use=inputs.model_to_use,
                     extra_summary_context=inputs.extra_summary_context,
                     redis_key_base=inputs.redis_key_base,
+                    trigger_session_id=inputs.trigger_session_id,
                 )
                 # Generate Redis key to store patterns extracted from sessions in this chunk
                 chunk_redis_key = generate_state_key(
@@ -596,6 +598,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
                 team_id=inputs.team_id,
                 redis_key_base=inputs.redis_key_base,
                 extra_summary_context=inputs.extra_summary_context,
+                trigger_session_id=inputs.trigger_session_id,
             ),
             start_to_close_timeout=timedelta(minutes=10),
             retry_policy=RetryPolicy(maximum_attempts=3),
@@ -627,6 +630,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
                 model_to_use=inputs.model_to_use,
                 extra_summary_context=inputs.extra_summary_context,
                 redis_key_base=inputs.redis_key_base,
+                trigger_session_id=inputs.trigger_session_id,
             )
         )
         # If no session ids returned - then all the session ids got patterns extracted and cached successfully
@@ -654,6 +658,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
                 model_to_use=inputs.model_to_use,
                 extra_summary_context=inputs.extra_summary_context,
                 redis_key_base=inputs.redis_key_base,
+                trigger_session_id=inputs.trigger_session_id,
             ),
             start_to_close_timeout=timedelta(minutes=30),
             retry_policy=RetryPolicy(maximum_attempts=3),
@@ -671,7 +676,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
                 extra_properties={
                     "workflow_type": "group",
                     "session_count": len(inputs.session_ids),
-                    "video_validation_enabled": inputs.video_validation_enabled,
+                    "video_based": inputs.video_based,
                 },
             ),
             start_to_close_timeout=timedelta(seconds=30),
@@ -821,10 +826,11 @@ async def execute_summarize_session_group(
     min_timestamp: datetime,
     max_timestamp: datetime,
     summary_title: str | None,
-    model_to_use: str = SESSION_SUMMARIES_SYNC_MODEL,
+    model_to_use: str = SESSION_SUMMARIES_MODEL,
     extra_summary_context: ExtraSummaryContext | None = None,
     local_reads_prod: bool = False,
-    video_validation_enabled: bool | Literal["full"] | None = None,
+    video_based: bool = False,
+    trigger_session_id: str | None = None,
 ) -> AsyncGenerator[
     tuple[
         SessionSummaryStreamUpdate,
@@ -851,7 +857,8 @@ async def execute_summarize_session_group(
         model_to_use=model_to_use,
         extra_summary_context=extra_summary_context,
         local_reads_prod=local_reads_prod,
-        video_validation_enabled=video_validation_enabled,
+        video_based=video_based,
+        trigger_session_id=trigger_session_id,
     )
     # Connect to Temporal and execute the workflow
     workflow_id = f"session-summary:group:{user.id}-{team.id}:{shared_id}:{uuid.uuid4()}"

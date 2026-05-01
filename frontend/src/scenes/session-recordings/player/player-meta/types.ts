@@ -57,3 +57,27 @@ export interface SessionSummaryContent {
     segment_outcomes?: SessionSegmentOutcome[] | null
     session_outcome?: SessionOutcome | null
 }
+
+/** Structured heartbeat payload emitted by the Node.js rasterizer activity. */
+export interface RasterizerFrameProgress {
+    phase: 'setup' | 'capture' | 'upload'
+    frame: number
+    estimatedTotalFrames: number
+}
+
+/** Coarse phase of the rasterizer child workflow plus fine-grained frame counts. */
+export interface RasterizerProgress {
+    phase: string
+    frame_progress: RasterizerFrameProgress | null
+}
+
+/** Progress snapshot emitted by the `session-summary-progress` SSE event (video flow only). */
+export interface SummarizationProgress {
+    phase: string
+    step: number
+    total_steps: number
+    rasterizer_workflow_id: string | null
+    segments_total: number
+    segments_completed: number
+    rasterizer: RasterizerProgress | null
+}

@@ -1,4 +1,4 @@
-import type { Meta, StoryObj } from '@storybook/react-vite'
+import type { Meta, StoryObj } from '@storybook/react'
 
 import { Button } from './button'
 import { Card, CardAction, CardDescription, CardHeader, CardTitle } from './card'
@@ -34,6 +34,31 @@ export const Default: Story = {
                 </CardHeader>
             </Card>
             <Card>
+                <CardHeader>
+                    <CardTitle>Card Title</CardTitle>
+                    <CardDescription>Card Description</CardDescription>
+                    <CardAction>
+                        <Button variant="outline">Button 1</Button>
+                    </CardAction>
+                </CardHeader>
+            </Card>
+        </CardGroup>
+    ),
+} satisfies Story
+
+export const Small: Story = {
+    render: () => (
+        <CardGroup className="max-w-sm">
+            <Card size="sm">
+                <CardHeader>
+                    <CardTitle>Card Title</CardTitle>
+                    <CardDescription>Card Description</CardDescription>
+                    <CardAction>
+                        <Button variant="outline">Button 1</Button>
+                    </CardAction>
+                </CardHeader>
+            </Card>
+            <Card size="sm">
                 <CardHeader>
                     <CardTitle>Card Title</CardTitle>
                     <CardDescription>Card Description</CardDescription>

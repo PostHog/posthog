@@ -14,6 +14,16 @@ from posthog.personhog_client.proto.generated.personhog.types.v1.cohort_pb2 impo
     CheckCohortMembershipRequest,
     CohortMembership,
     CohortMembershipResponse,
+    CountCohortMembersRequest,
+    CountCohortMembersResponse,
+    DeleteCohortMemberRequest,
+    DeleteCohortMemberResponse,
+    DeleteCohortMembersBulkRequest,
+    DeleteCohortMembersBulkResponse,
+    InsertCohortMembersRequest,
+    InsertCohortMembersResponse,
+    ListCohortMemberIdsRequest,
+    ListCohortMemberIdsResponse,
 )
 from posthog.personhog_client.proto.generated.personhog.types.v1.group_pb2 import (
     GetGroupRequest,
@@ -33,6 +43,10 @@ from posthog.personhog_client.proto.generated.personhog.types.v1.group_pb2 impor
     GroupWithKey,
 )
 from posthog.personhog_client.proto.generated.personhog.types.v1.person_pb2 import (
+    DeletePersonsBatchForTeamRequest,
+    DeletePersonsBatchForTeamResponse,
+    DeletePersonsRequest,
+    DeletePersonsResponse,
     GetDistinctIdsForPersonRequest,
     GetDistinctIdsForPersonResponse,
     GetDistinctIdsForPersonsRequest,

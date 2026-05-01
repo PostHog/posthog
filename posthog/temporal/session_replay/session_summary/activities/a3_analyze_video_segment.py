@@ -143,7 +143,6 @@ async def analyze_video_segment_activity(
             posthog_distinct_id=inputs.user_distinct_id_to_log,
             posthog_trace_id=trace_id,
             posthog_properties={
-                "$session_id": inputs.session_id,
                 "segment_index": segment.segment_index,
             },
             posthog_groups={"project": str(inputs.team_id)},

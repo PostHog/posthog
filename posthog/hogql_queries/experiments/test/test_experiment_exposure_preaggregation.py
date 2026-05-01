@@ -78,7 +78,7 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
     ) -> tuple[ExperimentQueryResponse, ExperimentQueryResponse]:
         """Run the same experiment through both paths and assert identical results."""
         # Path A: direct events scan
-        experiment.exposure_preaggregation_enabled = False
+        self._disable_precomputation()
         experiment.save()
         direct_result = self._run_experiment(experiment, metric)
 
@@ -95,7 +95,7 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
         )
 
         # Path B: lazy-computed
-        experiment.exposure_preaggregation_enabled = True
+        self._enable_precomputation()
         experiment.save()
         lazy_result = self._run_experiment(experiment, metric)
 
@@ -246,12 +246,12 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
         )
 
         # Run through runner with lazy computation enabled
-        experiment.exposure_preaggregation_enabled = True
+        self._enable_precomputation()
         experiment.save()
         lazy_result = self._run_experiment(experiment, metric)
 
         # Run through runner without lazy computation
-        experiment.exposure_preaggregation_enabled = False
+        self._disable_precomputation()
         experiment.save()
         direct_result = self._run_experiment(experiment, metric)
 
@@ -280,7 +280,7 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
             start_date=datetime(2024, 1, 1),
             end_date=datetime(2024, 1, 5),
         )
-        experiment.exposure_preaggregation_enabled = True
+        self._enable_precomputation()
 
         metric = ExperimentMeanMetric(
             source=EventsNode(event="purchase", math=ExperimentMetricMathType.TOTAL),
@@ -363,7 +363,7 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
             start_date=datetime(2024, 1, 1),
             end_date=datetime(2024, 1, 5),
         )
-        experiment.exposure_preaggregation_enabled = True
+        self._enable_precomputation()
         experiment.exposure_criteria = {"multiple_variant_handling": "first_seen"}
 
         metric = ExperimentMeanMetric(
@@ -521,7 +521,7 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
             placeholders=placeholders,
         )
 
-        experiment.exposure_preaggregation_enabled = True
+        self._enable_precomputation()
         experiment.metrics = [metric.model_dump(mode="json")]
         experiment.save()
 
@@ -687,7 +687,7 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
             start_date=datetime(2024, 1, 1),
             end_date=datetime(2024, 1, 5),
         )
-        experiment.exposure_preaggregation_enabled = True
+        self._enable_precomputation()
 
         metric = ExperimentMeanMetric(
             source=EventsNode(event="purchase", math=ExperimentMetricMathType.TOTAL),

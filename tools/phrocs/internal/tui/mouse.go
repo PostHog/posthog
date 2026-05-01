@@ -15,7 +15,27 @@ func (m Model) handleMouseClick(msg tea.MouseClickMsg, cmds []tea.Cmd) (tea.Mode
 				row--
 			}
 			idx := m.servicesOffset + row
-			if idx >= 0 && idx < len(m.services) {
+
+			if m.isGrouped() {
+				// In grouped mode, idx indexes into sidebarEntries
+				if idx >= 0 && idx < len(m.sidebarEntries) {
+					e := m.sidebarEntries[idx]
+					if e.isNonSelectable() {
+						// Click on group header or spacer — ignore
+						return m, tea.Batch(cmds...)
+					}
+					prev := m.servicesCursor
+					m.entryCursor = idx
+					m.servicesCursor = e.procIndex
+					m.ensureSidebarCursorVisible()
+					if prev != m.servicesCursor {
+						m.dbg("proc selected (mouse): %s", m.services[m.servicesCursor].Name)
+						var loadCmds []tea.Cmd
+						m, loadCmds = m.loadActiveProc()
+						return m, tea.Batch(loadCmds...)
+					}
+				}
+			} else if idx >= 0 && idx < len(m.services) {
 				prev := m.servicesCursor
 				m.servicesCursor = idx
 				m.ensureSidebarCursorVisible()

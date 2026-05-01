@@ -61,4 +61,4 @@ class PluginConfigAdmin(admin.ModelAdmin):
         return format_html("{} ({})", config.plugin.name, config.plugin_id)
 
     def team_name(self, config: PluginConfig):
-        return format_html("{} ({})", config.team.name, config.team_id)
+        return format_html("{} ({})", config.team.name if config.team is not None else "-", config.team_id)

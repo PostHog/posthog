@@ -9,17 +9,22 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    BulkUpdateTagsRequestApi,
+    BulkUpdateTagsResponseApi,
     ConversationApi,
     ConversationsListParams,
     ConversationsTicketsListParams,
+    ConversationsViewsListParams,
     MessageApi,
     MessageMinimalApi,
-    PaginatedConversationListApi,
+    PaginatedConversationMinimalListApi,
     PaginatedTicketListApi,
+    PaginatedTicketViewListApi,
     PatchedConversationApi,
     PatchedTicketApi,
     SuggestReplyResponseApi,
     TicketApi,
+    TicketViewApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -59,8 +64,8 @@ export const conversationsList = async (
     projectId: string,
     params?: ConversationsListParams,
     options?: RequestInit
-): Promise<PaginatedConversationListApi> => {
-    return apiMutator<PaginatedConversationListApi>(getConversationsListUrl(projectId, params), {
+): Promise<PaginatedConversationMinimalListApi> => {
+    return apiMutator<PaginatedConversationMinimalListApi>(getConversationsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -231,6 +236,80 @@ export const conversationsQueueClearCreate = async (
     })
 }
 
+export const getConversationsViewsListUrl = (projectId: string, params?: ConversationsViewsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/conversations/views/?${stringifiedParams}`
+        : `/api/environments/${projectId}/conversations/views/`
+}
+
+export const conversationsViewsList = async (
+    projectId: string,
+    params?: ConversationsViewsListParams,
+    options?: RequestInit
+): Promise<PaginatedTicketViewListApi> => {
+    return apiMutator<PaginatedTicketViewListApi>(getConversationsViewsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getConversationsViewsCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/conversations/views/`
+}
+
+export const conversationsViewsCreate = async (
+    projectId: string,
+    ticketViewApi: NonReadonly<TicketViewApi>,
+    options?: RequestInit
+): Promise<TicketViewApi> => {
+    return apiMutator<TicketViewApi>(getConversationsViewsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(ticketViewApi),
+    })
+}
+
+export const getConversationsViewsRetrieveUrl = (projectId: string, shortId: string) => {
+    return `/api/environments/${projectId}/conversations/views/${shortId}/`
+}
+
+export const conversationsViewsRetrieve = async (
+    projectId: string,
+    shortId: string,
+    options?: RequestInit
+): Promise<TicketViewApi> => {
+    return apiMutator<TicketViewApi>(getConversationsViewsRetrieveUrl(projectId, shortId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getConversationsViewsDestroyUrl = (projectId: string, shortId: string) => {
+    return `/api/environments/${projectId}/conversations/views/${shortId}/`
+}
+
+export const conversationsViewsDestroy = async (
+    projectId: string,
+    shortId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getConversationsViewsDestroyUrl(projectId, shortId), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
 /**
  * List tickets with person data attached.
  */
@@ -362,6 +441,34 @@ export const conversationsTicketsSuggestReplyCreate = async (
     return apiMutator<SuggestReplyResponseApi>(getConversationsTicketsSuggestReplyCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+/**
+ * Bulk update tags on multiple objects.
+
+Accepts:
+- {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
+
+Actions:
+- "add": Add tags to existing tags on each object
+- "remove": Remove specific tags from each object
+- "set": Replace all tags on each object with the provided list
+ */
+export const getConversationsTicketsBulkUpdateTagsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/conversations/tickets/bulk_update_tags/`
+}
+
+export const conversationsTicketsBulkUpdateTagsCreate = async (
+    projectId: string,
+    bulkUpdateTagsRequestApi: BulkUpdateTagsRequestApi,
+    options?: RequestInit
+): Promise<BulkUpdateTagsResponseApi> => {
+    return apiMutator<BulkUpdateTagsResponseApi>(getConversationsTicketsBulkUpdateTagsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(bulkUpdateTagsRequestApi),
     })
 }
 

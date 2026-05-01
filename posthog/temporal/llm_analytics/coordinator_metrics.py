@@ -37,3 +37,11 @@ def record_jobs_dispatched(count: int, pipeline: str, analysis_level: str) -> No
         "llma_coordinator_jobs_dispatched",
         "Jobs dispatched to child workflows per coordinator run",
     ).add(count)
+
+
+def increment_fetch_jobs_failed(pipeline: str, analysis_level: str) -> None:
+    meter = get_metric_meter({"pipeline": pipeline, "analysis_level": analysis_level})
+    meter.create_counter(
+        "llma_coordinator_fetch_jobs_failed",
+        "Coordinator runs where fetch_all_clustering_jobs_activity failed and the cycle proceeded with zero jobs",
+    ).add(1)

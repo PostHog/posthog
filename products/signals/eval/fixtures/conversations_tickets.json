@@ -1,0 +1,180 @@
+[
+  {
+    "id": "00000000-0000-0000-0000-000000000001",
+    "ticket_number": 237,
+    "channel_source": "slack",
+    "channel_detail": "slack_channel_message",
+    "status": "open",
+    "priority": "low",
+    "created_at": "2026-03-30T15:38:00Z",
+    "email_subject": null,
+    "messages": [
+      ["customer", "I have several tabs of Persons open. Some have the default filter of last 24hrs selected. If I navigate to either tab, set it to 7 days, navigate to another tab with the filter set to 24hrs and navigate back to the original tab the filter gets reset to 24hrs from 7 days."],
+      ["support", "Hey, thanks for reaching out! Is this on the persons page event tab? Happy to look at this further once confirmed."],
+      ["customer", "So if I select Last 7 days in the events tab, and navigate to another Persons tab within posthog and navigate back the filter gets reset. Seems like the filters & column configurations aren't being persisted per tab. Thanks for looking into this!"]
+    ]
+  },
+  {
+    "id": "00000000-0000-0000-0000-000000000002",
+    "ticket_number": 239,
+    "channel_source": "widget",
+    "channel_detail": "widget_api",
+    "status": "open",
+    "priority": null,
+    "created_at": "2026-03-31T18:17:00Z",
+    "email_subject": null,
+    "messages": [
+      ["customer", "Can't find the reset button on an experiment. We're keeping the bulk of the settings, but have made changes to the experiment and just want to reset the data. The AI seems to think this exists, I just can't find it. Hoping someone can point me in the right direction. Thanks."],
+      ["support", "Hi, thanks for reaching out, sorry for the confusion here. We've recently had some UI changes and the AI hasn't quite caught up where everything is located now. You can find the 'reset' button in the side bar menu on the experiment."]
+    ]
+  },
+  {
+    "id": "00000000-0000-0000-0000-000000000003",
+    "ticket_number": 240,
+    "channel_source": "widget",
+    "channel_detail": "widget_api",
+    "status": "pending",
+    "priority": "low",
+    "created_at": "2026-03-31T21:56:00Z",
+    "email_subject": null,
+    "messages": [
+      ["customer", "Session replays stopped working in last 12 hours. Updated the JS and Node SDK versions, checked for changes in my server, but doesn't seem to be an issue. One thing I've noticed: I installed the wizard again so it can check, but it said ongoing service disruptions, might be related, even though services seem up."],
+      ["support", "Hey, thanks for reaching out. I just had a look and it seems like replays are coming in regularly, is this still an issue for you? If so, please share your SDK config and I can take a deeper look!"]
+    ]
+  },
+  {
+    "id": "00000000-0000-0000-0000-000000000004",
+    "ticket_number": 244,
+    "channel_source": "widget",
+    "channel_detail": "widget_api",
+    "status": "pending",
+    "priority": null,
+    "created_at": "2026-04-01T14:44:00Z",
+    "email_subject": null,
+    "messages": [
+      ["customer", "Hi there, we have a problem with the Slack integration. The monthly update did not show the usual charts, but instead we got these errors:\n\nGrowth accounting Users\nThere was an error generating your asset: Message: Egress proxying is denied to host 'localhost:37345': no valid IP found among resolved addresses - ::1 denied by rule 'Deny: Not Global Unicast'.\n\nThis affects Growth accounting Clients, User stickiness based on Pageview, Client stickiness based on Pageview, Monthly User Retention, and Monthly Client Retention.\n\nTherefore we need your help. Looking forward to your reply."],
+      ["support", "Hi, thanks for reporting this. This error occurs when our internal chart rendering service, which generates the image screenshots for Slack subscriptions, has its communication blocked by our network proxy. We identified and fixed this issue on March 31 in two separate patches. The fix has since been deployed. Could you confirm whether you're still seeing this error on subscriptions delivered after April 1? If the error has stopped, no further action is needed on your end. If you're still seeing it, let us know and we'll dig deeper."]
+    ]
+  },
+  {
+    "id": "00000000-0000-0000-0000-000000000005",
+    "ticket_number": 250,
+    "channel_source": "widget",
+    "channel_detail": "widget_api",
+    "status": "open",
+    "priority": null,
+    "created_at": "2026-04-02T09:04:00Z",
+    "email_subject": null,
+    "messages": [
+      ["customer", "Can I have access to the Evaluation Context for feature flags?"],
+      ["customer", "This should be for my main project."],
+      ["support", "Hello there! I'm happy to help out here. Our Evaluation Contexts are currently behind an opt-in feature preview for access. You would be able to opt-in to try using this out by going to our feature preview page. Simply enable the Evaluation contexts setting and you should start seeing the option. I hope that helps, please let us know if you have any other questions!"],
+      ["customer", "Hey, thanks a lot for your reply! I could see it there, I was curious about the iOS error reporting as well. There doesn't seem to be a flag for it and nor do I see an option to enable it."],
+      ["support", "Hello! Thanks for those details! I have been looking over your user and I am showing that you should have access to the autocapture slider. It would appear right above the integrations. That side section does have sliding enabled, so it might appear if you scroll upwards. At the moment, I'm not seeing any other reports of this behavior. Would you be able to send me any logs from your browser console? I'd be curious as to what errors are showing up in those logs. With your permission, I'd be happy to enable this setting for one or all of your projects. Just please let me know!"],
+      ["customer", "Ahh yes, now I can see it and I've enabled it, thank you!"]
+    ]
+  },
+  {
+    "id": "00000000-0000-0000-0000-000000000006",
+    "ticket_number": 256,
+    "channel_source": "widget",
+    "channel_detail": "widget_api",
+    "status": "pending",
+    "priority": "medium",
+    "created_at": "2026-04-05T14:59:00Z",
+    "email_subject": null,
+    "messages": [
+      ["customer", "Hello, two matters:\n1. The owner of the account is no longer with the company. How do we transfer ownership to a different user?\n2. How can we confirm our company details which will appear in the invoice are correct?"],
+      ["support", "Hello, happy to help with this! Regarding changing the account owner, could you please send a quick email from the owner's email address confirming that you'd like to transfer organization ownership to the new email address? This is necessary for security reasons, before we make any changes on our end. If you no longer have access to the original email address, we can verify ownership through your domain instead. On the billing details, you can easily update those by heading to your Billing page, and clicking 'manage card details and invoices'."]
+    ]
+  },
+  {
+    "id": "00000000-0000-0000-0000-000000000007",
+    "ticket_number": 257,
+    "channel_source": "widget",
+    "channel_detail": "widget_api",
+    "status": "pending",
+    "priority": "low",
+    "created_at": "2026-04-06T18:18:00Z",
+    "email_subject": null,
+    "messages": [
+      ["customer", "I've configured a workflow that uses the Batch trigger (admittedly in beta) and run into this error when triggering the workflow. Note that this is not from the console, but it's a tab-wide error and I can't even dismiss it.\n\nTypeError: Cannot read properties of undefined (reading 'toLocaleString')\n\nIf this is a bug in the Batch trigger, how can I work around it and still send emails to a pre-determined list of users?"],
+      ["support", "Hey, thanks for reaching out! An engineer on the workflows team has fixed this issue in a recent PR since you opened this ticket. Could you please try again and let us know if you're still seeing the error? Let me know and Happy Friday!"]
+    ]
+  },
+  {
+    "id": "00000000-0000-0000-0000-000000000008",
+    "ticket_number": 260,
+    "channel_source": "widget",
+    "channel_detail": "widget_api",
+    "status": "new",
+    "priority": null,
+    "created_at": "2026-04-08T21:50:00Z",
+    "email_subject": null,
+    "messages": [
+      ["customer", "Users don't appear to be merging. We had some sloppy data initially where a user was being registered against a user object from our auth provider. But as that user object changed, it would get identified as a different user. Makes sense. I've since fixed that identification, and it shouldn't be an issue going forward. But here's what the issue is. I can't merge existing users.\n\nI followed the docs, did curl commands to identify a user with their email address, and passed the uuids for each record. I can see in the activity logs and filter by $merge_dangerously that the events got to posthog, but it's been 5 hours and I still see duplicate users."]
+    ]
+  },
+  {
+    "id": "00000000-0000-0000-0000-000000000009",
+    "ticket_number": 269,
+    "channel_source": "widget",
+    "channel_detail": "widget_api",
+    "status": "new",
+    "priority": null,
+    "created_at": "2026-04-09T22:44:00Z",
+    "email_subject": null,
+    "messages": [
+      ["customer", "We have two projects in our org:\n\n- App (project/environment id 10001)\n- Landing Page (project/environment id 10002)\n\nProblem:\nFor both projects, the project/environment APIs show session replay enabled, but the live browser config asset still serves session replay as disabled.\n\nVerified API fields:\n- session_recording_opt_in = true\n- capture_console_log_opt_in = true\n- session_recording_sample_rate = 1.00\n- recording domains are correct\n\nBut these live config assets still return:\n- sessionRecording: false\n- logs.captureConsoleLogs: false\n\nWe also forced multiple PATCH updates through the official API and the assets still regenerate with replay disabled.\n\nResult: Normal analytics events still ingest, but no new session replay recordings/snapshots are created.\n\nPlease investigate why remote config generation is out of sync with project/environment replay settings."]
+    ]
+  },
+  {
+    "id": "00000000-0000-0000-0000-000000000010",
+    "ticket_number": 270,
+    "channel_source": "widget",
+    "channel_detail": "widget_api",
+    "status": "new",
+    "priority": null,
+    "created_at": "2026-04-10T07:55:00Z",
+    "email_subject": null,
+    "messages": [
+      ["customer", "How to set a single billing total monthly spend limit?"]
+    ]
+  },
+  {
+    "id": "00000000-0000-0000-0000-000000000011",
+    "ticket_number": 271,
+    "channel_source": "widget",
+    "channel_detail": "widget_api",
+    "status": "new",
+    "priority": null,
+    "created_at": "2026-04-10T14:08:00Z",
+    "email_subject": null,
+    "messages": [
+      ["customer", "Context: We're using the support feature with a shared alias (support@example.com). Form submissions are sent from this address, with the actual requester set in the reply-to header.\n\nThe support feature has been great for delegation and centralizing requests. This is one gap we've run into.\n\nProblem: All incoming support requests are attributed to the 'from' email (our support alias), instead of the actual requester (reply-to). This results in every conversation being tied to the alias rather than the real user.\n\nProposed Solution: Allow configuring a support alias email. If an incoming email matches this alias, use the reply-to email as the associated person. Use reply-to for threading and replies. Otherwise, fall back to current behavior.\n\nImpact: Improves accuracy of person attribution for teams using shared inboxes/aliases. Makes delegation and conversation tracking significantly more useful in real-world support workflows."]
+    ]
+  },
+  {
+    "id": "00000000-0000-0000-0000-000000000012",
+    "ticket_number": 268,
+    "channel_source": "slack",
+    "channel_detail": "slack_emoji_reaction",
+    "status": "open",
+    "priority": null,
+    "created_at": "2026-04-09T19:38:00Z",
+    "email_subject": null,
+    "messages": [
+      ["support", "Our current vendor is in my DMs about a renewal in May - are we ready to switch over completely to conversations for Slack and Teams support or do I need to renew them?"],
+      ["support", "I think some folks will likely have some helpful thoughts on that."],
+      ["support", "I think the main question is - how do we use the current vendor? Is it only for raising tickets in Slack?"],
+      ["support", "Or is it something else as well?"],
+      ["support", "The primary use case is creating tickets from Slack and mirroring the tickets between the two. Secondary use cases are: Mirror Slack and Teams channels, Sync conversations to CRM via webhooks, Channel join/leave alerts"],
+      ["support", "I am familiar with ticket creation (and that's what our tool does). Can you tell me how the other integrations work?"],
+      ["support", "When a ticket is closed we sync a summary of the conversation over to the CRM via a webhook automation."],
+      ["support", "I guess our workflows might be able to do something similar if conversation closed is a workflow trigger?"],
+      ["support", "Yes, we can do a lot via workflows as I did pretty deep integrations with tickets."],
+      ["support", "The only thing would be the summarization."],
+      ["support", "When in May? Feels very soon. Really depends on ticket management essentials."]
+    ]
+  }
+]

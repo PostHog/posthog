@@ -24,7 +24,7 @@ on:
             - 'master'
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -68,6 +68,9 @@ jobs:
                     - release: feature-flags
                       digest_key: feature-flags
                       values_key: image
+                    - release: flags-cache-jumphost
+                      digest_key: flags-cache-warmer
+                      values_key: image
                     - release: batch-import-worker
                       digest_key: batch-import-worker
                       values_key: image
@@ -79,6 +82,9 @@ jobs:
                       values_key: image
                     - release: capture-logs
                       digest_key: capture-logs
+                      values_key: image
+                    - release: ingestion-consumer
+                      digest_key: ingestion-consumer
                       values_key: image
                     - release: kafka-deduplicator
                       digest_key: kafka-deduplicator
@@ -95,16 +101,24 @@ jobs:
                     - release: personhog-router
                       digest_key: personhog-router
                       values_key: image
+                    - release: personhog-writer
+                      digest_key: personhog-writer
+                      values_key: image
                     - release: kafka-assigner
                       digest_key: kafka-assigner
+                      values_key: image
+                    - release: hypercache-server
+                      digest_key: hypercache-server
                       values_key: image
         steps:
             - name: get deployer token
               id: deployer
-              uses: getsentry/action-github-app-token@d4b5da6c5e37703f8c3b3e43abb5705b46e159cc # v3.0.0
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  app_id: ${{ secrets.GH_APP_CHARTS_DEPLOYER_APP_ID }}
-                  private_key: ${{ secrets.GH_APP_CHARTS_DEPLOYER_PRIVATE_KEY }}
+                  client-id: ${{ secrets.GH_APP_CHARTS_DEPLOYER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_CHARTS_DEPLOYER_PRIVATE_KEY }}
+                  owner: PostHog
+                  repositories: charts
 
             - name: trigger ${{ matrix.release }} deployment
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1

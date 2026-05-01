@@ -1,7 +1,7 @@
 import { Message } from 'node-rdkafka'
 
+import { createMockIngestionOutputs } from '../../../tests/helpers/mock-ingestion-outputs'
 import { createMockPipeline } from '../../../tests/helpers/mock-pipeline'
-import { KafkaProducerWrapper } from '../../kafka/producer'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { ingestionPipelineResultCounter } from '../../worker/ingestion/event-pipeline/metrics'
 import {
@@ -11,7 +11,6 @@ import {
 } from '../../worker/ingestion/pipeline-helpers'
 import { DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT, OVERFLOW_OUTPUT } from '../common/outputs'
 import { OverflowOutput } from '../common/outputs'
-import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { createContext } from './helpers'
 import { PipelineConfig, ResultHandlingPipeline } from './result-handling-pipeline'
 import { dlq, drop, ok, redirect } from './results'
@@ -40,46 +39,20 @@ const mockIngestionPipelineResultCounter = ingestionPipelineResultCounter as jes
 >
 
 describe('ResultHandlingPipeline', () => {
-    let mockDlqProducer: KafkaProducerWrapper
-    let mockRedirectProducer: KafkaProducerWrapper
-    let mockIngestionWarningsProducer: KafkaProducerWrapper
     let mockPromiseScheduler: PromiseScheduler
     let config: PipelineConfig<OverflowOutput>
 
     beforeEach(() => {
         jest.clearAllMocks()
 
-        mockDlqProducer = {
-            producer: {} as any,
-            queueMessages: jest.fn(),
-        } as unknown as KafkaProducerWrapper
-
-        mockRedirectProducer = {
-            producer: {} as any,
-            queueMessages: jest.fn(),
-        } as unknown as KafkaProducerWrapper
-
-        mockIngestionWarningsProducer = {
-            producer: {} as any,
-            queueMessages: jest.fn(),
-        } as unknown as KafkaProducerWrapper
-
         mockPromiseScheduler = {
             schedule: jest.fn(),
         } as unknown as PromiseScheduler
 
         config = {
-            outputs: new IngestionOutputs({
-                [DLQ_OUTPUT]: [{ topic: 'test-dlq', producer: mockDlqProducer, producerName: 'test' }],
-                [OVERFLOW_OUTPUT]: [{ topic: 'overflow-topic', producer: mockRedirectProducer, producerName: 'test' }],
-                [INGESTION_WARNINGS_OUTPUT]: [
-                    {
-                        topic: 'ingestion_warnings_test',
-                        producer: mockIngestionWarningsProducer,
-                        producerName: 'test',
-                    },
-                ],
-            }),
+            outputs: createMockIngestionOutputs<
+                typeof DLQ_OUTPUT | typeof OVERFLOW_OUTPUT | typeof INGESTION_WARNINGS_OUTPUT
+            >(),
             promiseScheduler: mockPromiseScheduler,
         }
     })
@@ -585,46 +558,20 @@ describe('ResultHandlingPipeline', () => {
 })
 
 describe('Integration tests', () => {
-    let mockDlqProducer: KafkaProducerWrapper
-    let mockRedirectProducer: KafkaProducerWrapper
-    let mockIngestionWarningsProducer: KafkaProducerWrapper
     let mockPromiseScheduler: PromiseScheduler
     let config: PipelineConfig<OverflowOutput>
 
     beforeEach(() => {
         jest.clearAllMocks()
 
-        mockDlqProducer = {
-            producer: {} as any,
-            queueMessages: jest.fn(),
-        } as unknown as KafkaProducerWrapper
-
-        mockRedirectProducer = {
-            producer: {} as any,
-            queueMessages: jest.fn(),
-        } as unknown as KafkaProducerWrapper
-
-        mockIngestionWarningsProducer = {
-            producer: {} as any,
-            queueMessages: jest.fn(),
-        } as unknown as KafkaProducerWrapper
-
         mockPromiseScheduler = {
             schedule: jest.fn(),
         } as unknown as PromiseScheduler
 
         config = {
-            outputs: new IngestionOutputs({
-                [DLQ_OUTPUT]: [{ topic: 'test-dlq', producer: mockDlqProducer, producerName: 'test' }],
-                [OVERFLOW_OUTPUT]: [{ topic: 'overflow-topic', producer: mockRedirectProducer, producerName: 'test' }],
-                [INGESTION_WARNINGS_OUTPUT]: [
-                    {
-                        topic: 'ingestion_warnings_test',
-                        producer: mockIngestionWarningsProducer,
-                        producerName: 'test',
-                    },
-                ],
-            }),
+            outputs: createMockIngestionOutputs<
+                typeof DLQ_OUTPUT | typeof OVERFLOW_OUTPUT | typeof INGESTION_WARNINGS_OUTPUT
+            >(),
             promiseScheduler: mockPromiseScheduler,
         }
     })

@@ -1,4 +1,6 @@
-from posthog.clickhouse.kafka_engine import CONSUMER_GROUP_TOPHOG, kafka_engine, ttl_period
+from django.conf import settings
+
+from posthog.clickhouse.kafka_engine import CONSUMER_GROUP_TOPHOG, CONSUMER_GROUP_TOPHOG_WS, kafka_engine, ttl_period
 from posthog.clickhouse.table_engines import Distributed, MergeTreeEngine, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_TOPHOG
 
@@ -118,3 +120,45 @@ FROM {kafka_table}
 
 def TRUNCATE_TOPHOG_TABLE_SQL():
     return f"TRUNCATE TABLE IF EXISTS {DATA_TABLE_NAME}"
+
+
+# WarpStream Kafka engine tables (coexist alongside MSK tables, same target)
+
+KAFKA_WS_TABLE_NAME = f"kafka_{TABLE_BASE_NAME}_ws"
+WS_MV_NAME = f"{TABLE_BASE_NAME}_ws_mv"
+
+DROP_KAFKA_TOPHOG_WS_TABLE_SQL = f"DROP TABLE IF EXISTS {KAFKA_WS_TABLE_NAME}"
+DROP_TOPHOG_WS_MV_SQL = f"DROP TABLE IF EXISTS {WS_MV_NAME}"
+
+
+def KAFKA_TOPHOG_WS_TABLE_SQL():
+    return KAFKA_TOPHOG_TABLE_BASE_SQL.format(
+        table_name=KAFKA_WS_TABLE_NAME,
+        engine=kafka_engine(
+            topic=KAFKA_CLICKHOUSE_TOPHOG,
+            group=CONSUMER_GROUP_TOPHOG_WS,
+            named_collection=settings.CLICKHOUSE_KAFKA_WARPSTREAM_INGESTION_NAMED_COLLECTION,
+        ),
+    )
+
+
+def TOPHOG_WS_MV_SQL(target_table: str = WRITABLE_TABLE_NAME):
+    return """
+CREATE MATERIALIZED VIEW IF NOT EXISTS {mv_name}
+TO {target_table}
+AS SELECT
+    timestamp,
+    metric,
+    type,
+    key,
+    value,
+    count,
+    pipeline,
+    lane,
+    labels
+FROM {kafka_table}
+""".format(
+        mv_name=WS_MV_NAME,
+        target_table=target_table,
+        kafka_table=KAFKA_WS_TABLE_NAME,
+    )

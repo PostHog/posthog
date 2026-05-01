@@ -205,12 +205,12 @@ describe('taxonomicBreakdownFilterLogic', () => {
         })
     })
 
-    describe('isAddBreakdownDisabled', () => {
+    describe('addBreakdownDisabledReason', () => {
         it('no breakdowns', async () => {
             logic = taxonomicBreakdownFilterLogic(makeProps({ breakdownFilter: {} }))
             logic.mount()
             await expectLogic(logic).toMatchValues({
-                isAddBreakdownDisabled: false,
+                addBreakdownDisabledReason: null,
             })
         })
 
@@ -224,7 +224,7 @@ describe('taxonomicBreakdownFilterLogic', () => {
             )
             logic.mount()
             await expectLogic(logic).toMatchValues({
-                isAddBreakdownDisabled: false,
+                addBreakdownDisabledReason: null,
             })
         })
 
@@ -243,7 +243,7 @@ describe('taxonomicBreakdownFilterLogic', () => {
             )
             logic.mount()
             await expectLogic(logic).toMatchValues({
-                isAddBreakdownDisabled: false,
+                addBreakdownDisabledReason: null,
             })
 
             logic = taxonomicBreakdownFilterLogic(
@@ -264,7 +264,7 @@ describe('taxonomicBreakdownFilterLogic', () => {
             )
             logic.mount()
             await expectLogic(logic).toMatchValues({
-                isAddBreakdownDisabled: false,
+                addBreakdownDisabledReason: null,
             })
         })
 
@@ -292,7 +292,7 @@ describe('taxonomicBreakdownFilterLogic', () => {
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
             await expectLogic(logic).toMatchValues({
-                isAddBreakdownDisabled: true,
+                addBreakdownDisabledReason: expect.stringContaining('up to 3'),
             })
         })
 
@@ -307,7 +307,7 @@ describe('taxonomicBreakdownFilterLogic', () => {
             )
             logic.mount()
             await expectLogic(logic).toMatchValues({
-                isAddBreakdownDisabled: true,
+                addBreakdownDisabledReason: expect.stringContaining('single breakdown'),
             })
 
             logic = taxonomicBreakdownFilterLogic(
@@ -320,7 +320,7 @@ describe('taxonomicBreakdownFilterLogic', () => {
             )
             logic.mount()
             await expectLogic(logic).toMatchValues({
-                isAddBreakdownDisabled: true,
+                addBreakdownDisabledReason: expect.stringContaining('single breakdown'),
             })
         })
 
@@ -335,7 +335,7 @@ describe('taxonomicBreakdownFilterLogic', () => {
             )
             logic.mount()
             await expectLogic(logic).toMatchValues({
-                isAddBreakdownDisabled: false,
+                addBreakdownDisabledReason: null,
             })
 
             logic = taxonomicBreakdownFilterLogic(
@@ -348,7 +348,7 @@ describe('taxonomicBreakdownFilterLogic', () => {
             )
             logic.mount()
             await expectLogic(logic).toMatchValues({
-                isAddBreakdownDisabled: false,
+                addBreakdownDisabledReason: null,
             })
         })
 
@@ -365,7 +365,7 @@ describe('taxonomicBreakdownFilterLogic', () => {
             )
             logic.mount()
             await expectLogic(logic).toMatchValues({
-                isAddBreakdownDisabled: true,
+                addBreakdownDisabledReason: expect.stringContaining('single cohort breakdown'),
             })
         })
 
@@ -382,7 +382,7 @@ describe('taxonomicBreakdownFilterLogic', () => {
             )
             logic.mount()
             await expectLogic(logic).toMatchValues({
-                isAddBreakdownDisabled: false,
+                addBreakdownDisabledReason: null,
             })
         })
 
@@ -399,7 +399,7 @@ describe('taxonomicBreakdownFilterLogic', () => {
             )
             logic.mount()
             await expectLogic(logic).toMatchValues({
-                isAddBreakdownDisabled: false,
+                addBreakdownDisabledReason: null,
             })
         })
     })
@@ -426,6 +426,39 @@ describe('taxonomicBreakdownFilterLogic', () => {
                 ],
                 breakdown_group_type_index: undefined,
                 breakdown_histogram_bin_count: undefined,
+            })
+        })
+
+        it('appends a second distinct breakdown', async () => {
+            logic = taxonomicBreakdownFilterLogic(
+                makeProps({
+                    breakdownFilter: {
+                        breakdowns: [
+                            {
+                                property: 'c',
+                                type: 'event',
+                            },
+                        ],
+                    },
+                })
+            )
+            logic.mount()
+
+            const group: TaxonomicFilterGroup = taxonomicGroupFor(TaxonomicFilterGroupType.EventProperties, undefined)
+
+            await expectLogic(logic, () => {
+                logic.actions.addBreakdown('d', group)
+            }).toFinishListeners()
+
+            expect(updateBreakdownFilter).toHaveBeenCalledWith({
+                breakdown_type: undefined,
+                breakdowns: [
+                    { property: 'c', type: 'event' },
+                    { property: 'd', type: 'event' },
+                ],
+                breakdown_group_type_index: undefined,
+                breakdown_histogram_bin_count: undefined,
+                breakdown_normalize_url: undefined,
             })
         })
 

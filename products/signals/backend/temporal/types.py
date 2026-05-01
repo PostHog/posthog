@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 
 
 @dataclass
@@ -110,7 +110,7 @@ class TeamSignalGroupingV2Input:
 
 @dataclass
 class ReadSignalsFromS3Input:
-    """Activity input: read a batch of signals from S3."""
+    """Activity input for reading a signal batch."""
 
     object_key: str
 
@@ -136,6 +136,14 @@ class SignalReportReingestionWorkflowInputs:
 
     team_id: int
     report_id: str
+
+
+@dataclass
+class TeamSignalReingestionWorkflowInputs:
+    """Inputs for the team-wide signal reingestion workflow."""
+
+    team_id: int
+    delete_only: bool = False
 
 
 @dataclass
@@ -169,6 +177,21 @@ class SignalData:
     weight: float
     timestamp: datetime
     extra: dict = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+def _render_extra_to_text(extra: dict) -> list[str]:
+    """Render signal extra data to text lines for LLM consumption."""
+    lines = []
+    for key, value in extra.items():
+        if key == "images":
+            images = value or []
+            rendered = ", ".join(f"[{img.get('author', 'unknown')}] {img['url']}" for img in images if img.get("url"))
+            if rendered:
+                lines.append(f"- images: {rendered}")
+        else:
+            lines.append(f"- {key}: {value}")
+    return lines
 
 
 def render_signal_to_text(
@@ -181,6 +204,8 @@ def render_signal_to_text(
     lines.append(f"- Weight: {signal.weight}")
     lines.append(f"- Timestamp: {signal.timestamp.isoformat()}")
     lines.append(f"- Description: {signal.content}")
+    if signal.extra:
+        lines.extend(_render_extra_to_text(signal.extra))
     return "\n".join(lines)
 
 

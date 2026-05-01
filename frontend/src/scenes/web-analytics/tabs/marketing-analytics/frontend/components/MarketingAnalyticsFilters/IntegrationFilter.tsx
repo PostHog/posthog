@@ -4,9 +4,9 @@ import { useState } from 'react'
 import { IconFilter } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonDropdown } from '@posthog/lemon-ui'
 
-import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
-
 import { ExternalDataSchemaStatus } from '~/types'
+
+import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
 
 import { MarketingSourceStatus, marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
 import { StatusIcon } from '../settings/StatusIcon'
@@ -89,7 +89,7 @@ export function IntegrationFilter(): JSX.Element {
                                     checked={selectedIds.includes(source.id)}
                                     className="pointer-events-none"
                                 />
-                                <DataWarehouseSourceIcon type={source.name} size="xsmall" disableTooltip />
+                                <SourceIcon type={source.name} size="xsmall" disableTooltip />
                                 <span className="flex-1">{formatSourceLabel(source)}</span>
                                 {/* We don't show the status icon for Completed sources because it would be too many statuses */}
                                 {source.status &&

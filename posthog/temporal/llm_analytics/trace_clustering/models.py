@@ -1,17 +1,15 @@
 """Data models for trace clustering workflow."""
 
 from dataclasses import dataclass, field
-from typing import Any, Literal, TypedDict
+from typing import Any, TypedDict
 
+from posthog.temporal.llm_analytics.shared_activities import AnalysisLevel  # noqa: F401
 from posthog.temporal.llm_analytics.trace_clustering.constants import (
     DEFAULT_LOOKBACK_DAYS,
     DEFAULT_MAX_K,
     DEFAULT_MAX_SAMPLES,
     DEFAULT_MIN_K,
 )
-
-# Analysis level determines whether we cluster traces or individual generations
-AnalysisLevel = Literal["trace", "generation"]
 
 
 @dataclass
@@ -117,6 +115,47 @@ class TraceClusterMetadata:
 
 
 @dataclass
+class ClusterSentiment:
+    """Aggregate sentiment for a cluster."""
+
+    label: str  # "positive", "neutral", "negative"
+    score: float  # 0-1
+    counts: dict[str, int]  # {"positive": N, "neutral": N, "negative": N}
+    total: int  # number of items with sentiment data
+
+
+@dataclass
+class ClusterAggregateMetrics:
+    """Pre-computed aggregate metrics for a cluster, baked into the event.
+
+    Operational fields (avg_cost/latency/tokens/errors) are populated for trace,
+    generation, and evaluation levels. For evaluations, operational metrics come
+    from the linked generation via $ai_target_event_id.
+
+    Eval-only fields (pass_rate, na_rate, dominant_evaluation_name,
+    dominant_runtime, avg_judge_cost) are None for trace and generation levels.
+    Keeping them on the same dataclass means a single shape flows through
+    activities, the serializer, $ai_*_clusters events, generated TypeScript
+    types, and MCP tool schemas.
+    """
+
+    avg_cost: float | None = None
+    avg_latency: float | None = None
+    avg_tokens: float | None = None
+    total_cost: float | None = None
+    error_rate: float | None = None
+    error_count: int = 0
+    item_count: int = 0
+    sentiment: ClusterSentiment | None = None
+    # Evaluation-only fields (None for trace/generation levels)
+    pass_rate: float | None = None
+    na_rate: float | None = None
+    dominant_evaluation_name: str | None = None
+    dominant_runtime: str | None = None
+    avg_judge_cost: float | None = None
+
+
+@dataclass
 class ClusterData:
     """Data structure for a cluster to be emitted in events."""
 
@@ -128,6 +167,7 @@ class ClusterData:
     centroid: list[float]
     centroid_x: float  # UMAP 2D x coordinate for scatter plot visualization
     centroid_y: float  # UMAP 2D y coordinate for scatter plot visualization
+    metrics: ClusterAggregateMetrics | None = None
 
 
 @dataclass
@@ -289,6 +329,23 @@ class EmitEventsActivityInputs:
     clustering_params: ClusteringParams | None = None  # Params used for this run
     job_id: str = ""  # empty = no job (legacy/manual run without a job)
     job_name: str = ""
+    cluster_metrics: dict[int, ClusterAggregateMetrics] = field(default_factory=dict)
+
+    @property
+    def properties_to_log(self) -> dict[str, Any]:
+        return {"team_id": self.team_id}
+
+
+@dataclass
+class ComputeAggregatesActivityInputs:
+    """Input for the aggregate metrics activity."""
+
+    team_id: int
+    window_start: str
+    window_end: str
+    items: list[ClusterItem]
+    labels: list[int]
+    analysis_level: AnalysisLevel = "trace"
 
     @property
     def properties_to_log(self) -> dict[str, Any]:

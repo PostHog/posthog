@@ -269,6 +269,7 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
                             manualExposureRate,
                         },
                     },
+                    update_feature_flag_params: false,
                 })
             } else {
                 actions.updateExperiment({
@@ -279,6 +280,7 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
                             conversionRateInputType: ConversionRateInputType.AUTOMATIC,
                         },
                     },
+                    update_feature_flag_params: false,
                 })
             }
             actions.closeRunningTimeConfigModal()

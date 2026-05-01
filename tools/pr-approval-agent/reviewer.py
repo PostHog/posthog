@@ -16,6 +16,23 @@ from claude_agent_sdk import ClaudeAgentOptions, ResultMessage, query
 from claude_agent_sdk.types import AssistantMessage, ToolUseBlock
 from github import PRData
 
+try:
+    import os
+
+    import posthoganalytics
+
+    posthoganalytics.api_key = os.environ.get("POSTHOG_API_KEY", "")  # ty: ignore[invalid-assignment]
+    posthoganalytics.host = os.environ.get("POSTHOG_HOST", "https://us.i.posthog.com")  # ty: ignore[invalid-assignment]
+
+    if posthoganalytics.api_key:
+        from posthoganalytics.ai.claude_agent_sdk import query  # type: ignore[no-redef]  # noqa: F811
+
+        _POSTHOG_AI_AVAILABLE = True
+    else:
+        _POSTHOG_AI_AVAILABLE = False
+except ImportError:
+    _POSTHOG_AI_AVAILABLE = False
+
 MODEL = "claude-sonnet-4-6"
 
 
@@ -124,6 +141,10 @@ REVIEWER_SYSTEM = textwrap.dedent(
       - ESCALATE: behavioral changes to business logic, API contracts, data models
 
     Review comments (inline feedback only, approval states are hidden):
+    - Top-level reviews are annotated as either "current head" or "older commit".
+      Treat reviews on the current head as active signals. Treat older-commit
+      reviews as historical context only, and only flag them if the current diff
+      still shows the same unresolved issue.
     - Comments are tagged [resolved], [outdated], or unmarked (unresolved).
       Resolution status is a signal, not gospel — use your judgment.
     - Resolved/outdated comments are usually fine, but still skim them.
@@ -212,8 +233,54 @@ class Reviewer:
             extra_args={"no-session-persistence": None},
         )
 
+        posthog_kwargs: dict = {}
+        if _POSTHOG_AI_AVAILABLE:
+            # Unique reviewer usernames, sanitized — labels and title are
+            # author-controlled so we sanitize them too (cheap insurance
+            # against weird unicode landing in analytics).
+            reviewers = sorted({_sanitize_untrusted(r["user"], max_len=50) for r in pr.reviews if r.get("user")})
+            safe_labels = [_sanitize_untrusted(label, max_len=100) for label in pr.labels]
+            trace_name = f"stamphog PR #{pr.number}: {_sanitize_untrusted(pr.title, max_len=100)}"
+            posthog_kwargs = {
+                "posthog_distinct_id": pr.author,
+                "posthog_properties": {
+                    "$ai_trace_name": trace_name,
+                    "ai_product": "stamphog",
+                    "stamphog_pr_number": pr.number,
+                    "stamphog_pr_title": _sanitize_untrusted(pr.title, max_len=200),
+                    "stamphog_repo": pr.repo,
+                    "stamphog_author": pr.author,
+                    "stamphog_labels": safe_labels,
+                    "stamphog_draft": pr.draft,
+                    "stamphog_mergeable_state": pr.mergeable_state,
+                    "stamphog_base_sha": pr.base_sha,
+                    "stamphog_head_sha": pr.head_sha,
+                    "stamphog_files_changed": len(pr.files),
+                    "stamphog_lines_added": pr.lines_added,
+                    "stamphog_lines_deleted": pr.lines_deleted,
+                    "stamphog_lines_total": pr.lines_total,
+                    "stamphog_has_new_files": pr.has_new_files,
+                    "stamphog_reviewers": reviewers,
+                    "stamphog_reviews_count": len(pr.reviews),
+                    "stamphog_inline_comments_count": len(pr.review_comments),
+                    "stamphog_tier": classification.get("tier", ""),
+                    "stamphog_t1_subclass": classification.get("t1_subclass", ""),
+                    "stamphog_breadth": classification.get("breadth", ""),
+                    "stamphog_commit_type": classification.get("commit_type") or "",
+                    "stamphog_deny_categories": classification.get("deny_categories", []),
+                    "stamphog_author_on_owning_team": classification.get("author_on_owning_team"),
+                    "stamphog_gate_verdict": gate_context.get("gate_verdict", ""),
+                    "stamphog_llm_verdict": "",
+                },
+            }
+
+        # Keep a reference so we can mutate it when the verdict arrives —
+        # the SDK sends the $ai_trace event after the generator completes,
+        # so updates here propagate to the trace.
+        props = posthog_kwargs.get("posthog_properties", {})
+
         structured_output = None
-        async for message in query(prompt=prompt, options=options):
+        async for message in query(prompt=prompt, options=options, **posthog_kwargs):
             if self.verbose:
                 print(f"\033[2m    [{type(message).__name__}]\033[0m", flush=True)
             if isinstance(message, ResultMessage):
@@ -221,6 +288,8 @@ class Reviewer:
                     raise RuntimeError("Agent could not produce valid structured output after retries")
                 if message.structured_output:
                     structured_output = message.structured_output
+                    # Stamp the LLM verdict onto the trace properties
+                    props["stamphog_llm_verdict"] = structured_output.get("verdict", "")
             elif isinstance(message, AssistantMessage):
                 for block in message.content:
                     if isinstance(block, ToolUseBlock) and self.verbose:
@@ -271,8 +340,14 @@ class Reviewer:
             for r in pr.reviews:
                 safe_user = _sanitize_untrusted(r["user"], max_len=50)
                 safe_body = _sanitize_untrusted(r.get("body", ""), max_len=500)
+                if r.get("is_current_head"):
+                    review_scope = "current head"
+                elif r.get("commit_id"):
+                    review_scope = f"older commit {r['commit_id'][:7]}"
+                else:
+                    review_scope = "older commit"
                 body_part = f": {safe_body}" if safe_body else ""
-                lines.append(f"  - @{safe_user} [{r['state']}]{body_part}")
+                lines.append(f"  - @{safe_user} [{r['state']}, {review_scope}]{body_part}")
             reviews_text = "\n".join(lines)
 
         review_comments = ""

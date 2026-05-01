@@ -143,6 +143,8 @@ class Command(BaseCommand):
         )
         self.stdout.write(f"  Access Token:  {access_token_value}")
         self.stdout.write(f"  Refresh Token: {refresh_token_value}")
+        self.stdout.write(f"  Project ID:    {team.id}")
+        self.stdout.write(f"  Client ID:     {oauth_app.client_id}")
         self.stdout.write("")
 
     def _resolve_client_id(self) -> str | None:

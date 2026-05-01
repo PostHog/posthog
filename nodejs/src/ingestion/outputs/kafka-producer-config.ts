@@ -41,7 +41,7 @@ const producerConfigSchema = z.object({
     'max.in.flight.requests.per.connection': z.coerce.number().default(5),
 })
 
-/** The rdkafka config keys that can be set via env vars. */
+/** The rdkafka config keys that can be set via the config object. */
 export type AllowedConfigKey = keyof z.input<typeof producerConfigSchema>
 
 /**
@@ -54,6 +54,7 @@ export type AllowedConfigKey = keyof z.input<typeof producerConfigSchema>
  * @param envVarMap - Maps rdkafka config keys (e.g. `linger.ms`) to
  *   env var names (e.g. `KAFKA_PRODUCER_LINGER_MS`).
  * @returns A fully typed `ProducerGlobalConfig` with `client.id` set to the hostname.
+ * @deprecated Use `KafkaProducerRegistryBuilder` instead, which reads from a config object.
  */
 export function getProducerConfig(envVarMap: Partial<Record<AllowedConfigKey, string>>): ProducerGlobalConfig {
     const envValues: Record<string, string> = {}
@@ -67,5 +68,19 @@ export function getProducerConfig(envVarMap: Partial<Record<AllowedConfigKey, st
 
     const parsed = producerConfigSchema.parse(envValues)
 
+    return { 'client.id': hostname(), ...parsed }
+}
+
+/**
+ * Parse a raw key-value map of rdkafka config values through the zod schema.
+ *
+ * Used by `KafkaProducerRegistryBuilder` after it resolves config keys from the config object.
+ * Missing keys fall back to schema defaults. Invalid values throw.
+ *
+ * @param values - Maps rdkafka config keys to their string values.
+ * @returns A fully typed `ProducerGlobalConfig` with `client.id` set to the hostname.
+ */
+export function parseProducerConfig(values: Record<string, string>): ProducerGlobalConfig {
+    const parsed = producerConfigSchema.parse(values)
     return { 'client.id': hostname(), ...parsed }
 }

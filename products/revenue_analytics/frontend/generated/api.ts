@@ -9,6 +9,17 @@
  */
 import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 
+export const getRevenueAnalyticsJoinsCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/revenue_analytics/joins/`
+}
+
+export const revenueAnalyticsJoinsCreate = async (projectId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getRevenueAnalyticsJoinsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getRevenueAnalyticsTaxonomyValuesRetrieveUrl = (projectId: string) => {
     return `/api/environments/${projectId}/revenue_analytics/taxonomy/values/`
 }

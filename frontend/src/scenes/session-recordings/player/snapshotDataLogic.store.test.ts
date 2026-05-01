@@ -208,6 +208,109 @@ describe('snapshotDataLogic (store-based loading)', () => {
 
             expect(logic.values.isWaitingForPlayableFullSnapshot).toBe(false)
         })
+
+        it('re-evaluates isWaitingForPlayableFullSnapshot after silent seek clear (#53893 Bug B)', async () => {
+            // Regression test for the stale-selector half of #53893.
+            //
+            // When LoadingScheduler.getSeekBatch silently clears seek mode
+            // (step 5: backward search exhausted, no full snapshot found),
+            // it mutates cache.scheduler.currentMode directly. The store's
+            // version doesn't bump because no data is added. Without the
+            // storeUpdated dispatch on that transition and a selector
+            // dependency that tracks it, isWaitingForPlayableFullSnapshot
+            // stays cached at `true` — poisoning the next seekToTimestamp.
+            //
+            // This exercise uses the step-5 path specifically because it's
+            // the case where mode changes WITHOUT any store mutation, so
+            // we can isolate the selector-reactivity half of the fix from
+            // the step-2 path (where markLoaded would also bump the
+            // selector's storeVersion dependency and mask a regression).
+            mountLogic()
+
+            // Pre-load sources as loaded-but-empty. state='loaded' means
+            // no seek batch will try to load them, and empty snapshots mean
+            // no full snapshot exists anywhere → canPlayAt is always false
+            // and the backward search in getSeekBatch step 4/5 will exhaust.
+            const store = logic.values.snapshotStore!
+            store.setSources([SOURCE_A, SOURCE_B])
+            store.markLoaded(0, [])
+            store.markLoaded(1, [])
+
+            // Tell Kea about the sources. setSources preserves loaded
+            // entries by blob_key, and loadNextSnapshotSource sees
+            // everything as loaded → no loader dispatches.
+            logic.actions.loadSnapshotSourcesSuccess([SOURCE_A, SOURCE_B])
+            await expectLogic(logic).toFinishAllListeners()
+
+            // Directly put the scheduler in seek mode. setTargetTimestamp
+            // would work too, but it's fiddly to arrange the early-return
+            // checks in this state — direct seekTo is cleaner.
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const scheduler = (logic as any).cache.scheduler as {
+                seekTo: (ts: number) => void
+                currentMode: { kind: string }
+            }
+            scheduler.seekTo(tsMs(0, 30))
+
+            // Pre-read: seek mode + no full snapshot → true, CACHED.
+            expect(logic.values.isWaitingForPlayableFullSnapshot).toBe(true)
+
+            // Trigger getSeekBatch. Step 1 finds nothing unloaded (all
+            // loaded), step 2 canPlayAt=false (no full snapshot), step 3
+            // findNearestFullSnapshot=null, step 4 backward search has
+            // nothing unloaded, step 5 exhausted → clearSeek. Mode flips
+            // to buffer_ahead WITHOUT any store mutation — this is the
+            // isolation point that catches Bug B.
+            logic.actions.loadNextSnapshotSource()
+            await expectLogic(logic).toFinishAllListeners()
+
+            // Sanity: scheduler actually exited seek mode.
+            expect(scheduler.currentMode.kind).toBe('buffer_ahead')
+
+            // Without the fix (no storeUpdated dispatch on silent clearSeek,
+            // or selector depending on storeVersion instead of storeUpdateCount),
+            // this returns a stale `true` because nothing in Kea's
+            // reactivity graph changed while the mode flipped.
+            expect(logic.values.isWaitingForPlayableFullSnapshot).toBe(false)
+        })
+
+        it('enters seek mode when called before sources load (past-end URL regression #53893)', async () => {
+            // Regression test for the stuck-buffer follow-up to #53686, fixed in #53893.
+            //
+            // Scenario: a user opens a replay with a ?t=<past-end> URL.
+            // The player dispatches setTargetTimestamp before the async
+            // snapshot source list has resolved, so the store is still
+            // empty at the point setTargetTimestamp runs.
+            //
+            // Before the fix, getSourceIndexForTimestamp returned 0 for
+            // any timestamp on an empty store, tripping the "source 0 in
+            // buffer_ahead" optimization and skipping scheduler.seekTo.
+            // The scheduler then stayed in buffer_ahead, and once sources
+            // arrived it anchored on the trailing blob (a heartbeat with
+            // no full snapshot) — leaving the player stuck in BUFFER.
+            mountLogic()
+
+            // Pre-condition: store is mounted but has no sources yet.
+            expect(logic.values.snapshotStore!.sourceCount).toBe(0)
+
+            // Force memoization at false so the test catches a missing storeUpdated
+            // after scheduler.seekTo (per review feedback on #53893).
+            expect(logic.values.isWaitingForPlayableFullSnapshot).toBe(false)
+
+            logic.actions.setTargetTimestamp(tsMs(5, 0))
+            await expectLogic(logic).toFinishAllListeners()
+
+            // With the fix: getSourceIndexForTimestamp returns null for
+            // the empty store, so targetIndex === 0 is false and the
+            // optimization doesn't fire. scheduler.seekTo runs and the
+            // storeUpdated dispatch on the wasSeeking transition ensures
+            // the selector re-evaluates. canPlayAt is false (no data),
+            // so isWaitingForPlayableFullSnapshot is true.
+            //
+            // Without the fix: scheduler stays in buffer_ahead, selector
+            // returns false, player has no signal to keep buffering.
+            expect(logic.values.isWaitingForPlayableFullSnapshot).toBe(true)
+        })
     })
 
     describe('updatePlaybackPosition', () => {

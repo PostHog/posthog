@@ -10,7 +10,8 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.models import Team
 
 from products.signals.backend.models import SignalReport
-from products.signals.backend.temporal.grouping import TeamSignalGroupingWorkflow
+from products.signals.backend.temporal.buffer import BufferSignalsWorkflow
+from products.signals.backend.temporal.grouping_v2 import TeamSignalGroupingV2Workflow
 from products.signals.backend.temporal.summary import SignalReportSummaryWorkflow
 from products.signals.backend.utils import EMBEDDING_MODEL
 
@@ -18,8 +19,9 @@ from products.signals.backend.utils import EMBEDDING_MODEL
 class Command(BaseCommand):
     help = (
         "Show unified signal pipeline status across Temporal, ClickHouse, and Postgres.\n\n"
-        "Checks the grouping workflow, ClickHouse embeddings, and SignalReport table "
-        "to give a complete view of pipeline state for a team."
+        "Checks the active Signals ingestion workflows (buffer + grouping-v2), "
+        "ClickHouse embeddings, and SignalReport table to give a complete view "
+        "of pipeline state for a team."
     )
 
     def add_arguments(self, parser):
@@ -134,24 +136,47 @@ class Command(BaseCommand):
 
         result = {}
 
-        # Check grouping workflow
-        grouping_wf_id = TeamSignalGroupingWorkflow.workflow_id_for(team.id)
-        result["grouping_workflow"] = self._describe_workflow(client, grouping_wf_id)
+        buffer_wf_id = BufferSignalsWorkflow.workflow_id_for(team.id)
+        result["buffer_workflow"] = self._describe_workflow(client, buffer_wf_id)
 
-        # Check summary workflows for reports
+        grouping_v2_wf_id = TeamSignalGroupingV2Workflow.workflow_id_for(team.id)
+        result["grouping_v2_workflow"] = self._describe_workflow(client, grouping_v2_wf_id)
+
         if report_id:
-            report_ids = [report_id]
+            reports = list(SignalReport.objects.filter(team=team, id=report_id).only("id", "run_count"))
         else:
-            report_ids = list(
-                SignalReport.objects.filter(team=team, status__in=["candidate", "in_progress"]).values_list(
-                    "id", flat=True
-                )
+            reports = list(
+                SignalReport.objects.filter(team=team, status__in=["candidate", "in_progress"]).only("id", "run_count")
             )
 
         summary_workflows = {}
-        for rid in report_ids:
-            wf_id = SignalReportSummaryWorkflow.workflow_id_for(team.id, str(rid))
-            summary_workflows[str(rid)] = self._describe_workflow(client, wf_id)
+        for report in reports:
+            base_wf_id = SignalReportSummaryWorkflow.workflow_id_for(team.id, str(report.id))
+            candidate_ids = [base_wf_id]
+            if report.run_count > 0:
+                candidate_ids.insert(0, f"{base_wf_id}:run-{report.run_count}")
+                candidate_ids.insert(0, f"{base_wf_id}:run-{report.run_count + 1}")
+
+            chosen = None
+            for wf_id in candidate_ids:
+                wf = self._describe_workflow(client, wf_id)
+                if wf["status"] == "RUNNING":
+                    chosen = wf
+                    break
+                if wf["status"] != "NOT_FOUND" and chosen is None:
+                    chosen = wf
+
+            summary_workflows[str(report.id)] = chosen or {"workflow_id": candidate_ids[0], "status": "NOT_FOUND"}
+
+        paused_until = None
+        gv2_running = result["grouping_v2_workflow"]["status"] == "RUNNING"
+        if gv2_running:
+            try:
+                handle = client.get_workflow_handle(grouping_v2_wf_id)
+                paused_until = asyncio.run(handle.query(TeamSignalGroupingV2Workflow.get_paused_state))
+            except Exception:
+                paused_until = None
+        result["grouping_v2_paused_until"] = paused_until.isoformat() if paused_until else None
 
         result["summary_workflows"] = summary_workflows
         return result
@@ -261,11 +286,19 @@ class Command(BaseCommand):
         if "error" in temporal:
             self.stdout.write(f"  {self.style.WARNING(temporal['error'])}")
         else:
-            gw = temporal["grouping_workflow"]
-            style = self.style.SUCCESS if gw["status"] == "RUNNING" else self.style.WARNING
-            self.stdout.write(f"  Grouping workflow: {gw['workflow_id']} — {style(gw['status'])}")
-            if gw.get("start_time"):
-                self.stdout.write(f"    started: {gw['start_time']}")
+            bw = temporal["buffer_workflow"]
+            style = self.style.SUCCESS if bw["status"] == "RUNNING" else self.style.WARNING
+            self.stdout.write(f"  Buffer workflow: {bw['workflow_id']} — {style(bw['status'])}")
+            if bw.get("start_time"):
+                self.stdout.write(f"    started: {bw['start_time']}")
+
+            gv2 = temporal["grouping_v2_workflow"]
+            style = self.style.SUCCESS if gv2["status"] == "RUNNING" else self.style.WARNING
+            self.stdout.write(f"  Grouping v2 workflow: {gv2['workflow_id']} — {style(gv2['status'])}")
+            if gv2.get("start_time"):
+                self.stdout.write(f"    started: {gv2['start_time']}")
+            if temporal.get("grouping_v2_paused_until"):
+                self.stdout.write(f"    paused_until: {temporal['grouping_v2_paused_until']}")
 
             sw = temporal.get("summary_workflows", {})
             if sw:

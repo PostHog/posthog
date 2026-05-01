@@ -1,5 +1,6 @@
 import os
 import json
+from typing import Any, cast
 
 import pytest
 from unittest.mock import Mock, patch
@@ -26,7 +27,9 @@ for file in os.listdir(directory):
 @patch("posthog.tasks.exports.csv_exporter.requests.request")
 @patch("posthog.tasks.exports.csv_exporter.process_query_dict")
 @patch("posthog.models.exported_asset.settings")
-def test_csv_rendering(mock_settings, mock_process_query_dict, mock_request, filename, mode):
+def test_csv_rendering(
+    mock_settings: Any, mock_process_query_dict: Any, mock_request: Any, filename: str, mode: str
+) -> None:
     mock_settings.OBJECT_STORAGE_ENABLED = False
     org = Organization.objects.create(name="org")
     team = Team.objects.create(organization=org, name="team")
@@ -39,8 +42,9 @@ def test_csv_rendering(mock_settings, mock_process_query_dict, mock_request, fil
         export_format=ExportedAsset.ExportFormat.CSV,
         export_context={"path": "/api/literally/anything"},
     )
+    export_context = cast(dict[str, Any], asset.export_context)
     if fixture["response"].get("columns"):
-        asset.export_context["columns"] = fixture["response"]["columns"]
+        export_context["columns"] = fixture["response"]["columns"]
     asset.save()
 
     if mode == "legacy":
@@ -49,12 +53,14 @@ def test_csv_rendering(mock_settings, mock_process_query_dict, mock_request, fil
         mock.json.return_value = fixture["response"]
         mock_request.return_value = mock
         csv_exporter.export_tabular(asset)
-        csv_rows = asset.content.decode("utf-8").split("\r\n")
+        content = asset.content
+        assert isinstance(content, bytes)
+        csv_rows = content.decode("utf-8").split("\r\n")
 
         assert csv_rows == fixture["csv_rows"]
 
     if mode == "hogql":
-        asset.export_context["source"] = {"some": "query"}
+        export_context["source"] = {"some": "query"}
         asset.save()
         if fixture.get("hogql_response"):
             # If HogQL has a different response structure, add it to the fixture as `hogql_response`
@@ -66,6 +72,8 @@ def test_csv_rendering(mock_settings, mock_process_query_dict, mock_request, fil
             if "result" in fixture["response"]:
                 mock_process_query_dict.return_value["results"] = fixture["response"].pop("result")
         csv_exporter.export_tabular(asset)
-        csv_rows = asset.content.decode("utf-8").split("\r\n")
+        content = asset.content
+        assert isinstance(content, bytes)
+        csv_rows = content.decode("utf-8").split("\r\n")
 
         assert csv_rows == fixture["csv_rows"]

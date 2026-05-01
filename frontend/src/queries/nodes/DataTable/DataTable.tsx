@@ -10,6 +10,7 @@ import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopov
 import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
@@ -33,7 +34,7 @@ import { DataTableExport } from '~/queries/nodes/DataTable/DataTableExport'
 import { DataTableLogicProps, DataTableRow, dataTableLogic } from '~/queries/nodes/DataTable/dataTableLogic'
 import { DataTableSavedFilters } from '~/queries/nodes/DataTable/DataTableSavedFilters'
 import { DataTableSavedFiltersButton } from '~/queries/nodes/DataTable/DataTableSavedFiltersButton'
-import { eventRowActionsContent } from '~/queries/nodes/DataTable/EventRowActions'
+import { EventRowActions } from '~/queries/nodes/DataTable/EventRowActions'
 import { InsightActorsQueryOptions } from '~/queries/nodes/DataTable/InsightActorsQueryOptions'
 import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
 import { getContextColumn, renderColumn } from '~/queries/nodes/DataTable/renderColumn'
@@ -941,8 +942,10 @@ export function DataTable({
                                                   return null
                                               }
                                               if (result && columnsInResponse?.includes('*')) {
-                                                  return eventRowActionsContent(
-                                                      (result as any[])[columnsInResponse.indexOf('*')]
+                                                  return (
+                                                      <EventRowActions
+                                                          event={(result as any[])[columnsInResponse.indexOf('*')]}
+                                                      />
                                                   )
                                               }
                                               return null
@@ -953,9 +956,13 @@ export function DataTable({
                                                     return null
                                                 }
                                                 return (
-                                                    <NonIntegratedConversionsRowActions
-                                                        result={row.result}
-                                                        columnsInResponse={columnsInResponse}
+                                                    <More
+                                                        overlay={
+                                                            <NonIntegratedConversionsRowActions
+                                                                result={row.result}
+                                                                columnsInResponse={columnsInResponse}
+                                                            />
+                                                        }
                                                     />
                                                 )
                                             }

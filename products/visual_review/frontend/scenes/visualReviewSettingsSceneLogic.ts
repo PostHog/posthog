@@ -132,6 +132,11 @@ export const visualReviewSettingsSceneLogic = kea<visualReviewSettingsSceneLogic
                 const github = integrations?.find((i: { kind: string }) => i.kind === 'github')
                 const installationId = github?.config?.installation_id
                 if (installationId) {
+                    const accountType = github?.config?.account?.type
+                    const accountName = github?.config?.account?.name
+                    if (accountType === 'Organization' && accountName) {
+                        return `https://github.com/organizations/${accountName}/settings/installations/${installationId}`
+                    }
                     return `https://github.com/settings/installations/${installationId}`
                 }
                 return null

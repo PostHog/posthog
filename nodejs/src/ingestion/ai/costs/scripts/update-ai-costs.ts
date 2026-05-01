@@ -111,7 +111,7 @@ const fetchOpenRouterCosts = async (): Promise<ModelRow[]> => {
     let data
     try {
         data = await res.json()
-    } catch (e) {
+    } catch {
         throw new Error('Failed to parse OpenRouter API response as JSON')
     }
 

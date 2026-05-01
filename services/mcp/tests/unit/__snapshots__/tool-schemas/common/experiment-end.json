@@ -1,0 +1,43 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "conclusion": {
+            "anyOf": [
+                {
+                    "anyOf": [
+                        {
+                            "description": "* `won` - won\n* `lost` - lost\n* `inconclusive` - inconclusive\n* `stopped_early` - stopped_early\n* `invalid` - invalid",
+                            "enum": ["won", "lost", "inconclusive", "stopped_early", "invalid"],
+                            "type": "string"
+                        },
+                        {
+                            "const": null,
+                            "type": "null"
+                        }
+                    ]
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "The conclusion of the experiment.\n\n* `won` - won\n* `lost` - lost\n* `inconclusive` - inconclusive\n* `stopped_early` - stopped_early\n* `invalid` - invalid"
+        },
+        "conclusion_comment": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Optional comment about the experiment conclusion."
+        },
+        "id": {
+            "description": "A unique integer value identifying this experiment.",
+            "type": "number"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

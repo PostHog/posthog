@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import BaseModel
 
 
@@ -25,8 +27,9 @@ class RasterizationActivityInput(BaseModel, frozen=True):
     show_metadata_footer: bool = False
     viewport_width: int | None = None
     viewport_height: int | None = None
-    start_timestamp: int | None = None
-    end_timestamp: int | None = None
+    start_offset_s: float | None = None
+    end_offset_s: float | None = None
+    output_format: Literal["mp4", "webm", "gif"] = "mp4"
     skip_inactivity: bool = True
     mouse_tail: bool = True
 

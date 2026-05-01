@@ -3,6 +3,7 @@ from typing import Any
 
 from structlog import get_logger
 
+from posthog.temporal.data_imports.signals.fetchers.data_warehouse import data_warehouse_record_fetcher
 from posthog.temporal.data_imports.signals.registry import SignalEmitterOutput, SignalSourceTableConfig
 
 logger = get_logger(__name__)
@@ -133,6 +134,7 @@ LINEAR_ISSUES_CONFIG = SignalSourceTableConfig(
     source_product="linear",
     source_type="issue",
     emitter=linear_issue_emitter,
+    record_fetcher=data_warehouse_record_fetcher,
     partition_field="created_at",
     partition_field_is_datetime_string=True,
     fields=REQUIRED_FIELDS + EXTRA_FIELDS,

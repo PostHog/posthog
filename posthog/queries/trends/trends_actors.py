@@ -1,5 +1,5 @@
 import json
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from posthog.schema import PersonsOnEventsMode
 
@@ -36,7 +36,9 @@ class TrendsActors(ActorBaseQuery):
 
     def actor_query(self, limit_actors: Optional[bool] = True) -> tuple[str, dict]:
         if self._filter.breakdown_type == "cohort" and self._filter.breakdown_value != "all":
-            cohort = Cohort.objects.get(pk=self._filter.breakdown_value, team__project_id=self._team.project_id)
+            cohort = Cohort.objects.get(
+                pk=cast(str | int, self._filter.breakdown_value), team__project_id=self._team.project_id
+            )
             self._filter = self._filter.shallow_clone(
                 {
                     "properties": self._filter.property_groups.combine_properties(

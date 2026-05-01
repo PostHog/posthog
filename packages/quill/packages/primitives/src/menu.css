@@ -1,0 +1,159 @@
+/* stylelint-disable selector-class-pattern -- escaped Tailwind group classes (.group\/dropdown-menu-item) fall outside strict BEM */
+@layer components {
+    /* =========================================================================
+       Shared menu visuals — dropdown-menu, context-menu, menubar, submenus
+       ========================================================================= */
+    .quill-menu__content {
+        z-index: var(--quill-z-popover, 50);
+        min-width: 8rem;
+        max-height: var(--available-height);
+        padding: 0.25rem;
+        overflow: hidden auto;
+        color: var(--popover-foreground);
+        background-color: var(--popover);
+        border-radius: var(--radius-md);
+        outline: none;
+        box-shadow:
+            0 0 0 1px color-mix(in oklab, var(--foreground) 10%, transparent),
+            0 4px 6px -1px rgb(0 0 0 / 10%);
+
+        /* 150ms ease-out — menus are user-triggered; keep snappy. scale(0.97)
+           is intentionally subtle so the motion reads as settle-in, not pop. */
+        transition:
+            opacity 150ms cubic-bezier(0.215, 0.61, 0.355, 1),
+            transform 150ms cubic-bezier(0.215, 0.61, 0.355, 1);
+        transform-origin: var(--transform-origin);
+    }
+
+    .quill-menu__content[data-starting-style],
+    .quill-menu__content[data-ending-style],
+    .quill-menu__sub-content[data-starting-style],
+    .quill-menu__sub-content[data-ending-style] {
+        opacity: 0;
+        transform: scale(0.97);
+    }
+
+    .quill-menu__content[data-closed] {
+        overflow: hidden;
+    }
+
+    .quill-menu__sub-content {
+        min-width: 8rem;
+        padding: 0.25rem;
+        color: var(--popover-foreground);
+        background-color: var(--popover);
+        border-radius: var(--radius-md);
+        box-shadow:
+            0 0 0 1px color-mix(in oklab, var(--foreground) 10%, transparent),
+            0 4px 6px -1px rgb(0 0 0 / 10%);
+        transition:
+            opacity 150ms cubic-bezier(0.215, 0.61, 0.355, 1),
+            transform 150ms cubic-bezier(0.215, 0.61, 0.355, 1);
+        transform-origin: var(--transform-origin);
+    }
+
+    .quill-menu__separator {
+        height: 1px;
+        margin-block: 0.25rem;
+        margin-inline: -0.25rem;
+        background-color: color-mix(in oklab, var(--border) 50%, transparent);
+    }
+
+    .quill-menu__shortcut {
+        margin-inline-start: auto;
+        font-size: 0.625rem;
+        color: var(--muted-foreground);
+        letter-spacing: 0.1em;
+    }
+
+    .group\/dropdown-menu-item:focus .quill-menu__shortcut,
+    .group\/context-menu-item:focus .quill-menu__shortcut,
+    .group\/menubar-item:focus .quill-menu__shortcut {
+        color: var(--accent-foreground);
+    }
+
+    /* Inset item (when data-inset=true, reserve space for indicator column) */
+    .quill-menu-item--inset {
+        padding-inline-start: 1.875rem;
+    }
+
+    /*
+     * Checkbox / radio menu items get a stronger "active" background than the
+     * generic fill-selected (which is too subtle on white popover surfaces).
+     * Covers both Base UI's `aria-checked='true'` and `data-checked` hooks so
+     * the rule fires regardless of which state attribute is observed. Skipped
+     * while hovered/highlighted — those states own the hover fill.
+     */
+    :is(
+            [data-slot='dropdown-menu-checkbox-item'],
+            [data-slot='dropdown-menu-radio-item'],
+            [data-slot='context-menu-checkbox-item'],
+            [data-slot='context-menu-radio-item'],
+            [data-slot='menubar-checkbox-item'],
+            [data-slot='menubar-radio-item']
+        ):is([aria-checked='true'], [data-checked]):not(:hover, [data-highlighted]) {
+        background-color: var(--fill-selected);
+    }
+
+    /*
+     * Consecutive checked items merge corners into a seamless block — mirrors
+     * the aria-selected/aria-checked Button rules, scoped to menu items so the
+     * effect reads even when Base UI wraps items in a group/list container.
+     */
+    :is(
+            [data-slot='dropdown-menu-checkbox-item'],
+            [data-slot='dropdown-menu-radio-item'],
+            [data-slot='context-menu-checkbox-item'],
+            [data-slot='context-menu-radio-item']
+        ):is([aria-checked='true'], [data-checked]):has(+ :is([aria-checked='true'], [data-checked])) {
+        border-bottom-right-radius: 0;
+        border-bottom-left-radius: 0;
+    }
+
+    :is([aria-checked='true'], [data-checked])
+        + :is(
+            [data-slot='dropdown-menu-checkbox-item'],
+            [data-slot='dropdown-menu-radio-item'],
+            [data-slot='context-menu-checkbox-item'],
+            [data-slot='context-menu-radio-item']
+        ):is([aria-checked='true'], [data-checked]) {
+        border-top-left-radius: 0;
+        border-top-right-radius: 0;
+    }
+
+    /* Menubar root */
+    .quill-menubar {
+        height: 2.25rem;
+        padding: 0.25rem;
+        background-color: var(--background);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+    }
+
+    .quill-menubar__trigger {
+        padding-block: calc(var(--spacing, 0.25rem) * 0.85);
+        padding-inline: 0.5rem;
+        font-size: var(--text-xs, 0.75rem);
+        font-weight: 500;
+        line-height: 1.625;
+        border-radius: calc(var(--radius-sm) - 2px);
+    }
+
+    .quill-menubar__trigger:hover,
+    .quill-menubar__trigger[aria-expanded='true'] {
+        background-color: var(--muted);
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .quill-menu__content,
+        .quill-menu__content[data-starting-style],
+        .quill-menu__content[data-ending-style],
+        .quill-menu__sub-content,
+        .quill-menu__sub-content[data-starting-style],
+        .quill-menu__sub-content[data-ending-style] {
+            opacity: 1;
+            transition: none;
+            transform: none;
+        }
+    }
+}

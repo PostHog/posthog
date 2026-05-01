@@ -223,7 +223,7 @@ export const groupLogs = (logs: LogEntry[]): GroupedLogEntry[] => {
         group.logLevel = log.level
     }
 
-    return Object.values(byId)
+    return Object.values(byId).reverse()
 }
 
 export const logsViewerLogic = kea<logsViewerLogicType>([

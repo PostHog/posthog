@@ -7,11 +7,11 @@ from pydantic import BaseModel, Field
 
 from posthog.schema import MaxRecordingUniversalFilters, RecordingsQuery
 
-from posthog.clickhouse.query_tagging import Product, tags_context
-from posthog.session_recordings.playlist_counters import convert_filters_to_recordings_query
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 from posthog.session_recordings.queries.utils import SessionRecordingQueryResult
 from posthog.sync import database_sync_to_async
+from posthog.temporal.session_replay.count_playlist_items import convert_filters_to_recordings_query
 
 from products.replay.backend.prompts import (
     DATE_FIELDS_PROMPT,
@@ -190,7 +190,12 @@ class FilterSessionRecordingsTool(MaxTool):
 
     def _get_recordings_with_filters(self, recordings_query: RecordingsQuery) -> SessionRecordingQueryResult:
         """Get recordings from DB with filters"""
-        with tags_context(product=Product.MAX_AI, team_id=self._team.pk, org_id=self._team.organization_id):
+        with tags_context(
+            product=Product.MAX_AI,
+            feature=Feature.POSTHOG_AI,
+            team_id=self._team.pk,
+            org_id=self._team.organization_id,
+        ):
             query_runner = SessionRecordingListFromQuery(
                 team=self._team, query=recordings_query, hogql_query_modifiers=None
             )

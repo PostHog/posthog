@@ -6,7 +6,7 @@ import { router } from 'kea-router'
 import { Fragment } from 'react'
 
 import { IconCopy, IconFlag, IconInfo, IconPlus, IconTrash } from '@posthog/icons'
-import { LemonInput, LemonLabel, LemonSelect, LemonSnack, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonLabel, LemonSelect, LemonSnack, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { EditableField } from 'lib/components/EditableField/EditableField'
@@ -28,6 +28,7 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { capitalizeFirstLetter, clamp, dateFilterToText, dateStringToComponents, humanFriendlyNumber } from 'lib/utils'
 import { FeatureFlagConditionWarning } from 'scenes/feature-flags/FeatureFlagConditionWarning'
+import { PercentageInput } from 'scenes/feature-flags/PercentageInput'
 import { urls } from 'scenes/urls'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
@@ -145,7 +146,6 @@ export function FeatureFlagReleaseConditions({
 
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
 
-    const showBucketingIdentifierUI = useFeatureFlag('FLAG_BUCKETING_IDENTIFIER')
     const realtimeCohortFlagTargeting = useFeatureFlag('REALTIME_COHORT_FLAG_TARGETING')
 
     const featureFlagVariants = nonEmptyFeatureFlagVariants || nonEmptyVariants
@@ -178,6 +178,8 @@ export function FeatureFlagReleaseConditions({
         )
 
     const renderReleaseConditionGroup = (group: FeatureFlagGroupType, index: number): JSX.Element => {
+        const rolloutValue = group.rollout_percentage ?? 100
+
         return (
             <div className="w-full" key={group.sort_key}>
                 {index > 0 && <div className="condition-set-separator my-1 py-0">OR</div>}
@@ -288,6 +290,7 @@ export function FeatureFlagReleaseConditions({
                     {!readOnly && (
                         <FeatureFlagConditionWarning
                             properties={properties}
+                            filterGroups={filterGroups}
                             evaluationRuntime={evaluationRuntime}
                             className="mt-3 mb-3"
                         />
@@ -421,7 +424,7 @@ export function FeatureFlagReleaseConditions({
                             <div className="flex flex-wrap items-center gap-1">
                                 Roll out to{' '}
                                 <LemonSlider
-                                    value={group.rollout_percentage !== null ? group.rollout_percentage : 100}
+                                    value={rolloutValue}
                                     onChange={(value) => {
                                         updateConditionSet(index, value)
                                     }}
@@ -431,18 +434,11 @@ export function FeatureFlagReleaseConditions({
                                     className="ml-1.5 w-20"
                                 />
                                 <LemonField.Pure error={propertySelectErrors?.[index]?.rollout_percentage} inline>
-                                    <LemonInput
+                                    <PercentageInput
                                         data-attr="rollout-percentage"
-                                        type="number"
                                         className="ml-2 mr-1.5 max-w-30"
-                                        onChange={(value): void => {
-                                            updateConditionSet(index, value === undefined ? 0 : value)
-                                        }}
-                                        value={group.rollout_percentage !== null ? group.rollout_percentage : 100}
-                                        min={0}
-                                        max={100}
-                                        step="any"
-                                        suffix={<span>%</span>}
+                                        value={rolloutValue}
+                                        onChange={(value) => updateConditionSet(index, value)}
                                     />
                                 </LemonField.Pure>{' '}
                                 <div
@@ -646,48 +642,14 @@ export function FeatureFlagReleaseConditions({
                         that matches.
                     </LemonBanner>
                 )}
-            {!readOnly && showGroupsOptions && !hideMatchOptions && !showBucketingIdentifierUI && (
-                <div className="centered flex items-center gap-2">
-                    Match by
-                    <LemonSelect
-                        size="small"
-                        dropdownMatchSelectWidth={false}
-                        data-attr="feature-flag-aggregation-filter"
-                        onChange={(value) => {
-                            // MatchByGroupsIntroductionOption
-                            if (value == -2) {
-                                return
-                            }
-
-                            const groupTypeIndex = value !== -1 ? value : null
-                            setAggregationGroupTypeIndex(groupTypeIndex)
-                        }}
-                        value={filters.aggregation_group_type_index != null ? filters.aggregation_group_type_index : -1}
-                        options={[
-                            { value: -1, label: 'Users' },
-                            ...Array.from(groupTypes.values()).map((groupType) => ({
-                                value: groupType.group_type_index,
-                                label: capitalizeFirstLetter(aggregationLabel(groupType.group_type_index).plural),
-                                disabledReason: hasEarlyAccessFeatures
-                                    ? 'This feature flag cannot be group-based, because it is linked to an early access feature.'
-                                    : null,
-                            })),
-                            ...(includeGroupsIntroductionOption()
-                                ? [
-                                      {
-                                          value: -2,
-                                          label: 'MatchByGroupsIntroductionOption',
-                                          labelInMenu: matchByGroupsIntroductionOption,
-                                      },
-                                  ]
-                                : []),
-                        ]}
-                    />
-                </div>
-            )}
-            {!readOnly && showGroupsOptions && !hideMatchOptions && showBucketingIdentifierUI && (
+            {!readOnly && showGroupsOptions && !hideMatchOptions && (
                 <div className="mb-4">
-                    <LemonLabel className="mb-2">Match by</LemonLabel>
+                    <LemonLabel
+                        className="mb-2"
+                        info="Changing match criteria may remove existing variants or payloads."
+                    >
+                        Match by
+                    </LemonLabel>
                     <LemonRadio
                         data-attr="feature-flag-aggregation-filter"
                         value={

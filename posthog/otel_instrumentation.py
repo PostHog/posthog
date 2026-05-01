@@ -1,9 +1,11 @@
 import os
+import typing
 import logging
 
 import structlog
 from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.instrumentation.aiohttp_client import AioHttpClientInstrumentor
 from opentelemetry.instrumentation.aiokafka import AIOKafkaInstrumentor
 from opentelemetry.instrumentation.django import DjangoInstrumentor
 from opentelemetry.instrumentation.kafka import KafkaInstrumentor
@@ -85,54 +87,11 @@ def initialize_otel():
             source_module="otel_instrumentation",
         )
 
-        try:
-            DjangoInstrumentor().instrument(
-                tracer_provider=provider,
-                request_hook=_otel_django_request_hook,
-                response_hook=_otel_django_response_hook,
-            )
-            logger.info("otel_instrumentation_attempt", instrumentor="DjangoInstrumentor", status="success")
-        except Exception as e:
-            logger.exception(
-                "otel_instrumentation_attempt", instrumentor="DjangoInstrumentor", status="error", exc_info=e
-            )
-
-        try:
-            RedisInstrumentor().instrument(tracer_provider=provider)
-            logger.info("otel_instrumentation_attempt", instrumentor="RedisInstrumentor", status="success")
-        except Exception as e:
-            logger.exception(
-                "otel_instrumentation_attempt", instrumentor="RedisInstrumentor", status="error", exc_info=e
-            )
-
-        try:
-            PsycopgInstrumentor().instrument(tracer_provider=provider, enable_commenter=False)
-            logger.info(
-                "otel_instrumentation_attempt",
-                instrumentor="PsycopgInstrumentor",
-                status="success",
-                note="SQLCommenter enabled for diagnostics",
-            )
-        except Exception as e:
-            logger.exception(
-                "otel_instrumentation_attempt", instrumentor="PsycopgInstrumentor", status="error", exc_info=e
-            )
-
-        try:
-            KafkaInstrumentor().instrument(tracer_provider=provider)
-            logger.info("otel_instrumentation_attempt", instrumentor="KafkaInstrumentor", status="success")
-        except Exception as e:
-            logger.exception(
-                "otel_instrumentation_attempt", instrumentor="KafkaInstrumentor", status="error", exc_info=e
-            )
-
-        try:
-            AIOKafkaInstrumentor().instrument(tracer_provider=provider)
-            logger.info("otel_instrumentation_attempt", instrumentor="AIOKafkaInstrumentor", status="success")
-        except Exception as e:
-            logger.exception(
-                "otel_instrumentation_attempt", instrumentor="AIOKafkaInstrumentor", status="error", exc_info=e
-            )
+        instrument_django(provider)
+        instrument_redis(provider)
+        instrument_psycopg(provider)
+        instrument_kafka(provider)
+        instrument_aiokafka(provider)
 
         logger.info(
             "otel_manual_init_status_from_instrumentation_module",
@@ -145,3 +104,74 @@ def initialize_otel():
             status="disabled",
             reason="OTEL_SDK_DISABLED environment variable is set to true",
         )
+
+
+def instrument_django(provider: trace.TracerProvider):
+    try:
+        DjangoInstrumentor().instrument(
+            tracer_provider=provider,
+            request_hook=_otel_django_request_hook,
+            response_hook=_otel_django_response_hook,
+        )
+        logger.info("otel_instrumentation_attempt", instrumentor="DjangoInstrumentor", status="success")
+    except Exception as e:
+        logger.exception("otel_instrumentation_attempt", instrumentor="DjangoInstrumentor", status="error", exc_info=e)
+
+
+def instrument_redis(provider: trace.TracerProvider):
+    try:
+        RedisInstrumentor().instrument(tracer_provider=provider)
+        logger.info("otel_instrumentation_attempt", instrumentor="RedisInstrumentor", status="success")
+    except Exception as e:
+        logger.exception("otel_instrumentation_attempt", instrumentor="RedisInstrumentor", status="error", exc_info=e)
+
+
+def instrument_psycopg(provider: trace.TracerProvider):
+    try:
+        PsycopgInstrumentor().instrument(tracer_provider=provider, enable_commenter=False)
+        logger.info(
+            "otel_instrumentation_attempt",
+            instrumentor="PsycopgInstrumentor",
+            status="success",
+            note="SQLCommenter enabled for diagnostics",
+        )
+    except Exception as e:
+        logger.exception("otel_instrumentation_attempt", instrumentor="PsycopgInstrumentor", status="error", exc_info=e)
+
+
+def instrument_kafka(provider: trace.TracerProvider):
+    try:
+        KafkaInstrumentor().instrument(tracer_provider=provider)
+        logger.info("otel_instrumentation_attempt", instrumentor="KafkaInstrumentor", status="success")
+    except Exception as e:
+        logger.exception("otel_instrumentation_attempt", instrumentor="KafkaInstrumentor", status="error", exc_info=e)
+
+
+def instrument_aiokafka(provider: trace.TracerProvider):
+    try:
+        AIOKafkaInstrumentor().instrument(tracer_provider=provider)
+        logger.info("otel_instrumentation_attempt", instrumentor="AIOKafkaInstrumentor", status="success")
+    except Exception as e:
+        logger.exception(
+            "otel_instrumentation_attempt", instrumentor="AIOKafkaInstrumentor", status="error", exc_info=e
+        )
+
+
+def instrument_aiohttp_client(provider: trace.TracerProvider):
+    try:
+        AioHttpClientInstrumentor().instrument(tracer_provider=provider)
+        logger.info("otel_instrumentation_attempt", instrumentor="AioHttpClientInstrumentor", status="success")
+    except Exception as e:
+        logger.exception(
+            "otel_instrumentation_attempt", instrumentor="AioHttpClientInstrumentor", status="error", exc_info=e
+        )
+
+
+INSTRUMENTORS: dict[str, typing.Callable[[trace.TracerProvider], None]] = {
+    "django": instrument_django,
+    "psycopg": instrument_psycopg,
+    "redis": instrument_redis,
+    "kafka": instrument_kafka,
+    "aiokafka": instrument_aiokafka,
+    "aiohttp-client": instrument_aiohttp_client,
+}

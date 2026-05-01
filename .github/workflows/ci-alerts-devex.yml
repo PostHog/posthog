@@ -1,0 +1,249 @@
+name: Master CI Alerts
+
+# Cron-based rolling window alert for sustained master failures.
+# Only alerts when a workflow has 5+ consecutive failures,
+# filtering out transient flakes that self-heal.
+#
+# See also: ci-master-status.yml (event-driven, alerts on first failure)
+
+on:
+    schedule:
+        - cron: '*/10 * * * *'
+    workflow_dispatch: # manual trigger for testing
+
+permissions:
+    contents: read
+    actions: write
+
+env:
+    SLACK_CHANNEL: 'C0AS64N6DJL' # #alerts-devex
+    WORKFLOW_FAILURE_STREAK_THRESHOLD: '5'
+    COMMIT_FAILURE_STREAK_THRESHOLD: '10'
+    # Keep in sync with ci-master-status.yml watched workflows
+    WATCHED_WORKFLOWS: 'ci-backend.yml,ci-nodejs.yml,ci-frontend.yml,ci-storybook.yml,ci-security.yaml,ci-dagster.yml,ci-e2e-playwright.yml,ci-rust.yml'
+    CRITICAL_WORKFLOWS: 'ci-backend.yml,ci-frontend.yml,ci-e2e-playwright.yml'
+
+jobs:
+    check-master:
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+            - name: Restore state
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
+              with:
+                  path: .alerts-devex
+                  key: alerts-devex-${{ github.run_id }}
+                  restore-keys: alerts-devex-
+
+            - name: Check master status
+              id: check
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+              with:
+                  script: |
+                      const script = require('./.github/scripts/ci-alerts-devex.js');
+                      await script({ github, context, core });
+
+            # ============ SLACK: CREATE ============
+
+            - name: Post new alert to Slack
+              if: steps.check.outputs.action == 'create'
+              id: slack_new
+              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
+              with:
+                  method: chat.postMessage
+                  token: ${{ secrets.SLACK_BOT_TOKEN }}
+                  errors: true
+                  payload: |
+                      channel: "${{ env.SLACK_CHANNEL }}"
+                      text: ":red_circle: Master is red — ${{ steps.check.outputs.failing_count }} workflow(s) failing (${{ steps.check.outputs.max_consecutive }}+ consecutive failures, ~${{ steps.check.outputs.duration_mins }} min)"
+                      blocks:
+                        - type: "section"
+                          text:
+                            type: "mrkdwn"
+                            text: ":red_circle: *Master is red* — ${{ steps.check.outputs.failing_count }} workflow(s) failing (~${{ steps.check.outputs.duration_mins }} min)"
+                        - type: "section"
+                          text:
+                            type: "mrkdwn"
+                            text: "${{ steps.check.outputs.failing_detail }}"
+
+            - name: Save Slack info to state
+              if: steps.check.outputs.action == 'create'
+              env:
+                  SLACK_CHANNEL_ID: ${{ steps.slack_new.outputs.channel_id }}
+                  SLACK_TS: ${{ steps.slack_new.outputs.ts }}
+              run: |
+                  jq \
+                    --arg channel "$SLACK_CHANNEL_ID" \
+                    --arg ts "$SLACK_TS" \
+                    '. + {slack_channel: $channel, slack_ts: $ts}' \
+                    .alerts-devex > .alerts-devex.tmp
+                  mv .alerts-devex.tmp .alerts-devex
+
+            # ============ SLACK: UPDATE ============
+
+            - name: Update Slack message
+              if: steps.check.outputs.action == 'update'
+              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
+              with:
+                  method: chat.update
+                  token: ${{ secrets.SLACK_BOT_TOKEN }}
+                  errors: true
+                  payload: |
+                      channel: "${{ steps.check.outputs.slack_channel }}"
+                      ts: "${{ steps.check.outputs.slack_ts }}"
+                      text: ":red_circle: Master is red — ${{ steps.check.outputs.failing_count }} workflow(s) failing (${{ steps.check.outputs.max_consecutive }}+ consecutive failures, ~${{ steps.check.outputs.duration_mins }} min)"
+                      blocks:
+                        - type: "section"
+                          text:
+                            type: "mrkdwn"
+                            text: ":red_circle: *Master is red* — ${{ steps.check.outputs.failing_count }} workflow(s) failing (~${{ steps.check.outputs.duration_mins }} min)"
+                        - type: "section"
+                          text:
+                            type: "mrkdwn"
+                            text: "${{ steps.check.outputs.failing_detail }}"
+
+            - name: Thread reply with changes
+              if: steps.check.outputs.action == 'update' && (steps.check.outputs.added_workflows != '' || steps.check.outputs.removed_workflows != '')
+              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
+              with:
+                  method: chat.postMessage
+                  token: ${{ secrets.SLACK_BOT_TOKEN }}
+                  payload: |
+                      channel: "${{ steps.check.outputs.slack_channel }}"
+                      thread_ts: "${{ steps.check.outputs.slack_ts }}"
+                      text: "${{ steps.check.outputs.added_workflows != '' && format(':x: Now also failing: {0}', steps.check.outputs.added_workflows) || '' }}${{ steps.check.outputs.added_workflows != '' && steps.check.outputs.removed_workflows != '' && '\n' || '' }}${{ steps.check.outputs.removed_workflows != '' && format(':white_check_mark: Recovered: {0}', steps.check.outputs.removed_workflows) || '' }}"
+
+            # ============ SLACK: RESOLVE ============
+
+            - name: Update Slack to resolved
+              if: steps.check.outputs.action == 'resolve'
+              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
+              with:
+                  method: chat.update
+                  token: ${{ secrets.SLACK_BOT_TOKEN }}
+                  errors: true
+                  payload: |
+                      channel: "${{ steps.check.outputs.slack_channel }}"
+                      ts: "${{ steps.check.outputs.slack_ts }}"
+                      text: ":large_green_circle: Master recovered (was red for ${{ steps.check.outputs.max_consecutive }} consecutive runs, ~${{ steps.check.outputs.duration_mins }} min)"
+                      blocks:
+                        - type: "section"
+                          text:
+                            type: "mrkdwn"
+                            text: ":large_green_circle: *Master recovered* (was red for ${{ steps.check.outputs.max_consecutive }} consecutive runs, ~${{ steps.check.outputs.duration_mins }} min)"
+                        - type: "section"
+                          text:
+                            type: "mrkdwn"
+                            text: "Previously failing: ${{ steps.check.outputs.last_failing_list }}"
+
+            - name: Thread reply with resolution
+              if: steps.check.outputs.action == 'resolve'
+              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
+              with:
+                  method: chat.postMessage
+                  token: ${{ secrets.SLACK_BOT_TOKEN }}
+                  payload: |
+                      channel: "${{ steps.check.outputs.slack_channel }}"
+                      thread_ts: "${{ steps.check.outputs.slack_ts }}"
+                      text: ":white_check_mark: All watched workflows are passing again"
+
+            # ============ COMMIT FAILURE STREAK: CREATE ============
+
+            - name: Post commit-failure-streak alert to Slack
+              if: steps.check.outputs.commit_failure_streak_action == 'create'
+              id: slack_commit_streak
+              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
+              with:
+                  method: chat.postMessage
+                  token: ${{ secrets.SLACK_BOT_TOKEN }}
+                  errors: true
+                  payload: |
+                      channel: "${{ env.SLACK_CHANNEL }}"
+                      text: ":large_orange_circle: Master unstable — ${{ steps.check.outputs.commit_failure_streak_count }} consecutive commits had a critical workflow fail"
+                      blocks:
+                        - type: "section"
+                          text:
+                            type: "mrkdwn"
+                            text: ":large_orange_circle: *Master unstable* — ${{ steps.check.outputs.commit_failure_streak_count }} consecutive commits had a critical workflow fail\nCulprit rotates across workflows, so no single workflow crosses its own threshold — but master is effectively red."
+                        - type: "section"
+                          text:
+                            type: "mrkdwn"
+                            text: "${{ steps.check.outputs.commit_failure_streak_detail }}"
+
+            - name: Save commit-failure-streak Slack info to state
+              if: steps.check.outputs.commit_failure_streak_action == 'create'
+              env:
+                  SLACK_CHANNEL_ID: ${{ steps.slack_commit_streak.outputs.channel_id }}
+                  SLACK_TS: ${{ steps.slack_commit_streak.outputs.ts }}
+              run: |
+                  jq \
+                    --arg channel "$SLACK_CHANNEL_ID" \
+                    --arg ts "$SLACK_TS" \
+                    '. + {commit_failure_streak_slack_channel: $channel, commit_failure_streak_slack_ts: $ts}' \
+                    .alerts-devex > .alerts-devex.tmp
+                  mv .alerts-devex.tmp .alerts-devex
+
+            # ============ COMMIT FAILURE STREAK: UPDATE ============
+
+            - name: Update commit-failure-streak Slack message
+              if: steps.check.outputs.commit_failure_streak_action == 'update'
+              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
+              with:
+                  method: chat.update
+                  token: ${{ secrets.SLACK_BOT_TOKEN }}
+                  errors: true
+                  payload: |
+                      channel: "${{ steps.check.outputs.commit_failure_streak_slack_channel }}"
+                      ts: "${{ steps.check.outputs.commit_failure_streak_slack_ts }}"
+                      text: ":large_orange_circle: Master unstable — ${{ steps.check.outputs.commit_failure_streak_count }} consecutive commits had a critical workflow fail"
+                      blocks:
+                        - type: "section"
+                          text:
+                            type: "mrkdwn"
+                            text: ":large_orange_circle: *Master unstable* — ${{ steps.check.outputs.commit_failure_streak_count }} consecutive commits had a critical workflow fail\nCulprit rotates across workflows, so no single workflow crosses its own threshold — but master is effectively red."
+                        - type: "section"
+                          text:
+                            type: "mrkdwn"
+                            text: "${{ steps.check.outputs.commit_failure_streak_detail }}"
+
+            # ============ COMMIT FAILURE STREAK: RESOLVE ============
+
+            - name: Update commit-failure-streak Slack to resolved
+              if: steps.check.outputs.commit_failure_streak_action == 'resolve'
+              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
+              with:
+                  method: chat.update
+                  token: ${{ secrets.SLACK_BOT_TOKEN }}
+                  errors: true
+                  payload: |
+                      channel: "${{ steps.check.outputs.commit_failure_streak_slack_channel }}"
+                      ts: "${{ steps.check.outputs.commit_failure_streak_slack_ts }}"
+                      text: ":large_green_circle: Master stable again (streak ended after ${{ steps.check.outputs.commit_failure_streak_last_count }} consecutive red commits)"
+                      blocks:
+                        - type: "section"
+                          text:
+                            type: "mrkdwn"
+                            text: ":large_green_circle: *Master stable again* (streak ended after ${{ steps.check.outputs.commit_failure_streak_last_count }} consecutive red commits)"
+
+            # ============ CACHE ============
+
+            - name: Delete old caches on new alert
+              if: steps.check.outputs.delete_old_caches == 'true'
+              continue-on-error: true
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  echo "Deleting old alert caches..."
+                  gh cache list --key alerts-devex- --json id,key -q '.[] | "\(.id) \(.key)"' | while read id key; do
+                    echo "Deleting cache: $key"
+                    gh cache delete "$id" || true
+                  done
+
+            - name: Save state to cache
+              if: steps.check.outputs.save_cache == 'true'
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
+              with:
+                  path: .alerts-devex
+                  key: alerts-devex-${{ github.run_id }}

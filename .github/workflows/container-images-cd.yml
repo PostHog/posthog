@@ -36,13 +36,13 @@ jobs:
                   fetch-depth: 2
 
             - name: Set up Docker Buildx
-              uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+              uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
 
             - name: Set up QEMU
-              uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
+              uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4.0.0
 
             - name: Set up Depot CLI
-              uses: depot/setup-action@b0b1ea4f69e92ebf5dea3f8713a1b0c37b2126a5 # v1.6.0
+              uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
 
             - name: Docker meta and registry login
               id: docker-meta
@@ -73,18 +73,28 @@ jobs:
 
             - name: report failure
               if: failure()
-              uses: PostHog/posthog-github-action@eea1405eeb2d1d2259f0ee0b44d7b152869e6840 # v1.1.1
+              uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
               with:
                   posthog-token: ${{secrets.POSTHOG_API_TOKEN}}
+                  event: 'posthog-image-build'
+                  properties: '{"status": "failure", "commit_hash": "${{ github.sha }}"}'
+            - name: report failure to DevEx PostHog
+              if: failure()
+              continue-on-error: true
+              uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
+              with:
+                  posthog-token: ${{secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN}}
                   event: 'posthog-image-build'
                   properties: '{"status": "failure", "commit_hash": "${{ github.sha }}"}'
 
             - name: get deployer token
               id: deployer
-              uses: getsentry/action-github-app-token@d4b5da6c5e37703f8c3b3e43abb5705b46e159cc # v3.0.0
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  app_id: ${{ secrets.GH_APP_CHARTS_DEPLOYER_APP_ID }}
-                  private_key: ${{ secrets.GH_APP_CHARTS_DEPLOYER_PRIVATE_KEY }}
+                  client-id: ${{ secrets.GH_APP_CHARTS_DEPLOYER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_CHARTS_DEPLOYER_PRIVATE_KEY }}
+                  owner: PostHog
+                  repositories: charts
 
             - name: get PR labels
               id: labels
@@ -250,12 +260,12 @@ jobs:
             - name: Check for changes that affect video export temporal worker
               id: check_changes_video_export_temporal_worker
               run: |
-                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/exports_video|^posthog/tasks/exports/video_exporter.py|^products/signals/backend/|^posthog/temporal/data_imports/workflow_activities/emit_signals|^posthog/temporal/data_imports/signals/|^nodejs/src/scripts/record-replay|^posthog/temporal/ai/video_segment_clustering|^ee/hogai/session_summaries|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
+                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/exports_video|^posthog/tasks/exports/video_exporter.py|^products/signals/backend/|^posthog/temporal/data_imports/workflow_activities/emit_signals|^posthog/temporal/data_imports/signals/|^nodejs/src/scripts/record-replay|^ee/hogai/session_summaries|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
 
             - name: Check for changes that affect session replay temporal worker
               id: check_changes_session_replay_temporal_worker
               run: |
-                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/session_replay/|^ee/hogai/session_summaries|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
+                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/session_replay/|^ee/hogai/session_summaries|^posthog/temporal/common|^products/signals/backend/|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
 
             - name: Check for changes that affect weekly digest temporal worker
               id: check_changes_weekly_digest_temporal_worker
@@ -265,7 +275,7 @@ jobs:
             - name: Check for changes that affect messaging temporal worker
               id: check_changes_messaging_temporal_worker
               run: |
-                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/messaging|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
+                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/messaging|^products/web_analytics/backend/temporal|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
 
             - name: Check for config file changes that affect analytics platform temporal worker
               id: check_non_python_changes_analytics_platform_temporal_worker
@@ -282,8 +292,14 @@ jobs:
               id: check_python_changes_analytics_platform_temporal_worker
               run: |
                   CHANGED_FILES=$(git diff --name-only HEAD^ HEAD | tr '\n' ' ')
-                  RESULT=$(uv run bin/find_python_dependencies.py posthog.temporal.subscriptions --check-changes "$CHANGED_FILES" | jq -r '.affected') || RESULT="true"
-                  echo "changed=$RESULT" >> $GITHUB_OUTPUT
+                  SUBS_RESULT=$(uv run bin/find_python_dependencies.py posthog.temporal.subscriptions --check-changes "$CHANGED_FILES" | jq -r '.affected') || SUBS_RESULT="true"
+                  ALERTS_RESULT=$(uv run bin/find_python_dependencies.py posthog.temporal.alerts --check-changes "$CHANGED_FILES" | jq -r '.affected') || ALERTS_RESULT="true"
+                  EXPORTS_RESULT=$(uv run bin/find_python_dependencies.py posthog.temporal.exports --check-changes "$CHANGED_FILES" | jq -r '.affected') || EXPORTS_RESULT="true"
+                  if [ "$SUBS_RESULT" = "true" ] || [ "$ALERTS_RESULT" = "true" ] || [ "$EXPORTS_RESULT" = "true" ]; then
+                      echo "changed=true" >> $GITHUB_OUTPUT
+                  else
+                      echo "changed=false" >> $GITHUB_OUTPUT
+                  fi
 
             - name: Trigger Billing Temporal Worker Cloud deployment
               if: steps.check_changes_billing_temporal_worker.outputs.changed == 'true'
@@ -412,7 +428,7 @@ jobs:
                       }
 
             - name: Check for changes that affect temporal workers (dorny)
-              uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+              uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
               id: check_temporal_worker_changes
               with:
                   filters: |
@@ -581,6 +597,32 @@ jobs:
                           }
                         },
                         "release": "temporal-worker-data-warehouse",
+                        "commit": ${{ toJson(github.event.head_commit) }},
+                        "repository": ${{ toJson(github.repository) }},
+                        "labels": ${{ steps.labels.outputs.labels }},
+                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                      }
+
+            - name: Check for changes that affect warehouse-sources-load
+              id: check_changes_warehouse_sources_load
+              run: |
+                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/data_imports/pipelines/pipeline_v3/|^posthog/temporal/data_imports/pipelines/pipeline/|^posthog/management/commands/run_warehouse_sources_load\.py$|^posthog/warehouse/|^products/data_warehouse/backend/|^pyproject\.toml$|^Dockerfile$' && echo true) || echo false)" >> $GITHUB_OUTPUT
+
+            - name: Trigger Warehouse Sources Load Cloud deployment
+              if: steps.check_changes_warehouse_sources_load.outputs.changed == 'true'
+              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              with:
+                  token: ${{ steps.deployer.outputs.token }}
+                  repository: PostHog/charts
+                  event-type: commit_state_update
+                  client-payload: |
+                      {
+                        "values": {
+                          "image": {
+                            "sha": "${{ github.sha }}@${{ steps.build.outputs.digest }}"
+                          }
+                        },
+                        "release": "warehouse-sources-load",
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": ${{ toJson(github.repository) }},
                         "labels": ${{ steps.labels.outputs.labels }},

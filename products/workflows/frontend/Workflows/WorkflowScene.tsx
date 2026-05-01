@@ -2,11 +2,13 @@ import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconClock } from '@posthog/icons'
 import { SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { NotFound } from 'lib/components/NotFound'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -17,6 +19,8 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { ActivityScope } from '~/types'
 
 import { batchWorkflowJobsLogic } from './batchWorkflowJobsLogic'
+import { BlockedRunsBanner } from './BlockedRunsBanner'
+import { BlockedRunsReplay } from './BlockedRunsReplay'
 import { Workflow } from './Workflow'
 import { workflowLogic } from './workflowLogic'
 import { WorkflowLogs } from './WorkflowLogs'
@@ -47,10 +51,11 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     const editTemplateId = searchParams.editTemplateId as string | undefined
 
     const batchJobsLogic = batchWorkflowJobsLogic({ id: workflowSceneProps.id })
-    const { futureJobs } = useValues(batchJobsLogic)
 
     const logic = workflowLogic({ id: props.id, tabId: props.tabId, templateId, editTemplateId })
     const { workflowLoading, originalWorkflow } = useValues(logic)
+
+    const showBlockedRuns = useFeatureFlag('WORKFLOWS_REPLAY_BLOCKED_RUNS')
 
     // Attach child logics to the scene logic so they persist across tab switches
     useAttachedLogic(batchJobsLogic, sceneLogic)
@@ -72,18 +77,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
         },
 
         {
-            label: (
-                <div className="flex gap-2">
-                    Invocations
-                    {futureJobs.length > 0 ? (
-                        <span className="font-bold">
-                            <IconClock /> {futureJobs.length}
-                        </span>
-                    ) : (
-                        ''
-                    )}
-                </div>
-            ),
+            label: 'Invocations',
             key: 'logs',
             content: <WorkflowLogs id={workflowSceneProps.id!} />,
         },
@@ -105,12 +99,22 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
              */
             content: <ActivityLog id={workflowSceneProps.id!} scope={ActivityScope.HOG_FLOW} />,
         },
+        showBlockedRuns
+            ? {
+                  label: 'Blocked runs',
+                  key: 'blocked_runs' as WorkflowTab,
+                  content: <BlockedRunsReplay id={workflowSceneProps.id!} />,
+              }
+            : null,
     ]
 
     return (
         <SceneContent className="h-full flex flex-col grow" data-attr="workflow-scene">
             <BindLogic logic={workflowLogic} props={{ id: props.id, tabId: props.tabId, templateId, editTemplateId }}>
                 <WorkflowSceneHeader {...props} />
+                <FlaggedFeature flag={FEATURE_FLAGS.WORKFLOWS_REPLAY_BLOCKED_RUNS}>
+                    <BlockedRunsBanner id={props.id} />
+                </FlaggedFeature>
                 {/* Only show Logs and Metrics tabs if the workflow has already been created */}
                 {!props.id || props.id === 'new' ? (
                     <Workflow {...props} />

@@ -317,14 +317,20 @@
                                 "description": "Human-readable variant name",
                                 "type": "string"
                             },
-                            "rollout_percentage": {
+                            "split_percent": {
+                                "description": "Percentage of traffic allocated to this variant (0-100). All variants must sum to 100. One of split_percent (recommended) or rollout_percentage (deprecated) must be provided per variant.",
                                 "type": "number",
                                 "minimum": 0,
-                                "maximum": 100,
-                                "description": "Percentage of users to show this variant"
+                                "maximum": 100
+                            },
+                            "rollout_percentage": {
+                                "description": "Deprecated: use split_percent instead. Accepted for backward compatibility.",
+                                "type": "number",
+                                "minimum": 0,
+                                "maximum": 100
                             }
                         },
-                        "required": ["key", "rollout_percentage"]
+                        "required": ["key"]
                     }
                 },
                 "minimum_detectable_effect": {
@@ -353,63 +359,28 @@
                 "holdout_id": {
                     "description": "Holdout group ID if this experiment should exclude users from other experiments",
                     "type": "number"
+                },
+                "allow_unknown_events": {
+                    "description": "Set to true to skip validation that event names exist in the project. Use when intentionally referencing events that have not been ingested yet.",
+                    "type": "boolean"
                 }
             },
             "required": ["name", "feature_flag_key"]
         },
-        "ExperimentDeleteSchema": {
-            "type": "object",
-            "properties": {
-                "experimentId": {
-                    "type": "number",
-                    "description": "The ID of the experiment to delete"
-                }
-            },
-            "required": ["experimentId"]
-        },
-        "ExperimentGetAllSchema": {
-            "type": "object",
-            "properties": {
-                "data": {
-                    "type": "object",
-                    "properties": {
-                        "limit": {
-                            "type": "integer",
-                            "exclusiveMinimum": 0,
-                            "maximum": 9007199254740991
-                        },
-                        "offset": {
-                            "type": "integer",
-                            "minimum": 0,
-                            "maximum": 9007199254740991
-                        }
-                    }
-                }
-            }
-        },
-        "ExperimentGetSchema": {
-            "type": "object",
-            "properties": {
-                "experimentId": {
-                    "type": "number",
-                    "description": "The ID of the experiment to retrieve"
-                }
-            },
-            "required": ["experimentId"]
-        },
         "ExperimentResultsGetSchema": {
             "type": "object",
             "properties": {
-                "experimentId": {
+                "id": {
                     "type": "number",
                     "description": "The ID of the experiment to get comprehensive results for"
                 },
                 "refresh": {
-                    "type": "boolean",
-                    "description": "Force refresh of results instead of using cached values"
+                    "default": false,
+                    "description": "Force refresh of results instead of using cached values. Defaults to false.",
+                    "type": "boolean"
                 }
             },
-            "required": ["experimentId", "refresh"]
+            "required": ["id"]
         },
         "ExperimentUpdateInputSchema": {
             "type": "object",
@@ -826,62 +797,41 @@
             },
             "required": ["experimentId", "data"]
         },
-        "InsightCreateSchema": {
-            "type": "object",
-            "properties": {
-                "data": {
-                    "type": "object",
-                    "properties": {
-                        "name": {
-                            "type": "string"
-                        },
-                        "query": {
-                            "type": "object",
-                            "properties": {
-                                "kind": {
-                                    "anyOf": [
-                                        {
-                                            "type": "string",
-                                            "const": "InsightVizNode"
-                                        },
-                                        {
-                                            "type": "string",
-                                            "const": "DataVisualizationNode"
-                                        }
-                                    ]
-                                },
-                                "source": {
-                                    "description": "For new insights, use the query from your successful query-run tool call. For updates, the existing query can optionally be reused."
-                                }
-                            },
-                            "required": ["kind", "source"]
-                        },
-                        "description": {
-                            "type": "string"
-                        },
-                        "favorited": {
-                            "type": "boolean"
-                        },
-                        "tags": {
-                            "type": "array",
-                            "items": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "required": ["name", "query", "favorited"]
-                }
-            },
-            "required": ["data"]
+        "ExternalDataJobsAfterSchema": {
+            "type": "string",
+            "description": "ISO timestamp — only return jobs created after this date (e.g. \"2025-01-01T00:00:00Z\")."
         },
-        "InsightDeleteSchema": {
+        "ExternalDataJobsBeforeSchema": {
+            "type": "string",
+            "description": "ISO timestamp — only return jobs created before this date (e.g. \"2025-12-31T23:59:59Z\")."
+        },
+        "ExternalDataJobsSchemasSchema": {
+            "type": "array",
+            "items": {
+                "type": "string"
+            },
+            "description": "Filter jobs by table schema names (e.g. [\"users\", \"orders\"]). Only returns jobs for these tables."
+        },
+        "ExternalDataSourcePayloadSchema": {
+            "type": "object",
+            "propertyNames": {
+                "type": "string"
+            },
+            "additionalProperties": {},
+            "description": "Connection credentials for the source. Keys depend on source_type. For database sources: host, port, database, user, password, schema. For SaaS sources: api_key or OAuth fields. Use external-data-sources-wizard to see required fields per source type."
+        },
+        "ExternalDataSourceTypeSchema": {
+            "type": "string",
+            "description": "The source type name (e.g. \"Postgres\", \"MySQL\", \"Stripe\"). Use external-data-sources-wizard to see available types and their required fields."
+        },
+        "HogQLSchemaInputSchema": {
             "type": "object",
             "properties": {
-                "insightId": {
+                "connectionId": {
+                    "description": "Optional id of an external data source (e.g. a Postgres or DuckDB direct-query connection). When set, returns the schema of that source instead of the ClickHouse catalog. Use external-data-sources-list to discover available connection ids.",
                     "type": "string"
                 }
-            },
-            "required": ["insightId"]
+            }
         },
         "InsightGenerateHogQLFromQuestionSchema": {
             "type": "object",
@@ -894,109 +844,21 @@
             },
             "required": ["question"]
         },
-        "InsightGetAllSchema": {
-            "type": "object",
-            "properties": {
-                "data": {
-                    "type": "object",
-                    "properties": {
-                        "limit": {
-                            "type": "number"
-                        },
-                        "offset": {
-                            "type": "number"
-                        },
-                        "favorited": {
-                            "type": "boolean"
-                        },
-                        "search": {
-                            "type": "string"
-                        }
-                    }
-                }
-            }
-        },
-        "InsightGetSchema": {
-            "type": "object",
-            "properties": {
-                "insightId": {
-                    "type": "string"
-                }
-            },
-            "required": ["insightId"]
-        },
         "InsightQueryInputSchema": {
             "type": "object",
             "properties": {
                 "insightId": {
-                    "type": "string"
+                    "type": "string",
+                    "description": "The insight ID or short_id to run."
+                },
+                "output_format": {
+                    "default": "optimized",
+                    "description": "Output format. \"optimized\" returns a human-readable summary from server-side formatters (recommended for analysis). \"json\" returns the raw query results as JSON.",
+                    "type": "string",
+                    "enum": ["optimized", "json"]
                 }
             },
             "required": ["insightId"]
-        },
-        "InsightUpdateSchema": {
-            "type": "object",
-            "properties": {
-                "insightId": {
-                    "type": "string"
-                },
-                "data": {
-                    "type": "object",
-                    "properties": {
-                        "name": {
-                            "type": "string"
-                        },
-                        "description": {
-                            "type": "string"
-                        },
-                        "filters": {
-                            "type": "object",
-                            "propertyNames": {
-                                "type": "string"
-                            },
-                            "additionalProperties": {}
-                        },
-                        "query": {
-                            "type": "object",
-                            "properties": {
-                                "kind": {
-                                    "anyOf": [
-                                        {
-                                            "type": "string",
-                                            "const": "InsightVizNode"
-                                        },
-                                        {
-                                            "type": "string",
-                                            "const": "DataVisualizationNode"
-                                        }
-                                    ]
-                                },
-                                "source": {
-                                    "description": "For new insights, use the query from your successful query-run tool call. For updates, the existing query can optionally be reused"
-                                }
-                            },
-                            "required": ["kind", "source"]
-                        },
-                        "favorited": {
-                            "type": "boolean"
-                        },
-                        "dashboards": {
-                            "description": "Dashboard IDs this insight should belong to. This is a full replacement — always include all existing dashboard IDs when adding a new one.",
-                            "type": "array",
-                            "items": {
-                                "type": "number"
-                            }
-                        },
-                        "tags": {
-                            "type": "array",
-                            "items": {
-                                "type": "string"
-                            }
-                        }
-                    }
-                }
-            },
-            "required": ["insightId", "data"]
         },
         "LLMAnalyticsGetCostsSchema": {
             "type": "object",
@@ -1011,170 +873,6 @@
                 }
             },
             "required": ["projectId"]
-        },
-        "LogsListAttributeValuesInputSchema": {
-            "type": "object",
-            "properties": {
-                "key": {
-                    "type": "string",
-                    "description": "The attribute key to get values for"
-                },
-                "attributeType": {
-                    "description": "Type of attribute: \"log\" for log attributes, \"resource\" for resource attributes (default: log)",
-                    "type": "string",
-                    "enum": ["log", "resource"]
-                },
-                "search": {
-                    "description": "Search filter for attribute values",
-                    "type": "string"
-                }
-            },
-            "required": ["key"]
-        },
-        "LogsListAttributesInputSchema": {
-            "type": "object",
-            "properties": {
-                "search": {
-                    "description": "Search filter for attribute names",
-                    "type": "string"
-                },
-                "attributeType": {
-                    "description": "Type of attributes to list: \"log\" for log attributes, \"resource\" for resource attributes (default: log)",
-                    "type": "string",
-                    "enum": ["log", "resource"]
-                },
-                "limit": {
-                    "description": "Maximum number of results (1-100, default: 100)",
-                    "type": "integer",
-                    "minimum": 1,
-                    "maximum": 100
-                },
-                "offset": {
-                    "description": "Offset for pagination (default: 0)",
-                    "type": "integer",
-                    "minimum": 0,
-                    "maximum": 9007199254740991
-                }
-            }
-        },
-        "LogsQueryInputSchema": {
-            "type": "object",
-            "properties": {
-                "dateFrom": {
-                    "type": "string",
-                    "description": "Start of date range (ISO 8601 format, e.g., \"2024-01-01T00:00:00Z\")"
-                },
-                "dateTo": {
-                    "type": "string",
-                    "description": "End of date range (ISO 8601 format, e.g., \"2024-01-02T00:00:00Z\")"
-                },
-                "severityLevels": {
-                    "description": "Filter by severity levels (trace, debug, info, warn, error, fatal)",
-                    "type": "array",
-                    "items": {
-                        "type": "string",
-                        "enum": ["trace", "debug", "info", "warn", "error", "fatal"]
-                    }
-                },
-                "serviceNames": {
-                    "description": "Filter by service names",
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "filters": {
-                    "description": "Structured attribute filters. Each filter targets a log field or attribute. Combined with AND by default (use filtersType to change).",
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "key": {
-                                "type": "string",
-                                "description": "The attribute key to filter on. For type \"log\", use \"message\" to filter the log body. For \"log_attribute\" or \"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\")."
-                            },
-                            "type": {
-                                "type": "string",
-                                "enum": ["log", "log_attribute", "log_resource_attribute"],
-                                "description": "\"log\" filters the log body/message. \"log_attribute\" filters log-level attributes. \"log_resource_attribute\" filters resource-level attributes (e.g. k8s labels)."
-                            },
-                            "operator": {
-                                "type": "string",
-                                "enum": [
-                                    "exact",
-                                    "is_not",
-                                    "icontains",
-                                    "not_icontains",
-                                    "regex",
-                                    "not_regex",
-                                    "is_set",
-                                    "is_not_set",
-                                    "gt",
-                                    "gte",
-                                    "lt",
-                                    "lte",
-                                    "in",
-                                    "not_in"
-                                ],
-                                "description": "Comparison operator"
-                            },
-                            "value": {
-                                "description": "Value to compare against. Omit for is_set/is_not_set operators.",
-                                "anyOf": [
-                                    {
-                                        "type": "string"
-                                    },
-                                    {
-                                        "type": "number"
-                                    },
-                                    {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
-                                    },
-                                    {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "number"
-                                        }
-                                    }
-                                ]
-                            }
-                        },
-                        "required": ["key", "type", "operator"]
-                    }
-                },
-                "filtersType": {
-                    "description": "Logical operator to combine filters (default: AND)",
-                    "type": "string",
-                    "enum": ["AND", "OR"]
-                },
-                "orderBy": {
-                    "description": "Order results by timestamp (default: latest)",
-                    "type": "string",
-                    "enum": ["latest", "earliest"]
-                },
-                "limit": {
-                    "description": "Maximum number of results (1-1000, default: 100)",
-                    "type": "integer",
-                    "minimum": 1,
-                    "maximum": 1000
-                },
-                "after": {
-                    "description": "Cursor for pagination (from previous response nextCursor)",
-                    "type": "string"
-                }
-            },
-            "required": ["dateFrom", "dateTo"]
-        },
-        "OrganizationGetAllSchema": {
-            "type": "object",
-            "properties": {}
-        },
-        "OrganizationGetDetailsSchema": {
-            "type": "object",
-            "properties": {}
         },
         "OrganizationSetActiveSchema": {
             "type": "object",
@@ -2801,14 +2499,200 @@
                                                     "type": "boolean"
                                                 }
                                             }
+                                        },
+                                        "connectionId": {
+                                            "description": "Optional id of an external data source (e.g. a Postgres or DuckDB direct-query connection). When set, the query runs against that source instead of ClickHouse. Use external-data-sources-list to discover available connection ids.",
+                                            "type": "string"
                                         }
                                     },
                                     "required": ["kind", "query"]
                                 }
                             },
                             "required": ["kind", "source"]
+                        },
+                        {
+                            "type": "object",
+                            "properties": {
+                                "kind": {
+                                    "type": "string",
+                                    "const": "HogQLQuery"
+                                },
+                                "query": {
+                                    "type": "string"
+                                },
+                                "filters": {
+                                    "type": "object",
+                                    "properties": {
+                                        "properties": {
+                                            "type": "array",
+                                            "items": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "object",
+                                                        "properties": {
+                                                            "key": {
+                                                                "type": "string"
+                                                            },
+                                                            "value": {
+                                                                "anyOf": [
+                                                                    {
+                                                                        "anyOf": [
+                                                                            {
+                                                                                "type": "string"
+                                                                            },
+                                                                            {
+                                                                                "type": "number"
+                                                                            },
+                                                                            {
+                                                                                "type": "array",
+                                                                                "items": {
+                                                                                    "type": "string"
+                                                                                }
+                                                                            },
+                                                                            {
+                                                                                "type": "array",
+                                                                                "items": {
+                                                                                    "type": "number"
+                                                                                }
+                                                                            }
+                                                                        ]
+                                                                    },
+                                                                    {
+                                                                        "type": "null"
+                                                                    }
+                                                                ]
+                                                            },
+                                                            "operator": {
+                                                                "type": "string"
+                                                            },
+                                                            "type": {
+                                                                "type": "string"
+                                                            }
+                                                        },
+                                                        "required": ["key"]
+                                                    },
+                                                    {
+                                                        "type": "object",
+                                                        "properties": {
+                                                            "type": {
+                                                                "type": "string",
+                                                                "enum": ["AND", "OR"]
+                                                            },
+                                                            "values": {
+                                                                "type": "array",
+                                                                "items": {
+                                                                    "type": "object",
+                                                                    "properties": {
+                                                                        "key": {
+                                                                            "type": "string"
+                                                                        },
+                                                                        "value": {
+                                                                            "anyOf": [
+                                                                                {
+                                                                                    "anyOf": [
+                                                                                        {
+                                                                                            "type": "string"
+                                                                                        },
+                                                                                        {
+                                                                                            "type": "number"
+                                                                                        },
+                                                                                        {
+                                                                                            "type": "array",
+                                                                                            "items": {
+                                                                                                "type": "string"
+                                                                                            }
+                                                                                        },
+                                                                                        {
+                                                                                            "type": "array",
+                                                                                            "items": {
+                                                                                                "type": "number"
+                                                                                            }
+                                                                                        }
+                                                                                    ]
+                                                                                },
+                                                                                {
+                                                                                    "type": "null"
+                                                                                }
+                                                                            ]
+                                                                        },
+                                                                        "operator": {
+                                                                            "type": "string"
+                                                                        },
+                                                                        "type": {
+                                                                            "type": "string"
+                                                                        }
+                                                                    },
+                                                                    "required": ["key"]
+                                                                }
+                                                            }
+                                                        },
+                                                        "required": ["type", "values"]
+                                                    }
+                                                ]
+                                            }
+                                        },
+                                        "dateRange": {
+                                            "type": "object",
+                                            "properties": {
+                                                "date_from": {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "string"
+                                                        },
+                                                        {
+                                                            "type": "null"
+                                                        }
+                                                    ]
+                                                },
+                                                "date_to": {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "string"
+                                                        },
+                                                        {
+                                                            "type": "null"
+                                                        }
+                                                    ]
+                                                },
+                                                "explicitDate": {
+                                                    "type": "boolean"
+                                                }
+                                            }
+                                        },
+                                        "filterTestAccounts": {
+                                            "type": "boolean"
+                                        }
+                                    }
+                                },
+                                "connectionId": {
+                                    "description": "Optional id of an external data source (e.g. a Postgres or DuckDB direct-query connection). When set, the query runs against that source instead of ClickHouse. Use external-data-sources-list to discover available connection ids.",
+                                    "type": "string"
+                                }
+                            },
+                            "required": ["kind", "query"]
                         }
                     ]
+                }
+            },
+            "required": ["query"]
+        },
+        "QueryValidateInputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "The HogQL (ClickHouse-flavored SQL) query to validate. Parsed and type-checked without executing, so there is no ClickHouse cost."
+                },
+                "language": {
+                    "default": "hogQL",
+                    "description": "Language to validate. Defaults to 'hogQL' (full SELECT statements). Use 'hogQLExpr' for a bare expression, 'hog' or 'hogTemplate' for Hog source.",
+                    "type": "string",
+                    "enum": ["hogQL", "hogQLExpr", "hog", "hogTemplate"]
+                },
+                "connectionId": {
+                    "description": "Optional id of an external data source (e.g. a Postgres or DuckDB direct-query connection). When set, validates against that source instead of the ClickHouse catalog. Use external-data-sources-list to discover available connection ids.",
+                    "type": "string"
                 }
             },
             "required": ["query"]
@@ -2956,6 +2840,82 @@
         "SurveyResponseCountsSchema": {
             "type": "object",
             "properties": {}
+        },
+        "UsageMetricFiltersSchema": {
+            "anyOf": [
+                {
+                    "type": "object",
+                    "properties": {
+                        "source": {
+                            "type": "string",
+                            "const": "data_warehouse"
+                        },
+                        "table_name": {
+                            "type": "string",
+                            "description": "Name of a synced data warehouse table. Use `external-data-schemas-list` to discover available tables."
+                        },
+                        "timestamp_field": {
+                            "type": "string",
+                            "description": "Timestamp column or HogQL expression on the row (e.g. \"created\" or \"toDateTime(created_at)\"). Use `execute-sql` (`SELECT * FROM <table> LIMIT 1`) to inspect available columns."
+                        },
+                        "key_field": {
+                            "type": "string",
+                            "description": "Column on the row whose value matches the entity key. v1 supports group profiles only — the column value is compared to the group_key."
+                        }
+                    },
+                    "required": ["source", "table_name", "timestamp_field", "key_field"],
+                    "description": "Data-warehouse-source filter shape."
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "events": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "id": {
+                                        "type": "string",
+                                        "description": "Event name (e.g. \"$pageview\")."
+                                    },
+                                    "name": {
+                                        "type": "string"
+                                    },
+                                    "type": {
+                                        "type": "string",
+                                        "const": "events"
+                                    },
+                                    "order": {
+                                        "type": "integer",
+                                        "minimum": -9007199254740991,
+                                        "maximum": 9007199254740991
+                                    },
+                                    "properties": {
+                                        "type": "array",
+                                        "items": {}
+                                    }
+                                },
+                                "required": ["id"]
+                            },
+                            "description": "Events to count or sum over."
+                        },
+                        "actions": {
+                            "type": "array",
+                            "items": {}
+                        },
+                        "properties": {
+                            "type": "array",
+                            "items": {}
+                        },
+                        "filter_test_accounts": {
+                            "type": "boolean"
+                        }
+                    },
+                    "required": ["events"],
+                    "description": "Events-source filter shape (default)."
+                }
+            ],
+            "description": "Filter definition. Pick exactly one branch: `data_warehouse` (set `source: \"data_warehouse\"` plus `table_name`/`timestamp_field`/`key_field`) or `events` (HogFunction filter shape with an `events` array)."
         }
     }
 }

@@ -485,6 +485,89 @@ class TestTicketAPI(APIBaseTest):
         self.assertIn(str(self.ticket.id), ticket_ids)
         self.assertIn(str(high_ticket.id), ticket_ids)
 
+    def test_search_by_ticket_number(self, mock_on_commit):
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/conversations/tickets/?search={self.ticket.ticket_number}"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["results"][0]["id"], str(self.ticket.id))
+
+    @parameterized.expand(
+        [
+            ("anonymous_name", {"anonymous_traits": {"name": "Alice Wonder"}}, "alice"),
+            ("anonymous_email", {"anonymous_traits": {"email": "bob@example.com"}}, "bob@example"),
+            ("email_subject", {"email_subject": "Billing issue", "channel_source": Channel.EMAIL}, "billing"),
+        ]
+    )
+    def test_search_by_field(self, mock_on_commit, _name, field_overrides, query):
+        for field, value in field_overrides.items():
+            setattr(self.ticket, field, value)
+        self.ticket.save()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?search={query}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["results"][0]["id"], str(self.ticket.id))
+
+    def test_search_by_comment_content(self, mock_on_commit):
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="I need help with the API integration",
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?search=API+integration")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["results"][0]["id"], str(self.ticket.id))
+
+    def test_search_matches_older_comment_not_just_last(self, mock_on_commit):
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="First message about passwords",
+        )
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="Thanks, all sorted now",
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?search=passwords")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+
+    def test_search_excludes_deleted_comments(self, mock_on_commit):
+        comment = Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="Secret deleted message",
+        )
+        comment.deleted = True
+        comment.save()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?search=secret+deleted")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 0)
+
+    def test_search_no_match_returns_empty(self, mock_on_commit):
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/conversations/tickets/?search=nonexistent_query_xyzzy"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 0)
+
+    def test_search_ignores_too_long_query(self, mock_on_commit):
+        long_query = "a" * 201
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?search={long_query}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+
     @parameterized.expand(
         [
             (

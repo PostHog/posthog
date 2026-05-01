@@ -32,6 +32,7 @@ interface ActionFilterRowMenuProps {
     renameRowButton: JSX.Element
     duplicateRowButton: JSX.Element
     deleteButton: JSX.Element
+    combineButton?: JSX.Element | null
 }
 
 export function ActionFilterRowMenu({
@@ -55,6 +56,7 @@ export function ActionFilterRowMenu({
     renameRowButton,
     duplicateRowButton,
     deleteButton,
+    combineButton,
 }: ActionFilterRowMenuProps): JSX.Element {
     const [isMenuVisible, setIsMenuVisible] = useState(false)
 
@@ -100,6 +102,11 @@ export function ActionFilterRowMenu({
                 <LemonDivider />
             </React.Fragment>
         )
+    }
+
+    if (combineButton) {
+        menuItems.push(wrapWithClose(combineButton))
+        menuItems.push(<LemonDivider key="combine-divider" />)
     }
 
     if (!hideRename) {

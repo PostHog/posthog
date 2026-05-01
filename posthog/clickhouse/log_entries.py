@@ -1,8 +1,18 @@
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
-from posthog.clickhouse.kafka_engine import CONSUMER_GROUP_LOG_ENTRIES, KAFKA_COLUMNS, kafka_engine, ttl_period
+from posthog.clickhouse.kafka_engine import (
+    CONSUMER_GROUP_LOG_ENTRIES,
+    CONSUMER_GROUP_LOG_ENTRIES_WS,
+    KAFKA_COLUMNS,
+    kafka_engine,
+    ttl_period,
+)
 from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_LOG_ENTRIES
-from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
+from posthog.settings import (
+    CLICKHOUSE_CLUSTER,
+    CLICKHOUSE_DATABASE,
+    CLICKHOUSE_KAFKA_WARPSTREAM_INGESTION_NAMED_COLLECTION,
+)
 
 LOG_ENTRIES_TABLE = "log_entries"
 LOG_ENTRIES_DISTRIBUTED_TABLE = "distributed_log_entries"
@@ -93,6 +103,57 @@ INSERT INTO log_entries SELECT %(team_id)s, %(log_source)s, %(log_source_id)s, %
 """
 
 TRUNCATE_LOG_ENTRIES_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS {LOG_ENTRIES_SHARDED_TABLE} {ON_CLUSTER_CLAUSE()}"
+
+# WarpStream Kafka engine tables (coexist alongside MSK tables, same target)
+
+KAFKA_LOG_ENTRIES_WS_TABLE_NAME = f"kafka_{LOG_ENTRIES_TABLE}_ws"
+LOG_ENTRIES_WS_MV_NAME = f"{LOG_ENTRIES_TABLE}_ws_mv"
+
+DROP_KAFKA_LOG_ENTRIES_WS_TABLE_SQL = f"DROP TABLE IF EXISTS {KAFKA_LOG_ENTRIES_WS_TABLE_NAME}"
+DROP_LOG_ENTRIES_WS_MV_SQL = f"DROP TABLE IF EXISTS {LOG_ENTRIES_WS_MV_NAME}"
+
+
+def KAFKA_LOG_ENTRIES_WS_TABLE_SQL():
+    return (
+        LOG_ENTRIES_TABLE_BASE_SQL
+        + """
+    SETTINGS kafka_skip_broken_messages = 100
+    """
+    ).format(
+        table_name=KAFKA_LOG_ENTRIES_WS_TABLE_NAME,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(False),
+        engine=kafka_engine(
+            topic=KAFKA_LOG_ENTRIES,
+            group=CONSUMER_GROUP_LOG_ENTRIES_WS,
+            named_collection=CLICKHOUSE_KAFKA_WARPSTREAM_INGESTION_NAMED_COLLECTION,
+        ),
+        extra_fields="",
+    )
+
+
+def LOG_ENTRIES_WS_MV_SQL():
+    return """
+    CREATE MATERIALIZED VIEW IF NOT EXISTS {mv_name}
+    TO {database}.{to_table}
+    AS SELECT
+    team_id,
+    log_source,
+    log_source_id,
+    instance_id,
+    timestamp,
+    level,
+    message,
+    _timestamp,
+    _offset
+    FROM {database}.{from_table}
+    WHERE toDate(timestamp) <= today()
+    """.format(
+        mv_name=LOG_ENTRIES_WS_MV_NAME,
+        to_table=LOG_ENTRIES_WRITABLE_TABLE,
+        from_table=KAFKA_LOG_ENTRIES_WS_TABLE_NAME,
+        database=CLICKHOUSE_DATABASE,
+    )
+
 
 # Log entries rework
 

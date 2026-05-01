@@ -50,8 +50,14 @@ TEST_PREFIX = "Test-Exports"
 class TestImageExporter(APIBaseTest):
     exported_asset: ExportedAsset
 
-    def setup_method(self, method):
-        insight = Insight.objects.create(team=self.team)
+    def setup_method(self, method: Any) -> None:
+        insight = Insight.objects.create(
+            team=self.team,
+            query={
+                "kind": "DataVisualizationNode",
+                "source": {"kind": "HogQLQuery", "query": "SELECT 1 as value"},
+            },
+        )
         asset = ExportedAsset.objects.create(
             team=self.team,
             export_format=ExportedAsset.ExportFormat.PNG,
@@ -59,7 +65,7 @@ class TestImageExporter(APIBaseTest):
         )
         self.exported_asset = asset
 
-    def teardown_method(self, method):
+    def teardown_method(self, method: Any) -> None:
         s3 = resource(
             "s3",
             endpoint_url=OBJECT_STORAGE_ENDPOINT,
@@ -71,7 +77,7 @@ class TestImageExporter(APIBaseTest):
         bucket = s3.Bucket(OBJECT_STORAGE_BUCKET)
         bucket.objects.filter(Prefix=TEST_PREFIX).delete()
 
-    def test_image_exporter_writes_to_asset_when_object_storage_is_disabled(self, *args) -> None:
+    def test_image_exporter_writes_to_asset_when_object_storage_is_disabled(self, *args: Any) -> None:
         with self.settings(OBJECT_STORAGE_ENABLED=False):
             image_exporter.export_image(self.exported_asset)
 
@@ -79,7 +85,9 @@ class TestImageExporter(APIBaseTest):
             assert self.exported_asset.content_location is None
 
     @patch("posthog.models.exported_asset.UUIDT")
-    def test_image_exporter_writes_to_object_storage_when_object_storage_is_enabled(self, mocked_uuidt, *args) -> None:
+    def test_image_exporter_writes_to_object_storage_when_object_storage_is_enabled(
+        self, mocked_uuidt: Any, *args: Any
+    ) -> None:
         mocked_uuidt.return_value = "a-guid"
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
             image_exporter.export_image(self.exported_asset)
@@ -97,7 +105,7 @@ class TestImageExporter(APIBaseTest):
     @patch("posthog.models.exported_asset.UUIDT")
     @patch("posthog.models.exported_asset.object_storage.write")
     def test_image_exporter_writes_to_object_storage_when_object_storage_write_fails(
-        self, mocked_object_storage_write, mocked_uuidt, *args
+        self, mocked_object_storage_write: Any, mocked_uuidt: Any, *args: Any
     ) -> None:
         mocked_uuidt.return_value = "a-guid"
         mocked_object_storage_write.side_effect = ObjectStorageError("mock write failed")
@@ -483,6 +491,65 @@ class TestImageExporter(APIBaseTest):
                     "variableId": variable_id,
                 }
             }
+
+
+@patch("posthog.tasks.exports.image_exporter._screenshot_asset")
+@patch("posthog.tasks.exports.image_exporter.open", new_callable=mock_open, read_data=b"image_data")
+@patch("os.remove")
+class TestHeatmapExportURLEncoding(APIBaseTest):
+    def test_heatmap_urls_with_query_params_are_encoded_in_exporter_url(
+        self,
+        mock_remove: Any,
+        mock_open: Any,
+        mock_screenshot_asset: Any,
+    ) -> None:
+        data_url = "/api/environments/1/heatmap_screenshots/abc/content/?width=1024&format=jpeg"
+        exported_asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            export_context={
+                "heatmap_url": "https://example.com/page?tab=home",
+                "heatmap_data_url": data_url,
+            },
+        )
+
+        with self.settings(OBJECT_STORAGE_ENABLED=False):
+            image_exporter.export_image(exported_asset)
+
+        url_to_render = mock_screenshot_asset.call_args[0][1]
+
+        # Verify URL parsing recovers the full values (same as browser URL parsing)
+        from urllib.parse import parse_qs, urlparse
+
+        parsed = urlparse(url_to_render)
+        params = parse_qs(parsed.query)
+
+        assert params["pageURL"] == ["https://example.com/page?tab=home"]
+        assert params["dataURL"] == [data_url]
+        assert set(params.keys()) == {"token", "pageURL", "dataURL"}
+
+    def test_without_encoding_inner_ampersands_corrupt_query_string(
+        self,
+        mock_remove: Any,
+        mock_open: Any,
+        mock_screenshot_asset: Any,
+    ) -> None:
+        # Data URLs with multiple query params (e.g. `?width=1024&format=jpeg`)
+        # contain `&` which, without encoding, splits into separate top-level params
+        # and truncates the dataURL value the exporter receives.
+        from urllib.parse import parse_qs, urlparse
+
+        data_url = "/api/environments/1/heatmap_screenshots/abc/content/?width=1024&format=jpeg"
+        unencoded = f"https://example.com/exporter?token=fake&pageURL=https://example.com&dataURL={data_url}"
+
+        parsed = urlparse(unencoded)
+        params = parse_qs(parsed.query)
+
+        # The inner `&format=jpeg` leaks as a top-level param
+        assert "format" in params, "Inner &format leaked as top-level param"
+        # And the dataURL is truncated — missing `&format=jpeg`
+        assert params["dataURL"] == ["/api/environments/1/heatmap_screenshots/abc/content/?width=1024"]
+        assert params["dataURL"] != [data_url]
 
 
 @patch("posthog.tasks.exports.image_exporter._screenshot_asset")

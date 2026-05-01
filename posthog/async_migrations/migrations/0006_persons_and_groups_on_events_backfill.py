@@ -14,7 +14,9 @@ class Migration(AsyncMigrationDefinition):
 
     depends_on = "0005_person_replacing_by_version"
 
-    operations: list[AsyncMigrationOperation] = []
+    @property
+    def operations(self) -> list[AsyncMigrationOperation]:
+        return []
 
     def is_required(self):
         return False

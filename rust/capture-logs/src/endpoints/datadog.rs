@@ -9,7 +9,7 @@ use axum::{
 use base64::{engine::general_purpose::STANDARD as base64_standard, Engine};
 use bytes::Bytes;
 use chrono::{TimeZone, Utc};
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 use serde_json::json;
 use std::collections::HashMap;
 use tracing::{debug, error, instrument};
@@ -29,10 +29,50 @@ pub struct DatadogLog {
     pub service: Option<String>,
     #[serde(default)]
     pub status: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_timestamp")]
     pub timestamp: Option<i64>,
     #[serde(flatten)]
     pub extra: HashMap<String, serde_json::Value>,
+}
+
+fn deserialize_timestamp<'de, D>(deserializer: D) -> Result<Option<i64>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::de;
+
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum TimestampValue {
+        Integer(i64),
+        Str(String),
+    }
+
+    let opt: Option<TimestampValue> = Option::deserialize(deserializer)?;
+    match opt {
+        None => Ok(None),
+        Some(TimestampValue::Integer(n)) => Ok(Some(n)),
+        Some(TimestampValue::Str(s)) => {
+            if s.is_empty() {
+                return Ok(None);
+            }
+            // Try parsing as plain integer string first
+            if let Ok(n) = s.parse::<i64>() {
+                return Ok(Some(n));
+            }
+            // Try parsing as RFC 3339 / ISO 8601 datetime
+            if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(&s) {
+                return Ok(Some(dt.timestamp_millis()));
+            }
+            if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(&s, "%Y-%m-%dT%H:%M:%S%.f") {
+                return Ok(Some(dt.and_utc().timestamp_millis()));
+            }
+            Err(de::Error::custom(format!(
+                "invalid timestamp string: {}",
+                s
+            )))
+        }
+    }
 }
 
 pub fn normalize_datadog_severity(status: Option<&str>) -> (String, i32) {

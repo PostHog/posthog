@@ -23,6 +23,20 @@
         }
     }
 
+    &--login-as {
+        .ImpersonationNotice__sidebar {
+            background: var(--success);
+        }
+
+        .ImpersonationNotice__drag-handle {
+            color: #fff;
+        }
+
+        .ImpersonationNotice__warning-icon {
+            color: var(--success);
+        }
+    }
+
     &--read-write {
         .ImpersonationNotice__sidebar {
             background: var(--danger);
@@ -93,6 +107,10 @@
         .ImpersonationNotice__minimized-content:hover & {
             transform: scale(1.1);
         }
+    }
+
+    &--login-as &__minimized-icon {
+        color: var(--success);
     }
 
     &--read-only &__minimized-icon {

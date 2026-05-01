@@ -6,10 +6,8 @@ import { colonDelimitedDuration } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { formatLocalizedDate } from 'lib/utils/dateTimeUtils'
 
-import { playerInspectorLogic } from '../player/inspector/playerInspectorLogic'
 import { TimestampFormat } from '../player/playerSettingsLogic'
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
-import { sessionRecordingPlayerLogic } from '../player/sessionRecordingPlayerLogic'
 
 export function ItemTimeDisplay({
     timestamp,
@@ -21,12 +19,6 @@ export function ItemTimeDisplay({
     className?: string
 }): JSX.Element {
     const { timestampFormat } = useValues(playerSettingsLogic)
-    const { logicProps } = useValues(sessionRecordingPlayerLogic)
-    const { durationMs } = useValues(playerInspectorLogic(logicProps))
-
-    // if the recording is less than an hour we can save space by not showing the hours zeroes
-    const isLongerThanAnHour = durationMs / 1000 > 3600
-    const fixedUnits = isLongerThanAnHour ? 3 : 2
 
     return (
         <div className={cn('px-2 py-1 text-xs min-w-18 text-center', className)}>
@@ -44,7 +36,7 @@ export function ItemTimeDisplay({
                             <span className="text-secondary">load</span>
                         </Tooltip>
                     ) : (
-                        colonDelimitedDuration(timeInRecording / 1000, fixedUnits)
+                        colonDelimitedDuration(timeInRecording / 1000, null)
                     )}
                 </>
             )}

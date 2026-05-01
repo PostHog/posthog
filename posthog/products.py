@@ -5,7 +5,7 @@ from typing import Optional
 
 from django.conf import settings
 
-from posthog.schema import ProductItem, ProductKey, ProductsData
+from posthog.schema import ProductItem, ProductItemCategory, ProductKey, ProductsData
 
 
 class Products:
@@ -81,10 +81,10 @@ class Products:
         return [product for product in Products.products() if intent in product.intents]
 
     @staticmethod
-    def get_products_by_category() -> dict[str, list[str]]:
+    def get_products_by_category() -> dict[ProductItemCategory, list[str]]:
         """Get product mappings grouped by category."""
-        products_by_category: dict[str, list[str]] = defaultdict(list)
+        products_by_category: dict[ProductItemCategory, list[str]] = defaultdict(list)
         for product in Products.products():
-            category = product.category or "Other"
-            products_by_category[category].append(product.path)
+            if product.category is not None:
+                products_by_category[product.category].append(product.path)
         return dict(products_by_category)

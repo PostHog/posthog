@@ -1,7 +1,7 @@
 """Inbound email webhook endpoint for Mailgun routes."""
 
 import re
-from email.utils import parseaddr
+from email.utils import getaddresses, parseaddr
 from typing import Any, cast
 
 from django.core.files.uploadedfile import UploadedFile
@@ -217,6 +217,17 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
     if not sender_name:
         sender_name = sender_email.split("@")[0] if sender_email else "Unknown"
 
+    # 6b. Parse CC recipients
+    cc_header = request.POST.get("Cc", "")
+    cc_list: list[str] = []
+    if cc_header:
+        team_inbound_address = f"team-{inbound_token}@"
+        cc_list = [
+            addr.lower()
+            for _name, addr in getaddresses([cc_header])
+            if addr and not addr.lower().startswith(team_inbound_address)
+        ]
+
     # 7. Get content (stripped by Mailgun to remove quotes/signatures)
     content = (request.POST.get("stripped-text", "") or request.POST.get("body-plain", ""))[:MAX_EMAIL_BODY_LENGTH]
     subject = request.POST.get("subject", "")
@@ -249,6 +260,7 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
                     },
                     email_subject=subject,
                     email_from=sender_email,
+                    cc_participants=cc_list,
                     unread_team_count=1,
                 )
 
@@ -273,9 +285,12 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
             )
 
             if existing_ticket:
-                Ticket.objects.filter(id=ticket.id, team=team).update(
-                    unread_team_count=F("unread_team_count") + 1,
-                )
+                qs = Ticket.objects.filter(id=ticket.id, team=team)
+                if cc_list:
+                    merged = list(dict.fromkeys(ticket.cc_participants + cc_list))
+                    qs.update(unread_team_count=F("unread_team_count") + 1, cc_participants=merged)
+                else:
+                    qs.update(unread_team_count=F("unread_team_count") + 1)
 
             EmailMessageMapping.objects.create(
                 message_id=email_message_id,

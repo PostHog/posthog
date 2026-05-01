@@ -1,86 +1,21 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { loaders } from 'kea-loaders'
+import { actions, kea, path, reducers } from 'kea'
 import { windowValues } from 'kea-window-values'
-
-import api from 'lib/api'
-import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
-import { eventIngestionRestrictionLogic } from 'lib/logic/eventIngestionRestrictionLogic'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { membersLogic } from 'scenes/organization/membersLogic'
-import { organizationLogic } from 'scenes/organizationLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { sceneLogic } from 'scenes/sceneLogic'
-import { ProxyRecord } from 'scenes/settings/environment/proxyLogic'
-import { teamLogic } from 'scenes/teamLogic'
-import { userLogic } from 'scenes/userLogic'
 
 import type { navigationLogicType } from './navigationLogicType'
 
-export type ProjectNoticeVariant =
-    | 'demo_project'
-    | 'real_project_with_no_events'
-    | 'invite_teammates'
-    | 'unverified_email'
-    | 'internet_connection_issue'
-    | 'event_ingestion_restriction'
-    | 'missing_reverse_proxy'
-
 export const navigationLogic = kea<navigationLogicType>([
     path(['layout', 'navigation', 'navigationLogic']),
-    connect(() => ({
-        values: [
-            sceneLogic,
-            ['sceneConfig'],
-            membersLogic,
-            ['memberCount'],
-            organizationLogic,
-            ['currentOrganization', 'currentOrganizationId'],
-        ],
-        actions: [eventUsageLogic, ['reportProjectNoticeDismissed']],
-    })),
     actions({
-        closeProjectNotice: (projectNoticeVariant: ProjectNoticeVariant) => ({ projectNoticeVariant }),
         showConfigurePinnedTabsModal: true,
         hideConfigurePinnedTabsModal: true,
         showConfigurePinnedTabsTooltip: true,
         hideConfigurePinnedTabsTooltip: true,
     }),
-    loaders(({ values }) => ({
-        proxyRecords: {
-            __default: null as null | ProxyRecord[],
-            loadRecords: async () => {
-                const response = await api.get(`api/organizations/${values.currentOrganizationId}/proxy_records`)
-                return response.results
-            },
-        },
-        navigationStatus: {
-            __default: { system_status_ok: true, async_migrations_ok: true } as {
-                system_status_ok: boolean
-                async_migrations_ok: boolean
-            },
-            loadNavigationStatus: async () => {
-                return await api.get('api/instance_settings')
-            },
-        },
-    })),
     windowValues(() => ({
         fullscreen: (window: Window) => !!window.document.fullscreenElement,
         mobileLayout: (window: Window) => window.innerWidth < 992, // Sync width threshold with Sass variable $lg!
     })),
     reducers({
-        projectNoticesAcknowledged: [
-            {} as Record<ProjectNoticeVariant, boolean>,
-            { persist: true },
-            {
-                closeProjectNotice: (state, { projectNoticeVariant }) => ({ ...state, [projectNoticeVariant]: true }),
-            },
-        ],
-        hasClosedNotice: [
-            false,
-            {
-                closeProjectNotice: () => true,
-            },
-        ],
         isConfigurePinnedTabsModalOpen: [
             false,
             {
@@ -102,93 +37,5 @@ export const navigationLogic = kea<navigationLogicType>([
                 hideConfigurePinnedTabsTooltip: () => true,
             },
         ],
-    }),
-    selectors({
-        systemStatusHealthy: [
-            (s) => [s.navigationStatus, preflightLogic.selectors.siteUrlMisconfigured],
-            (status, siteUrlMisconfigured) => {
-                // On cloud non staff users don't have status metrics to review
-                if (preflightLogic.values.preflight?.cloud && !userLogic.values.user?.is_staff) {
-                    return true
-                }
-
-                if (siteUrlMisconfigured) {
-                    return false
-                }
-
-                return status.system_status_ok
-            },
-        ],
-        asyncMigrationsOk: [(s) => [s.navigationStatus], (status) => status.async_migrations_ok],
-        projectNoticeVariant: [
-            (s) => [
-                organizationLogic.selectors.currentOrganization,
-                teamLogic.selectors.currentTeam,
-                preflightLogic.selectors.preflight,
-                userLogic.selectors.user,
-                s.memberCount,
-                apiStatusLogic.selectors.internetConnectionIssue,
-                s.projectNoticesAcknowledged,
-                eventIngestionRestrictionLogic.selectors.hasProjectNoticeRestriction,
-                s.proxyRecords,
-                s.hasClosedNotice,
-            ],
-            (
-                organization,
-                currentTeam,
-                preflight,
-                user,
-                memberCount,
-                internetConnectionIssue,
-                projectNoticesAcknowledged,
-                hasEventIngestionRestriction,
-                proxyRecords,
-                hasClosedNotice
-            ): ProjectNoticeVariant | null => {
-                if (!organization) {
-                    return null
-                }
-                const acknowledged = projectNoticesAcknowledged ?? {}
-
-                // If has closed a notice in this session, don't show any notice (even if there are multiple that apply)
-                // We'll display the "follow-up" one the next time they start a session
-                if (hasClosedNotice) {
-                    return null
-                }
-
-                if (internetConnectionIssue) {
-                    return 'internet_connection_issue'
-                } else if (currentTeam?.is_demo && !preflight?.demo) {
-                    // If the project is a demo one, show a project-level warning
-                    // Don't show this project-level warning in the PostHog demo environemnt though,
-                    // as then Announcement is shown instance-wide
-                    return 'demo_project'
-                } else if (!user?.is_email_verified && !user?.has_social_auth && preflight?.email_service_available) {
-                    return 'unverified_email'
-                } else if (!acknowledged['real_project_with_no_events'] && currentTeam && !currentTeam.ingested_event) {
-                    return 'real_project_with_no_events'
-                } else if (hasEventIngestionRestriction) {
-                    return 'event_ingestion_restriction'
-                } else if (
-                    !acknowledged['missing_reverse_proxy'] &&
-                    proxyRecords !== null &&
-                    proxyRecords.length === 0
-                ) {
-                    return 'missing_reverse_proxy'
-                } else if (!acknowledged['invite_teammates'] && memberCount === 1) {
-                    return 'invite_teammates'
-                }
-
-                return null
-            },
-        ],
-    }),
-    listeners(({ actions }) => ({
-        closeProjectNotice: ({ projectNoticeVariant }) => {
-            actions.reportProjectNoticeDismissed(projectNoticeVariant)
-        },
-    })),
-    afterMount(({ actions }) => {
-        actions.loadRecords()
     }),
 ])

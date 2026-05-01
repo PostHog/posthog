@@ -81,7 +81,7 @@ Reference patterns:
 ## Phase 5 — Tighten boundaries and clean up
 
 1. Remove direct callers of internal modules where facade replacements exist.
-2. Update `tach.toml` dependency/interface declarations to match desired import rules.
+2. Add a global `[[interfaces]]` block in `tach.toml` with `expose` patterns for facade and presentation views. Add `backend:contract-check` to `package.json`. Run `tach check --interfaces` and `hogli product:lint` to verify.
 3. Remove obsolete adapters and dead helper functions.
 
 Then verify:

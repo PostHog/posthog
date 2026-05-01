@@ -14,7 +14,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { urls } from 'scenes/urls'
 
-import { HogQLQuery, InsightQueryNode } from '~/queries/schema/schema-general'
+import { EndpointQueryNode, HogQLQuery } from '~/queries/schema/schema-general'
 import { InsightLogicProps, InsightShortId, ItemMode } from '~/types'
 
 import { EndpointFromInsightModal } from 'products/endpoints/frontend/EndpointFromInsightModal'
@@ -167,7 +167,7 @@ function InsightEndpointModalWrapper({ insightLogicProps }: { insightLogicProps:
     return (
         <EndpointFromInsightModal
             tabId={insightProps.tabId || ''}
-            insightQuery={insightQuery as HogQLQuery | InsightQueryNode}
+            insightQuery={insightQuery as unknown as HogQLQuery | EndpointQueryNode}
             insightShortId={insight.short_id}
         />
     )

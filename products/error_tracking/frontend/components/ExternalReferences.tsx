@@ -1,12 +1,9 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useFeatureFlagEnabled } from 'posthog-js/react'
-import { useMemo } from 'react'
 
 import { IconPlus } from '@posthog/icons'
 import { LemonDialog, LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { GitHubRepositorySelectField } from 'lib/integrations/GitHubIntegrationHelpers'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { JiraProjectSelectField } from 'lib/integrations/JiraIntegrationHelpers'
@@ -29,23 +26,28 @@ import { IntegrationKind, IntegrationType } from '~/types'
 
 import { errorTrackingIssueSceneLogic } from '../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
 
-const BASE_ERROR_TRACKING_INTEGRATIONS: IntegrationKind[] = ['linear', 'github', 'gitlab']
+const ERROR_TRACKING_INTEGRATIONS = ['linear', 'github', 'gitlab', 'jira'] as const satisfies readonly IntegrationKind[]
 
 type onSubmitFormType = (integrationId: number, config: Record<string, string>) => void
+type ErrorTrackingIntegrationKind = (typeof ERROR_TRACKING_INTEGRATIONS)[number]
+type ErrorTrackingIntegration = IntegrationType & { kind: ErrorTrackingIntegrationKind }
+
+const POSTHOG_HTML_LINE_BREAKS = '\n<br/>\n<br/>\n'
+
+const EXTERNAL_REFERENCE_FORM_BUILDERS: Record<
+    ErrorTrackingIntegrationKind,
+    (issue: ErrorTrackingRelationalIssue, integration: ErrorTrackingIntegration, onSubmit: onSubmitFormType) => void
+> = {
+    github: createGitHubIssueForm,
+    gitlab: createGitLabIssueForm,
+    linear: createLinearIssueForm,
+    jira: createJiraIssueForm,
+}
 
 export const ExternalReferences = (): JSX.Element | null => {
     const { issue, issueLoading } = useValues(errorTrackingIssueSceneLogic)
     const { createExternalReference } = useActions(errorTrackingIssueSceneLogic)
     const { getIntegrationsByKind, integrationsLoading } = useValues(integrationsLogic)
-    const jiraIntegrationEnabled = useFeatureFlagEnabled(FEATURE_FLAGS.ERROR_TRACKING_JIRA_INTEGRATION)
-
-    const enabledIntegrationKinds = useMemo<IntegrationKind[]>(() => {
-        const kinds = [...BASE_ERROR_TRACKING_INTEGRATIONS]
-        if (jiraIntegrationEnabled) {
-            kinds.push('jira')
-        }
-        return kinds
-    }, [jiraIntegrationEnabled])
 
     if (!issue || integrationsLoading) {
         return (
@@ -57,19 +59,15 @@ export const ExternalReferences = (): JSX.Element | null => {
         )
     }
 
-    const errorTrackingIntegrations = getIntegrationsByKind(enabledIntegrationKinds)
+    const errorTrackingIntegrations = getIntegrationsByKind([...ERROR_TRACKING_INTEGRATIONS])
     const externalReferences = issue.external_issues ?? []
     const creatingIssue = issue && issueLoading
 
     const onClickCreateIssue = (integration: IntegrationType): void => {
-        if (integration.kind === 'github') {
-            createGitHubIssueForm(issue, integration, createExternalReference)
-        } else if (integration.kind === 'gitlab') {
-            createGitLabIssueForm(issue, integration, createExternalReference)
-        } else if (integration.kind === 'linear') {
-            createLinearIssueForm(issue, integration, createExternalReference)
-        } else if (integration.kind === 'jira') {
-            createJiraIssueForm(issue, integration, createExternalReference)
+        const buildForm = EXTERNAL_REFERENCE_FORM_BUILDERS[integration.kind as ErrorTrackingIntegrationKind]
+
+        if (buildForm) {
+            buildForm(issue, integration as ErrorTrackingIntegration, createExternalReference)
         }
     }
 
@@ -144,20 +142,29 @@ function SetupIntegrationsButton(): JSX.Element {
     )
 }
 
-const createGitHubIssueForm = (
-    issue: ErrorTrackingRelationalIssue,
-    integration: IntegrationType,
-    onSubmit: onSubmitFormType
-): void => {
-    const posthogUrl = window.location.origin + window.location.pathname
-    const body = issue.description + '\n<br/>\n<br/>\n' + `**PostHog issue:** ${posthogUrl}`
+function getIssueUrl(): string {
+    return `${window.location.origin}${window.location.pathname}`
+}
 
+function getIssueMarkdownBody(issue: ErrorTrackingRelationalIssue): string {
+    return `${issue.description ?? ''}${POSTHOG_HTML_LINE_BREAKS}**PostHog issue:** ${getIssueUrl()}`
+}
+
+function getIssuePlaintextBody(issue: ErrorTrackingRelationalIssue): string {
+    return `${issue.description ?? ''}\n\nPostHog issue: ${getIssueUrl()}`
+}
+
+function createGitHubIssueForm(
+    issue: ErrorTrackingRelationalIssue,
+    integration: ErrorTrackingIntegration,
+    onSubmit: onSubmitFormType
+): void {
     LemonDialog.openForm({
         title: 'Create GitHub issue',
         shouldAwaitSubmit: true,
         initialValues: {
             title: issue.name,
-            body: body,
+            body: getIssueMarkdownBody(issue),
             integrationId: integration.id,
             repositories: [],
         },
@@ -183,20 +190,17 @@ const createGitHubIssueForm = (
     })
 }
 
-const createGitLabIssueForm = (
+function createGitLabIssueForm(
     issue: ErrorTrackingRelationalIssue,
-    integration: IntegrationType,
+    integration: ErrorTrackingIntegration,
     onSubmit: onSubmitFormType
-): void => {
-    const posthogUrl = window.location.origin + window.location.pathname
-    const body = issue.description + '\n<br/>\n<br/>\n' + `**PostHog issue:** ${posthogUrl}`
-
+): void {
     LemonDialog.openForm({
         title: 'Create GitLab issue',
         shouldAwaitSubmit: true,
         initialValues: {
             title: issue.name,
-            body: body,
+            body: getIssueMarkdownBody(issue),
             integrationId: integration.id,
         },
         content: (
@@ -218,11 +222,11 @@ const createGitLabIssueForm = (
     })
 }
 
-const createLinearIssueForm = (
+function createLinearIssueForm(
     issue: ErrorTrackingRelationalIssue,
-    integration: IntegrationType,
+    integration: ErrorTrackingIntegration,
     onSubmit: onSubmitFormType
-): void => {
+): void {
     LemonDialog.openForm({
         title: 'Create Linear issue',
         shouldAwaitSubmit: true,
@@ -253,20 +257,17 @@ const createLinearIssueForm = (
     })
 }
 
-const createJiraIssueForm = (
+function createJiraIssueForm(
     issue: ErrorTrackingRelationalIssue,
-    integration: IntegrationType,
+    integration: ErrorTrackingIntegration,
     onSubmit: onSubmitFormType
-): void => {
-    const posthogUrl = window.location.origin + window.location.pathname
-    const description = issue.description + '\n\n' + `PostHog issue: ${posthogUrl}`
-
+): void {
     LemonDialog.openForm({
         title: 'Create Jira issue',
         shouldAwaitSubmit: true,
         initialValues: {
             title: issue.name,
-            description: description,
+            description: getIssuePlaintextBody(issue),
             integrationId: integration.id,
             projectKeys: [],
         },

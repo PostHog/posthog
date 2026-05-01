@@ -1,10 +1,11 @@
 import logging
-from typing import cast
+from typing import Any, cast
 
 from django.db.models import QuerySet
 
 import django_filters
 from django_filters.rest_framework import DjangoFilterBackend
+from drf_spectacular.utils import extend_schema
 from rest_framework import exceptions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -44,8 +45,10 @@ class ChangeRequestFilterSet(django_filters.FilterSet):
         fields: list[str] = []
 
 
+@extend_schema(tags=["platform_features"])
 class ChangeRequestViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
-    scope_object = "INTERNAL"
+    scope_object = "approvals"
+    scope_object_write_actions = ["approve", "reject", "cancel"]
     queryset = ChangeRequest.objects.all().order_by("-created_at")
     permission_classes = [OrganizationMemberPermissions, PremiumFeaturePermission]
     premium_feature_on_cloud = AvailableFeature.APPROVALS
@@ -81,7 +84,7 @@ class ChangeRequestViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet
                 {"error": "An error occurred while processing approval."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
-        response_data = {
+        response_data: dict[str, Any] = {
             "status": result.status,
             "message": result.message,
             "change_request": ChangeRequestSerializer(result.change_request, context={"request": request}).data,
@@ -156,8 +159,9 @@ class ChangeRequestViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet
         )
 
 
+@extend_schema(tags=["platform_features"])
 class ApprovalPolicyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
-    scope_object = "INTERNAL"
+    scope_object = "approvals"
     queryset = ApprovalPolicy.objects.all().order_by("-created_at")
     serializer_class = ApprovalPolicySerializer
     permission_classes = [OrganizationMemberPermissions, OrganizationAdminWritePermissions, PremiumFeaturePermission]

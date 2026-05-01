@@ -25,7 +25,11 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
 import { DashboardFilter, FileSystemIconType, HogQLVariable, Node, TileFilters } from '~/queries/schema/schema-general'
-import { checkLatestVersionsOnQuery, convertDataTableNodeToDataVisualizationNode } from '~/queries/utils'
+import {
+    checkLatestVersionsOnQuery,
+    convertDataTableNodeToDataVisualizationNode,
+    isInsightVizNode,
+} from '~/queries/utils'
 import {
     ActivityScope,
     Breadcrumb,
@@ -39,6 +43,8 @@ import {
     QueryBasedInsightModel,
     SidePanelTab,
 } from '~/types'
+
+import { PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS } from 'products/product_analytics/frontend/constants'
 
 import { insightDataLogic } from './insightDataLogic'
 import { insightDataLogicType } from './insightDataLogicType'
@@ -338,8 +344,9 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                           },
                           access_control_resource: 'insight',
                           access_control_resource_id: `${insight.id}`,
+                          settings_section: 'project-product-analytics',
                       }
-                    : null
+                    : { settings_section: 'project-product-analytics' }
             },
         ],
         maxContext: [
@@ -365,11 +372,19 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         ],
     }),
     sharedListeners(({ actions, values }) => ({
+        /**
+         * The editor must show the insight in the URL and the tile the user opened—not a different saved insight.
+         * After "Save as" from a dashboard, the tile still belongs to the original; if we kept the wrong editor
+         * state, going back and editing that tile could show the copy instead. Remount when those disagree, and
+         * when the URL insight does not match which insight this editor was opened from.
+         */
         reloadInsightLogic: () => {
             const logicInsightId = values.insight?.short_id ?? null
             const insightId = values.insightId ?? null
+            const mountedDashboardItemId = values.insightLogicRef?.logic.props.dashboardItemId ?? null
+            const propsMismatch = Boolean(insightId && mountedDashboardItemId && mountedDashboardItemId !== insightId)
 
-            if (logicInsightId !== insightId) {
+            if (logicInsightId !== insightId || propsMismatch) {
                 const oldRef = values.insightLogicRef // free old logic after mounting new one
                 const oldRef2 = values.insightDataLogicRef // free old logic after mounting new one
                 if (insightId) {
@@ -379,6 +394,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                         filtersOverride: values.filtersOverride,
                         variablesOverride: values.variablesOverride,
                         tileFiltersOverride: values.tileFiltersOverride,
+                        tabId: values.tabId,
                     }
 
                     const logic = insightLogic.build(insightProps)
@@ -562,11 +578,21 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             if ((initial || queryFromUrl || method === 'PUSH') && !validatingQuery) {
                 if (insightId === 'new' || insightId.startsWith('new-')) {
                     const query = queryFromUrl || getDefaultQuery(InsightType.TRENDS, values.filterTestAccountsDefault)
+                    const taggedQuery =
+                        isInsightVizNode(query) && !query.source.tags?.productKey
+                            ? {
+                                  ...query,
+                                  source: {
+                                      ...query.source,
+                                      tags: { ...query.source.tags, ...PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS },
+                                  },
+                              }
+                            : query
                     values.insightLogicRef?.logic.actions.setInsight(
                         {
                             ...createEmptyInsight(`new-${values.tabId}`),
                             ...(dashboard ? { dashboards: [dashboard] } : {}),
-                            query,
+                            query: taggedQuery,
                         },
                         {
                             fromPersistentApi: false,

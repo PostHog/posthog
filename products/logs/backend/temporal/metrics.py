@@ -12,7 +12,15 @@ from temporalio.worker import ActivityInboundInterceptor, ExecuteActivityInput, 
 
 from posthog.temporal.common.logger import get_write_only_logger
 
+from products.logs.backend.alert_error_classifier import AlertErrorCode
+from products.logs.backend.alert_state_machine import AlertState, NotificationAction
+
 logger = get_write_only_logger(__name__)
+
+_NOTIFICATION_FAILURE_LABELS: dict[NotificationAction, str] = {
+    NotificationAction.FIRE: "firing",
+    NotificationAction.RESOLVE: "resolved",
+}
 
 ALERTING_ACTIVITY_TYPES = frozenset(
     {
@@ -27,6 +35,11 @@ LOGS_ALERTING_LATENCY_HISTOGRAM_METRICS = (
     "logs_alerting_cycle_duration_ms",
     "logs_alerting_scheduler_lag_ms",
     "logs_alerting_schedule_to_start_ms",
+    "logs_alerting_clickhouse_duration_ms",
+    "logs_alerting_semaphore_wait_ms",
+    "logs_alerting_alert_save_ms",
+    "logs_alerting_alert_event_create_ms",
+    "logs_alerting_alert_update_ms",
 )
 
 LOGS_ALERTING_LATENCY_HISTOGRAM_BUCKETS = [
@@ -39,6 +52,8 @@ LOGS_ALERTING_LATENCY_HISTOGRAM_BUCKETS = [
     60_000.0,
     120_000.0,
     300_000.0,
+    600_000.0,
+    1_800_000.0,
 ]
 
 
@@ -73,8 +88,113 @@ def increment_checks_total(outcome: AlertOutcome) -> None:
     counter.add(1)
 
 
+def increment_check_errors(category: AlertErrorCode) -> None:
+    meter = get_metric_meter({"category": category})
+    counter = meter.create_counter(
+        "logs_alerting_check_errors_total",
+        "Errored alert checks broken down by classifier category",
+    )
+    counter.add(1)
+
+
+def increment_notification_failures(action: NotificationAction) -> None:
+    label = _NOTIFICATION_FAILURE_LABELS[action]
+    meter = get_metric_meter({"event": label})
+    counter = meter.create_counter(
+        "logs_alerting_notification_failures_total",
+        "Kafka produce failures for firing/resolved notifications",
+    )
+    counter.add(1)
+
+
+def increment_state_transition(from_state: AlertState, to_state: AlertState) -> None:
+    meter = get_metric_meter({"from": from_state.value, "to": to_state.value})
+    counter = meter.create_counter(
+        "logs_alerting_state_transitions_total",
+        "Alert state transitions by from/to state (worker-committed)",
+    )
+    counter.add(1)
+
+
+def record_alerts_active(count: int) -> None:
+    meter = get_metric_meter()
+    gauge = meter.create_gauge(
+        "logs_alerting_alerts_active",
+        "Number of due alerts evaluated this cycle",
+    )
+    gauge.set(count)
+
+
+def record_pending_alerts(count: int) -> None:
+    meter = get_metric_meter()
+    gauge = meter.create_gauge(
+        "logs_alerting_pending_alerts",
+        "Number of due alerts still waiting to be evaluated at end of cycle (backlog)",
+    )
+    gauge.set(count)
+
+
+def record_checkpoint_lag(now: dt.datetime, checkpoint: dt.datetime) -> None:
+    meter = get_metric_meter()
+    gauge = meter.create_gauge(
+        "logs_alerting_ingestion_checkpoint_lag_seconds",
+        "Wall-clock age of the logs-ingestion checkpoint used to anchor alert windows",
+    )
+    lag_seconds = max(0, int((now - checkpoint).total_seconds()))
+    gauge.set(lag_seconds)
+
+
+def increment_checkpoint_unavailable() -> None:
+    meter = get_metric_meter()
+    counter = meter.create_counter(
+        "logs_alerting_checkpoint_unavailable_total",
+        "Cycles where the logs-ingestion checkpoint could not be resolved (no alerts due, or fetch failure)",
+    )
+    counter.add(1)
+
+
 def record_check_duration(duration_ms: int) -> None:
     _record_histogram("logs_alerting_check_duration_ms", "Per-alert evaluation duration", duration_ms)
+
+
+def record_clickhouse_duration(duration_ms: int) -> None:
+    _record_histogram(
+        "logs_alerting_clickhouse_duration_ms",
+        "ClickHouse query wall time for a single alert evaluation",
+        duration_ms,
+    )
+
+
+def record_semaphore_wait(wait_ms: int) -> None:
+    _record_histogram(
+        "logs_alerting_semaphore_wait_ms",
+        "Time an alert spent waiting on the per-cycle concurrency semaphore",
+        wait_ms,
+    )
+
+
+def record_alert_save_duration(duration_ms: int) -> None:
+    _record_histogram(
+        "logs_alerting_alert_save_ms",
+        "Postgres write time for the per-eval alert state update (full transaction)",
+        duration_ms,
+    )
+
+
+def record_alert_event_create_duration(duration_ms: int) -> None:
+    _record_histogram(
+        "logs_alerting_alert_event_create_ms",
+        "Postgres INSERT time for the per-eval LogsAlertEvent audit row (only on state change or error)",
+        duration_ms,
+    )
+
+
+def record_alert_update_duration(duration_ms: int) -> None:
+    _record_histogram(
+        "logs_alerting_alert_update_ms",
+        "Postgres UPDATE time for the alert configuration row (without surrounding transaction overhead)",
+        duration_ms,
+    )
 
 
 def record_scheduler_lag(lag_ms: int) -> None:

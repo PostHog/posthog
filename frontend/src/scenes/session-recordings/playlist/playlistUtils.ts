@@ -17,7 +17,24 @@ import { urls } from 'scenes/urls'
 import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { cohortsModelType } from '~/models/cohortsModelType'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
-import { PropertyOperator, SessionRecordingPlaylistType, UniversalFilterValue } from '~/types'
+import {
+    PropertyOperator,
+    RecordingUniversalFilters,
+    SessionRecordingPlaylistType,
+    UniversalFilterValue,
+} from '~/types'
+
+/**
+ * There's an edge case (ticket) where depending on entrypoint to Replay, pre-seeded
+ * session IDs can be accidentally saved explicilty as part of a saved filter (unintentionally)
+ */
+export function stripSessionIds<T extends Partial<RecordingUniversalFilters> | undefined | null>(filters: T): T {
+    if (!filters || !('session_ids' in filters)) {
+        return filters
+    }
+    const { session_ids: _session_ids, ...rest } = filters
+    return rest as T
+}
 
 function getOperatorSymbol(operator: PropertyOperator | null): string {
     if (!operator) {

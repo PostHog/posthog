@@ -1,5 +1,6 @@
 import json
 from collections.abc import Mapping
+from datetime import datetime
 from typing import Any, Literal, Optional, cast
 
 import pytest
@@ -30,6 +31,7 @@ from posthog.schema import (
     PersonsArgMaxVersion,
     PersonsOnEventsMode,
     PropertyGroupsMode,
+    SessionTableVersion,
 )
 
 from posthog.hogql import ast
@@ -1746,6 +1748,44 @@ class TestPrinter(BaseTest):
             f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) ORDER BY events.event DESC, toTimeZone(events.timestamp, %(hogql_val_0)s) ASC LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
+    @parameterized.expand(
+        [
+            [
+                "bare",
+                "select event from events order by event WITH FILL",
+                "ORDER BY events.event ASC WITH FILL",
+            ],
+            [
+                "from_to_step",
+                "select event from events order by event WITH FILL FROM 0 TO 10 STEP 1",
+                "ORDER BY events.event ASC WITH FILL FROM 0 TO 10 STEP 1",
+            ],
+            [
+                "desc_from_to",
+                "select event from events order by event DESC WITH FILL FROM 0 TO 10",
+                "ORDER BY events.event DESC WITH FILL FROM 0 TO 10",
+            ],
+            [
+                "interpolate",
+                "select event, distinct_id from events order by event WITH FILL FROM 'a' TO 'z' INTERPOLATE (distinct_id AS 0)",
+                "ORDER BY events.event ASC WITH FILL FROM %(hogql_val_0)s TO %(hogql_val_1)s INTERPOLATE (`events.distinct_id` AS 0)",
+            ],
+            [
+                "naked_interpolate",
+                "select event from events order by event WITH FILL FROM 0 TO 10 INTERPOLATE",
+                "ORDER BY events.event ASC WITH FILL FROM 0 TO 10 INTERPOLATE",
+            ],
+            [
+                "interpolate_no_as",
+                "select event, distinct_id from events order by event WITH FILL FROM 0 TO 10 INTERPOLATE (distinct_id)",
+                "ORDER BY events.event ASC WITH FILL FROM 0 TO 10 INTERPOLATE (`events.distinct_id`)",
+            ],
+        ]
+    )
+    def test_select_order_by_with_fill(self, _name: str, query: str, expected_fragment: str):
+        result = self._select(query)
+        self.assertIn(expected_fragment, result)
+
     def test_select_limit(self):
         self.assertEqual(
             self._select("select event from events limit 10"),
@@ -2351,14 +2391,12 @@ class TestPrinter(BaseTest):
         sql = self._select("SELECT * FROM events WHERE properties.$ai_trace_id = 'trace123'", context)
 
         # Should generate: equals(mat_$ai_trace_id, 'trace123') without ifNull wrapper
-        # Check that the WHERE clause contains the direct equals check for $ai_trace_id
-        self.assertIn("equals(events.`mat_$ai_trace_id`, %(hogql_val_4)s)", sql)
+        # Find the placeholder that holds our value (index varies with number of joins)
+        trace_param_key = next((k for k, v in context.values.items() if v == "trace123"), None)
+        self.assertIsNotNone(trace_param_key, "Expected 'trace123' to be recorded as a parameter value")
+        self.assertIn(f"equals(events.`mat_$ai_trace_id`, %({trace_param_key})s)", sql)
         # Verify the equals for $ai_trace_id is NOT wrapped in ifNull (it appears directly in WHERE clause)
         self.assertIn("WHERE and(equals(events.team_id,", sql)
-        self.assertIn("equals(events.`mat_$ai_trace_id`, %(hogql_val_4)s))", sql)
-
-        # Verify the placeholder value (it's hogql_val_4 due to other parameters in the query)
-        self.assertEqual(context.values["hogql_val_4"], "trace123")
 
         # With materialized column - no nullIf wrapping
         context = HogQLContext(team_id=self.team.pk)
@@ -2374,12 +2412,12 @@ class TestPrinter(BaseTest):
         sql = self._select("SELECT * FROM events WHERE properties.$ai_trace_id IN ('trace1', 'trace2')", context)
 
         # Should generate clean IN without ifNull wrapper
-        self.assertIn("in(events.`mat_$ai_trace_id`, tuple(%(hogql_val_4)s, %(hogql_val_5)s))", sql)
+        trace1_param_key = next((k for k, v in context.values.items() if v == "trace1"), None)
+        assert trace1_param_key is not None, "Expected 'trace1' to be recorded as a parameter value"
+        trace2_param_key = next((k for k, v in context.values.items() if v == "trace2"), None)
+        assert trace2_param_key is not None, "Expected 'trace2' to be recorded as a parameter value"
+        self.assertIn(f"in(events.`mat_$ai_trace_id`, tuple(%({trace1_param_key})s, %({trace2_param_key})s))", sql)
         self.assertNotIn("ifNull(in", sql)
-
-        # Verify the placeholder values
-        self.assertEqual(context.values["hogql_val_4"], "trace1")
-        self.assertEqual(context.values["hogql_val_5"], "trace2")
 
         # Verify other properties still get normal treatment
         mock_get_mat_col.return_value = None  # No materialized column for other props
@@ -2388,8 +2426,12 @@ class TestPrinter(BaseTest):
         sql = self._select("SELECT * FROM events WHERE properties.other_prop = 'value'", context)
 
         # Other properties should still have null handling with ifNull wrapping
+        other_prop_param_key = next((k for k, v in context.values.items() if v == "other_prop"), None)
+        assert other_prop_param_key is not None, "Expected 'other_prop' to be recorded as a parameter value"
+        value_param_key = next((k for k, v in context.values.items() if v == "value"), None)
+        assert value_param_key is not None, "Expected 'value' to be recorded as a parameter value"
         self.assertIn(
-            "ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_7)s), ''), 'null'), '^\"|\"$', ''), %(hogql_val_8)s), 0)",
+            f"ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %({other_prop_param_key})s), ''), 'null'), '^\"|\"$', ''), %({value_param_key})s), 0)",
             sql,
         )
 
@@ -2414,14 +2456,12 @@ class TestPrinter(BaseTest):
         sql = self._select("SELECT * FROM events WHERE properties.$ai_session_id = 'session123'", context)
 
         # Should generate: equals(mat_$ai_session_id, 'session123') without ifNull wrapper
-        # Check that the WHERE clause contains the direct equals check for $ai_session_id
-        self.assertIn("equals(events.`mat_$ai_session_id`, %(hogql_val_4)s)", sql)
+        # Find the placeholder that holds our value (index varies with number of joins)
+        session_param_key = next((k for k, v in context.values.items() if v == "session123"), None)
+        assert session_param_key is not None, "Expected 'session123' to be recorded as a parameter value"
+        self.assertIn(f"equals(events.`mat_$ai_session_id`, %({session_param_key})s)", sql)
         # Verify the equals for $ai_session_id is NOT wrapped in ifNull (it appears directly in WHERE clause)
         self.assertIn("WHERE and(equals(events.team_id,", sql)
-        self.assertIn("equals(events.`mat_$ai_session_id`, %(hogql_val_4)s))", sql)
-
-        # Verify the placeholder value (it's hogql_val_4 due to other parameters in the query)
-        self.assertEqual(context.values["hogql_val_4"], "session123")
 
         # With materialized column - no nullIf wrapping
         context = HogQLContext(team_id=self.team.pk)
@@ -2437,12 +2477,14 @@ class TestPrinter(BaseTest):
         sql = self._select("SELECT * FROM events WHERE properties.$ai_session_id IN ('session1', 'session2')", context)
 
         # Should generate clean IN without ifNull wrapper
-        self.assertIn("in(events.`mat_$ai_session_id`, tuple(%(hogql_val_4)s, %(hogql_val_5)s))", sql)
+        session1_param_key = next((k for k, v in context.values.items() if v == "session1"), None)
+        assert session1_param_key is not None, "Expected 'session1' to be recorded as a parameter value"
+        session2_param_key = next((k for k, v in context.values.items() if v == "session2"), None)
+        assert session2_param_key is not None, "Expected 'session2' to be recorded as a parameter value"
+        self.assertIn(
+            f"in(events.`mat_$ai_session_id`, tuple(%({session1_param_key})s, %({session2_param_key})s))", sql
+        )
         self.assertNotIn("ifNull(in", sql)
-
-        # Verify the placeholder values
-        self.assertEqual(context.values["hogql_val_4"], "session1")
-        self.assertEqual(context.values["hogql_val_5"], "session2")
 
     def test_field_nullable_like(self):
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=Database())
@@ -3036,7 +3078,31 @@ class TestPrinter(BaseTest):
         self.assertIn("SELECT argMax(events.uuid", printed)
         self.assertIn("FROM events WHERE", printed)
         self.assertIn("GROUP BY", printed)
-        self.assertIn("JSONExtractString", printed)
+        self.assertIn("JSONExtractRaw(events.properties", printed)
+
+    def test_unique_survey_submissions_filter_with_timestamps(self):
+        printed = self._print(
+            "select uuid from events where uniqueSurveySubmissionsFilter('survey123', '2025-01-01', '2025-01-31')",
+            settings=HogQLGlobalSettings(max_execution_time=10),
+        )
+
+        self.assertIn("events.timestamp", printed)
+        self.assertIn("greaterOrEquals", printed)
+        self.assertIn("lessOrEquals", printed)
+
+    def test_unique_survey_submissions_filter_with_datetime_placeholders(self):
+        printed = self._print(
+            "select uuid from events where uniqueSurveySubmissionsFilter('survey123', {start_date}, {end_date})",
+            placeholders={
+                "start_date": ast.Constant(value=datetime(2025, 1, 1, 0, 0, 0)),
+                "end_date": ast.Constant(value=datetime(2025, 1, 31, 23, 59, 59)),
+            },
+            settings=HogQLGlobalSettings(max_execution_time=10),
+        )
+
+        self.assertIn("events.timestamp", printed)
+        self.assertIn("greaterOrEquals", printed)
+        self.assertIn("lessOrEquals", printed)
 
     def test_override_timezone(self):
         context = HogQLContext(
@@ -3523,6 +3589,64 @@ class TestPrinter(BaseTest):
 
     @parameterized.expand(
         [
+            (SessionTableVersion.V1, "IN", "globalIn"),
+            (SessionTableVersion.V1, "NOT IN", "globalNotIn"),
+            (SessionTableVersion.V2, "IN", "globalIn"),
+            (SessionTableVersion.V2, "NOT IN", "globalNotIn"),
+            (SessionTableVersion.V3, "IN", "globalIn"),
+            (SessionTableVersion.V3, "NOT IN", "globalNotIn"),
+        ]
+    )
+    def test_sessions_filter_by_event_subquery_uses_global_in(self, version, op, expected):
+        modifiers = HogQLQueryModifiers(sessionTableVersion=version)
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, modifiers=modifiers)
+        printed = self._select(
+            f"""
+            SELECT session_id
+            FROM sessions
+            WHERE session_id {op} (SELECT $session_id FROM events WHERE event = 'payment_confirm_clicked')
+            """,
+            context=context,
+        )
+        assert expected in printed, f"expected {expected} in:\n{printed}"
+
+    @parameterized.expand([("IN", "globalIn"), ("NOT IN", "globalNotIn")])
+    def test_sessions_filter_by_event_subquery_uses_global_in_with_alias(self, op, expected):
+        modifiers = HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V3)
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, modifiers=modifiers)
+        printed = self._select(
+            f"""
+            SELECT s.session_id
+            FROM sessions AS s
+            WHERE s.session_id {op} (SELECT $session_id FROM events)
+            """,
+            context=context,
+        )
+        assert expected in printed, f"expected {expected} in:\n{printed}"
+
+    @parameterized.expand([("IN", "globalIn"), ("NOT IN", "globalNotIn")])
+    def test_events_filter_by_sessions_subquery_uses_global_in(self, op, expected):
+        modifiers = HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V3)
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, modifiers=modifiers)
+        printed = self._select(
+            f"""
+            SELECT uuid
+            FROM events
+            WHERE $session_id {op} (SELECT session_id FROM sessions)
+            """,
+            context=context,
+        )
+        assert expected in printed, f"expected {expected} in:\n{printed}"
+
+    def test_events_in_subquery_not_promoted(self):
+        # Non-sessions case: no cross-cluster hazard, keep plain in.
+        printed = self._select(
+            "SELECT uuid FROM events WHERE event IN (SELECT event FROM events WHERE timestamp > now() - toIntervalDay(1))"
+        )
+        assert "globalIn" not in printed, f"did not expect globalIn in:\n{printed}"
+
+    @parameterized.expand(
+        [
             ("global_joins_with_optimize", True, True),
             ("global_joins_without_optimize", True, False),
             ("no_global_joins_with_optimize", False, True),
@@ -3796,6 +3920,70 @@ class TestPrinter(BaseTest):
             """,
             context=context,
         )
+
+    @parameterized.expand(
+        [
+            (
+                "eq_direct_field",
+                "$session_id = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890'",
+                "equals(events.`$session_id_uuid`, toUInt128(accurateCastOrNull(%(hogql_val_0)s, 'UUID')))",
+            ),
+            (
+                "neq_direct_field",
+                "$session_id != 'a1b2c3d4-e5f6-7890-abcd-ef1234567890'",
+                "notEquals(events.`$session_id_uuid`, toUInt128(accurateCastOrNull(%(hogql_val_0)s, 'UUID')))",
+            ),
+            (
+                "eq_constant_on_left",
+                "'a1b2c3d4-e5f6-7890-abcd-ef1234567890' = $session_id",
+                "equals(events.`$session_id_uuid`, toUInt128(accurateCastOrNull(%(hogql_val_0)s, 'UUID')))",
+            ),
+            (
+                "eq_property_access",
+                "properties.$session_id = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890'",
+                "equals(events.`$session_id_uuid`, toUInt128(accurateCastOrNull(%(hogql_val_0)s, 'UUID')))",
+            ),
+            (
+                "in_operation",
+                "$session_id IN ('a1b2c3d4-e5f6-7890-abcd-ef1234567890', 'b2c3d4e5-f6a7-8901-bcde-f12345678901')",
+                "in(events.`$session_id_uuid`, tuple(toUInt128(accurateCastOrNull(%(hogql_val_0)s, 'UUID')), toUInt128(accurateCastOrNull(%(hogql_val_1)s, 'UUID'))))",
+            ),
+            (
+                "not_in_operation",
+                "$session_id NOT IN ('a1b2c3d4-e5f6-7890-abcd-ef1234567890', 'b2c3d4e5-f6a7-8901-bcde-f12345678901')",
+                "notIn(events.`$session_id_uuid`, tuple(toUInt128(accurateCastOrNull(%(hogql_val_0)s, 'UUID')), toUInt128(accurateCastOrNull(%(hogql_val_1)s, 'UUID'))))",
+            ),
+            (
+                "eq_uppercase_uuid",
+                "$session_id = 'A1B2C3D4-E5F6-7890-ABCD-EF1234567890'",
+                "equals(events.`$session_id_uuid`, toUInt128(accurateCastOrNull(%(hogql_val_0)s, 'UUID')))",
+            ),
+        ]
+    )
+    def test_session_id_uuid_optimization(self, _name, expr, expected):
+        self.assertEqual(self._expr(expr), expected)
+
+    @parameterized.expand(
+        [
+            ("non_uuid_string", "$session_id = 'not-a-uuid'"),
+            ("non_string_constant", "$session_id = 123"),
+            ("in_with_non_uuid", "$session_id IN ('a1b2c3d4-e5f6-7890-abcd-ef1234567890', 'not-a-uuid')"),
+            # SQL injection attempts — none of these are valid UUIDs, so the optimization is
+            # skipped and values go through the normal parameterized query path (%(hogql_val_N)s)
+            ("sqli_uuid_with_suffix", "$session_id = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890; DROP TABLE events'"),
+            ("sqli_uuid_with_parens", "$session_id = 'a1b2c3d4-e5f6-7890-abcd-ef123456789()'"),
+            ("sqli_overlong_hex", "$session_id = 'a1b2c3d4-e5f6-7890-abcd-ef12345678901'"),
+            ("sqli_short_hex", "$session_id = 'a1b2c3d4-e5f6-7890-abcd-ef123456789'"),
+            ("sqli_non_hex_chars", "$session_id = 'g1b2c3d4-e5f6-7890-abcd-ef1234567890'"),
+            (
+                "sqli_in_with_injection",
+                "$session_id IN ('a1b2c3d4-e5f6-7890-abcd-ef1234567890', '1; DROP TABLE events')",
+            ),
+        ]
+    )
+    def test_session_id_uuid_optimization_skipped(self, _name, expr):
+        result = self._expr(expr)
+        self.assertNotIn("$session_id_uuid", result)
 
 
 @snapshot_clickhouse_queries
@@ -4151,6 +4339,12 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             # should also work if wrapped with toString()
             self._test_materialized_column_comparison(
                 "ilike(toString(properties.test_prop), '%@gmail.com%')",
+                f"like(lower(events.{mat_col.name}), lower(%(hogql_val_0)s))",
+                {"hogql_val_0": "%@gmail.com%"},
+            )
+
+            self._test_materialized_column_comparison(
+                "ilike(JSONExtractString(properties, 'test_prop'), '%@gmail.com%')",
                 f"like(lower(events.{mat_col.name}), lower(%(hogql_val_0)s))",
                 {"hogql_val_0": "%@gmail.com%"},
             )
@@ -4533,6 +4727,82 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         with self.assertRaises(ImpossibleASTError):
             execute_hogql_query(team=self.team, query=query)
 
+    def test_jsonextractstring_rewrite_emits_mat_column(self) -> None:
+        with materialized("events", "test_prop", is_nullable=False) as mat_col:
+            printed = self._expr("JSONExtractString(properties, 'test_prop')")
+            assert printed == f"nullIf(nullIf(events.{mat_col.name}, ''), 'null')"
+
+
+class TestSessionIdUuidOptimization(ClickhouseTestMixin, APIBaseTest):
+    SESSION_UUID_1 = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+    SESSION_UUID_2 = "b2c3d4e5-f6a7-8901-bcde-f12345678901"
+
+    def setUp(self):
+        super().setUp()
+        _create_person(distinct_ids=["user1"], team_id=self.team.pk)
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="user1",
+            properties={"$session_id": self.SESSION_UUID_1, "color": "blue"},
+        )
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="user1",
+            properties={"$session_id": self.SESSION_UUID_2, "color": "red"},
+        )
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="user1",
+            properties={"$session_id": "not-a-uuid", "color": "green"},
+        )
+
+    @parameterized.expand(
+        [
+            (
+                "eq_direct_field",
+                "SELECT properties.color FROM events WHERE $session_id = '{session_uuid_1}' ORDER BY properties.color",
+                [("blue",)],
+            ),
+            (
+                "eq_property_access",
+                "SELECT properties.color FROM events WHERE properties.$session_id = '{session_uuid_1}' ORDER BY properties.color",
+                [("blue",)],
+            ),
+            (
+                "neq_direct_field",
+                "SELECT properties.color FROM events WHERE $session_id != '{session_uuid_1}' AND $session_id = '{session_uuid_2}' ORDER BY properties.color",
+                [("red",)],
+            ),
+            (
+                "in_operation",
+                "SELECT properties.color FROM events WHERE $session_id IN ('{session_uuid_1}', '{session_uuid_2}') ORDER BY properties.color",
+                [("blue",), ("red",)],
+            ),
+            (
+                "not_in_operation",
+                "SELECT properties.color FROM events WHERE $session_id NOT IN ('{session_uuid_1}') AND $session_id = '{session_uuid_2}' ORDER BY properties.color",
+                [("red",)],
+            ),
+        ]
+    )
+    def test_session_id_uuid_query(self, _name, query_template, expected):
+        query = query_template.format(session_uuid_1=self.SESSION_UUID_1, session_uuid_2=self.SESSION_UUID_2)
+        response = execute_hogql_query(team=self.team, query=query)
+        self.assertEqual(response.results, expected)
+
+    # Remove xfail when we add a minmax index on $session_id_uuid (see events table in posthog/models/event/sql.py)
+    # see https://posthog.slack.com/archives/C076R4753Q8/p1772027599338529
+    @pytest.mark.xfail(strict=True, reason="No minmax index on $session_id_uuid yet")
+    def test_session_id_uuid_uses_minmax_index(self):
+        query = f"SELECT properties.color FROM events WHERE $session_id = '{self.SESSION_UUID_1}'"
+        response = execute_hogql_query(team=self.team, query=query)
+        assert response.clickhouse is not None
+        index_info = get_index_from_explain(response.clickhouse, "minmax_$session_id_uuid")
+        assert index_info, "Expected minmax_$session_id_uuid skip index to be used"
+
 
 class TestPrinted(APIBaseTest):
     def test_can_call_parametric_function(self):
@@ -4602,7 +4872,7 @@ class TestPostgresPrinter(BaseTest):
             ),
             (
                 "SELECT distinct_id, event FROM events WHERE event = 'test'",
-                "SELECT events.distinct_id, events.event FROM events WHERE (events.event = 'test') LIMIT 50000",
+                "SELECT events.distinct_id, events.event FROM events WHERE (events.event = %(hogql_val_0)s) LIMIT 50000",
             ),
             (
                 "SELECT event FROM events ORDER BY timestamp DESC",
@@ -4685,22 +4955,76 @@ class TestPostgresPrinter(BaseTest):
             self._select(query)
         self.assertIn(expected_error, str(ctx.exception))
 
+    def _context_with_table_functions(self, *function_names: str) -> HogQLContext:
+        return HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            direct_postgres_connection_metadata={
+                "available_table_functions": list(function_names),
+            },
+        )
+
+    @parameterized.expand(
+        [
+            ("unnest", "SELECT unnest FROM unnest(ARRAY[1, 2, 3])", "unnest("),
+            (
+                "regexp_matches",
+                "SELECT regexp_matches FROM regexp_matches('abc', '.', 'g')",
+                "regexp_matches(",
+            ),
+            (
+                "jsonb_array_elements_text",
+                "SELECT jsonb_array_elements_text FROM jsonb_array_elements_text('[\"a\"]')",
+                "jsonb_array_elements_text(",
+            ),
+        ]
+    )
+    def test_opaque_table_function_from_introspected_metadata(self, name, query, expected):
+        context = self._context_with_table_functions(name)
+        printed = self._select(query, context=context)
+        self.assertIn(expected, printed)
+
+    def test_opaque_table_function_unknown_name_still_errors(self):
+        context = self._context_with_table_functions("unnest")
+        with self.assertRaises(QueryError) as ctx:
+            self._select("SELECT * FROM totally_made_up_function(1)", context=context)
+        self.assertIn("Unknown table", str(ctx.exception))
+
+    def test_opaque_table_function_requires_args(self):
+        context = self._context_with_table_functions("unnest")
+        with self.assertRaises(QueryError) as ctx:
+            self._select("SELECT * FROM unnest", context=context)
+        self.assertIn("Unknown table", str(ctx.exception))
+
+    def test_opaque_table_function_rejects_empty_call(self):
+        context = self._context_with_table_functions("unnest")
+        with self.assertRaises(QueryError) as ctx:
+            self._select("SELECT * FROM unnest()", context=context)
+        self.assertIn("requires at least 1 argument", str(ctx.exception))
+
+    def test_opaque_table_function_falls_back_to_hardcoded_range_without_metadata(self):
+        # Connections that haven't refreshed since this rolled out won't have
+        # `available_table_functions` in their metadata. The hand-rolled RangeTable
+        # / GenerateSeriesTable registrations keep those two working.
+        printed = self._select("SELECT range FROM range(10)")
+        self.assertIn("range(10)", printed)
+
     @parameterized.expand(
         [
             (
                 "basic",
                 "SELECT 1 FROM events PIVOT (count() FOR event IN ('a', 'b'))",
-                "SELECT 1 FROM events PIVOT (count() FOR events.event IN ('a', 'b')) LIMIT 50000",
+                "SELECT 1 FROM events PIVOT (count() FOR events.event IN (%(hogql_val_0)s, %(hogql_val_1)s)) LIMIT 50000",
             ),
             (
                 "multiple_columns",
                 "SELECT 1 FROM events PIVOT (count() FOR event IN ('a') distinct_id IN (1, 2) GROUP BY timestamp)",
-                "SELECT 1 FROM events PIVOT (count() FOR events.event IN ('a') events.distinct_id IN (1, 2) GROUP BY events.timestamp) LIMIT 50000",
+                "SELECT 1 FROM events PIVOT (count() FOR events.event IN (%(hogql_val_0)s) events.distinct_id IN (1, 2) GROUP BY events.timestamp) LIMIT 50000",
             ),
             (
                 "join",
                 "SELECT 1 FROM events JOIN events AS e2 ON 1 PIVOT (count() FOR events.event IN ('a'))",
-                "SELECT 1 FROM events JOIN events AS e2 ON 1 PIVOT (count() FOR events.event IN ('a')) LIMIT 50000",
+                "SELECT 1 FROM events JOIN events AS e2 ON 1 PIVOT (count() FOR events.event IN (%(hogql_val_0)s)) LIMIT 50000",
             ),
         ]
     )
@@ -4901,14 +5225,14 @@ class TestPostgresPrinter(BaseTest):
 
     @parameterized.expand(
         [
-            ("date_trunc('second', timestamp)", "date_trunc('second', events.timestamp)"),
-            ("date_trunc('minute', timestamp)", "date_trunc('minute', events.timestamp)"),
-            ("date_trunc('hour', timestamp)", "date_trunc('hour', events.timestamp)"),
-            ("date_trunc('day', timestamp)", "date_trunc('day', events.timestamp)"),
-            ("date_trunc('week', timestamp)", "date_trunc('week', events.timestamp)"),
-            ("date_trunc('month', timestamp)", "date_trunc('month', events.timestamp)"),
-            ("date_trunc('quarter', timestamp)", "date_trunc('quarter', events.timestamp)"),
-            ("date_trunc('year', timestamp)", "date_trunc('year', events.timestamp)"),
+            ("date_trunc('second', timestamp)", "date_trunc(%(hogql_val_0)s, events.timestamp)"),
+            ("date_trunc('minute', timestamp)", "date_trunc(%(hogql_val_0)s, events.timestamp)"),
+            ("date_trunc('hour', timestamp)", "date_trunc(%(hogql_val_0)s, events.timestamp)"),
+            ("date_trunc('day', timestamp)", "date_trunc(%(hogql_val_0)s, events.timestamp)"),
+            ("date_trunc('week', timestamp)", "date_trunc(%(hogql_val_0)s, events.timestamp)"),
+            ("date_trunc('month', timestamp)", "date_trunc(%(hogql_val_0)s, events.timestamp)"),
+            ("date_trunc('quarter', timestamp)", "date_trunc(%(hogql_val_0)s, events.timestamp)"),
+            ("date_trunc('year', timestamp)", "date_trunc(%(hogql_val_0)s, events.timestamp)"),
         ]
     )
     def test_date_trunc_passthrough_in_postgres(self, expr: str, expected: str):
@@ -4982,7 +5306,7 @@ class TestPostgresPrinter(BaseTest):
             stack=[prepared_select_query],
         )
 
-        self.assertEqual(rendered, "('__hx_tag', 'div')")
+        self.assertEqual(rendered, "(%(hogql_val_0)s, %(hogql_val_1)s)")
 
     def test_comparison_operators(self):
         self.assertEqual(self._expr("a = b"), "(a = b)")
@@ -5044,7 +5368,7 @@ class TestPostgresPrinter(BaseTest):
     def test_postgres_style_cast(self):
         self.assertEqual(self._expr("123::int"), "CAST(123 AS int)")
         self.assertEqual(self._expr("123.45::float"), "CAST(123.45 AS float)")
-        self.assertEqual(self._expr("'2024-01-01'::date"), "CAST('2024-01-01' AS date)")
+        self.assertEqual(self._expr("'2024-01-01'::date"), "CAST(%(hogql_val_0)s AS date)")
         self.assertEqual(self._expr("event::int"), "CAST(events.event AS int)")
         self.assertEqual(self._expr("event::text"), "CAST(events.event AS text)")
         self.assertEqual(self._expr("event::boolean"), "CAST(events.event AS boolean)")
@@ -5087,6 +5411,35 @@ class TestPostgresPrinter(BaseTest):
             type_name=type_name,
         )
         self.assertEqual(self._expr(node), f"CAST(123 AS {expected_escaped})")
+
+    @parameterized.expand(
+        [
+            # SQL injection attempts — mirrors test_type_cast_typename_escape for TRY_CAST.
+            ("int); DROP TABLE users; --", '"int); DROP TABLE users; --"'),
+            ("text' OR '1'='1", "\"text' OR '1'='1\""),
+            ("int; DELETE FROM events;", '"int; DELETE FROM events;"'),
+            ("varchar(100)); --", '"varchar(100)); --"'),
+            # Quote escaping
+            ('int"test', '"int""test"'),
+            ("int'test", '"int\'test"'),
+            # Backslash handling
+            ("int\\test", '"int\\test"'),
+            # Unicode/special chars
+            ("int\x00test", '"int\x00test"'),
+            # Newlines and whitespace injection
+            ("int\nDROP TABLE", '"int\nDROP TABLE"'),
+            ("int\rtest", '"int\rtest"'),
+            # Simple identifiers should not be quoted
+            ("varchar", "varchar"),
+            ("integer", "integer"),
+        ]
+    )
+    def test_try_cast_typename_escape(self, type_name, expected_escaped):
+        node = ast.TryCast(
+            expr=ast.Constant(value=123),
+            type_name=type_name,
+        )
+        self.assertEqual(self._expr(node), f"TRY_CAST(123 AS {expected_escaped})")
 
     @parameterized.expand(
         [
@@ -5180,19 +5533,19 @@ class TestPostgresPrinter(BaseTest):
     def test_values_query(self):
         self.assertEqual(
             self._select("SELECT * FROM (VALUES (1, 'a'), (2, 'b')) AS v (id, name)"),
-            "SELECT v.id, v.name FROM (VALUES (1, 'a'), (2, 'b')) AS v (id, name) LIMIT 50000",
+            "SELECT v.id, v.name FROM (VALUES (1, %(hogql_val_0)s), (2, %(hogql_val_1)s)) AS v (id, name) LIMIT 50000",
         )
 
     def test_values_query_no_alias_columns(self):
         self.assertEqual(
             self._select("SELECT * FROM (VALUES (1, 'hello')) AS v"),
-            "SELECT v.col0, v.col1 FROM (VALUES (1, 'hello')) AS v (col0, col1) LIMIT 50000",
+            "SELECT v.col0, v.col1 FROM (VALUES (1, %(hogql_val_0)s)) AS v (col0, col1) LIMIT 50000",
         )
 
     def test_values_query_no_alias(self):
         self.assertEqual(
             self._select("SELECT * FROM (VALUES (1, 'george', 'created'), (2, 'jack', 'deleted'))"),
-            "SELECT values.col0, values.col1, values.col2 FROM (VALUES (1, 'george', 'created'), (2, 'jack', 'deleted')) AS values (col0, col1, col2) LIMIT 50000",
+            "SELECT values.col0, values.col1, values.col2 FROM (VALUES (1, %(hogql_val_0)s, %(hogql_val_1)s), (2, %(hogql_val_2)s, %(hogql_val_3)s)) AS values (col0, col1, col2) LIMIT 50000",
         )
 
     def test_values_query_clickhouse_raises_error(self):
@@ -5299,28 +5652,32 @@ class TestPostgresPrinter(BaseTest):
         [
             # Renames
             ("ifNull", "ifNull(1, 2)", "COALESCE(1, 2)"),
-            ("replaceAll", "replaceAll('abc', 'a', 'z')", "REPLACE('abc', 'a', 'z')"),
-            ("replaceRegexpAll", "replaceRegexpAll('abc', 'a', 'z')", "REGEXP_REPLACE('abc', 'a', 'z')"),
+            ("replaceAll", "replaceAll('abc', 'a', 'z')", "REPLACE(%(hogql_val_0)s, %(hogql_val_1)s, %(hogql_val_2)s)"),
+            (
+                "replaceRegexpAll",
+                "replaceRegexpAll('abc', 'a', 'z')",
+                "REGEXP_REPLACE(%(hogql_val_0)s, %(hogql_val_1)s, %(hogql_val_2)s)",
+            ),
             ("toTypeName", "toTypeName(1)", "pg_typeof(1)"),
             ("now", "now()", "NOW()"),
             ("any", "any(event)", "MIN(events.event)"),
-            ("startsWith", "startsWith('hello', 'he')", "starts_with('hello', 'he')"),
+            ("startsWith", "startsWith('hello', 'he')", "starts_with(%(hogql_val_0)s, %(hogql_val_1)s)"),
             ("rand", "rand()", "random()"),
             ("generateSeries", "generateSeries(1, 10, 1)", "generate_series(1, 10, 1)"),
             # Type conversions
-            ("toDate", "toDate('2024-01-01')", "CAST('2024-01-01' AS DATE)"),
-            ("toDateTime", "toDateTime('2024-01-01')", "CAST('2024-01-01' AS TIMESTAMP)"),
-            ("toDateTime_tz", "toDateTime('2024-01-01', 'UTC')", "CAST('2024-01-01' AS TIMESTAMP)"),
+            ("toDate", "toDate('2024-01-01')", "CAST(%(hogql_val_0)s AS DATE)"),
+            ("toDateTime", "toDateTime('2024-01-01')", "CAST(%(hogql_val_0)s AS TIMESTAMP)"),
+            ("toDateTime_tz", "toDateTime('2024-01-01', 'UTC')", "CAST(%(hogql_val_0)s AS TIMESTAMP)"),
             ("toString", "toString(123)", "CAST(123 AS TEXT)"),
             ("toInt", "toInt(3.14)", "CAST(3.14 AS BIGINT)"),
             ("toFloat", "toFloat(1)", "CAST(1 AS DOUBLE PRECISION)"),
-            ("toFloatOrZero", "toFloatOrZero('1.5')", "CAST('1.5' AS DOUBLE PRECISION)"),
-            ("toFloatOrDefault", "toFloatOrDefault('1.5')", "CAST('1.5' AS DOUBLE PRECISION)"),
-            ("toIntOrZero", "toIntOrZero('42')", "CAST('42' AS BIGINT)"),
+            ("toFloatOrZero", "toFloatOrZero('1.5')", "CAST(%(hogql_val_0)s AS DOUBLE PRECISION)"),
+            ("toFloatOrDefault", "toFloatOrDefault('1.5')", "CAST(%(hogql_val_0)s AS DOUBLE PRECISION)"),
+            ("toIntOrZero", "toIntOrZero('42')", "CAST(%(hogql_val_0)s AS BIGINT)"),
             ("toBool", "toBool(1)", "CAST(1 AS BOOLEAN)"),
-            ("toUUID", "toUUID('abc')", "CAST('abc' AS UUID)"),
+            ("toUUID", "toUUID('abc')", "CAST(%(hogql_val_0)s AS UUID)"),
             ("toDecimal", "toDecimal(1, 2)", "CAST(1 AS DECIMAL)"),
-            ("toDateTime64", "toDateTime64('2024-01-01', 3)", "CAST('2024-01-01' AS TIMESTAMP)"),
+            ("toDateTime64", "toDateTime64('2024-01-01', 3)", "CAST(%(hogql_val_0)s AS TIMESTAMP)"),
             # Date extraction
             ("toYear", "toYear(now())", "EXTRACT(YEAR FROM NOW())"),
             ("toQuarter", "toQuarter(now())", "EXTRACT(QUARTER FROM NOW())"),
@@ -5371,38 +5728,62 @@ class TestPostgresPrinter(BaseTest):
             (
                 "dateDiff",
                 "dateDiff('day', now(), now())",
-                "DATE_PART('day', CAST(NOW() AS TIMESTAMP) - CAST(NOW() AS TIMESTAMP))",
+                "DATE_PART(%(hogql_val_0)s, CAST(NOW() AS TIMESTAMP) - CAST(NOW() AS TIMESTAMP))",
             ),
             # Conditional
-            ("if", "if(1, 'yes', 'no')", "CASE WHEN 1 THEN 'yes' ELSE 'no' END"),
-            ("multiIf", "multiIf(1, 'a', 0, 'b', 'c')", "CASE WHEN 1 THEN 'a' WHEN 0 THEN 'b' ELSE 'c' END"),
+            ("if", "if(1, 'yes', 'no')", "CASE WHEN 1 THEN %(hogql_val_0)s ELSE %(hogql_val_1)s END"),
+            (
+                "multiIf",
+                "multiIf(1, 'a', 0, 'b', 'c')",
+                "CASE WHEN 1 THEN %(hogql_val_0)s WHEN 0 THEN %(hogql_val_1)s ELSE %(hogql_val_2)s END",
+            ),
             # Null/empty
-            ("empty", "empty('test')", "('test' IS NULL OR 'test' = '')"),
-            ("notEmpty", "notEmpty('test')", "('test' IS NOT NULL AND 'test' != '')"),
+            ("empty", "empty('test')", "(%(hogql_val_0)s IS NULL OR %(hogql_val_0)s = '')"),
+            ("notEmpty", "notEmpty('test')", "(%(hogql_val_0)s IS NOT NULL AND %(hogql_val_0)s != '')"),
             ("isNull", "isNull(1)", "(1 IS NULL)"),
             ("isNotNull", "isNotNull(1)", "(1 IS NOT NULL)"),
             ("assumeNotNull", "assumeNotNull(1)", "1"),
             ("toNullable", "toNullable(1)", "1"),
             # JSON
-            ("JSONExtractInt", "JSONExtractInt('{}', 'key')", "CAST(json_extract_path_text('{}', 'key') AS INTEGER)"),
+            (
+                "JSONExtractInt",
+                "JSONExtractInt('{}', 'key')",
+                "CAST(json_extract_path_text(%(hogql_val_0)s, %(hogql_val_1)s) AS INTEGER)",
+            ),
             (
                 "JSONExtractFloat",
                 "JSONExtractFloat('{}', 'key')",
-                "CAST(json_extract_path_text('{}', 'key') AS DOUBLE PRECISION)",
+                "CAST(json_extract_path_text(%(hogql_val_0)s, %(hogql_val_1)s) AS DOUBLE PRECISION)",
             ),
-            ("JSONExtractBool", "JSONExtractBool('{}', 'key')", "CAST(json_extract_path_text('{}', 'key') AS BOOLEAN)"),
+            (
+                "JSONExtractBool",
+                "JSONExtractBool('{}', 'key')",
+                "CAST(json_extract_path_text(%(hogql_val_0)s, %(hogql_val_1)s) AS BOOLEAN)",
+            ),
             (
                 "JSONExtractUInt",
                 "JSONExtractUInt('{}', 'key')",
-                "CAST(json_extract_path_text('{}', 'key') AS INTEGER)",
+                "CAST(json_extract_path_text(%(hogql_val_0)s, %(hogql_val_1)s) AS INTEGER)",
             ),
             # String
-            ("match", "match('hello', 'h.*o')", "('hello' ~ 'h.*o')"),
-            ("splitByString", "splitByString(',', 'a,b,c')", "STRING_TO_ARRAY('a,b,c', ',')"),
-            ("splitByChar", "splitByChar(',', 'a,b,c')", "STRING_TO_ARRAY('a,b,c', ',')"),
-            ("endsWith", "endsWith('hello', 'lo')", "(RIGHT('hello', LENGTH('lo')) = 'lo')"),
-            ("replaceOne", "replaceOne('abc', 'a', 'z')", "REGEXP_REPLACE('abc', 'a', 'z')"),
-            ("replaceRegexpOne", "replaceRegexpOne('abc', 'a+', 'z')", "REGEXP_REPLACE('abc', 'a+', 'z')"),
+            ("match", "match('hello', 'h.*o')", "(%(hogql_val_0)s ~ %(hogql_val_1)s)"),
+            ("splitByString", "splitByString(',', 'a,b,c')", "STRING_TO_ARRAY(%(hogql_val_1)s, %(hogql_val_0)s)"),
+            ("splitByChar", "splitByChar(',', 'a,b,c')", "STRING_TO_ARRAY(%(hogql_val_1)s, %(hogql_val_0)s)"),
+            (
+                "endsWith",
+                "endsWith('hello', 'lo')",
+                "(RIGHT(%(hogql_val_0)s, LENGTH(%(hogql_val_1)s)) = %(hogql_val_1)s)",
+            ),
+            (
+                "replaceOne",
+                "replaceOne('abc', 'a', 'z')",
+                "REGEXP_REPLACE(%(hogql_val_0)s, %(hogql_val_1)s, %(hogql_val_2)s)",
+            ),
+            (
+                "replaceRegexpOne",
+                "replaceRegexpOne('abc', 'a+', 'z')",
+                "REGEXP_REPLACE(%(hogql_val_0)s, %(hogql_val_1)s, %(hogql_val_2)s)",
+            ),
             # Math
             ("e", "e()", "exp(1)"),
             ("log2", "log2(8)", "log(2, 8)"),
@@ -5500,3 +5881,125 @@ class TestPostgresPrinter(BaseTest):
             self._expr("date_bin(toIntervalHour(1), now(), now())", context=context),
             "date_bin((1 * INTERVAL '1 hour'), NOW(), NOW())",
         )
+
+
+class TestDuckDBPrinter(BaseTest):
+    """DuckDB printer tests — focused on the DuckDB-specific overrides vs Postgres.
+
+    The DuckDB dialect inherits most of its behavior from PostgresPrinter, so the
+    full PG test surface is implicitly covered via inheritance. The assertions below
+    lock in the specific places DuckDB output diverges from PG.
+    """
+
+    maxDiff = None
+
+    def _expr(
+        self,
+        query: ast.Expr | str,
+        context: Optional[HogQLContext] = None,
+        settings: Optional[HogQLQuerySettings] = None,
+        backend: HogQLParserBackend = "cpp-json",
+    ) -> str:
+        node = parse_expr(query, backend=backend) if isinstance(query, str) else query
+        context = context or HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        select_query = ast.SelectQuery(
+            select=[node], select_from=ast.JoinExpr(table=ast.Field(chain=["events"])), settings=settings
+        )
+        prepared_select_query: ast.SelectQuery = cast(
+            ast.SelectQuery,
+            prepare_ast_for_printing(select_query, context=context, dialect="duckdb", stack=[select_query]),
+        )
+        return print_prepared_ast(
+            prepared_select_query.select[0],
+            context=context,
+            dialect="duckdb",
+            stack=[prepared_select_query],
+        )
+
+    def _select(
+        self,
+        query: str,
+        context: Optional[HogQLContext] = None,
+        placeholders: Optional[dict[str, ast.Expr]] = None,
+    ) -> str:
+        return prepare_and_print_ast(
+            parse_select(query, placeholders=placeholders, backend="cpp-json"),
+            context or HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            "duckdb",
+        )[0]
+
+    @parameterized.expand(
+        [
+            ("any_renames_to_any_value", "any(event)", "any_value(events.event)"),
+            ("toTypeName_renames_to_typeof", "toTypeName(event)", "typeof(events.event)"),
+            (
+                "formatDateTime_renames_to_strftime",
+                "formatDateTime(timestamp, '%Y-%m-%d')",
+                "strftime(events.timestamp, %(hogql_val_0)s)",
+            ),
+            (
+                "endsWith_renames_to_ends_with",
+                "endsWith(event, '_done')",
+                "ends_with(events.event, %(hogql_val_0)s)",
+            ),
+        ]
+    )
+    def test_function_renames(self, _name: str, expr: str, expected: str):
+        self.assertEqual(self._expr(expr), expected)
+
+    def test_smoke_basic_select(self):
+        self.assertEqual(
+            self._select("SELECT event FROM events"),
+            "SELECT events.event FROM events LIMIT 50000",
+        )
+
+    def test_identifier_no_truncation(self):
+        # PG would truncate a >63-char generated alias containing double underscores into a SHA-suffixed
+        # name via ``_print_identifier``'s truncation heuristic. The separate ``escape_postgres_identifier``
+        # length error applies to overlong identifiers that don't hit that heuristic. DuckDB leaves it intact.
+        long_name = "a_really_long_table_name_that_would_force_pg_to_truncate__here"
+        long_name += "_even_further_past_63_chars"
+        self.assertGreater(len(long_name), 63)
+        from posthog.hogql.printer.duckdb import DuckDBPrinter
+
+        printer = DuckDBPrinter(context=HogQLContext(team_id=self.team.pk))
+        # Simple alphanumeric identifier — returned verbatim without quoting.
+        self.assertEqual(printer._print_identifier(long_name), long_name)
+
+    @parameterized.expand(
+        [
+            ("anti",),
+            ("asof",),
+            ("attach",),
+            ("detach",),
+            ("exclude",),
+            ("install",),
+            ("load",),
+            ("macro",),
+            ("pivot",),
+            ("positional",),
+            ("pragma",),
+            ("qualify",),
+            ("replace",),
+            ("sample",),
+            ("semi",),
+            ("summarize",),
+            ("unpivot",),
+        ]
+    )
+    def test_duckdb_extra_reserved_keywords_are_quoted(self, name: str):
+        # DuckDB reserves these even though Postgres doesn't — an unquoted identifier would parse-error.
+        from posthog.hogql.printer.duckdb import DuckDBPrinter
+
+        printer = DuckDBPrinter(context=HogQLContext(team_id=self.team.pk))
+        self.assertEqual(printer._print_identifier(name), f'"{name}"')
+
+    def test_percent_in_identifier_rejected_postgres_family(self):
+        # ``%`` in an identifier would confuse psycopg's parameter-placeholder scanning.
+        from posthog.hogql.printer.duckdb import DuckDBPrinter
+        from posthog.hogql.printer.postgres import PostgresPrinter
+
+        ctx = HogQLContext(team_id=self.team.pk)
+        for printer in (DuckDBPrinter(context=ctx), PostgresPrinter(context=ctx)):
+            with self.assertRaisesMessage(QueryError, 'is not permitted as it contains the "%" character'):
+                printer._print_identifier("bad%name")

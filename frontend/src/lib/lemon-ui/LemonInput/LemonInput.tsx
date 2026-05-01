@@ -25,6 +25,7 @@ interface LemonInputPropsBase extends Pick<
     | 'onKeyDown'
     | 'onKeyUp'
     | 'onKeyPress'
+    | 'onPaste'
     | 'autoComplete'
     | 'autoCorrect'
     | 'autoCapitalize'
@@ -71,6 +72,8 @@ export interface LemonInputPropsText extends LemonInputPropsBase {
     value?: string
     defaultValue?: string
     onChange?: (newValue: string) => void
+    /** Seconds between valid values; mainly for `type="time"` (passed to native `<input>`). */
+    step?: number
 }
 
 export interface LemonInputPropsNumber

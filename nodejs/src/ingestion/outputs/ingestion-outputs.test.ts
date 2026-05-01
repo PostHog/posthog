@@ -1,5 +1,7 @@
 import { KafkaProducerWrapper } from '../../kafka/producer'
+import { DualWriteIngestionOutput } from './dual-write-ingestion-output'
 import { IngestionOutputs } from './ingestion-outputs'
+import { SingleIngestionOutput } from './single-ingestion-output'
 
 function createMockProducer(): jest.Mocked<KafkaProducerWrapper> {
     return {
@@ -15,29 +17,29 @@ describe('IngestionOutputs', () => {
         it('returns empty array when all producers are healthy', async () => {
             const producer = createMockProducer()
             const outputs = new IngestionOutputs({
-                events: [{ topic: 'events', producer, producerName: 'test' }],
-                ai_events: [{ topic: 'ai_events', producer, producerName: 'test' }],
+                events: new SingleIngestionOutput('events', 'events', producer, 'test'),
+                ai_events: new SingleIngestionOutput('ai_events', 'ai_events', producer, 'test'),
             })
 
             const failures = await outputs.checkHealth()
 
             expect(failures).toEqual([])
-            expect(producer.checkConnection).toHaveBeenCalledTimes(1)
+            expect(producer.checkConnection).toHaveBeenCalledTimes(2)
         })
 
         it('checks each unique producer once', async () => {
             const mskProducer = createMockProducer()
             const wsProducer = createMockProducer()
             const outputs = new IngestionOutputs({
-                events: [{ topic: 'events', producer: mskProducer, producerName: 'test' }],
-                ai_events: [{ topic: 'ai_events', producer: mskProducer, producerName: 'test' }],
-                heatmaps: [{ topic: 'heatmaps', producer: wsProducer, producerName: 'test' }],
+                events: new SingleIngestionOutput('events', 'events', mskProducer, 'test'),
+                ai_events: new SingleIngestionOutput('ai_events', 'ai_events', mskProducer, 'test'),
+                heatmaps: new SingleIngestionOutput('heatmaps', 'heatmaps', wsProducer, 'test'),
             })
 
             const failures = await outputs.checkHealth()
 
             expect(failures).toEqual([])
-            expect(mskProducer.checkConnection).toHaveBeenCalledTimes(1)
+            expect(mskProducer.checkConnection).toHaveBeenCalledTimes(2)
             expect(wsProducer.checkConnection).toHaveBeenCalledTimes(1)
         })
 
@@ -45,7 +47,7 @@ describe('IngestionOutputs', () => {
             const producer = createMockProducer()
             producer.checkConnection.mockRejectedValue(new Error('Connection refused'))
             const outputs = new IngestionOutputs({
-                events: [{ topic: 'events', producer, producerName: 'test' }],
+                events: new SingleIngestionOutput('events', 'events', producer, 'test'),
             })
 
             const failures = await outputs.checkHealth()
@@ -59,8 +61,8 @@ describe('IngestionOutputs', () => {
             wsProducer.checkConnection.mockRejectedValue(new Error('WARPSTREAM unreachable'))
 
             const outputs = new IngestionOutputs({
-                events: [{ topic: 'events', producer: mskProducer, producerName: 'test' }],
-                heatmaps: [{ topic: 'heatmaps', producer: wsProducer, producerName: 'test' }],
+                events: new SingleIngestionOutput('events', 'events', mskProducer, 'test'),
+                heatmaps: new SingleIngestionOutput('heatmaps', 'heatmaps', wsProducer, 'test'),
             })
 
             const failures = await outputs.checkHealth()
@@ -74,10 +76,12 @@ describe('IngestionOutputs', () => {
             const primary = createMockProducer()
             const secondary = createMockProducer()
             const outputs = new IngestionOutputs({
-                events: [
-                    { topic: 'events', producer: primary, producerName: 'test' },
-                    { topic: 'events_v2', producer: secondary, producerName: 'test' },
-                ],
+                events: new DualWriteIngestionOutput(
+                    new SingleIngestionOutput('events', 'events', primary, 'test'),
+                    new SingleIngestionOutput('events', 'events_v2', secondary, 'test'),
+                    'copy',
+                    100
+                ),
             })
 
             const failures = await outputs.checkHealth()
@@ -92,8 +96,8 @@ describe('IngestionOutputs', () => {
         it('returns empty array when all topics exist', async () => {
             const producer = createMockProducer()
             const outputs = new IngestionOutputs({
-                events: [{ topic: 'events', producer, producerName: 'test' }],
-                ai_events: [{ topic: 'ai_events', producer, producerName: 'test' }],
+                events: new SingleIngestionOutput('events', 'events', producer, 'test'),
+                ai_events: new SingleIngestionOutput('ai_events', 'ai_events', producer, 'test'),
             })
 
             const failures = await outputs.checkTopics()
@@ -106,8 +110,8 @@ describe('IngestionOutputs', () => {
         it('skips empty topics', async () => {
             const producer = createMockProducer()
             const outputs = new IngestionOutputs({
-                events: [{ topic: 'events', producer, producerName: 'test' }],
-                redirect: [{ topic: '', producer, producerName: 'test' }],
+                events: new SingleIngestionOutput('events', 'events', producer, 'test'),
+                redirect: new SingleIngestionOutput('redirect', '', producer, 'test'),
             })
 
             const failures = await outputs.checkTopics()
@@ -120,7 +124,7 @@ describe('IngestionOutputs', () => {
             const producer = createMockProducer()
             producer.checkTopicExists.mockRejectedValue(new Error('Topic not found'))
             const outputs = new IngestionOutputs({
-                events: [{ topic: 'bad_topic', producer, producerName: 'test' }],
+                events: new SingleIngestionOutput('events', 'bad_topic', producer, 'test'),
             })
 
             const failures = await outputs.checkTopics()
@@ -134,8 +138,8 @@ describe('IngestionOutputs', () => {
             wsProducer.checkTopicExists.mockRejectedValue(new Error('Not found on warpstream'))
 
             const outputs = new IngestionOutputs({
-                events: [{ topic: 'shared_topic', producer: mskProducer, producerName: 'test' }],
-                ai_events: [{ topic: 'shared_topic', producer: wsProducer, producerName: 'test' }],
+                events: new SingleIngestionOutput('events', 'shared_topic', mskProducer, 'test'),
+                ai_events: new SingleIngestionOutput('ai_events', 'shared_topic', wsProducer, 'test'),
             })
 
             const failures = await outputs.checkTopics()
@@ -145,27 +149,29 @@ describe('IngestionOutputs', () => {
             expect(wsProducer.checkTopicExists).toHaveBeenCalledWith('shared_topic', 10000)
         })
 
-        it('deduplicates same producer and topic', async () => {
+        it('checks same producer and topic independently per output', async () => {
             const producer = createMockProducer()
             const outputs = new IngestionOutputs({
-                events: [{ topic: 'shared_topic', producer, producerName: 'test' }],
-                ai_events: [{ topic: 'shared_topic', producer, producerName: 'test' }],
+                events: new SingleIngestionOutput('events', 'shared_topic', producer, 'test'),
+                ai_events: new SingleIngestionOutput('ai_events', 'shared_topic', producer, 'test'),
             })
 
             const failures = await outputs.checkTopics()
 
             expect(failures).toEqual([])
-            expect(producer.checkTopicExists).toHaveBeenCalledTimes(1)
+            expect(producer.checkTopicExists).toHaveBeenCalledTimes(2)
         })
 
         it('checks both topics in a dual-write output', async () => {
             const primary = createMockProducer()
             const secondary = createMockProducer()
             const outputs = new IngestionOutputs({
-                events: [
-                    { topic: 'events_v1', producer: primary, producerName: 'test' },
-                    { topic: 'events_v2', producer: secondary, producerName: 'test' },
-                ],
+                events: new DualWriteIngestionOutput(
+                    new SingleIngestionOutput('events', 'events_v1', primary, 'test'),
+                    new SingleIngestionOutput('events', 'events_v2', secondary, 'test'),
+                    'copy',
+                    100
+                ),
             })
 
             const failures = await outputs.checkTopics()
@@ -180,7 +186,7 @@ describe('IngestionOutputs', () => {
         it('produces to the correct topic and producer', async () => {
             const producer = createMockProducer()
             const outputs = new IngestionOutputs({
-                events: [{ topic: 'clickhouse_events', producer, producerName: 'test' }],
+                events: new SingleIngestionOutput('events', 'clickhouse_events', producer, 'test'),
             })
 
             await outputs.produce('events', { value: Buffer.from('test'), key: Buffer.from('key') })
@@ -196,10 +202,12 @@ describe('IngestionOutputs', () => {
             const primary = createMockProducer()
             const secondary = createMockProducer()
             const outputs = new IngestionOutputs({
-                events: [
-                    { topic: 'events_v1', producer: primary, producerName: 'test' },
-                    { topic: 'events_v2', producer: secondary, producerName: 'test' },
-                ],
+                events: new DualWriteIngestionOutput(
+                    new SingleIngestionOutput('events', 'events_v1', primary, 'test'),
+                    new SingleIngestionOutput('events', 'events_v2', secondary, 'test'),
+                    'copy',
+                    100
+                ),
             })
 
             await outputs.produce('events', { value: Buffer.from('test'), key: Buffer.from('key') })
@@ -221,10 +229,12 @@ describe('IngestionOutputs', () => {
             const secondary = createMockProducer()
             secondary.produce.mockRejectedValue(new Error('secondary broker down'))
             const outputs = new IngestionOutputs({
-                events: [
-                    { topic: 'events_v1', producer: primary, producerName: 'test' },
-                    { topic: 'events_v2', producer: secondary, producerName: 'test' },
-                ],
+                events: new DualWriteIngestionOutput(
+                    new SingleIngestionOutput('events', 'events_v1', primary, 'test'),
+                    new SingleIngestionOutput('events', 'events_v2', secondary, 'test'),
+                    'copy',
+                    100
+                ),
             })
 
             await expect(
@@ -240,7 +250,7 @@ describe('IngestionOutputs', () => {
         it('queues messages to the correct topic and producer', async () => {
             const producer = createMockProducer()
             const outputs = new IngestionOutputs({
-                events: [{ topic: 'clickhouse_events', producer, producerName: 'test' }],
+                events: new SingleIngestionOutput('events', 'clickhouse_events', producer, 'test'),
             })
 
             await outputs.queueMessages('events', [{ value: Buffer.from('msg1') }, { value: Buffer.from('msg2') }])
@@ -255,21 +265,23 @@ describe('IngestionOutputs', () => {
             const primary = createMockProducer()
             const secondary = createMockProducer()
             const outputs = new IngestionOutputs({
-                events: [
-                    { topic: 'events_v1', producer: primary, producerName: 'test' },
-                    { topic: 'events_v2', producer: secondary, producerName: 'test' },
-                ],
+                events: new DualWriteIngestionOutput(
+                    new SingleIngestionOutput('events', 'events_v1', primary, 'test'),
+                    new SingleIngestionOutput('events', 'events_v2', secondary, 'test'),
+                    'copy',
+                    100
+                ),
             })
 
-            await outputs.queueMessages('events', [{ value: Buffer.from('msg1') }])
+            await outputs.queueMessages('events', [{ key: Buffer.from('k'), value: Buffer.from('msg1') }])
 
             expect(primary.queueMessages).toHaveBeenCalledWith({
                 topic: 'events_v1',
-                messages: [{ value: Buffer.from('msg1') }],
+                messages: [{ key: Buffer.from('k'), value: Buffer.from('msg1') }],
             })
             expect(secondary.queueMessages).toHaveBeenCalledWith({
                 topic: 'events_v2',
-                messages: [{ value: Buffer.from('msg1') }],
+                messages: [{ key: Buffer.from('k'), value: Buffer.from('msg1') }],
             })
         })
 
@@ -278,15 +290,17 @@ describe('IngestionOutputs', () => {
             const secondary = createMockProducer()
             secondary.queueMessages.mockRejectedValue(new Error('secondary broker down'))
             const outputs = new IngestionOutputs({
-                events: [
-                    { topic: 'events_v1', producer: primary, producerName: 'test' },
-                    { topic: 'events_v2', producer: secondary, producerName: 'test' },
-                ],
+                events: new DualWriteIngestionOutput(
+                    new SingleIngestionOutput('events', 'events_v1', primary, 'test'),
+                    new SingleIngestionOutput('events', 'events_v2', secondary, 'test'),
+                    'copy',
+                    100
+                ),
             })
 
-            await expect(outputs.queueMessages('events', [{ value: Buffer.from('msg1') }])).rejects.toThrow(
-                'secondary broker down'
-            )
+            await expect(
+                outputs.queueMessages('events', [{ key: Buffer.from('k'), value: Buffer.from('msg1') }])
+            ).rejects.toThrow('secondary broker down')
 
             expect(primary.queueMessages).toHaveBeenCalledTimes(1)
             expect(secondary.queueMessages).toHaveBeenCalledTimes(1)

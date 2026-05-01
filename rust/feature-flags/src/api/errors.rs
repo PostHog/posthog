@@ -68,6 +68,8 @@ pub enum FlagError {
     TokenValidationError,
     #[error("Personal API key is invalid")]
     PersonalApiKeyInvalid,
+    #[error("Personal API key lacks required scopes")]
+    PersonalApiKeyInsufficientScopes,
     #[error("Secret API token is invalid")]
     SecretApiTokenInvalid,
     #[error("No authentication credentials provided")]
@@ -163,6 +165,9 @@ impl FlagError {
             FlagError::NoTokenError => ("missing_token", 401),
             FlagError::TokenValidationError => ("invalid_token", 401),
             FlagError::PersonalApiKeyInvalid => ("personal_api_key_invalid", 401),
+            FlagError::PersonalApiKeyInsufficientScopes => {
+                ("personal_api_key_insufficient_scopes", 403)
+            }
             FlagError::SecretApiTokenInvalid => ("secret_api_token_invalid", 401),
             FlagError::NoAuthenticationProvided => ("no_authentication", 401),
 
@@ -407,6 +412,15 @@ impl IntoResponse for FlagError {
                 };
                 return (StatusCode::UNAUTHORIZED, Json(response)).into_response();
             }
+            FlagError::PersonalApiKeyInsufficientScopes => {
+                let response = AuthenticationErrorResponse {
+                    error_type: "authentication_error".to_string(),
+                    code: "permission_denied".to_string(),
+                    detail: "Personal API key lacks required scopes (feature_flag:read or feature_flag:write).".to_string(),
+                    attr: None,
+                };
+                return (StatusCode::FORBIDDEN, Json(response)).into_response();
+            }
             FlagError::SecretApiTokenInvalid => {
                 let response = AuthenticationErrorResponse {
                     error_type: "authentication_error".to_string(),
@@ -629,7 +643,7 @@ impl From<HyperCacheError> for FlagError {
             HyperCacheError::CacheMiss => FlagError::CacheMiss,
             HyperCacheError::Redis(redis_error) => FlagError::from(redis_error),
             HyperCacheError::S3(_) => FlagError::CacheMiss,
-            HyperCacheError::Json(_) => FlagError::DataParsingError,
+            HyperCacheError::Json(_) | HyperCacheError::Pickle(_) => FlagError::DataParsingError,
             HyperCacheError::Timeout(_) => {
                 FlagError::TimeoutError(Some("cache_timeout".to_string()))
             }
@@ -750,6 +764,7 @@ mod tests {
             FlagError::NoTokenError,
             FlagError::TokenValidationError,
             FlagError::PersonalApiKeyInvalid,
+            FlagError::PersonalApiKeyInsufficientScopes,
             FlagError::SecretApiTokenInvalid,
             FlagError::NoAuthenticationProvided,
             FlagError::RowNotFound,
@@ -971,6 +986,7 @@ mod tests {
             FlagError::NoTokenError,
             FlagError::TokenValidationError,
             FlagError::PersonalApiKeyInvalid,
+            FlagError::PersonalApiKeyInsufficientScopes,
             FlagError::SecretApiTokenInvalid,
             FlagError::NoAuthenticationProvided,
             FlagError::RowNotFound,

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconWarning } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
@@ -134,8 +134,36 @@ function getTimelineTicks(durationUs: number): number[] {
 }
 
 const INDENT_PX = 16
-const LABEL_WIDTH = 280
+const DEFAULT_LABEL_COLUMN_WIDTH = 280
+const MIN_LABEL_COLUMN_WIDTH = 120
+const MAX_LABEL_COLUMN_WIDTH = 800
+const LABEL_COLUMN_WIDTH_STORAGE_KEY = 'tracing-trace-label-width'
+/** Hit area for the vertical splitter (centered on the label/timeline border). */
+const LABEL_SPLITTER_HIT_PX = 8
 const ROW_HEIGHT = 32
+
+function clampLabelColumnWidth(px: number): number {
+    return Math.min(MAX_LABEL_COLUMN_WIDTH, Math.max(MIN_LABEL_COLUMN_WIDTH, Math.round(px)))
+}
+
+function readStoredLabelColumnWidth(): number | null {
+    if (typeof window === 'undefined') {
+        return null
+    }
+    try {
+        const raw = window.localStorage.getItem(LABEL_COLUMN_WIDTH_STORAGE_KEY)
+        if (raw == null) {
+            return null
+        }
+        const n = Number.parseInt(raw, 10)
+        if (!Number.isFinite(n)) {
+            return null
+        }
+        return clampLabelColumnWidth(n)
+    } catch {
+        return null
+    }
+}
 const ERROR_COLOR = 'var(--danger)'
 
 const TREE_LINE_W = 2
@@ -251,7 +279,18 @@ function SpanDetailPanel({ span }: { span: Span }): JSX.Element {
 export function TraceFlameChart({ spans }: TraceFlameChartProps): JSX.Element {
     const [selectedSpanId, setSelectedSpanId] = useState<string | null>(null)
     const [cursorPct, setCursorPct] = useState<number | null>(null)
+    const [labelColumnWidth, setLabelColumnWidth] = useState(
+        () => readStoredLabelColumnWidth() ?? DEFAULT_LABEL_COLUMN_WIDTH
+    )
+    const labelResizeActiveRef = useRef(false)
+    const labelSplitterDragCleanupRef = useRef<(() => void) | null>(null)
     const timelineRef = useRef<HTMLDivElement>(null)
+
+    useEffect(() => {
+        return () => {
+            labelSplitterDragCleanupRef.current?.()
+        }
+    }, [])
     const serviceColorMap = useMemo(() => buildServiceColorMap(spans), [spans])
     const tree = useMemo(() => buildSpanTree(spans), [spans])
     const flatSpans = useMemo(() => flattenTree(tree), [tree])
@@ -283,8 +322,64 @@ export function TraceFlameChart({ spans }: TraceFlameChartProps): JSX.Element {
 
     const SNAP_THRESHOLD_PX = 6
 
+    const persistLabelColumnWidth = useCallback((width: number): void => {
+        try {
+            window.localStorage.setItem(LABEL_COLUMN_WIDTH_STORAGE_KEY, String(width))
+        } catch {
+            // Quota or private mode
+        }
+    }, [])
+
+    const handleLabelSplitterMouseDown = useCallback(
+        (e: React.MouseEvent) => {
+            e.preventDefault()
+            e.stopPropagation()
+            setCursorPct(null)
+            labelResizeActiveRef.current = true
+            document.body.classList.add('is-resizing')
+            const startX = e.clientX
+            const startWidth = labelColumnWidth
+            let lastWidth = startWidth
+
+            const onMove = (ev: MouseEvent): void => {
+                lastWidth = clampLabelColumnWidth(startWidth + (ev.clientX - startX))
+                setLabelColumnWidth(lastWidth)
+            }
+            const onUp = (): void => {
+                labelSplitterDragCleanupRef.current = null
+                document.removeEventListener('mousemove', onMove)
+                document.removeEventListener('mouseup', onUp)
+                document.body.classList.remove('is-resizing')
+                labelResizeActiveRef.current = false
+                persistLabelColumnWidth(lastWidth)
+            }
+            labelSplitterDragCleanupRef.current = onUp
+            document.addEventListener('mousemove', onMove)
+            document.addEventListener('mouseup', onUp)
+        },
+        [labelColumnWidth, persistLabelColumnWidth]
+    )
+
+    const handleLabelSplitterKeyDown = useCallback(
+        (e: React.KeyboardEvent) => {
+            if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+                e.preventDefault()
+                const delta = e.key === 'ArrowLeft' ? -10 : 10
+                setLabelColumnWidth((w) => {
+                    const next = clampLabelColumnWidth(w + delta)
+                    persistLabelColumnWidth(next)
+                    return next
+                })
+            }
+        },
+        [persistLabelColumnWidth]
+    )
+
     const handleTimelineMouseMove = useCallback(
         (e: React.MouseEvent) => {
+            if (labelResizeActiveRef.current) {
+                return
+            }
             const timeline = timelineRef.current
             if (!timeline) {
                 return
@@ -334,7 +429,9 @@ export function TraceFlameChart({ spans }: TraceFlameChartProps): JSX.Element {
                 <div
                     className="absolute top-0 bottom-0 border-l border-dashed border-primary pointer-events-none z-20"
                     // eslint-disable-next-line react/forbid-dom-props
-                    style={{ left: `calc(${LABEL_WIDTH}px + (100% - ${LABEL_WIDTH}px) * ${cursorPct / 100})` }}
+                    style={{
+                        left: `calc(${labelColumnWidth}px + (100% - ${labelColumnWidth}px) * ${cursorPct / 100})`,
+                    }}
                 />
             )}
 
@@ -343,7 +440,7 @@ export function TraceFlameChart({ spans }: TraceFlameChartProps): JSX.Element {
                 <div
                     className="shrink-0 text-xs font-medium text-muted px-2 flex items-center border-r border-border"
                     // eslint-disable-next-line react/forbid-dom-props
-                    style={{ width: LABEL_WIDTH }}
+                    style={{ width: labelColumnWidth }}
                 >
                     Span
                 </div>
@@ -400,8 +497,10 @@ export function TraceFlameChart({ spans }: TraceFlameChartProps): JSX.Element {
                 const widthPct = Math.max(Math.min(rawWidthPct, 100 - leftPct), 0.3)
 
                 const isError = span.status_code === 2
+                const isUnmatched = !span.matched_filter
                 const seriesIndex = serviceColorMap.get(span.service_name) ?? 0
                 const seriesColor = isError ? ERROR_COLOR : getSeriesColor(seriesIndex)
+                const barColor = isUnmatched ? 'var(--border)' : seriesColor
                 const isSelected = selectedSpanId === span.uuid
 
                 return (
@@ -427,7 +526,7 @@ export function TraceFlameChart({ spans }: TraceFlameChartProps): JSX.Element {
                             <div
                                 className="shrink-0 flex items-center overflow-hidden border-r border-border px-2"
                                 // eslint-disable-next-line react/forbid-dom-props
-                                style={{ width: LABEL_WIDTH }}
+                                style={{ width: labelColumnWidth }}
                             >
                                 <TreeIndent node={node} />
                                 {isError && (
@@ -437,7 +536,7 @@ export function TraceFlameChart({ spans }: TraceFlameChartProps): JSX.Element {
                                 )}
                                 <Tooltip title={span.name}>
                                     <span
-                                        className={`text-xs truncate ${isError ? 'text-danger font-semibold' : 'font-medium'}`}
+                                        className={`text-xs truncate ${isError ? 'text-danger font-semibold' : 'font-medium'} ${isUnmatched ? 'opacity-40' : ''}`}
                                     >
                                         {span.name}
                                     </span>
@@ -481,11 +580,13 @@ export function TraceFlameChart({ spans }: TraceFlameChartProps): JSX.Element {
                                             left: `${leftPct}%`,
                                             width: `${widthPct}%`,
                                             minWidth: 2,
-                                            backgroundColor: `color-mix(in srgb, ${seriesColor} 20%, transparent)`,
-                                            borderLeft: `1px solid ${seriesColor}`,
+                                            backgroundColor: `color-mix(in srgb, ${barColor} 20%, transparent)`,
+                                            borderLeft: `1px solid ${barColor}`,
                                         }}
                                     >
-                                        <span className="text-[11px] truncate whitespace-nowrap flex items-center gap-1.5">
+                                        <span
+                                            className={`text-[11px] truncate whitespace-nowrap flex items-center gap-1.5 ${isUnmatched ? 'opacity-40' : ''}`}
+                                        >
                                             <span className="text-muted-alt font-medium">{span.service_name}</span>
                                             <span className="text-muted">{formatDuration(span.duration_nano)}</span>
                                         </span>
@@ -499,6 +600,25 @@ export function TraceFlameChart({ spans }: TraceFlameChartProps): JSX.Element {
                     </div>
                 )
             })}
+
+            {/* Full-height splitter between label column and timeline */}
+            <div
+                role="separator"
+                aria-label="Resize span name column"
+                aria-orientation="vertical"
+                aria-valuenow={labelColumnWidth}
+                aria-valuemin={MIN_LABEL_COLUMN_WIDTH}
+                aria-valuemax={MAX_LABEL_COLUMN_WIDTH}
+                tabIndex={0}
+                className="absolute top-0 bottom-0 z-30 cursor-ew-resize touch-none hover:bg-accent-highlight-primary/30"
+                // eslint-disable-next-line react/forbid-dom-props
+                style={{
+                    left: labelColumnWidth - LABEL_SPLITTER_HIT_PX / 2,
+                    width: LABEL_SPLITTER_HIT_PX,
+                }}
+                onMouseDown={handleLabelSplitterMouseDown}
+                onKeyDown={handleLabelSplitterKeyDown}
+            />
         </div>
     )
 }

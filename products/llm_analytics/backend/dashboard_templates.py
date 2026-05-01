@@ -259,6 +259,7 @@ def get_llm_analytics_default_template() -> DashboardTemplate:
                             }
                         ],
                         "breakdownFilter": {
+                            "breakdown_type": "event",
                             "breakdown": "$ai_model",
                         },
                         "trendsFilter": {

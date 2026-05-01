@@ -66,6 +66,49 @@ class TestApprovalsFeatureGating(APIBaseTest):
         response = self.client.post(f"/api/environments/{self.team.id}/change_requests/{cr.id}/{action}/")
         assert response.status_code == status.HTTP_402_PAYMENT_REQUIRED
 
+    @parameterized.expand(["change_requests", "approval_policies"])
+    @patch("posthog.permissions.is_cloud", return_value=True)
+    def test_pak_with_scope_still_blocked_without_feature_on_cloud(self, endpoint, _mock_is_cloud):
+        # Scope alone doesn't bypass the paywall — feature entitlement is still required.
+        from posthog.models.personal_api_key import PersonalAPIKey
+        from posthog.models.utils import generate_random_token_personal, hash_key_value
+
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Test",
+            user=self.user,
+            secure_value=hash_key_value(value),
+            scopes=["approvals:read"],
+        )
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/{endpoint}/",
+            headers={"authorization": f"Bearer {value}"},
+        )
+        assert response.status_code == status.HTTP_402_PAYMENT_REQUIRED
+
+    @parameterized.expand(["change_requests", "approval_policies"])
+    @patch("posthog.permissions.is_cloud", return_value=True)
+    def test_pak_with_scope_and_feature_can_access_on_cloud(self, endpoint, _mock_is_cloud):
+        from posthog.models.personal_api_key import PersonalAPIKey
+        from posthog.models.utils import generate_random_token_personal, hash_key_value
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.APPROVALS, "name": AvailableFeature.APPROVALS}
+        ]
+        self.organization.save()
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Test",
+            user=self.user,
+            secure_value=hash_key_value(value),
+            scopes=["approvals:read"],
+        )
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/{endpoint}/",
+            headers={"authorization": f"Bearer {value}"},
+        )
+        assert response.status_code == status.HTTP_200_OK
+
 
 class TestChangeRequestViewSet(APIBaseTest):
     def setUp(self):

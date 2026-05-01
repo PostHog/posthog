@@ -3,7 +3,7 @@ import './Exporter.scss'
 
 import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useCallback, useEffect } from 'react'
 
 import { Logo } from 'lib/brand/Logo'
 import { HeatmapCanvas } from 'lib/components/heatmaps/HeatmapCanvas'
@@ -23,7 +23,10 @@ import { ExportedInsight } from '~/exporter/ExportedInsight/ExportedInsight'
 import { ExporterLogin } from '~/exporter/ExporterLogin'
 import { ExportType, ExportedData } from '~/exporter/types'
 import { getQueryBasedDashboard } from '~/queries/nodes/InsightViz/utils'
-import { AUTO_REFRESH_INITIAL_INTERVAL_SECONDS } from '~/scenes/dashboard/dashboardUtils'
+import {
+    AUTO_REFRESH_INITIAL_INTERVAL_SECONDS,
+    scheduleSharedDashboardStaleAutoForceIfEligible,
+} from '~/scenes/dashboard/dashboardUtils'
 import { DashboardPlacement } from '~/types'
 
 import { exporterViewLogic } from './exporterViewLogic'
@@ -43,19 +46,41 @@ function resolveForcedTheme(theme?: 'light' | 'dark' | 'system'): 'light' | 'dar
 function ExportHeatmap(): JSX.Element {
     const { exportedData, isLoading, screenshotUrl } = useValues(exporterViewLogic)
     const { exportToken } = exportedData
+    const width = exportedData.heatmap_context?.width
 
     return (
-        <div className="flex justify-center h-screen w-screen overflow-scroll heatmap-exporter relative">
-            <HeatmapCanvas positioning="absolute" widthOverride={null} context="in-app" exportToken={exportToken} />
+        <div
+            className="heatmap-exporter relative"
+            // eslint-disable-next-line react/forbid-dom-props
+            style={{
+                width: width ? `${width}px` : '100%',
+                minHeight: '100vh',
+                overflow: 'hidden',
+            }}
+        >
+            <HeatmapCanvas
+                positioning="absolute"
+                widthOverride={width ?? null}
+                context="in-app"
+                exportToken={exportToken}
+            />
             {exportedData.heatmap_context?.heatmap_type === 'screenshot' ? (
-                <>{isLoading ? null : <img src={screenshotUrl ?? ''} alt="Heatmap" />}</>
+                isLoading ? null : (
+                    <img
+                        src={screenshotUrl ?? ''}
+                        alt="Heatmap"
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{ width: '100%', height: 'auto', display: 'block' }}
+                    />
+                )
             ) : (
                 <iframe
                     id="heatmap-iframe"
                     ref={null}
                     title="Heatmap export"
-                    className="h-screen bg-white w-screen"
+                    className="bg-white"
                     // eslint-disable-next-line react/forbid-dom-props
+                    style={{ width: '100%', height: '100vh', display: 'block' }}
                     src={exportedData.heatmap_url ?? ''}
                     onLoad={() => {}}
                     // these two sandbox values are necessary so that the site and toolbar can run
@@ -71,13 +96,26 @@ function ExportHeatmap(): JSX.Element {
 }
 
 function SharedDashboardAutoRefresh({ dashboardId }: { dashboardId: number }): JSX.Element | null {
-    const { setAutoRefresh, setPageVisibility } = dashboardLogic({
-        id: dashboardId,
-        placement: DashboardPlacement.Public,
-    }).actions
+    const logic = dashboardLogic({ id: dashboardId, placement: DashboardPlacement.Public })
+    const { setAutoRefresh, setPageVisibility, triggerDashboardRefresh } = logic.actions
 
-    // Tie dashboard auto-refresh to tab visibility, same as in-app dashboard.
-    usePageVisibilityCb(setPageVisibility)
+    // Tie auto-refresh to tab visibility AND fire a one-shot staleness check when the tab
+    // regains focus — Chrome throttles background timers, so the periodic interval can drift
+    // well past the staleness budget before the next tick. Reading `logic.values` inside the
+    // callback gets the live `effectiveLastRefresh` rather than a stale closure value.
+    const onVisibilityChange = useCallback(
+        (visible: boolean) => {
+            setPageVisibility(visible)
+            if (visible) {
+                scheduleSharedDashboardStaleAutoForceIfEligible({
+                    effectiveLastRefresh: logic.values.effectiveLastRefresh,
+                    triggerDashboardRefresh: () => void triggerDashboardRefresh(),
+                })
+            }
+        },
+        [setPageVisibility, triggerDashboardRefresh, logic]
+    )
+    usePageVisibilityCb(onVisibilityChange)
 
     useEffect(() => {
         setAutoRefresh(true, AUTO_REFRESH_INITIAL_INTERVAL_SECONDS)

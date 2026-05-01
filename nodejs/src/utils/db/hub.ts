@@ -1,6 +1,4 @@
 import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
-import { InternalCaptureService } from '~/common/services/internal-capture'
-import { InternalFetchService } from '~/common/services/internal-fetch'
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 
 import { EncryptedFields } from '../../cdp/utils/encryption-utils'
@@ -12,7 +10,6 @@ import {
 } from '../../config/redis-pools'
 import { CookielessManager } from '../../ingestion/cookieless/cookieless-manager'
 import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from '../../ingestion/personhog'
-import { KafkaProducerWrapper } from '../../kafka/producer'
 import { Hub, PluginsServerConfig } from '../../types'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { PostgresGroupRepository } from '../../worker/ingestion/groups/repositories/postgres-group-repository'
@@ -49,11 +46,6 @@ export async function createHub(config: Partial<PluginsServerConfig> = {}): Prom
         ...defaultConfig,
         ...config,
     }
-
-    logger.info('🤔', `Connecting to Kafka...`)
-
-    const kafkaProducer = await KafkaProducerWrapper.create(serverConfig.KAFKA_CLIENT_RACK)
-    logger.info('👍', `Kafka ready`)
 
     const postgres = new PostgresRouter(serverConfig, serverConfig.PLUGIN_SERVER_MODE ?? undefined)
     logger.info('👍', `Postgres Router ready`)
@@ -98,6 +90,7 @@ export async function createHub(config: Partial<PluginsServerConfig> = {}): Prom
         personhogClient,
         postgresPersonRepository,
         serverConfig.PERSONHOG_PERSONS_ROLLOUT_PERCENTAGE,
+        serverConfig.PERSONHOG_PERSONS_ROLLOUT_TEAM_IDS,
         clientLabel
     )
 
@@ -105,6 +98,7 @@ export async function createHub(config: Partial<PluginsServerConfig> = {}): Prom
         personhogClient,
         postgresGroupRepository,
         serverConfig.PERSONHOG_GROUPS_ROLLOUT_PERCENTAGE,
+        serverConfig.PERSONHOG_GROUPS_ROLLOUT_TEAM_IDS,
         clientLabel
     )
 
@@ -116,11 +110,6 @@ export async function createHub(config: Partial<PluginsServerConfig> = {}): Prom
     const encryptedFields = new EncryptedFields(serverConfig.ENCRYPTION_SALT_KEYS)
     const integrationManager = new IntegrationManagerService(pubSub, postgres, encryptedFields)
     const quotaLimiting = new QuotaLimiting(posthogRedisPool, teamManager)
-    const internalCaptureService = new InternalCaptureService(serverConfig)
-    const internalFetchService = new InternalFetchService(
-        serverConfig.INTERNAL_API_BASE_URL,
-        serverConfig.INTERNAL_API_SECRET
-    )
 
     const hub: Hub = {
         ...serverConfig,
@@ -128,7 +117,6 @@ export async function createHub(config: Partial<PluginsServerConfig> = {}): Prom
         redisPool,
         posthogRedisPool,
         cookielessRedisPool,
-        kafkaProducer,
         groupTypeManager,
         teamManager,
         groupRepository,
@@ -139,8 +127,6 @@ export async function createHub(config: Partial<PluginsServerConfig> = {}): Prom
         pubSub,
         integrationManager,
         quotaLimiting,
-        internalCaptureService,
-        internalFetchService,
     }
 
     return hub
@@ -151,7 +137,6 @@ export const closeHub = async (hub: Hub): Promise<void> => {
     logger.info('💤', 'Closing kafka, redis, postgres...')
     await hub.pubSub.stop()
     await Promise.allSettled([
-        hub.kafkaProducer.disconnect(),
         hub.redisPool.drain(),
         hub.posthogRedisPool.drain(),
         hub.cookielessRedisPool.drain(),

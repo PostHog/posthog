@@ -4,7 +4,7 @@ import { PluginEvent } from '~/plugin-scaffold'
 
 import { ResolvedModelCost } from './providers/types'
 
-const REASONING_COST_MODELS = [/^gemini-2.5-/]
+const REASONING_COST_MODELS = [/^gemini-2\.5-/, /^gemini-3(\.\d+)?-/]
 
 const mustAddReasoningCost = (model: string): boolean => {
     return REASONING_COST_MODELS.some((candidate) => candidate.test(model.toLowerCase()))
@@ -44,7 +44,7 @@ export const calculateOutputCost = (event: PluginEvent, cost: ResolvedModelCost)
             textOutputTokens = Math.max(0, Number(totalOutputTokens) - imageOutputTokens)
         }
 
-        // Add reasoning tokens to text tokens for Gemini 2.5 models
+        // Add reasoning tokens to text tokens for Gemini models that report them separately
         if (
             event.properties['$ai_reasoning_tokens'] &&
             event.properties['$ai_model'] &&

@@ -6,12 +6,15 @@ import {
     buildSummary,
     computePreviewOccurrences,
     DEFAULT_STATE,
+    fakeUtcToReal,
     frequencyToRRule,
     getNthWeekdayOfMonth,
     isOneTimeSchedule,
     ONE_TIME_RRULE,
+    parseNaturalLanguage,
     parseRRuleToState,
     ScheduleState,
+    scheduleToText,
     stateToRRule,
 } from './rrule-helpers'
 
@@ -173,7 +176,7 @@ describe('rrule-helpers', () => {
     })
 
     describe('computePreviewOccurrences', () => {
-        const startsAt = '2024-01-15T09:00:00'
+        const startsAt = '2030-01-15T09:00:00'
 
         it('returns 6 occurrences by default for never-ending schedule', () => {
             const state: ScheduleState = { ...DEFAULT_STATE, frequency: 'daily', endType: 'never' }
@@ -210,9 +213,69 @@ describe('rrule-helpers', () => {
             for (let i = 1; i < result.length; i++) {
                 expect(result[i].getTime()).toBeGreaterThan(result[i - 1].getTime())
             }
-            expect(result[0].getUTCFullYear()).toBe(2024)
+            expect(result[0].getUTCFullYear()).toBe(2030)
             expect(result[0].getUTCMonth()).toBe(0) // January
             expect(result[0].getUTCDate()).toBe(15)
+        })
+
+        it('returns only future occurrences when dtstart is in the past', () => {
+            const pastStartsAt = '2025-01-01T09:00:00'
+            const state: ScheduleState = { ...DEFAULT_STATE, frequency: 'weekly', endType: 'never' }
+            const result = computePreviewOccurrences(state, pastStartsAt)
+            expect(result.length).toBeGreaterThan(0)
+            expect(result.length).toBeLessThanOrEqual(6)
+            for (const d of result) {
+                expect(d.getTime()).toBeGreaterThan(Date.now())
+            }
+        })
+
+        it('returns all future occurrences for finite schedules with past dtstart', () => {
+            const pastStartsAt = '2025-01-01T09:00:00'
+            const state: ScheduleState = {
+                ...DEFAULT_STATE,
+                frequency: 'monthly',
+                endType: 'after_count',
+                endCount: 50,
+            }
+            const result = computePreviewOccurrences(state, pastStartsAt)
+            // Should return more than 6 for finite schedules so OccurrencesList can show the collapse
+            expect(result.length).toBeGreaterThan(6)
+            for (const d of result) {
+                expect(d.getTime()).toBeGreaterThan(Date.now())
+            }
+        })
+    })
+
+    describe('fakeUtcToReal', () => {
+        const fakeDate = new Date(Date.UTC(2026, 3, 3, 19, 25, 0))
+
+        it.each([
+            {
+                label: 'reinterprets UTC values as the given timezone',
+                timezone: 'Europe/Riga',
+                expectedUtcHour: 16,
+                expectedUtcMinute: 25,
+            },
+            {
+                label: 'returns UTC-based dayjs when no timezone is given',
+                timezone: undefined,
+                expectedUtcHour: 19,
+                expectedUtcMinute: 25,
+            },
+        ])('$label', ({ timezone, expectedUtcHour, expectedUtcMinute }) => {
+            const real = fakeUtcToReal(fakeDate, timezone)
+            // Verify the result is in UTC when no timezone is given (not local browser time)
+            if (!timezone) {
+                expect(real.isUTC()).toBe(true)
+            }
+            expect(real.utc().hour()).toBe(expectedUtcHour)
+            expect(real.utc().minute()).toBe(expectedUtcMinute)
+        })
+
+        it('correctly identifies past occurrences across timezone offset', () => {
+            const real = fakeUtcToReal(fakeDate, 'Europe/Riga')
+            const afterInUtc = dayjs('2026-04-03T17:00:00Z')
+            expect(real.isBefore(afterInUtc)).toBe(true)
         })
     })
 
@@ -287,6 +350,58 @@ describe('rrule-helpers', () => {
             const state: ScheduleState = { ...DEFAULT_STATE, frequency: 'daily' }
             const result = buildSummary(state, null)
             expect(result.endsWith('.')).toBe(true)
+        })
+    })
+
+    describe('parseNaturalLanguage', () => {
+        it.each([
+            ['every day', 'daily', 1, []],
+            ['every 3 days', 'daily', 3, []],
+            ['every week on Monday', 'weekly', 1, [0]],
+            ['every week on Monday and Wednesday', 'weekly', 1, [0, 2]],
+            ['every 2 weeks on Friday', 'weekly', 2, [4]],
+            ['every month on the 1st', 'monthly', 1, []],
+            ['every month on the last', 'monthly', 1, []],
+            ['every year', 'yearly', 1, []],
+        ])('parses "%s"', (text, expectedFreq, expectedInterval, expectedWeekdays) => {
+            const result = parseNaturalLanguage(text)
+            expect(result).not.toBeNull()
+            expect(result!.frequency).toBe(expectedFreq)
+            expect(result!.interval).toBe(expectedInterval)
+            if (expectedWeekdays.length > 0) {
+                expect(result!.weekdays).toEqual(expectedWeekdays)
+            }
+        })
+
+        it('parses end count', () => {
+            const result = parseNaturalLanguage('every day for 10 times')
+            expect(result).not.toBeNull()
+            expect(result!.endType).toBe('after_count')
+            expect(result!.endCount).toBe(10)
+        })
+
+        it('returns null for invalid input', () => {
+            expect(parseNaturalLanguage('not a schedule')).toBeNull()
+            expect(parseNaturalLanguage('')).toBeNull()
+            expect(parseNaturalLanguage('biweekly')).toBeNull()
+        })
+    })
+
+    describe('scheduleToText', () => {
+        it.each([
+            ['every day', { ...DEFAULT_STATE, frequency: 'daily' as const }, 'every day'],
+            [
+                'every week on Monday, Wednesday',
+                { ...DEFAULT_STATE, frequency: 'weekly' as const, weekdays: [0, 2] },
+                'every week on Monday, Wednesday',
+            ],
+            [
+                'every day for 10 times',
+                { ...DEFAULT_STATE, frequency: 'daily' as const, endType: 'after_count' as const, endCount: 10 },
+                'every day for 10 times',
+            ],
+        ])('converts state to "%s"', (_label, state, expected) => {
+            expect(scheduleToText(state, null)).toBe(expected)
         })
     })
 })

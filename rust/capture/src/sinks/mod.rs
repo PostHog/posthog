@@ -8,6 +8,8 @@ pub mod noop;
 pub mod print;
 pub mod producer;
 pub mod s3;
+#[cfg(test)]
+pub(crate) mod test_sink;
 #[async_trait]
 pub trait Event {
     async fn send(&self, event: ProcessedEvent) -> Result<(), CaptureError>;

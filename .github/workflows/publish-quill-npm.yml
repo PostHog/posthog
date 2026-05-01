@@ -1,0 +1,109 @@
+name: Publish Quill npm packages
+
+on:
+    workflow_dispatch:
+        inputs:
+            tag:
+                description: 'npm dist-tag (e.g. alpha, latest)'
+                required: true
+                default: 'alpha'
+                type: choice
+                options:
+                    - alpha
+                    - latest
+
+permissions:
+    contents: read
+
+concurrency:
+    group: ${{ github.workflow }}
+    cancel-in-progress: false
+
+jobs:
+    publish:
+        name: Build and publish
+        runs-on: ubuntu-24.04
+        timeout-minutes: 15
+        environment: Release
+        permissions:
+            contents: read
+            id-token: write
+        steps:
+            - uses: actions/checkout@v6
+
+            - name: Install pnpm
+              uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
+
+            - name: Set up Node.js
+              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+                  registry-url: https://registry.npmjs.org
+                  cache: 'pnpm'
+
+            - name: Ensure modern npm (OIDC trusted publishing support)
+              run: npm install -g npm@11.6.4
+
+            - name: Install dependencies
+              run: pnpm install --frozen-lockfile --filter "@posthog/quill..." --filter "@posthog/quill-tokens"
+
+            - name: Build quill packages
+              run: pnpm quill:build
+
+            # Only the public facade packages get published. The internal
+            # workspace members (-primitives, -components, -blocks) have
+            # `private: true` and are bundled into @posthog/quill at build
+            # time. Each public package gets its own publish + version-capture
+            # step so a failure shows up on the exact step that broke.
+            - name: Publish @posthog/quill-tokens
+              id: publish-tokens
+              working-directory: packages/quill/packages/tokens
+              run: |
+                  npm publish --tag "$NPM_TAG" --access public
+                  VERSION=$(node -p "require('./package.json').version")
+                  echo "version=$VERSION" >> $GITHUB_OUTPUT
+              env:
+                  # actions/setup-node's `registry-url` input exports
+                  # NODE_AUTH_TOKEN=XXXXX-XXXXX-XXXXX-XXXXX as a placeholder and
+                  # writes it into .npmrc. With OIDC trusted publishing we do
+                  # not have a real token, so we must clear it at the step
+                  # level — otherwise npm sends the placeholder as the bearer
+                  # token and the registry returns a 404. Matches the pattern
+                  # in release.yml and build-hogql-parser-npm.yml.
+                  NODE_AUTH_TOKEN: ''
+                  NPM_CONFIG_PROVENANCE: true
+                  NPM_TAG: ${{ inputs.tag }}
+
+            - name: Publish @posthog/quill
+              id: publish-quill
+              working-directory: packages/quill/packages/quill
+              run: |
+                  npm publish --tag "$NPM_TAG" --access public
+                  VERSION=$(node -p "require('./package.json').version")
+                  echo "version=$VERSION" >> $GITHUB_OUTPUT
+              env:
+                  NODE_AUTH_TOKEN: ''
+                  NPM_CONFIG_PROVENANCE: true
+                  NPM_TAG: ${{ inputs.tag }}
+
+            - name: Build Slack summary
+              id: versions
+              env:
+                  # Route step outputs through env vars rather than interpolating them
+                  # directly into `run:` — semgrep's github-actions-shell-injection rule
+                  # treats any `${{ steps.*.outputs.* }}` inside a shell script as a
+                  # defense-in-depth hazard, even when the upstream value is trusted.
+                  TOKENS_VERSION: ${{ steps.publish-tokens.outputs.version }}
+                  QUILL_VERSION: ${{ steps.publish-quill.outputs.version }}
+              run: |
+                  echo "summary=@posthog/quill-tokens@${TOKENS_VERSION}, @posthog/quill@${QUILL_VERSION}" >> $GITHUB_OUTPUT
+
+            - name: Notify Slack
+              if: ${{ !cancelled() }}
+              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
+              with:
+                  method: chat.postMessage
+                  token: ${{ secrets.SLACK_BOT_TOKEN }}
+                  payload: |
+                      channel: "C0AMDUUG09F"
+                      text: "${{ job.status == 'success' && ':white_check_mark:' || ':red_circle:' }} Quill npm publish (${{ inputs.tag }}): ${{ job.status }}\n${{ steps.versions.outputs.summary }}\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View run>"

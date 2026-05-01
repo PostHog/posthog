@@ -1,11 +1,11 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
-        "experimentId": {
-            "description": "The ID of the experiment to retrieve",
+        "id": {
+            "description": "A unique integer value identifying this experiment.",
             "type": "number"
         }
     },
-    "required": ["experimentId"],
+    "required": ["id"],
     "type": "object"
 }

@@ -1,6 +1,6 @@
 import json
 from collections.abc import Callable
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.parser import parse_expr, parse_program, parse_string_template
@@ -108,7 +108,7 @@ class TestBytecodeExecute:
                 "tuple": ("item1", "item2", "item3"),
             }
         }
-        chain: list[str] = ["properties", "bla"]
+        chain: list[Any] = ["properties", "bla"]
         assert get_nested_value(my_dict, chain) == "hello"
 
         chain = ["properties", "list", 2]
@@ -831,8 +831,9 @@ class TestBytecodeExecute:
         """,
             globals=globals,
         ) == {"event": "$autocapture", "properties": {"$browser": "Firefox"}}
-        assert globals["globalEvent"]["event"] == "$pageview"
-        assert globals["globalEvent"]["properties"]["$browser"] == "Chrome"
+        global_event = cast(dict[str, Any], globals["globalEvent"])
+        assert global_event["event"] == "$pageview"
+        assert cast(dict[str, str], global_event["properties"])["$browser"] == "Chrome"
 
     def test_bytecode_if_multiif_ternary(self):
         values = []

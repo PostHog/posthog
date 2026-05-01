@@ -83,9 +83,12 @@ function TestAccountFiltersConfig(): JSX.Element {
         <div className="mb-4 flex flex-col gap-2">
             <div className="mb-4 flex flex-col gap-2">
                 <LemonBanner type="info">
-                    When filtering out internal users by person properties, like email, we recommend creating a Cohort
-                    with those properties, and then adding that cohort with a "not in" operator in your ‘Filter out
-                    internal and test users’ settings.
+                    When filtering out internal users, inline person property filters (e.g., "email does not contain
+                    your-domain.com") work everywhere, including real-time CDP destinations. Alternatively, you can
+                    create a cohort and add it with a "not in" operator - this works well for analytics queries
+                    (insights, dashboards) and also works in CDP destinations if the cohort contains{' '}
+                    <strong>exclusively person property filters</strong>. Cohorts with behavioral filters or no
+                    properties defined will cause CDP destinations to error.
                 </LemonBanner>
                 {!!testAccountFilterWarningLabels && testAccountFilterWarningLabels.length > 0 && (
                     <LemonBanner type="warning" className="m-2">

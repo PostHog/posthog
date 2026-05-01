@@ -2,13 +2,14 @@ from collections.abc import Iterable
 from datetime import UTC, date, datetime
 from typing import Any, Optional, cast
 
-import requests
-from dlt.sources.helpers.requests import Request, Response
-from dlt.sources.helpers.rest_client.paginators import BasePaginator
+from requests import Request, Response
+from requests.exceptions import RequestException
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
-from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resources
+from posthog.temporal.data_imports.sources.common.http import make_tracked_session
+from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resource
 from posthog.temporal.data_imports.sources.common.rest_source.fanout import build_dependent_resource
+from posthog.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
 from posthog.temporal.data_imports.sources.common.rest_source.typing import (
     ClientConfig,
     Endpoint,
@@ -148,7 +149,7 @@ def validate_credentials(
     if schema_name == "forms":
         skip_responses_validation = True
 
-    def _parse_error_description(response: requests.Response) -> str:
+    def _parse_error_description(response: Response) -> str:
         try:
             payload = response.json()
             if isinstance(payload, dict):
@@ -159,9 +160,9 @@ def validate_credentials(
             pass
         return response.text
 
-    forms_response: requests.Response | None = None
+    forms_response: Response | None = None
     try:
-        forms_response = requests.get(
+        forms_response = make_tracked_session().get(
             f"{base_url}/forms",
             headers=headers,
             params={"page_size": 1, "page": 1},
@@ -174,7 +175,7 @@ def validate_credentials(
         elif forms_response.status_code != 200:
             errors.append(f"/forms endpoint failed: {_parse_error_description(forms_response)}")
 
-    except requests.exceptions.RequestException as exc:
+    except RequestException as exc:
         errors.append(f"/forms request failed: {exc}")
 
     if not skip_responses_validation and forms_response and forms_response.status_code == 200:
@@ -188,7 +189,7 @@ def validate_credentials(
                 errors.append("Typeform returned an invalid form id while validating responses access.")
             else:
                 try:
-                    responses_response = requests.get(
+                    responses_response = make_tracked_session().get(
                         f"{base_url}/forms/{form_id}/responses",
                         headers=headers,
                         params={"page_size": 1},
@@ -200,7 +201,7 @@ def validate_credentials(
                         errors.append("Typeform token is missing required scope for responses endpoint: responses:read")
                     elif responses_response.status_code != 200:
                         errors.append(f"/responses endpoint failed: {_parse_error_description(responses_response)}")
-                except requests.exceptions.RequestException as exc:
+                except RequestException as exc:
                     errors.append(f"/responses request failed: {exc}")
 
     if errors:
@@ -237,7 +238,6 @@ def get_resource(
     return {
         "name": config.name,
         "table_name": config.name,
-        "primary_key": config.primary_key,
         "write_disposition": {
             "disposition": "merge",
             "strategy": "upsert",
@@ -309,7 +309,6 @@ def typeform_source(
     config: RESTAPIConfig = {
         "client": _rest_api_client_config(base_api_url, auth_token),
         "resource_defaults": {
-            "primary_key": endpoint_config.primary_key,
             "write_disposition": "replace",
             "endpoint": {"params": {"page_size": endpoint_config.page_size, "page": 1}},
         },
@@ -322,7 +321,5 @@ def typeform_source(
         ],
     }
 
-    resources = rest_api_resources(config, team_id, job_id, db_incremental_field_last_value)
-    if len(resources) != 1:
-        raise ValueError(f"Expected 1 resource for endpoint '{endpoint}', got {len(resources)}")
-    return _make_source_response(endpoint_config, lambda: resources[0])
+    resource = rest_api_resource(config, team_id, job_id, db_incremental_field_last_value)
+    return _make_source_response(endpoint_config, lambda: resource)

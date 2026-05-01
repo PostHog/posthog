@@ -6,6 +6,7 @@ import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { GROUPS_LIST_DEFAULT_QUERY } from 'scenes/groups/groupsListLogic'
 import { PERSON_EVENTS_CONTEXT_KEY } from 'scenes/persons/personsLogic'
 import { PEOPLE_LIST_CONTEXT_KEY, PEOPLE_LIST_DEFAULT_QUERY } from 'scenes/persons/personsSceneLogic'
@@ -87,7 +88,9 @@ function getQueryFromView(
 
 export const tableViewLogic = kea<tableViewLogicType>([
     props({} as TableViewLogicProps),
-    key((props) => props.contextKey),
+    // Include the team id so a team switch yields a fresh logic instance
+    // rather than reusing one whose storageKey is frozen to the old team.
+    key((props) => `${getCurrentTeamId()}.${props.contextKey}`),
     path(['queries', 'nodes', 'DataTable', 'TableView', 'tableViewLogic']),
     connect({
         values: [userLogic, ['user']],
@@ -144,10 +147,14 @@ export const tableViewLogic = kea<tableViewLogicType>([
         ],
     })),
 
-    reducers({
+    reducers(({ props }) => ({
         currentView: [
             null as ColumnConfigurationApi | null,
-            { persist: true },
+            {
+                persist: true,
+                // Scope by team so views don't leak across projects (e.g. after impersonation).
+                storageKey: `queries.nodes.DataTable.TableView.tableViewLogic.${getCurrentTeamId()}.${props.contextKey}.currentView`,
+            },
             {
                 setCurrentView: (_, { view }) => view,
                 applyView: (_, { view }) => view,
@@ -181,7 +188,7 @@ export const tableViewLogic = kea<tableViewLogicType>([
                 saveCurrentAsViewSuccess: () => false,
             },
         ],
-    }),
+    })),
 
     selectors(() => ({
         hasUnsavedChanges: [

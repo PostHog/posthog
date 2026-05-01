@@ -2,10 +2,10 @@ import { useActions, useValues } from 'kea'
 import { useRef } from 'react'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 import { legacyEntityToNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
@@ -18,9 +18,9 @@ import { ExclusionRowSuffix } from './ExclusionRowSuffix'
 export function FunnelExclusionsFilter(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { exclusionFilters, exclusionDefaultStepRange, isFunnelWithEnoughSteps } = useValues(
-        insightVizDataLogic(insightProps)
+        funnelDataLogic(insightProps)
     )
-    const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
+    const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
 
     const ref = useRef(null)
 

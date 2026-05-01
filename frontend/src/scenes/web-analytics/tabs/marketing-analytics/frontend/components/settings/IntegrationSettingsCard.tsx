@@ -3,7 +3,7 @@ import { useState } from 'react'
 
 import { IconGear } from '@posthog/icons'
 
-import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
+import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
 
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
 import { IntegrationSettingsModal } from './IntegrationSettingsModal'
@@ -37,7 +37,7 @@ export function IntegrationSettingsCard({ integrationName }: IntegrationSettings
                 <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
                     <IconGear className="text-muted w-5 h-5" />
                 </div>
-                <DataWarehouseSourceIcon type={integrationName} size="medium" disableTooltip />
+                <SourceIcon type={integrationName} size="medium" disableTooltip />
                 <div className="text-center">
                     <div className="font-semibold text-sm">{integrationName}</div>
                     {hasSettings ? (

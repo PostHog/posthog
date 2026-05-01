@@ -360,3 +360,68 @@ impl IntoResponse for Error {
         (status, headers, Json(body)).into_response()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::to_bytes;
+    use axum::http::header::RETRY_AFTER;
+
+    async fn response_body(resp: Response) -> serde_json::Value {
+        let bytes = to_bytes(resp.into_body(), 65_536).await.unwrap();
+        serde_json::from_slice(&bytes).unwrap()
+    }
+
+    #[tokio::test]
+    async fn bad_request_status_and_body_shape() {
+        let err = Error::EmptyBatch;
+        let expected_status = err.status_code();
+        let expected_tag = err.tag().to_string();
+        let resp = err.into_response();
+        assert_eq!(resp.status(), expected_status);
+        let body = response_body(resp).await;
+        assert_eq!(body["error"], expected_tag);
+        assert!(body["error_description"].is_string());
+        assert!(body["error_uri"].is_string());
+    }
+
+    #[tokio::test]
+    async fn rate_limited_includes_retry_after() {
+        let err = Error::RateLimited("too many requests".into());
+        let resp = err.into_response();
+        assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert!(resp.headers().contains_key(RETRY_AFTER));
+    }
+
+    #[tokio::test]
+    async fn unauthorized_status() {
+        let err = Error::InvalidApiToken("bad".into());
+        let resp = err.into_response();
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+        let body = response_body(resp).await;
+        assert_eq!(body["error"], "invalid_api_token");
+    }
+
+    #[tokio::test]
+    async fn internal_error_status() {
+        let err = Error::InternalError("boom".into());
+        let resp = err.into_response();
+        assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    #[tokio::test]
+    async fn billing_limit_custom_error_uri() {
+        let err = Error::BillingLimitExceeded;
+        let resp = err.into_response();
+        assert_eq!(resp.status(), StatusCode::PAYMENT_REQUIRED);
+        let body = response_body(resp).await;
+        assert_eq!(body["error_uri"], "https://posthog.com/docs/billing/limits");
+    }
+
+    #[tokio::test]
+    async fn gateway_timeout_status() {
+        let err = Error::GatewayTimeout;
+        let resp = err.into_response();
+        assert_eq!(resp.status(), StatusCode::GATEWAY_TIMEOUT);
+    }
+}

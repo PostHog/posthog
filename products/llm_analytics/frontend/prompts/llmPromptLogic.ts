@@ -206,7 +206,7 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
             },
         ],
         isRenderingMarkdown: [
-            true,
+            props.promptName === 'new' ? false : (props.mode ?? PromptMode.View) !== PromptMode.Edit,
             {
                 toggleMarkdownRendering: (state) => !state,
                 setMode: (_, { mode }) => mode !== PromptMode.Edit,
@@ -498,11 +498,11 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                         'traceName',
                         'promptVersion',
                         'person',
-                        'errors',
+                        'errorCount',
                         'totalLatency',
                         'usage',
                         'totalCost',
-                        'timestamp',
+                        'createdAt',
                     ],
                     showDateRange: true,
                     showReload: true,

@@ -17,7 +17,7 @@ import { Conversation, ConversationDetail, SidePanelTab } from '~/types'
 
 import { TOOL_DEFINITIONS, ToolRegistration } from './max-constants'
 import type { maxGlobalLogicType } from './maxGlobalLogicType'
-import { maxLogic, mergeConversationHistory } from './maxLogic'
+import { maxLogic, mergeConversationHistory, mergeConversations } from './maxLogic'
 
 // Keep this stored across all projects, only display this once per device
 const AI_LIABILITY_NOTICE_STORAGE_KEY = 'posthog_ai_liability_notice_dismissed'
@@ -110,7 +110,12 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                     }
                 ) => {
                     const response = await api.conversations.list()
-                    return response.results
+                    return response.results.map((conversation) =>
+                        mergeConversations(
+                            conversation,
+                            values.conversationHistory.find((existing) => existing.id === conversation.id)
+                        )
+                    )
                 },
 
                 loadConversation: async (conversationId: string) => {

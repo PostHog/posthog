@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field, field_validator
 
-from products.signals.backend.temporal.types import SignalData
+from products.signals.backend.temporal.types import SignalData, _render_extra_to_text
 
 
 class ActionabilityChoice(str, Enum):
@@ -73,11 +73,13 @@ class ActionabilityAssessment(BaseModel):
             "Reference specific code paths and data points from your research."
         ),
     )
-    actionability: ActionabilityChoice = Field(description="Overall actionability assessment")
+    actionability: ActionabilityChoice = Field(
+        description="Overall actionability assessment. Must be one of the allowed enum values — do not invent new ones.",
+    )
     already_addressed: bool = Field(
         description=(
             "Whether the core issue described by this report appears to have been "
-            "already fixed or addressed in recent code changes."
+            "already fixed or addressed in recent code changes. Tracked separately from `actionability`."
         ),
     )
 
@@ -108,18 +110,31 @@ class PriorityAssessment(BaseModel):
 
 class ReportPresentationOutput(BaseModel):
     title: str = Field(
-        description=(
-            "A PR-style title (max 70 chars) scoped to one concrete concern. "
-            "It should read like a pull request title that one engineer could ship."
-        ),
-        max_length=70,
+        description="""
+A PR-style title (max 70 chars) scoped to one concrete concern.
+It should read like a pull request title that one engineer could ship in a single PR. Target one feature, one bug, one component, or one tightly-scoped change.
+Follow the Conventional Commits style (sentence-cased).
+If the report already has a title that is PR-specific and still accurate after your research, keep it — don't replace a good PR title with a vaguer one.
+- Good: fix(date-picker): Handle timezone conversion in insights
+- Good: feat(funnel): Add percentile options to Time to Convert
+- Bad: fix(funnel): various funnel improvements and bug fixes
+- Bad: multiple analytics issues
+        """,
+        max_length=96,  # Generous enough for descriptive PR-style titles
     )
     summary: str = Field(
-        description=(
-            "A very short factual summary of the report in 1-3 sentences. "
-            "Focus on what the signals collectively indicate and what product area is affected. "
-            "Do not restate actionability or priority."
-        ),
+        description="""
+An Axios-style summary in four brief paragraphs:
+- A one-sentence "why it matters" tl;dr of the report. Ideally start with "Users …", explaining how users are being impacted, how many, or how important they are. If users aren't impacted, but the team building the product is, describe that. Otherwise, just describe what's going on.
+- '**What's happening:** …' - a brief description of the concrete facts, expanding on the tl;dr sentence. Reference specific signals, errors, metrics, or patterns. Use available tools to do research here like a product manager would.
+- '**Root cause:** …' - dig as deep as you can into the root cause of the issue, and explain it in plain terms. Use concrete references to problematic APIs or UI elements, so that the engineer familiar with the code understands this.
+- '**How to resolve:** …' - a single, concrete action plan for the code-level fix that addresses the root cause directly. Skip if the report is not actionable.
+
+Principles:
+- Be direct and specific. Every sentence must carry information.
+- No filler phrases ("various issues detected", "it's worth noting").
+- Bold the section labels exactly as shown above.
+"""
     )
 
     @field_validator("title", "summary")
@@ -132,7 +147,7 @@ class ReportPresentationOutput(BaseModel):
 
 class ReportResearchOutput(BaseModel):
     title: str = Field(description="Generated report title.")
-    summary: str = Field(description="Generated short factual report summary.")
+    summary: str = Field(description="Generated factual report summary.")
     findings: list[SignalFinding] = Field(
         description="One finding per signal in the report, in the same order as the input signals.",
     )
@@ -243,21 +258,29 @@ def _render_signal_for_research(signal: SignalData, index: int, total: int) -> s
     lines.append(f"- **Source ID:** {signal.source_id}")
     lines.append(f"- **Weight:** {signal.weight}")
     lines.append(f"- **Timestamp:** {signal.timestamp}")
-    if signal.extra:
-        if "url" in signal.extra:
-            lines.append(f"- **URL:** {signal.extra['url']}")
-        if "labels" in signal.extra:
-            lines.append(f"- **Labels:** {', '.join(signal.extra['labels'])}")
     lines.append(f"- **Description:** {signal.content}")
+    if signal.extra:
+        lines.append("#### Extras")
+        lines.extend(_render_extra_to_text(signal.extra))
     return "\n".join(lines)
 
 
 _RESEARCH_PREAMBLE = """You are a research agent investigating a signal report for the PostHog codebase.
 Your findings will be passed downstream to a coding agent that will act on this report — thorough, evidence-based research here directly improves the quality of the coding agent's work.
 
+<writing_guide>
+We use American English.
+We use the Oxford comma.
+We always use sentence case rather than title case, including in titles, headings, subheadings, or bold text. However if quoting provided text, we keep the original case.
+When writing numbers in the thousands to the billions, it's acceptable to abbreviate them (like 10M or 100B - capital letter, no space). If you write out the full number, use commas (like 15,000,000).
+We never use the em-dash, only the en-dash (–).
+</writing_guide>
+
 You have two investigation tools:
 1. **The codebase** — the full PostHog repository is available on disk. Use file search, grep, and code reading.
-2. **PostHog MCP** — you can query PostHog analytics data via MCP tools like `execute-sql`, `query-run`, `read-data-schema`, `insights-get-all`, `experiment-get`, `list-errors`, `feature-flag-get-all`, etc."""
+2. **PostHog MCP** — you can query PostHog analytics data via MCP tools like `execute-sql`, `query-run`, `read-data-schema`, `insights-get-all`, `experiment-get`, `list-errors`, `feature-flag-get-all`, etc.
+
+When a signal includes **Attached images**, the URLs are publicly reachable — fetch them directly to inspect screenshots, UI issues, or other visual evidence."""
 
 _RESEARCH_PROTOCOL = """## Research protocol
 
@@ -437,20 +460,7 @@ def build_report_presentation_prompt(
 
     return f"""Now write the final **report title and summary** based on your research across all {total_signals} signal(s).
 
-## Output goals
-
-- **Title**: a PR-style title (max 70 chars) scoped to one concrete concern.
-- If the report already has a title that is PR-specific and still accurate after your research, keep it — don't replace a good PR title with a vaguer one.
-- It should read like a pull request title that one engineer could ship in a single PR. Target one feature, one bug, one component, or one tightly-scoped change.
-  - Good: "Fix date picker timezone handling in insights"
-  - Good: "Add percentile options to funnel Time to Convert"
-  - Bad: "Various funnel improvements and bug fixes"
-  - Bad: "Multiple analytics issues"
-
-- **Summary**: 1-3 short factual sentences explaining what the signals collectively indicate and what area of the product or codebase is involved.
-- Do **not** restate actionability, priority, urgency, or next steps unless they are part of the factual issue itself.
-- Keep the summary compact and information-dense.
-
+Style rules:
 {previous_presentation_context}
 
 Respond with a JSON object matching this schema:
@@ -480,12 +490,13 @@ async def run_multi_turn_research(
     summary: str | None = None,
     previous_report_id: str | None = None,
     previous_report_research: ReportResearchOutput | None = None,
-    branch: str = "master",
+    branch: str | None = None,
     verbose: bool = False,
     output_fn: OutputFn = None,
     signal_report_id: str | None = None,
 ) -> ReportResearchOutput:
     """Orchestrate a multi-turn sandbox session that investigates each signal individually."""
+    from products.tasks.backend.models import Task
     from products.tasks.backend.services.custom_prompt_multi_turn_runner import MultiTurnSession
 
     total = len(signals)
@@ -521,9 +532,22 @@ async def run_multi_turn_research(
         step_name="report_research",
         verbose=verbose,
         output_fn=output_fn,
-        origin_product="signal_report",
+        origin_product=Task.OriginProduct.SIGNAL_REPORT,
         signal_report_id=signal_report_id,
+        internal=True,
     )
+
+    # Record the research task relationship immediately after task creation
+    if signal_report_id:
+        from products.signals.backend.models import SignalReportTask
+
+        await SignalReportTask.objects.acreate(
+            team_id=context.team_id,
+            report_id=signal_report_id,
+            task_id=str(session.task.id),
+            relationship=SignalReportTask.Relationship.RESEARCH,
+        )
+
     first_finding = _enforce_signal_id(first_finding, signals[0].signal_id)
     findings: list[SignalFinding] = [first_finding]
     if output_fn:

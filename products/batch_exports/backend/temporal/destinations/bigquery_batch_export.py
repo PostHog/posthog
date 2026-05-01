@@ -19,6 +19,7 @@ import google.auth.exceptions
 import google.auth.transport.requests
 import google.auth.impersonated_credentials
 from google.api_core.exceptions import (
+    BadRequest,
     Forbidden,
     GatewayTimeout,
     GoogleAPICallError,
@@ -72,7 +73,11 @@ from products.batch_exports.backend.temporal.spmc import (
     raise_on_task_failure,
     wait_for_schema_or_producer,
 )
-from products.batch_exports.backend.temporal.utils import JsonType, handle_non_retryable_errors
+from products.batch_exports.backend.temporal.utils import (
+    JsonType,
+    handle_non_retryable_errors,
+    make_retryable_with_exponential_backoff,
+)
 
 NON_RETRYABLE_ERROR_TYPES = (
     # Raised on missing permissions.
@@ -514,6 +519,10 @@ def impersonate_service_account(
     return their_credentials
 
 
+def _is_contention_exception(exc: Exception) -> bool:
+    return "concurrent update" in str(exc)
+
+
 class BigQueryClient:
     """Async client to interact with BigQuery.
 
@@ -934,7 +943,16 @@ class BigQueryClient:
         """
 
         self.logger.info("Merging into final table", table_id=final.name, stage_table_id=stage.name)
-        return await self.execute_query(merge_query)
+        query_job = make_retryable_with_exponential_backoff(
+            self.execute_query,
+            retryable_exceptions=(BadRequest,),
+            max_attempts=None,
+            # In case BadRequest is raised for other type of errors, we ensure we only
+            # retry forever when it is a contention problem by checking the exception
+            # message
+            is_exception_retryable=_is_contention_exception,
+        )
+        return await query_job(merge_query)
 
     async def load_file(self, file, format: FileFormat, table: BigQueryTable):
         """Load a file into BigQuery table."""

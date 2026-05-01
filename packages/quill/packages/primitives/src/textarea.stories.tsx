@@ -1,4 +1,4 @@
-import type { Meta, StoryObj } from '@storybook/react-vite'
+import type { Meta, StoryObj } from '@storybook/react'
 
 import { Field, FieldDescription, FieldLabel } from './field'
 import { Textarea } from './textarea'

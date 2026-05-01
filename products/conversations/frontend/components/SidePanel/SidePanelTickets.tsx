@@ -8,13 +8,14 @@ import { TicketsList } from './TicketsList'
 
 export function SidePanelTickets(): JSX.Element {
     const { view } = useValues(sidepanelTicketsLogic)
+    const hasIdentityMode = !!window.JS_POSTHOG_IDENTITY_DISTINCT_ID
 
     return (
         <div>
             {view === 'list' && <TicketsList />}
             {view === 'ticket' && <Ticket />}
             {view === 'new' && <NewTicket />}
-            {view === 'restore' && <RestoreTickets />}
+            {view === 'restore' && !hasIdentityMode && <RestoreTickets />}
         </div>
     )
 }

@@ -5,9 +5,9 @@ A test wrapper for rendering insight components (or any component that depends o
 ## Quick start
 
 ```tsx
-import { renderInsightPage, waitForChart, buildTrendsQuery } from './index'
+import { renderInsight, waitForChart, buildTrendsQuery } from './index'
 
-renderInsightPage({
+renderInsight({
   query: buildTrendsQuery({
     series: [{ kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' }],
   }),
@@ -17,7 +17,7 @@ const chart = await waitForChart()
 expect(chart.series('$pageview').data).toEqual([45, 82, 134, 210, 95])
 ```
 
-## `renderInsightPage(props?)`
+## `renderInsight(props?)`
 
 Renders a full `InsightViz` component with mocked API responses.
 Handles all setup automatically — Kea context, common logics, and API mocks.

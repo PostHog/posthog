@@ -6,6 +6,7 @@ import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase } from '@/tools/types'
 
 import { analyzeQuery } from '../shared'
+import { extractHogQLMetadata, formatHogQLMetadataForAgent } from './hogql-error-format'
 
 const schema = QueryRunInputSchema
 
@@ -23,12 +24,14 @@ export const queryRunHandler: ToolBase<typeof schema, Result>['handler'] = async
     })
 
     if (!queryResult.success) {
-        throw new Error(`Failed to query insight: ${queryResult.error.message}`)
+        const metadata = extractHogQLMetadata(queryResult.error)
+        const metadataBlock = formatHogQLMetadataForAgent(metadata)
+        const suffix = metadataBlock ? `\n\n${metadataBlock}` : ''
+        throw new Error(`Failed to query insight: ${queryResult.error.message}${suffix}`)
     }
 
-    const baseUrl = context.api.getProjectBaseUrl(projectId)
     const queryParam = encodeURIComponent(JSON.stringify(query))
-    const path = `${baseUrl}/insights/new?q=${queryParam}`
+    const path = `/insights/new#q=${queryParam}`
 
     const queryInfo = analyzeQuery(query)
 

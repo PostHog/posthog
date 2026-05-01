@@ -5,7 +5,18 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from posthog.schema import EventsNode, LifecycleQuery, StickinessQuery, TrendsQuery
+from posthog.schema import (
+    ChartDisplayType,
+    DataTableNode,
+    DataVisualizationNode,
+    EventsNode,
+    HogQLQuery,
+    InsightVizNode,
+    LifecycleQuery,
+    StickinessQuery,
+    TrendsFilter,
+    TrendsQuery,
+)
 
 from .. import format_query_results_for_llm
 
@@ -15,10 +26,9 @@ class TestFormatQueryResultsForLlm(TestCase):
         [
             (
                 "boxplot_data_uses_boxplot_formatter",
-                TrendsQuery(series=[]),
+                TrendsQuery(series=[], trendsFilter=TrendsFilter(display=ChartDisplayType.BOX_PLOT)),
                 {
-                    "results": [],
-                    "boxplot_data": [
+                    "results": [
                         {
                             "day": "2025-01-20",
                             "label": "Day 1",
@@ -64,7 +74,7 @@ class TestFormatQueryResultsForLlm(TestCase):
                         },
                     ],
                 },
-                "Date|new|dormant",
+                "Date|New|Returning|Resurrecting|Dormant",
             ),
             (
                 "stickiness_query",
@@ -93,7 +103,35 @@ class TestFormatQueryResultsForLlm(TestCase):
 
     def test_boxplot_empty_list_still_uses_boxplot_formatter(self):
         team = MagicMock()
-        query = TrendsQuery(series=[])
-        response: dict[str, Any] = {"results": [], "boxplot_data": []}
+        query = TrendsQuery(series=[], trendsFilter=TrendsFilter(display=ChartDisplayType.BOX_PLOT))
+        response: dict[str, Any] = {"results": []}
         result = format_query_results_for_llm(query, response, team)
         self.assertEqual(result, "No data recorded for this time period.")
+
+    @parameterized.expand(
+        [
+            (
+                "insight_viz_node_unwraps_to_trends",
+                InsightVizNode(source=TrendsQuery(series=[])),
+                {"results": [{"data": [1], "label": "test", "days": ["2025-01-01"]}]},
+                "Date|test",
+            ),
+            (
+                "data_visualization_node_unwraps_to_hogql",
+                DataVisualizationNode(source=HogQLQuery(query="select 1")),
+                {"results": [[1]], "columns": ["one"]},
+                "one",
+            ),
+            (
+                "data_table_node_unwraps_to_hogql",
+                DataTableNode(source=HogQLQuery(query="select 1")),
+                {"results": [[1]], "columns": ["one"]},
+                "one",
+            ),
+        ]
+    )
+    def test_envelope_nodes_are_unwrapped(self, _name: str, query, response: dict, expected_substr: str):
+        team = MagicMock()
+        result = format_query_results_for_llm(query, response, team)
+        assert result is not None, f"Expected a formatted result, got None for {_name}"
+        self.assertIn(expected_substr, result)

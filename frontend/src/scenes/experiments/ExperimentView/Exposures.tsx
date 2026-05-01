@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useCallback, useState } from 'react'
 
-import { IconCheckCircle, IconCorrelationAnalysis, IconPencil, IconWarning } from '@posthog/icons'
+import { IconCheckCircle, IconCorrelationAnalysis, IconInfo, IconPencil, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonCollapse, LemonTable, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { getSeriesBackgroundColor, getSeriesColor } from 'lib/colors'
@@ -16,9 +16,10 @@ import {
     ExperimentExposureTimeSeries,
 } from '~/queries/schema/schema-general'
 
+import { EXPERIMENT_VARIANT_MULTIPLE } from '../constants'
 import { experimentLogic } from '../experimentLogic'
 import { useChartColors } from '../MetricsView/shared/colors'
-import { filterLowMultipleVariant, getExposureConfigDisplayName } from '../utils'
+import { filterLowMultipleVariant, getExposureConfigDisplayName, resolveMultipleVariantHandling } from '../utils'
 import { VariantTag } from './components'
 import { exposureCriteriaModalLogic } from './exposureCriteriaModalLogic'
 
@@ -166,7 +167,13 @@ export function Exposures(): JSX.Element {
         }
     }
 
-    const filteredVariants = filterLowMultipleVariant(variants)
+    // Collapsed/header: hide `$multiple` below 0.5% for cleanliness
+    // Expanded/table: shows `$multiple` for clarity/investigating
+    const filteredVariantsForHeader = filterLowMultipleVariant(variants)
+
+    const resolvedHandling = resolveMultipleVariantHandling(exposureCriteria?.multiple_variant_handling)
+    const multipleTreatmentLabel =
+        resolvedHandling === 'first_seen' ? 'using first seen variant' : 'excluded from analysis'
 
     // Detect sample ratio mismatch (p < 0.001 is significant)
     const hasSRM = exposures?.sample_ratio_mismatch != null && exposures.sample_ratio_mismatch.p_value < 0.001
@@ -261,7 +268,12 @@ export function Exposures(): JSX.Element {
         style: { backgroundColor: 'var(--color-bg-table)' },
         children: (
             <div className="flex items-center gap-3 metric-cell" style={{ minHeight: '33px' }}>
-                <span className="metric-cell-header font-bold">Exposures</span>
+                <span className="metric-cell-header font-bold inline-flex items-center gap-1">
+                    Exposures
+                    <Tooltip title="Cumulative unique users exposed to the experiment. A user is counted once at first exposure, not per event.">
+                        <IconInfo className="text-secondary text-base" />
+                    </Tooltip>
+                </span>
 
                 {!isExperimentDraft && (
                     <div
@@ -283,9 +295,9 @@ export function Exposures(): JSX.Element {
                                         : humanFriendlyNumber(totalExposures)}
                                 </span>
                                 {exposures?.timeseries?.length > 0 && <MicroChart exposures={exposures} />}
-                                {filteredVariants.length > 0 && (
+                                {filteredVariantsForHeader.length > 0 && (
                                     <div className="ml-2 flex items-center gap-4">
-                                        {filteredVariants.map(({ variant, percentage }) => (
+                                        {filteredVariantsForHeader.map(({ variant, percentage }) => (
                                             <div key={variant} className="flex items-center gap-2">
                                                 <div className="metric-cell">
                                                     <VariantTag variantKey={variant} />
@@ -370,10 +382,8 @@ export function Exposures(): JSX.Element {
                                     <h3 className="card-secondary">Total exposures</h3>
                                     <LemonTable
                                         dataSource={[
-                                            ...(exposures?.timeseries || []).filter(
-                                                (series: ExperimentExposureTimeSeries) =>
-                                                    filteredVariants.some((v) => v.variant === series.variant)
-                                            ),
+                                            //This includes EXPERIMENT_VARIANT_MULTIPLE
+                                            ...(exposures?.timeseries || []),
                                             { variant: '__total__', isTotal: true },
                                         ]}
                                         columns={[
@@ -384,7 +394,27 @@ export function Exposures(): JSX.Element {
                                                     if (series.isTotal) {
                                                         return <span className="font-semibold">Total</span>
                                                     }
-                                                    return <VariantTag variantKey={series.variant} />
+                                                    const isMultiple = series.variant === EXPERIMENT_VARIANT_MULTIPLE
+                                                    return (
+                                                        <div className="flex items-center gap-1.5">
+                                                            <VariantTag variantKey={series.variant} />
+                                                            {isMultiple && (
+                                                                <>
+                                                                    <span className="text-xs text-secondary">
+                                                                        ({multipleTreatmentLabel})
+                                                                    </span>
+                                                                    <LemonButton
+                                                                        icon={<IconPencil fontSize="12" />}
+                                                                        size="xsmall"
+                                                                        type="secondary"
+                                                                        onClick={() =>
+                                                                            openExposureCriteriaModal(exposureCriteria)
+                                                                        }
+                                                                    />
+                                                                </>
+                                                            )}
+                                                        </div>
+                                                    )
                                                 },
                                             },
                                             {

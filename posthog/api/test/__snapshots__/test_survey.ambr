@@ -2,7 +2,7 @@
 # name: TestResponsesCount.test_responses_count
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT JSONExtractString(properties, '$survey_id') as survey_id,
+  SELECT replaceRegexpAll(JSONExtractRaw(properties, '$survey_id'), '^"|"$', '') as survey_id,
          count()
   FROM events
   WHERE team_id = 99999
@@ -14,10 +14,10 @@
        WHERE team_id = 99999
          AND timestamp >= '2024-01-21 14:40:09'
          AND event = 'survey sent'
-       GROUP BY JSONExtractString(properties, '$survey_id'),
+       GROUP BY replaceRegexpAll(JSONExtractRaw(properties, '$survey_id'), '^"|"$', ''),
                 CASE
-                    WHEN COALESCE(JSONExtractString(properties, '$survey_submission_id'), '') = '' THEN toString(uuid)
-                    ELSE JSONExtractString(properties, '$survey_submission_id')
+                    WHEN COALESCE(replaceRegexpAll(JSONExtractRaw(properties, '$survey_submission_id'), '^"|"$', ''), '') = '' THEN toString(uuid)
+                    ELSE replaceRegexpAll(JSONExtractRaw(properties, '$survey_submission_id'), '^"|"$', '')
                 END)
   GROUP BY survey_id
   '''
@@ -25,7 +25,7 @@
 # name: TestResponsesCount.test_responses_count_only_after_first_survey_started
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT JSONExtractString(properties, '$survey_id') as survey_id,
+  SELECT replaceRegexpAll(JSONExtractRaw(properties, '$survey_id'), '^"|"$', '') as survey_id,
          count()
   FROM events
   WHERE team_id = 99999
@@ -37,10 +37,10 @@
        WHERE team_id = 99999
          AND timestamp >= '2024-04-25 14:40:09'
          AND event = 'survey sent'
-       GROUP BY JSONExtractString(properties, '$survey_id'),
+       GROUP BY replaceRegexpAll(JSONExtractRaw(properties, '$survey_id'), '^"|"$', ''),
                 CASE
-                    WHEN COALESCE(JSONExtractString(properties, '$survey_submission_id'), '') = '' THEN toString(uuid)
-                    ELSE JSONExtractString(properties, '$survey_submission_id')
+                    WHEN COALESCE(replaceRegexpAll(JSONExtractRaw(properties, '$survey_submission_id'), '^"|"$', ''), '') = '' THEN toString(uuid)
+                    ELSE replaceRegexpAll(JSONExtractRaw(properties, '$survey_submission_id'), '^"|"$', '')
                 END)
   GROUP BY survey_id
   '''
@@ -48,7 +48,7 @@
 # name: TestResponsesCount.test_responses_count_with_partial_responses
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT JSONExtractString(properties, '$survey_id') as survey_id,
+  SELECT replaceRegexpAll(JSONExtractRaw(properties, '$survey_id'), '^"|"$', '') as survey_id,
          count()
   FROM events
   WHERE team_id = 99999
@@ -60,10 +60,10 @@
        WHERE team_id = 99999
          AND timestamp >= '2024-06-10 11:00:00'
          AND event = 'survey sent'
-       GROUP BY JSONExtractString(properties, '$survey_id'),
+       GROUP BY replaceRegexpAll(JSONExtractRaw(properties, '$survey_id'), '^"|"$', ''),
                 CASE
-                    WHEN COALESCE(JSONExtractString(properties, '$survey_submission_id'), '') = '' THEN toString(uuid)
-                    ELSE JSONExtractString(properties, '$survey_submission_id')
+                    WHEN COALESCE(replaceRegexpAll(JSONExtractRaw(properties, '$survey_submission_id'), '^"|"$', ''), '') = '' THEN toString(uuid)
+                    ELSE replaceRegexpAll(JSONExtractRaw(properties, '$survey_submission_id'), '^"|"$', '')
                 END)
   GROUP BY survey_id
   '''

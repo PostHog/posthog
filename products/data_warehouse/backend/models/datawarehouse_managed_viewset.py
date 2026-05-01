@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any, cast
 
-from django.db import models, transaction
+from django.db import connection, models, transaction
 
 import structlog
 
@@ -36,7 +36,7 @@ class ExpectedView:
 
 class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    kind = models.CharField(max_length=64, choices=DataWarehouseManagedViewSetKind.choices)
+    kind = models.CharField(max_length=64, choices=DataWarehouseManagedViewSetKind)
 
     class Meta:
         constraints = [
@@ -78,10 +78,53 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
         # or else we'll fail to build the paths properly.
         expected_view_names = [view.name for view in expected_views]
 
+        # Pre-compute external_tables OUTSIDE the transaction. get_s3_tables is expensive:
+        # it builds a HogQL Database context, parses, and resolves each query. Doing
+        # this inside the transaction held row locks for seconds across all 6 views.
+        # Build the database once and reuse it for all views.
+        from posthog.hogql.database.database import Database
+
+        database = Database.create_for(self.team.pk)
+        external_tables_by_view: dict[str, list] = {}
+        for view in expected_views:
+            temp_sq = DataWarehouseSavedQuery(
+                name=view.name,
+                team=self.team,
+                query=view.query,
+                columns=view.columns,
+            )
+            try:
+                external_tables_by_view[view.name] = temp_sq.get_s3_tables(database=database)
+            except Exception as e:
+                capture_exception(e, {"view_name": view.name, "team_id": self.team.pk})
+                logger.warning(
+                    "failed_to_compute_s3_tables",
+                    team_id=self.team_id,
+                    view_name=view.name,
+                    error=str(e),
+                )
+                external_tables_by_view[view.name] = []
+
         views_created = 0
         views_updated = 0
+        saved_queries_to_schedule: list[DataWarehouseSavedQuery] = []
+        orphaned_views_to_revert: list[DataWarehouseSavedQuery] = []
 
+        # Keep this transaction short: persist DB changes only. The post-commit work
+        # (schedule_materialization → Temporal RPCs + DataWarehouseModelPath updates,
+        # and orphan revert_materialization) runs outside the atomic block so row
+        # locks on posthog_datawarehousesavedquery aren't held across synchronous
+        # Temporal RPCs.
         with transaction.atomic():
+            # Serialize concurrent sync_views calls for the same team+kind to prevent
+            # deadlocks when multiple data source schemas complete simultaneously and
+            # each tries to update the same set of saved queries.
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT pg_advisory_xact_lock(hashtext(%s)::bigint)",
+                    [f"{self.team_id}_sync_views_{self.kind}"],
+                )
+
             for view in expected_views:
                 # Get the one from the DB or create a new one if doesn't exist yet
                 saved_query = DataWarehouseSavedQuery.objects.filter(
@@ -101,42 +144,57 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
                 # Do NOT use get_columns because it runs the query, and these are possibly heavy
                 saved_query.query = view.query
                 saved_query.columns = view.columns
-                saved_query.external_tables = saved_query.s3_tables
+                saved_query.external_tables = external_tables_by_view[view.name]
                 saved_query.is_materialized = True
                 saved_query.sync_frequency_interval = timedelta(hours=12)
 
                 saved_query.save()
-                saved_query.schedule_materialization()
+                saved_queries_to_schedule.append(saved_query)
 
                 if created:
                     views_created += 1
                 else:
                     views_updated += 1
 
-            views_deleted = 0
-            orphaned_views = self.saved_queries.exclude(name__in=expected_view_names).exclude(deleted=True)
-            for orphaned_view in orphaned_views:
-                try:
-                    orphaned_view.revert_materialization()
-                    orphaned_view.soft_delete()
-                    views_deleted += 1
-                except Exception as e:
-                    capture_exception(e, {"managed_viewset_id": self.id, "view_name": orphaned_view.name})
-                    logger.warning(
-                        "failed_to_delete_orphaned_view",
-                        team_id=self.team_id,
-                        view_name=orphaned_view.name,
-                        error=str(e),
-                    )
-
-            logger.info(
-                "sync_views_completed",
-                team_id=self.team_id,
-                kind=self.kind,
-                views_created=views_created,
-                views_updated=views_updated,
-                views_deleted=views_deleted,
+            orphaned_views_to_revert = list(
+                self.saved_queries.exclude(name__in=expected_view_names).exclude(deleted=True)
             )
+
+        for saved_query in saved_queries_to_schedule:
+            try:
+                saved_query.schedule_materialization()
+            except Exception as e:
+                capture_exception(e, {"managed_viewset_id": self.id, "view_name": saved_query.name})
+                logger.warning(
+                    "failed_to_schedule_managed_view",
+                    team_id=self.team_id,
+                    view_name=saved_query.name,
+                    error=str(e),
+                )
+
+        views_deleted = 0
+        for orphaned_view in orphaned_views_to_revert:
+            try:
+                orphaned_view.revert_materialization()
+                orphaned_view.soft_delete()
+                views_deleted += 1
+            except Exception as e:
+                capture_exception(e, {"managed_viewset_id": self.id, "view_name": orphaned_view.name})
+                logger.warning(
+                    "failed_to_delete_orphaned_view",
+                    team_id=self.team_id,
+                    view_name=orphaned_view.name,
+                    error=str(e),
+                )
+
+        logger.info(
+            "sync_views_completed",
+            team_id=self.team_id,
+            kind=self.kind,
+            views_created=views_created,
+            views_updated=views_updated,
+            views_deleted=views_deleted,
+        )
 
     def delete_with_views(self) -> int:
         """

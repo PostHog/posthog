@@ -1,6 +1,8 @@
+import type { InactivityPeriod } from '@posthog/replay-headless/protocol'
+
 import { config as defaultConfig } from '../config'
 import { type Logger, createLogger } from '../logger'
-import { RasterizeRecordingInput, RecordingResult } from '../types'
+import { RasterizationProgress, RasterizeRecordingInput, RecordingResult } from '../types'
 import { elapsed } from '../utils'
 import { BlockProxy } from './block-proxy'
 import { BrowserPool } from './browser-pool'
@@ -9,12 +11,42 @@ import { CapturePage } from './capture-page'
 import { buildCaptureConfig, buildPlayerConfig, validateInput } from './config'
 import { PlayerController } from './player'
 
+// Matches the raw frameCaptured count from puppeteer-capture (pre-ffmpeg).
+function estimateTotalFrames(
+    periods: InactivityPeriod[],
+    input: RasterizeRecordingInput,
+    playbackSpeed: number,
+    captureFps: number
+): number {
+    const skipInactivity = input.skip_inactivity !== false
+    let sessionS: number
+    if (skipInactivity) {
+        sessionS = periods.filter((p) => p.active).reduce((sum, p) => sum + ((p.ts_to_s ?? 0) - p.ts_from_s), 0)
+    } else if (periods.length > 0) {
+        sessionS = periods[periods.length - 1].ts_to_s ?? 0
+    } else {
+        return 0
+    }
+
+    if (input.max_virtual_time != null) {
+        sessionS = Math.min(sessionS, input.max_virtual_time)
+    }
+
+    let videoS = sessionS / playbackSpeed
+    if (input.trim != null) {
+        videoS = Math.min(videoS, input.trim)
+    }
+
+    return Math.max(0, Math.ceil(videoS * captureFps))
+}
+
 export async function rasterizeRecording(
     pool: BrowserPool,
     input: RasterizeRecordingInput,
     outputPath: string,
     playerHtml: string,
     onProgress: () => void,
+    progress: RasterizationProgress | null = null,
     cfg: typeof defaultConfig = defaultConfig,
     log: Logger = createLogger({ session_id: input.session_id, team_id: input.team_id })
 ): Promise<RecordingResult> {
@@ -57,7 +89,19 @@ export async function rasterizeRecording(
 
         const setupS = elapsed(setupStart)
 
-        const captureResult = await capturePlayback(player, captureConfig, outputPath, onProgress, log)
+        if (progress) {
+            progress.estimatedTotalFrames = estimateTotalFrames(
+                player.getInactivityPeriods(),
+                input,
+                captureConfig.playbackSpeed,
+                captureConfig.captureFps
+            )
+            progress.phase = 'capture'
+            onProgress()
+            log.info({ estimated_total_frames: progress.estimatedTotalFrames }, 'estimated capture workload')
+        }
+
+        const captureResult = await capturePlayback(player, captureConfig, outputPath, onProgress, progress, log)
 
         return {
             video_path: outputPath,

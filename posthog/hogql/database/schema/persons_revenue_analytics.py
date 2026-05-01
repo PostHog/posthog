@@ -1,5 +1,4 @@
 from collections import defaultdict
-from typing import Literal
 
 from posthog.schema import DatabaseSchemaManagedViewTableKind
 
@@ -14,11 +13,10 @@ from posthog.hogql.database.models import (
     LazyTableToAdd,
     StringDatabaseField,
 )
+from posthog.hogql.database.schema.util.revenue_analytics import get_table_kind, is_event_view
 from posthog.hogql.errors import ResolutionError
 
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DECIMAL_PRECISION
-
-from products.revenue_analytics.backend.views.schemas import SCHEMAS as VIEW_SCHEMAS
 
 ZERO_DECIMAL = ast.Call(
     name="toDecimal", args=[ast.Constant(value=0), ast.Constant(value=EXCHANGE_RATE_DECIMAL_PRECISION)]
@@ -42,7 +40,7 @@ def _select_from_persons_revenue_analytics_table(context: HogQLContext) -> ast.S
     # since the `persons` join is in the child view
     all_views = defaultdict[str, dict](defaultdict)
     for view_name in context.database.get_view_names():
-        table_kind = _get_table_kind(view_name)
+        table_kind = get_table_kind(view_name)
         if table_kind is not None:
             view = context.database.get_table(view_name)
             prefix = ".".join(view_name.split(".")[:-1])
@@ -62,7 +60,7 @@ def _select_from_persons_revenue_analytics_table(context: HogQLContext) -> ast.S
         # If we're working with event views, we can use the customer's id field directly
         # Otherwise, we need to join with the persons table by checking whether it exists
         person_id_chain: list[str | int] | None = None
-        if _is_event_view(customer_view.name):
+        if is_event_view(customer_view.name):
             person_id_chain = [RevenueAnalyticsCustomerView.get_generic_view_alias(), "id"]
         else:
             persons_lazy_join = customer_view.fields.get("persons")
@@ -157,53 +155,6 @@ def _select_from_persons_revenue_analytics_table(context: HogQLContext) -> ast.S
         return queries[0]
     else:
         return ast.SelectSetQuery.create_from_queries(queries, set_operator="UNION ALL")
-
-
-def _get_table_kind(
-    view_name: str,
-) -> (
-    Literal[
-        DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CUSTOMER,
-        DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_MRR,
-        DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_REVENUE_ITEM,
-    ]
-    | None
-):
-    if _is_customer_schema(view_name=view_name):
-        return DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CUSTOMER
-
-    if _is_mrr_schema(view_name=view_name):
-        return DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_MRR
-
-    if _is_revenue_item_schema(view_name=view_name):
-        return DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_REVENUE_ITEM
-
-    return None
-
-
-def _is_customer_schema(view_name: str) -> bool:
-    customer_schema = VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CUSTOMER]
-    return view_name.endswith(customer_schema.source_suffix) or view_name.endswith(customer_schema.events_suffix)
-
-
-def _is_mrr_schema(view_name: str) -> bool:
-    mrr_schema = VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_MRR]
-    return view_name.endswith(mrr_schema.source_suffix) or view_name.endswith(mrr_schema.events_suffix)
-
-
-def _is_revenue_item_schema(view_name: str) -> bool:
-    revenue_item_schema = VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_REVENUE_ITEM]
-    return view_name.endswith(revenue_item_schema.source_suffix) or view_name.endswith(
-        revenue_item_schema.events_suffix
-    )
-
-
-def _is_event_view(view_name: str) -> bool:
-    return _get_event_name(view_name) is not None
-
-
-def _get_event_name(view_name: str) -> str | None:
-    return view_name.split(".")[2] if "revenue_analytics.events" in view_name else None
 
 
 class PersonsRevenueAnalyticsTable(LazyTable):

@@ -37,7 +37,7 @@ function ExperimentListContent({ data, app }: { data: ExperimentListData; app: A
             try {
                 const result = await app.callServerTool({
                     name: 'experiment-get',
-                    arguments: { experimentId: item.id },
+                    arguments: { id: item.id },
                 })
                 if (result.isError || !result.structuredContent) {
                     fallbackToChat(item.name)

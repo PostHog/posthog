@@ -12,8 +12,10 @@ CREATED_TIMESTAMP = 1669766400  # Nov 30, 2022 - ChatGPT release date - we don't
 
 
 class TruncationPolicyConfig(BaseModel):
-    mode: str = "bytes"  # codex-acp TruncationMode: "bytes" | "tokens"
-    limit: int = 0
+    # Truncation for tool outputs: "bytes" | "tokens". 0 means fully truncated.
+    # Default: bytes(10_000), matches codex fallback. Override with tool_output_token_limit.
+    mode: Literal["bytes", "tokens"] = "bytes"
+    limit: int = 10_000
 
 
 class ModelObject(BaseModel):

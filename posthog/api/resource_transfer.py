@@ -8,6 +8,7 @@ from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.models import Team, User
@@ -54,6 +55,7 @@ class ResourceSearchSerializer(serializers.Serializer):
 
 class ResourceTransferViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "INTERNAL"
+    serializer_class = _FallbackSerializer
 
     @action(detail=False, methods=["POST"])
     def preview(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -107,7 +109,8 @@ class ResourceTransferViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 dest_visitor = ResourceTransferVisitor.get_visitor(dest_kind)
                 if dest_visitor is not None:
                     try:
-                        dest_resource = dest_visitor.get_model().objects.get(pk=dest_pk)
+                        dest_model = cast(Any, dest_visitor.get_model())
+                        dest_resource = dest_model.objects.get(pk=dest_pk)
                         entry["suggested_substitution"] = {
                             "resource_kind": dest_kind,
                             "resource_id": str(dest_pk),
@@ -231,7 +234,7 @@ class ResourceTransferViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 raise exceptions.PermissionDenied(
                     f"You do not have read access to {visitor.kind} resources in this project"
                 )
-        qs = model.objects.filter(team=team)
+        qs = cast(Any, model).objects.filter(team=team)
 
         query = data.get("q", "").strip()
         if query:
@@ -275,7 +278,7 @@ class ResourceTransferViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
         model = visitor.get_model()
         try:
-            return model.objects.get(pk=resource_id, team=source_team)
+            return cast(Any, model).objects.get(pk=resource_id, team=source_team)
         except ObjectDoesNotExist:
             raise exceptions.NotFound(f"{resource_kind} with id {resource_id} not found in source team")
 

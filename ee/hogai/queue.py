@@ -105,7 +105,7 @@ class ConversationQueueStore:
             queue = self.list()
             for index, item in enumerate(queue):
                 if item.get("id") == queue_id:
-                    queue[index] = {**item, "content": content}
+                    queue[index] = {**item, "content": content}  # ty: ignore[invalid-assignment]
                     self.save(queue)
                     return queue
             return queue

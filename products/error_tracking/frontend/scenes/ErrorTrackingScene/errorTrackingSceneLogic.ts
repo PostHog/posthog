@@ -4,8 +4,6 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Params } from 'scenes/sceneTypes'
 import { settingsLogic } from 'scenes/settings/settingsLogic'
 
@@ -21,6 +19,7 @@ import {
 } from '../../components/IssueFilters/issueFiltersLogic'
 import { issueQueryOptionsLogic } from '../../components/IssueQueryOptions/issueQueryOptionsLogic'
 import { bulkSelectLogic } from '../../logics/bulkSelectLogic'
+import { pendingFingerprintIssueStateUpdateLogic } from '../../logics/pendingFingerprintIssueStateUpdateLogic'
 import { errorTrackingQuery } from '../../queries'
 import {
     ERROR_TRACKING_LISTING_RESOLUTION,
@@ -34,7 +33,7 @@ export const ERROR_TRACKING_SCENE_LOGIC_KEY = 'ErrorTrackingScene'
 
 const DEFAULT_ACTIVE_TAB = 'issues'
 
-export type ErrorTrackingSceneActiveTab = 'issues' | 'insights' | 'configuration'
+export type ErrorTrackingSceneActiveTab = 'issues' | 'insights' | 'recommendations' | 'configuration'
 
 export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
     path(['products', 'error_tracking', 'scenes', 'ErrorTrackingScene', 'errorTrackingSceneLogic']),
@@ -43,40 +42,36 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
         setActiveTab: (activeTab: ErrorTrackingSceneActiveTab) => ({ activeTab }),
     }),
 
-    connect(() => {
-        const { featureFlags } = featureFlagLogic.values
-        const hasSettingsSplit = !!featureFlags[FEATURE_FLAGS.ERROR_TRACKING_SETTINGS_SPLIT]
-        const settingId = hasSettingsSplit ? 'error-tracking-alerting' : 'error-tracking-exception-autocapture'
-
-        return {
-            values: [
-                issueFiltersLogic({ logicKey: ERROR_TRACKING_SCENE_LOGIC_KEY }),
-                ['dateRange', 'filterTestAccounts', 'filterGroup', 'mergedFilterGroup', 'searchQuery'],
-                issueQueryOptionsLogic({ logicKey: ERROR_TRACKING_SCENE_LOGIC_KEY }),
-                ['assignee', 'orderBy', 'orderDirection', 'status', 'useQueryV2', 'forceQueryV2'],
-                settingsLogic({
-                    logicKey: ERROR_TRACKING_LOGIC_KEY,
-                    sectionId: 'environment-error-tracking-configuration',
-                    settingId,
-                }),
-                ['selectedSettingId'],
-            ],
-            actions: [
-                issueActionsLogic,
-                ['mutationSuccess', 'mutationFailure'],
-                bulkSelectLogic,
-                ['setSelectedIssueIds'],
-                issueFiltersLogic({ logicKey: ERROR_TRACKING_SCENE_LOGIC_KEY }),
-                ['setDateRange', 'setFilterGroup', 'setSearchQuery', 'setFilterTestAccounts'],
-                settingsLogic({
-                    logicKey: ERROR_TRACKING_LOGIC_KEY,
-                    sectionId: 'environment-error-tracking-configuration',
-                    settingId,
-                }),
-                ['selectSetting'],
-            ],
-        }
-    }),
+    connect(() => ({
+        values: [
+            issueFiltersLogic({ logicKey: ERROR_TRACKING_SCENE_LOGIC_KEY }),
+            ['dateRange', 'filterTestAccounts', 'filterGroup', 'mergedFilterGroup', 'searchQuery'],
+            issueQueryOptionsLogic({ logicKey: ERROR_TRACKING_SCENE_LOGIC_KEY }),
+            ['assignee', 'orderBy', 'orderDirection', 'status', 'useQueryV3', 'showQueryV3Switch', 'forceQueryV3'],
+            settingsLogic({
+                logicKey: ERROR_TRACKING_LOGIC_KEY,
+                sectionId: 'environment-error-tracking-configuration',
+                settingId: 'error-tracking-alerting',
+            }),
+            ['selectedSettingId'],
+            pendingFingerprintIssueStateUpdateLogic,
+            ['currentPendingUpdates'],
+        ],
+        actions: [
+            issueActionsLogic,
+            ['mutationSuccess', 'mutationFailure'],
+            bulkSelectLogic,
+            ['setSelectedIssueIds'],
+            issueFiltersLogic({ logicKey: ERROR_TRACKING_SCENE_LOGIC_KEY }),
+            ['setDateRange', 'setFilterGroup', 'setSearchQuery', 'setFilterTestAccounts'],
+            settingsLogic({
+                logicKey: ERROR_TRACKING_LOGIC_KEY,
+                sectionId: 'environment-error-tracking-configuration',
+                settingId: 'error-tracking-alerting',
+            }),
+            ['selectSetting'],
+        ],
+    })),
 
     reducers({
         activeTab: [
@@ -98,8 +93,10 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                 s.mergedFilterGroup,
                 s.searchQuery,
                 s.orderDirection,
-                s.useQueryV2,
-                s.forceQueryV2,
+                s.useQueryV3,
+                s.showQueryV3Switch,
+                s.forceQueryV3,
+                s.currentPendingUpdates,
             ],
             (
                 orderBy,
@@ -110,9 +107,12 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                 mergedFilterGroup,
                 searchQuery,
                 orderDirection,
-                useQueryV2,
-                forceQueryV2
+                useQueryV3,
+                showQueryV3Switch,
+                forceQueryV3,
+                currentPendingUpdates
             ): DataTableNode => {
+                const v3Active = forceQueryV3 || (showQueryV3Switch && useQueryV3)
                 return errorTrackingQuery({
                     orderBy,
                     status,
@@ -124,7 +124,8 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                     searchQuery,
                     columns: ['error', 'volume', 'occurrences', 'sessions', 'users'],
                     orderDirection,
-                    useQueryV2: forceQueryV2 || useQueryV2,
+                    useQueryV3: v3Active,
+                    pendingFingerprintIssueStateUpdates: v3Active ? currentPendingUpdates : undefined,
                 })
             },
         ],

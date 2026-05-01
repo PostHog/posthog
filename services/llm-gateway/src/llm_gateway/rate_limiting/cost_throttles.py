@@ -1,19 +1,42 @@
 from __future__ import annotations
 
 from abc import abstractmethod
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import structlog
 from redis.asyncio import Redis
 
-from llm_gateway.config import DEFAULT_USER_COST_LIMIT, get_settings
+from llm_gateway.config import (
+    DEFAULT_USER_COST_LIMIT,
+    FREE_PLAN_COST_LIMIT,
+    get_settings,
+)
 
 if TYPE_CHECKING:
     from llm_gateway.config import UserCostLimit
 from llm_gateway.rate_limiting.redis_limiter import CostRateLimiter
 from llm_gateway.rate_limiting.throttles import Throttle, ThrottleContext, ThrottleResult, get_team_multiplier
+from llm_gateway.services.plan_resolver import POSTHOG_CODE_PRODUCT, get_billing_period_number, is_pro_plan
 
 logger = structlog.get_logger(__name__)
+
+
+@dataclass
+class CostStatus:
+    used_usd: float
+    limit_usd: float
+    remaining_usd: float
+    resets_in_seconds: int
+    exceeded: bool
+
+
+def _is_free_plan_throttled(context: ThrottleContext) -> bool:
+    return (
+        context.product == POSTHOG_CODE_PRODUCT
+        and not is_pro_plan(context.plan_key)
+        and context.seat_created_at is not None
+    )
 
 
 class CostThrottle(Throttle):
@@ -47,9 +70,15 @@ class CostThrottle(Throttle):
     def _get_limit_exceeded_detail(self) -> str: ...
 
     async def allow_request(self, context: ThrottleContext) -> ThrottleResult:
+        limit, window = self._get_limit_and_window(context)
+        if limit <= 0:
+            return ThrottleResult.deny(
+                detail=self._get_limit_exceeded_detail(),
+                scope=self.scope,
+                retry_after=window,
+            )
         limiter = self._get_limiter(context)
         key = self._get_cache_key(context)
-        limit, window = self._get_limit_and_window(context)
 
         current = await limiter.get_current(key)
         ttl = await limiter.get_ttl(key)
@@ -101,6 +130,31 @@ class CostThrottle(Throttle):
             remaining=limit - new_total,
         )
 
+    async def get_status(self, context: ThrottleContext) -> CostStatus:
+        limit, window = self._get_limit_and_window(context)
+        if limit <= 0:
+            return CostStatus(
+                used_usd=0.0,
+                limit_usd=0.0,
+                remaining_usd=0.0,
+                resets_in_seconds=window,
+                exceeded=True,
+            )
+        limiter = self._get_limiter(context)
+        key = self._get_cache_key(context)
+
+        current = await limiter.get_current(key)
+        ttl = await limiter.get_ttl(key)
+        remaining = max(0.0, limit - current)
+
+        return CostStatus(
+            used_usd=current,
+            limit_usd=limit,
+            remaining_usd=remaining,
+            resets_in_seconds=ttl,
+            exceeded=current >= limit,
+        )
+
 
 class ProductCostThrottle(CostThrottle):
     scope = "product_cost"
@@ -127,6 +181,40 @@ class ProductCostThrottle(CostThrottle):
         team_mult = self._get_team_multiplier(context)
         return base_limit * team_mult, window
 
+    async def get_status_for_product(self, product: str) -> CostStatus | None:
+        """Return CostStatus for a product using the shared (team multiplier = 1) pool.
+
+        Intended for monitoring/gauges, not throttling decisions — throttling needs
+        a full ThrottleContext to apply team multipliers. Returns None when the
+        product has no configured cost limit.
+        """
+        settings = get_settings()
+        config = settings.product_cost_limits.get(product)
+        if config is None:
+            return None
+
+        limit = config.limit_usd
+        window = config.window_seconds
+        limiter_key = f"{self.scope}:{limit}:{window}"
+        if limiter_key not in self._limiters:
+            self._limiters[limiter_key] = CostRateLimiter(
+                redis=self._redis,
+                limit=limit,
+                window_seconds=window,
+            )
+        limiter = self._limiters[limiter_key]
+        key = f"cost:product:{product}"
+
+        current = await limiter.get_current(key)
+        ttl = await limiter.get_ttl(key)
+        return CostStatus(
+            used_usd=current,
+            limit_usd=limit,
+            remaining_usd=max(0.0, limit - current),
+            resets_in_seconds=ttl,
+            exceeded=current >= limit,
+        )
+
 
 class _UserCostThrottleBase(CostThrottle):
     """Base for per-product user cost throttles (burst/sustained pattern).
@@ -149,6 +237,9 @@ class _UserCostThrottleBase(CostThrottle):
         return f"{base}:tm{team_mult}"
 
     def _get_config(self, context: ThrottleContext) -> UserCostLimit:
+        if _is_free_plan_throttled(context):
+            return FREE_PLAN_COST_LIMIT
+
         config = get_settings().user_cost_limits.get(context.product)
         if not config:
             if context.end_user_id and context.product not in self._warned_products:
@@ -193,6 +284,19 @@ class UserCostSustainedThrottle(_UserCostThrottleBase):
 
     def _get_limit_exceeded_detail(self) -> str:
         return "User sustained rate limit exceeded"
+
+    def _get_cache_key(self, context: ThrottleContext) -> str:
+        base_key = super()._get_cache_key(context)
+        if not base_key:
+            return base_key
+        if context.product == POSTHOG_CODE_PRODUCT:
+            period = get_billing_period_number(
+                context.seat_created_at,
+                get_settings().billing_period_days,
+                billing_period_start=context.billing_period_start,
+            )
+            return f"{base_key}:period:{period}"
+        return base_key
 
     def _get_limit_and_window(self, context: ThrottleContext) -> tuple[float, int]:
         config = self._get_config(context)

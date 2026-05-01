@@ -346,15 +346,16 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
 
         if self.query.funnelCorrelationType == FunnelCorrelationResultsType.PROPERTIES:
             # Filtering on persons / groups properties can be pushed down to funnel events query
+            additional_properties = None
             if (
                 self.correlation_actors_query.funnelCorrelationPropertyValues
                 and len(self.correlation_actors_query.funnelCorrelationPropertyValues) > 0
             ):
-                self.context.query.properties = [
+                additional_properties = [
                     *(self.context.query.properties or []),
                     *self.correlation_actors_query.funnelCorrelationPropertyValues,
                 ]
-            return self.properties_actor_query()
+            return self.properties_actor_query(additional_properties=additional_properties)
         else:
             return self.events_actor_query()
 
@@ -427,6 +428,7 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
 
     def properties_actor_query(
         self,
+        additional_properties: list[Any] | None = None,
     ) -> ast.SelectQuery:
         assert self.correlation_actors_query is not None
 
@@ -434,7 +436,7 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
             raise ValidationError("Property Correlation expects atleast one Property to get persons for")
 
         target_step = self.context.max_steps
-        funnel_persons_query = self.get_funnel_actors_cte()
+        funnel_persons_query = self.get_funnel_actors_cte(additional_properties=additional_properties)
 
         conversion_filter = (
             f"funnel_actors.steps {'=' if self.correlation_actors_query.funnelCorrelationPersonConverted else '<>'} target_step"
@@ -746,13 +748,31 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
 
         return query
 
-    def get_funnel_actors_cte(self) -> ast.SelectQuery:
+    def get_funnel_actors_cte(self, additional_properties: list[Any] | None = None) -> ast.SelectQuery:
         extra_fields = ["steps", "final_timestamp", "first_timestamp"]
 
         for prop in self.properties_to_include:
             extra_fields.append(prop)
 
-        return self._funnel_actors_generator.actor_query(extra_fields=extra_fields)
+        if additional_properties is None:
+            return self._funnel_actors_generator.actor_query(extra_fields=extra_fields)
+
+        temp_funnels_query = self.funnels_query.model_copy(update={"properties": additional_properties}, deep=True)
+        temp_context = FunnelQueryContext(
+            query=temp_funnels_query,
+            team=self.team,
+            timings=self.timings,
+            modifiers=self.modifiers,
+            limit_context=self.limit_context,
+            include_timestamp=self.context.includeTimestamp,
+            include_preceding_timestamp=self.context.includePrecedingTimestamp,
+            include_properties=self.properties_to_include,
+            include_final_matching_events=self.context.includeFinalMatchingEvents,
+        )
+        temp_context.actorsQuery = self.actors_query
+        temp_funnel_actors_generator = FunnelUDF(context=temp_context)
+
+        return temp_funnel_actors_generator.actor_query(extra_fields=extra_fields)
 
     def _get_events_join_query(self) -> str:
         """

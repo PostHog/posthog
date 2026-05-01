@@ -1,8 +1,7 @@
 import './CardMeta.scss'
 
 import clsx from 'clsx'
-import React from 'react'
-import { Transition } from 'react-transition-group'
+import React, { useEffect, useState } from 'react'
 
 import { IconPieChart } from '@posthog/icons'
 
@@ -74,6 +73,19 @@ export function CardMeta({
     const { ref: detailsRef, height: detailsHeight } = useResizeObserver()
     const { ref: topRef, width: topWidth } = useResizeObserver()
     const { ref: headingRef, width: headingWidth } = useResizeObserver()
+
+    // Keep the details content mounted during the 200 ms collapse animation
+    // so the outer `.CardMeta__details` height transition plays over real
+    // content rather than an empty container.
+    const [shouldRenderDetails, setShouldRenderDetails] = useState(areDetailsShown)
+    useEffect(() => {
+        if (areDetailsShown) {
+            setShouldRenderDetails(true)
+            return
+        }
+        const t = window.setTimeout(() => setShouldRenderDetails(false), 200)
+        return () => clearTimeout(t)
+    }, [areDetailsShown])
 
     // Calculate available space for controls (doesn't depend on label state, so no cyclic dependency)
     const controlsAvailableSpace = (topWidth ?? 0) - (headingWidth ?? 0)
@@ -185,13 +197,12 @@ export function CardMeta({
                         height: areDetailsShown && detailsHeight ? detailsHeight + 1 : 0,
                     }}
                 >
-                    {/* By using a transition about displaying then we make sure we aren't rendering the content when not needed */}
-                    <Transition in={areDetailsShown} timeout={200} mountOnEnter unmountOnExit>
+                    {shouldRenderDetails && (
                         <div className="CardMeta__details__content" ref={detailsRef}>
                             {/* Stops the padding getting in the height calc  */}
                             <div className="p-4">{metaDetails}</div>
                         </div>
-                    </Transition>
+                    )}
                 </div>
             )}
         </div>

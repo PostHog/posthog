@@ -2,6 +2,14 @@ version = 1
 revision = 3
 requires-python = ">=3.12"
 
+[options]
+exclude-newer = "2026-04-03T08:27:21.219959Z"
+exclude-newer-span = "P7D"
+
+[options.exclude-newer-package]
+posthoganalytics = false
+hogql-parser = false
+
 [[package]]
 name = "annotated-doc"
 version = "0.0.4"

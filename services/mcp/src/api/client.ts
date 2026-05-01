@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 import { getUserAgent } from '@/lib/constants'
-import { ErrorCode } from '@/lib/errors'
+import { ErrorCode, PostHogPermissionError, PostHogValidationError } from '@/lib/errors'
 import { getSearchParamsFromRecord } from '@/lib/utils.js'
 import type {
     ApiEventDefinition,
@@ -10,29 +10,10 @@ import type {
     ApiRedactedPersonalApiKey,
     ApiUser,
 } from '@/schema/api'
-import type {
-    Experiment,
-    ExperimentExposureQuery,
-    ExperimentExposureQueryResponse,
-    ExperimentUpdateApiPayload,
-} from '@/schema/experiments'
-import {
-    ExperimentCreatePayloadSchema,
-    ExperimentExposureQuerySchema,
-    ExperimentUpdateApiPayloadSchema,
-} from '@/schema/experiments'
-import { type CreateInsightInput, CreateInsightInputSchema, type ListInsightsData } from '@/schema/insights'
-import type { ExperimentCreateSchema } from '@/schema/tool-inputs'
+import type { Experiment, ExperimentExposureQuery, ExperimentExposureQueryResponse } from '@/schema/experiments'
+import { ExperimentExposureQuerySchema } from '@/schema/experiments'
 import { isShortId } from '@/tools/insights/utils'
 
-import type {
-    LogAttribute,
-    LogAttributeValue,
-    LogsListAttributeValuesInput,
-    LogsListAttributesInput,
-    LogsQueryInput,
-    LogsQueryResponse,
-} from '../schema/logs.js'
 import type { Schemas } from './generated.js'
 import { globalRateLimiter } from './rate-limiter.js'
 
@@ -78,6 +59,7 @@ export interface ApiConfig {
     mcpClientName?: string | undefined
     mcpClientVersion?: string | undefined
     mcpProtocolVersion?: string | undefined
+    mcpConsumer?: string | undefined
     oauthClientName?: string | undefined
 }
 
@@ -104,7 +86,7 @@ export class ApiClient {
         // TODO: should we move rate limiting from `fetchJson` to here?
         const defaultHeaders: HeadersInit = {
             Authorization: `Bearer ${this.config.apiToken}`,
-            'User-Agent': getUserAgent(this.config.clientUserAgent),
+            'User-Agent': getUserAgent({ clientUserAgent: this.config.clientUserAgent }),
             ...(this.config.clientUserAgent
                 ? {
                       // Forward the originating client's User-Agent as a custom header so the
@@ -119,6 +101,7 @@ export class ApiClient {
             ...(this.config.mcpProtocolVersion
                 ? { 'x-posthog-mcp-protocol-version': this.config.mcpProtocolVersion }
                 : {}),
+            ...(this.config.mcpConsumer ? { 'x-posthog-mcp-consumer': this.config.mcpConsumer } : {}),
             ...(this.config.oauthClientName ? { 'x-posthog-mcp-oauth-client-name': this.config.oauthClientName } : {}),
             'X-PostHog-Client': 'mcp',
         }
@@ -142,15 +125,24 @@ export class ApiClient {
         method: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE'
         path: string
         body?: Record<string, unknown>
-        query?: Record<string, string | number | boolean | (string | number)[] | undefined>
+        query?: Record<string, unknown>
         headers?: Record<string, string>
         responseType?: 'json' | 'text'
     }): Promise<T> {
         const searchParams = new URLSearchParams()
         if (opts.query) {
             for (const [k, v] of Object.entries(opts.query)) {
-                if (v !== undefined) {
-                    searchParams.append(k, Array.isArray(v) ? v.join(',') : String(v))
+                if (v === undefined || v === null) {
+                    continue
+                }
+                if (Array.isArray(v) && v.length === 0) {
+                    continue
+                }
+                // JSON-stringify objects and arrays so backends that use json.loads() on query params work correctly
+                if (typeof v === 'object') {
+                    searchParams.append(k, JSON.stringify(v))
+                } else {
+                    searchParams.append(k, String(v))
                 }
             }
         }
@@ -177,7 +169,9 @@ export class ApiClient {
         const result = await this.fetchJson<T>(url, fetchOptions)
 
         if (!result.success) {
-            throw new Error(result.error.message)
+            // Re-throw the original error instance so callers can instanceof-check
+            // typed errors (e.g. PostHogPermissionError) that fetchJson throws.
+            throw result.error
         }
         return result.data as T
     }
@@ -234,11 +228,47 @@ export class ApiClient {
                         errorData = { detail: errorText }
                     }
 
+                    if (response.status === 403 && errorData?.code === 'permission_denied') {
+                        const scopeMatch = /required scope ['"]([^'"]+)['"]/.exec(errorData.detail || '')
+                        const missingScope = scopeMatch?.[1]
+                        // Warn, not error: PostHogPermissionError is thrown and handled by callers,
+                        // and a missing scope is a user-config issue rather than a service bug.
+                        console.warn(
+                            `[API] Permission denied on ${method} ${url}: ${errorData.detail || 'unknown'}${missingScope ? ` (missing scope: ${missingScope})` : ''}`
+                        )
+                        throw new PostHogPermissionError({
+                            detail: errorData.detail || 'permission denied',
+                            missingScope,
+                            url,
+                            method,
+                        })
+                    }
+
                     if (errorData.type === 'validation_error') {
                         const detail = errorData.detail || errorData.code || 'unknown'
-                        const attr = errorData.attr ? ` (field: ${errorData.attr})` : ''
-                        console.error(`[API] Validation error on ${method} ${url}: ${detail}${attr}`)
-                        throw new Error(`Validation error: ${detail}${attr}`)
+                        const attrLog = errorData.attr ? ` (field: ${errorData.attr})` : ''
+                        console.error(`[API] Validation error on ${method} ${url}: ${detail}${attrLog}`)
+                        throw new PostHogValidationError({
+                            detail,
+                            attr: errorData.attr ?? undefined,
+                            code: errorData.code ?? undefined,
+                            extra: (errorData.extra ?? undefined) as Record<string, unknown> | undefined,
+                            url,
+                            method,
+                        })
+                    }
+
+                    if (response.status === 404) {
+                        const experimentMatch = /\/experiments\/(\d+)/.exec(url)
+                        if (experimentMatch) {
+                            const experimentId = experimentMatch[1]
+                            console.error(`[API] Experiment ${experimentId} not found on ${method} ${url}`)
+                            throw new Error(
+                                `Experiment ${experimentId} not found in this project. ` +
+                                    `If the id is correct, the experiment may belong to a different project — ` +
+                                    `call experiment-list to see experiments accessible with your current API key and project, or switch-project first.`
+                            )
+                        }
                     }
 
                     console.error(`[API] Request failed on ${method} ${url}: ${response.status} ${response.statusText}`)
@@ -480,25 +510,6 @@ export class ApiClient {
 
     experiments({ projectId }: { projectId: string }): Endpoint {
         return {
-            list: async ({ params }: { params?: { limit?: number; offset?: number } } = {}): Promise<
-                Result<Experiment[]>
-            > => {
-                try {
-                    const limit = params?.limit ?? 50
-                    const offset = params?.offset ?? 0
-                    const qs = new URLSearchParams({ limit: String(limit), offset: String(offset) })
-                    const result = await this.fetchJson<{ results: Experiment[] }>(
-                        `${this.baseUrl}/api/projects/${projectId}/experiments/?${qs}`
-                    )
-                    if (!result.success) {
-                        throw result.error
-                    }
-                    return { success: true, data: result.data.results }
-                } catch (error) {
-                    return { success: false, error: error as Error }
-                }
-            },
-
             get: async ({ experimentId }: { experimentId: number }): Promise<Result<Experiment>> => {
                 return this.fetchJson<Experiment>(
                     `${this.baseUrl}/api/projects/${projectId}/experiments/${experimentId}/`
@@ -719,107 +730,11 @@ export class ApiClient {
                     },
                 }
             },
-
-            create: async (experimentData: z.infer<typeof ExperimentCreateSchema>): Promise<Result<Experiment>> => {
-                // Transform agent input to API payload
-                const createBody = ExperimentCreatePayloadSchema.parse(experimentData)
-
-                return this.fetchJson<Experiment>(`${this.baseUrl}/api/projects/${projectId}/experiments/`, {
-                    method: 'POST',
-                    body: JSON.stringify(createBody),
-                })
-            },
-
-            update: async ({
-                experimentId,
-                updateData,
-            }: {
-                experimentId: number
-                updateData: ExperimentUpdateApiPayload
-            }): Promise<Result<Experiment>> => {
-                try {
-                    const updateBody = ExperimentUpdateApiPayloadSchema.parse(updateData)
-
-                    return this.fetchJson<Experiment>(
-                        `${this.baseUrl}/api/projects/${projectId}/experiments/${experimentId}/`,
-                        {
-                            method: 'PATCH',
-                            body: JSON.stringify(updateBody),
-                        }
-                    )
-                } catch (error) {
-                    return { success: false, error: new Error(`Update failed: ${error}`) }
-                }
-            },
-
-            delete: async ({
-                experimentId,
-            }: {
-                experimentId: number
-            }): Promise<Result<{ success: boolean; message: string }>> => {
-                try {
-                    const deleteResponse = await this.fetch(
-                        `${this.baseUrl}/api/projects/${projectId}/experiments/${experimentId}/`,
-                        {
-                            method: 'PATCH',
-                            body: JSON.stringify({ deleted: true }),
-                        }
-                    )
-
-                    if (deleteResponse.ok) {
-                        return {
-                            success: true,
-                            data: { success: true, message: 'Experiment deleted successfully' },
-                        }
-                    }
-
-                    return {
-                        success: false,
-                        error: new Error(`Delete failed with status: ${deleteResponse.status}`),
-                    }
-                } catch (error) {
-                    return { success: false, error: new Error(`Delete failed: ${error}`) }
-                }
-            },
         }
     }
 
     insights({ projectId }: { projectId: string }): Endpoint {
         return {
-            list: async ({ params }: { params?: ListInsightsData } = {}): Promise<Result<Array<Schemas.Insight>>> => {
-                try {
-                    const qs = new URLSearchParams()
-                    if (params?.limit !== undefined) {
-                        qs.set('limit', String(params.limit))
-                    }
-                    if (params?.offset !== undefined) {
-                        qs.set('offset', String(params.offset))
-                    }
-                    if (params?.search) {
-                        qs.set('search', params.search)
-                    }
-                    const qStr = qs.toString()
-                    const result = await this.fetchJson<{ results: Schemas.Insight[] }>(
-                        `${this.baseUrl}/api/projects/${projectId}/insights/${qStr ? `?${qStr}` : ''}`
-                    )
-                    if (!result.success) {
-                        throw result.error
-                    }
-                    return { success: true, data: result.data.results }
-                } catch (error) {
-                    return { success: false, error: error as Error }
-                }
-            },
-
-            create: async ({ data }: { data: CreateInsightInput }): Promise<Result<Schemas.Insight>> => {
-                const validatedInput = CreateInsightInputSchema.parse(data)
-
-                return this.fetchJson<Schemas.Insight>(`${this.baseUrl}/api/projects/${projectId}/insights/`, {
-                    method: 'POST',
-                    body: JSON.stringify({ ...validatedInput, saved: true }),
-                })
-            },
-
             get: async ({ insightId }: { insightId: string }): Promise<Result<Schemas.Insight>> => {
                 // Check if insightId is a short_id (8 character alphanumeric string)
                 // Note: This won't work when we start creating insight id's with 8 digits. (We're at 7 currently)
@@ -849,6 +764,13 @@ export class ApiClient {
                 return this.fetchJson<Schemas.Insight>(
                     `${this.baseUrl}/api/projects/${projectId}/insights/${insightId}/`
                 )
+            },
+
+            create: async ({ data }: { data: Record<string, any> }): Promise<Result<Schemas.Insight>> => {
+                return this.fetchJson<Schemas.Insight>(`${this.baseUrl}/api/projects/${projectId}/insights/`, {
+                    method: 'POST',
+                    body: JSON.stringify({ ...data, saved: true }),
+                })
             },
 
             update: async ({ insightId, data }: { insightId: number; data: any }): Promise<Result<Schemas.Insight>> => {
@@ -891,12 +813,78 @@ export class ApiClient {
                 }
             },
 
-            query: async ({ query }: { query: Record<string, any> }): Promise<Result<any>> => {
+            list: async ({ params }: { params?: Record<string, any> } = {}): Promise<
+                Result<Array<Schemas.Insight>>
+            > => {
+                try {
+                    const qs = new URLSearchParams()
+                    if (params?.limit !== undefined) {
+                        qs.set('limit', String(params.limit))
+                    }
+                    if (params?.offset !== undefined) {
+                        qs.set('offset', String(params.offset))
+                    }
+                    if (params?.search) {
+                        qs.set('search', params.search)
+                    }
+                    const qStr = qs.toString()
+                    const result = await this.fetchJson<{ results: Schemas.Insight[] }>(
+                        `${this.baseUrl}/api/projects/${projectId}/insights/${qStr ? `?${qStr}` : ''}`
+                    )
+                    if (!result.success) {
+                        throw result.error
+                    }
+                    return { success: true, data: result.data.results }
+                } catch (error) {
+                    return { success: false, error: error as Error }
+                }
+            },
+
+            query: async ({
+                query,
+            }: {
+                query: Record<string, any>
+            }): Promise<Result<{ results: unknown; columns?: unknown; formatted_results?: string }>> => {
                 const url = `${this.baseUrl}/api/environments/${projectId}/query/`
 
-                return this.fetchJson<{ results: unknown; columns: unknown }>(url, {
+                return this.fetchJson<{ results: unknown; columns?: unknown; formatted_results?: string }>(url, {
                     method: 'POST',
                     body: JSON.stringify({ query }),
+                })
+            },
+
+            validate: async ({
+                query,
+                language,
+                connectionId,
+            }: {
+                query: string
+                language: 'hogQL' | 'hogQLExpr' | 'hog' | 'hogTemplate'
+                connectionId?: string
+            }): Promise<
+                Result<{
+                    isValid: boolean
+                    query: string
+                    errors: Array<{ message: string; start?: number | null; end?: number | null; fix?: string | null }>
+                    warnings: Array<{
+                        message: string
+                        start?: number | null
+                        end?: number | null
+                        fix?: string | null
+                    }>
+                    notices: Array<{ message: string; start?: number | null; end?: number | null; fix?: string | null }>
+                    table_names: string[]
+                    ch_table_names?: string[] | null
+                }>
+            > => {
+                const url = `${this.baseUrl}/api/environments/${projectId}/query/`
+                const queryBody: Record<string, unknown> = { kind: 'HogQLMetadata', language, query }
+                if (connectionId) {
+                    queryBody.connectionId = connectionId
+                }
+                return this.fetchJson(url, {
+                    method: 'POST',
+                    body: JSON.stringify({ query: queryBody }),
                 })
             },
 
@@ -932,12 +920,104 @@ export class ApiClient {
     }
 
     query({ projectId }: { projectId: string }): Endpoint {
+        const queryUrl = `${this.baseUrl}/api/environments/${projectId}/query/`
+
+        // Bridge assistant-facing schema shape to the query API shape.
+        // The LLM emits `filterGroup` as a flat array; the API expects a nested PropertyGroupFilter.
+        const normalizeQuery = (query: Record<string, unknown>): Record<string, unknown> => {
+            const normalized = { ...query }
+            if (Array.isArray(normalized.filterGroup)) {
+                if (normalized.filterGroup.length > 0) {
+                    normalized.filterGroup = {
+                        type: 'AND',
+                        values: [{ type: 'AND', values: normalized.filterGroup }],
+                    }
+                } else {
+                    delete normalized.filterGroup
+                }
+            }
+            return normalized
+        }
+
         return {
             execute: async ({ queryBody }: { queryBody: any }): Promise<Result<{ results: any[] }>> => {
-                return this.fetchJson<{ results: unknown[] }>(`${this.baseUrl}/api/environments/${projectId}/query/`, {
+                return this.fetchJson<{ results: unknown[] }>(queryUrl, {
                     method: 'POST',
                     body: JSON.stringify({ query: queryBody }),
                 })
+            },
+
+            runQuery: async ({
+                query,
+            }: {
+                query: Record<string, unknown>
+            }): Promise<{ results: unknown; formatted_results?: string }> => {
+                return this.request<{ results: unknown; formatted_results?: string }>({
+                    method: 'POST',
+                    path: `/api/environments/${projectId}/query/`,
+                    body: { query: normalizeQuery(query) },
+                })
+            },
+
+            trendsActors: async ({
+                query,
+            }: {
+                query: Record<string, unknown>
+            }): Promise<{
+                query: Record<string, unknown>
+                results: { columns: readonly string[]; results: (string | number | null)[][] }
+                hasMore: boolean
+                offset: number
+            }> => {
+                const normalized = normalizeQuery(query)
+                const includeRecordings = Boolean(normalized.includeRecordings)
+                const wrappedQuery = {
+                    kind: 'ActorsQuery',
+                    source: normalized,
+                    select: includeRecordings
+                        ? ['actor', 'event_count', 'matched_recordings']
+                        : ['actor', 'event_count'],
+                    orderBy: ['event_count DESC', 'actor_id DESC'],
+                    limit: 100,
+                }
+
+                const response = await this.request<{
+                    results: any[][]
+                    hasMore?: boolean
+                    offset?: number
+                }>({
+                    method: 'POST',
+                    path: `/api/environments/${projectId}/query/`,
+                    body: { query: wrappedQuery },
+                })
+
+                const baseUrl = this.getProjectBaseUrl(projectId)
+                const results = (response.results ?? []).map((row) => {
+                    const [actor, count] = row
+                    const properties = actor.properties ?? {}
+                    const distinctId = actor.distinct_ids?.[0] ?? null
+                    const base = [distinctId, properties.email, properties.name, count]
+                    if (includeRecordings) {
+                        const recordingLinks = (row[2] ?? [])
+                            .map((r: any) => r.session_id)
+                            .filter(Boolean)
+                            .map((sessionId: string) => `${baseUrl}/replay/${sessionId}`)
+                        return [...base, recordingLinks]
+                    }
+                    return base
+                })
+
+                return {
+                    query: wrappedQuery,
+                    results: {
+                        columns: includeRecordings
+                            ? ['distinct_id', 'email', 'name', 'event_count', 'recordings']
+                            : ['distinct_id', 'email', 'name', 'event_count'],
+                        results,
+                    },
+                    hasMore: response.hasMore ?? false,
+                    offset: response.offset ?? 0,
+                }
             },
         }
     }
@@ -955,74 +1035,6 @@ export class ApiClient {
                     success: true,
                     data: result.data,
                 }
-            },
-        }
-    }
-
-    logs({ projectId }: { projectId: string }): Endpoint {
-        return {
-            query: async ({ params }: { params: LogsQueryInput }): Promise<Result<LogsQueryResponse>> => {
-                const queryBody = {
-                    query: {
-                        dateRange: {
-                            date_from: params.dateFrom,
-                            date_to: params.dateTo,
-                        },
-                        severityLevels: params.severityLevels ?? [],
-                        serviceNames: params.serviceNames ?? [],
-                        orderBy: params.orderBy ?? 'latest',
-                        limit: params.limit ?? 100,
-                        after: params.after ?? null,
-                        filterGroup: params.filters?.length
-                            ? {
-                                  type: 'AND' as const,
-                                  values: [{ type: 'AND' as const, values: params.filters }],
-                              }
-                            : { type: 'AND' as const, values: [] },
-                    },
-                }
-
-                return this.fetchJson<LogsQueryResponse>(`${this.baseUrl}/api/projects/${projectId}/logs/query/`, {
-                    method: 'POST',
-                    body: JSON.stringify(queryBody),
-                })
-            },
-
-            attributes: async ({
-                params,
-            }: {
-                params?: LogsListAttributesInput
-            } = {}): Promise<Result<{ results: LogAttribute[]; count: number }>> => {
-                const searchParams = getSearchParamsFromRecord({
-                    search: params?.search,
-                    attribute_type: params?.attributeType ?? 'log',
-                    limit: params?.limit ?? 100,
-                    offset: params?.offset ?? 0,
-                })
-
-                const url = `${this.baseUrl}/api/projects/${projectId}/logs/attributes/?${searchParams}`
-
-                return this.fetchJson<{ results: LogAttribute[]; count: number }>(url)
-            },
-
-            values: async ({
-                params,
-            }: {
-                params: LogsListAttributeValuesInput
-            }): Promise<Result<LogAttributeValue[]>> => {
-                const searchParams = getSearchParamsFromRecord({
-                    key: params.key,
-                    attribute_type: params.attributeType ?? 'log',
-                    value: params.search,
-                })
-
-                const url = `${this.baseUrl}/api/projects/${projectId}/logs/values/?${searchParams}`
-
-                const result = await this.fetchJson<{ results: LogAttributeValue[]; refreshing: boolean }>(url)
-                if (!result.success) {
-                    return result
-                }
-                return { success: true, data: result.data.results }
             },
         }
     }

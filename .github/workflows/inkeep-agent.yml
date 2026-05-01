@@ -19,15 +19,20 @@ jobs:
             !contains(github.event.issue.labels.*.name, 'skip-inkeep-docs') &&
             (
               (github.event_name == 'pull_request' && github.event.pull_request.merged == true && github.event.pull_request.user.login != 'inkeep[bot]') ||
-              (github.event_name == 'issue_comment' &&  github.event.issue.pull_request && contains(github.event.comment.body, '@inkeep')) ||
-              (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@inkeep')) ||
-              (github.event_name == 'pull_request_review' && contains(github.event.review.body || '', '@inkeep'))
+              (
+                (github.event_name == 'issue_comment' && github.event.issue.pull_request && contains(github.event.comment.body, '@inkeep') &&
+                 (github.event.comment.author_association == 'OWNER' || github.event.comment.author_association == 'MEMBER' || github.event.comment.author_association == 'COLLABORATOR')) ||
+                (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@inkeep') &&
+                 (github.event.comment.author_association == 'OWNER' || github.event.comment.author_association == 'MEMBER' || github.event.comment.author_association == 'COLLABORATOR')) ||
+                (github.event_name == 'pull_request_review' && contains(github.event.review.body || '', '@inkeep') &&
+                 (github.event.review.author_association == 'OWNER' || github.event.review.author_association == 'MEMBER' || github.event.review.author_association == 'COLLABORATOR'))
+              )
             )
         runs-on: ubuntu-latest
         timeout-minutes: 10
         steps:
             - name: Trigger Inkeep Agent
-              uses: inkeep/inkeep-agents-action@267e6185c8b1b69dfba85d7ea1c31066891ee2a6 # Temp fix by inkeep team
+              uses: inkeep/inkeep-agents-action@fbbc92842bd025f044cb7e4d827882fd85914f26
               with:
                   trigger-url: ${{ secrets.INKEEP_TRIGGER_URL }}
                   pr-title-regex: '^(feat|fix|docs|chore)(\(.+\))?:'

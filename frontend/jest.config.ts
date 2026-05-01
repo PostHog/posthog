@@ -19,7 +19,6 @@ const esmModules = [
     'lowlight',
     'devlop',
     'zwitch',
-    '@posthog/hogql-parser',
     // react-markdown and its ecosystem are all ESM-only
     'react-markdown',
     'remark-.*',
@@ -135,9 +134,10 @@ const config: Config = {
 
     // A map from regular expressions to module names or to arrays of module names that allow to stub out resources with a single module
     moduleNameMapper: {
-        '^.+\\.(css|less|scss|svg|png|lottie)$': '<rootDir>/src/test/mocks/styleMock.js',
+        '^.+\\.(css|less|scss|svg|png)$': '<rootDir>/src/test/mocks/styleMock.js',
         '^.+\\.sql\\?raw$': '<rootDir>/src/test/mocks/rawFileMock.js',
         '^~/(.*)$': '<rootDir>/src/$1',
+        '^@posthog/hogql-parser$': '<rootDir>/node_modules/@posthog/hogql-parser/dist/index.cjs',
         '^@posthog/lemon-ui(|/.*)$': '<rootDir>/@posthog/lemon-ui/src/$1',
         '^lib/(.*)$': '<rootDir>/src/lib/$1',
         '^react-markdown$': '<rootDir>/src/test/mocks/reactMarkdownMock.js',

@@ -24,9 +24,9 @@ from posthog.redis import get_client
 
 from products.notebooks.backend.models import KernelRuntime, Notebook
 from products.tasks.backend.services.sandbox import (
+    SandboxBase,
     SandboxClass,
     SandboxConfig,
-    SandboxProtocol,
     SandboxStatus,
     SandboxTemplate,
     get_sandbox_class_for_backend,
@@ -809,7 +809,7 @@ class KernelRuntimeService:
             sandbox_id=sandbox.id,
         )
 
-    def _start_kernel_process(self, sandbox: SandboxProtocol, connection_file: str) -> int:
+    def _start_kernel_process(self, sandbox: SandboxBase, connection_file: str) -> int:
         start_command = (
             "mkdir -p /tmp/jupyter && "
             f"nohup python3 -m ipykernel_launcher -f {connection_file} "
@@ -838,7 +838,7 @@ class KernelRuntimeService:
             raise RuntimeError(f"Kernel did not become ready: {result.stdout} {result.stderr}")
 
     def _bootstrap_kernel(
-        self, sandbox: SandboxProtocol, connection_file: str, notebook: Notebook, user: User | None
+        self, sandbox: SandboxBase, connection_file: str, notebook: Notebook, user: User | None
     ) -> None:
         code = self._build_kernel_bootstrap_code(notebook, user, sandbox.id)
         if not code:

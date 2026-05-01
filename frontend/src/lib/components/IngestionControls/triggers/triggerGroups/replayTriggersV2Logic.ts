@@ -5,8 +5,11 @@ import { uuid } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
 import {
+    EventTriggerConfig,
+    LinkedFeatureFlag,
     SessionRecordingTriggerGroup,
     SessionRecordingTriggerGroupsConfig,
+    UrlTriggerConfig,
 } from '~/lib/components/IngestionControls/types'
 
 import type { replayTriggersV2LogicType } from './replayTriggersV2LogicType'
@@ -25,6 +28,7 @@ export const replayTriggersV2Logic = kea<replayTriggersV2LogicType>([
         updateTriggerGroup: (id: string, updates: Partial<SessionRecordingTriggerGroup>) => ({ id, updates }),
         setIsAddingGroup: (isAdding: boolean) => ({ isAdding }),
         setEditingGroupId: (id: string | null) => ({ id }),
+        setDeleteModalGroupId: (id: string | null) => ({ id }),
         showCreateFromLegacyModal: true,
         hideCreateFromLegacyModal: true,
         confirmCreateFromLegacy: true,
@@ -125,6 +129,13 @@ export const replayTriggersV2Logic = kea<replayTriggersV2LogicType>([
                 confirmCreateFromLegacySuccess: () => false,
             },
         ],
+        deleteModalGroupId: [
+            null as string | null,
+            {
+                setDeleteModalGroupId: (_, { id }) => id,
+                deleteTriggerGroup: () => null, // Close modal after deleting
+            },
+        ],
     }),
     selectors({
         triggerGroups: [
@@ -137,6 +148,28 @@ export const replayTriggersV2Logic = kea<replayTriggersV2LogicType>([
             (s) => [s.triggerGroupsConfig],
             (config): boolean => {
                 return config !== null && config.version === 2
+            },
+        ],
+        hasLegacyTriggers: [
+            (s) => [s.currentTeam],
+            (team): boolean => {
+                if (!team) {
+                    return false
+                }
+                const hasUrlTriggers = (team.session_recording_url_trigger_config?.length ?? 0) > 0
+                const hasEventTriggers = (team.session_recording_event_trigger_config?.length ?? 0) > 0
+                const hasFeatureFlag = !!team.session_recording_linked_flag
+                const hasSampling = !!(
+                    team.session_recording_sample_rate && parseFloat(team.session_recording_sample_rate) < 1
+                )
+                return hasUrlTriggers || hasEventTriggers || hasFeatureFlag || hasSampling
+            },
+        ],
+        shouldShowMigrationBanner: [
+            (s) => [s.triggerGroups, s.hasLegacyTriggers],
+            (triggerGroups, hasLegacyTriggers): boolean => {
+                // Show banner if there are legacy triggers configured but no V2 groups
+                return hasLegacyTriggers && triggerGroups.length === 0
             },
         ],
         previewLegacyGroups: [
@@ -152,12 +185,12 @@ export const replayTriggersV2Logic = kea<replayTriggersV2LogicType>([
                 const minDurationMs = team.session_recording_minimum_duration_milliseconds ?? undefined
                 const matchType = team.session_recording_trigger_match_type_config || 'all'
 
-                const events =
+                const events: EventTriggerConfig[] | undefined =
                     team.session_recording_event_trigger_config &&
                     team.session_recording_event_trigger_config.length > 0
-                        ? team.session_recording_event_trigger_config.filter(
-                              (e): e is string => typeof e === 'string' && e.length > 0
-                          )
+                        ? team.session_recording_event_trigger_config
+                              .filter((e): e is string => typeof e === 'string' && e.length > 0)
+                              .map((name) => ({ name }))
                         : undefined
 
                 const urls =
@@ -182,7 +215,7 @@ export const replayTriggersV2Logic = kea<replayTriggersV2LogicType>([
                         // Group 1: All triggers combined with ANY match type
                         {
                             id: uuid(),
-                            name: 'Trigger conditions (from legacy)',
+                            name: 'Migrated trigger conditions',
                             sampleRate: 1,
                             minDurationMs,
                             conditions: {
@@ -195,7 +228,7 @@ export const replayTriggersV2Logic = kea<replayTriggersV2LogicType>([
                         // Group 2: Baseline sampling (no conditions)
                         {
                             id: uuid(),
-                            name: 'Baseline sampling (from legacy)',
+                            name: 'Migrated baseline sampling',
                             sampleRate,
                             minDurationMs,
                             conditions: {
@@ -209,7 +242,7 @@ export const replayTriggersV2Logic = kea<replayTriggersV2LogicType>([
                 return [
                     {
                         id: uuid(),
-                        name: 'Legacy trigger conditions',
+                        name: 'Migrated trigger conditions',
                         sampleRate,
                         minDurationMs,
                         conditions: {
@@ -220,6 +253,34 @@ export const replayTriggersV2Logic = kea<replayTriggersV2LogicType>([
                         },
                     },
                 ]
+            },
+        ],
+        legacyTriggersPreview: [
+            (s) => [s.currentTeam],
+            (
+                team
+            ): {
+                sampleRate: number
+                minDurationMs: number | undefined
+                matchType: 'any' | 'all'
+                urls: UrlTriggerConfig[]
+                events: string[]
+                flag: string | LinkedFeatureFlag | null
+                hasConditions: boolean
+            } => {
+                const sampleRate = team?.session_recording_sample_rate
+                    ? parseFloat(team.session_recording_sample_rate)
+                    : 1
+                const minDurationMs = team?.session_recording_minimum_duration_milliseconds ?? undefined
+                const matchType = team?.session_recording_trigger_match_type_config || 'all'
+                const urls = team?.session_recording_url_trigger_config || []
+                const events: string[] = (team?.session_recording_event_trigger_config || []).filter(
+                    (e): e is string => typeof e === 'string' && e.length > 0
+                )
+                const flag = team?.session_recording_linked_flag || null
+                const hasConditions = urls.length > 0 || events.length > 0 || !!flag
+
+                return { sampleRate, minDurationMs, matchType, urls, events, flag, hasConditions }
             },
         ],
     }),

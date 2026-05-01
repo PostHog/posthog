@@ -1,16 +1,23 @@
 import React, { useMemo } from 'react'
 
-import { useChart } from '../core/chart-context'
+import { useChartLayout } from '../core/chart-context'
 
 interface AxisLabelsProps {
     xTickFormatter?: (value: string, index: number) => string | null
     yTickFormatter?: (value: number) => string
+    /** Formatter for the right y-axis. Falls back to `yTickFormatter` if not provided. */
+    yRightTickFormatter?: (value: number) => string
     hideXAxis?: boolean
     hideYAxis?: boolean
     axisColor?: string
+    orientation?: 'vertical' | 'horizontal'
+    /** Optional override for label → coord mapping. Falls back to `scales.x`, which chart types
+     *  serving horizontal orientation are expected to set to a label→band-center function. */
+    labelToCoord?: (label: string) => number | undefined
 }
 
-const LABEL_FONT = '11px -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "Roboto", Helvetica, Arial, sans-serif'
+export const LABEL_FONT =
+    '12px -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "Roboto", Helvetica, Arial, sans-serif'
 const LABEL_PADDING = 20
 
 let measureCtx: CanvasRenderingContext2D | null = null
@@ -21,7 +28,16 @@ function getMeasureCtx(): CanvasRenderingContext2D | null {
     return measureCtx
 }
 
-function computeVisibleXLabels(
+export function measureLabelWidth(text: string, font: string = LABEL_FONT): number {
+    const ctx = getMeasureCtx()
+    if (!ctx) {
+        return text.length * 7
+    }
+    ctx.font = font
+    return ctx.measureText(text).width
+}
+
+export function computeVisibleXLabels(
     labels: string[],
     xScale: (label: string) => number | undefined,
     formatter?: (value: string, index: number) => string | null
@@ -69,7 +85,7 @@ function computeVisibleXLabels(
 
 const TICK_STYLE_BASE: React.CSSProperties = {
     position: 'absolute',
-    fontSize: 11,
+    fontSize: 12,
     pointerEvents: 'none',
     whiteSpace: 'nowrap',
 }
@@ -77,17 +93,90 @@ const TICK_STYLE_BASE: React.CSSProperties = {
 export function AxisLabels({
     xTickFormatter,
     yTickFormatter,
+    yRightTickFormatter,
     hideXAxis,
     hideYAxis,
     axisColor = 'rgba(0, 0, 0, 0.5)',
+    orientation = 'vertical',
+    labelToCoord,
 }: AxisLabelsProps): React.ReactElement | null {
-    const { scales, dimensions, labels } = useChart()
+    const { scales, dimensions, labels } = useChartLayout()
     const yTicks = scales.yTicks()
 
+    const rightAxis = useMemo(() => {
+        if (!scales.yAxes) {
+            return null
+        }
+        return Object.values(scales.yAxes).find((a) => a.position === 'right') ?? null
+    }, [scales.yAxes])
+    const rightTicks = useMemo(() => rightAxis?.ticks() ?? [], [rightAxis])
+
     const visibleXLabels = useMemo(
-        () => (hideXAxis ? [] : computeVisibleXLabels(labels, scales.x, xTickFormatter)),
-        [hideXAxis, labels, scales.x, xTickFormatter]
+        () =>
+            hideXAxis || orientation === 'horizontal' ? [] : computeVisibleXLabels(labels, scales.x, xTickFormatter),
+        [hideXAxis, labels, scales.x, xTickFormatter, orientation]
     )
+
+    const rightFormatter = yRightTickFormatter ?? yTickFormatter
+
+    if (orientation === 'horizontal') {
+        // In horizontal mode `scales.y` holds value→x-pixel and the label→y-pixel function lives
+        // on `scales.x` (or `labelToCoord` if explicitly overridden).
+        const labelToY = labelToCoord ?? scales.x
+        return (
+            <>
+                {!hideYAxis &&
+                    labels.map((labelText, i) => {
+                        const text = xTickFormatter ? xTickFormatter(labelText, i) : labelText
+                        if (text === null) {
+                            return null
+                        }
+                        const y = labelToY(labelText)
+                        if (y == null || !isFinite(y)) {
+                            return null
+                        }
+                        return (
+                            <div
+                                key={`y-cat-${i}`}
+                                data-attr="hog-chart-axis-tick-y"
+                                style={{
+                                    ...TICK_STYLE_BASE,
+                                    right: dimensions.width - dimensions.plotLeft + 8,
+                                    top: y,
+                                    transform: 'translateY(-50%)',
+                                    color: axisColor,
+                                }}
+                            >
+                                {text}
+                            </div>
+                        )
+                    })}
+                {!hideXAxis &&
+                    yTicks.map((tick: number) => {
+                        const x = scales.y(tick)
+                        if (!isFinite(x)) {
+                            return null
+                        }
+                        const label = yTickFormatter ? yTickFormatter(tick) : String(tick)
+                        return (
+                            <div
+                                key={`x-val-${tick}`}
+                                data-attr="hog-chart-axis-tick-x"
+                                style={{
+                                    ...TICK_STYLE_BASE,
+                                    left: x,
+                                    top: dimensions.plotTop + dimensions.plotHeight + 8,
+                                    transform: 'translateX(-50%)',
+                                    color: axisColor,
+                                }}
+                            >
+                                {label}
+                            </div>
+                        )
+                    })}
+            </>
+        )
+    }
 
     return (
         <>
@@ -101,6 +190,7 @@ export function AxisLabels({
                     return (
                         <div
                             key={`y-${tick}`}
+                            data-attr="hog-chart-axis-tick-y"
                             style={{
                                 ...TICK_STYLE_BASE,
                                 right: dimensions.width - dimensions.plotLeft + 8,
@@ -114,9 +204,35 @@ export function AxisLabels({
                     )
                 })}
 
+            {!hideYAxis &&
+                rightAxis &&
+                rightTicks.map((tick: number) => {
+                    const y = rightAxis.scale(tick)
+                    if (!isFinite(y)) {
+                        return null
+                    }
+                    const label = rightFormatter ? rightFormatter(tick) : String(tick)
+                    return (
+                        <div
+                            key={`yr-${tick}`}
+                            data-attr="hog-chart-axis-tick-yr"
+                            style={{
+                                ...TICK_STYLE_BASE,
+                                left: dimensions.plotLeft + dimensions.plotWidth + 8,
+                                top: y,
+                                transform: 'translateY(-50%)',
+                                color: axisColor,
+                            }}
+                        >
+                            {label}
+                        </div>
+                    )
+                })}
+
             {visibleXLabels.map(({ index, text, x }) => (
                 <div
                     key={`x-${index}`}
+                    data-attr="hog-chart-axis-tick-x"
                     style={{
                         ...TICK_STYLE_BASE,
                         left: x,

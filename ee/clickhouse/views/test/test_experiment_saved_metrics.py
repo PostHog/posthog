@@ -212,8 +212,10 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
         self.assertEqual(Experiment.objects.get(pk=exp_id).saved_metrics.count(), 1)
         self.assertEqual(Experiment.objects.get(pk=exp_id).secondary_metrics_ordered_uuids, [saved_metric_uuid])
         experiment_to_saved_metric = Experiment.objects.get(pk=exp_id).experimenttosavedmetric_set.first()
+        assert experiment_to_saved_metric is not None
         self.assertEqual(experiment_to_saved_metric.metadata, {"type": "secondary"})
         saved_metric = Experiment.objects.get(pk=exp_id).saved_metrics.first()
+        assert saved_metric is not None
         self.assertEqual(saved_metric.id, saved_metric_id)
         self.assertEqual(
             saved_metric.query,
@@ -254,6 +256,7 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
         # make sure experiment in question was updated as well
         self.assertEqual(Experiment.objects.get(pk=exp_id).saved_metrics.count(), 1)
         saved_metric = Experiment.objects.get(pk=exp_id).saved_metrics.first()
+        assert saved_metric is not None
         self.assertEqual(saved_metric.id, saved_metric_id)
         self.assertEqual(
             saved_metric.query,
@@ -784,6 +787,62 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
         )
         self.assertIn("query", saved_metrics[0])
         self.assertEqual(saved_metrics[0]["query"]["kind"], "ExperimentMetric")
+
+    def test_cannot_create_duplicate_named_saved_metric(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiment_saved_metrics/",
+            data={
+                "name": "Unique Metric Name",
+                "query": {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "$pageview"},
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiment_saved_metrics/",
+            data={
+                "name": "Unique Metric Name",
+                "query": {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "$pageleave"},
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("A shared metric with this name already exists", str(response.json()))
+
+    def test_can_update_saved_metric_keeping_same_name(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiment_saved_metrics/",
+            data={
+                "name": "Keep This Name",
+                "query": {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "$pageview"},
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        saved_metric_id = response.json()["id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiment_saved_metrics/{saved_metric_id}",
+            data={
+                "name": "Keep This Name",
+                "description": "Updated description",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_saved_metric_refreshes_action_names(self):
         """Test that saved metrics show current action names when actions are renamed."""

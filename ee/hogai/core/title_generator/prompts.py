@@ -7,5 +7,6 @@ Given the brief below, output one title that:
 – Sound friendly but professional (imagine a Slack channel name).
 – Use sentence case where the first letter must be capitalized.
 – Do not use empty adjectives.
+- Use sentence case, preserving all-caps acronyms (e.g. SQL, API).
 Respond with the title only—no explanations.
 """.strip()

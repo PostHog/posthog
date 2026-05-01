@@ -1,11 +1,14 @@
 import './LemonDrawer.scss'
 
 import clsx from 'clsx'
-import { useId } from 'react'
+import { useValues } from 'kea'
+import { useCallback, useId, useRef } from 'react'
 import Modal from 'react-modal'
 
 import { IconX } from '@posthog/icons'
 
+import { Resizer } from 'lib/components/Resizer/Resizer'
+import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
@@ -24,6 +27,8 @@ interface LemonDrawerBaseProps {
     onClose?: () => void
     onAfterClose?: () => void
     width?: number | string
+    /** Enable drag-to-resize on the left edge of the drawer */
+    resizable?: boolean
     description?: React.ReactNode
     footer?: React.ReactNode
     hideCloseButton?: boolean
@@ -76,6 +81,7 @@ export function LemonDrawer({
     footer,
     simple,
     hideCloseButton = false,
+    resizable = false,
     overlayTransparent = false,
     forceAbovePopovers = false,
     contentRef,
@@ -89,6 +95,25 @@ export function LemonDrawer({
     const titleId = useId()
     const descriptionId = useId()
     const hasVisibleTitle = !simple && !!title
+
+    const containerRef = useRef<HTMLDivElement>(null)
+    const resizerLogicProps: ResizerLogicProps = {
+        containerRef,
+        logicKey: 'lemon-drawer',
+        persistent: false,
+        placement: 'left',
+    }
+    const { desiredSize } = useValues(resizerLogic(resizerLogicProps))
+
+    const effectiveWidth = resizable && desiredSize ? desiredSize : width
+
+    const mergedContentRef = useCallback(
+        (el: HTMLDivElement) => {
+            ;(containerRef as React.MutableRefObject<HTMLDivElement | null>).current = el
+            contentRef?.(el)
+        },
+        [contentRef]
+    )
 
     const drawerContent = (
         <div className="LemonDrawer__container" data-attr={dataAttr}>
@@ -129,6 +154,8 @@ export function LemonDrawer({
                     </>
                 )}
             </div>
+
+            {resizable && <Resizer {...resizerLogicProps} />}
         </div>
     )
 
@@ -150,7 +177,7 @@ export function LemonDrawer({
             )}
             style={{
                 content: {
-                    width,
+                    width: effectiveWidth,
                 },
             }}
             contentLabel={!hasVisibleTitle ? ariaLabel : undefined}
@@ -159,7 +186,7 @@ export function LemonDrawer({
                 describedby: hasVisibleTitle && description ? descriptionId : undefined,
             }}
             appElement={document.getElementById('root') as HTMLElement}
-            contentRef={contentRef}
+            contentRef={mergedContentRef}
             overlayRef={overlayRef}
             parentSelector={floatingContainer ? () => floatingContainer : undefined}
         >

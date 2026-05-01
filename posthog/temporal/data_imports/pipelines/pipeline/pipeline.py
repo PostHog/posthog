@@ -2,9 +2,10 @@ import sys
 import time
 import asyncio
 import threading
+import contextvars
 from collections.abc import AsyncIterable, AsyncIterator, Iterable
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Generic, Literal, TypeVar
+from typing import Any, Generic, Literal, TypeVar, cast
 
 import pyarrow as pa
 import deltalake as deltalake
@@ -77,12 +78,17 @@ async def async_iterate(iterable: Iterable[T] | AsyncIterable[T]) -> AsyncIterat
     """
     if isinstance(iterable, AsyncIterable):
         async for item in iterable:
-            yield item
+            yield cast(T, item)
         return
 
     iterator = iter(iterable)
     lock = threading.Lock()
     loop = asyncio.get_running_loop()
+    # loop.run_in_executor does not propagate contextvars across the thread
+    # boundary (unlike asyncio.to_thread). Snapshot them once so logs emitted
+    # from inside the source generator keep team_id / workflow_* and reach the
+    # log_entries table via LogMessagesRenderer's produce path.
+    ctx = contextvars.copy_context()
 
     def _next() -> tuple[bool, T | None]:
         with lock:
@@ -98,13 +104,21 @@ async def async_iterate(iterable: Iterable[T] | AsyncIterable[T]) -> AsyncIterat
 
     try:
         while True:
-            has_value, item = await loop.run_in_executor(_SOURCE_ITERATOR_EXECUTOR, _next)  # type: ignore
+            has_value, item = await loop.run_in_executor(_SOURCE_ITERATOR_EXECUTOR, ctx.run, _next)  # type: ignore
             if not has_value:
                 break
 
+            assert item is not None
             yield item
     finally:
-        await loop.run_in_executor(_SOURCE_ITERATOR_EXECUTOR, _close)
+        # Use a fresh context snapshot for cleanup. Reusing `ctx` would fail
+        # with RuntimeError if the activity is cancelled mid-_next: the
+        # in-flight _next may still be inside `ctx` on an executor thread,
+        # and Context.run raises when re-entered. A failed _close would skip
+        # iterator.close() and leave DB cursors / connections / tunnels held
+        # open until garbage collection.
+        cleanup_ctx = contextvars.copy_context()
+        await loop.run_in_executor(_SOURCE_ITERATOR_EXECUTOR, cleanup_ctx.run, _close)
 
 
 class PipelineNonDLT(Generic[ResumableData]):
@@ -139,6 +153,10 @@ class PipelineNonDLT(Generic[ResumableData]):
     ) -> None:
         self._resource = source_response
         self._resource_name = source_response.name
+
+        # Allow user-specified primary keys to override auto-detected ones
+        if schema.primary_key_columns:
+            self._resource.primary_keys = schema.primary_key_columns
 
         self._job = job
         self._reset_pipeline = reset_pipeline
@@ -404,17 +422,42 @@ class PipelineNonDLT(Generic[ResumableData]):
             self._resource, self._schema, self._last_incremental_field_value, self._logger
         )
 
-        await self._logger.adebug("Validating schema and updating table")
-        await validate_schema_and_update_table(
-            run_id=str(self._job.id),
-            team_id=self._job.team_id,
-            schema_id=self._schema.id,
-            table_schema_dict=self._internal_schema.to_hogql_types(),
-            row_count=row_count,
-            queryable_folder=queryable_folder,
-            table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
-        )
-        await self._logger.adebug("Finished validating schema and updating table")
+        # For cdc_only mode, skip registering the consolidated DataWarehouseTable — only the
+        # _cdc companion table should be visible.  The DeltaLake files still exist on S3 for
+        # the seeding step to read from.
+        if not (
+            self._schema.sync_type == ExternalDataSchema.SyncType.CDC and self._schema.cdc_table_mode == "cdc_only"
+        ):
+            await self._logger.adebug("Validating schema and updating table")
+            await validate_schema_and_update_table(
+                run_id=str(self._job.id),
+                team_id=self._job.team_id,
+                schema_id=self._schema.id,
+                table_schema_dict=self._internal_schema.to_hogql_types(),
+                row_count=row_count,
+                queryable_folder=queryable_folder,
+                table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            )
+            await self._logger.adebug("Finished validating schema and updating table")
+
+        # Seed the _cdc companion table for CDC schemas (same logic as in run_post_load_operations
+        # for the V3 pipeline — the V2 pipeline calls validate_schema_and_update_table directly
+        # and doesn't go through run_post_load_operations).
+        if self._schema.sync_type == ExternalDataSchema.SyncType.CDC and self._schema.cdc_table_mode in (
+            "cdc_only",
+            "both",
+        ):
+            from posthog.temporal.data_imports.pipelines.common.load import _seed_cdc_companion_from_snapshot
+
+            await self._logger.ainfo("Seeding CDC companion table from snapshot (V2 pipeline)")
+            await _seed_cdc_companion_from_snapshot(
+                schema=self._schema,
+                job=self._job,
+                source=self._source,
+                snapshot_delta_table_helper=self._delta_table_helper,
+                logger=self._logger,
+            )
+            await self._logger.ainfo("Finished seeding CDC companion table from snapshot")
 
         await self._logger.adebug("Syncing revenue analytics views")
         await database_sync_to_async_pool(sync_revenue_analytics_views)(self._schema, self._source)

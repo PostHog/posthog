@@ -6,18 +6,21 @@ import collections.abc
 from datetime import date, datetime
 
 import pyarrow as pa
-from dlt.common.normalizers.naming.snake_case import NamingConvention
+import structlog
 from google.api_core.exceptions import Forbidden
+from google.auth.transport.requests import AuthorizedSession
 from google.cloud import bigquery, bigquery_storage
 from google.cloud.bigquery.job import QueryJobConfig
 from google.oauth2 import service_account
 from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
+from posthog.temporal.data_imports.naming_convention import NamingConvention
 from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
 from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_TABLE_SIZE_BYTES
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES
+from posthog.temporal.data_imports.sources.common.http import DEFAULT_RETRY, TrackedHTTPAdapter
 from posthog.temporal.data_imports.sources.generated_configs import BigQuerySourceConfig
 
 from products.data_warehouse.backend.types import IncrementalFieldType, PartitionSettings
@@ -93,10 +96,18 @@ def bigquery_client(
         },
         scopes=["https://www.googleapis.com/auth/drive", "https://www.googleapis.com/auth/cloud-platform"],
     )
+    # AuthorizedSession is a `requests.Session` subclass that injects the OAuth2
+    # bearer token. Mount our TrackedHTTPAdapter on it so every BigQuery REST
+    # call is logged and metered alongside the other warehouse sources.
+    authed_session = AuthorizedSession(credentials)
+    tracked_adapter = TrackedHTTPAdapter(max_retries=DEFAULT_RETRY)
+    authed_session.mount("https://", tracked_adapter)
+    authed_session.mount("http://", tracked_adapter)
     client = bigquery.Client(
         project=project_id,
         location=location,
         credentials=credentials,
+        _http=authed_session,
     )
 
     try:
@@ -240,6 +251,136 @@ def get_partition_settings(
         return PartitionSettings(partition_count=1, partition_size=partition_size)
 
     return PartitionSettings(partition_count=partition_count, partition_size=partition_size)
+
+
+def get_leading_indexed_columns_for_schemas(
+    config: BigQuerySourceConfig,
+    table_names: list[str],
+) -> dict[str, set[str]] | None:
+    """Return columns that act as the leading "index" per BigQuery table.
+
+    BigQuery doesn't have B-tree indexes; predicate pushdown for `WHERE col >= …`
+    is accelerated by:
+      - The partition column (INFORMATION_SCHEMA.COLUMNS.is_partitioning_column = 'YES')
+      - The leading clustering column (clustering_ordinal_position = 1)
+    Both are equally effective for skipping data, so we treat both as indexed.
+
+    Returns None on discovery failure so callers default to no warning. Tables
+    without partitioning or clustering map to an empty set so the UI warns for
+    them.
+    """
+    if not table_names:
+        return {}
+
+    try:
+        region: str | None = None
+        if (
+            config.use_custom_region
+            and config.use_custom_region.enabled
+            and config.use_custom_region.region is not None
+            and config.use_custom_region.region != ""
+        ):
+            region = config.use_custom_region.region
+
+        result: dict[str, set[str]] = {table: set() for table in table_names}
+
+        with bigquery_client(
+            config.key_file.project_id,
+            region,
+            config.key_file.private_key,
+            config.key_file.private_key_id,
+            config.key_file.client_email,
+            config.key_file.token_uri,
+        ) as bq:
+            project = (
+                config.dataset_project.dataset_project_id
+                if config.dataset_project and config.dataset_project.enabled
+                else config.key_file.project_id
+            )
+
+            query = f"""
+            SELECT table_name, column_name
+            FROM `{config.dataset_id}`.INFORMATION_SCHEMA.COLUMNS
+            WHERE is_partitioning_column = 'YES'
+               OR clustering_ordinal_position = 1
+            """
+
+            job = bq.query(query, job_config=QueryJobConfig(), project=project)
+            for row in job.result():
+                table_name = row["table_name"]
+                if table_name in result:
+                    result[table_name].add(row["column_name"])
+    except Exception as e:
+        structlog.get_logger().warning("Failed to detect partitioning/clustering for BigQuery schemas", exc_info=e)
+        return None
+
+    return result
+
+
+def get_primary_keys_for_schemas(
+    config: BigQuerySourceConfig,
+    schemas: dict[str, list[tuple[str, str, bool]]],
+) -> dict[str, list[str] | None]:
+    """Detect primary keys for all tables in a dataset.
+
+    Returns a dict mapping table_name -> list of PK columns (or None).
+    Uses the same logic as get_primary_keys but batched into a single query.
+    """
+    region: str | None = None
+    if (
+        config.use_custom_region
+        and config.use_custom_region.enabled
+        and config.use_custom_region.region is not None
+        and config.use_custom_region.region != ""
+    ):
+        region = config.use_custom_region.region
+
+    result: dict[str, list[str] | None] = {}
+
+    with bigquery_client(
+        config.key_file.project_id,
+        region,
+        config.key_file.private_key,
+        config.key_file.private_key_id,
+        config.key_file.client_email,
+        config.key_file.token_uri,
+    ) as bq:
+        project = (
+            config.dataset_project.dataset_project_id
+            if config.dataset_project and config.dataset_project.enabled
+            else config.key_file.project_id
+        )
+
+        query = f"""
+        SELECT tc.table_name, kcu.column_name
+        FROM `{config.dataset_id}`.INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
+        JOIN `{config.dataset_id}`.INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu
+        ON tc.constraint_name = kcu.constraint_name
+        WHERE tc.constraint_type = 'PRIMARY KEY'
+        """
+
+        constraint_pks: dict[str, list[str]] = collections.defaultdict(list)
+        try:
+            job = bq.query(query, job_config=QueryJobConfig(), project=project)
+            for row in job.result():
+                table_name = row["table_name"]
+                col_name = row["column_name"].removeprefix(f"{table_name}.")
+                constraint_pks[table_name].append(col_name)
+        except Exception as e:
+            structlog.get_logger().warning("Failed to detect primary keys for BigQuery schemas", exc_info=e)
+
+        for table_name, columns in schemas.items():
+            existing_fields = {col[0] for col in columns}
+
+            if table_name in constraint_pks:
+                pks = [pk for pk in constraint_pks[table_name] if pk in existing_fields]
+                result[table_name] = pks if pks else None
+            elif "id" in existing_fields:
+                result[table_name] = ["id"]
+            else:
+                result[table_name] = None
+
+    return result
 
 
 def get_primary_keys(table: bigquery.Table, client: bigquery.Client) -> list[str] | None:
@@ -403,7 +544,7 @@ def bigquery_source(
     """
 
     project_id_for_dataset = dataset_project_id or project_id
-    name = NamingConvention().normalize_identifier(table_name)
+    name = NamingConvention.normalize_identifier(table_name)
     fully_qualified_table_name = f"{project_id_for_dataset}.{dataset_id}.{table_name}"
 
     with bigquery_client(

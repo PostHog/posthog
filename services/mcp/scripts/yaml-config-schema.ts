@@ -29,17 +29,54 @@ export const ToolConfigSchema = z
         description: z.string().optional(),
         /** Path to a file containing the tool description (resolved relative to the YAML file). Mutually exclusive with `description`. */
         description_file: z.string().optional(),
+        /**
+         * One-line selection hint injected into the system prompt catalog.
+         * Describes *when to pick this tool*, not what it does. Currently only
+         * surfaced for `query-*` tools in the query tool catalog.
+         * Example: "Time series, aggregations, formulas, comparisons"
+         */
+        system_prompt_hint: z.string().optional(),
         exclude_params: z.array(z.string()).optional(),
         include_params: z.array(z.string()).optional(),
+        /**
+         * Body key/value pairs hardcoded by the generated handler. The values are always sent and
+         * always win over anything the caller supplied (the assignments are emitted after the
+         * dynamic body builder). Use to attribute a tool's requests — e.g. forcing
+         * `created_via: 'mcp'` so agents can't claim another origin.
+         */
+        inject_body: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional(),
         param_overrides: z
             .record(
                 z.string(),
                 z
                     .object({
                         description: z.string().optional(),
+                        /** Override the default value for this parameter. The field becomes optional with `.default(value)`. */
+                        default: z.unknown().optional(),
                         input_schema: z.string().optional(),
+                        /** Reference to a schema.json definition. Generates a Zod schema from JSON Schema at build time. */
+                        schema_ref: z.string().optional(),
+                        /** Properties to exclude when generating from schema_ref. */
+                        exclude_properties: z.array(z.string()).optional(),
+                        /**
+                         * When true, the param becomes optional in the tool schema.
+                         * Must be paired with `fallback` to specify the state key used
+                         * to resolve the value when the caller omits it.
+                         */
+                        optional: z.boolean().optional(),
+                        /**
+                         * State manager key to resolve the param from when omitted.
+                         * Supported keys: 'orgId' (→ getOrgID()), 'projectId' (→ getProjectId()).
+                         */
+                        fallback: z.enum(['orgId', 'projectId']).optional(),
                     })
                     .strict()
+                    .refine((data) => !(data.input_schema && data.schema_ref), {
+                        message: 'input_schema and schema_ref are mutually exclusive',
+                    })
+                    .refine((data) => !(data.optional && !data.fallback), {
+                        message: 'optional requires a fallback key to resolve the value from state',
+                    })
             )
             .optional(),
         mcp_version: z.number().int().positive().optional(),
@@ -65,9 +102,30 @@ export const ToolConfigSchema = z
          */
         rename_params: z.record(z.string(), z.string()).optional(),
         /**
+         * PostHog feature flag key that controls whether this tool is exposed.
+         * When set, the tool is only included (or excluded) based on the flag's
+         * evaluation for the current user.
+         *
+         * By default (`feature_flag_behavior: 'enable'`), the tool is only shown
+         * when the flag is **on**. Set `feature_flag_behavior: 'disable'` to hide
+         * the tool when the flag is on (useful for sunsetting old tools).
+         */
+        feature_flag: z.string().optional(),
+        /**
+         * Controls how `feature_flag` gates the tool:
+         * - `'enable'` (default): tool is shown only when the flag is on.
+         * - `'disable'`: tool is hidden when the flag is on.
+         */
+        feature_flag_behavior: z.enum(['enable', 'disable']).optional(),
+        /**
          * Response field filtering. Supports dot-path patterns with wildcards (e.g. 'filters.groups.*.key').
          * For list endpoints, applied to each item in `results`. `include` and `exclude` are mutually exclusive.
          */
+        /**
+         * Override the category-level URL prefix for `_posthogUrl` enrichment.
+         * Useful when a single category YAML covers tools that link to different frontend pages.
+         */
+        url_prefix: z.string().optional(),
         response: z
             .object({
                 /** Dot-path patterns of response fields to keep. Only matched fields are preserved. */
@@ -141,6 +199,8 @@ const DetailUiAppSchema = z
         data_type: z.string().optional(),
         /** React component name that renders the detail view. Default: PascalCase(key) + "View". */
         view_component: z.string().optional(),
+        /** Prop name to bind the host's `openLink(url)` callback to. Omit if the view has no inline external links. */
+        link_prop: z.string().optional(),
     })
     .strict()
 
@@ -211,6 +271,7 @@ export interface ResolvedDetailUiApp {
     component_import: string
     data_type: string
     view_component: string
+    link_prop?: string
 }
 
 /** List config with all fields resolved (after convention defaults are applied). */
@@ -269,11 +330,26 @@ export const QueryWrapperToolConfigSchema = z
         description: z.string().optional(),
         /** Path to a file containing the tool description (resolved relative to the YAML file). Mutually exclusive with `description`. */
         description_file: z.string().optional(),
+        /**
+         * One-line selection hint injected into the query tool catalog in the
+         * system prompt. Describes *when to pick this tool*, not what it does.
+         * Example: "Time series, aggregations, formulas, comparisons"
+         */
+        system_prompt_hint: z.string().optional(),
         ui_resource_uri: z.string().optional(),
         /** Properties to exclude from the generated Zod schema */
         exclude_properties: z.array(z.string()).optional(),
-        /** Return JSON instead of TOON-encoded text. */
-        response_format: z.enum(['json']).optional(),
+        /**
+         * Set to `true` when the wrapper's `schema_ref` has a matching formatter in
+         * `ee/hogai/context/insight/format/`. Enabling this:
+         *   - surfaces the formatter's LLM-friendly text output (via the backend's `formatted_results`)
+         *     as the default response text;
+         *   - adds an `output_format: 'optimized' | 'json'` per-call input to the generated tool schema,
+         *     so the caller can opt into raw JSON when they want structured data instead of prose.
+         * Omit (or set to `false`) when the query kind has no formatter; the tool then always returns
+         * JSON-encoded results.
+         */
+        use_optimized_output: z.boolean().optional(),
         /**
          * Default values for properties that are required in the schema but should
          * be optional for the agent. The Zod schema gets `.default(value).optional()`.
@@ -281,9 +357,20 @@ export const QueryWrapperToolConfigSchema = z
         property_defaults: z.record(z.string(), z.unknown()).optional(),
         /**
          * Override the URL enrichment prefix. When set, `_posthogUrl` uses
-         * `{baseUrl}{url_prefix}` instead of the default `/insights/new?q=...`.
+         * `{baseUrl}{url_prefix}` instead of the default `/insights/new#q=...`.
          */
         url_prefix: z.string().optional(),
+        /**
+         * PostHog feature flag key that controls whether this tool is exposed.
+         * See ToolConfigSchema.feature_flag for full documentation.
+         */
+        feature_flag: z.string().optional(),
+        /**
+         * Controls how `feature_flag` gates the tool:
+         * - `'enable'` (default): tool is shown only when the flag is on.
+         * - `'disable'`: tool is hidden when the flag is on.
+         */
+        feature_flag_behavior: z.enum(['enable', 'disable']).optional(),
     })
     .strict()
     .refine((data) => !(data.description && data.description_file), {

@@ -1,6 +1,9 @@
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+
 import { expectLogic, partial } from 'kea-test-utils'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { dataTableLogic } from '~/queries/nodes/DataTable/dataTableLogic'
@@ -297,6 +300,64 @@ describe('dataTableLogic', () => {
             queryWithDefaults: expect.objectContaining({
                 showOpenEditorButton: false,
             }),
+        })
+    })
+
+    it.each([
+        {
+            timezone: 'US/Pacific',
+            // 2022-12-24T05:00Z = Dec 23 21:00 PST; 2022-12-24T10:00Z = Dec 24 02:00 PST
+            timestamps: ['2022-12-24T10:00:00.000000Z', '2022-12-24T05:00:00.000000Z'],
+            expectedLabel: 'December 23, 2022',
+        },
+        {
+            timezone: 'Asia/Tokyo',
+            // 2022-12-24T15:00Z = Dec 25 00:00 JST; 2022-12-24T14:00Z = Dec 24 23:00 JST
+            timestamps: ['2022-12-24T15:00:00.000000Z', '2022-12-24T14:00:00.000000Z'],
+            expectedLabel: 'December 24, 2022',
+        },
+    ])('groups date headers by project timezone ($timezone)', async ({ timezone, timestamps, expectedLabel }) => {
+        teamLogic.mount()
+        teamLogic.actions.loadCurrentTeamSuccess({ id: MOCK_TEAM_ID, timezone } as any)
+
+        const commonResult = {
+            uuid: '01853a90-ba94-0000-8776-e8df5617c3ec',
+            event: 'test event',
+            properties: {},
+            team_id: 1,
+            distinct_id: '123',
+        }
+        const results = timestamps.map((ts) => [{ ...commonResult, timestamp: ts }, 'test event', ts])
+        ;(performQuery as any).mockResolvedValueOnce({
+            columns: ['*', 'event', 'timestamp'],
+            types: [
+                "Tuple(UUID, String, String, DateTime64(6, 'UTC'), Int64, String, String, DateTime64(6, 'UTC'), UUID, DateTime64(3), String)",
+                'String',
+                "DateTime64(6, 'UTC')",
+            ],
+            results,
+            hasMore: false,
+        })
+        logic = dataTableLogic({
+            dataKey: testUniqueKey,
+            vizKey: testUniqueKey,
+            query: {
+                kind: NodeKind.DataTableNode,
+                source: {
+                    kind: NodeKind.EventsQuery,
+                    select: ['*', 'event', 'timestamp'],
+                },
+            },
+        })
+        logic.mount()
+
+        await expectLogic(logic)
+            .toMatchValues({ responseLoading: true })
+            .delay(0)
+            .toMatchValues({ responseLoading: false })
+
+        await expectLogic(logic).toMatchValues({
+            dataTableRows: [{ result: results[0] }, { label: expectedLabel }, { result: results[1] }],
         })
     })
 

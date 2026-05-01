@@ -108,6 +108,132 @@ async def notify_revenue_analytics_that_sync_has_completed(
         capture_exception(e)
 
 
+async def _seed_cdc_companion_from_snapshot(
+    schema: ExternalDataSchema,
+    job: ExternalDataJob,
+    source: "ExternalDataSource",
+    snapshot_delta_table_helper: "DeltaTableHelper",
+    logger: FilteringBoundLogger,
+) -> None:
+    """Populate the _cdc companion table with snapshot rows as synthetic INSERT events.
+
+    Called after the initial full-refresh snapshot completes for a CDC schema that uses
+    'cdc_only' or 'both' mode.  Any existing companion table is reset first so that a
+    full resync always starts the _cdc history fresh from the new snapshot.
+
+    Reads the snapshot in batches via PyArrow dataset scanning to avoid loading the
+    entire table into memory.
+    """
+    import asyncio
+
+    from posthog.temporal.data_imports.cdc.batcher import (
+        CDC_OP_COLUMN,
+        CDC_TIMESTAMP_COLUMN,
+        DELETED_AT_COLUMN,
+        DELETED_COLUMN,
+        SCD2_VALID_FROM_COLUMN,
+        SCD2_VALID_TO_COLUMN,
+    )
+    from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
+    from posthog.temporal.data_imports.pipelines.pipeline.hogql_schema import HogQLSchema
+
+    snapshot_dt = await snapshot_delta_table_helper.get_delta_table()
+    if snapshot_dt is None:
+        return
+
+    dataset = await asyncio.to_thread(snapshot_dt.to_pyarrow_dataset)
+
+    # Strip any pre-existing CDC metadata columns from the snapshot (defensive).
+    cdc_meta_cols = {
+        CDC_OP_COLUMN,
+        CDC_TIMESTAMP_COLUMN,
+        DELETED_COLUMN,
+        DELETED_AT_COLUMN,
+        SCD2_VALID_FROM_COLUMN,
+        SCD2_VALID_TO_COLUMN,
+    }
+    read_columns = [c for c in dataset.schema.names if c not in cdc_meta_cols]
+
+    companion_resource_name = f"{schema.name}_cdc"
+    companion_helper = DeltaTableHelper(
+        resource_name=companion_resource_name,
+        job=job,
+        logger=logger,
+    )
+
+    # Reset so a full resync always starts the companion fresh.
+    await companion_helper.reset_table()
+
+    hogql_schema = HogQLSchema()
+    total_rows = 0
+
+    SEED_BATCH_SIZE = 50_000
+    reader = await asyncio.to_thread(
+        lambda: dataset.scanner(columns=read_columns, batch_size=SEED_BATCH_SIZE).to_reader()
+    )
+
+    def _read_next_batch(r: pa.RecordBatchReader) -> pa.RecordBatch | None:
+        try:
+            return r.read_next_batch()
+        except StopIteration:
+            return None
+
+    # Use Unix epoch (0) for the seed timestamp so that any real WAL commit timestamp
+    # is guaranteed to be greater.  Without this, seeded rows end up with
+    # valid_from > valid_to when the first CDC event has a commit time that predates
+    # the snapshot ingestion time (e.g. changes captured during the initial snapshot load).
+    ts_type = pa.timestamp("us", tz="UTC")
+    epoch_us = 0
+
+    while True:
+        batch = await asyncio.to_thread(_read_next_batch, reader)
+        if batch is None:
+            break
+
+        batch_table = pa.Table.from_batches([batch])
+        if batch_table.num_rows == 0:
+            continue
+
+        n = batch_table.num_rows
+        batch_table = (
+            batch_table.append_column(pa.field(CDC_OP_COLUMN, pa.string()), pa.array(["I"] * n, type=pa.string()))
+            .append_column(pa.field(CDC_TIMESTAMP_COLUMN, ts_type), pa.array([epoch_us] * n, type=ts_type))
+            .append_column(pa.field(DELETED_COLUMN, pa.bool_()), pa.array([False] * n, type=pa.bool_()))
+            .append_column(pa.field(DELETED_AT_COLUMN, ts_type), pa.array([None] * n, type=ts_type))
+            .append_column(pa.field(SCD2_VALID_FROM_COLUMN, ts_type), pa.array([epoch_us] * n, type=ts_type))
+            .append_column(pa.field(SCD2_VALID_TO_COLUMN, ts_type), pa.array([None] * n, type=ts_type))
+        )
+
+        # Plain append — the companion table is freshly reset so there are no existing
+        # rows to close, making SCD2 merge unnecessary.
+        await companion_helper.write_to_deltalake(
+            data=batch_table,
+            write_type="append",
+            should_overwrite_table=False,
+            primary_keys=None,
+        )
+        hogql_schema.add_pyarrow_table(batch_table)
+        total_rows += n
+
+    if total_rows == 0:
+        return
+
+    file_uris = await companion_helper.get_file_uris()
+
+    await run_post_load_operations(
+        job=job,
+        schema=schema,
+        source=source,
+        delta_table_helper=companion_helper,
+        row_count=total_rows,
+        file_uris=file_uris,
+        table_schema_dict=hogql_schema.to_hogql_types(),
+        resource_name=companion_resource_name,
+        logger=logger,
+        cdc_write_mode="scd2_append",
+    )
+
+
 async def run_post_load_operations(
     job: ExternalDataJob,
     schema: ExternalDataSchema,
@@ -120,6 +246,8 @@ async def run_post_load_operations(
     logger: FilteringBoundLogger,
     last_incremental_field_value: Any = None,
     resource: "Optional[SourceResponse]" = None,
+    cdc_table_mode: Optional[str] = None,
+    cdc_write_mode: Optional[str] = None,
 ) -> None:
     """
     Orchestrator function that runs all post-load operations:
@@ -128,11 +256,13 @@ async def run_post_load_operations(
         3. Update last_synced_at timestamp
         4. Notify revenue analytics (if applicable)
         5. Finalize incremental field values
-        6. Validate schema and update table
+        6. Validate schema and update table (or register CDC companion table)
         7. Sync revenue analytics views (if applicable)
     """
     from posthog.temporal.data_imports.pipelines.common.extract import finalize_desc_sort_incremental_value
+    from posthog.temporal.data_imports.pipelines.helpers import build_table_name
     from posthog.temporal.data_imports.pipelines.pipeline_sync import (
+        register_cdc_companion_table,
         update_last_synced_at,
         validate_schema_and_update_table,
     )
@@ -142,6 +272,11 @@ async def run_post_load_operations(
         logger.debug("No deltalake table, not continuing with post-run ops")
         return
 
+    # Detect CDC companion writes — scd2_append writes always go to the companion _cdc resource.
+    # In this case we must NOT touch schema.table (the snapshot table) and must register the companion
+    # table independently, otherwise we overwrite the snapshot queryable_folder with the SCD2 path.
+    is_cdc_companion = cdc_write_mode == "scd2_append"
+
     logger.debug("Triggering compaction and vacuuming on delta table")
     try:
         with POST_LOAD_DURATION_SECONDS.labels(operation="compact").time():
@@ -150,9 +285,30 @@ async def run_post_load_operations(
         capture_exception(e)
         logger.exception(f"Compaction failed: {e}", exc_info=e)
 
-    existing_queryable_folder = await database_sync_to_async_pool(
-        lambda: schema.table.queryable_folder if schema.table else None
-    )()
+    if is_cdc_companion:
+        # Look up the existing companion table's queryable_folder (not the main schema.table).
+        # build_table_name accesses job.pipeline (FK), so do it inside the sync wrapper.
+        _resource_name = resource_name
+
+        @database_sync_to_async_pool
+        def _get_companion_queryable_folder():
+            name = build_table_name(job.pipeline, _resource_name)
+            return (
+                DataWarehouseTable.objects.filter(
+                    team_id=job.team_id,
+                    name=name,
+                    external_data_source_id=job.pipeline.id,
+                    deleted=False,
+                )
+                .values_list("queryable_folder", flat=True)
+                .first()
+            )
+
+        existing_queryable_folder = await _get_companion_queryable_folder()
+    else:
+        existing_queryable_folder = await database_sync_to_async_pool(
+            lambda: schema.table.queryable_folder if schema.table else None
+        )()
 
     logger.debug(f"Preparing S3 files - total parquet files: {len(file_uris)}")
     with POST_LOAD_DURATION_SECONDS.labels(operation="prepare_s3").time():
@@ -178,18 +334,72 @@ async def run_post_load_operations(
     if resource is not None:
         await finalize_desc_sort_incremental_value(resource, schema, last_incremental_field_value, logger)
 
-    logger.debug("Validating schema and updating table")
-    with POST_LOAD_DURATION_SECONDS.labels(operation="validate_schema").time():
-        await validate_schema_and_update_table(
-            run_id=str(job.id),
-            team_id=job.team_id,
-            schema_id=schema.id,
-            table_schema_dict=table_schema_dict,
-            row_count=row_count,
-            queryable_folder=queryable_folder,
-            table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+    if is_cdc_companion:
+        logger.debug("Registering CDC companion table")
+        with POST_LOAD_DURATION_SECONDS.labels(operation="validate_schema").time():
+            await register_cdc_companion_table(
+                run_id=str(job.id),
+                team_id=job.team_id,
+                schema_id=schema.id,
+                resource_name=resource_name,
+                row_count=row_count,
+                table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+                queryable_folder=queryable_folder,
+                table_schema_dict=table_schema_dict,
+                set_as_schema_table=schema.cdc_table_mode == "cdc_only",
+            )
+        logger.debug("Finished registering CDC companion table")
+    else:
+        # For cdc_only mode during the initial load, skip registering the consolidated
+        # DataWarehouseTable — only the _cdc companion table should be visible.
+        # The DeltaLake files still exist on S3 for the seeding step to read from.
+        is_cdc_only_initial = (
+            cdc_write_mode is None
+            and schema.sync_type == ExternalDataSchema.SyncType.CDC
+            and schema.cdc_table_mode == "cdc_only"
         )
-    logger.debug("Finished validating schema and updating table")
+
+        if not is_cdc_only_initial:
+            logger.debug("Validating schema and updating table")
+            with POST_LOAD_DURATION_SECONDS.labels(operation="validate_schema").time():
+                await validate_schema_and_update_table(
+                    run_id=str(job.id),
+                    team_id=job.team_id,
+                    schema_id=schema.id,
+                    table_schema_dict=table_schema_dict,
+                    row_count=row_count,
+                    queryable_folder=queryable_folder,
+                    table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+                )
+            logger.debug("Finished validating schema and updating table")
+
+        # After the initial snapshot load for a CDC schema, seed the companion _cdc table
+        # with the snapshot rows as synthetic INSERT events.  Only fires when cdc_write_mode
+        # is None (initial non-CDC load), NOT on every CDC consolidated streaming batch.
+        should_seed = (
+            cdc_write_mode is None
+            and schema.sync_type == ExternalDataSchema.SyncType.CDC
+            and schema.cdc_table_mode in ("cdc_only", "both")
+            and delta_table_helper is not None
+        )
+        logger.info(
+            "cdc_seed_check",
+            should_seed=should_seed,
+            cdc_write_mode=cdc_write_mode,
+            sync_type=schema.sync_type,
+            cdc_table_mode=schema.cdc_table_mode,
+            has_delta_table_helper=delta_table_helper is not None,
+        )
+        if should_seed:
+            logger.info("Seeding CDC companion table from snapshot")
+            await _seed_cdc_companion_from_snapshot(
+                schema=schema,
+                job=job,
+                source=source,
+                snapshot_delta_table_helper=delta_table_helper,
+                logger=logger,
+            )
+            logger.info("Finished seeding CDC companion table from snapshot")
 
     logger.debug("Syncing revenue analytics views if needed")
     await database_sync_to_async_pool(sync_revenue_analytics_views)(schema, source)

@@ -14,79 +14,6 @@
             "readOnlyHint": true
         }
     },
-    "experiment-get-all": {
-        "description": "Get all experiments in the project.",
-        "category": "Experiments",
-        "feature": "experiments",
-        "summary": "Get all experiments in the project.",
-        "title": "Get all experiments",
-        "required_scopes": ["experiment:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "experiment-create": {
-        "description": "Create a comprehensive A/B test experiment. PROCESS: 1) Understand experiment goal and hypothesis 2) Search existing feature flags with 'feature-flags-get-all' tool first and suggest reuse or new key 3) Help user define success metrics by asking what they want to optimize 4) MOST IMPORTANT: Use 'event-definitions-list' tool to find available events in their project 5) For funnel metrics, ask for specific event sequence (e.g., ['product_view', 'add_to_cart', 'purchase']) and use funnel_steps parameter 6) Configure variants (default 50/50 control/test unless they specify otherwise) 7) Set targeting criteria if needed.",
-        "category": "Experiments",
-        "feature": "experiments",
-        "summary": "Create A/B test experiment with guided metric and feature flag setup",
-        "title": "Create experiment",
-        "required_scopes": ["experiment:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "experiment-delete": {
-        "description": "Delete an experiment by ID.",
-        "category": "Experiments",
-        "feature": "experiments",
-        "summary": "Delete an experiment by ID.",
-        "title": "Delete experiment",
-        "required_scopes": ["experiment:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "experiment-update": {
-        "description": "Update an existing experiment by ID. Can update name, description, lifecycle state, variants, metrics, and other properties. RESTART WORKFLOW: To restart a concluded experiment, set end_date=null, conclusion=null, conclusion_comment=null, and optionally set a new start_date. To make it draft again, also set start_date=null. COMMON PATTERNS: Launch draft (set start_date), stop running (set end_date + conclusion), archive (set archived=true), modify variants (update parameters.feature_flag_variants). NOTE: feature_flag_key cannot be changed after creation.",
-        "category": "Experiments",
-        "feature": "experiments",
-        "summary": "Update an existing experiment with lifecycle management and restart capability.",
-        "title": "Update experiment",
-        "required_scopes": ["experiment:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "experiment-get": {
-        "description": "Get details of a specific experiment by ID.",
-        "category": "Experiments",
-        "feature": "experiments",
-        "summary": "Get details of a specific experiment.",
-        "title": "Get experiment details",
-        "required_scopes": ["experiment:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
     "experiment-results-get": {
         "description": "Get comprehensive experiment results including all metrics data (primary and secondary) and exposure data. This tool fetches the experiment details and executes the necessary queries to get complete experiment results. Only works with new experiments (not legacy experiments).",
         "category": "Experiments",
@@ -102,43 +29,14 @@
             "readOnlyHint": true
         }
     },
-    "insight-create-from-query": {
-        "description": "Create an insight from a query that you have previously tested with 'query-run'. You should check the query runs, before creating an insight. Do not create an insight before running the query, unless you know already that it is correct (e.g. you are making a minor modification to an existing query you have seen).",
-        "category": "Insights & analytics",
-        "feature": "insights",
-        "summary": "Save a query as an insight.",
-        "title": "Create insight from query",
-        "required_scopes": ["insight:write"],
+    "experiment-get-all": {
+        "description": "DEPRECATED: renamed to experiment-list. This alias forwards to experiment-list and will be removed. Call experiment-list directly with the same arguments.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "Deprecated alias for experiment-list.",
+        "title": "Get all experiments (deprecated)",
+        "required_scopes": ["experiment:read"],
         "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "insight-delete": {
-        "description": "Delete an insight by ID (soft delete - marks as deleted).",
-        "category": "Insights & analytics",
-        "feature": "insights",
-        "summary": "Delete an insight by ID.",
-        "title": "Delete insight",
-        "required_scopes": ["insight:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "insight-get": {
-        "description": "Get a specific insight by ID.",
-        "category": "Insights & analytics",
-        "feature": "insights",
-        "summary": "Get a specific insight by ID.",
-        "title": "Get insight",
-        "required_scopes": ["insight:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -147,10 +45,10 @@
         }
     },
     "insight-query": {
-        "description": "Execute a query on an existing insight to get its results/data. Provide the insight ID to retrieve the current query results.",
+        "description": "Execute a saved insight's query and return results. THIS IS THE ONLY WAY TO RETRIEVE INSIGHT RESULTS — the insights-list, insight-get, insight-create, and insight-update tools all return metadata and query definitions but never the actual data. Call insight-query whenever the user asks to see, analyze, summarize, or compare data from a saved insight, and immediately after creating or updating an insight if they want to verify the output. Supports two output formats: 'optimized' (default) returns a human-readable summary from server-side formatters ideal for analysis, while 'json' returns the raw query results.",
         "category": "Insights & analytics",
         "feature": "insights",
-        "summary": "Execute a query on an existing insight to get its results/data.",
+        "summary": "Run a saved insight's query and return results.",
         "title": "Query insight",
         "required_scopes": ["query:read"],
         "new_mcp": true,
@@ -161,37 +59,8 @@
             "readOnlyHint": true
         }
     },
-    "insights-get-all": {
-        "description": "Get all insights in the project with optional filtering. Can filter by saved status, favorited status, or search term.",
-        "category": "Insights & analytics",
-        "feature": "insights",
-        "summary": "Get all insights in the project with optional filtering.",
-        "title": "Get all insights",
-        "required_scopes": ["insight:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "insight-update": {
-        "description": "Update an existing insight by ID. Can update name, description, filters, and other properties. You should get the insight before update it to see it's current query structure, and only modify the parts needed to answer the user's request.",
-        "category": "Insights & analytics",
-        "feature": "insights",
-        "summary": "Update an existing insight by ID.",
-        "title": "Update insight",
-        "required_scopes": ["insight:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
     "query-run": {
-        "description": "You should use this to answer questions that a user has about their data and for when you want to create a new insight. You can use 'event-definitions-list' to get events to use in the query, and 'event-properties-list' to get properties for those events. It can run a trend, funnel, paths or HogQL query. Where possible, use a trend, funnel or paths query rather than a HogQL query, unless you know the HogQL is correct (e.g. it came from a previous insight.). Use PathsQuery to visualize user flows and navigation patterns — set includeEventTypes to ['hogql'] with a pathsHogQLExpression for custom path steps.",
+        "description": "You should use this to answer questions that a user has about their data and for when you want to create a new insight. You can use 'event-definitions-list' to get events to use in the query, and 'event-properties-list' to get properties for those events. It can run a trend, funnel, paths or HogQL query. For existing PostHog-created data, use system tables with the system. prefix; for example, count SQL insight variables with SELECT count() AS total FROM system.insight_variables. Where possible, use a trend, funnel or paths query rather than a HogQL query, unless you know the HogQL is correct (e.g. it came from a previous insight.). Use PathsQuery to visualize user flows and navigation patterns — set includeEventTypes to ['hogql'] with a pathsHogQLExpression for custom path steps. To target a Postgres or DuckDB direct-query data warehouse source instead of ClickHouse, set 'connectionId' on a HogQLQuery (call external-data-sources-list to discover ids).",
         "category": "Insights & analytics",
         "summary": "Run a trend, funnel, paths or HogQL query.",
         "feature": "insights",
@@ -202,6 +71,36 @@
             "destructiveHint": false,
             "idempotentHint": true,
             "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "query-validate": {
+        "description": "Dry-run a HogQL query: parse and type-check it without executing, so there is no ClickHouse cost and no 202 polling. Returns structured errors (with character positions), warnings, notices, and the list of tables the query references. Use this before 'query-run' on any non-trivial HogQL to catch column typos, missing tables, and syntax issues up front instead of iterating on opaque execution errors. Accepts the same language values as the HogQL editor: 'hogQL' (default, full SELECT), 'hogQLExpr' (bare expression), 'hog', or 'hogTemplate'. Pass 'connectionId' to validate against a Postgres or DuckDB direct-query data warehouse source instead of the ClickHouse catalog (use external-data-sources-list to find ids).",
+        "category": "Insights & analytics",
+        "summary": "Validate a HogQL query without executing it.",
+        "feature": "insights",
+        "title": "Validate query",
+        "required_scopes": ["query:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": false,
+            "readOnlyHint": true
+        }
+    },
+    "hogql-schema": {
+        "description": "Return the HogQL catalog for the active project: every queryable table (PostHog, system, warehouse, view, materialized view, batch export, endpoint) keyed by name, with each table's fields, plus the join graph between data-warehouse tables. Call this once up front when building a HogQL query from scratch so you pick real table and column names on the first attempt instead of guessing. Cheap — no ClickHouse cost. Pass 'connectionId' to introspect a Postgres or DuckDB direct-query data warehouse source instead of the ClickHouse catalog (use external-data-sources-list to find ids).",
+        "category": "Insights & analytics",
+        "summary": "List tables and columns available to HogQL queries.",
+        "feature": "insights",
+        "title": "HogQL schema",
+        "required_scopes": ["query:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": false,
             "readOnlyHint": true
         }
     },
@@ -341,36 +240,6 @@
             "readOnlyHint": true
         }
     },
-    "organization-details-get": {
-        "description": "Get the details of the active organization.",
-        "category": "Organization & project management",
-        "feature": "workspace",
-        "summary": "Get the details of the active organization.",
-        "title": "Get organization details",
-        "required_scopes": ["organization:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "organizations-get": {
-        "description": "Get the organizations the user has access to.",
-        "category": "Organization & project management",
-        "feature": "workspace",
-        "summary": "Get the organizations the user has access to.",
-        "title": "Get organizations",
-        "required_scopes": ["user:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
     "switch-organization": {
         "description": "Change the active organization from the default organization. You should only use this tool if the user asks you to change the organization - otherwise, the default organization will be used.",
         "category": "Organization & project management",
@@ -476,7 +345,7 @@
         }
     },
     "survey-create": {
-        "description": "Creates a new survey in the project. Surveys can be popover or API-based and support various question types including open-ended, multiple choice, rating, and link questions. Once created, you should ask the user if they want to add the survey to their application code.",
+        "description": "Creates a new survey in the project. Use this for both in-app surveys and hosted forms. Prefer draft creation by default and do not set start_date unless the user explicitly asks to launch immediately. For in-app surveys, popover is the default unless the user asks for widget or api. For hosted forms, use external_survey. Keep surveys short unless the user asks for a longer flow.",
         "category": "Surveys",
         "summary": "Creates a new survey in the project.",
         "required_scopes": ["survey:write"],
@@ -519,7 +388,7 @@
         }
     },
     "survey-update": {
-        "description": "Update an existing survey by ID. Can update name, description, questions, scheduling, and other survey properties.",
+        "description": "Update an existing survey by ID. Omitted top-level fields are preserved, but nested objects and arrays you provide may replace existing values. Before changing questions, conditions, appearance, targeting, translations, or hosted-form content, retrieve the survey first and preserve fields that should remain. Do not send null to clear a field unless the user explicitly asked to remove it.",
         "category": "Surveys",
         "summary": "Update an existing survey by ID.",
         "required_scopes": ["survey:write"],
@@ -578,51 +447,6 @@
             "readOnlyHint": true
         }
     },
-    "logs-query": {
-        "description": "Search and query logs in the project. Supports filtering by severity levels (trace, debug, info, warn, error, fatal), service names, date range, and free text search. Returns log entries with their attributes, timestamps, and trace information. Supports pagination via cursor.",
-        "category": "Logs",
-        "feature": "logs",
-        "summary": "Search and query logs in the project.",
-        "title": "Query logs",
-        "required_scopes": ["logs:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "logs-list-attributes": {
-        "description": "List available log attributes in the project. Use this to discover what attributes you can filter on when querying logs. Supports filtering by attribute type (log or resource) and searching by attribute name.",
-        "category": "Logs",
-        "feature": "logs",
-        "summary": "List available log attributes.",
-        "title": "List log attributes",
-        "required_scopes": ["logs:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "logs-list-attribute-values": {
-        "description": "Get possible values for a specific log attribute. Use this to discover what values exist for a given attribute key, which helps when building log queries with filters.",
-        "category": "Logs",
-        "feature": "logs",
-        "summary": "Get values for a log attribute.",
-        "title": "List attribute values",
-        "required_scopes": ["logs:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
     "entity-search": {
         "description": "Search for PostHog entities by name or description. Can search across multiple entity types including insights, dashboards, experiments, feature flags, notebooks, actions, cohorts, event definitions, and surveys. Use this to find entities when you know part of their name. Returns matching entities with their IDs and URLs.",
         "category": "Search",
@@ -645,6 +469,49 @@
         "summary": "Debug tool for testing MCP Apps SDK.",
         "title": "Debug MCP UI Apps",
         "required_scopes": [],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": false,
+            "readOnlyHint": true
+        }
+    },
+    "external-data-sources-db-schema": {
+        "description": "Validate credentials against a remote source and return the list of tables available to sync (works for database sources like Postgres/MySQL and SaaS sources like Stripe/Hubspot alike). Pass source_type and credential fields in the payload object. Each table entry includes: table name, incremental_available, append_available, cdc_available, supports_webhooks, detected_primary_keys, available_columns (name/type/nullable), rows estimate, and incremental_fields (candidate timestamp/integer columns for incremental sync). Use this BEFORE external-data-sources-create so the user can pick a sync_type per table. Returns 400 with a message if credentials are invalid.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Discover tables and sync methods for a source",
+        "title": "Discover tables and sync methods for a source",
+        "required_scopes": ["external_data_source:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "external-data-sources-jobs": {
+        "description": "List sync job history for a data warehouse source. Returns jobs sorted by most recent first, with status, duration, rows synced, and errors. Supports optional filtering by date range (after/before as ISO timestamps) and by schema name.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "List sync job history for a source with optional date and schema filters.",
+        "title": "List sync jobs for a source",
+        "required_scopes": ["external_data_source:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": false,
+            "readOnlyHint": true
+        }
+    },
+    "external-data-sync-logs": {
+        "description": "Get sync job logs for a data warehouse table schema. Returns log entries from the log_entries ClickHouse table, filtered by schema ID and optionally by a specific job's workflow_run_id. Use external-data-sources-jobs to find job IDs and workflow_run_ids. Supports filtering by log level (DEBUG, INFO, WARNING, ERROR) and message search.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Get sync job logs for a data warehouse table.",
+        "title": "Get sync job logs",
+        "required_scopes": ["query:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,

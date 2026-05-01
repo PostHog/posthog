@@ -8,14 +8,16 @@ import { LemonBanner, LemonButton, LemonCheckbox, LemonInput, LemonSwitch, Lemon
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { NotificationSettings, TeamBasicType } from '~/types'
+import { NotificationSettings, OrganizationBasicType, TeamBasicType } from '~/types'
 
 enum NotificationBlock {
     Security = 'security',
     WeeklyDigest = 'weekly-digest',
+    MemberJoin = 'member-join',
     DataPipelineErrors = 'data-pipeline-errors',
     IssueAssigned = 'issue-assigned',
     EtWeeklyDigest = 'et-weekly-digest',
+    WaWeeklyDigest = 'wa-weekly-digest',
     CommentMentions = 'comment-mentions',
     ApiKeyExposure = 'api-key-exposure',
     MaterializedViewSync = 'materialized-view-sync',
@@ -25,7 +27,10 @@ const NOTIFICATION_BLOCK_ORDER = Object.values(NotificationBlock)
 
 type BooleanNotificationSettings = Omit<
     NotificationSettings,
-    'project_weekly_digest_disabled' | 'error_tracking_weekly_digest_project_enabled'
+    | 'project_weekly_digest_disabled'
+    | 'error_tracking_weekly_digest_project_enabled'
+    | 'web_analytics_weekly_digest_project_enabled'
+    | 'organization_member_join_email_disabled'
 >
 
 const NOTIFICATION_DEFAULTS: BooleanNotificationSettings = {
@@ -36,6 +41,7 @@ const NOTIFICATION_DEFAULTS: BooleanNotificationSettings = {
     all_weekly_digest_disabled: false,
     project_api_key_exposed: true,
     materialized_view_sync_failed: false,
+    web_analytics_weekly_digest: true,
 }
 
 function ProjectDigestSelector({
@@ -123,6 +129,80 @@ function ProjectDigestSelector({
     )
 }
 
+function OrganizationMemberJoinSelector(): JSX.Element {
+    const { user, userLoading } = useValues(userLogic)
+    const { updateMemberJoinEmailForOrganization, updateMemberJoinEmailForAllOrganizations } = useActions(userLogic)
+    const [expanded, setExpanded] = useState(true)
+
+    const organizations = [...(user?.organizations || [])].sort((a, b) => a.name.localeCompare(b.name))
+
+    const isOrgDisabled = (orgId: string): boolean =>
+        !!user?.notification_settings?.organization_member_join_email_disabled?.[orgId]
+
+    return (
+        <div>
+            <LemonButton
+                icon={expanded ? <IconChevronDown /> : <IconChevronRight />}
+                onClick={() => setExpanded(!expanded)}
+                size="small"
+                type="tertiary"
+                className="p-0"
+            >
+                Select organizations ({organizations.length} available)
+            </LemonButton>
+
+            {expanded && (
+                <div className="mt-3 ml-6 space-y-2">
+                    <span className="text-muted text-xs">
+                        You receive these emails by default for every organization you belong to. Turn off any
+                        organization you do not want them for.
+                    </span>
+                    <div className="flex flex-col gap-2">
+                        <div className="flex flex-row items-center gap-4">
+                            <LemonButton
+                                size="xsmall"
+                                type="secondary"
+                                onClick={() =>
+                                    updateMemberJoinEmailForAllOrganizations(
+                                        organizations.map((o: OrganizationBasicType) => o.id),
+                                        true
+                                    )
+                                }
+                            >
+                                Enable for all organizations
+                            </LemonButton>
+                            <LemonButton
+                                size="xsmall"
+                                type="secondary"
+                                onClick={() =>
+                                    updateMemberJoinEmailForAllOrganizations(
+                                        organizations.map((o: OrganizationBasicType) => o.id),
+                                        false
+                                    )
+                                }
+                            >
+                                Disable for all organizations
+                            </LemonButton>
+                        </div>
+
+                        {organizations.map((org) => (
+                            <LemonCheckbox
+                                key={`member-join-org-${org.id}`}
+                                id={`member-join-org-${org.id}`}
+                                data-attr={`member_join_email_org_${org.id}`}
+                                onChange={(checked) => updateMemberJoinEmailForOrganization(org.id, checked)}
+                                checked={!isOrgDisabled(org.id)}
+                                disabled={userLoading}
+                                label={<span>{org.name}</span>}
+                            />
+                        ))}
+                    </div>
+                </div>
+            )}
+        </div>
+    )
+}
+
 export function UpdateEmailPreferences(): JSX.Element {
     const { user, userLoading } = useValues(userLogic)
     const {
@@ -130,6 +210,8 @@ export function UpdateEmailPreferences(): JSX.Element {
         updateWeeklyDigestForAllTeams,
         updateETWeeklyDigestForTeam,
         updateETWeeklyDigestForAllTeams,
+        updateWAWeeklyDigestForTeam,
+        updateWAWeeklyDigestForAllTeams,
         updateDataPipelineErrorThreshold,
     } = useActions(userLogic)
     const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
@@ -139,6 +221,7 @@ export function UpdateEmailPreferences(): JSX.Element {
 
     const weeklyDigestEnabled = !user?.notification_settings?.all_weekly_digest_disabled
     const etDigestEnabled = user?.notification_settings?.error_tracking_weekly_digest !== false
+    const waDigestEnabled = user?.notification_settings?.web_analytics_weekly_digest !== false
 
     const dataPipelineErrorThresholdValue = (user?.notification_settings?.data_pipeline_error_threshold ?? 0) * 100
     const [localDataPipelineErrorThreshold, setLocalDataPipelineErrorThreshold] = useState(
@@ -189,6 +272,18 @@ export function UpdateEmailPreferences(): JSX.Element {
                         onToggleAllTeams={updateWeeklyDigestForAllTeams}
                     />
                 )}
+            </div>
+        ),
+        [NotificationBlock.MemberJoin]: (
+            <div className="border rounded p-4 space-y-3">
+                <div className="space-y-2">
+                    <span className="font-medium">New member joined</span>
+                    <span className="text-muted text-sm block">
+                        When someone joins an organization you belong to, we email existing members. Choose which
+                        organizations you want these notifications for.
+                    </span>
+                </div>
+                <OrganizationMemberJoinSelector />
             </div>
         ),
         [NotificationBlock.DataPipelineErrors]: (
@@ -269,6 +364,36 @@ export function UpdateEmailPreferences(): JSX.Element {
                             }
                             onToggleTeam={updateETWeeklyDigestForTeam}
                             onToggleAllTeams={updateETWeeklyDigestForAllTeams}
+                        />
+                    </>
+                )}
+            </div>
+        ),
+        [NotificationBlock.WaWeeklyDigest]: (
+            <div className="border rounded p-4 space-y-3">
+                <SimpleSwitch
+                    setting="web_analytics_weekly_digest"
+                    label="Web analytics weekly digest"
+                    description="Get a weekly summary of web traffic across your projects every Monday"
+                    dataAttr="web_analytics_weekly_digest_enabled"
+                />
+                {waDigestEnabled && (
+                    <>
+                        {!user?.notification_settings.web_analytics_weekly_digest_project_enabled && (
+                            <LemonBanner type="info">
+                                You haven't selected any projects yet, so on the first digest run we'll automatically
+                                pick the one with the most visitors. If you'd prefer to choose yourself, just select
+                                your projects below and we won't override your choice.
+                            </LemonBanner>
+                        )}
+                        <ProjectDigestSelector
+                            keyPrefix="wa-digest"
+                            dataAttrPrefix="wa_weekly_digest"
+                            isTeamDisabled={(teamId) =>
+                                !user?.notification_settings.web_analytics_weekly_digest_project_enabled?.[teamId]
+                            }
+                            onToggleTeam={updateWAWeeklyDigestForTeam}
+                            onToggleAllTeams={updateWAWeeklyDigestForAllTeams}
                         />
                     </>
                 )}

@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+import structlog
 from snowflake.connector.errors import DatabaseError, ForbiddenError, ProgrammingError
 
 from posthog.schema import (
@@ -19,6 +20,8 @@ from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import SnowflakeSourceConfig
 from posthog.temporal.data_imports.sources.snowflake.snowflake import (
     filter_snowflake_incremental_fields,
+    get_leading_clustering_columns_for_schemas as get_snowflake_leading_clustering_columns_for_schemas,
+    get_primary_keys_for_schemas as get_snowflake_primary_keys_for_schemas,
     get_schemas as get_snowflake_schemas,
     snowflake_source,
 )
@@ -51,11 +54,20 @@ class SnowflakeSource(SimpleSource[SnowflakeSourceConfig]):
                 list[FieldType],
                 [
                     SourceFieldInputConfig(
+                        name="connection_string",
+                        label="Connection string (optional)",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=False,
+                        placeholder="snowflake://user:password@account_id/database/schema?warehouse=COMPUTE_WAREHOUSE&role=ACCOUNTADMIN",
+                        secret=True,
+                    ),
+                    SourceFieldInputConfig(
                         name="account_id",
                         label="Account id",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="database",
@@ -63,6 +75,7 @@ class SnowflakeSource(SimpleSource[SnowflakeSourceConfig]):
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="snowflake_sample_data",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="warehouse",
@@ -70,6 +83,7 @@ class SnowflakeSource(SimpleSource[SnowflakeSourceConfig]):
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="COMPUTE_WAREHOUSE",
+                        secret=False,
                     ),
                     # the validation for these options happens in validate_credentials
                     SourceFieldSelectConfig(
@@ -90,6 +104,7 @@ class SnowflakeSource(SimpleSource[SnowflakeSourceConfig]):
                                             type=SourceFieldInputConfigType.TEXT,
                                             required=True,
                                             placeholder="User1",
+                                            secret=False,
                                         ),
                                         SourceFieldInputConfig(
                                             name="password",
@@ -97,6 +112,7 @@ class SnowflakeSource(SimpleSource[SnowflakeSourceConfig]):
                                             type=SourceFieldInputConfigType.PASSWORD,
                                             required=False,
                                             placeholder="",
+                                            secret=True,
                                         ),
                                     ],
                                 ),
@@ -113,6 +129,7 @@ class SnowflakeSource(SimpleSource[SnowflakeSourceConfig]):
                                             type=SourceFieldInputConfigType.TEXT,
                                             required=True,
                                             placeholder="User1",
+                                            secret=False,
                                         ),
                                         SourceFieldInputConfig(
                                             name="private_key",
@@ -120,6 +137,7 @@ class SnowflakeSource(SimpleSource[SnowflakeSourceConfig]):
                                             type=SourceFieldInputConfigType.TEXTAREA,
                                             required=False,
                                             placeholder="",
+                                            secret=True,
                                         ),
                                         SourceFieldInputConfig(
                                             name="passphrase",
@@ -127,6 +145,7 @@ class SnowflakeSource(SimpleSource[SnowflakeSourceConfig]):
                                             type=SourceFieldInputConfigType.PASSWORD,
                                             required=False,
                                             placeholder="",
+                                            secret=True,
                                         ),
                                     ],
                                 ),
@@ -139,6 +158,7 @@ class SnowflakeSource(SimpleSource[SnowflakeSourceConfig]):
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
                         placeholder="ACCOUNTADMIN",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="schema",
@@ -146,6 +166,7 @@ class SnowflakeSource(SimpleSource[SnowflakeSourceConfig]):
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="public",
+                        secret=False,
                     ),
                 ],
             ),
@@ -168,9 +189,23 @@ class SnowflakeSource(SimpleSource[SnowflakeSourceConfig]):
         schemas = []
 
         db_schemas = get_snowflake_schemas(config, names=names)
+        try:
+            detected_pks = get_snowflake_primary_keys_for_schemas(
+                config=config,
+                table_names=list(db_schemas.keys()),
+            )
+        except Exception as e:
+            structlog.get_logger().warning("Failed to detect primary keys for Snowflake schemas", exc_info=e)
+            detected_pks = {}
+
+        indexed_columns_by_table = get_snowflake_leading_clustering_columns_for_schemas(
+            config=config,
+            table_names=list(db_schemas.keys()),
+        )
 
         for table_name, columns in db_schemas.items():
             incremental_field_tuples = filter_snowflake_incremental_fields(columns)
+            indexed_cols = indexed_columns_by_table.get(table_name) if indexed_columns_by_table is not None else None
             incremental_fields: list[IncrementalField] = [
                 {
                     "label": field_name,
@@ -178,6 +213,7 @@ class SnowflakeSource(SimpleSource[SnowflakeSourceConfig]):
                     "field": field_name,
                     "field_type": field_type,
                     "nullable": nullable,
+                    "is_indexed": True if indexed_cols is None else field_name in indexed_cols,
                 }
                 for field_name, field_type, nullable in incremental_field_tuples
             ]
@@ -188,6 +224,8 @@ class SnowflakeSource(SimpleSource[SnowflakeSourceConfig]):
                     supports_incremental=len(incremental_fields) > 0,
                     supports_append=len(incremental_fields) > 0,
                     incremental_fields=incremental_fields,
+                    columns=columns,
+                    detected_primary_keys=detected_pks.get(table_name),
                 )
             )
 
