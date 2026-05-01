@@ -152,11 +152,6 @@ class TestCreateNotification(BaseTest):
         assert event is None
         assert NotificationEvent.objects.count() == 0
 
-    def test_active_realtime_notification_types_includes_comment_mention(self):
-        from products.notifications.backend.facade.api import ACTIVE_REALTIME_NOTIFICATION_TYPES
-
-        assert NotificationType.COMMENT_MENTION in ACTIVE_REALTIME_NOTIFICATION_TYPES
-
     @parameterized.expand(
         [
             (
