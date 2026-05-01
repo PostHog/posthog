@@ -1123,7 +1123,7 @@
             "system": true
         },
         "$dead_click_visibility_changed_delay_ms": {
-            "description": "The delay between a click and the next visibility change event",
+            "description": "the delay between a click and the next visibility change event",
             "label": "Dead click visibility changed delay in milliseconds",
             "system": true
         },
@@ -1209,7 +1209,7 @@
         },
         "$event_time_override_provided": {
             "description": "Whether the SDK had to override the event timestamp because the value provided by the caller could not be used as-is.",
-            "label": "Event time override provided",
+            "label": "Event time was overridden",
             "system": true,
             "used_for_debug": true
         },
@@ -4265,7 +4265,7 @@
             "system": true
         },
         "$dead_click_visibility_changed_delay_ms": {
-            "description": "The delay between a click and the next visibility change event",
+            "description": "the delay between a click and the next visibility change event",
             "label": "Dead click visibility changed delay in milliseconds",
             "system": true
         },
@@ -4351,7 +4351,7 @@
         },
         "$event_time_override_provided": {
             "description": "Whether the SDK had to override the event timestamp because the value provided by the caller could not be used as-is.",
-            "label": "Event time override provided",
+            "label": "Event time was overridden",
             "system": true,
             "used_for_debug": true
         },

@@ -1298,7 +1298,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "examples": ["2023-05-20T15:31:00Z"],
         },
         "$event_time_override_provided": {
-            "label": "Event time override provided",
+            "label": "Event time was overridden",
             "description": "Whether the SDK had to override the event timestamp because the value provided by the caller could not be used as-is.",
             "system": True,
             "used_for_debug": True,
@@ -1942,7 +1942,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$dead_click_visibility_changed_delay_ms": {
             "label": "Dead click visibility changed delay in milliseconds",
-            "description": "The delay between a click and the next visibility change event",
+            "description": "the delay between a click and the next visibility change event",
             "system": True,
         },
         "$dead_click_visibility_changed_timeout": {
