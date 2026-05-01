@@ -249,7 +249,7 @@ class TestExternalDataSource(APIBaseTest):
         )
 
         assert response.status_code == 400
-        assert "created_via" in response.json()
+        assert response.json()["attr"] == "created_via"
         assert ExternalDataSource.objects.count() == 0
 
     def test_patch_external_data_source_ignores_created_via(self):
@@ -1005,6 +1005,7 @@ class TestExternalDataSource(APIBaseTest):
                 "id",
                 "created_at",
                 "created_by",
+                "created_via",
                 "status",
                 "source_type",
                 "latest_error",
