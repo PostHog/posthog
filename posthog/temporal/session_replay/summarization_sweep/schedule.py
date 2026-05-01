@@ -26,7 +26,7 @@ from posthog.temporal.session_replay.summarization_sweep.constants import (
     WORKFLOW_EXECUTION_TIMEOUT,
     WORKFLOW_NAME,
 )
-from posthog.temporal.session_replay.summarization_sweep.models import SummarizeTeamSessionsInputs
+from posthog.temporal.session_replay.summarization_sweep.types import SummarizeTeamSessionsInputs
 
 logger = structlog.get_logger(__name__)
 

@@ -23,6 +23,9 @@ class StateActivitiesEnum(Enum):
     SESSION_SUMMARY = "session_summary"  # Single-session summaries (per session)
     SESSION_GROUP_EXTRACTED_PATTERNS = "extracted_patterns"  # Patterns from all the summaries
     SESSION_GROUP_PATTERNS_ASSIGNMENTS = "patterns_assignments"  # Patterns assignments for all the sessions
+    # Per-segment slice of LlmInputs written by slice_session_data_for_segments_activity
+    # and consumed by analyze_video_segment_activity. State id includes the segment index.
+    SEGMENT_LLM_CONTEXT = "segment_llm_context"
 
 
 def generate_state_id_from_session_ids(session_ids: list[str]) -> str:

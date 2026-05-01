@@ -1,14 +1,11 @@
-import re
-from collections import Counter
-
 import structlog
 from temporalio import activity
 
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.redis import get_async_client
 from posthog.sync import database_sync_to_async, database_sync_to_async_pool
-from posthog.temporal.common.client import async_connect
-from posthog.temporal.common.search_attributes import POSTHOG_SESSION_RECORDING_ID_KEY
+from posthog.temporal.session_replay.rasterize_recording.activities.stuck_counter import read_stuck_session_ids
 from posthog.temporal.session_replay.summarization_sweep.constants import (
     CH_QUERY_MAX_EXECUTION_SECONDS,
     SCHEDULE_ID_PREFIX,
@@ -16,13 +13,13 @@ from posthog.temporal.session_replay.summarization_sweep.constants import (
     STUCK_RASTERIZE_THRESHOLD,
     WORKFLOW_NAME,
 )
-from posthog.temporal.session_replay.summarization_sweep.models import (
+from posthog.temporal.session_replay.summarization_sweep.session_candidates import fetch_recent_session_ids
+from posthog.temporal.session_replay.summarization_sweep.types import (
     DeleteTeamScheduleInput,
     FindSessionsInput,
     FindSessionsResult,
     UpsertTeamScheduleInput,
 )
-from posthog.temporal.session_replay.summarization_sweep.session_candidates import fetch_recent_session_ids
 
 from products.signals.backend.models import SignalSourceConfig
 
@@ -69,49 +66,29 @@ def _load_team_user_and_sessions(team_id: int, lookback_minutes: int) -> tuple[T
     return team, session_ids, _select_summarization_user(team)
 
 
-# Session ids land here from ClickHouse and originate at SDK clients. Rejecting anything
-# outside this shape keeps untrusted input out of the Temporal visibility query string.
-_SAFE_SESSION_ID_RE = re.compile(r"^[a-zA-Z0-9_-]{1,100}$")
-
-
-async def _stuck_session_ids(session_ids: list[str]) -> set[str]:
+async def _stuck_session_ids(team_id: int, session_ids: list[str]) -> set[str]:
     if not session_ids:
         return set()
-    safe_ids = [sid for sid in session_ids if _SAFE_SESSION_ID_RE.match(sid)]
-    if len(safe_ids) < len(session_ids):
-        logger.warning(
-            "summarization_sweep.unsafe_session_id_dropped",
-            count=len(session_ids) - len(safe_ids),
-        )
-    if not safe_ids:
-        return set()
     try:
-        client = await async_connect()
-        ids_clause = ",".join(f'"{sid}"' for sid in safe_ids)
-        query = (
-            f'WorkflowType = "rasterize-recording" '
-            f'AND ExecutionStatus IN ("Failed", "TimedOut") '
-            f"AND {POSTHOG_SESSION_RECORDING_ID_KEY.name} IN ({ids_clause})"
+        return await read_stuck_session_ids(
+            redis_client=get_async_client(),
+            team_id=team_id,
+            session_ids=session_ids,
+            threshold=STUCK_RASTERIZE_THRESHOLD,
         )
-        failures: Counter[str] = Counter()
-        async for wf in client.list_workflows(query=query):
-            for pair in wf.typed_search_attributes:
-                if pair.key.name == POSTHOG_SESSION_RECORDING_ID_KEY.name:
-                    failures[pair.value] += 1
-                    break
-        return {sid for sid, n in failures.items() if n >= STUCK_RASTERIZE_THRESHOLD}
     except Exception as exc:
         # Degrade to dispatching normally rather than blocking summarization.
-        logger.warning("summarization_sweep.stuck_query_failed", error=str(exc))
+        logger.warning("summarization_sweep.stuck_lookup_failed", error=str(exc))
         return set()
 
 
 @activity.defn
 async def find_sessions_for_team_activity(inputs: FindSessionsInput) -> FindSessionsResult:
-    """Surfaces `team_disabled=True` so the workflow can tear down its own schedule."""
+    # If the team got disabled between schedule creation and now, return no sessions
+    # and let the reconciler tear down the schedule on its next tick (≤RECONCILER_INTERVAL).
     enabled = await database_sync_to_async(_is_team_summarization_allowed)(inputs.team_id)
     if not enabled:
-        return FindSessionsResult(team_id=inputs.team_id, team_disabled=True)
+        return FindSessionsResult(team_id=inputs.team_id)
 
     team, session_ids, system_user = await database_sync_to_async_pool(_load_team_user_and_sessions)(
         inputs.team_id, inputs.lookback_minutes
@@ -128,7 +105,7 @@ async def find_sessions_for_team_activity(inputs: FindSessionsInput) -> FindSess
         extra_summary_context=None,
     )
     sessions_to_summarize = [sid for sid in session_ids if not existing_summaries.get(sid)][: inputs.max_sessions]
-    stuck = await _stuck_session_ids(sessions_to_summarize)
+    stuck = await _stuck_session_ids(inputs.team_id, sessions_to_summarize)
     sessions_to_summarize = [sid for sid in sessions_to_summarize if sid not in stuck]
 
     return FindSessionsResult(
@@ -142,10 +119,6 @@ async def find_sessions_for_team_activity(inputs: FindSessionsInput) -> FindSess
 @activity.defn
 async def delete_team_schedule_activity(inputs: DeleteTeamScheduleInput) -> None:
     """Idempotent."""
-    if inputs.dry_run:
-        logger.info("summarization_sweep.dry_run.delete_team_schedule", team_id=inputs.team_id)
-        return
-
     from posthog.temporal.session_replay.summarization_sweep.schedule import a_delete_team_schedule
 
     await a_delete_team_schedule(inputs.team_id)
@@ -200,10 +173,6 @@ async def list_summarization_schedule_team_ids_activity() -> list[int]:
 
 @activity.defn
 async def upsert_team_schedule_activity(inputs: UpsertTeamScheduleInput) -> None:
-    if inputs.dry_run:
-        logger.info("summarization_sweep.dry_run.upsert_team_schedule", team_id=inputs.team_id)
-        return
-
     from posthog.temporal.session_replay.summarization_sweep.schedule import a_upsert_team_schedule
 
     await a_upsert_team_schedule(inputs.team_id)

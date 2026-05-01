@@ -21,12 +21,12 @@ from posthog.temporal.session_replay.summarization_sweep.constants import (
     SCHEDULE_TYPE,
     WORKFLOW_NAME,
 )
-from posthog.temporal.session_replay.summarization_sweep.models import (
+from posthog.temporal.session_replay.summarization_sweep.reconciler import ReconcileSummarizationSchedulesWorkflow
+from posthog.temporal.session_replay.summarization_sweep.types import (
     DeleteTeamScheduleInput,
     ReconcileSchedulesInputs,
     UpsertTeamScheduleInput,
 )
-from posthog.temporal.session_replay.summarization_sweep.reconciler import ReconcileSummarizationSchedulesWorkflow
 
 from products.signals.backend.models import SignalSourceConfig
 
@@ -218,7 +218,7 @@ async def test_reconcile_workflow_noop_when_in_sync():
 
     upsert_mock.assert_not_awaited()
     delete_mock.assert_not_awaited()
-    assert result == {"upserted": 0, "deleted": 0, "failed_upsert": 0, "failed_delete": 0, "dry_run": False}
+    assert result == {"upserted": 0, "deleted": 0, "failed_upsert": 0, "failed_delete": 0}
 
 
 @pytest.mark.asyncio
@@ -266,66 +266,16 @@ async def test_reconcile_workflow_isolates_per_team_failures():
     assert result["failed_delete"] == 0
 
 
-@pytest.mark.asyncio
-async def test_reconcile_workflow_dry_run_does_not_mutate():
-    upsert_inputs: list[UpsertTeamScheduleInput] = []
-    delete_inputs: list[DeleteTeamScheduleInput] = []
-
-    @activity.defn(name="list_enabled_teams_activity")
-    async def list_enabled_mocked() -> list[int]:
-        return [1, 2]
-
-    @activity.defn(name="list_summarization_schedule_team_ids_activity")
-    async def list_schedules_mocked() -> list[int]:
-        return [2, 3]
-
-    @activity.defn(name="upsert_team_schedule_activity")
-    async def upsert_mocked(inputs: UpsertTeamScheduleInput) -> None:
-        upsert_inputs.append(inputs)
-
-    @activity.defn(name="delete_team_schedule_activity")
-    async def delete_mocked(inputs: DeleteTeamScheduleInput) -> None:
-        delete_inputs.append(inputs)
-
-    task_queue = str(uuid.uuid4())
-    async with await WorkflowEnvironment.start_time_skipping() as env:
-        async with Worker(
-            env.client,
-            task_queue=task_queue,
-            workflows=[ReconcileSummarizationSchedulesWorkflow],
-            activities=[list_enabled_mocked, list_schedules_mocked, upsert_mocked, delete_mocked],
-            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
-        ):
-            result = await env.client.execute_workflow(
-                RECONCILER_WORKFLOW_NAME,
-                ReconcileSchedulesInputs(dry_run=True),
-                id=str(uuid.uuid4()),
-                task_queue=task_queue,
-            )
-
-    assert upsert_inputs == [UpsertTeamScheduleInput(team_id=1, dry_run=True)]
-    assert delete_inputs == [DeleteTeamScheduleInput(team_id=3, dry_run=True)]
-    assert result == {"upserted": 1, "deleted": 1, "failed_upsert": 0, "failed_delete": 0, "dry_run": True}
-
-
-def test_reconcile_workflow_parse_inputs_dry_run():
-    import json
-
+def test_reconcile_workflow_parse_inputs():
     assert ReconcileSummarizationSchedulesWorkflow.parse_inputs([]) == ReconcileSchedulesInputs()
-    assert ReconcileSummarizationSchedulesWorkflow.parse_inputs(
-        [json.dumps({"dry_run": True})]
-    ) == ReconcileSchedulesInputs(dry_run=True)
 
 
-def test_summarize_team_workflow_parse_inputs_dry_run():
+def test_summarize_team_workflow_parse_inputs():
     import json
 
-    from posthog.temporal.session_replay.summarization_sweep.models import SummarizeTeamSessionsInputs
+    from posthog.temporal.session_replay.summarization_sweep.types import SummarizeTeamSessionsInputs
     from posthog.temporal.session_replay.summarization_sweep.workflow import SummarizeTeamSessionsWorkflow
 
     assert SummarizeTeamSessionsWorkflow.parse_inputs([json.dumps({"team_id": 42})]) == SummarizeTeamSessionsInputs(
         team_id=42
     )
-    assert SummarizeTeamSessionsWorkflow.parse_inputs(
-        [json.dumps({"team_id": 42, "dry_run": True})]
-    ) == SummarizeTeamSessionsInputs(team_id=42, dry_run=True)
