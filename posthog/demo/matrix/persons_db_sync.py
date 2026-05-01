@@ -62,7 +62,6 @@ def sync_persons_to_postgres(
             uuid_to_pk = _insert_persons(cur, clickhouse_persons, target_team_id, person_table_name)
             _insert_person_distinct_ids(cur, clickhouse_distinct_ids, target_team_id, uuid_to_pk)
             _insert_groups(cur, clickhouse_groups, target_team_id)
-        conn.commit()
 
 
 def _insert_persons(
@@ -75,7 +74,6 @@ def _insert_persons(
         return {}
 
     rows = []
-    uuids_in_order: list[str] = []
     for row in clickhouse_persons:
         uuid = str(row["uuid"])
         properties = row.get("properties", "{}")
@@ -94,7 +92,6 @@ def _insert_persons(
                 row.get("last_seen_at"),
             )
         )
-        uuids_in_order.append(uuid)
 
     result = execute_values(
         cur,
@@ -125,7 +122,7 @@ def _insert_person_distinct_ids(
 
     rows = []
     for row in clickhouse_distinct_ids:
-        person_uuid = str(row.get("person_uuid", ""))
+        person_uuid = str(row["person_uuid"])
         person_pk = uuid_to_pk.get(person_uuid)
         if person_pk is None:
             continue
@@ -133,9 +130,9 @@ def _insert_person_distinct_ids(
         rows.append(
             (
                 target_team_id,
-                row.get("distinct_id"),
+                row["distinct_id"],
                 person_pk,
-                row.get("version", 0),
+                row["version"],
             )
         )
 
@@ -168,10 +165,10 @@ def _insert_groups(
         rows.append(
             (
                 target_team_id,
-                row.get("group_type_index"),
-                row.get("group_key"),
+                row["group_type_index"],
+                row["group_key"],
                 json.dumps(group_properties),
-                row.get("created_at"),
+                row["created_at"],
                 0,  # version
                 json.dumps({}),  # properties_last_updated_at
                 json.dumps({}),  # properties_last_operation
@@ -228,8 +225,6 @@ def bulk_create_group_type_mappings(
             except psycopg2.IntegrityError as e:
                 print(f"SKIPPING GROUP TYPE MAPPING CREATION: {e}")
                 conn.rollback()
-                return
-        conn.commit()
 
 
 def delete_group_type_mappings(project_id: int) -> None:
@@ -240,7 +235,6 @@ def delete_group_type_mappings(project_id: int) -> None:
                 "DELETE FROM posthog_grouptypemapping WHERE project_id = %s",
                 (project_id,),
             )
-        conn.commit()
 
 
 def copy_group_type_mappings(source_project_id: int, target_team_id: int, target_project_id: int) -> None:
@@ -261,7 +255,6 @@ def copy_group_type_mappings(source_project_id: int, target_team_id: int, target
                 """,
                 (target_team_id, target_project_id, source_project_id),
             )
-        conn.commit()
 
 
 def get_group_type_mapping_count(project_id: int) -> int:
