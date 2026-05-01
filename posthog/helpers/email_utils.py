@@ -37,7 +37,7 @@ _URL_SCHEME_RE = re.compile(
     re.IGNORECASE,
 )
 _BARE_DOMAIN_RE = re.compile(
-    r"\b[a-z0-9](?:[a-z0-9\-]{0,61}[a-z0-9])?\.[a-z]{2,24}\b",
+    r"\b(?:[a-z0-9](?:[a-z0-9\-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}\b",
     re.IGNORECASE,
 )
 _CONTROL_CHAR_RE = re.compile(r"[\x00-\x1f\x7f\u0085\u2028\u2029]")
