@@ -1,8 +1,17 @@
 import { cleanup, render } from '@testing-library/react'
 
-import type { ChartTheme, Series } from '../core/types'
+import { drawBars } from '../core/canvas-renderer'
+import type { BarRect } from '../core/canvas-renderer'
+import type { ChartTheme, ResolvedSeries, Series } from '../core/types'
 import { setupJsdom } from '../test-helpers'
 import { BarChart } from './BarChart'
+
+jest.mock('../core/canvas-renderer', () => {
+    const actual = jest.requireActual('../core/canvas-renderer')
+    return { __esModule: true, ...actual, drawBars: jest.fn() }
+})
+
+const mockedDrawBars = drawBars as jest.MockedFunction<typeof drawBars>
 
 const THEME: ChartTheme = {
     colors: ['#1f77b4', '#ff7f0e', '#2ca02c'],
@@ -24,13 +33,24 @@ type Orientation = 'vertical' | 'horizontal'
 describe('BarChart', () => {
     let teardown: () => void
 
+    let originalRaf: typeof global.requestAnimationFrame | undefined
     beforeEach(() => {
         teardown = setupJsdom()
+        mockedDrawBars.mockClear()
+        originalRaf = global.requestAnimationFrame
+        // Run draw effects synchronously so the static-layer RAF fires before the test reads the spy.
+        global.requestAnimationFrame = ((cb: FrameRequestCallback) => {
+            cb(0)
+            return 0
+        }) as typeof global.requestAnimationFrame
     })
 
     afterEach(() => {
         teardown()
         cleanup()
+        if (originalRaf) {
+            global.requestAnimationFrame = originalRaf
+        }
     })
 
     describe.each<[Layout, Orientation]>([
@@ -101,5 +121,34 @@ describe('BarChart', () => {
         const broken: Series[] = [{ key: 'a', label: 'A', data: [Number.NaN, Number.NaN, Number.NaN] }]
         const { container } = render(<BarChart series={broken} labels={LABELS} theme={THEME} />)
         expect(container.querySelector('canvas')).not.toBeNull()
+    })
+
+    // Pins today's behaviour for multi-axis stacked bars: cap rounding picks the last visible
+    // series in array order, regardless of yAxisId. The topmost rendered layer per axis isn't
+    // necessarily that key — see the multi-axis follow-up in PROGRESS.md.
+    it('rounds the cap of only the last visible series across axes (multi-axis stacked)', () => {
+        const series: Series[] = [
+            { key: 'left-1', label: 'L1', data: [10, 20, 30], yAxisId: 'left' },
+            { key: 'left-2', label: 'L2', data: [5, 15, 25], yAxisId: 'left' },
+            { key: 'right-1', label: 'R1', data: [1, 2, 3], yAxisId: 'right' },
+        ]
+        render(<BarChart series={series} labels={LABELS} theme={THEME} config={{ barLayout: 'stacked' }} />)
+
+        const callsByKey = new Map<string, BarRect[]>()
+        for (const call of mockedDrawBars.mock.calls) {
+            const drawnSeries = call[1] as ResolvedSeries
+            const bars = call[2] as BarRect[]
+            callsByKey.set(drawnSeries.key, bars)
+        }
+
+        const hasRoundedCap = (bars: BarRect[] | undefined): boolean =>
+            !!bars && bars.some((b) => b.corners.topLeft || b.corners.topRight)
+
+        expect(hasRoundedCap(callsByKey.get('right-1'))).toBe(true)
+        // Today's behaviour: the topmost layer of the left axis (left-2) does not get the
+        // rounded cap, because the selection only considers array order. Pinning so the fix
+        // flips this assertion intentionally when it lands.
+        expect(hasRoundedCap(callsByKey.get('left-2'))).toBe(false)
+        expect(hasRoundedCap(callsByKey.get('left-1'))).toBe(false)
     })
 })

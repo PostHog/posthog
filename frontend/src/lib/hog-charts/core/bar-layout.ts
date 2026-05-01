@@ -52,50 +52,80 @@ export function computeSeriesBars({
     stackedBand,
     isTopOfStack,
 }: ComputeSeriesBarsOptions): SeriesBarLayout {
-    const isGrouped = layout === 'grouped'
-    if (!isGrouped && !stackedBand) {
-        throw new Error(`computeSeriesBars: stackedBand is required for layout '${layout}'`)
-    }
-
-    const result: SeriesBarLayout = []
-    const bandWidth = scales.band.bandwidth()
-    const valueAtZero = scales.value(0)
-    const shouldRoundCap = isGrouped || isTopOfStack
-    const groupOffsetForKey = isGrouped ? scales.group?.(series.key) : undefined
-    const groupBandWidth = isGrouped ? (scales.group?.bandwidth() ?? bandWidth) : bandWidth
-    // For stacked/percent the bar's "positive direction" depends on which pixel is further from baseline,
-    // which differs by orientation: horizontal = larger x-pixel, vertical = smaller y-pixel (axis is inverted).
-    const isPositiveByPixels = (topPx: number, bottomPx: number): boolean =>
-        isHorizontal ? topPx >= bottomPx : topPx <= bottomPx
-
+    const result: SeriesBarLayout = new Array(labels.length)
     for (let i = 0; i < labels.length; i++) {
-        const bandStart = scales.band(labels[i])
-        const raw = series.data[i]
-        if (bandStart == null || raw == null || !isFinite(raw)) {
-            result.push(null)
-            continue
-        }
-
-        if (isGrouped) {
-            const valuePixel = scales.value(raw)
-            if (groupOffsetForKey == null || !isFinite(valuePixel)) {
-                result.push(null)
-                continue
-            }
-            const corners = cornersFor(isHorizontal, raw >= 0, shouldRoundCap)
-            const start = bandStart + groupOffsetForKey
-            result.push(makeBarRect(isHorizontal, start, groupBandWidth, valueAtZero, valuePixel, corners, i))
-            continue
-        }
-
-        const topPixel = scales.value(stackedBand!.top[i])
-        const bottomPixel = scales.value(stackedBand!.bottom[i])
-        if (!isFinite(topPixel) || !isFinite(bottomPixel)) {
-            result.push(null)
-            continue
-        }
-        const corners = cornersFor(isHorizontal, isPositiveByPixels(topPixel, bottomPixel), shouldRoundCap)
-        result.push(makeBarRect(isHorizontal, bandStart, bandWidth, topPixel, bottomPixel, corners, i))
+        result[i] = computeBarAtIndex({
+            series,
+            label: labels[i],
+            dataIndex: i,
+            scales,
+            layout,
+            isHorizontal,
+            stackedBand,
+            isTopOfStack,
+        })
     }
     return result
+}
+
+export interface ComputeBarAtIndexOptions {
+    series: Series
+    label: string
+    dataIndex: number
+    scales: BarScaleSet
+    layout: 'stacked' | 'grouped' | 'percent'
+    isHorizontal: boolean
+    /** Required for `stacked` and `percent` layouts. Must be omitted for `grouped`. */
+    stackedBand?: StackedBand
+    isTopOfStack: boolean
+}
+
+/** Single-bar fast path for `drawHover` so the overlay redraw doesn't recompute every bar
+ *  on every mousemove. Returns `null` for indices with no renderable bar. */
+export function computeBarAtIndex({
+    series,
+    label,
+    dataIndex,
+    scales,
+    layout,
+    isHorizontal,
+    stackedBand,
+    isTopOfStack,
+}: ComputeBarAtIndexOptions): BarRect | null {
+    const isGrouped = layout === 'grouped'
+    if (!isGrouped && !stackedBand) {
+        throw new Error(`computeBarAtIndex: stackedBand is required for layout '${layout}'`)
+    }
+
+    const bandStart = scales.band(label)
+    const raw = series.data[dataIndex]
+    if (bandStart == null || raw == null || !isFinite(raw)) {
+        return null
+    }
+
+    const shouldRoundCap = isGrouped || isTopOfStack
+    const bandWidth = scales.band.bandwidth()
+
+    if (isGrouped) {
+        const groupOffsetForKey = scales.group?.(series.key)
+        const valuePixel = scales.value(raw)
+        if (groupOffsetForKey == null || !isFinite(valuePixel)) {
+            return null
+        }
+        const groupBandWidth = scales.group?.bandwidth() ?? bandWidth
+        const corners = cornersFor(isHorizontal, raw >= 0, shouldRoundCap)
+        const start = bandStart + groupOffsetForKey
+        return makeBarRect(isHorizontal, start, groupBandWidth, scales.value(0), valuePixel, corners, dataIndex)
+    }
+
+    const topPixel = scales.value(stackedBand!.top[dataIndex])
+    const bottomPixel = scales.value(stackedBand!.bottom[dataIndex])
+    if (!isFinite(topPixel) || !isFinite(bottomPixel)) {
+        return null
+    }
+    // For stacked/percent the bar's "positive direction" depends on which pixel is further from baseline,
+    // which differs by orientation: horizontal = larger x-pixel, vertical = smaller y-pixel (axis is inverted).
+    const isPositive = isHorizontal ? topPixel >= bottomPixel : topPixel <= bottomPixel
+    const corners = cornersFor(isHorizontal, isPositive, shouldRoundCap)
+    return makeBarRect(isHorizontal, bandStart, bandWidth, topPixel, bottomPixel, corners, dataIndex)
 }
