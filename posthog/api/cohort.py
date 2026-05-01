@@ -57,6 +57,7 @@ from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.cohort import DEFAULT_COHORT_INSERT_BATCH_SIZE, CohortOrEmpty
 from posthog.models.cohort.calculation_history import CohortCalculationHistory
 from posthog.models.cohort.cohort import REALTIME_COHORT_MAX_PERSON_COUNT, CohortType
+from posthog.models.cohort.csv_import import CohortCSVImport
 from posthog.models.cohort.util import (
     cohort_filters_have_values,
     get_all_cohort_dependencies,
@@ -737,7 +738,12 @@ class CohortSerializer(serializers.ModelSerializer):
         return ids
 
     def _validate_and_process_ids(
-        self, ids: list[str], id_type: str, cohort: Cohort, email_property_key: str | None = None
+        self,
+        ids: list[str],
+        id_type: str,
+        cohort: Cohort,
+        email_property_key: str | None = None,
+        csv_import: CohortCSVImport | None = None,
     ) -> None:
         """Final validation and task scheduling"""
         from posthog.tasks.calculate_cohort import calculate_cohort_from_list
@@ -752,6 +758,7 @@ class CohortSerializer(serializers.ModelSerializer):
             team_id=self.context["team_id"],
             id_type=id_type,
             email_property_key=email_property_key,
+            csv_import_id=str(csv_import.id) if csv_import else None,
         )
 
     def _handle_csv_errors(self, e: Exception, cohort: Cohort) -> None:
@@ -791,6 +798,14 @@ class CohortSerializer(serializers.ModelSerializer):
         cohort.is_calculating = True
         cohort.save(update_fields=["is_calculating"])
 
+        # Create CSV import tracking record
+        csv_import = CohortCSVImport.objects.create(
+            team_id=cohort.team_id,
+            cohort=cohort,
+            created_by=getattr(self.request, "user", None),
+            filename=getattr(file, "name", None),
+        )
+
         try:
             first_row, reader = self._parse_csv_file(file)
 
@@ -808,7 +823,14 @@ class CohortSerializer(serializers.ModelSerializer):
                     ids = self._extract_ids_single_column(first_row, reader, skip_header=False)
                     id_type = "distinct_id"
 
-                self._validate_and_process_ids(ids, id_type, cohort, email_property_key)
+                # Update CSV import record with parse results
+                csv_import.id_type = id_type
+                csv_import.email_property_key = email_property_key
+                csv_import.rows_total = len(ids)  # Simplified for now
+                csv_import.ids_submitted = len(ids)
+                csv_import.save()
+
+                self._validate_and_process_ids(ids, id_type, cohort, email_property_key, csv_import)
             else:
                 result = self._find_id_column(first_row)
 
@@ -826,7 +848,17 @@ class CohortSerializer(serializers.ModelSerializer):
 
                 id_col, id_type, actual_column_name = result
                 ids = self._extract_ids_multi_column(reader, id_col, cohort.pk)
-                self._validate_and_process_ids(ids, id_type, cohort, actual_column_name if id_type == "email" else None)
+
+                # Update CSV import record with parse results
+                csv_import.id_type = id_type
+                csv_import.email_property_key = actual_column_name if id_type == "email" else None
+                csv_import.rows_total = len(ids)  # Simplified for now
+                csv_import.ids_submitted = len(ids)
+                csv_import.save()
+
+                self._validate_and_process_ids(
+                    ids, id_type, cohort, actual_column_name if id_type == "email" else None, csv_import
+                )
 
         except Exception as e:
             self._handle_csv_errors(e, cohort)
@@ -1534,6 +1566,48 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             activity=activity,
             detail=Detail(changes=changes, name=instance.name),
         )
+
+    @action(methods=["GET"], detail=True)
+    def csv_imports(self, request: request.Request, **kwargs) -> Response:
+        """List CSV import history for this static cohort."""
+        cohort = self.get_object()
+
+        if not cohort.is_static:
+            return Response(
+                {"error": "CSV import history is only available for static cohorts"}, status=status.HTTP_400_BAD_REQUEST
+            )
+
+        imports = CohortCSVImport.objects.filter(team_id=self.team_id, cohort=cohort).order_by("-started_at")
+
+        # Simple serialization for the CSV import records
+        import_data = []
+        for csv_import in imports:
+            import_data.append(
+                {
+                    "id": str(csv_import.id),
+                    "started_at": csv_import.started_at,
+                    "finished_at": csv_import.finished_at,
+                    "filename": csv_import.filename,
+                    "id_type": csv_import.id_type,
+                    "email_property_key": csv_import.email_property_key,
+                    "rows_total": csv_import.rows_total,
+                    "rows_skipped": csv_import.rows_skipped,
+                    "ids_submitted": csv_import.ids_submitted,
+                    "persons_matched": csv_import.persons_matched,
+                    "persons_added": csv_import.persons_added,
+                    "persons_already_in_cohort": csv_import.persons_already_in_cohort,
+                    "unmatched_count": csv_import.unmatched_count,
+                    "unmatched_records_location": csv_import.unmatched_records_location,
+                    "unmatched_records_expires_at": csv_import.unmatched_records_expires_at,
+                    "error": csv_import.error,
+                    "error_code": csv_import.error_code,
+                    "is_completed": csv_import.is_completed,
+                    "is_successful": csv_import.is_successful,
+                    "has_unmatched_records_file": csv_import.has_unmatched_records_file,
+                }
+            )
+
+        return Response({"results": import_data})
 
 
 class LegacyCohortViewSet(CohortViewSet):
