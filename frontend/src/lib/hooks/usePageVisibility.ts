@@ -17,7 +17,13 @@ function isPageVisible(): boolean {
  *
  * see https://developer.mozilla.org/en-US/docs/Web/API/Page_Visibility_API
  *
- * @param callback when page visibility changes this is called with true if the page is visible and false otherwise
+ * The callback is invoked once on mount with the current visibility, and again on every
+ * visibilitychange. Without the mount-time invocation, tabs loaded while hidden (e.g. via
+ * "Open in background tab" or after a multi-tab refresh while focus stays on one tab) never
+ * receive a "hidden" signal — consumers like the experiment / dashboard auto-refresh
+ * intervals would then run on a tab the user can't see.
+ *
+ * @param callback called with true if the page is visible, false if hidden
  */
 export function usePageVisibilityCb(callback: (pageIsVisible: boolean) => void): void {
     useEffect(() => {
@@ -25,6 +31,7 @@ export function usePageVisibilityCb(callback: (pageIsVisible: boolean) => void):
             callback(isPageVisible())
         }
 
+        callback(isPageVisible())
         document.addEventListener(VISIBILITY_CHANGE_EVENT, onVisibilityChange)
 
         return function cleanUp() {

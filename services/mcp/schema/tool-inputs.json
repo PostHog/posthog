@@ -2840,6 +2840,82 @@
         "SurveyResponseCountsSchema": {
             "type": "object",
             "properties": {}
+        },
+        "UsageMetricFiltersSchema": {
+            "anyOf": [
+                {
+                    "type": "object",
+                    "properties": {
+                        "source": {
+                            "type": "string",
+                            "const": "data_warehouse"
+                        },
+                        "table_name": {
+                            "type": "string",
+                            "description": "Name of a synced data warehouse table. Use `external-data-schemas-list` to discover available tables."
+                        },
+                        "timestamp_field": {
+                            "type": "string",
+                            "description": "Timestamp column or HogQL expression on the row (e.g. \"created\" or \"toDateTime(created_at)\"). Use `execute-sql` (`SELECT * FROM <table> LIMIT 1`) to inspect available columns."
+                        },
+                        "key_field": {
+                            "type": "string",
+                            "description": "Column on the row whose value matches the entity key. v1 supports group profiles only — the column value is compared to the group_key."
+                        }
+                    },
+                    "required": ["source", "table_name", "timestamp_field", "key_field"],
+                    "description": "Data-warehouse-source filter shape."
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "events": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "id": {
+                                        "type": "string",
+                                        "description": "Event name (e.g. \"$pageview\")."
+                                    },
+                                    "name": {
+                                        "type": "string"
+                                    },
+                                    "type": {
+                                        "type": "string",
+                                        "const": "events"
+                                    },
+                                    "order": {
+                                        "type": "integer",
+                                        "minimum": -9007199254740991,
+                                        "maximum": 9007199254740991
+                                    },
+                                    "properties": {
+                                        "type": "array",
+                                        "items": {}
+                                    }
+                                },
+                                "required": ["id"]
+                            },
+                            "description": "Events to count or sum over."
+                        },
+                        "actions": {
+                            "type": "array",
+                            "items": {}
+                        },
+                        "properties": {
+                            "type": "array",
+                            "items": {}
+                        },
+                        "filter_test_accounts": {
+                            "type": "boolean"
+                        }
+                    },
+                    "required": ["events"],
+                    "description": "Events-source filter shape (default)."
+                }
+            ],
+            "description": "Filter definition. Pick exactly one branch: `data_warehouse` (set `source: \"data_warehouse\"` plus `table_name`/`timestamp_field`/`key_field`) or `events` (HogFunction filter shape with an `events` array)."
         }
     }
 }

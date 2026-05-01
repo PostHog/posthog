@@ -604,6 +604,9 @@ importers:
       '@posthog/mosaic':
         specifier: workspace:*
         version: link:../common/mosaic
+      '@posthog/products-access-control':
+        specifier: workspace:*
+        version: link:../products/access_control
       '@posthog/products-actions':
         specifier: workspace:*
         version: link:../products/actions
@@ -2016,6 +2019,8 @@ importers:
       '@posthog/frontend':
         specifier: workspace:*
         version: link:../frontend
+
+  products/access_control: {}
 
   products/actions:
     dependencies:

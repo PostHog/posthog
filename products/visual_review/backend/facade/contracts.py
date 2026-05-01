@@ -295,3 +295,75 @@ class Repo:
     baseline_file_paths: dict[str, str]
     enable_pr_comments: bool
     created_at: datetime
+
+
+# Hard cap on entries returned by the baselines overview endpoint. Above this,
+# truncate (newest by run completion) and surface `truncated: True` so the UI
+# can flag it. The whole flow is sized for this — the FE filters/sorts client-
+# side and ships ~600 KB gzipped at the cap.
+BASELINE_OVERVIEW_MAX_ENTRIES = 5000
+
+# How many historical days of per-day result counts feed the overview sparkline.
+BASELINE_SPARKLINE_DAYS = 30
+
+
+@dataclass(frozen=True)
+class BaselineSparklineDay:
+    """One day's bucketed run-result counts for an identifier."""
+
+    clean: int
+    tolerated: int
+    changed: int
+    quarantined: int
+
+
+@dataclass(frozen=True)
+class BaselineEntry:
+    """The current baseline state of a single snapshot identifier in a repo.
+
+    Anchored on the latest non-superseded run on the default branch (master/main)
+    for each `run_type` — i.e. "what is the baseline image we'd compare against
+    right now". One row per `(run_type, identifier)`.
+    """
+
+    identifier: str
+    run_type: str
+    browser: str | None
+    thumbnail_hash: str | None
+    width: int | None
+    height: int | None
+    tolerate_count_30d: int
+    tolerate_count_90d: int
+    is_quarantined: bool
+    last_run_at: datetime
+    # Average diff_percentage across runs in the last 30 days that produced
+    # a non-zero diff. Drives the severity sort on the Tolerated and
+    # Quarantined slices. None when there's no signal yet.
+    recent_diff_avg: float | None
+    sparkline: list[BaselineSparklineDay]
+
+
+@dataclass(frozen=True)
+class BaselineTotals:
+    """Aggregate counts across the **full** baseline universe.
+
+    Computed independently of pagination so the stat row stays correct when
+    `entries` is truncated. The FE uses these for unfiltered counts and falls
+    back to recomputing over `entries` once a filter is active.
+    """
+
+    all_snapshots: int
+    recently_tolerated: int
+    frequently_tolerated: int
+    currently_quarantined: int
+    by_run_type: dict[str, int]
+
+
+@dataclass(frozen=True)
+class BaselineOverview:
+    """Result of the baselines overview endpoint."""
+
+    entries: list[BaselineEntry]
+    totals: BaselineTotals
+    truncated: bool
+    generated_at: datetime

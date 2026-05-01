@@ -42,6 +42,9 @@ tools:
     hog-flows-batch-jobs-retrieve:
         operation: hog_flows_batch_jobs_retrieve
         enabled: false
+    hog-flows-blocked-runs-retrieve:
+        operation: hog_flows_blocked_runs_retrieve
+        enabled: false
     hog-flows-bulk-delete-create:
         operation: hog_flows_bulk_delete_create
         enabled: false
@@ -88,6 +91,12 @@ tools:
         enabled: false
     hog-flows-partial-update:
         operation: hog_flows_partial_update
+        enabled: false
+    hog-flows-replay-all-blocked-runs-create:
+        operation: hog_flows_replay_all_blocked_runs_create
+        enabled: false
+    hog-flows-replay-blocked-run-create:
+        operation: hog_flows_replay_blocked_run_create
         enabled: false
     hog-flows-schedules-create:
         operation: hog_flows_schedules_create

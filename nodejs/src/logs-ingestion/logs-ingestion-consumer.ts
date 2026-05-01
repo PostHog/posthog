@@ -18,12 +18,17 @@ import { LogsIngestionConsumerConfig } from './config'
 import { type PiiScrubStats } from './log-pii-scrub'
 import { processLogMessageBuffer } from './log-record-avro'
 import { LOGS_DLQ_OUTPUT, LOGS_OUTPUT, LogsDlqOutput, LogsOutput } from './outputs/outputs'
+import type { CompiledRuleSet } from './sampling/evaluate'
+import { processBufferWithSampling } from './sampling/process-buffer-with-sampling'
+import { SamplingRulesCache } from './sampling/sampling-rules-cache'
 import { LogsRateLimiterService } from './services/logs-rate-limiter.service'
 import { LogsIngestionMessage } from './types'
 
 export interface LogsIngestionConsumerDeps {
     teamManager: TeamManager
     quotaLimiting: QuotaLimiting
+    /** When set, enabled teams may run head sampling before ClickHouse Kafka produce. */
+    samplingRulesCache?: SamplingRulesCache
     /**
      * Resolved outputs registry — must include `LOGS_OUTPUT`, `LOGS_DLQ_OUTPUT`,
      * and `APP_METRICS_OUTPUT`. The producer + topic for each is wired by the
@@ -105,12 +110,20 @@ export const logsRecordsDroppedCounter = new Counter({
     labelNames: ['team_id'],
 })
 
+export const logsSamplingRecordsDroppedCounter = new Counter({
+    name: 'logs_ingestion_sampling_records_dropped_total',
+    help: 'Log records dropped by head sampling rules',
+    labelNames: ['team_id'],
+})
+
 export class LogsIngestionConsumer {
     protected name = 'LogsIngestionConsumer'
     protected kafkaConsumer: KafkaConsumer
     private appMetricsAggregator: AppMetricsAggregator
     private redis: RedisV2
     private rateLimiter: LogsRateLimiterService
+    private readonly samplingEnabledTeamsRaw: string
+    private readonly samplingKillswitch: boolean
 
     protected groupId: string
     protected topic: string
@@ -144,6 +157,26 @@ export class LogsIngestionConsumer {
             poolMaxSize: config.REDIS_POOL_MAX_SIZE,
         })
         this.rateLimiter = new LogsRateLimiterService(config, this.redis)
+        this.samplingEnabledTeamsRaw = overrides.LOGS_SAMPLING_ENABLED_TEAMS ?? config.LOGS_SAMPLING_ENABLED_TEAMS
+        this.samplingKillswitch = overrides.LOGS_SAMPLING_KILLSWITCH ?? config.LOGS_SAMPLING_KILLSWITCH
+    }
+
+    private isSamplingEvalEnabledForTeam(teamId: number): boolean {
+        if (this.samplingKillswitch) {
+            return false
+        }
+        const raw = (this.samplingEnabledTeamsRaw || '').trim()
+        if (!raw) {
+            return false
+        }
+        if (raw === '*') {
+            return true
+        }
+        return raw
+            .split(',')
+            .map((s) => parseInt(s.trim(), 10))
+            .filter((n) => !Number.isNaN(n))
+            .includes(teamId)
     }
 
     public get service(): PluginServerService {
@@ -320,12 +353,42 @@ export class LogsIngestionConsumer {
 
                         // ignore empty messages
                         if (message.message.value === null) {
-                            return
+                            return Promise.resolve()
                         }
-                        const { value: processedValue, pii } = await processLogMessageBuffer(
-                            message.message.value,
-                            logsSettings
-                        )
+                        let processedValue: Buffer
+                        let pii: PiiScrubStats
+                        const samplingCache = this.deps.samplingRulesCache
+                        let ruleSet: CompiledRuleSet | null = null
+                        if (samplingCache && this.isSamplingEvalEnabledForTeam(message.teamId)) {
+                            ruleSet = await samplingCache.getCompiledRuleSet(message.teamId)
+                        }
+                        const useSamplingPipeline = Boolean(ruleSet && ruleSet.rules.length > 0)
+                        if (useSamplingPipeline && ruleSet) {
+                            const sampled = await processBufferWithSampling(
+                                message.message.value,
+                                logsSettings,
+                                ruleSet
+                            )
+                            pii = sampled.pii
+                            if (sampled.recordsDropped > 0) {
+                                logsSamplingRecordsDroppedCounter.inc(
+                                    { team_id: message.teamId.toString() },
+                                    sampled.recordsDropped
+                                )
+                            }
+                            if (sampled.allDropped) {
+                                logMessageDroppedCounter.inc(
+                                    { reason: 'sampling_all_dropped', team_id: message.teamId.toString() },
+                                    1
+                                )
+                                return Promise.resolve()
+                            }
+                            processedValue = sampled.value
+                        } else {
+                            const res = await processLogMessageBuffer(message.message.value, logsSettings)
+                            processedValue = res.value
+                            pii = res.pii
+                        }
                         this.addPiiStatsIntoUsage(usageStats, message.teamId, pii)
 
                         // Await so a rejection here lands in the catch and routes to the DLQ.
