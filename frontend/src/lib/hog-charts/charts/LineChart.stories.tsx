@@ -370,6 +370,17 @@ export const HoveringOverAuxSeries: Story = {
     },
     play: async ({ canvasElement }) => {
         await playHoverAtFraction(canvasElement, 0.5)
+        const tooltip = document.querySelector('[data-hog-charts-tooltip]')
+        if (!tooltip) {
+            throw new Error('tooltip not rendered')
+        }
+        const text = tooltip.textContent ?? ''
+        if (!text.includes('Visits')) {
+            throw new Error(`expected main series in tooltip, got: ${text}`)
+        }
+        if (text.includes('(CI)') || text.includes('(trend)')) {
+            throw new Error(`fromTooltip aux series leaked into tooltip: ${text}`)
+        }
     },
 }
 
