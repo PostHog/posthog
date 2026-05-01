@@ -86,7 +86,7 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'debug-mcp-ui-apps': debugMcpUiApps,
 
     // Feedback
-    'feedback-submit': submitFeedback,
+    'agent-feedback': submitFeedback,
 
     // PostHog AI tools
     'execute-sql': executeSql,

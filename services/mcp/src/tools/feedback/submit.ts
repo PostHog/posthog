@@ -55,7 +55,7 @@ export const submitFeedbackHandler: ToolBase<typeof schema, Result>['handler'] =
 }
 
 const tool = (): ToolBase<typeof schema, Result> => ({
-    name: 'feedback-submit',
+    name: 'agent-feedback',
     schema,
     handler: submitFeedbackHandler,
 })

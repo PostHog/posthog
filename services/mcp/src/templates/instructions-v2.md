@@ -35,7 +35,7 @@ If you cannot answer the user's PostHog related request or question using other 
 
 ### Sharing feedback on this MCP server (optional)
 
-The `feedback-submit` tool is always available if you'd like to leave optional feedback about this MCP server. It is the primary signal we use to improve tool descriptions, input schemas, response formats, and these instructions for agents like you. Use it when something stands out — but only when you have something specific to say. There is no expectation to call it after every task; skip it for routine work where nothing is worth flagging.
+The `agent-feedback` tool may be available if you'd like to leave optional feedback about this MCP server. It is the primary signal we use to improve tool descriptions, input schemas, response formats, and these instructions for agents like you. Use it when something stands out — but only when you have something specific to say. There is no expectation to call it after every task; skip it for routine work where nothing is worth flagging.
 
 Good moments to consider it:
 
@@ -76,7 +76,7 @@ Available domains (the list is incomplete):
 Typical action names: list/retrieve/get/create/update/delete/query.
 Example regex for search: execute-sql or experiment.
 
-(`feedback-submit` is not a domain — it's a single standalone tool, see "Sharing feedback on this MCP server" above.)
+(`agent-feedback` is not a domain — it's a single standalone tool, see "Sharing feedback on this MCP server" above. It may not be available for all clients.)
 
 {defined_groups}
 
