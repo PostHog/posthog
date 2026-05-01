@@ -1,3 +1,4 @@
+import { AnthropicSetupModal } from 'scenes/integrations/anthropic/AnthropicSetupModal'
 import { AzureBlobSetupModal } from 'scenes/integrations/azure-blob/AzureBlobSetupModal'
 import { DatabricksSetupModal } from 'scenes/integrations/databricks/DatabricksSetupModal'
 import { GitLabSetupModal } from 'scenes/integrations/gitlab/GitLabSetupModal'
@@ -41,6 +42,17 @@ registerIntegrationSetup({
             onClose={onClose}
             onComplete={onComplete}
         />
+    ),
+})
+
+registerIntegrationSetup({
+    kind: 'anthropic',
+    menuItem: ({ openModal }) => ({
+        label: 'Configure new Anthropic workspace',
+        onClick: () => openModal('anthropic'),
+    }),
+    SetupModal: ({ isOpen, integration, onComplete }) => (
+        <AnthropicSetupModal isOpen={isOpen} integration={integration} onComplete={onComplete} />
     ),
 })
 

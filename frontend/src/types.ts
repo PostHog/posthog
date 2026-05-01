@@ -5071,6 +5071,7 @@ export enum EventDefinitionType {
 }
 
 export const INTEGRATION_KINDS = [
+    'anthropic',
     'slack',
     'slack-posthog-code',
     'salesforce',
@@ -5140,6 +5141,22 @@ export interface TwilioPhoneNumberType {
 export interface LinearTeamType {
     id: string
     name: string
+}
+
+export interface AnthropicAgentType {
+    id: string
+    name: string
+    version?: string | null
+}
+
+export interface AnthropicEnvironmentType {
+    id: string
+    name: string
+}
+
+export interface AnthropicVaultType {
+    id: string
+    display_name: string
 }
 
 export interface JiraProjectType {

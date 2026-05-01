@@ -2,6 +2,7 @@ import { capitalizeFirstLetter } from 'lib/utils'
 
 import { IntegrationKind } from '~/types'
 
+import IconAnthropic from 'public/services/anthropic.svg'
 import IconAzureBlob from 'public/services/azure-blob-storage.png'
 import IconBingAds from 'public/services/bing-ads.svg'
 import IconClickUp from 'public/services/clickup.svg'
@@ -32,6 +33,7 @@ import IconTwilio from 'public/services/twilio.png'
 import IconVercel from 'public/services/vercel.png'
 
 export const ICONS: Record<IntegrationKind, any> = {
+    anthropic: IconAnthropic,
     slack: IconSlack,
     'slack-posthog-code': IconSlack,
     salesforce: IconSalesforce,
@@ -90,6 +92,8 @@ export const getIntegrationNameFromKind = (kind: string): string => {
             return 'Azure Blob Storage'
         case 'pinterest-ads':
             return 'Pinterest Ads'
+        case 'anthropic':
+            return 'Anthropic'
         case 'email':
             return 'email'
         case 'github':

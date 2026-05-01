@@ -3,6 +3,11 @@ import { useValues } from 'kea'
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
 import {
+    AnthropicAgentPicker,
+    AnthropicEnvironmentPicker,
+    AnthropicVaultPicker,
+} from 'lib/integrations/AnthropicIntegrationHelpers'
+import {
     ClickUpListPicker,
     ClickUpSpacePicker,
     ClickUpWorkspacePicker,
@@ -147,6 +152,15 @@ export function CyclotronJobInputIntegrationField({
     }
     if (schema.integration_field === 'linear_team') {
         return <LinearTeamPicker value={value} onChange={(x) => onChange?.(x)} integration={integration} />
+    }
+    if (schema.integration_field === 'anthropic_agent') {
+        return <AnthropicAgentPicker value={value} onChange={(x) => onChange?.(x)} integration={integration} />
+    }
+    if (schema.integration_field === 'anthropic_environment') {
+        return <AnthropicEnvironmentPicker value={value} onChange={(x) => onChange?.(x)} integration={integration} />
+    }
+    if (schema.integration_field === 'anthropic_vault') {
+        return <AnthropicVaultPicker value={value} onChange={(x) => onChange?.(x)} integration={integration} />
     }
     if (schema.integration_field === 'github_repository') {
         return <GitHubRepositoryPicker value={value} onChange={(x) => onChange?.(x)} integrationId={integration.id} />
