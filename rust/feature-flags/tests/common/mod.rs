@@ -370,7 +370,14 @@ impl ServerHandle {
                 feature_flags::flags::flag_definitions_cache::FlagDefinitionsCache::disabled(),
             );
 
-            // Tests drive the flusher manually via `flush_pending()`.
+            // `for_tests()` skips the background flusher and the harness
+            // never exposes a handle, so pending counts populated here never
+            // reach mock Redis. The construction is intentional: it exercises
+            // the synchronous `record()` half of the dual-write
+            // (`handler::billing::record_billing_increment`) so mock-Redis
+            // coverage doesn't silently regress that codepath. End-to-end
+            // flush behavior lives in the real-Redis tests in `test_flags.rs`
+            // (`test_dual_write_*`, `test_shutdown_flush_*`).
             let billing_aggregator = if *config.billing_aggregator_enabled {
                 Some(feature_flags::billing::BillingAggregator::for_tests(
                     redis_writer_client.clone(),
