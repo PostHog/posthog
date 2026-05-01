@@ -105,7 +105,6 @@ export const productScenes: Record<string, () => Promise<any>> = {
     LLMAnalyticsClusters: () => import('../../products/llm_analytics/frontend/clusters/LLMAnalyticsClustersScene'),
     LLMAnalyticsCluster: () => import('../../products/llm_analytics/frontend/clusters/LLMAnalyticsClusterScene'),
     Logs: () => import('../../products/logs/frontend/LogsScene'),
-    LogsAlertNew: () => import('../../products/logs/frontend/scenes/LogsAlertNewScene/LogsAlertNewScene'),
     LogsAlertDetail: () => import('../../products/logs/frontend/scenes/LogsAlertDetailScene/LogsAlertDetailScene'),
     LogsSamplingNew: () => import('../../products/logs/frontend/scenes/LogsSamplingNewScene/LogsSamplingNewScene'),
     LogsSamplingDetail: () =>
@@ -212,7 +211,6 @@ export const productRoutes: Record<string, [string, string]> = {
     '/llm-analytics/clusters/:runId': ['LLMAnalyticsClusters', 'llmAnalyticsClusters'],
     '/llm-analytics/clusters/:runId/:clusterId': ['LLMAnalyticsCluster', 'llmAnalyticsCluster'],
     '/logs': ['Logs', 'logs'],
-    '/logs/alerts/new': ['LogsAlertNew', 'logsAlertNew'],
     '/logs/alerts/:id': ['LogsAlertDetail', 'logsAlertDetail'],
     '/logs/drop-rules/new': ['LogsSamplingNew', 'logsSamplingNew'],
     '/logs/drop-rules/:id': ['LogsSamplingDetail', 'logsSamplingDetail'],
@@ -500,7 +498,6 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'logs',
         description: 'Monitor and analyze your logs to understand and fix issues.',
     },
-    LogsAlertNew: { projectBased: true, name: 'New alert', activityScope: ActivityScope.LOG, layout: 'app-container' },
     LogsAlertDetail: { projectBased: true, name: 'Alert', activityScope: ActivityScope.LOG, layout: 'app-container' },
     LogsSamplingNew: {
         projectBased: true,
@@ -839,7 +836,6 @@ export const productUrls = {
     llmAnalyticsCluster: (runId: string, clusterId: number): string =>
         `/llm-analytics/clusters/${encodeURIComponent(runId)}/${clusterId}`,
     logs: (): string => '/logs',
-    logsAlertNew: (): string => '/logs/alerts/new',
     logsAlertDetail: (id: string, tab?: string): string =>
         tab ? `/logs/alerts/${id}?tab=${tab}` : `/logs/alerts/${id}`,
     logsSamplingNew: (): string => '/logs/drop-rules/new',
@@ -1548,7 +1544,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconColor: ['var(--color-product-logs-light)'] as FileSystemIconColor,
         href: urls.logs(),
         sceneKey: 'Logs',
-        sceneKeys: ['Logs', 'LogsAlertNew', 'LogsAlertDetail', 'LogsSamplingNew', 'LogsSamplingDetail'],
+        sceneKeys: ['Logs', 'LogsAlertDetail', 'LogsSamplingNew', 'LogsSamplingDetail'],
     },
     {
         path: 'Marketing analytics',
