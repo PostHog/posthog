@@ -503,7 +503,6 @@ class TestPersonsPdiPersonIdPushdown(ClickhouseTestMixin, APIBaseTest):
             distinct_ids=["bob_a"],
             properties={"name": "bob"},
         )
-        flush_persons_and_events()
 
     @snapshot_clickhouse_queries
     def test_pdi_subquery_pushdown_snapshot(self):
@@ -590,7 +589,6 @@ class TestPersonsPdiPersonIdPushdown(ClickhouseTestMixin, APIBaseTest):
             person_id=str(self.bob.uuid),
             version=99,
         )
-        flush_persons_and_events()
 
         response = execute_hogql_query(
             parse_select(
@@ -620,7 +618,6 @@ class TestPersonsPdiPersonIdPushdown(ClickhouseTestMixin, APIBaseTest):
         _create_event(event="$pageview", distinct_id="alice_a", team=self.team)
         _create_event(event="$pageview", distinct_id="alice_b", team=self.team)
         _create_event(event="$pageview", distinct_id="bob_a", team=self.team)
-        flush_persons_and_events()
 
         response = execute_hogql_query(
             parse_select("SELECT count() FROM events WHERE pdi.person_id IN ({alice_id})"),
