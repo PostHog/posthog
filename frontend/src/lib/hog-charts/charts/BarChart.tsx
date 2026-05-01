@@ -176,7 +176,15 @@ function BarChartInner<Meta = unknown>({
                 }
                 const stackedBand = stackedData?.get(s.key)
                 const isTop = topStackedKey !== null && s.key === topStackedKey
-                const bars = computeSeriesBars(s, drawLabels, d3Scales, barLayout, isHorizontal, stackedBand, isTop)
+                const bars = computeSeriesBars({
+                    series: s,
+                    labels: drawLabels,
+                    scales: d3Scales,
+                    layout: barLayout,
+                    isHorizontal,
+                    stackedBand,
+                    isTopOfStack: isTop,
+                })
                 drawBars(
                     baseDrawCtx,
                     s,
@@ -201,7 +209,15 @@ function BarChartInner<Meta = unknown>({
                 }
                 const stackedBand = stackedData?.get(s.key)
                 const isTop = topStackedKey !== null && s.key === topStackedKey
-                const bars = computeSeriesBars(s, drawLabels, d3Scales, barLayout, isHorizontal, stackedBand, isTop)
+                const bars = computeSeriesBars({
+                    series: s,
+                    labels: drawLabels,
+                    scales: d3Scales,
+                    layout: barLayout,
+                    isHorizontal,
+                    stackedBand,
+                    isTopOfStack: isTop,
+                })
                 const bar = bars[hoverIndex]
                 if (bar) {
                     drawBarHighlight(ctx, bar, highlightColor, barCornerRadius)
