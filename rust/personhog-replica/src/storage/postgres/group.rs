@@ -606,20 +606,20 @@ impl GroupStorage for PostgresStorage {
         detail_dashboard_id: Option<i64>,
         default_columns: Option<&[String]>,
     ) -> StorageResult<Option<GroupTypeMapping>> {
+        let client = current_client_name();
+        let labels = [
+            (
+                "operation".to_string(),
+                "update_group_type_mapping".to_string(),
+            ),
+            ("pool".to_string(), "primary".to_string()),
+            ("client".to_string(), client.to_string()),
+        ];
+        let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
+
+        let mut conn = PostgresStorage::acquire_timed(&self.primary_pool, "primary").await?;
+
         if update_mask.is_empty() {
-            let client = current_client_name();
-            let labels = [
-                (
-                    "operation".to_string(),
-                    "update_group_type_mapping".to_string(),
-                ),
-                ("pool".to_string(), "primary".to_string()),
-                ("client".to_string(), client.to_string()),
-            ];
-            let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
-
-            let mut conn = PostgresStorage::acquire_timed(&self.primary_pool, "primary").await?;
-
             return sqlx::query_as!(
                 GroupTypeMapping,
                 r#"
@@ -638,19 +638,6 @@ impl GroupStorage for PostgresStorage {
             .await
             .map_err(Into::into);
         }
-
-        let client = current_client_name();
-        let labels = [
-            (
-                "operation".to_string(),
-                "update_group_type_mapping".to_string(),
-            ),
-            ("pool".to_string(), "primary".to_string()),
-            ("client".to_string(), client.to_string()),
-        ];
-        let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
-
-        let mut conn = PostgresStorage::acquire_timed(&self.primary_pool, "primary").await?;
 
         let mask_set: std::collections::HashSet<&str> =
             update_mask.iter().map(|s| s.as_str()).collect();
