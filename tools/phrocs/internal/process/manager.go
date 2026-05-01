@@ -16,12 +16,15 @@ type Manager struct {
 	send        func(tea.Msg)
 	scrollback  int
 	globalShell string
+	quitCh      chan struct{}
+	quitOnce    sync.Once
 }
 
 func NewManager(cfg *config.Config) *Manager {
 	mgr := &Manager{
 		scrollback:  cfg.Scrollback,
 		globalShell: cfg.Shell,
+		quitCh:      make(chan struct{}),
 	}
 
 	names := cfg.OrderedNames()
@@ -136,6 +139,19 @@ func (m *Manager) Add(name string, pcfg config.ProcConfig, scrollback int, globa
 // exists, it is a no-op and the existing process is returned.
 func (m *Manager) AddShell(name, shell string) *Process {
 	return m.Add(name, config.ProcConfig{Shell: shell}, m.scrollback, m.globalShell)
+}
+
+// QuitCh returns a channel that is closed when Quit is invoked.
+// Intended for the detached main loop to block on, then tear down cleanly.
+func (m *Manager) QuitCh() <-chan struct{} {
+	return m.quitCh
+}
+
+// Quit signals the manager to shut down. Idempotent; safe to call multiple times.
+// Does not stop processes itself — the caller is responsible for calling StopAll
+// after observing the quit signal, so teardown order stays in one place.
+func (m *Manager) Quit() {
+	m.quitOnce.Do(func() { close(m.quitCh) })
 }
 
 // Remove stops a process and removes it from the manager.

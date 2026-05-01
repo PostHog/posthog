@@ -268,6 +268,27 @@ describe('llmEvaluationLogic', () => {
                 await expectLogic(logic).toMatchValues({ formValid: false })
             })
 
+            it('returns false when conditions array is empty', async () => {
+                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+                logic.actions.setEvaluationName('Valid Name')
+                logic.actions.setEvaluationPrompt('Valid prompt')
+                logic.actions.setTriggerConditions([])
+
+                await expectLogic(logic).toMatchValues({ formValid: false })
+            })
+
+            it.each([
+                ['rollout_percentage of 0', 0],
+                ['rollout_percentage above 100', 150],
+            ])('returns false when %s', async (_label, percentage) => {
+                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+                logic.actions.setEvaluationName('Valid Name')
+                logic.actions.setEvaluationPrompt('Valid prompt')
+                logic.actions.setTriggerConditions([{ id: 'c1', rollout_percentage: percentage, properties: [] }])
+
+                await expectLogic(logic).toMatchValues({ formValid: false })
+            })
+
             it('returns true when all fields valid', async () => {
                 await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
                 logic.actions.setEvaluationName('Valid Name')
