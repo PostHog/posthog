@@ -57,15 +57,6 @@ def _derive_person_id_filter_inner(
         if persons_table is not None:
             extractor = WhereClauseExtractor(context)
             extractor.tracked_tables.append(persons_table)
-            # WhereClauseExtractor.get_inner_where unconditionally sets
-            # is_join=True when select_from.next_join is set, which would
-            # tombstone NOT/negated comparisons in the extracted filter.
-            # That tombstoning is correct for the original use case (a
-            # redundant outer-AND filter on the persons inner subquery)
-            # but unsafe here, where the result becomes the ONLY filter
-            # inside an independent SELECT against raw_persons. Hand the
-            # extractor a shallow copy with next_join stripped so the
-            # override never fires.
             persons_filter = extractor.get_inner_where(_strip_next_join(node))
             if persons_filter is not None:
                 inner_persons = cast(
