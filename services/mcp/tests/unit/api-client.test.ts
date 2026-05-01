@@ -192,26 +192,25 @@ describe('ApiClient', () => {
             vi.unstubAllGlobals()
         })
 
-        it('resolves short_id then re-fetches with overrides when overrides are provided', async () => {
+        it('resolves short_id and applies overrides in a single list call', async () => {
             const { client, mockFetch } = setupClient()
-            mockFetch
-                .mockResolvedValueOnce(
-                    new Response(JSON.stringify({ results: [{ id: 42, short_id: 'abc12345' }] }), { status: 200 })
-                )
-                .mockResolvedValueOnce(new Response(JSON.stringify({ id: 42, short_id: 'abc12345' }), { status: 200 }))
+            mockFetch.mockResolvedValueOnce(
+                new Response(JSON.stringify({ results: [{ id: 42, short_id: 'abc12345' }] }), { status: 200 })
+            )
 
             await client.insights({ projectId: '1' }).get({
                 insightId: 'abc12345',
                 variables_override: variablesOverride,
             })
 
-            expect(mockFetch).toHaveBeenCalledTimes(2)
-            const [firstUrl] = mockFetch.mock.calls[0]!
-            expect(firstUrl).toContain('/api/projects/1/insights/?short_id=abc12345')
-            const [secondUrl] = mockFetch.mock.calls[1]!
-            expect(secondUrl).toContain('https://example.com/api/projects/1/insights/42/?')
-            expect(secondUrl).toContain(`variables_override=${encodeURIComponent(variablesOverride)}`)
-            expect(secondUrl).not.toContain('filters_override')
+            // The list endpoint runs the same InsightSerializer.to_representation
+            // and applies overrides from query_params, so a single hop suffices.
+            expect(mockFetch).toHaveBeenCalledTimes(1)
+            const [url] = mockFetch.mock.calls[0]!
+            expect(url).toContain('/api/projects/1/insights/?')
+            expect(url).toContain('short_id=abc12345')
+            expect(url).toContain(`variables_override=${encodeURIComponent(variablesOverride)}`)
+            expect(url).not.toContain('filters_override')
 
             vi.unstubAllGlobals()
         })

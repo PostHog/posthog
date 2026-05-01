@@ -749,13 +749,21 @@ export class ApiClient {
                 if (filters_override) {
                     overrideParams.set('filters_override', filters_override)
                 }
-                const overrideQuery = overrideParams.toString() ? `?${overrideParams}` : ''
 
                 // Check if insightId is a short_id (8 character alphanumeric string)
                 // Note: This won't work when we start creating insight id's with 8 digits. (We're at 7 currently)
-                let resolvedId = insightId
                 if (isShortId(insightId)) {
+                    // The list endpoint accepts ?short_id=... and runs the same
+                    // InsightSerializer.to_representation, which applies
+                    // variables_override / filters_override from query_params. So
+                    // short_id resolution + override application happen in one hop.
                     const searchParams = new URLSearchParams({ short_id: insightId })
+                    if (variables_override) {
+                        searchParams.set('variables_override', variables_override)
+                    }
+                    if (filters_override) {
+                        searchParams.set('filters_override', filters_override)
+                    }
                     const url = `${this.baseUrl}/api/projects/${projectId}/insights/?${searchParams}`
 
                     const result = await this.fetchJson<{ results: Schemas.Insight[] }>(url)
@@ -774,17 +782,12 @@ export class ApiClient {
                         }
                     }
 
-                    // Without overrides, return the list-resolved insight directly to save a hop.
-                    // With overrides, fall through to the retrieve endpoint — only that path
-                    // applies variables_override / filters_override server-side.
-                    if (!overrideQuery) {
-                        return { success: true, data: insight }
-                    }
-                    resolvedId = String(insight.id)
+                    return { success: true, data: insight }
                 }
 
+                const overrideQuery = overrideParams.toString() ? `?${overrideParams}` : ''
                 return this.fetchJson<Schemas.Insight>(
-                    `${this.baseUrl}/api/projects/${projectId}/insights/${resolvedId}/${overrideQuery}`
+                    `${this.baseUrl}/api/projects/${projectId}/insights/${insightId}/${overrideQuery}`
                 )
             },
 
