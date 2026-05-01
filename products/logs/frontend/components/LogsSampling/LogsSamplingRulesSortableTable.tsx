@@ -103,7 +103,7 @@ function SortableRow({
             <td className="py-2 px-2 text-secondary text-sm align-middle">{ruleTypeLabel(row.rule_type)}</td>
             <td className="py-2 px-2 w-32 align-middle">
                 <LemonSwitch
-                    checked={row.enabled}
+                    checked={row.enabled ?? false}
                     onChange={(checked) => onSetRuleEnabled(row.id, checked)}
                     disabledReason={
                         ruleEnabledTogglePendingId === row.id
