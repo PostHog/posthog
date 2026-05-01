@@ -949,6 +949,65 @@ class TestExternalDataSource(APIBaseTest):
             ],
         )
 
+    @parameterized.expand(
+        [
+            (
+                "failed_disabled_schema_ignored",
+                ExternalDataSchema.Status.FAILED,
+                ExternalDataSchema.Status.COMPLETED,
+                ExternalDataSchema.Status.COMPLETED,
+            ),
+            (
+                "billing_limit_reached_disabled_schema_ignored",
+                ExternalDataSchema.Status.BILLING_LIMIT_REACHED,
+                ExternalDataSchema.Status.COMPLETED,
+                ExternalDataSchema.Status.COMPLETED,
+            ),
+            (
+                "billing_limit_too_low_disabled_schema_ignored",
+                ExternalDataSchema.Status.BILLING_LIMIT_TOO_LOW,
+                ExternalDataSchema.Status.RUNNING,
+                ExternalDataSchema.Status.RUNNING,
+            ),
+            (
+                "failed_enabled_schema_still_propagates",
+                ExternalDataSchema.Status.COMPLETED,
+                ExternalDataSchema.Status.FAILED,
+                ExternalDataSchema.Status.FAILED,
+            ),
+        ]
+    )
+    def test_status_excludes_disabled_schemas_from_negative_statuses(
+        self,
+        _name: str,
+        disabled_schema_status: str,
+        enabled_schema_status: str,
+        expected_source_status: str,
+    ):
+        source = self._create_external_data_source()
+        ExternalDataSchema.objects.create(
+            name="DisabledWithError",
+            team_id=self.team.pk,
+            source_id=source.pk,
+            table=None,
+            should_sync=False,
+            status=disabled_schema_status,
+            latest_error="boom",
+        )
+        ExternalDataSchema.objects.create(
+            name="EnabledHealthy",
+            team_id=self.team.pk,
+            source_id=source.pk,
+            table=None,
+            should_sync=True,
+            status=enabled_schema_status,
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}")
+
+        assert response.status_code == 200
+        assert response.json()["status"] == expected_source_status
+
     def test_delete_external_data_source(self):
         source = self._create_external_data_source()
         schema = self._create_external_data_schema(source.pk)
