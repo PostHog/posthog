@@ -202,11 +202,15 @@ def lockdown_network(coordinator_url: str) -> None:
     anthropic_ips = _resolve_all(anthropic_host, label="anthropic")
 
     # Allow rules go in OUTPUT slot 1..N (insertions push earlier ones down).
-    # Build them in reverse so the final order is: lo, ESTABLISHED, coordinator,
-    # anthropic-IP-1, anthropic-IP-2, ...
     allow_rules: list[list[str]] = []
     allow_rules.append(["-o", "lo", "-j", "ACCEPT"])
     allow_rules.append(["-m", "state", "--state", "ESTABLISHED,RELATED", "-j", "ACCEPT"])
+    # Outbound DNS so api.anthropic.com (and other lookups pi may need)
+    # resolve. Docker's embedded resolver lives at 127.0.0.11 — that goes via
+    # `lo` and is already covered, but containers may also be configured to
+    # use upstream resolvers reached over the gateway interface. Allow UDP/53
+    # broadly to either; UDP/53 is a small attack surface.
+    allow_rules.append(["-p", "udp", "--dport", "53", "-j", "ACCEPT"])
     allow_rules.append(["-d", gateway_ip, "-p", "tcp", "--dport", str(port), "-j", "ACCEPT"])
     for ip in anthropic_ips:
         allow_rules.append(["-d", ip, "-p", "tcp", "--dport", str(anthropic_port), "-j", "ACCEPT"])
@@ -225,11 +229,60 @@ def lockdown_network(coordinator_url: str) -> None:
                 raise LockdownFailed("iptables refused (NET_ADMIN not granted to this sandbox)") from e
             raise LockdownFailed(f"iptables rule failed ({argv[-1]}): {stderr}") from e
 
+    # Drop IPv6 outbound entirely. Anthropic publishes AAAA records and
+    # Node's HTTP client will prefer IPv6 if the resolver returns one; if
+    # IPv6 routing in the container is broken (Docker default networks
+    # disable IPv6) the connect fails fast and the agent reports
+    # "Connection error" without falling back to IPv4. Forcing v6 to drop
+    # via ip6tables makes happy-eyeballs fall through to v4 cleanly. We
+    # don't whitelist any v6 destinations because our v4 whitelist is
+    # already enough for pi to function.
+    try:
+        subprocess.run(  # noqa: S603
+            ["ip6tables", "-P", "OUTPUT", "DROP"], check=True, text=True, capture_output=True, timeout=5
+        )
+    except FileNotFoundError:
+        # ip6tables may be absent on stripped-down images; swallow because
+        # IPv4 lockdown is the load-bearing part.
+        pass
+    except subprocess.CalledProcessError as e:
+        # Don't fail the campaign on IPv6 lockdown failure either — same
+        # rationale.
+        log(f"warning: ip6tables OUTPUT DROP failed: {(e.stderr or '').strip()}")
+
     anthropic_ip_summary = ",".join(anthropic_ips)
     log(
         f"network locked down: coordinator {gateway_ip}:{port} + "
         f"{anthropic_host}:{anthropic_port} ([{anthropic_ip_summary}])"
     )
+
+    # Diagnostic: prove the lockdown didn't accidentally break LLM access.
+    # `curl -m 5` against the Anthropic API root will 401/404 (no API key in
+    # the curl) but a non-zero TCP connection means the rules are right.
+    try:
+        diag = subprocess.run(  # noqa: S603
+            [
+                "curl",
+                "-sS",
+                "-o",
+                "/dev/null",
+                "-w",
+                "%{http_code} %{time_total}s",
+                "-m",
+                "5",
+                f"https://{anthropic_host}/v1/models",
+            ],
+            text=True,
+            capture_output=True,
+            timeout=10,
+        )
+        log(
+            f"lockdown diagnostic: curl https://{anthropic_host}/v1/models → {diag.stdout.strip()} (rc={diag.returncode})"
+        )
+        if diag.returncode != 0:
+            log(f"lockdown diagnostic stderr: {(diag.stderr or '').strip()[:500]}")
+    except (FileNotFoundError, subprocess.TimeoutExpired) as e:
+        log(f"lockdown diagnostic skipped: {e}")
 
 
 def install_pi_toolchain() -> None:
