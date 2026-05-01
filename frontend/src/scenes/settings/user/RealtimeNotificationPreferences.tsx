@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconChevronDown, IconChevronRight } from '@posthog/icons'
+import { IconChevronRight } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonTag } from '@posthog/lemon-ui'
 
 import { REALTIME_NOTIFICATION_TYPE_META } from 'lib/components/NotificationsMenu/NotificationRow'
@@ -65,11 +65,9 @@ export function RealtimeNotificationPreferences(): JSX.Element {
                                     size="xsmall"
                                     type="tertiary"
                                     icon={
-                                        isOpen ? (
-                                            <IconChevronDown className="text-base" />
-                                        ) : (
-                                            <IconChevronRight className="text-base" />
-                                        )
+                                        <IconChevronRight
+                                            className={`transition-transform ${isOpen ? 'rotate-90' : ''}`}
+                                        />
                                     }
                                     onClick={() => setExpanded({ ...expanded, [team.id]: !isOpen })}
                                 />
