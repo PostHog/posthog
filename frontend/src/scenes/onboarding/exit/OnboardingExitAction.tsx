@@ -10,9 +10,9 @@ import { onboardingExitLogic } from './onboardingExitLogic'
 export function OnboardingExitAction(): JSX.Element {
     const { openExitModal } = useActions(onboardingExitLogic)
 
-    // Modal is mounted once near the top of the onboarding tree (see Onboarding.tsx)
-    // so we avoid multiple concurrent LemonModal instances sharing the same kea state
-    // when this CTA renders in several places (steps, product carousel, etc.).
+    // Modal is co-mounted in ProductSelection.tsx (one mount per onboarding entry point) so
+    // multiple OnboardingExitAction renders in a single tree share the same kea state without
+    // spawning competing LemonModal instances.
     return (
         <div className="mt-8 mx-auto max-w-md w-full">
             <div className="flex items-center gap-3 p-3 rounded-lg border border-primary bg-surface-primary">
@@ -28,7 +28,7 @@ export function OnboardingExitAction(): JSX.Element {
                     sideIcon={<IconArrowRight />}
                     data-attr="onboarding-exit-link"
                 >
-                    Delegate
+                    Hand off setup
                 </LemonButton>
             </div>
         </div>

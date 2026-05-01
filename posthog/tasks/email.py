@@ -38,6 +38,7 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.comment import Comment
 from posthog.models.comment.utils import build_comment_item_url
 from posthog.models.hog_functions.hog_function import HogFunction
+from posthog.models.messaging import MessagingRecord
 from posthog.models.utils import UUIDT
 from posthog.ph_client import get_client
 from posthog.user_permissions import UserPermissions
@@ -282,11 +283,30 @@ def send_invite(invite_id: str) -> None:
     if invite.target_email is None:
         return
     message.add_recipient(email=invite.target_email, distinct_id=f"invite_{invite_id}")
-    message.send()
-    # Mark emailing_attempt_made only after the send actually completes. Any upstream
-    # failure (SMTP reject, Customer.io error) raises before this line, so the flag
-    # stays False and the delegation re-submit path can retry email dispatch.
-    OrganizationInvite.objects.filter(pk=invite_id).update(emailing_attempt_made=True)
+    # For delegation invites the resubmit path retries email dispatch when
+    # emailing_attempt_made is False, so we need that flag to track *actual* delivery,
+    # not just task enqueue. _send_via_smtp / _send_via_http catch and swallow exceptions
+    # — the only reliable signal of successful delivery is MessagingRecord.sent_at being
+    # set after `_send_email` runs. Send synchronously and check the record before
+    # stamping the flag; if delivery silently failed, leave the flag False so a resubmit
+    # retries dispatch.
+    if is_delegation:
+        message.send(send_async=False)
+        delivered = MessagingRecord.objects.filter(
+            campaign_key=campaign_key, raw_email=invite.target_email, sent_at__isnull=False
+        ).exists()
+        if delivered:
+            OrganizationInvite.objects.filter(pk=invite_id).update(emailing_attempt_made=True)
+        else:
+            logger.warning(
+                "send_invite.delivery_unconfirmed",
+                invite_id=invite_id,
+                organization_id=str(invite.organization_id),
+                campaign_key=campaign_key,
+            )
+    else:
+        message.send()
+        OrganizationInvite.objects.filter(pk=invite_id).update(emailing_attempt_made=True)
 
 
 @shared_task(**EMAIL_TASK_KWARGS)

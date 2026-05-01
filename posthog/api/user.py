@@ -87,7 +87,12 @@ from posthog.models.user import (
     ShortcutPosition,
 )
 from posthog.permissions import APIScopePermission, TimeSensitiveActionPermission, UserNoOrgMembershipDeletePermission
-from posthog.rate_limit import ToolbarOAuthRefreshThrottle, UserAuthenticationThrottle, UserEmailVerificationThrottle
+from posthog.rate_limit import (
+    OnboardingSkipThrottle,
+    ToolbarOAuthRefreshThrottle,
+    UserAuthenticationThrottle,
+    UserEmailVerificationThrottle,
+)
 from posthog.tasks import user_identify
 from posthog.tasks.email import (
     send_email_change_emails,
@@ -162,8 +167,12 @@ class UserSerializer(serializers.ModelSerializer):
         help_text="Whether PostHog should anonymize events captured for this user when identified."
     )
     role_at_organization = serializers.ChoiceField(choices=ROLE_CHOICES, required=False)
+    # read_only=True is required here even though Meta.read_only_fields lists this field —
+    # DRF's Meta.read_only_fields is silently ignored for explicitly declared serializer fields.
+    # Without it, a caller could PATCH /api/users/@me/ {"onboarding_skipped_reason": "delegated"}
+    # and bypass the dedicated onboarding_skip endpoint's reason validation and atomicity.
     onboarding_skipped_reason = serializers.ChoiceField(
-        choices=User.ONBOARDING_SKIPPED_REASONS, allow_null=True, required=False
+        choices=User.ONBOARDING_SKIPPED_REASONS, allow_null=True, required=False, read_only=True
     )
     onboarding_delegated_to_organization_id = serializers.UUIDField(
         read_only=True,
@@ -849,7 +858,7 @@ class UserViewSet(
         ),
         responses=UserSerializer,
     )
-    @action(methods=["POST"], detail=True, url_path="onboarding/skip")
+    @action(methods=["POST"], detail=True, url_path="onboarding/skip", throttle_classes=[OnboardingSkipThrottle])
     def onboarding_skip(self, request, **kwargs):
         """
         Mark the current user as having exited onboarding with a non-delegated reason.

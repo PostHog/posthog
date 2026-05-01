@@ -118,10 +118,7 @@ CUSTOMER_IO_TEMPLATE_ID_MAP = {
     "approval_applied": "61",
     "conversation_restore": "63",
     "proxy_provisioned": "64",
-    # Customer.io template ID must be created in Customer.io and inserted here before rollout.
-    # Until then, SMTP-only instances still work via the Django template; cloud sends will raise
-    # from get_customer_io_template_id and retry via Celery's autoretry_for(Exception,).
-    "delegation_invite": "65",
+    "delegation_invite": "66",
 }
 
 

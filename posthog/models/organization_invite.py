@@ -147,8 +147,12 @@ class OrganizationInvite(ModelActivityMixin, UUIDTModel):
             # Row-lock the invite so two concurrent accepts of the same link serialize on this
             # row rather than racing each other into the membership/grant path. Without this
             # lock the second transaction would see the invite row and proceed before the first
-            # had committed its membership / delegator-accepted updates.
-            OrganizationInvite.objects.select_for_update().get(pk=self.pk)
+            # had committed its membership / delegator-accepted updates. If the first transaction
+            # already deleted the row, surface a friendly InviteExpiredException rather than a 500.
+            try:
+                OrganizationInvite.objects.select_for_update().get(pk=self.pk)
+            except OrganizationInvite.DoesNotExist:
+                raise InviteExpiredException("This invite has already been used.")
 
             membership = user.join(organization=self.organization, level=cast(OrganizationMembership.Level, self.level))
             if self.created_by_id is not None:
@@ -180,14 +184,19 @@ class OrganizationInvite(ModelActivityMixin, UUIDTModel):
                     access_level=item["level"],
                 )
 
-            # Narrow the sibling-invite sweep to everything EXCEPT self; delete self via the
-            # instance method so ModelActivityMixin's "deleted" signal fires. This also avoids
-            # firing the pre_delete un-suppress side-effect on invites that share (org, email)
-            # but belong to a different delegator.
-            OrganizationInvite.objects.filter(
+            # Sibling-invite sweep: clean up any other pending invites for the same email in this
+            # org so the invitee doesn't accumulate stale rows. Other DELEGATION invites have
+            # already produced a real outcome (the same person just accepted), so their delegators
+            # should be stamped accepted before pre_delete fires on the sibling — otherwise the
+            # un-suppress receiver bounces those delegators back into onboarding.
+            sibling_qs = OrganizationInvite.objects.filter(
                 organization=self.organization,
                 target_email__iexact=self.target_email,
-            ).exclude(pk=self.pk).delete()
+            ).exclude(pk=self.pk)
+            sibling_delegation_ids = list(sibling_qs.filter(is_setup_delegation=True).values_list("id", flat=True))
+            for sibling_invite_id in sibling_delegation_ids:
+                mark_delegators_accepted(invite_id=sibling_invite_id)
+            sibling_qs.delete()
             self.delete()
 
         # Side effects that don't need the membership/invite rows are fine to run after commit.
@@ -260,29 +269,43 @@ def _unsuppress_delegator_onboarding_on_invite_delete(sender, instance: Organiza
     if not instance.is_setup_delegation:
         return
 
-    from posthog.models.user import User
+    from django.db.models import Q
+
+    from posthog.models.user import OnboardingSkippedReason, User
 
     # Accepting a delegation invite marks delegators with onboarding_delegation_accepted_at.
     # We only "un-suppress" users who still have a pending delegation (accepted_at is null),
     # i.e. explicit cancellation/expiry paths. This avoids bouncing accepted delegators back
     # into onboarding immediately after their teammate accepts.
+    #
+    # We also catch already-NULLed stale rows: if a parallel `clear_delegation_state` or
+    # cascade SET_NULL ran first, the FK is gone but `onboarding_skipped_reason="delegated"`
+    # plus `onboarding_delegated_to_organization_id` may still be set, leaving the user
+    # permanently suppressed with no recovery path. Match those rows by the denormalized
+    # org_id so they're un-suppressed alongside the FK-matched ones.
     pending_delegators = User.objects.filter(
-        onboarding_delegated_to_invite_id=instance.id,
+        Q(onboarding_delegated_to_invite_id=instance.id)
+        | Q(
+            onboarding_delegated_to_invite_id__isnull=True,
+            onboarding_delegated_to_organization_id=instance.organization_id,
+            onboarding_skipped_reason=OnboardingSkippedReason.DELEGATED,
+        ),
         onboarding_delegation_accepted_at__isnull=True,
     )
-    # Single UPDATE — the return value is the affected row count, so we don't need a
-    # separate count(). In ordinary use this is a single row (one delegator per invite);
-    # the explicit assertion guards against a future change that lets many users point at
-    # the same delegation invite from blowing up the User hot table on one cancel.
-    affected_count = pending_delegators.update(
+    # Capture affected user IDs BEFORE the update so the audit log can enumerate them. In
+    # ordinary use this is a single row (one delegator per invite); capping the logged list
+    # to the warn threshold bounds the payload size if the invariant ever drifts.
+    affected_user_ids = list(pending_delegators.values_list("id", flat=True))
+    affected_count = len(affected_user_ids)
+    if affected_count == 0:
+        return
+    User.objects.filter(id__in=affected_user_ids).update(
         onboarding_skipped_at=None,
         onboarding_skipped_reason=None,
         onboarding_skipped_organization_id=None,
         onboarding_delegated_to_organization_id=None,
         onboarding_delegation_accepted_at=None,
     )
-    if affected_count == 0:
-        return
     if affected_count > _DELEGATION_UNSUPPRESS_WARN_THRESHOLD:
         logger.warning(
             "delegation_invite_delete_unsuppressed_many_users",
@@ -291,11 +314,13 @@ def _unsuppress_delegator_onboarding_on_invite_delete(sender, instance: Organiza
             affected_count=affected_count,
         )
     # Audit trail: bulk .update() bypasses ModelActivityMixin signals; log explicitly so ops
-    # can trace why a delegator's onboarding state was cleared.
+    # can trace why a delegator's onboarding state was cleared. Cap the user-id list to the
+    # warn threshold to bound payload size while still being useful in normal-volume cases.
     logger.info(
         "delegation_invite_deleted_unsuppressed_delegators",
         invite_id=str(instance.id),
         organization_id=str(instance.organization_id) if instance.organization_id else None,
         affected_count=affected_count,
+        delegator_user_ids=affected_user_ids[:_DELEGATION_UNSUPPRESS_WARN_THRESHOLD],
         is_expired=instance.is_expired() if instance.created_at else False,
     )

@@ -1,11 +1,13 @@
+import concurrent.futures
 from datetime import timedelta
 from typing import Any, Optional, cast
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 from django.utils import timezone
 
+import structlog
 import posthoganalytics
 from drf_spectacular.utils import extend_schema
 from rest_framework import exceptions, mixins, permissions, request, response, serializers, status, viewsets
@@ -39,6 +41,14 @@ from posthog.rate_limit import (
 )
 from posthog.rbac.user_access_control import UserAccessControl, ordered_access_levels
 from posthog.tasks.email import send_invite
+
+logger = structlog.get_logger(__name__)
+
+# Module-level executor for the feature-flag eval timeout. A single shared pool with a
+# small bounded worker count caps the number of orphaned eval threads under sustained
+# flag-service degradation. Per-request executor instantiation would otherwise leak a
+# zombie thread per slow eval.
+_DELEGATION_FLAG_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix="delegation-flag")
 
 
 class OrganizationInviteManager:
@@ -329,6 +339,16 @@ class OrganizationInviteDelegateSerializer(serializers.Serializer):
         help_text="Onboarding step key the delegator was on when delegating, for analytics only.",
     )
 
+    def validate_target_email(self, email: str) -> str:
+        return EmailNormalizer.normalize(email)
+
+    def validate_message(self, value: str | None) -> str | None:
+        # Mirror the standard invite serializer's body validation so URLs / control chars
+        # are rejected at the API boundary. Without this the invite still commits but
+        # `send_invite` silently bails at task time, leaving the delegator stuck on the
+        # "waiting for teammate" screen with no email ever delivered.
+        return validate_message_body(value)
+
 
 @extend_schema(tags=["core"])
 class OrganizationInviteViewSet(
@@ -403,14 +423,9 @@ class OrganizationInviteViewSet(
     def _delegation_flag_enabled(user: User) -> Optional[bool]:
         # Wrap feature_enabled in a short timeout so a slow/down flag service can't block
         # every delegation request. Timeout or exception → fail-open (None). Explicit False
-        # disables the flow.
-        #
-        # Don't use `with ThreadPoolExecutor(...)` — the context manager's __exit__ calls
-        # shutdown(wait=True) which blocks for the full eval duration even after our timeout
-        # raises, defeating the timeout. Use shutdown(wait=False) in a finally block so the
-        # request returns within ~1s regardless of the flag service's actual latency.
-        import concurrent.futures
-
+        # disables the flow. The shared module-level executor caps total in-flight eval
+        # threads — per-request executor creation would orphan one thread per slow eval
+        # under sustained flag-service degradation.
         def _eval() -> Optional[bool]:
             return posthoganalytics.feature_enabled(
                 "onboarding-delegation",
@@ -418,15 +433,10 @@ class OrganizationInviteViewSet(
                 send_feature_flag_events=False,
             )
 
-        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         try:
-            return executor.submit(_eval).result(timeout=1.0)
+            return _DELEGATION_FLAG_EXECUTOR.submit(_eval).result(timeout=1.0)
         except (concurrent.futures.TimeoutError, Exception):
             return None
-        finally:
-            # cancel_futures=True (Py 3.9+) cancels any not-yet-started futures; the running
-            # one is detached so we don't wait on it.
-            executor.shutdown(wait=False, cancel_futures=True)
 
     @extend_schema(
         request=OrganizationInviteDelegateSerializer,
@@ -436,7 +446,14 @@ class OrganizationInviteViewSet(
         methods=["POST"],
         detail=False,
         required_scopes=["organization_member:write"],
-        throttle_classes=[OnboardingDelegationThrottle],
+        # Layer the per-user delegation cap (10/hour) on top of the standard invite burst /
+        # sustained throttles so a tenant with N admin sessions can't bypass per-org caps
+        # by hitting the delegation path instead of the regular invite path.
+        throttle_classes=[
+            OnboardingDelegationThrottle,
+            OrganizationInviteBurstThrottle,
+            OrganizationInviteSustainedThrottle,
+        ],
     )
     def delegate(self, request: request.Request, **kwargs) -> response.Response:
         """
@@ -446,10 +463,11 @@ class OrganizationInviteViewSet(
         user = cast(User, self.request.user)
 
         # Validate input first so malformed requests fail fast without paying the remote
-        # feature-flag lookup latency.
+        # feature-flag lookup latency. Email is normalized and message is body-validated
+        # at the serializer layer (so URL/control-char rejection mirrors the regular invite path).
         input_serializer = OrganizationInviteDelegateSerializer(data=request.data)
         input_serializer.is_valid(raise_exception=True)
-        target_email = EmailNormalizer.normalize(input_serializer.validated_data["target_email"])
+        target_email = input_serializer.validated_data["target_email"]
         message = input_serializer.validated_data.get("message") or ""
         step_at_delegation = input_serializer.validated_data.get("step_at_delegation") or ""
 
@@ -484,10 +502,12 @@ class OrganizationInviteViewSet(
         # Server-side gate: delegation only makes sense while the *target organization* is
         # still in onboarding. `user.team` points at the caller's current_team (which could
         # be in any org), so we query the teams of the organization we're delegating to.
-        target_org_teams = Team.objects.filter(organization_id=self.organization_id).only(
-            "ingested_event", "completed_snippet_onboarding"
-        )
-        if any(team.ingested_event or team.completed_snippet_onboarding for team in target_org_teams):
+        # Use exists() so Postgres can short-circuit instead of materializing every team row.
+        target_already_onboarded = Team.objects.filter(
+            Q(ingested_event=True) | Q(completed_snippet_onboarding=True),
+            organization_id=self.organization_id,
+        ).exists()
+        if target_already_onboarded:
             raise exceptions.ValidationError(
                 "Setup has already been completed — delegation is only available during initial onboarding.",
                 code="onboarding_complete",
@@ -540,6 +560,19 @@ class OrganizationInviteViewSet(
                 organization_id=self.organization_id, target_email=target_email
             ).first()
             if already_known or pending_invite is not None:
+                # The user-facing copy stays generic to avoid leaking org membership, but log
+                # the actual blocker for support so they can tell a delegator their delegation
+                # is being held up by an unrelated MEMBER invite vs. an existing membership.
+                logger.info(
+                    "delegation_collision",
+                    organization_id=str(self.organization_id),
+                    delegator_user_id=user.id,
+                    blocker="existing_membership" if already_known else "pending_invite",
+                    pending_invite_id=str(pending_invite.id) if pending_invite is not None else None,
+                    pending_invite_is_setup_delegation=(
+                        pending_invite.is_setup_delegation if pending_invite is not None else None
+                    ),
+                )
                 raise exceptions.ValidationError(
                     "We can't send a delegation invite to this email — cancel any existing invite or ask a different teammate.",
                     code="cannot_delegate_to_email",

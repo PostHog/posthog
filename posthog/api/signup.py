@@ -518,12 +518,18 @@ class InviteSignupSerializer(serializers.Serializer):
                         f"There already exists an account with email address {invite.target_email}. Please log in instead."
                     )
 
+            # Capture the delegation flag BEFORE invite.use(): use() deletes the invite row,
+            # so the in-memory boolean is the only safe source of truth for any post-use
+            # branching. A future refactor adding refresh_from_db() here would otherwise
+            # silently drop delegated invitees on the homepage instead of routing them into
+            # onboarding.
+            is_delegation = bool(invite.is_setup_delegation)
             try:
                 invite.use(user)
             except ValueError as e:
                 raise serializers.ValidationError(str(e))
 
-            if invite.is_setup_delegation:
+            if is_delegation:
                 self.context["delegated_onboarding"] = True
 
             if passkey_credential:

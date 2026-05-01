@@ -636,6 +636,14 @@ class OnboardingDelegationThrottle(UserRateThrottle):
     rate = "10/hour"
 
 
+class OnboardingSkipThrottle(UserRateThrottle):
+    # Each skip call opens an atomic transaction, may delete a delegation invite (firing
+    # signals), and queues an analytics event. Cap repeated calls so a misbehaving client
+    # can't churn the user row and the activity log.
+    scope = "onboarding_skip"
+    rate = "30/hour"
+
+
 class SetupWizardAuthenticationRateThrottle(UserRateThrottle):
     # Throttle class that is applied for authenticating the setup wizard
     # This is more aggressive than other throttles because the wizard makes LLM calls

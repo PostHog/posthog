@@ -70,18 +70,21 @@ def delete_expired_delegation_invites() -> None:
     state-clearing logic here. Without this periodic sweep, natural expiry leaves
     delegators stranded on the "waiting for teammate" screen indefinitely.
     """
-    from datetime import timedelta
-
     from posthog.constants import INVITE_DAYS_VALIDITY
     from posthog.models import OrganizationInvite
 
-    cutoff = timezone.now() - timedelta(days=INVITE_DAYS_VALIDITY)
+    cutoff = timezone.now() - datetime.timedelta(days=INVITE_DAYS_VALIDITY)
     expired = OrganizationInvite.objects.filter(is_setup_delegation=True, created_at__lt=cutoff)
-    # Delete per-row (not bulk) so `pre_delete` fires for each invite and the un-suppress
-    # receiver clears delegator state per-invite. Volume is tiny (one per expiring delegation);
-    # the per-row cost is not a concern at this rate.
+    # Per-row instance .delete() preserves ModelActivityMixin's "deleted" activity-log
+    # signal, which bulk QuerySet .delete() bypasses. (Both paths fire pre_delete via
+    # Django's Collector — that part is not what differentiates them.)
+    # Wrap each delete so one concurrent acceptance race (use() deleting the row first)
+    # can't break the entire daily sweep and leave later expired invites stranded.
     for invite in expired.iterator():
-        invite.delete()
+        try:
+            invite.delete()
+        except Exception as exc:  # noqa: BLE001 - one invite must not block the sweep
+            capture_exception(exc)
 
 
 @shared_task(ignore_result=True)

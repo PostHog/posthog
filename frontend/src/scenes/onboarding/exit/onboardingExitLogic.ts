@@ -15,22 +15,37 @@ import type { onboardingExitLogicType } from './onboardingExitLogicType'
 
 const isValidEmail = (email: string): boolean => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())
 
+type ApiErrorLike = {
+    status?: number
+    data?: unknown
+    message?: string
+}
+
+function asApiError(error: unknown): ApiErrorLike {
+    return (error ?? {}) as ApiErrorLike
+}
+
 /** Pull the most actionable detail out of an API error (DRF field errors, validation messages, or generic detail). */
-function extractErrorDetail(error: any, fallback: string): string {
-    if (!error) {
-        return fallback
+function extractErrorDetail(error: unknown, fallback: string): string {
+    const err = asApiError(error)
+    // DRF returns 429 with a machine-readable "Expected available in N seconds" string.
+    // Surface a friendlier message instead of leaking the raw retry-after seconds to the user.
+    if (err.status === 429) {
+        return "You've sent too many invitations recently. Please try again in a few minutes."
     }
-    const data = error.data ?? error
+    const data: unknown = err.data ?? error
     if (typeof data === 'string') {
         return data
     }
-    if (data?.detail && typeof data.detail === 'string') {
-        return data.detail
-    }
-    // DRF validation errors shape: { field: ["msg1", ...], ... }
     if (data && typeof data === 'object') {
-        for (const key of Object.keys(data)) {
-            const val = (data as any)[key]
+        const dataRecord = data as Record<string, unknown>
+        const detail = dataRecord.detail
+        if (typeof detail === 'string') {
+            return detail
+        }
+        // DRF validation errors shape: { field: ["msg1", ...], ... }
+        for (const key of Object.keys(dataRecord)) {
+            const val = dataRecord[key]
             if (Array.isArray(val) && val.length && typeof val[0] === 'string') {
                 return val[0]
             }
@@ -39,7 +54,7 @@ function extractErrorDetail(error: any, fallback: string): string {
             }
         }
     }
-    return error.message || fallback
+    return err.message || fallback
 }
 
 export const onboardingExitLogic = kea<onboardingExitLogicType>([
@@ -125,28 +140,22 @@ export const onboardingExitLogic = kea<onboardingExitLogicType>([
                 // We hit `/api/users/@me/` — the same endpoint `loadUser` uses — so the response shape
                 // matches what the rest of the app (and `isOnboardingRedirectSuppressed`) expects, and
                 // `onboarding_skipped_at` reliably lands in state before the scene change fires.
-                let freshUserLoaded = false
                 try {
                     const freshUser = await api.get<UserType>('api/users/@me/')
                     actions.loadUserSuccess(freshUser)
-                    freshUserLoaded = Boolean(freshUser?.onboarding_delegated_to_invite)
                 } catch {
                     // If the refresh fails, trigger a background load so the app eventually converges.
                     actions.loadUser()
                 }
 
                 actions.closeExitModal()
-                // If the fresh-user fetch didn't return hydrated delegation state, don't race
-                // sceneLogic's redirect back into /onboarding — stay on the onboarding route
-                // and let the background loadUser populate state. The scene will transition
-                // to the waiting screen automatically once the user object updates.
-                if (freshUserLoaded) {
-                    // Match the normal post-onboarding redirect: product-specific landing page if a
-                    // product was selected, otherwise the default home. `replace` (not `push`) so the
-                    // `/onboarding/…` URL is dropped from history.
-                    router.actions.replace(values.onCompleteOnboardingRedirectUrl)
-                }
-            } catch (error: any) {
+                // Always redirect on success. Even if the fresh-user fetch didn't return hydrated
+                // delegation state (eventual consistency, network glitch), sceneLogic's suppression
+                // check will catch up once `loadUser` populates state — leaving the user on
+                // `/onboarding/products` after a green toast is a worse UX than the brief redirect race.
+                // `replace` (not `push`) so the `/onboarding/…` URL is dropped from history.
+                router.actions.replace(values.onCompleteOnboardingRedirectUrl)
+            } catch (error: unknown) {
                 if (delegationCommitted) {
                     // POST succeeded but a follow-up step failed — don't show a scary error
                     // that would make the user re-submit into `existing_invite`.

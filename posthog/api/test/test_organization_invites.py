@@ -1597,6 +1597,18 @@ class TestOnboardingSkipAPI(APIBaseTest):
         self.assertIsNone(self.user.onboarding_delegated_to_invite_id)
         self.assertEqual(self.user.onboarding_skipped_reason, "later")
 
+    def test_user_patch_cannot_set_onboarding_skipped_reason(self):
+        # Regression guard: DRF's Meta.read_only_fields is silently ignored for explicitly
+        # declared serializer fields. The dedicated /onboarding/skip/ endpoint rejects
+        # reason="delegated" and runs atomic state cleanup; the user PATCH path must NOT
+        # be a back door that bypasses those guarantees.
+        for attempted_value in ("delegated", "later", "other"):
+            response = self.client.patch("/api/users/@me/", {"onboarding_skipped_reason": attempted_value})
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+            self.user.refresh_from_db()
+            self.assertIsNone(self.user.onboarding_skipped_reason)
+            self.assertIsNone(self.user.onboarding_skipped_at)
+
     def test_skip_does_not_delete_cross_org_stale_invite_pointer(self):
         other_org = Organization.objects.create(name="Other Org")
         other_invite = OrganizationInvite.objects.create(

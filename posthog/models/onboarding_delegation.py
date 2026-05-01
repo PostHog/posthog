@@ -10,6 +10,8 @@ import structlog
 import posthoganalytics
 
 from posthog.exceptions_capture import capture_exception
+from posthog.models.file_system.user_product_list import UserProductList
+from posthog.models.team.team import Team
 from posthog.models.user import OnboardingSkippedReason, User
 
 if TYPE_CHECKING:
@@ -27,6 +29,8 @@ def get_existing_pending_delegation_invite(
     If the stored pointer is stale (wrong org, expired, deleted), clear the delegation
     fields so callers can proceed with a fresh invite.
     """
+    # Local import is unavoidable: organization_invite imports this module's helpers, so
+    # importing it at module scope would be a circular dependency.
     from posthog.models.organization_invite import OrganizationInvite
 
     if (
@@ -85,7 +89,15 @@ def set_delegated_state(*, locked_user: User, invite: OrganizationInvite, organi
             "onboarding_delegation_accepted_at",
         ]
     )
-    _seed_sidebar_for_delegator(locked_user=locked_user, organization_id=organization_id)
+    # Sidebar seeding runs ~37 get_or_create calls (one per released product). Defer it
+    # to post-commit so the held select_for_update locks on Organization and User aren't
+    # extended by dozens of sequential DB roundtrips.
+    user_id = locked_user.id
+
+    def _seed_after_commit() -> None:
+        _seed_sidebar_for_delegator(user_id=user_id, organization_id=organization_id)
+
+    transaction.on_commit(_seed_after_commit)
 
     # Forensic trail for delegation state transitions. The generic User activity-log path
     # doesn't cover onboarding_delegated_to_invite (see posthog/models/activity_logging/
@@ -98,7 +110,7 @@ def set_delegated_state(*, locked_user: User, invite: OrganizationInvite, organi
     )
 
 
-def _seed_sidebar_for_delegator(*, locked_user: User, organization_id: UUID | str) -> None:
+def _seed_sidebar_for_delegator(*, user_id: int, organization_id: UUID | str) -> None:
     """Enable all released products on the delegator's sidebar for the delegated org.
 
     The post-delegation home page would otherwise be empty (no product intents recorded
@@ -106,12 +118,12 @@ def _seed_sidebar_for_delegator(*, locked_user: User, organization_id: UUID | st
     delegated org; otherwise pick any team in the org they have access to. A failure here
     must not block the delegation itself, so we swallow exceptions after capturing them.
     """
-    from posthog.models.file_system.user_product_list import UserProductList
-    from posthog.models.team.team import Team
-
     try:
+        user = User.objects.filter(pk=user_id).first()
+        if user is None:
+            return
         team = None
-        current_team = locked_user.current_team
+        current_team = user.current_team
         if current_team is not None and str(current_team.organization_id) == str(organization_id):
             team = current_team
         else:
@@ -119,7 +131,7 @@ def _seed_sidebar_for_delegator(*, locked_user: User, organization_id: UUID | st
         if team is None:
             return
         UserProductList.enable_all_for_user(
-            user=locked_user,
+            user=user,
             team=team,
             reason=UserProductList.Reason.ONBOARDING_DELEGATED,
         )
@@ -129,6 +141,7 @@ def _seed_sidebar_for_delegator(*, locked_user: User, organization_id: UUID | st
 
 def cancel_pending_delegation(*, locked_user: User) -> None:
     """Cancel pending delegation invite for a user in a race-safe, org-scoped way."""
+    # Local import is unavoidable: organization_invite imports this module's helpers.
     from posthog.models.organization_invite import OrganizationInvite
 
     pending_invite_id = (
@@ -176,9 +189,35 @@ def clear_delegation_state(locked_user: User, *, save: bool) -> None:
 
 
 def mark_delegators_accepted(*, invite_id: UUID) -> None:
-    """Mark users who delegated through this invite as accepted."""
+    """Mark users who delegated through this invite as accepted.
+
+    Bulk update to avoid Django signal races against the same transaction; the bulk path
+    bypasses ModelActivityMixin, so we emit an explicit structlog entry per affected user
+    so the audit trail isn't lost. Filtering on `onboarding_delegation_accepted_at IS NULL`
+    preserves "first accepted at" semantics if for any reason this runs twice for the same
+    invite — re-acceptance never overwrites the original timestamp.
+    """
     now = datetime.now(UTC)
-    User.objects.filter(onboarding_delegated_to_invite_id=invite_id).update(onboarding_delegation_accepted_at=now)
+    affected_user_ids = list(
+        User.objects.filter(
+            onboarding_delegated_to_invite_id=invite_id, onboarding_delegation_accepted_at__isnull=True
+        ).values_list("id", flat=True)
+    )
+    if not affected_user_ids:
+        return
+    # Clear the denormalized organization_id alongside the FK acceptance stamp so a
+    # delegator's row doesn't dangle `onboarding_delegated_to_organization_id` after
+    # acceptance. The FK is SET_NULL'd by `self.delete()` immediately after this call.
+    User.objects.filter(id__in=affected_user_ids).update(
+        onboarding_delegation_accepted_at=now,
+        onboarding_delegated_to_organization_id=None,
+    )
+    logger.info(
+        "onboarding_delegation_accepted",
+        invite_id=str(invite_id),
+        delegator_user_ids=affected_user_ids,
+        accepted_at=now.isoformat(),
+    )
 
 
 def schedule_delegation_side_effects(

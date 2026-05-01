@@ -37,18 +37,17 @@ export function OnboardingExitModal(): JSX.Element {
         submitDelegation()
     }
 
-    // Block all close paths while a submit is in flight so we can't race the in-flight POST
-    // and leave the user with a committed delegation but a torn-down modal.
+    // Always allow close: the listener guards against double-submit, and trapping the user
+    // in the modal when a request hangs (slow flag check, 504, network glitch) leaves them
+    // with no recovery short of a hard reload.
     const handleClose = (): void => {
-        if (isSubmitting) {
-            return
-        }
         closeExitModal()
     }
 
     const showEmailValidationError = targetEmail.length > 0 && !canSubmitDelegation
 
     const senderName = user?.first_name?.trim() || 'Your teammate'
+    const orgName = user?.organization?.name?.trim() || 'your team'
     const recipientDisplay = targetEmail.trim() || 'their email'
     const messagePreview = message.trim() || 'Hey — can you get this set up? Thanks!'
 
@@ -56,7 +55,9 @@ export function OnboardingExitModal(): JSX.Element {
         <LemonModal
             isOpen={isExitModalOpen}
             onClose={handleClose}
-            closable={!isSubmitting}
+            // Treat any typed input as unsaved so an accidental overlay click doesn't silently
+            // discard a partially-composed delegation invite.
+            hasUnsavedInput={Boolean(targetEmail || message)}
             maxWidth={720}
             title="Hand off setup to a teammate"
             description="We'll invite them as an admin and skip the rest of setup for you."
@@ -75,6 +76,8 @@ export function OnboardingExitModal(): JSX.Element {
                         status={showEmailValidationError ? 'danger' : 'default'}
                         placeholder="engineer@example.com"
                         data-attr="onboarding-exit-email-input"
+                        aria-describedby={showEmailValidationError ? 'onboarding-exit-email-error' : undefined}
+                        aria-invalid={showEmailValidationError || undefined}
                         onKeyDown={(e) => {
                             // KeyboardEvent.isComposing is the right place to read IME state —
                             // SubmitEvent doesn't carry it. Tracking here so the form submit
@@ -90,7 +93,9 @@ export function OnboardingExitModal(): JSX.Element {
                         }}
                     />
                     {showEmailValidationError ? (
-                        <p className="m-0 text-xs text-danger">Enter a valid email address</p>
+                        <p id="onboarding-exit-email-error" className="m-0 text-xs text-danger">
+                            Enter a valid email address
+                        </p>
                     ) : null}
                     <label className="font-semibold mt-2" htmlFor="onboarding-exit-message">
                         Personal message (optional)
@@ -150,10 +155,12 @@ export function OnboardingExitModal(): JSX.Element {
                         </div>
                         <div className="p-3 flex flex-col gap-2">
                             <p className="m-0 text-xs text-muted">To: {recipientDisplay}</p>
+                            {/* Match the real email's H1 (see posthog/templates/email/delegation_invite.html)
+                                so the live preview reflects what the recipient will actually see. */}
                             <p className="m-0 text-sm font-semibold">
-                                {senderName} invited you to finish setting up PostHog
+                                {senderName} asked you to finish setting up PostHog for {orgName}
                             </p>
-                            <div className="rounded bg-surface-secondary px-2 py-2 text-xs italic text-default">
+                            <div className="rounded bg-surface-secondary px-2 py-2 text-xs italic text-default whitespace-pre-line">
                                 “{messagePreview}”
                             </div>
                             <p className="m-0 text-xs text-muted">
