@@ -1,3 +1,13 @@
+"""
+TEMPORARY: This file is in transition.
+
+Current state: Moved from ee/clickhouse/views/experiments.py to products/experiments/backend/presentation/
+to break down the monolith incrementally. This file still contains ViewSet + Serializers together and
+directly imports from service/models layers (violating product architecture temporarily).
+
+This will be refactored incrementally in subsequent PRs to match the product architecture pattern.
+"""
+
 import asyncio
 from typing import Any, Literal, cast
 

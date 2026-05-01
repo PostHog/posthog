@@ -96,6 +96,7 @@ ERROR_TOKEN_REFRESH_FAILED = "TOKEN_REFRESH_FAILED"
 
 class Integration(models.Model):
     class IntegrationKind(models.TextChoices):
+        APPLE_PUSH = "apns"
         AZURE_BLOB = "azure-blob"
         BING_ADS = "bing-ads"
         CLICKUP = "clickup"
@@ -177,6 +178,8 @@ class Integration(models.Model):
             return self.integration_id or "unknown ID"
         if self.kind == "email":
             return self.config.get("email", self.integration_id)
+        if self.kind == "apns":
+            return self.config.get("bundle_id", self.integration_id)
 
         return f"ID: {self.integration_id}"
 
@@ -1631,6 +1634,82 @@ class FirebaseIntegration:
         if self.access_token_expired():
             self.refresh_access_token()
         return self.integration.sensitive_config.get("access_token", "")
+
+
+class ApplePushIntegration:
+    """
+    Integration for Apple Push Notification Service (APNS).
+
+    config stores:
+      - team_id: Apple Developer Team ID
+      - bundle_id: App bundle identifier (e.g. com.example.app)
+      - key_id: The Key ID for the .p8 signing key
+
+    sensitive_config stores:
+      - signing_key: The .p8 signing key contents
+    """
+
+    integration: Integration
+
+    def __init__(self, integration: Integration) -> None:
+        if integration.kind != "apns":
+            raise Exception("ApplePushIntegration init called with Integration with wrong 'kind'")
+        self.integration = integration
+
+    @classmethod
+    def integration_from_key(
+        cls,
+        signing_key: str,
+        key_id: str,
+        team_id_apple: str,
+        bundle_id: str,
+        team_id: int,
+        created_by: User | None = None,
+    ) -> "Integration":
+        if not all([signing_key, key_id, team_id_apple, bundle_id]):
+            raise ValidationError("All APNS fields are required: signing_key, key_id, team_id_apple, bundle_id")
+
+        integration, created = Integration.objects.update_or_create(
+            team_id=team_id,
+            kind="apns",
+            integration_id=f"{team_id_apple}.{bundle_id}",
+            defaults={
+                "config": {
+                    "team_id": team_id_apple,
+                    "bundle_id": bundle_id,
+                    "key_id": key_id,
+                },
+                "sensitive_config": {
+                    "signing_key": signing_key,
+                },
+            },
+        )
+
+        if created and created_by is not None:
+            integration.created_by = created_by
+            integration.save(update_fields=["created_by"])
+
+        if integration.errors:
+            integration.errors = ""
+            integration.save(update_fields=["errors"])
+
+        return integration
+
+    @property
+    def team_id_apple(self) -> str:
+        return self.integration.config.get("team_id", "")
+
+    @property
+    def bundle_id(self) -> str:
+        return self.integration.config.get("bundle_id", "")
+
+    @property
+    def key_id(self) -> str:
+        return self.integration.config.get("key_id", "")
+
+    @property
+    def signing_key(self) -> str:
+        return self.integration.sensitive_config.get("signing_key", "")
 
 
 class LinkedInAdsIntegration:

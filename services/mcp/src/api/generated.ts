@@ -20645,7 +20645,8 @@ export namespace Schemas {
     }
 
     /**
-     * * `azure-blob` - Azure Blob
+     * * `apns` - Apple Push
+    * `azure-blob` - Azure Blob
     * `bing-ads` - Bing Ads
     * `clickup` - Clickup
     * `customerio-app` - Customerio App
@@ -20683,6 +20684,7 @@ export namespace Schemas {
 
 
     export const IntegrationKindEnum = {
+      Apns: 'apns',
       AzureBlob: 'azure-blob',
       BingAds: 'bing-ads',
       Clickup: 'clickup',
