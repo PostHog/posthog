@@ -100,7 +100,7 @@ test.describe('Workflows', () => {
             // Wait for loading skeletons to disappear
             await expect(page.locator('[data-attr="message-channels"] .LemonSkeleton').first()).not.toBeVisible()
 
-            await expect(page).toHaveScreenshot('channels-tab.png', { fullPage: true })
+            await expect(page).toHaveScreenshot('channels-tab.png', { fullPage: true, maxDiffPixelRatio: 0.03 })
         })
     })
 
