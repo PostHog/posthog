@@ -2,11 +2,10 @@ import type { BarRect, BarRoundedCorners } from './canvas-renderer'
 import type { BarScaleSet, StackedBand } from './scales'
 import type { Series } from './types'
 
-/** Bars laid out for a single series across all labels, indexed by data index. */
 export type SeriesBarLayout = (BarRect | null)[]
 
-/** Pick which corners to round for a bar's cap. The cap is the side away from the
- *  value-axis baseline; for stacked layers below the topmost we don't round at all. */
+/** Cap is the side away from the value-axis baseline; for stacked layers below the topmost
+ *  the caller should pass `shouldRoundCap: false`. */
 export function cornersFor(isHorizontal: boolean, isPositive: boolean, shouldRoundCap: boolean): BarRoundedCorners {
     if (!shouldRoundCap) {
         return {}
@@ -17,20 +16,32 @@ export function cornersFor(isHorizontal: boolean, isPositive: boolean, shouldRou
     return isPositive ? { topLeft: true, topRight: true } : { bottomLeft: true, bottomRight: true }
 }
 
-/** Computes bar geometry for one series given the layout mode and band scales.
- *  Returns one entry per data index (or null when the bar is not drawable). */
-export function computeSeriesBars(
-    series: Series,
-    labels: string[],
-    scales: BarScaleSet,
-    layout: 'stacked' | 'grouped' | 'percent',
-    isHorizontal: boolean,
-    stackedBand: StackedBand | undefined,
+export interface ComputeSeriesBarsOptions {
+    series: Series
+    labels: string[]
+    scales: BarScaleSet
+    layout: 'stacked' | 'grouped' | 'percent'
+    isHorizontal: boolean
+    stackedBand: StackedBand | undefined
     isTopOfStack: boolean
-): SeriesBarLayout {
+}
+
+export function computeSeriesBars({
+    series,
+    labels,
+    scales,
+    layout,
+    isHorizontal,
+    stackedBand,
+    isTopOfStack,
+}: ComputeSeriesBarsOptions): SeriesBarLayout {
     const result: SeriesBarLayout = []
     const bandWidth = scales.band.bandwidth()
     const valueAtZero = scales.value(0)
+    const isGrouped = layout === 'grouped'
+    const shouldRoundCap = isGrouped || isTopOfStack
+    const groupOffsetForKey = isGrouped ? scales.group?.(series.key) : undefined
+    const groupBandWidth = isGrouped ? (scales.group?.bandwidth() ?? bandWidth) : bandWidth
 
     for (let i = 0; i < labels.length; i++) {
         const bandStart = scales.band(labels[i])
@@ -45,16 +56,11 @@ export function computeSeriesBars(
             continue
         }
 
-        // Cap is the side away from the value-axis baseline; stacked layers below the topmost don't round.
-        const shouldRoundCap = layout === 'grouped' || isTopOfStack
-
-        if (layout === 'grouped') {
-            const groupOffset = scales.group?.(series.key)
-            if (groupOffset == null) {
+        if (isGrouped) {
+            if (groupOffsetForKey == null) {
                 result.push(null)
                 continue
             }
-            const groupBandWidth = scales.group?.bandwidth() ?? bandWidth
             const valuePixel = scales.value(raw)
             if (!isFinite(valuePixel)) {
                 result.push(null)
@@ -63,24 +69,20 @@ export function computeSeriesBars(
 
             const corners = cornersFor(isHorizontal, raw >= 0, shouldRoundCap)
             if (isHorizontal) {
-                const x = Math.min(valueAtZero, valuePixel)
-                const width = Math.abs(valuePixel - valueAtZero)
                 result.push({
-                    x,
-                    y: bandStart + groupOffset,
-                    width,
+                    x: Math.min(valueAtZero, valuePixel),
+                    y: bandStart + groupOffsetForKey,
+                    width: Math.abs(valuePixel - valueAtZero),
                     height: groupBandWidth,
                     corners,
                     dataIndex: i,
                 })
             } else {
-                const y = Math.min(valueAtZero, valuePixel)
-                const height = Math.abs(valuePixel - valueAtZero)
                 result.push({
-                    x: bandStart + groupOffset,
-                    y,
+                    x: bandStart + groupOffsetForKey,
+                    y: Math.min(valueAtZero, valuePixel),
                     width: groupBandWidth,
-                    height,
+                    height: Math.abs(valuePixel - valueAtZero),
                     corners,
                     dataIndex: i,
                 })
@@ -88,7 +90,8 @@ export function computeSeriesBars(
             continue
         }
 
-        // Stacked / percent: use the band's stacked top/bottom values.
+        // Stacked / percent: stack data is non-negative (computeStackData clamps via Math.max(0, …)),
+        // so cornersFor's `isPositive=true` is correct here.
         const top = stackedBand?.top[i] ?? raw
         const bottom = stackedBand?.bottom[i] ?? 0
         const topPixel = scales.value(top)
@@ -98,26 +101,23 @@ export function computeSeriesBars(
             continue
         }
 
+        const corners = cornersFor(isHorizontal, true, shouldRoundCap)
         if (isHorizontal) {
-            const x = Math.min(topPixel, bottomPixel)
-            const width = Math.abs(topPixel - bottomPixel)
             result.push({
-                x,
+                x: Math.min(topPixel, bottomPixel),
                 y: bandStart,
-                width,
+                width: Math.abs(topPixel - bottomPixel),
                 height: bandWidth,
-                corners: shouldRoundCap ? { topRight: true, bottomRight: true } : {},
+                corners,
                 dataIndex: i,
             })
         } else {
-            const y = Math.min(topPixel, bottomPixel)
-            const height = Math.abs(topPixel - bottomPixel)
             result.push({
                 x: bandStart,
-                y,
+                y: Math.min(topPixel, bottomPixel),
                 width: bandWidth,
-                height,
-                corners: shouldRoundCap ? { topLeft: true, topRight: true } : {},
+                height: Math.abs(topPixel - bottomPixel),
+                corners,
                 dataIndex: i,
             })
         }
