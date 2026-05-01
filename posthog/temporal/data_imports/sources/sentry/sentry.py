@@ -5,13 +5,14 @@ from datetime import UTC, date, datetime
 from typing import Any, Optional, cast
 from urllib.parse import quote, urljoin
 
-import requests
 import structlog
 from dateutil import parser as dateutil_parser
 from requests import Request, Response
+from requests.exceptions import RequestException
 from tenacity import RetryCallState, retry, retry_if_exception_type, retry_if_result, stop_after_attempt
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from posthog.temporal.data_imports.sources.common.http import make_tracked_session
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resource
 from posthog.temporal.data_imports.sources.common.rest_source.fanout import build_dependent_resource
 from posthog.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
@@ -183,7 +184,7 @@ class SentryPaginator(BasePaginator):
 # ---------------------------------------------------------------------------
 
 
-def _is_retryable_response(response: requests.Response) -> bool:
+def _is_retryable_response(response: Response) -> bool:
     return response.status_code in _RETRYABLE_STATUS_CODES
 
 
@@ -212,7 +213,7 @@ def _retry_wait_seconds(state: RetryCallState) -> float:
     return float(wait_until_reset)
 
 
-def _raise_on_failed_retry(state: RetryCallState) -> requests.Response:
+def _raise_on_failed_retry(state: RetryCallState) -> Response:
     if state.outcome is None:
         raise RuntimeError("Unexpected request retry state")
     if state.outcome.failed:
@@ -226,7 +227,7 @@ def _raise_on_failed_retry(state: RetryCallState) -> requests.Response:
 @retry(
     stop=stop_after_attempt(_MAX_RETRIES + 1),
     wait=_retry_wait_seconds,
-    retry=retry_if_exception_type(requests.exceptions.RequestException) | retry_if_result(_is_retryable_response),
+    retry=retry_if_exception_type(RequestException) | retry_if_result(_is_retryable_response),
     retry_error_callback=_raise_on_failed_retry,
 )
 def _request_with_retry(
@@ -234,8 +235,8 @@ def _request_with_retry(
     headers: dict[str, str],
     params: dict[str, Any] | None,
     timeout: int = _REQUEST_TIMEOUT,
-) -> requests.Response:
-    return requests.get(url, headers=headers, params=params, timeout=timeout)
+) -> Response:
+    return make_tracked_session().get(url, headers=headers, params=params, timeout=timeout)
 
 
 def _iter_endpoint_rows(
@@ -462,7 +463,7 @@ def validate_credentials(
     headers = _auth_headers(auth_token)
 
     try:
-        response = requests.get(url, headers=headers, timeout=10)
+        response = make_tracked_session().get(url, headers=headers, timeout=10)
         if response.status_code == 200:
             return True, None
         if response.status_code == 401:
@@ -476,7 +477,7 @@ def validate_credentials(
             return False, response.json().get("detail", response.text)
         except Exception:
             return False, response.text
-    except requests.exceptions.RequestException as exc:
+    except RequestException as exc:
         return False, str(exc)
 
 

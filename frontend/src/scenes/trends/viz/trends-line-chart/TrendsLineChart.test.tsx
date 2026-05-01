@@ -6,7 +6,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { setupJsdom } from 'lib/hog-charts/test-helpers'
 
 import { NodeKind } from '~/queries/schema/schema-general'
-import { buildTrendsQuery, chart, personsModal, renderInsight } from '~/test/insight-testing'
+import { buildTrendsQuery, chart, getHogChart, legend, personsModal, renderInsight } from '~/test/insight-testing'
 import { buildAnnotation } from '~/test/insight-testing/test-data'
 import { createTooltipAccessor } from '~/test/insight-testing/tooltip-helpers'
 import { AnnotationScope, ChartDisplayType } from '~/types'
@@ -265,6 +265,48 @@ describe('TrendsLineChart', () => {
         })
     })
 
+    describe('area chart', () => {
+        it('renders the chart in area mode without crashing', async () => {
+            renderInsight({
+                query: buildTrendsQuery({
+                    series: [
+                        { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' },
+                        { kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' },
+                    ],
+                    trendsFilter: { display: ChartDisplayType.ActionsAreaGraph },
+                }),
+                featureFlags: HOG_CHARTS_FLAG,
+            })
+
+            await waitFor(() => {
+                expect(screen.getByRole('img', { name: /chart with 2 data series/i })).toBeInTheDocument()
+            })
+        })
+
+        it('uses percent ticks on the y-axis in percent stack view', async () => {
+            renderInsight({
+                query: buildTrendsQuery({
+                    series: [
+                        { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' },
+                        { kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' },
+                    ],
+                    trendsFilter: {
+                        display: ChartDisplayType.ActionsAreaGraph,
+                        showPercentStackView: true,
+                    },
+                }),
+                featureFlags: HOG_CHARTS_FLAG,
+            })
+
+            await screen.findByRole('img', { name: /chart with/i })
+            const ticks = getHogChart().yTicks()
+            expect(ticks.length).toBeGreaterThan(0)
+            for (const t of ticks) {
+                expect(t).toMatch(/%/)
+            }
+        })
+    })
+
     describe('tooltip date title', () => {
         it('shows the hovered day in the tooltip title row', async () => {
             renderInsight({
@@ -316,6 +358,194 @@ describe('TrendsLineChart', () => {
             await waitFor(() => {
                 expect(chart.getTooltip()).not.toBeInTheDocument()
             })
+        })
+    })
+
+    describe('alert overlays', () => {
+        it('does not render any alert overlay for an unsaved insight (insight.id is missing)', async () => {
+            renderInsight({
+                query: buildTrendsQuery(),
+                featureFlags: HOG_CHARTS_FLAG,
+            })
+
+            await screen.findByRole('img', { name: /chart with/i })
+            // Reference lines come exclusively from goalLines in this test (none configured),
+            // so the count must be 0 — anything here would be a leaked alert overlay.
+            expect(getHogChart().referenceLines()).toHaveLength(0)
+        })
+    })
+
+    describe('hidden series via legend', () => {
+        it('excludes a hidden series from the tooltip', async () => {
+            renderInsight({
+                query: buildTrendsQuery({
+                    series: [
+                        { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' },
+                        { kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' },
+                    ],
+                }),
+                featureFlags: HOG_CHARTS_FLAG,
+            })
+
+            // Wait for both series before toggling.
+            await waitFor(() => {
+                expect(screen.getByRole('img', { name: /chart with 2 data series/i })).toBeInTheDocument()
+            })
+
+            await legend.toggle('Napped')
+
+            const tooltip = await chart.hoverTooltip(2)
+            expect(tooltip.row('Pageview')).toContain('134')
+            expect(tooltip.element.textContent).not.toContain('Napped')
+        })
+
+        it('does not draw value labels or trend lines for a hidden series', async () => {
+            renderInsight({
+                query: buildTrendsQuery({
+                    series: [
+                        { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' },
+                        { kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' },
+                    ],
+                    trendsFilter: { showValuesOnSeries: true, showTrendLines: true },
+                }),
+                featureFlags: HOG_CHARTS_FLAG,
+            })
+
+            await waitFor(() => {
+                // 2 main + 2 trend lines = 4 series
+                expect(screen.getByRole('img', { name: /chart with 4 data series/i })).toBeInTheDocument()
+            })
+
+            await legend.toggle('Napped')
+
+            await waitFor(() => {
+                // Hiding Napped removes its main series + its trend line.
+                expect(screen.getByRole('img', { name: /chart with 2 data series/i })).toBeInTheDocument()
+            })
+
+            // No Napped value labels remain (Napped's data is 1, 3, 5, 8, 2; the 8 was the
+            // tallest distinct label so its absence is the cleanest signal).
+            const labels = getHogChart()
+                .valueLabels()
+                .map((l) => l.text)
+            expect(labels).not.toContain('8')
+            // Pageview labels should still be there.
+            expect(labels).toContain('210')
+        })
+    })
+
+    describe('multi-axis', () => {
+        it.each([
+            { name: 'renders a right y-axis when showMultipleYAxes is true', enabled: true, expectedRight: true },
+            { name: 'omits the right y-axis by default', enabled: false, expectedRight: false },
+        ])('$name', async ({ enabled, expectedRight }) => {
+            renderInsight({
+                query: buildTrendsQuery({
+                    series: [
+                        { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' },
+                        { kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' },
+                    ],
+                    trendsFilter: enabled ? { showMultipleYAxes: true } : undefined,
+                }),
+                featureFlags: HOG_CHARTS_FLAG,
+            })
+
+            await waitFor(() => {
+                expect(getHogChart().hasRightAxis).toBe(expectedRight)
+            })
+            if (expectedRight) {
+                expect(getHogChart().yRightTicks().length).toBeGreaterThan(0)
+            }
+        })
+    })
+
+    describe('goal lines', () => {
+        // Pageview peaks at 210; a `displayIfCrossed: false` line below that peak is filtered out.
+        it.each([
+            {
+                name: 'single goal line renders with its label',
+                goalLines: [{ label: 'Target', value: 150, displayIfCrossed: true }],
+                expectedLabels: ['Target'],
+            },
+            {
+                name: 'multiple goal lines render in order',
+                goalLines: [
+                    { label: 'Floor', value: 50, displayIfCrossed: true },
+                    { label: 'Ceiling', value: 200, displayIfCrossed: true },
+                ],
+                expectedLabels: ['Floor', 'Ceiling'],
+            },
+            {
+                name: 'displayIfCrossed=false hides a line the data has crossed',
+                goalLines: [{ label: 'Crossed', value: 100, displayIfCrossed: false }],
+                expectedLabels: [],
+            },
+        ])('$name', async ({ goalLines, expectedLabels }) => {
+            renderInsight({
+                query: buildTrendsQuery({ trendsFilter: { goalLines } }),
+                featureFlags: HOG_CHARTS_FLAG,
+            })
+
+            await screen.findByRole('img', { name: /chart with/i })
+            const lines = getHogChart().referenceLines()
+            expect(lines.map((l) => l.label)).toEqual(expectedLabels)
+            for (const line of lines) {
+                expect(line.orientation).toBe('horizontal')
+            }
+        })
+    })
+
+    describe('value labels overlay', () => {
+        it('renders a value label per non-zero point when showValuesOnSeries is enabled', async () => {
+            renderInsight({
+                query: buildTrendsQuery({
+                    trendsFilter: { showValuesOnSeries: true },
+                }),
+                featureFlags: HOG_CHARTS_FLAG,
+            })
+
+            await waitFor(() => {
+                const labels = getHogChart().valueLabels()
+                expect(labels.length).toBeGreaterThan(0)
+            })
+            // Pageview series is [45, 82, 134, 210, 95]; all non-zero => 5 labels.
+            const labels = getHogChart()
+                .valueLabels()
+                .map((l) => l.text)
+            expect(labels).toContain('45')
+            expect(labels).toContain('210')
+        })
+
+        it('formats value labels as percentages in percent stack view', async () => {
+            renderInsight({
+                query: buildTrendsQuery({
+                    series: [
+                        { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' },
+                        { kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' },
+                    ],
+                    trendsFilter: {
+                        display: ChartDisplayType.ActionsAreaGraph,
+                        showPercentStackView: true,
+                        showValuesOnSeries: true,
+                    },
+                }),
+                featureFlags: HOG_CHARTS_FLAG,
+            })
+
+            await waitFor(() => {
+                expect(getHogChart().valueLabels().length).toBeGreaterThan(0)
+            })
+            const labels = getHogChart().valueLabels()
+            for (const l of labels) {
+                expect(l.text).toMatch(/%/)
+            }
+        })
+
+        it('renders no labels when showValuesOnSeries is disabled', async () => {
+            renderInsight({ query: buildTrendsQuery(), featureFlags: HOG_CHARTS_FLAG })
+
+            await screen.findByRole('img', { name: /chart with/i })
+            expect(getHogChart().valueLabels()).toHaveLength(0)
         })
     })
 

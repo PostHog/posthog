@@ -46,6 +46,50 @@ export interface PatchedUpdateRepoRequestInputApi {
     enable_pr_comments?: boolean | null
 }
 
+export interface BaselineSparklineDayApi {
+    clean: number
+    tolerated: number
+    changed: number
+    quarantined: number
+}
+
+export interface BaselineEntryApi {
+    sparkline: BaselineSparklineDayApi[]
+    identifier: string
+    run_type: string
+    /** @nullable */
+    browser: string | null
+    /** @nullable */
+    thumbnail_hash: string | null
+    /** @nullable */
+    width: number | null
+    /** @nullable */
+    height: number | null
+    tolerate_count_30d: number
+    tolerate_count_90d: number
+    is_quarantined: boolean
+    last_run_at: string
+    /** @nullable */
+    recent_diff_avg: number | null
+}
+
+export type BaselineTotalsApiByRunType = { [key: string]: number }
+
+export interface BaselineTotalsApi {
+    by_run_type: BaselineTotalsApiByRunType
+    all_snapshots: number
+    recently_tolerated: number
+    frequently_tolerated: number
+    currently_quarantined: number
+}
+
+export interface BaselineOverviewApi {
+    entries: BaselineEntryApi[]
+    totals: BaselineTotalsApi
+    truncated: boolean
+    generated_at: string
+}
+
 export interface UserBasicInfoApi {
     id: number
     first_name: string
@@ -126,6 +170,48 @@ export interface PaginatedRunListApi {
     /** @nullable */
     previous?: string | null
     results: RunApi[]
+}
+
+export interface ReviewStateCountsApi {
+    needs_review: number
+    clean: number
+    processing: number
+    stale: number
+}
+
+export interface ArtifactApi {
+    id: string
+    content_hash: string
+    /** @nullable */
+    width: number | null
+    /** @nullable */
+    height: number | null
+    /** @nullable */
+    download_url: string | null
+}
+
+export interface SnapshotHistoryEntryApi {
+    current_artifact?: ArtifactApi | null
+    run_id: string
+    snapshot_id: string
+    result: string
+    branch: string
+    commit_sha: string
+    created_at: string
+    /** @nullable */
+    pr_number?: number | null
+    /** @nullable */
+    diff_percentage?: number | null
+    review_state?: string
+}
+
+export interface PaginatedSnapshotHistoryEntryListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: SnapshotHistoryEntryApi[]
 }
 
 export type CreateRunInputApiBaselineHashes = { [key: string]: string }
@@ -209,34 +295,6 @@ export interface RecomputeResultApi {
     ci_rerun_error?: string | null
 }
 
-export interface SnapshotHistoryEntryApi {
-    run_id: string
-    result: string
-    branch: string
-    commit_sha: string
-    created_at: string
-}
-
-export interface PaginatedSnapshotHistoryEntryListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: SnapshotHistoryEntryApi[]
-}
-
-export interface ArtifactApi {
-    id: string
-    content_hash: string
-    /** @nullable */
-    width: number | null
-    /** @nullable */
-    height: number | null
-    /** @nullable */
-    download_url: string | null
-}
-
 export type SnapshotApiMetadata = { [key: string]: unknown }
 
 export interface SnapshotApi {
@@ -296,13 +354,6 @@ export interface PaginatedToleratedHashEntryListApi {
     results: ToleratedHashEntryApi[]
 }
 
-export interface ReviewStateCountsApi {
-    needs_review: number
-    clean: number
-    processing: number
-    stale: number
-}
-
 export type VisualReviewReposListParams = {
     /**
      * Number of results to return per page.
@@ -333,7 +384,15 @@ export type VisualReviewReposQuarantineListParams = {
     run_type?: string
 }
 
-export type VisualReviewRunsListParams = {
+export type VisualReviewReposRunsListParams = {
+    /**
+     * Filter by branch name
+     */
+    branch?: string
+    /**
+     * Filter by full commit SHA
+     */
+    commit_sha?: string
     /**
      * Number of results to return per page.
      */
@@ -343,16 +402,16 @@ export type VisualReviewRunsListParams = {
      */
     offset?: number
     /**
+     * Filter by GitHub PR number
+     */
+    pr_number?: number
+    /**
      * Filter by review state
      */
     review_state?: string
 }
 
-export type VisualReviewRunsSnapshotHistoryListParams = {
-    /**
-     * Snapshot identifier
-     */
-    identifier: string
+export type VisualReviewReposSnapshotsListParams = {
     /**
      * Number of results to return per page.
      */

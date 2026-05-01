@@ -35,7 +35,9 @@ use personhog_proto::personhog::types::v1::{
     PersonsByDistinctIdsResponse, PersonsResponse, UpdatePersonPropertiesRequest,
     UpdatePersonPropertiesResponse, UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
 };
-use personhog_router::backend::{LeaderBackend, ReplicaBackend, ReplicaBackendConfig};
+use personhog_router::backend::{
+    LeaderBackend, LeaderBackendConfig, ReplicaBackend, ReplicaBackendConfig, StashTable,
+};
 use personhog_router::config::RetryConfig;
 use personhog_router::router::PersonHogRouter;
 use personhog_router::service::PersonHogRouterService;
@@ -531,6 +533,12 @@ pub async fn start_test_leader(service: TestLeaderService) -> SocketAddr {
     let addr = listener.local_addr().unwrap();
 
     tokio::spawn(async move {
+        // The production `LeaderBackend` configures its gRPC client with
+        // `send_compressed(Zstd) + accept_compressed(Zstd)`, so the test
+        // leader must accept (and may send) Zstd-compressed payloads to
+        // mirror real wire behavior. Without this the LeaderBackend
+        // forwards a Zstd-compressed body and the server returns
+        // `Unimplemented: Content is compressed with zstd which isn't supported`.
         Server::builder()
             .add_service(
                 PersonHogLeaderServer::new(service)
@@ -588,11 +596,14 @@ pub async fn start_test_router_with_leader(
     let leader = LeaderBackend::new(
         routing_table,
         address_resolver,
-        num_partitions,
-        Duration::from_secs(5),
-        retry_config,
-        4 * 1024 * 1024,
-        4 * 1024 * 1024,
+        LeaderBackendConfig {
+            num_partitions,
+            timeout: Duration::from_secs(5),
+            retry_config,
+            max_send_message_size: 4 * 1024 * 1024,
+            max_recv_message_size: 4 * 1024 * 1024,
+        },
+        StashTable::with_bounds(usize::MAX, usize::MAX),
     );
 
     let router = PersonHogRouter::new(Arc::new(replica)).with_leader(Arc::new(leader));

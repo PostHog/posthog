@@ -140,6 +140,7 @@ rules:
                               |Link
                               |LiveDebuggerBreakpoint
                               |LogsAlertConfiguration
+                              |LogsExclusionRule
                               |LogsView
                               |LLMModelConfiguration
                               |LLMPrompt
@@ -159,6 +160,7 @@ rules:
                               |PluginConfig
                               |ProductTour
                               |ProjectSecretAPIKey
+                              |PropertyAccessControl
                               |QueryTabState
                               |QuickFilter
                               |QuickFilterContext
@@ -185,6 +187,7 @@ rules:
                               |Survey
                               |SurveyResponseArchive
                               |Tag
+                              |Tagger
                               |Task
                               |TaskAutomation
                               |TaskRun
@@ -356,6 +359,7 @@ rules:
                         |PluginConfig
                         |ProductTour
                         |ProjectSecretAPIKey
+                        |PropertyAccessControl
                         |QueryTabState
                         |QuickFilter
                         |QuickFilterContext
@@ -382,6 +386,7 @@ rules:
                         |Survey
                         |SurveyResponseArchive
                         |Tag
+                        |Tagger
                         |Task
                         |TaskAutomation
                         |TaskRun
