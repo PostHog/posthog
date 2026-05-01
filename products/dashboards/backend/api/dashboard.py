@@ -37,6 +37,7 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.insight import DashboardTileBasicSerializer, InsightSerializer, InsightViewSet
 from posthog.api.insight_suggestions import summarize_insight_result
 from posthog.api.monitoring import Feature, monitor
+from posthog.api.openapi_parameters import make_filters_override_param, make_variables_override_param
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_model
 from posthog.api.shared import UserBasicSerializer
@@ -106,36 +107,8 @@ DASHBOARD_SHARED_FIELDS = [
 ]
 
 
-# Shared OpenAPI parameter definitions for the variables_override / filters_override
-# query params. These three semantics are easy to miss without reading
-# posthog/utils.py and posthog/api/insight_variable.py:
-#   1. Each variable entry needs `code_name` to match — `map_stale_to_latest` drops
-#      entries that lack it, so an override of `{"value": ...}` alone silently no-ops.
-#   2. Both helpers shallow-merge — top-level keys replace wholesale, nested values
-#      are not deep-merged.
-#   3. Both helpers ignore overrides when the request is authenticated via a
-#      dashboard sharing token, returning the persisted state with no error.
-VARIABLES_OVERRIDE_PARAM = OpenApiParameter(
-    "variables_override",
-    OpenApiTypes.STR,
-    description=(
-        "JSON object to override dashboard variables for this request only (not persisted). "
-        'Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. '
-        "Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call "
-        "`dashboard-get` first, copy the matching entry from the response's `variables` field, and mutate `value`. "
-        "Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a dashboard sharing token."
-    ),
-)
-FILTERS_OVERRIDE_PARAM = OpenApiParameter(
-    "filters_override",
-    OpenApiTypes.STR,
-    description=(
-        "JSON object to override dashboard filters for this request only (not persisted). "
-        "Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. "
-        "See the dashboard filters schema for available keys (e.g., `date_from`, `date_to`, `properties`). "
-        "Ignored when accessed via a dashboard sharing token."
-    ),
-)
+VARIABLES_OVERRIDE_PARAM = make_variables_override_param(subject_label="dashboard", tool_name="dashboard-get")
+FILTERS_OVERRIDE_PARAM = make_filters_override_param(subject_label="dashboard")
 
 
 tracer = trace.get_tracer(__name__)
