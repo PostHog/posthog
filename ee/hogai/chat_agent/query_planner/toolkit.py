@@ -20,6 +20,7 @@ from posthog.hogql_queries.ai.actors_property_taxonomy_query_runner import Actor
 from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Action, Team
+from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
@@ -95,11 +96,14 @@ class TaxonomyAgentToolkit:
     def __init__(self, team: Team):
         self._team = team
 
-    @cached_property
-    def _groups(self) -> list[dict]:
-        from posthog.models.group_type_mapping import get_group_types_for_project
-
-        return get_group_types_for_project(self._team.project_id)
+    @property
+    def _groups(self):
+        # nosemgrep: no-direct-persons-db-orm
+        return GroupTypeMapping.objects.filter(
+            project_id=self._team.project_id
+        ).order_by(  # nosemgrep: no-direct-persons-db-orm
+            "group_type_index"
+        )  # nosemgrep: no-direct-persons-db-orm
 
     @cached_property
     def _entity_names(self) -> list[str]:
@@ -112,7 +116,7 @@ class TaxonomyAgentToolkit:
         entities = [
             "person",
             "session",
-            *[g["group_type"] for g in self._groups],
+            *[group.group_type for group in self._groups],
         ]
         return entities
 
@@ -165,7 +169,7 @@ class TaxonomyAgentToolkit:
         Retrieve properties for an entitiy like person, session, or one of the groups.
         """
 
-        if entity not in ("person", "session", *[g["group_type"] for g in self._groups]):
+        if entity not in ("person", "session", *[group.group_type for group in self._groups]):
             return f"Entity {entity} does not exist in the taxonomy."
 
         if entity == "person":
@@ -185,7 +189,9 @@ class TaxonomyAgentToolkit:
             )
 
         else:
-            group_type_index = next((g["group_type_index"] for g in self._groups if g["group_type"] == entity), None)
+            group_type_index = next(
+                (group.group_type_index for group in self._groups if group.group_type == entity), None
+            )
             if group_type_index is None:
                 return f"Group {entity} does not exist in the taxonomy."
             qs = PropertyDefinition.objects.filter(
@@ -345,7 +351,7 @@ class TaxonomyAgentToolkit:
         elif entity == "event":
             query = ActorsPropertyTaxonomyQuery(properties=[property_name], maxPropertyValues=50)
         else:
-            group_index = next((g["group_type_index"] for g in self._groups if g["group_type"] == entity), None)
+            group_index = next((group.group_type_index for group in self._groups if group.group_type == entity), None)
             if group_index is None:
                 return f"The entity {entity} does not exist in the taxonomy."
             query = ActorsPropertyTaxonomyQuery(

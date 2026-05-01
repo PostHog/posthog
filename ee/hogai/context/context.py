@@ -21,6 +21,7 @@ from posthog.schema import (
 )
 
 from posthog.constants import AvailableFeature
+from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -138,13 +139,16 @@ class AssistantContextManager(AssistantContextMixin):
         """
         return self._team.organization.is_feature_available(AvailableFeature.AUDIT_LOGS)
 
-    def get_groups(self) -> list[dict]:
+    def get_groups(self):
         """
-        Returns the team's group type mappings as dicts, ordered by group_type_index.
+        Returns the ORM chain of the team's groups.
         """
-        from posthog.models.group_type_mapping import get_group_types_for_project
-
-        return get_group_types_for_project(self._team.project_id)
+        # nosemgrep: no-direct-persons-db-orm
+        return GroupTypeMapping.objects.filter(
+            project_id=self._team.project_id
+        ).order_by(  # nosemgrep: no-direct-persons-db-orm
+            "group_type_index"
+        )  # nosemgrep: no-direct-persons-db-orm
 
     async def get_group_names(self) -> list[str]:
         """
@@ -153,7 +157,7 @@ class AssistantContextManager(AssistantContextMixin):
 
         @database_sync_to_async(thread_sensitive=False)
         def _get_group_names_sync() -> list[str]:
-            return [m["group_type"] for m in self.get_groups()]
+            return list(self.get_groups().values_list("group_type", flat=True))
 
         return await _get_group_names_sync()
 

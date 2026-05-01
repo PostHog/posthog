@@ -16,6 +16,7 @@ from pydantic import ValidationError
 from posthog.schema import MaxEventContext
 
 from posthog.models import Team, User
+from posthog.models.group_type_mapping import GroupTypeMapping
 
 from ee.hogai.chat_agent.taxonomy.tools import TaxonomyTool
 from ee.hogai.core.mixins import StateClassMixin, TaxonomyUpdateDispatcherNodeMixin
@@ -55,9 +56,11 @@ class TaxonomyAgentNode(
     @cached_property
     def _team_group_types(self) -> list[str]:
         """Get all available group names for this team."""
-        from posthog.models.group_type_mapping import get_group_types_for_project
-
-        return [m["group_type"] for m in get_group_types_for_project(self._team.project.id)]
+        return list(
+            GroupTypeMapping.objects.filter(project_id=self._team.project.id)  # nosemgrep: no-direct-persons-db-orm
+            .order_by("group_type_index")
+            .values_list("group_type", flat=True)
+        )
 
     @cached_property
     def _all_entities(self) -> list[str]:
