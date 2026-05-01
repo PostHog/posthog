@@ -98,14 +98,14 @@ class TestGithubIssuesWebhook(BaseTest):
     )
     def test_error_responses(self, _name, secret_value, forced_sig, event_type, expected_status):
         with patch(
-            "products.conversations.backend.api.github_events.get_github_webhook_secret",
+            "products.conversations.backend.api.github_events._get_github_webhook_secret",
             return_value=secret_value,
         ):
             resp = self._post_webhook(_issue_event(), event_type=event_type, signature=forced_sig)
             assert resp.status_code == expected_status
 
     @patch(
-        "products.conversations.backend.api.github_events.get_github_webhook_secret",
+        "products.conversations.backend.api.github_events._get_github_webhook_secret",
         return_value=WEBHOOK_SECRET,
     )
     def test_returns_405_for_get(self, _mock):
@@ -114,7 +114,7 @@ class TestGithubIssuesWebhook(BaseTest):
 
     @patch("products.conversations.backend.api.github_events.process_github_event")
     @patch(
-        "products.conversations.backend.api.github_events.get_github_webhook_secret",
+        "products.conversations.backend.api.github_events._get_github_webhook_secret",
         return_value=WEBHOOK_SECRET,
     )
     def test_dispatches_issue_event_to_celery(self, _mock_secret, mock_task):
@@ -131,7 +131,7 @@ class TestGithubIssuesWebhook(BaseTest):
 
     @patch("products.conversations.backend.api.github_events.process_github_event")
     @patch(
-        "products.conversations.backend.api.github_events.get_github_webhook_secret",
+        "products.conversations.backend.api.github_events._get_github_webhook_secret",
         return_value=WEBHOOK_SECRET,
     )
     def test_falls_back_to_sha256_when_delivery_header_missing(self, _mock_secret, mock_task):
@@ -163,7 +163,7 @@ class TestGithubIssuesWebhook(BaseTest):
     )
     @patch("products.conversations.backend.api.github_events.process_github_event")
     @patch(
-        "products.conversations.backend.api.github_events.get_github_webhook_secret",
+        "products.conversations.backend.api.github_events._get_github_webhook_secret",
         return_value=WEBHOOK_SECRET,
     )
     def test_no_dispatch(self, _name, installation_id, settings_override, _reason, _mock_secret, mock_task):
