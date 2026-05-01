@@ -609,7 +609,7 @@ WHERE events.event = '$pageview'
         actual = self.print_query(query, pushdown=pushdown)
         normalized = " ".join(actual.split())
         has_in_pushdown = (
-            "globalIn(raw_sessions.session_id_v7" in normalized or "globalIn(raw_sessions.session_id_v7" in normalized
+            "in(raw_sessions.session_id_v7" in normalized or "globalIn(raw_sessions.session_id_v7" in normalized
         )
         assert has_in_pushdown == pushdown, f"Expected pushdown={pushdown} in:\n{actual}"
         assert self.generalize_sql(actual) == self.snapshot
@@ -634,7 +634,7 @@ WHERE (events.event = '$pageview') OR (events.session.$entry_pathname = '/signup
 """
         actual = self.print_query(query, pushdown=True)
         normalized = " ".join(actual.split())
-        assert "globalIn(raw_sessions.session_id_v7" not in normalized
+        assert "in(raw_sessions.session_id_v7" not in normalized
         assert "globalIn(raw_sessions.session_id_v7" not in normalized
 
     def _extract_in_subquery(self, actual: str) -> str:
@@ -758,7 +758,9 @@ GROUP BY chan
 """
         actual = self.print_query(query, modifier_on=modifier_on)
         normalized = " ".join(actual.split())
-        has_pre_agg = "globalIn(raw_sessions.session_id_v7" in normalized
+        has_pre_agg = (
+            "in(raw_sessions.session_id_v7" in normalized or "globalIn(raw_sessions.session_id_v7" in normalized
+        )
         assert has_pre_agg == modifier_on, f"Expected pre-agg={modifier_on}; got:\n{actual}"
 
     def test_no_pre_agg_when_filter_and_breakdown_use_same_column(self):
@@ -773,6 +775,7 @@ WHERE events.event = '$pageview'
 """
         actual = self.print_query(query, modifier_on=True)
         normalized = " ".join(actual.split())
+        assert "in(raw_sessions.session_id_v7" not in normalized, f"Expected no pre-agg; got:\n{actual}"
         assert "globalIn(raw_sessions.session_id_v7" not in normalized, f"Expected no pre-agg; got:\n{actual}"
 
     def test_no_pre_agg_when_no_session_filter(self):
@@ -786,6 +789,7 @@ GROUP BY chan
 """
         actual = self.print_query(query, modifier_on=True)
         normalized = " ".join(actual.split())
+        assert "in(raw_sessions.session_id_v7" not in normalized, f"Expected no pre-agg; got:\n{actual}"
         assert "globalIn(raw_sessions.session_id_v7" not in normalized, f"Expected no pre-agg; got:\n{actual}"
 
     def test_modifier_off_unchanged(self):
