@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import random
+from datetime import UTC, datetime
 
 import pytest
 from posthog.test.base import BaseTest
@@ -129,7 +130,13 @@ class TestPromptBuilder(BaseTest):
         )
         LLMSkillFile.objects.create(skill=skill, path="refs/playbook.md", content="x", content_type="text/plain")
         loaded = load_skill_for_run(self.team, "signals-agent-errors")
-        prompt = build_run_prompt(loaded, run_id="00000000-0000-0000-0000-000000000abc", team_id=self.team.id)
+        started_at = datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC)
+        prompt = build_run_prompt(
+            loaded,
+            run_id="00000000-0000-0000-0000-000000000abc",
+            team_id=self.team.id,
+            started_at=started_at,
+        )
         assert "signals-agent-errors" in prompt
         assert "watch for spikes" in prompt
         assert "refs/playbook.md" in prompt
@@ -138,6 +145,9 @@ class TestPromptBuilder(BaseTest):
         # The base prompt teaches the agent to call the harness MCP tools by name.
         assert "signals-agent-harness-runs-findings-create" in prompt
         assert "signals-agent-harness-memory-list" in prompt
+        # Recency lens references the started_at anchor.
+        assert "Recency lens" in prompt
+        assert "2026-05-01T12:34:56+00:00" in prompt
 
 
 # Orchestration tests run as plain pytest functions because the async runner uses

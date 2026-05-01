@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 from products.signals.backend.agent_harness.skill_loader import LoadedSkill
 
 _BASE_PROMPT_HEADER = """You are a Signals scout agent for PostHog.
@@ -30,8 +32,16 @@ project — be selective. Aim for fewer, better signals.
      (call `signals-agent-harness-memory-create`)
    - **Skip** with a one-line note in your final summary
 4. **Close out.** End your turn with a one-paragraph summary of what you looked
-   at, what you found, and what you skipped. The harness writes that summary to
-   the run row as searchable prose.
+   at, what you found, and what you skipped. An empty findings list is a real
+   outcome on a quiet day — "looked but found nothing meaningful" is a genuine,
+   useful summary, not a failure. Don't manufacture findings to fill space. The
+   harness writes that summary to the run row as searchable prose.
+
+# Recency lens
+
+Default to recent windows (~last 72h) when querying — fresh evidence is usually
+more actionable. Widen the window for slower patterns (cycles, drift,
+accumulation, multi-week experiments).
 
 # Findings
 
@@ -56,25 +66,29 @@ When you call `signals-agent-harness-runs-findings-create`:
 - If a memory entry says "already addressed" or "noise" for your topic, trust it
   unless you have new evidence.
 
-# Safety & cost
+# Ground rules
 
-- Stop early when the budget is mostly spent. The harness records a hard cap on
-  runtime; respect it.
 - Don't fabricate evidence. If a tool returns nothing, say so in the summary.
 - Stay in scope: emits are tied to your own run; memories are scoped to this
   team and TTL'd by default.
 """
 
 
-def build_run_prompt(skill: LoadedSkill, *, run_id: str, team_id: int) -> str:
+def build_run_prompt(skill: LoadedSkill, *, run_id: str, team_id: int, started_at: datetime) -> str:
     """Render the opening prompt for one scout run.
 
     `run_id` is the UUID of the `SignalAgentRun` row the harness inserted before
     spawning the sandbox. The agent passes it back when it calls
     `signals-agent-harness-runs-findings-create` so the emit attribution stays
     pinned to this run.
+
+    `started_at` is the run row's insertion timestamp, surfaced as informational
+    context (e.g. "how long have I been running"). It is NOT a stand-in for
+    current clock time in tool queries — runs can take minutes, and fresh data
+    that lands during the run is exactly what we want the agent to see.
     """
     file_manifest = "\n".join(f"- {f.path} ({f.content_type})" for f in skill.files) or "(none)"
+    started_at_iso = started_at.replace(microsecond=0).isoformat()
     return f"""{_BASE_PROMPT_HEADER}
 
 # Your run identity
@@ -84,6 +98,8 @@ def build_run_prompt(skill: LoadedSkill, *, run_id: str, team_id: int) -> str:
 - **team_id**: `{team_id}` — implicit on every MCP call; you don't need to plumb
   it through.
 - **skill**: `{skill.name}` (v{skill.version}) — your steering layer.
+- **started_at**: `{started_at_iso}` — when this run began (UTC). Informational;
+  use current clock time for queries about "now".
 
 ---
 

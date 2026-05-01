@@ -189,7 +189,7 @@ async def _spawn_and_run(
         sandbox_environment_id=sandbox_env_id,
         posthog_mcp_scopes="read_only",
     )
-    prompt = build_run_prompt(skill, run_id=str(run.id), team_id=team.id)
+    prompt = build_run_prompt(skill, run_id=str(run.id), team_id=team.id, started_at=run.started_at)
     logger.info(
         "signals_agent: spawning sandbox",
         extra={"team_id": team.id, "skill_name": skill.name, "skill_version": skill.version},
