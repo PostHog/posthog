@@ -1,6 +1,12 @@
 ARG BASE_IMAGE=ghcr.io/posthog/posthog-sandbox-base:master
 FROM ${BASE_IMAGE}
 
+# `iptables` is needed by run_campaign.py's `lockdown_network` helper to drop
+# all sandbox egress except the coordinator port. The base ubuntu image
+# doesn't ship it; install here so PI_BASE-derived sandboxes can lock down
+# reliably without paying an `apt-get install` per boot.
+RUN apt-get update && apt-get install -y --no-install-recommends iptables && rm -rf /var/lib/apt/lists/*
+
 ARG PI_CODING_AGENT_VERSION=0.68.1
 RUN npm install -g "@mariozechner/pi-coding-agent@${PI_CODING_AGENT_VERSION}"
 

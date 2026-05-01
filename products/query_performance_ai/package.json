@@ -1,6 +1,6 @@
 {
     "name": "@posthog/products-query-performance-ai",
     "scripts": {
-        "backend:test": "echo 'no backend tests yet'"
+        "backend:test": "pytest products/query_performance_ai/backend/tests"
     }
 }
