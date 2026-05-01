@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 
 use futures::StreamExt;
 use k8s_openapi::api::apps::v1::{Deployment, ReplicaSet, StatefulSet};
@@ -14,12 +15,16 @@ use crate::detection;
 use crate::discovery::{self, DiscoveryError};
 use crate::types::{ClusterIntent, ControllerKind, ControllerRef, DepartureReason, PodInfo};
 
+const DISCOVERY_TIMEOUT: Duration = Duration::from_secs(10);
+
 #[derive(Debug, thiserror::Error)]
 pub enum K8sAwarenessError {
     #[error("discovery failed: {0}")]
     Discovery(#[from] DiscoveryError),
     #[error("kubernetes API error: {0}")]
     Kube(#[from] kube::Error),
+    #[error("discovery timed out after {0:?}")]
+    Timeout(Duration),
 }
 
 /// Manages K8s watchers for multiple controllers.
@@ -50,9 +55,15 @@ impl K8sAwareness {
     ///
     /// Walks ownerReferences: pod → ReplicaSet → Deployment, or pod → StatefulSet.
     /// Starts a watcher for the controller if not already watching.
+    /// Times out after [`DISCOVERY_TIMEOUT`] to avoid blocking callers when
+    /// the K8s API server is slow or unavailable.
     pub async fn discover_controller(&self, pod_name: &str) -> Result<PodInfo, K8sAwarenessError> {
-        let pod_info =
-            discovery::discover_controller(&self.client, &self.namespace, pod_name).await?;
+        let pod_info = tokio::time::timeout(
+            DISCOVERY_TIMEOUT,
+            discovery::discover_controller(&self.client, &self.namespace, pod_name),
+        )
+        .await
+        .map_err(|_| K8sAwarenessError::Timeout(DISCOVERY_TIMEOUT))??;
 
         self.ensure_watching(&pod_info.controller).await?;
 
@@ -140,6 +151,8 @@ async fn unregister_watcher(
     info!(controller = %controller, "unregistered watcher");
 }
 
+const WATCHER_ERROR_BACKOFF: Duration = Duration::from_secs(2);
+
 /// Watch a Deployment and update its ClusterIntent on changes.
 async fn run_deployment_watcher(
     client: &Client,
@@ -174,8 +187,9 @@ async fn run_deployment_watcher(
                         warn!(
                             controller = %controller,
                             error = %e,
-                            "deployment watcher error, stream will retry"
+                            "deployment watcher error, backing off before retry"
                         );
+                        tokio::time::sleep(WATCHER_ERROR_BACKOFF).await;
                     }
                     None => {
                         info!(controller = %controller, "deployment watcher stream ended");
@@ -396,8 +410,9 @@ async fn run_statefulset_watcher(
                         warn!(
                             controller = %controller,
                             error = %e,
-                            "statefulset watcher error, stream will retry"
+                            "statefulset watcher error, backing off before retry"
                         );
+                        tokio::time::sleep(WATCHER_ERROR_BACKOFF).await;
                     }
                     None => {
                         info!(controller = %controller, "statefulset watcher stream ended");
