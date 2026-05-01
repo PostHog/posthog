@@ -32577,6 +32577,19 @@ export namespace Schemas {
     }
 
     /**
+     * `inventory.project_context` — free-form orientation about the project's product.
+     */
+    export interface ProjectContext {
+      /**
+       * Human-set product description on the project (max 1000 chars). When present, the most direct "what does this team's product do" answer. `null` when unset.
+       * @nullable
+       */
+      product_description: string | null;
+      /** Registered app URLs for this team (toolbar / replay). The team's actual product surface; complements `$pageview.$host` discovery via `read-data-schema`. */
+      app_urls: string[];
+    }
+
+    /**
      * One row in either bucket of `inventory.signal_source_configs`.
      */
     export interface SignalSourceConfigEntry {
@@ -32630,6 +32643,8 @@ export namespace Schemas {
     profile is ground truth from authoritative tables; memory is agent inference.
      */
     export interface ProjectProfileInventory {
+      /** Free-form orientation: human-set product description + registered app URLs. */
+      project_context: ProjectContext;
       /** Product keys this team has completed onboarding for, sorted alphabetically. */
       products_in_use: string[];
       /** Products the team signaled intent to use; useful for spotting stuck onboardings. */
