@@ -239,26 +239,12 @@ export function computePercentStackData(series: Series[], labels: string[]): Map
 }
 
 export interface BarScaleSet {
-    /** Categorical band scale — maps a label to the leading edge of its band. */
     band: d3.ScaleBand<string>
-    /** Value scale — maps a numeric data value to a pixel coordinate along the value axis. */
     value: D3YScale
-    /** Per-axis value scales when multiple value axes are in use. */
-    valueAxes?: Record<string, { scale: D3YScale; position: 'left' | 'right' }>
-    /** Within-band sub-scale for grouped layout — maps a series key to its offset inside a band. */
+    /** Sub-band for grouped layout — maps a series key to its offset inside a band. */
     group?: d3.ScaleBand<string>
 }
 
-/** Builds bar-chart scales: a band scale on the categorical axis and a value scale on the value axis.
- *
- * `axisOrientation`:
- *  - `'vertical'` (default): categories on x, values on y. The value scale's range is inverted (top = max).
- *  - `'horizontal'`: categories on y, values on x. The value scale's range increases left-to-right.
- *
- * `barLayout`:
- *  - `'stacked'` / `'percent'`: value-axis domain spans cumulative totals (or [0, 1]).
- *  - `'grouped'`: value-axis domain spans individual series ranges; a sub-band scale is returned in `group`.
- */
 export function createBarScales(
     series: Series[],
     labels: string[],
