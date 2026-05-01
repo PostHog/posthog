@@ -397,7 +397,7 @@ def _batch_read_associations(
     )
     def _post_chunk(chunk_ids: list[str]) -> dict:
         nonlocal headers
-        response = requests.post(
+        response = make_tracked_session().post(
             url,
             headers=headers,
             json={"inputs": [{"id": i} for i in chunk_ids]},
@@ -549,7 +549,7 @@ def get_rows_via_search(
     )
     def fetch_search(body: dict[str, Any]) -> dict:
         nonlocal api_key
-        response = requests.post(search_url, headers=headers, json=body, timeout=60)
+        response = make_tracked_session().post(search_url, headers=headers, json=body, timeout=60)
 
         if response.status_code == 401:
             # Mutate `headers` in place so the shared dict stays in sync for subsequent calls
