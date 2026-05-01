@@ -185,7 +185,7 @@ class TestProvisioningResources(ProvisioningTestBase):
 
     @parameterized.expand(
         [
-            ("too_long", "a" * 41),
+            ("too_long", "a" * 26),
             ("control_char_newline", "Bad\nLabel"),
             ("control_char_tab", "Bad\tLabel"),
             ("bidi_override", "Bad‮Label"),

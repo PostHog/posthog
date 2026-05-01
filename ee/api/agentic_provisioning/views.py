@@ -94,6 +94,10 @@ LEGACY_STRIPE_APP_NAME = "PostHog Stripe App"
 PROVISIONED_PAT_LABEL_PREFIX = "Stripe Projects"
 # Mirrors PersonalAPIKey.label's CharField(max_length=40) - keep in sync if that ever changes.
 PROVISIONED_PAT_LABEL_MAX_LENGTH = 40
+# Cap partner-supplied prefix below the full label length so " - {team_name}" still
+# survives the truncation. A 37-char prefix would otherwise consume the whole label
+# and the team name would disappear from the truncated result.
+PROVISIONED_PAT_LABEL_PREFIX_MAX_LENGTH = 25
 
 ACCESS_TOKEN_EXPIRY_SECONDS = 365 * 24 * 3600
 PARTNER_TOKEN_EXPIRY_SECONDS = 3600
@@ -1189,8 +1193,10 @@ def _extract_label_prefix(request: Request) -> str | None:
     if not stripped:
         return None
 
-    if len(stripped) > PROVISIONED_PAT_LABEL_MAX_LENGTH:
-        raise _InvalidLabelPrefixError(f"label_prefix must be {PROVISIONED_PAT_LABEL_MAX_LENGTH} characters or fewer")
+    if len(stripped) > PROVISIONED_PAT_LABEL_PREFIX_MAX_LENGTH:
+        raise _InvalidLabelPrefixError(
+            f"label_prefix must be {PROVISIONED_PAT_LABEL_PREFIX_MAX_LENGTH} characters or fewer"
+        )
 
     # Reject Unicode control (Cc), format (Cf), and line/paragraph separators (Zl/Zp).
     # Cf is the important one - it includes bidi overrides (U+202A-U+202E) and
