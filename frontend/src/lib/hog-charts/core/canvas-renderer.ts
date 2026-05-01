@@ -368,7 +368,6 @@ export function drawCrosshair(
     ctx.stroke()
 }
 
-/** Which corners of a bar rectangle to round. */
 export interface BarRoundedCorners {
     topLeft?: boolean
     topRight?: boolean
@@ -376,9 +375,7 @@ export interface BarRoundedCorners {
     bottomRight?: boolean
 }
 
-/** Traces a rectangle path with optional per-corner rounding. The radius is clamped
- *  to half the smaller dimension so very thin/short bars degrade gracefully. Caller
- *  owns beginPath/fill/stroke. */
+/** Caller owns beginPath / fill / stroke; this only emits the path. */
 export function traceRoundedBarPath(
     ctx: CanvasRenderingContext2D,
     x: number,
@@ -414,25 +411,20 @@ export function traceRoundedBarPath(
 }
 
 export interface BarRect {
-    /** Pixel coordinates of the rectangle. */
     x: number
     y: number
     width: number
     height: number
-    /** Which corners should be rounded (e.g. only the cap end). */
     corners: BarRoundedCorners
-    /** Index into the original `series.data` array. Used to resolve partial-dash hatch ranges
-     *  against the source data, not the (possibly filtered) bars array. */
+    /** Index into the original `series.data` — partial-dash hatch ranges resolve against the
+     *  source array, not against this bars[] which the caller may have pre-filtered. */
     dataIndex: number
 }
 
-/** Draws a list of bars for a series with corner rounding and hatched dashed-pattern support.
- *  When `series.stroke?.partial` is set, bars whose `dataIndex` falls inside the partial range
- *  are filled with a diagonal hatch pattern (mirrors the line/area dashed-region convention).
- *  The partial-range indices are clamped against `series.data.length`, so callers may pre-filter
- *  out non-drawable bars without distorting the hatch boundary. */
 export const DEFAULT_BAR_CORNER_RADIUS = 4
 
+/** Hatch ranges (`series.stroke?.partial`) clamp against `series.data.length`; callers may
+ *  pre-filter `bars` without shifting the hatch boundary. */
 export function drawBars(
     drawCtx: DrawContext,
     series: ResolvedSeries,

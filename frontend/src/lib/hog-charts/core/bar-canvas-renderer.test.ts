@@ -29,10 +29,10 @@ function makeDrawContext(ctx: CanvasRenderingContext2D, labels: string[]): DrawC
     return { ctx, dimensions, xScale, yScale, labels }
 }
 
-const SQUARE: BarRect = { x: 100, y: 100, width: 50, height: 80, corners: {}, dataIndex: 0 }
+const BASE_BAR: BarRect = { x: 100, y: 100, width: 50, height: 80, corners: {}, dataIndex: 0 }
 
 function bar(overrides: Partial<BarRect> & { dataIndex: number }): BarRect {
-    return { ...SQUARE, ...overrides }
+    return { ...BASE_BAR, ...overrides }
 }
 
 describe('hog-charts canvas-renderer (bars)', () => {
@@ -128,7 +128,7 @@ describe('hog-charts canvas-renderer (bars)', () => {
             const ctx = mockCanvasContext()
             const drawCtx = makeDrawContext(ctx, ['a'])
             const series = makeSeries({ key: 's', data: [1], color: '#abcdef' })
-            drawBars(drawCtx, series, [SQUARE])
+            drawBars(drawCtx, series, [BASE_BAR])
             expect(ctx.fillStyle).toBe('#abcdef')
         })
 
@@ -179,11 +179,7 @@ describe('hog-charts canvas-renderer (bars)', () => {
                 color: '#11223344',
                 stroke: { partial: { fromIndex: 3 } },
             })
-            const bars = [
-                bar({ x: 0, dataIndex: 1 }), // solid
-                bar({ x: 60, dataIndex: 3 }), // hatched (>= fromIndex)
-                bar({ x: 120, dataIndex: 4 }), // hatched
-            ]
+            const bars = [bar({ x: 0, dataIndex: 1 }), bar({ x: 60, dataIndex: 3 }), bar({ x: 120, dataIndex: 4 })]
             const fillStyleSeen: (string | CanvasPattern)[] = []
             const original = Object.getOwnPropertyDescriptor(ctx, 'fillStyle')
             Object.defineProperty(ctx, 'fillStyle', {
@@ -198,8 +194,6 @@ describe('hog-charts canvas-renderer (bars)', () => {
             if (original) {
                 Object.defineProperty(ctx, 'fillStyle', original)
             }
-            // Bar 0 (dataIndex=1) → solid color string
-            // Bars 1,2 (dataIndex=3,4) → hatch pattern (object, not the color string)
             expect(fillStyleSeen[0]).toBe('#11223344')
             expect(typeof fillStyleSeen[1]).not.toBe('string')
             expect(typeof fillStyleSeen[2]).not.toBe('string')
@@ -209,14 +203,14 @@ describe('hog-charts canvas-renderer (bars)', () => {
             const ctx = mockCanvasContext()
             const drawCtx = makeDrawContext(ctx, ['a'])
             const series = makeSeries({ key: 's', data: [1] })
-            drawBars(drawCtx, series, [{ ...SQUARE, corners: { topLeft: true, topRight: true } }], 12)
+            drawBars(drawCtx, series, [{ ...BASE_BAR, corners: { topLeft: true, topRight: true } }], 12)
             expect(ctx.quadraticCurveTo).toHaveBeenCalledTimes(2)
         })
 
         it('does not invoke createPattern when no partial dashing is set', () => {
             const ctx = mockCanvasContext()
             const drawCtx = makeDrawContext(ctx, ['a'])
-            drawBars(drawCtx, makeSeries({ key: 's', data: [1] }), [SQUARE])
+            drawBars(drawCtx, makeSeries({ key: 's', data: [1] }), [BASE_BAR])
             expect(ctx.createPattern).not.toHaveBeenCalled()
         })
     })
@@ -224,7 +218,7 @@ describe('hog-charts canvas-renderer (bars)', () => {
     describe('drawBarHighlight', () => {
         it('strokes a single rectangle', () => {
             const ctx = mockCanvasContext()
-            drawBarHighlight(ctx, SQUARE, '#000')
+            drawBarHighlight(ctx, BASE_BAR, '#000')
             expect(ctx.stroke).toHaveBeenCalledTimes(1)
         })
 
@@ -235,19 +229,19 @@ describe('hog-charts canvas-renderer (bars)', () => {
             { desc: 'negative height', width: 50, height: -5 },
         ])('does nothing on a bar with $desc', ({ width, height }) => {
             const ctx = mockCanvasContext()
-            drawBarHighlight(ctx, { ...SQUARE, width, height }, '#000')
+            drawBarHighlight(ctx, { ...BASE_BAR, width, height }, '#000')
             expect(ctx.stroke).not.toHaveBeenCalled()
         })
 
         it('uses the provided color as strokeStyle', () => {
             const ctx = mockCanvasContext()
-            drawBarHighlight(ctx, SQUARE, '#abcabc')
+            drawBarHighlight(ctx, BASE_BAR, '#abcabc')
             expect(ctx.strokeStyle).toBe('#abcabc')
         })
 
         it('clears the dash pattern before stroking', () => {
             const ctx = mockCanvasContext()
-            drawBarHighlight(ctx, SQUARE, '#000')
+            drawBarHighlight(ctx, BASE_BAR, '#000')
             expect(ctx.setLineDash).toHaveBeenCalledWith([])
         })
     })
