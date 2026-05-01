@@ -33,6 +33,7 @@ from posthog.models.integration import Integration
 from posthog.models.subscription import Subscription, SubscriptionDelivery, unsubscribe_using_token
 from posthog.permissions import PremiumFeaturePermission
 from posthog.rate_limit import SubscriptionTestDeliveryThrottle
+from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.security.url_validation import is_url_allowed
 from posthog.slo.context import SloSpec, slo_operation
 from posthog.slo.types import SloArea, SloOperation
@@ -287,6 +288,14 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         request = self.context["request"]
         validated_data["team_id"] = self.context["team_id"]
         validated_data["created_by"] = request.user
+        team = self.context["get_team"]()
+        current_count = Subscription.objects.filter(team_id=team.id, deleted=False).count()
+        check_count_limit(
+            team=team,
+            key=LimitKey.MAX_SUBSCRIPTIONS_PER_TEAM,
+            current_count=current_count,
+            user=request.user,
+        )
 
         invite_message = validated_data.pop("invite_message", "")
         dashboard_export_insight_ids = validated_data.pop("dashboard_export_insights", [])

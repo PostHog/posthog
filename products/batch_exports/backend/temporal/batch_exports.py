@@ -1,5 +1,3 @@
-import ssl
-import json
 import uuid
 import typing
 import asyncio
@@ -12,12 +10,12 @@ from zoneinfo import ZoneInfo
 from django.conf import settings
 
 import pyarrow as pa
-import aiokafka
 from structlog.contextvars import bind_contextvars
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.batch_exports.models import BatchExportRun
+from posthog.kafka_client.routing import async_producer_scope
 from posthog.kafka_client.topics import KAFKA_APP_METRICS2
 from posthog.models.team.team import Team
 from posthog.settings.base_variables import TEST
@@ -641,16 +639,6 @@ async def try_produce_app_metrics(
 
     The metric name and kind will depend on the reported status.
     """
-    default_profile = settings.KAFKA_PROFILES["default"]
-    security_protocol = default_profile.security_protocol
-    producer = aiokafka.AIOKafkaProducer(
-        bootstrap_servers=default_profile.hosts,
-        security_protocol=security_protocol or "PLAINTEXT",
-        acks="all",
-        api_version="2.5.0",
-        ssl_context=configure_default_ssl_context() if security_protocol == "SSL" else None,
-    )
-
     match status:
         case BatchExportRun.Status.COMPLETED:
             metric_kind = "success"
@@ -665,58 +653,38 @@ async def try_produce_app_metrics(
             metric_kind = "failure"
             metric_name = "failed"
 
-    run_metric = json.dumps(
-        {
-            "team_id": team_id,
-            "app_source": "batch_export",
-            "app_source_id": batch_export_id,
-            "count": 1,
-            "metric_kind": metric_kind,
-            "metric_name": metric_name,
-            "timestamp": dt.datetime.now(dt.UTC).strftime("%Y-%m-%d %H:%M:%S"),
-        }
-    ).encode("utf-8")
-    rows_metric = json.dumps(
-        {
-            "team_id": team_id,
-            "app_source": "batch_export",
-            "app_source_id": batch_export_id,
-            "instance_id": batch_export_run_id,
-            "count": rows_exported,
-            "metric_kind": "rows",
-            "metric_name": "rows_exported",
-            "timestamp": dt.datetime.now(dt.UTC).strftime("%Y-%m-%d %H:%M:%S"),
-        }
-    ).encode("utf-8")
+    timestamp = dt.datetime.now(dt.UTC).strftime("%Y-%m-%d %H:%M:%S")
+    run_metric = {
+        "team_id": team_id,
+        "app_source": "batch_export",
+        "app_source_id": batch_export_id,
+        "count": 1,
+        "metric_kind": metric_kind,
+        "metric_name": metric_name,
+        "timestamp": timestamp,
+    }
+    rows_metric = {
+        "team_id": team_id,
+        "app_source": "batch_export",
+        "app_source_id": batch_export_id,
+        "instance_id": batch_export_run_id,
+        "count": rows_exported,
+        "metric_kind": "rows",
+        "metric_name": "rows_exported",
+        "timestamp": timestamp,
+    }
 
-    async with producer:
-
-        async def send(message: bytes):
-            try:
-                fut = await producer.send(KAFKA_APP_METRICS2, message)
-                await fut
-                await producer.flush()
-            except Exception:
-                LOGGER.exception(
-                    "Metrics production failed",
-                    team_id=team_id,
-                    batch_export_id=batch_export_id,
-                    metric_kind=metric_kind,
-                )
-
-        async with asyncio.TaskGroup() as tg:
-            for metric in (run_metric, rows_metric):
-                _ = tg.create_task(send(metric))
-
-
-def configure_default_ssl_context():
-    """Setup a default SSL context for Kafka."""
-    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-    context.options |= ssl.OP_NO_SSLv2
-    context.options |= ssl.OP_NO_SSLv3
-    context.verify_mode = ssl.CERT_REQUIRED
-    context.load_default_certs()
-    return context
+    try:
+        async with async_producer_scope(topic=KAFKA_APP_METRICS2) as producer:
+            await producer.produce(topic=KAFKA_APP_METRICS2, data=run_metric)
+            await producer.produce(topic=KAFKA_APP_METRICS2, data=rows_metric)
+    except Exception:
+        LOGGER.exception(
+            "Metrics production failed",
+            team_id=team_id,
+            batch_export_id=batch_export_id,
+            metric_kind=metric_kind,
+        )
 
 
 async def check_if_over_failure_threshold(batch_export_id: str, check_window: int, failure_threshold: int):
