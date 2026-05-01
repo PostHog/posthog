@@ -950,7 +950,7 @@ class OauthIntegration:
         """
         Refresh the access token for the integration if necessary
         """
-        is_sandbox = self.integration.config.get("is_sandbox") is True if self.integration.kind == "stripe" else False
+        is_sandbox = _stripe_integration_is_sandbox(self.integration)
         oauth_config = self.oauth_config_for_kind(self.integration.kind, is_sandbox=is_sandbox)
 
         # Clear out previous token refreshing errors, as they'll be re-set below if another error occurs
@@ -3045,6 +3045,16 @@ class AzureBlobIntegration:
         return None
 
 
+def _stripe_integration_is_sandbox(integration: Integration) -> bool:
+    """True when this is a Stripe integration provisioned via the sandbox channel.
+
+    Strict identity check on the config flag - a malformed string write (e.g. "false")
+    fails closed to live rather than escalating to sandbox-secret usage. Returns
+    False for non-stripe integrations so non-Stripe call sites can pass through.
+    """
+    return integration.kind == "stripe" and integration.config.get("is_sandbox") is True
+
+
 class StripeIntegration:
     integration: Integration
 
@@ -3077,9 +3087,7 @@ class StripeIntegration:
 
     @property
     def is_sandbox(self) -> bool:
-        # Strict identity check: a malformed string write (e.g. "false") fails closed to live
-        # rather than escalating an integration to sandbox-secret usage.
-        return self.integration.config.get("is_sandbox") is True
+        return _stripe_integration_is_sandbox(self.integration)
 
     def _stripe_client(self) -> StripeClient:
         # Sandbox accounts are issued by a separate Stripe app (live vs sandbox), so the

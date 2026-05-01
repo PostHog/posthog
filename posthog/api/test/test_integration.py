@@ -12,6 +12,7 @@ from django.core.cache import cache
 from django.test.client import Client as HttpClient
 from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.integration import IntegrationViewSet
@@ -1510,9 +1511,18 @@ class TestStripeIntegrationOAuthTokens:
             assert call.kwargs["params"]["scope"] == {"type": "account"}
             assert call.kwargs["options"] == {"stripe_account": "acct_789"}
 
+    @parameterized.expand(
+        [
+            ("write_uses_sandbox_when_flag_set", "write_posthog_secrets", {"is_sandbox": True}, "sk_test_sandbox"),
+            ("clear_uses_sandbox_when_flag_set", "clear_posthog_secrets", {"is_sandbox": True}, "sk_test_sandbox"),
+            ("write_uses_live_when_flag_missing", "write_posthog_secrets", {}, "sk_live"),
+        ]
+    )
     @patch("posthog.models.integration.StripeClient")
     @patch("posthog.models.integration.settings")
-    def test_write_posthog_secrets_uses_sandbox_secret_when_flag_set(self, mock_settings, MockStripeClient):
+    def test_stripe_client_secret_selection(
+        self, _name, method_name, config, expected_key, mock_settings, MockStripeClient
+    ):
         mock_settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID = self.oauth_app.client_id
         mock_settings.STRIPE_APP_SECRET_KEY = "sk_live"
         mock_settings.STRIPE_APP_SANDBOX_SECRET_KEY = "sk_test_sandbox"
@@ -1521,54 +1531,18 @@ class TestStripeIntegrationOAuthTokens:
         integration = Integration.objects.create(
             team=self.team,
             kind="stripe",
-            config={"is_sandbox": True},
+            config=config,
             sensitive_config={},
-            integration_id="acct_sandbox_1",
+            integration_id=f"acct_{_name}",
             created_by=self.user,
         )
-        StripeIntegration(integration).write_posthog_secrets(self.team.pk, self.user)
+        stripe_int = StripeIntegration(integration)
+        if method_name == "write_posthog_secrets":
+            stripe_int.write_posthog_secrets(self.team.pk, self.user)
+        else:
+            stripe_int.clear_posthog_secrets()
 
-        MockStripeClient.assert_called_once_with("sk_test_sandbox")
-
-    @patch("posthog.models.integration.StripeClient")
-    @patch("posthog.models.integration.settings")
-    def test_clear_posthog_secrets_uses_sandbox_secret_when_flag_set(self, mock_settings, MockStripeClient):
-        mock_settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID = None
-        mock_settings.STRIPE_APP_SECRET_KEY = "sk_live"
-        mock_settings.STRIPE_APP_SANDBOX_SECRET_KEY = "sk_test_sandbox"
-        MockStripeClient.return_value = MagicMock()
-
-        integration = Integration.objects.create(
-            team=self.team,
-            kind="stripe",
-            config={"is_sandbox": True},
-            sensitive_config={},
-            integration_id="acct_sandbox_2",
-            created_by=self.user,
-        )
-        StripeIntegration(integration).clear_posthog_secrets()
-
-        MockStripeClient.assert_called_once_with("sk_test_sandbox")
-
-    @patch("posthog.models.integration.StripeClient")
-    @patch("posthog.models.integration.settings")
-    def test_write_posthog_secrets_uses_live_secret_when_flag_missing(self, mock_settings, MockStripeClient):
-        mock_settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID = self.oauth_app.client_id
-        mock_settings.STRIPE_APP_SECRET_KEY = "sk_live"
-        mock_settings.STRIPE_APP_SANDBOX_SECRET_KEY = "sk_test_sandbox"
-        MockStripeClient.return_value = MagicMock()
-
-        integration = Integration.objects.create(
-            team=self.team,
-            kind="stripe",
-            config={},
-            sensitive_config={},
-            integration_id="acct_legacy",
-            created_by=self.user,
-        )
-        StripeIntegration(integration).write_posthog_secrets(self.team.pk, self.user)
-
-        MockStripeClient.assert_called_once_with("sk_live")
+        MockStripeClient.assert_called_once_with(expected_key)
 
 
 def _make_github_branches_response(names: list[str], has_next: bool = False) -> MagicMock:
