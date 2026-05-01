@@ -139,6 +139,7 @@ export function AxisLabels({
                         return (
                             <div
                                 key={`y-cat-${i}`}
+                                data-attr="hog-chart-axis-tick-y"
                                 style={{
                                     ...TICK_STYLE_BASE,
                                     right: dimensions.width - dimensions.plotLeft + 8,
@@ -161,6 +162,7 @@ export function AxisLabels({
                         return (
                             <div
                                 key={`x-val-${tick}`}
+                                data-attr="hog-chart-axis-tick-x"
                                 style={{
                                     ...TICK_STYLE_BASE,
                                     left: x,
