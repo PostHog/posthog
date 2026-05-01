@@ -36,7 +36,12 @@ import {
 } from '~/queries/utils'
 import { GroupTypeIndex, PropertyFilterType } from '~/types'
 
-import { defaultDataTableColumns, extractExpressionComment, removeExpressionComment } from '../utils'
+import {
+    defaultDataTableColumns,
+    extractDisplayLabel,
+    extractExpressionComment,
+    removeExpressionComment,
+} from '../utils'
 import { ColumnConfiguratorLogicProps, columnConfiguratorLogic } from './columnConfiguratorLogic'
 
 let uniqueNode = 0
@@ -124,9 +129,18 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
         minimumAccessLevel: TeamMembershipLevel.Admin,
         scope: RestrictionScope.Project,
     })
-    const { modalVisible, columns, saveAsDefault } = useValues(columnConfiguratorLogic)
-    const { hideModal, moveColumn, setColumns, selectColumn, unselectColumn, save, toggleSaveAsDefault } =
-        useActions(columnConfiguratorLogic)
+    const { modalVisible, columns, saveAsDefault, availableRecentColumns, recentColumnsContextKey } =
+        useValues(columnConfiguratorLogic)
+    const {
+        hideModal,
+        moveColumn,
+        setColumns,
+        selectColumn,
+        unselectColumn,
+        save,
+        toggleSaveAsDefault,
+        clearRecentColumns,
+    } = useActions(columnConfiguratorLogic)
     const { context } = useValues(columnConfiguratorLogic)
 
     const onEditColumn = (column: string, index: number): void => {
@@ -224,6 +238,34 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
                             </SortableContext>
                         </DndContext>
                     </div>
+                    {availableRecentColumns.length > 0 && (
+                        <div className="w-full">
+                            <div className="flex items-center justify-between">
+                                <h4 className="secondary uppercase text-secondary">Recent columns</h4>
+                                <LemonButton
+                                    size="xsmall"
+                                    type="tertiary"
+                                    onClick={() => clearRecentColumns(recentColumnsContextKey)}
+                                >
+                                    Clear
+                                </LemonButton>
+                            </div>
+                            <div className="flex flex-wrap gap-1">
+                                {availableRecentColumns.map((column) => (
+                                    <Tooltip key={column} title={column}>
+                                        <LemonButton
+                                            size="small"
+                                            type="secondary"
+                                            onClick={() => selectColumn(column)}
+                                            data-attr="recent-column-add"
+                                        >
+                                            {extractDisplayLabel(column)}
+                                        </LemonButton>
+                                    </Tooltip>
+                                ))}
+                            </div>
+                        </div>
+                    )}
                     <div className="w-full">
                         <h4 className="secondary uppercase text-secondary">Available columns</h4>
                         <div className="h-[min(480px,60vh)]">

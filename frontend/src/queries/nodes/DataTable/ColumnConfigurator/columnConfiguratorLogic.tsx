@@ -11,6 +11,7 @@ import { HOGQL_COLUMNS_KEY } from '~/queries/nodes/DataTable/defaultEventsQuery'
 import { GroupTypeIndex } from '~/types'
 
 import type { columnConfiguratorLogicType } from './columnConfiguratorLogicType'
+import { recentColumnsLogic } from './recentColumnsLogic'
 
 export interface ColumnConfiguratorLogicProps {
     key: string
@@ -26,12 +27,33 @@ export interface ColumnConfiguratorLogicProps {
     }
 }
 
+function getRecentColumnsContextKey(props: ColumnConfiguratorLogicProps): string {
+    if (props.contextKey) {
+        return props.contextKey
+    }
+    if (props.context?.type === 'groups' && props.context.groupTypeIndex !== undefined) {
+        return `groups:${props.context.groupTypeIndex}`
+    }
+    if (props.context?.type === 'event_definition' && props.context.eventDefinitionId) {
+        return `event_definition:${props.context.eventDefinitionId}`
+    }
+    return 'team_columns'
+}
+
 export const columnConfiguratorLogic = kea<columnConfiguratorLogicType>([
     props({} as ColumnConfiguratorLogicProps),
     path(['queries', 'nodes', 'DataTable', 'columnConfiguratorLogic']),
     key((props) => props.key),
     connect(() => ({
-        actions: [eventUsageLogic, ['reportDataTableColumnsUpdated'], groupsModel, ['setDefaultColumns']],
+        actions: [
+            eventUsageLogic,
+            ['reportDataTableColumnsUpdated'],
+            groupsModel,
+            ['setDefaultColumns'],
+            recentColumnsLogic,
+            ['recordRecentColumn', 'clearRecentColumns'],
+        ],
+        values: [recentColumnsLogic, ['recentColumnsForContext']],
     })),
     actions({
         showModal: true,
@@ -47,6 +69,10 @@ export const columnConfiguratorLogic = kea<columnConfiguratorLogicType>([
         context: [
             () => [(_, props) => props.context],
             (context: NonNullable<ColumnConfiguratorLogicProps['context']>) => context,
+        ],
+        recentColumnsContextKey: [
+            () => [(_, props) => props],
+            (props: ColumnConfiguratorLogicProps) => getRecentColumnsContextKey(props),
         ],
     })),
     loaders(({ props }) => ({
@@ -100,6 +126,19 @@ export const columnConfiguratorLogic = kea<columnConfiguratorLogicType>([
             },
         ],
     })),
+    selectors(() => ({
+        availableRecentColumns: [
+            (s) => [s.recentColumnsForContext, s.recentColumnsContextKey, s.columns],
+            (
+                recentColumnsForContext: (contextKey: string | undefined) => string[],
+                recentColumnsContextKey: string,
+                columns: string[]
+            ): string[] => {
+                const selected = new Set(columns)
+                return recentColumnsForContext(recentColumnsContextKey).filter((c) => !selected.has(c))
+            },
+        ],
+    })),
     propsChanged(({ actions, props }, oldProps) => {
         if (JSON.stringify(props.columns) !== JSON.stringify(oldProps.columns)) {
             actions.setColumns(props.columns)
@@ -110,6 +149,9 @@ export const columnConfiguratorLogic = kea<columnConfiguratorLogicType>([
             if (savedColumnConfiguration) {
                 props.setColumns(savedColumnConfiguration.columns)
             }
+        },
+        selectColumn: ({ column }) => {
+            actions.recordRecentColumn(getRecentColumnsContextKey(props), column)
         },
         save: async () => {
             actions.reportDataTableColumnsUpdated(props.contextKey ?? props.context?.type ?? 'live_events')
