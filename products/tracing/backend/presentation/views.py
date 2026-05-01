@@ -155,9 +155,21 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         except ValueError:
             return Response(status=status.HTTP_400_BAD_REQUEST)
 
+        try:
+            filter_group = (
+                self.get_model(query_data["filterGroup"], PropertyGroupFilter)
+                if query_data.get("filterGroup")
+                else None
+            )
+        except (ValidationError, ValueError, ParseError):
+            filter_group = None
+
         spans_query = TraceSpansQuery(
             dateRange=date_range,
             traceId=trace_id,
+            serviceNames=query_data.get("serviceNames", None),
+            statusCodes=query_data.get("statusCodes", None),
+            filterGroup=filter_group,
             limit=1000,
             prefetchSpans=2000,
             rootSpans=False,

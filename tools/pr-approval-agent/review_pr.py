@@ -426,6 +426,7 @@ class Pipeline:
             "repo": self.pr.repo,
             "title": self.pr.title,
             "author": self.pr.author,
+            "head_sha": self.pr.head_sha,
             "classification": {
                 "tier": self.classification["tier"],
                 "t1_subclass": self.classification.get("t1_subclass", ""),

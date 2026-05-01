@@ -160,6 +160,7 @@ class TestExecuteSummarizeSessionVideoStream:
         mock_enriched_llm_json_response: dict[str, Any],
     ):
         cached_summary = MagicMock()
+        cached_summary.id = "cached-summary-id"
         cached_summary.summary = mock_enriched_llm_json_response
         with (
             patch.object(SingleSessionSummary.objects, "get_summary", return_value=cached_summary),
@@ -182,7 +183,7 @@ class TestExecuteSummarizeSessionVideoStream:
         assert len(events) == 1
         assert events[0] == serialize_to_sse_event(
             event_label="session-summary-stream",
-            event_data=json.dumps(mock_enriched_llm_json_response),
+            event_data=json.dumps({"id": "cached-summary-id", "summary": mock_enriched_llm_json_response}),
         )
         mock_prepare.assert_not_called()
         mock_start.assert_not_called()
@@ -224,6 +225,7 @@ class TestExecuteSummarizeSessionVideoStream:
         handle.query.side_effect = progress_payloads
 
         completed_summary = MagicMock()
+        completed_summary.id = "completed-summary-id"
         completed_summary.summary = mock_enriched_llm_json_response
         # First call is the fast-path check (returns None — no cached row),
         # second call is after COMPLETED (returns the freshly written row).
@@ -267,7 +269,7 @@ class TestExecuteSummarizeSessionVideoStream:
         # Final event is the summary stream.
         assert events[2] == serialize_to_sse_event(
             event_label="session-summary-stream",
-            event_data=json.dumps(mock_enriched_llm_json_response),
+            event_data=json.dumps({"id": "completed-summary-id", "summary": mock_enriched_llm_json_response}),
         )
         assert handle.query.call_count == 2
 
@@ -471,6 +473,7 @@ class TestExecuteSummarizeSessionVideoStream:
         handle.query.side_effect = [RuntimeError("workflow not queryable yet")]
 
         completed_summary = MagicMock()
+        completed_summary.id = "completed-summary-id"
         completed_summary.summary = mock_enriched_llm_json_response
 
         with (
@@ -507,7 +510,7 @@ class TestExecuteSummarizeSessionVideoStream:
         assert len(events) == 1
         assert events[0] == serialize_to_sse_event(
             event_label="session-summary-stream",
-            event_data=json.dumps(mock_enriched_llm_json_response),
+            event_data=json.dumps({"id": "completed-summary-id", "summary": mock_enriched_llm_json_response}),
         )
         assert handle.query.call_count == 1
 

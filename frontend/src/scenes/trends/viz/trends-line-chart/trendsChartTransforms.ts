@@ -1,10 +1,12 @@
 import { DEFAULT_Y_AXIS_ID } from 'lib/hog-charts'
 import type { LineChartConfig, Series } from 'lib/hog-charts'
+import { ciRanges, movingAverage, trendLine } from 'lib/statistics'
 import { hexToRGBA } from 'lib/utils'
 
 import { ChartDisplayType } from '~/types'
 
 const COMPARE_PREVIOUS_DIM_OPACITY = 0.5
+const TRENDLINE_DIM_OPACITY = 0.5
 
 // Shape both IndexedTrendResult (kea) and TrendsResultItem (MCP) satisfy.
 export interface TrendsResultLike {
@@ -28,6 +30,13 @@ export interface BuildTrendsSeriesOpts<R extends TrendsResultLike, M = unknown> 
     getColor: (r: R, index: number) => string
     getHidden?: (r: R, index: number) => boolean
     buildMeta?: (r: R, index: number) => M
+    // Derived series — opt-in. Each block is independent so MCP-side callers
+    // can leave them off without unintended overlays.
+    showConfidenceIntervals?: boolean
+    confidenceLevel?: number
+    showMovingAverage?: boolean
+    movingAverageIntervals?: number
+    showTrendLines?: boolean
 }
 
 export interface BuiltTrendsSeries<M> {
@@ -67,11 +76,86 @@ export function buildMainTrendsSeries<R extends TrendsResultLike, M = unknown>(
     return { main, baseColor, dashedFromIndex, excluded }
 }
 
+function buildDerivedTrendsSeries<R extends TrendsResultLike, M = unknown>(
+    r: R,
+    built: BuiltTrendsSeries<M>,
+    opts: BuildTrendsSeriesOpts<R, M>
+): Series<M>[] {
+    const { main, baseColor, dashedFromIndex, excluded } = built
+    const out: Series<M>[] = []
+
+    if (opts.showConfidenceIntervals) {
+        const ci = (opts.confidenceLevel ?? 95) / 100
+        const [lower, upper] = ciRanges(r.data, ci)
+        out.push({
+            key: `${r.id}__ci`,
+            label: `${r.label ?? ''} (CI)`,
+            data: upper,
+            color: main.color,
+            yAxisId: main.yAxisId,
+            meta: main.meta,
+            fill: { opacity: 0.2, lowerData: lower },
+            visibility: { excluded, fromTooltip: true, fromValueLabels: true },
+        })
+    }
+
+    if (
+        opts.showMovingAverage &&
+        opts.movingAverageIntervals !== undefined &&
+        r.data.length >= opts.movingAverageIntervals
+    ) {
+        const maData = movingAverage(r.data, opts.movingAverageIntervals)
+        out.push({
+            key: `${r.id}-ma`,
+            label: `${r.label ?? ''} (Moving avg)`,
+            data: maData,
+            color: main.color,
+            yAxisId: main.yAxisId,
+            meta: main.meta,
+            stroke: { pattern: [10, 3] },
+            visibility: { fromTooltip: true, fromStack: true },
+        })
+
+        if (opts.showTrendLines && !excluded) {
+            out.push({
+                key: `${r.id}-ma__trendline`,
+                label: `${r.label ?? ''} (Moving avg)`,
+                data: trendLine(maData),
+                color: hexToRGBA(baseColor, TRENDLINE_DIM_OPACITY),
+                yAxisId: main.yAxisId,
+                stroke: { pattern: [1, 3] },
+                visibility: { fromTooltip: true, fromValueLabels: true, fromStack: true },
+            })
+        }
+    }
+
+    // Fit excludes the in-progress tail (dashedFromIndex..end) so the flat
+    // partial bucket doesn't drag the slope down. Dimmed so the dashed
+    // overlay reads as subordinate to the series line — at full intensity
+    // the two colors visually compete, especially on a dark background.
+    if (opts.showTrendLines && !excluded) {
+        out.push({
+            key: `${r.id}__trendline`,
+            label: r.label ?? '',
+            data: trendLine(r.data, dashedFromIndex),
+            color: hexToRGBA(baseColor, TRENDLINE_DIM_OPACITY),
+            yAxisId: main.yAxisId,
+            stroke: { pattern: [1, 3] },
+            visibility: { fromTooltip: true, fromValueLabels: true, fromStack: true },
+        })
+    }
+
+    return out
+}
+
 export function buildTrendsSeries<R extends TrendsResultLike, M = unknown>(
     results: R[],
     opts: BuildTrendsSeriesOpts<R, M>
-): BuiltTrendsSeries<M>[] {
-    return results.map((r, i) => buildMainTrendsSeries(r, i, opts))
+): Series<M>[] {
+    return results.flatMap((r, index) => {
+        const built = buildMainTrendsSeries(r, index, opts)
+        return [built.main, ...buildDerivedTrendsSeries(r, built, opts)]
+    })
 }
 
 export interface BuildTrendsChartConfigOpts {
