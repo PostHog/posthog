@@ -11,6 +11,7 @@ persons database.
 import os
 import json
 from typing import Any
+from urllib.parse import quote_plus
 
 import psycopg2
 from psycopg2.extras import execute_values
@@ -25,7 +26,8 @@ def _get_persons_db_url() -> str:
         pg_password = os.getenv("PGPASSWORD", "posthog")
         pg_host = os.getenv("PGHOST", "localhost")
         pg_port = os.getenv("PGPORT", "5432")
-        url = f"postgres://{pg_user}:{pg_password}@{pg_host}:{pg_port}/posthog_persons"
+        password_part = f":{quote_plus(pg_password)}" if pg_password else ""
+        url = f"postgres://{pg_user}{password_part}@{pg_host}:{pg_port}/posthog_persons"
     return url
 
 

@@ -1,4 +1,5 @@
 import json
+import datetime as dt
 from uuid import uuid4
 
 from django.conf import settings
@@ -41,12 +42,14 @@ class DataGenerator:
         person_table_name = settings.PERSON_TABLE_NAME
         persons_db_url = _get_persons_db_url()
 
+        now = dt.datetime.now(dt.UTC)
         person_rows = [
             (
                 self.team.pk,
                 str(person.uuid),
                 json.dumps(person.properties),
                 person.is_identified,
+                now,
             )
             for person in self.people
         ]
@@ -56,7 +59,7 @@ class DataGenerator:
                 results = execute_values(
                     cur,
                     f"""
-                    INSERT INTO {person_table_name} (team_id, uuid, properties, is_identified)
+                    INSERT INTO {person_table_name} (team_id, uuid, properties, is_identified, created_at)
                     VALUES %s
                     RETURNING id, uuid
                     """,

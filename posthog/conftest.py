@@ -240,7 +240,7 @@ def _django_db_setup(django_db_keepdb, django_db_blocker):
     settings.DATABASES["persons_db_reader"]["NAME"] = test_persons_db_name
 
     db_cfg = settings.DATABASES["persons_db_writer"]
-    password_part = f":{db_cfg['PASSWORD']}" if db_cfg.get("PASSWORD") else ""
+    password_part = f":{quote_plus(db_cfg['PASSWORD'])}" if db_cfg.get("PASSWORD") else ""
     os.environ["PERSONS_DATABASE_URL"] = (
         f"postgres://{db_cfg['USER']}{password_part}@{db_cfg['HOST']}:{db_cfg['PORT']}/{test_persons_db_name}"
     )
