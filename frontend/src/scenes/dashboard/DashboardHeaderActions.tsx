@@ -2,14 +2,13 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconGridMasonry, IconPlusSmall, IconShare } from '@posthog/icons'
-import { LemonDialog } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
-import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { MaxTool } from 'scenes/max/MaxTool'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -21,41 +20,8 @@ import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { DashboardLoadAction, dashboardLogic } from './dashboardLogic'
 
 export function EditModeActions(): JSX.Element {
-    const { dashboard, dashboardLoading, canEditDashboard, hasUnsavedEditChanges } = useValues(dashboardLogic)
-    const { setDashboardMode } = useActions(dashboardLogic)
-    const { reportDashboardEditModeDiscardPrompt } = useActions(eventUsageLogic)
-
-    const discardEditModeChanges = (): void => {
-        setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)
-    }
-
-    const handleCancelClick = (): void => {
-        if (!hasUnsavedEditChanges) {
-            discardEditModeChanges()
-            return
-        }
-        reportDashboardEditModeDiscardPrompt(dashboard, 'shown')
-        LemonDialog.open({
-            title: 'Discard unsaved changes?',
-            description:
-                'You have unsaved changes to this dashboard. If you discard them now, your edits will be lost.',
-            primaryButton: {
-                children: 'Discard changes',
-                status: 'danger',
-                onClick: () => {
-                    reportDashboardEditModeDiscardPrompt(dashboard, 'discarded')
-                    discardEditModeChanges()
-                },
-                'data-attr': 'dashboard-edit-mode-discard-confirm',
-            },
-            secondaryButton: {
-                children: 'Keep editing',
-                onClick: () => {
-                    reportDashboardEditModeDiscardPrompt(dashboard, 'kept_editing')
-                },
-            },
-        })
-    }
+    const { dashboardLoading, canEditDashboard } = useValues(dashboardLogic)
+    const { setDashboardMode, cancelEditMode } = useActions(dashboardLogic)
 
     return (
         <>
@@ -69,7 +35,7 @@ export function EditModeActions(): JSX.Element {
                 <LemonButton
                     data-attr="dashboard-edit-mode-discard"
                     type="secondary"
-                    onClick={handleCancelClick}
+                    onClick={() => cancelEditMode()}
                     size="small"
                     tooltip="Discard changes and exit edit mode"
                 >

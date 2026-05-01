@@ -487,53 +487,59 @@ describe('dashboardLogic', () => {
             expect(restoredTileLayouts).toEqual(originalLayouts)
         })
 
-        describe('hasUnsavedEditChanges selector', () => {
-            it('is false when nothing has changed', async () => {
-                await expectLogic(logic).toFinishAllListeners().toMatchValues({ hasUnsavedEditChanges: false })
+        describe('hasUnsavedLayoutChanges selector', () => {
+            const moveFirstTile = (): void => {
+                const firstTile = logic.values.dashboard!.tiles[0]
+                const currentLayouts = logic.values.layouts
+                const modifiedLayouts: any = {
+                    ...currentLayouts,
+                    sm: currentLayouts.sm?.map((layout: any) =>
+                        layout.i === String(firstTile.id) ? { ...layout, x: (layout.x ?? 0) + 1 } : layout
+                    ),
+                }
+                logic.actions.updateLayouts(modifiedLayouts)
+            }
+
+            it('is false when no tile has been moved', async () => {
+                await expectLogic(logic).toFinishAllListeners().toMatchValues({ hasUnsavedLayoutChanges: false })
+            })
+
+            it('is false when filters or theme change but layout has not', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    logic.actions.setDates('-7d', null)
+                    logic.actions.setDataColorThemeId(123)
+                })
+                    .toFinishAllListeners()
+                    .toMatchValues({ hasUnsavedLayoutChanges: false })
             })
 
             it('is true after a layout change', async () => {
                 await expectLogic(logic).toFinishAllListeners()
 
-                const firstTile = logic.values.dashboard!.tiles[0]
-                const currentLayouts = logic.values.layouts
-                const modifiedLayouts: any = {
-                    ...currentLayouts,
-                    sm: currentLayouts.sm?.map((layout: any) =>
-                        layout.i === String(firstTile.id) ? { ...layout, x: (layout.x ?? 0) + 1 } : layout
-                    ),
-                }
-
-                await expectLogic(logic, () => {
-                    logic.actions.updateLayouts(modifiedLayouts)
-                })
+                await expectLogic(logic, moveFirstTile)
                     .toFinishAllListeners()
-                    .toMatchValues({ hasUnsavedEditChanges: true })
-            })
-
-            it('is true after a filter change', async () => {
-                await expectLogic(logic).toFinishAllListeners()
-
-                await expectLogic(logic, () => {
-                    logic.actions.setDates('-7d', null)
-                })
-                    .toFinishAllListeners()
-                    .toMatchValues({ hasUnsavedEditChanges: true })
-            })
-
-            it('is true after a theme change', async () => {
-                await expectLogic(logic).toFinishAllListeners()
-
-                await expectLogic(logic, () => {
-                    logic.actions.setDataColorThemeId(123)
-                })
-                    .toFinishAllListeners()
-                    .toMatchValues({ hasUnsavedEditChanges: true })
+                    .toMatchValues({ hasUnsavedLayoutChanges: true })
             })
 
             it('returns to false after discarding changes', async () => {
                 await expectLogic(logic).toFinishAllListeners()
 
+                await expectLogic(logic, moveFirstTile)
+                    .toFinishAllListeners()
+                    .toMatchValues({ hasUnsavedLayoutChanges: true })
+
+                await expectLogic(logic, () => {
+                    logic.actions.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)
+                })
+                    .toFinishAllListeners()
+                    .toMatchValues({ hasUnsavedLayoutChanges: false })
+            })
+        })
+
+        describe('cancelEditMode action', () => {
+            const moveFirstTile = (): void => {
                 const firstTile = logic.values.dashboard!.tiles[0]
                 const currentLayouts = logic.values.layouts
                 const modifiedLayouts: any = {
@@ -542,18 +548,29 @@ describe('dashboardLogic', () => {
                         layout.i === String(firstTile.id) ? { ...layout, x: (layout.x ?? 0) + 1 } : layout
                     ),
                 }
+                logic.actions.updateLayouts(modifiedLayouts)
+            }
+
+            it('exits edit mode immediately when no tile has been moved', async () => {
+                await expectLogic(logic).toFinishAllListeners()
 
                 await expectLogic(logic, () => {
-                    logic.actions.updateLayouts(modifiedLayouts)
-                })
-                    .toFinishAllListeners()
-                    .toMatchValues({ hasUnsavedEditChanges: true })
+                    logic.actions.cancelEditMode()
+                }).toDispatchActions([
+                    logic.actionCreators.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges),
+                ])
+            })
+
+            it('does not exit edit mode when a tile has been moved', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+
+                await expectLogic(logic, moveFirstTile).toFinishAllListeners()
 
                 await expectLogic(logic, () => {
-                    logic.actions.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)
-                })
-                    .toFinishAllListeners()
-                    .toMatchValues({ hasUnsavedEditChanges: false })
+                    logic.actions.cancelEditMode()
+                }).toNotHaveDispatchedActions([
+                    logic.actionCreators.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges),
+                ])
             })
         })
     })
