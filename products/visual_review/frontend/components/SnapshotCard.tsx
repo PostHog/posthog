@@ -6,7 +6,6 @@ import { urls } from 'scenes/urls'
 
 import type { BaselineEntryApi } from '../generated/api.schemas'
 import { parseArea, parseTheme } from '../lib/parseIdentifier'
-import { InlineSparkline } from './InlineSparkline'
 
 // Shared base for the corner badges on a snapshot card. Both badges use the
 // same shape (capsule, fixed height, min-width matching height so single-glyph
@@ -90,7 +89,17 @@ export function SnapshotCard({
                     <LemonTag type="default" size="small">
                         {area}
                     </LemonTag>
-                    <InlineSparkline data={entry.sparkline} className="h-4 w-16 shrink-0" />
+                    {entry.baseline_change_count > 0 && (
+                        <Tooltip
+                            title={`Baseline updated ${entry.baseline_change_count} time${
+                                entry.baseline_change_count === 1 ? '' : 's'
+                            } since inception`}
+                        >
+                            <span className="font-mono text-[10px] text-muted shrink-0">
+                                ↻ {entry.baseline_change_count}
+                            </span>
+                        </Tooltip>
+                    )}
                 </div>
             </div>
         </Link>
