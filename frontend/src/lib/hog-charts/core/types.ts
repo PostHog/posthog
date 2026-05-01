@@ -153,8 +153,7 @@ export interface ChartConfig {
     tooltip?: TooltipConfig
     /** Show a vertical crosshair line that follows the cursor. */
     showCrosshair?: boolean
-    /** Orientation of the categorical axis. `vertical` (default) puts categories on x and values on y;
-     *  `horizontal` swaps them. Affects margin computation and axis-label layout. */
+    /** `vertical` (default): categories on x, values on y. `horizontal`: swapped. */
     axisOrientation?: 'vertical' | 'horizontal'
 }
 

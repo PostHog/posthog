@@ -68,9 +68,7 @@ export function buildTooltipContext<Meta = unknown>(
     canvasBounds: DOMRect,
     resolveValue: ResolveValueFn,
     yAxes?: Record<string, YAxisScale>,
-    /** Which axis the categorical labels live on. `'x'` (default) = labels on x, values on y (vertical chart).
-     *  `'y'` = labels on y, values on x (horizontal chart). The returned `position.{x,y}` are always
-     *  canvas-pixel coordinates regardless of orientation. */
+    /** Returned `position.{x,y}` are canvas-pixel coordinates regardless of orientation. */
     interactionAxis: 'x' | 'y' = 'x'
 ): TooltipContext<Meta> | null {
     if (dataIndex < 0 || dataIndex >= labels.length) {

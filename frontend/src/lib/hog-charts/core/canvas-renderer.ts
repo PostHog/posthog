@@ -6,8 +6,6 @@ import type { ChartDimensions, ChartDrawArgs, ResolvedSeries } from './types'
 export interface DrawContext {
     ctx: CanvasRenderingContext2D
     dimensions: ChartDimensions
-    /** Maps a categorical label to a pixel coordinate on the categorical axis.
-     *  For point/line charts this is `d3.ScalePoint<string>`; bar charts pass a band-derived center function. */
     xScale: (label: string) => number | undefined
     yScale: d3.ScaleLinear<number, number> | d3.ScaleLogarithmic<number, number>
     labels: string[]
@@ -317,7 +315,6 @@ export function drawGrid(
     ctx.setLineDash([])
 
     if (orientation === 'horizontal') {
-        // Value axis runs horizontally — grid lines are vertical at each value tick.
         for (const tick of valueTicks) {
             const x = Math.round(yScale(tick)) + 0.5
             ctx.beginPath()
@@ -325,7 +322,6 @@ export function drawGrid(
             ctx.lineTo(x, dimensions.plotTop + dimensions.plotHeight)
             ctx.stroke()
         }
-        // Categorical-axis baseline runs along the top of the plot area.
         const axisY = Math.round(dimensions.plotTop) + 0.5
         ctx.beginPath()
         ctx.moveTo(dimensions.plotLeft, axisY)

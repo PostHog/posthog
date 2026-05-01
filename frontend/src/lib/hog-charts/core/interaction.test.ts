@@ -251,13 +251,10 @@ describe('hog-charts interaction', () => {
         })
 
         it('swaps and picks the rightmost (max) value pixel when interactionAxis is "y"', () => {
-            // Horizontal-bar mode: the categorical axis is y, the value axis is x.
-            // - position.x should be max(valuePixels) — the rightmost (visually furthest) value
-            // - position.y should be the band pixel returned by xScale
             const s1 = makeSeries({ key: 's1', data: [10] })
             const s2 = makeSeries({ key: 's2', data: [50] })
-            const xFixed = (): number => 150 // band y-pixel
-            const xPxScale = (v: number): number => (v === 10 ? 200 : 400) // value x-pixels
+            const xFixed = (): number => 150
+            const xPxScale = (v: number): number => (v === 10 ? 200 : 400)
             const result = buildTooltipContext(
                 0,
                 [s1, s2],

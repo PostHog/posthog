@@ -10,11 +10,9 @@ interface AxisLabelsProps {
     hideXAxis?: boolean
     hideYAxis?: boolean
     axisColor?: string
-    /** Axis orientation: `vertical` (default) puts categories on the x-axis bottom and value ticks on the y-axis left.
-     *  `horizontal` swaps them — categories on the y-axis left, value ticks on the x-axis bottom. */
     orientation?: 'vertical' | 'horizontal'
-    /** Required for horizontal orientation — maps labels to y pixel coordinates (band centers).
-     *  When omitted in horizontal mode, every category label is hidden. Ignored in vertical mode. */
+    /** Required when orientation is horizontal — maps labels to y-pixel coordinates (band centers).
+     *  Omitting it in horizontal mode hides all category labels. */
     labelToCoord?: (label: string) => number | undefined
 }
 
@@ -122,8 +120,7 @@ export function AxisLabels({
     const rightFormatter = yRightTickFormatter ?? yTickFormatter
 
     if (orientation === 'horizontal') {
-        // Categories on the left, numeric ticks on the bottom.
-        // `scales.y` is the value scale (x pixel coords for horizontal); `labelToCoord` maps to y.
+        // In horizontal mode `scales.y` holds value→x-pixel; `labelToCoord` holds label→y-pixel.
         return (
             <>
                 {!hideYAxis &&

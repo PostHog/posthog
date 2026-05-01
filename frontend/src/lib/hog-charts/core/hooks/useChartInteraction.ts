@@ -58,10 +58,7 @@ interface UseChartInteractionOptions<Meta> {
     pinnable: boolean
     onPointClick?: (data: PointClickData<Meta>) => void
     resolveValue?: ResolveValueFn
-    /** Which axis the categorical-label hit detection runs on. Defaults to 'x'.
-     *  `'y'` is used for horizontal bar charts where labels are mapped to y pixels. */
     interactionAxis?: 'x' | 'y'
-    /** When set, used instead of `scales.x` to map labels to coordinates on `interactionAxis`. */
     labelToCoord?: (label: string) => number | undefined
 }
 
@@ -107,7 +104,6 @@ export function useChartInteraction<Meta = unknown>({
     const isPinned = tooltipCtx?.isPinned ?? false
 
     // Precompute the (coord, index) lookup table once per (labels, scale) change.
-    // For vertical orientation this is x positions; for horizontal it's y positions.
     const labelPositions = useMemo(
         () => (scales ? buildLabelPositions(labels, labelToCoord ?? scales.x) : []),
         [labels, scales, labelToCoord]
