@@ -10,7 +10,7 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { identifierToHuman } from 'lib/utils'
-import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/router-utils'
+import { addProjectIdIfMissing, removeProjectIdIfPresent, stripTrailingSlash } from 'lib/utils/router-utils'
 import { getTabsSnapshotForHistory, sceneLogic } from 'scenes/sceneLogic'
 
 import { disposablesPlugin } from '~/kea-disposables'
@@ -78,7 +78,9 @@ export function initKea({
                 return addProjectIdIfMissing(path)
             },
             pathFromWindowToRoutes: (path) => {
-                return removeProjectIdIfPresent(path)
+                // Strip trailing slashes so that URLs like `/insights/abc/` still match
+                // the `/insights/:shortId` route pattern instead of falling through to 404.
+                return stripTrailingSlash(removeProjectIdIfPresent(path))
             },
             replaceInitialPathInWindow:
                 typeof replaceInitialPathInWindow === 'undefined' ? true : replaceInitialPathInWindow,
