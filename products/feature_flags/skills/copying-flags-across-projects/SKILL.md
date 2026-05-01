@@ -70,7 +70,7 @@ Call `posthog:feature-flags-copy-flags-create` with:
 The response includes a `success` array (one entry per copied flag) and a `failed` array (per-target errors). Surface both:
 
 - For each success: target project id, the new flag's id, and its `active` state in the target.
-- For each failure: target project id and the error message. Common causes are missing editor access on the target team, or the flag already existing as a non-overrideable resource in the target.
+- For each failure: target project id and the error message. Common causes are missing editor access on the target team, or the flag already existing as a non-overridable resource in the target.
 
 If any targets failed, ask the user whether to retry the failed ones, skip them, or fix the underlying issue (e.g. grant access, then retry).
 
