@@ -20,7 +20,12 @@ import { hashCodeForString } from 'lib/utils'
 import { useInView } from 'react-intersection-observer'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { NotebookNodeLogicProps, notebookNodeLogic } from './notebookNodeLogic'
-import { posthogNodeInputRule, posthogNodePasteRule, useSyncedAttributes } from './utils'
+import {
+    posthogNodeInputRule,
+    posthogNodePasteRule,
+    shouldOmitFromClipboardHTML,
+    useSyncedAttributes,
+} from './utils'
 import { KNOWN_NODES } from '../utils'
 import { NotebookNodeTitle } from './components/NotebookNodeTitle'
 import { DuckSqlRunMenu } from './components/DuckSqlRunMenu'
@@ -569,10 +574,11 @@ export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>(
 
         renderHTML({ HTMLAttributes }) {
             // Per-attribute renderHTML callbacks already JSON-stringified each value;
-            // we just drop nodeId so paste doesn't duplicate the source node's ID.
-            const sanitizedAttributes = { ...HTMLAttributes }
-            delete sanitizedAttributes.nodeId
-            return [wrapperProps.nodeType, mergeAttributes(sanitizedAttributes)]
+            // here we just apply the same omit rule the explicit Copy action uses
+            const sanitized = Object.fromEntries(
+                Object.entries(HTMLAttributes).filter(([key, value]) => !shouldOmitFromClipboardHTML(key, value))
+            )
+            return [wrapperProps.nodeType, mergeAttributes(sanitized)]
         },
 
         addNodeView() {
