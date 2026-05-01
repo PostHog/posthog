@@ -48,6 +48,7 @@ from hogli.telemetry import _load_config, _save_config
 # commands with the CLI group when imported. The imports appear unused but are required.
 from . import (  # noqa: F401
     build,
+    db_schema,
     devbox,
     doctor,
     hints,
