@@ -10,8 +10,6 @@ import structlog
 import posthoganalytics
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models.file_system.user_product_list import UserProductList
-from posthog.models.team.team import Team
 from posthog.models.user import OnboardingSkippedReason, User
 
 if TYPE_CHECKING:
@@ -118,6 +116,13 @@ def _seed_sidebar_for_delegator(*, user_id: int, organization_id: UUID | str) ->
     delegated org; otherwise pick any team in the org they have access to. A failure here
     must not block the delegation itself, so we swallow exceptions after capturing them.
     """
+    # Local imports to avoid pulling Team and UserProductList (and their transitive model
+    # graph) into module-load order — onboarding_delegation is imported by Django model
+    # modules during app loading and module-level cross-model imports here have triggered
+    # apps-not-ready issues.
+    from posthog.models.file_system.user_product_list import UserProductList
+    from posthog.models.team.team import Team
+
     try:
         user = User.objects.filter(pk=user_id).first()
         if user is None:
