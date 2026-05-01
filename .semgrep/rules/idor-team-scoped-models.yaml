@@ -137,6 +137,9 @@ rules:
                               |Insight
                               |InsightVariable
                               |Integration
+                              |KnowledgeChunk
+                              |KnowledgeDocument
+                              |KnowledgeSource
                               |Link
                               |LiveDebuggerBreakpoint
                               |LogsAlertConfiguration
@@ -340,6 +343,9 @@ rules:
                         |Insight
                         |InsightVariable
                         |Integration
+                        |KnowledgeChunk
+                        |KnowledgeDocument
+                        |KnowledgeSource
                         |Link
                         |LiveDebuggerBreakpoint
                         |LLMModelConfiguration
