@@ -9,15 +9,17 @@ use lifecycle::{ComponentOptions, Manager};
 use metrics_exporter_prometheus::PrometheusBuilder;
 use personhog_common::grpc::{tracked_tcp_incoming, GrpcMetricsLayer};
 use personhog_coordination::coordinator::{Coordinator, CoordinatorConfig};
-use personhog_coordination::error::Result as CoordResult;
 use personhog_coordination::routing_table::{RoutingTable, RoutingTableConfig, StashHandler};
 use personhog_coordination::store::PersonhogStore;
 use personhog_coordination::strategy::StickyBalancedStrategy;
 use personhog_proto::personhog::service::v1::person_hog_service_server::PersonHogServiceServer;
-use personhog_router::backend::{LeaderBackend, ReplicaBackend, ReplicaBackendConfig};
+use personhog_router::backend::{
+    LeaderBackend, LeaderBackendConfig, ReplicaBackend, ReplicaBackendConfig, StashTable,
+};
 use personhog_router::config::{Config, RouterMode};
 use personhog_router::router::PersonHogRouter;
 use personhog_router::service::PersonHogRouterService;
+use personhog_router::stash_handler::RouterStashHandler;
 use tokio_util::sync::CancellationToken;
 use tonic::transport::Server;
 use tracing::level_filters::LevelFilter;
@@ -27,42 +29,6 @@ use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
 
 common_alloc::used!();
-
-/// Stash handler for the router. Reacts to handoff phase transitions:
-///
-/// * `Freezing` -> `begin_stash`: would start buffering writes for the
-///   partition. This implementation is a stub — writes still flow straight
-///   through to whoever the routing table currently points at — so the
-///   freeze-ack is honest about routing but not about buffering. A
-///   follow-up change introduces a real per-partition stash queue.
-/// * `Complete` -> `drain_stash`: clear the cached gRPC client for the
-///   prior owner so the next request reconnects to the new leader pod.
-///   With no buffered writes there is nothing else to drain.
-struct RouterStashHandler {
-    leader_backend: Arc<LeaderBackend>,
-}
-
-#[async_trait::async_trait]
-impl StashHandler for RouterStashHandler {
-    async fn begin_stash(&self, partition: u32, new_owner: &str) -> CoordResult<()> {
-        tracing::info!(
-            partition,
-            new_owner,
-            "begin_stash (stub): no buffering, writes flow through current routing"
-        );
-        Ok(())
-    }
-
-    async fn drain_stash(&self, partition: u32, new_owner: &str) -> CoordResult<()> {
-        tracing::info!(
-            partition,
-            new_owner,
-            "drain_stash (stub): clearing cached client for prior owner"
-        );
-        self.leader_backend.clear_client_cache(new_owner);
-        Ok(())
-    }
-}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -226,16 +192,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let leader_backend = Arc::new(LeaderBackend::new(
             shared_table,
             Arc::new(move |pod_name: &str| Some(format!("http://{}:{}", pod_name, leader_port))),
-            num_partitions,
-            config.backend_timeout(),
-            config.retry_config(),
-            config.grpc_max_send_message_size,
-            config.grpc_max_recv_message_size,
+            LeaderBackendConfig {
+                num_partitions,
+                timeout: config.backend_timeout(),
+                retry_config: config.retry_config(),
+                max_send_message_size: config.grpc_max_send_message_size,
+                max_recv_message_size: config.grpc_max_recv_message_size,
+            },
+            StashTable::with_bounds(
+                config.stash_max_messages_per_partition,
+                config.stash_max_bytes_per_partition,
+            ),
         ));
 
-        let stash_handler: Arc<dyn StashHandler> = Arc::new(RouterStashHandler {
-            leader_backend: Arc::clone(&leader_backend),
-        });
+        let stash_handler: Arc<dyn StashHandler> = Arc::new(RouterStashHandler::new(
+            Arc::clone(&leader_backend),
+            config.stash_max_wait(),
+            config.stash_drain_concurrency,
+        ));
 
         // Start routing table (etcd registration + assignment/handoff watches)
         let routing_table_handle =

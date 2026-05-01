@@ -6,11 +6,11 @@ use std::time::Duration;
 use dashmap::DashMap;
 
 use common::{
-    create_leader_client, create_local_kafka_producer, create_test_kafka, seed_person,
-    start_coordinator, start_leader_pod, start_leader_pod_with_lease_ttl,
-    start_leader_with_pg_fallback, start_router, test_cached_person, test_store,
-    wait_for_condition, CHANGELOG_TOPIC, KAFKA_BOOTSTRAP, NUM_PARTITIONS, POLL_INTERVAL,
-    WAIT_TIMEOUT,
+    create_leader_client, create_local_kafka_producer, create_test_kafka,
+    create_test_kafka_with_partitions, seed_person, start_coordinator, start_leader_pod,
+    start_leader_pod_with_lease_ttl, start_leader_with_pg_fallback, start_router,
+    test_cached_person, test_store, wait_for_condition, CHANGELOG_TOPIC, KAFKA_BOOTSTRAP,
+    NUM_PARTITIONS, POLL_INTERVAL, WAIT_TIMEOUT,
 };
 use personhog_coordination::strategy::StickyBalancedStrategy;
 use personhog_leader::cache::{CacheLookup, PartitionedCache};
@@ -434,7 +434,11 @@ async fn rewarm_after_pod_crash() {
 #[tokio::test]
 async fn update_produces_person_state_to_kafka() {
     let cache = Arc::new(PartitionedCache::new(100));
-    let (mock_cluster, kafka_producer) = create_test_kafka().await;
+    // Single-partition topic: this test verifies the producer's delivery
+    // path, not partition routing. Using a single partition makes the
+    // assertion (consume from partition 0) deterministic regardless of
+    // rdkafka's default key-hash partitioner.
+    let (mock_cluster, kafka_producer) = create_test_kafka_with_partitions(1).await;
 
     let service = PersonHogLeaderService::new(
         Arc::clone(&cache),
