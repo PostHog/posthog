@@ -733,9 +733,27 @@ export class ApiClient {
 
     insights({ projectId }: { projectId: string }): Endpoint {
         return {
-            get: async ({ insightId }: { insightId: string }): Promise<Result<Schemas.Insight>> => {
+            get: async ({
+                insightId,
+                variables_override,
+                filters_override,
+            }: {
+                insightId: string
+                variables_override?: string
+                filters_override?: string
+            }): Promise<Result<Schemas.Insight>> => {
+                const overrideParams = new URLSearchParams()
+                if (variables_override) {
+                    overrideParams.set('variables_override', variables_override)
+                }
+                if (filters_override) {
+                    overrideParams.set('filters_override', filters_override)
+                }
+                const overrideQuery = overrideParams.toString() ? `?${overrideParams}` : ''
+
                 // Check if insightId is a short_id (8 character alphanumeric string)
                 // Note: This won't work when we start creating insight id's with 8 digits. (We're at 7 currently)
+                let resolvedId = insightId
                 if (isShortId(insightId)) {
                     const searchParams = new URLSearchParams({ short_id: insightId })
                     const url = `${this.baseUrl}/api/projects/${projectId}/insights/?${searchParams}`
@@ -756,11 +774,17 @@ export class ApiClient {
                         }
                     }
 
-                    return { success: true, data: insight }
+                    // Without overrides, return the list-resolved insight directly to save a hop.
+                    // With overrides, fall through to the retrieve endpoint — only that path
+                    // applies variables_override / filters_override server-side.
+                    if (!overrideQuery) {
+                        return { success: true, data: insight }
+                    }
+                    resolvedId = String(insight.id)
                 }
 
                 return this.fetchJson<Schemas.Insight>(
-                    `${this.baseUrl}/api/projects/${projectId}/insights/${insightId}/`
+                    `${this.baseUrl}/api/projects/${projectId}/insights/${resolvedId}/${overrideQuery}`
                 )
             },
 

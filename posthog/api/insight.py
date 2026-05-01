@@ -1680,8 +1680,7 @@ When set, the specified dashboard's filters and date range override will be appl
                     '"value": <new_value>}}. Each entry must include `code_name` — partial entries are silently '
                     "dropped. The simplest workflow is to call `insight-get` first, copy the matching entry from "
                     "the response's query variables, and mutate `value`. Top-level keys replace; nested values are "
-                    "not deep-merged. When combined with `from_dashboard`, merges on top of the dashboard's variable "
-                    "overrides. Ignored when accessed via a sharing token."
+                    "not deep-merged. Ignored when accessed via a sharing token."
                 ),
             ),
             OpenApiParameter(
@@ -1691,8 +1690,7 @@ When set, the specified dashboard's filters and date range override will be appl
                     "JSON object to override the insight's filters for this request only (not persisted). "
                     "Top-level keys replace; nested values are not deep-merged — pass the complete value for any "
                     "key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, "
-                    "`date_to`, `properties`). When combined with `from_dashboard`, merges on top of the "
-                    "dashboard's filters. Ignored when accessed via a sharing token."
+                    "`date_to`, `properties`). Ignored when accessed via a sharing token."
                 ),
             ),
         ],
