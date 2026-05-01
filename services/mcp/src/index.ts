@@ -9,11 +9,17 @@ import {
 import { RequestLogger, withLogging } from '@/lib/logging'
 import { extractClientInfoFromBody } from '@/lib/mcp-client-info'
 import { buildRedirectUrl, matchAuthServerRedirect } from '@/lib/routing'
+import { installTransientConsoleFilter, isTransientShutdownError } from '@/lib/transient-errors'
 import { hash, parseMcpMode, sanitizeHeaderValue } from '@/lib/utils'
 import type { CloudRegion } from '@/tools/types'
 
 import { MCP, RequestProperties } from './mcp'
 import RAW_LANDING_HTML from './static/landing.html'
+
+// Demote partyserver/agents framework console.error calls that fire on normal
+// Durable Object teardown (webSocketClose, "destroyed") to warn — they are
+// lifecycle noise, not real failures.
+installTransientConsoleFilter()
 
 const PARSED_LANDING_HTML = RAW_LANDING_HTML.replace('{{DOCS_URL}}', MCP_DOCS_URL)
 
@@ -103,6 +109,19 @@ const onCatchErrorHandler = async (
     const knownErrorResponse = generateErrorResponseFromMessage(error.message)
     if (knownErrorResponse) {
         return knownErrorResponse
+    }
+
+    // Durable Object teardown / websocket close races bubble up here as
+    // `Error: destroyed`. They are normal lifecycle events — skip exception
+    // capture and emit the wide log at warn level instead of cluttering error
+    // tracking.
+    if (isTransientShutdownError(error)) {
+        log.setSeverity('warn')
+        log.extend({
+            transientError: error?.name,
+            transientMessage: error?.message,
+        })
+        return new Response('Internal server error', { status: 500 })
     }
 
     // Unrecognized error → opaque 500 to the client. Surface the underlying

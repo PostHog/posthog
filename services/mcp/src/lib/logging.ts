@@ -1,9 +1,12 @@
 const SENSITIVE_HEADERS = ['authorization', 'cookie', 'x-api-key']
 
+type LogSeverity = 'info' | 'warn'
+
 // Wide log class for accumulating request data and emitting a single log at the end
 export class RequestLogger {
     private data: Record<string, unknown> = {}
     private startTime = Date.now()
+    private severity: LogSeverity = 'info'
 
     constructor(requestId?: string) {
         this.data.requestId = requestId ?? crypto.randomUUID().slice(0, 8)
@@ -13,10 +16,19 @@ export class RequestLogger {
         Object.assign(this.data, data)
     }
 
+    setSeverity(severity: LogSeverity): void {
+        this.severity = severity
+    }
+
     emit(status: number): void {
         this.data.status = status
         this.data.durationMs = Date.now() - this.startTime
-        console.info('[MCP]', JSON.stringify(this.data))
+        const line = JSON.stringify(this.data)
+        if (this.severity === 'warn') {
+            console.warn('[MCP]', line)
+        } else {
+            console.info('[MCP]', line)
+        }
     }
 }
 
