@@ -19,7 +19,7 @@ RETENTION_DAYS = 7
 
 @dataclass(frozen=True, slots=True)
 class PartitionResult:
-    created: list[str]
+    ensured: list[str]
     dropped: list[str]
     errors: list[str]
 
@@ -31,7 +31,7 @@ class PartitionResult:
 @temporalio.activity.defn
 async def manage_warehouse_sources_queue_partitions() -> dict:
     database_url: str = settings.WAREHOUSE_SOURCES_DATABASE_URL
-    created: list[str] = []
+    ensured: list[str] = []
     dropped: list[str] = []
     errors: list[str] = []
 
@@ -48,7 +48,7 @@ async def manage_warehouse_sources_queue_partitions() -> dict:
                         f"PARTITION OF {table} "
                         f"FOR VALUES FROM ('{d.isoformat()}') TO ('{(d + timedelta(days=1)).isoformat()}')"
                     )
-                    created.append(partition_name)
+                    ensured.append(partition_name)
                 except Exception as e:
                     errors.append(f"Failed to create {partition_name}: {e}")
                     logger.exception("Failed to create partition", partition=partition_name)
@@ -82,11 +82,11 @@ async def manage_warehouse_sources_queue_partitions() -> dict:
 
         _verify_partitions(conn, today, errors)
 
-    result = PartitionResult(created=created, dropped=dropped, errors=errors)
+    result = PartitionResult(ensured=ensured, dropped=dropped, errors=errors)
 
     logger.info(
         "Partition management completed",
-        created_count=len(created),
+        ensured_count=len(ensured),
         dropped_count=len(dropped),
         error_count=len(errors),
         success=result.success,
@@ -95,7 +95,7 @@ async def manage_warehouse_sources_queue_partitions() -> dict:
     if not result.success:
         _send_slack_failure(errors)
 
-    return {"created": result.created, "dropped": result.dropped, "errors": result.errors, "success": result.success}
+    return {"ensured": result.ensured, "dropped": result.dropped, "errors": result.errors, "success": result.success}
 
 
 def _verify_partitions(conn: psycopg.Connection, today: date, errors: list[str]) -> None:
