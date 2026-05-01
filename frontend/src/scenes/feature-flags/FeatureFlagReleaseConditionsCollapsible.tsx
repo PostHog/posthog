@@ -38,6 +38,7 @@ import { TaxonomicFilterGroupType, TaxonomicFilterProps } from 'lib/components/T
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
@@ -784,6 +785,16 @@ export function FeatureFlagReleaseConditionsCollapsible({
     const isDragDropEnabled = !!featureFlags[FEATURE_FLAGS.FEATURE_FLAG_DRAG_DROP_CONDITIONS]
     const isMixedTargetingEnabled = !!featureFlags[FEATURE_FLAGS.FEATURE_FLAG_MIXED_TARGETING]
 
+    // Access flag details for auto-disable persist across auth
+    const flagLogicProps = flagId ? { id: flagId } : { id: 'dummy' }
+    const flagLogic = featureFlagLogic(flagLogicProps)
+    const { featureFlag } = useValues(flagLogic)
+    const { setFeatureFlag } = useActions(flagLogic)
+
+    // Only use the values if we have a valid flagId
+    const validFeatureFlag = flagId ? featureFlag : null
+    const validSetFeatureFlag = flagId ? setFeatureFlag : null
+
     // Ref map for focus management
     const optionRefs = useRef<Record<string, HTMLDivElement | null>>({})
 
@@ -911,24 +922,69 @@ export function FeatureFlagReleaseConditionsCollapsible({
 
     // Handler for option selection logic (shared by click and keyboard events)
     const selectMatchByOption = (value: string): void => {
-        if (value === 'user') {
-            setIsMixedTargeting(false)
-            setAggregationGroupTypeIndex(null)
-            onBucketingIdentifierChange?.(FeatureFlagBucketingIdentifier.DISTINCT_ID)
-        } else if (value === 'device') {
-            setIsMixedTargeting(false)
-            setAggregationGroupTypeIndex(null)
-            onBucketingIdentifierChange?.(FeatureFlagBucketingIdentifier.DEVICE_ID)
-        } else if (value === 'group') {
-            setIsMixedTargeting(false)
-            const firstGroupType = groupTypeValues[0]
-            if (firstGroupType) {
-                setAggregationGroupTypeIndex(firstGroupType.group_type_index)
+        const applyChange = (targetValue: string): void => {
+            if (targetValue === 'user') {
+                setIsMixedTargeting(false)
+                setAggregationGroupTypeIndex(null)
+                onBucketingIdentifierChange?.(FeatureFlagBucketingIdentifier.DISTINCT_ID)
+            } else if (targetValue === 'device') {
+                setIsMixedTargeting(false)
+                setAggregationGroupTypeIndex(null)
+                onBucketingIdentifierChange?.(FeatureFlagBucketingIdentifier.DEVICE_ID)
+                // Auto-disable persist across auth when switching to device ID
+                if (validFeatureFlag?.ensure_experience_continuity && validSetFeatureFlag) {
+                    validSetFeatureFlag({
+                        ...validFeatureFlag,
+                        ensure_experience_continuity: false,
+                    })
+                }
+            } else if (targetValue === 'group') {
+                setIsMixedTargeting(false)
+                const firstGroupType = groupTypeValues[0]
+                if (firstGroupType) {
+                    setAggregationGroupTypeIndex(firstGroupType.group_type_index)
+                }
+                onBucketingIdentifierChange?.(null)
+                // Auto-disable persist across auth when switching to group (not User)
+                if (validFeatureFlag?.ensure_experience_continuity && validSetFeatureFlag) {
+                    validSetFeatureFlag({
+                        ...validFeatureFlag,
+                        ensure_experience_continuity: false,
+                    })
+                }
+            } else if (targetValue === 'mixed') {
+                switchToMixedTargeting()
+                onBucketingIdentifierChange?.(null)
+                // Auto-disable persist across auth when switching to mixed (not User)
+                if (validFeatureFlag?.ensure_experience_continuity && validSetFeatureFlag) {
+                    validSetFeatureFlag({
+                        ...validFeatureFlag,
+                        ensure_experience_continuity: false,
+                    })
+                }
             }
-            onBucketingIdentifierChange?.(null)
-        } else if (value === 'mixed') {
-            switchToMixedTargeting()
-            onBucketingIdentifierChange?.(null)
+        }
+
+        // If changing from current value, show confirmation
+        if (value !== currentSelected) {
+            LemonDialog.open({
+                title: 'Change bucketing option?',
+                description:
+                    'Changing the bucketing option will cause users to re-evaluate the flag and may cause changes in the evaluation results. Are you sure you want to continue?',
+                primaryButton: {
+                    children: 'Continue',
+                    onClick: () => applyChange(value),
+                    size: 'small',
+                },
+                secondaryButton: {
+                    children: 'Cancel',
+                    type: 'tertiary',
+                    size: 'small',
+                },
+            })
+        } else {
+            // No change, just apply directly
+            applyChange(value)
         }
     }
 
