@@ -217,7 +217,7 @@ export function TrendsBarChart({ context }: TrendsBarChartProps): JSX.Element | 
             theme={theme}
             tooltip={renderTooltip}
             onPointClick={canHandleClick ? onPointClick : undefined}
-            className="LineGraph"
+            className="BarGraph"
             dataAttr="trend-bar-graph"
             onError={handleChartError}
         />
