@@ -48,6 +48,7 @@ from products.data_warehouse.backend.api import (
     external_data_schema,
     external_data_source,
     managed_viewset,
+    managed_warehouse_promoted_table,
     modeling,
     query_tab_state,
     saved_query,
@@ -566,6 +567,12 @@ register_grandfathered_environment_nested_viewset(
     r"external_data_schemas",
     external_data_schema.ExternalDataSchemaViewset,
     "environment_external_data_schemas",
+    ["team_id"],
+)
+register_grandfathered_environment_nested_viewset(
+    r"managed_warehouse_promoted_tables",
+    managed_warehouse_promoted_table.ManagedWarehousePromotedTableViewSet,
+    "environment_managed_warehouse_promoted_tables",
     ["team_id"],
 )
 environments_router.register(

@@ -7026,6 +7026,39 @@ export interface DataWarehouseProvisioningStatus {
     connection: DataWarehouseProvisioningConnection | null
 }
 
+export type ManagedWarehousePromotedTableStatus = 'pending' | 'running' | 'completed' | 'failed'
+export type ManagedWarehousePromotedTableFrequency =
+    | '5min'
+    | '15min'
+    | '30min'
+    | '1hour'
+    | '6hour'
+    | '12hour'
+    | '24hour'
+
+export interface ManagedWarehousePromotedTable {
+    id: string
+    created_at: string
+    updated_at: string
+    source_schema_name: string
+    source_table_name: string
+    sync_frequency_interval: ManagedWarehousePromotedTableFrequency
+    status: ManagedWarehousePromotedTableStatus
+    last_error: string | null
+    last_run_started_at: string | null
+    last_synced_at: string | null
+    row_count: number | null
+    size_in_s3_mib: number | null
+    data_warehouse_table_id: string | null
+}
+
+export interface AvailableManagedWarehouseSourceTable {
+    schema: string
+    name: string
+    table_type: 'BASE TABLE' | 'VIEW'
+    already_promoted: boolean
+}
+
 export type HeatmapType = 'screenshot' | 'iframe' | 'recording'
 export type HeatmapStatus = 'processing' | 'completed' | 'failed'
 

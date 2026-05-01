@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
 import { IconCheck, IconX } from '@posthog/icons'
 
@@ -8,12 +9,243 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
+import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
+import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
-import { DataWarehouseProvisioningConnection, DataWarehouseProvisioningState } from '~/types'
+import {
+    AvailableManagedWarehouseSourceTable,
+    DataWarehouseProvisioningConnection,
+    DataWarehouseProvisioningState,
+    ManagedWarehousePromotedTable,
+    ManagedWarehousePromotedTableFrequency,
+    ManagedWarehousePromotedTableStatus,
+} from '~/types'
 
+import { managedWarehousePromotedTablesLogic } from './managedWarehousePromotedTablesLogic'
 import { warehouseProvisioningLogic } from './warehouseProvisioningLogic'
+
+const FREQUENCY_OPTIONS: { value: ManagedWarehousePromotedTableFrequency; label: string }[] = [
+    { value: '5min', label: 'Every 5 minutes' },
+    { value: '15min', label: 'Every 15 minutes' },
+    { value: '30min', label: 'Every 30 minutes' },
+    { value: '1hour', label: 'Every hour' },
+    { value: '6hour', label: 'Every 6 hours' },
+    { value: '12hour', label: 'Every 12 hours' },
+    { value: '24hour', label: 'Every 24 hours' },
+]
+
+function statusToTagType(
+    status: ManagedWarehousePromotedTableStatus
+): 'success' | 'warning' | 'danger' | 'default' {
+    switch (status) {
+        case 'completed':
+            return 'success'
+        case 'pending':
+        case 'running':
+            return 'warning'
+        case 'failed':
+            return 'danger'
+        default:
+            return 'default'
+    }
+}
+
+function PromoteTableForm({ onCancel }: { onCancel: () => void }): JSX.Element {
+    const { isSaving, availableSourceTables, availableSourceTablesLoading } = useValues(
+        managedWarehousePromotedTablesLogic
+    )
+    const { promoteTable } = useActions(managedWarehousePromotedTablesLogic)
+
+    const [selected, setSelected] = useState<string | null>(null)
+    const [frequency, setFrequency] = useState<ManagedWarehousePromotedTableFrequency>('1hour')
+
+    const sourceOptionSections = (() => {
+        const groupedBySchema = new Map<string, AvailableManagedWarehouseSourceTable[]>()
+        for (const row of availableSourceTables) {
+            const bucket = groupedBySchema.get(row.schema) ?? []
+            bucket.push(row)
+            groupedBySchema.set(row.schema, bucket)
+        }
+        return Array.from(groupedBySchema.entries())
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([schema, rows]) => ({
+                title: schema,
+                options: rows.map((row) => ({
+                    value: `${row.schema}.${row.name}`,
+                    label: row.name + (row.table_type === 'VIEW' ? ' (view)' : ''),
+                    disabledReason: row.already_promoted ? 'Already promoted' : undefined,
+                })),
+            }))
+    })()
+
+    const hasOptions = availableSourceTables.length > 0
+
+    return (
+        <div className="border rounded p-4 space-y-3">
+            <h3 className="mb-2">Promote a table</h3>
+            <div>
+                <LemonLabel>Source table</LemonLabel>
+                <LemonSelect
+                    fullWidth
+                    placeholder={
+                        availableSourceTablesLoading
+                            ? 'Loading tables...'
+                            : hasOptions
+                              ? 'Pick a table to promote'
+                              : 'No tables available in your managed warehouse'
+                    }
+                    loading={availableSourceTablesLoading}
+                    disabledReason={!hasOptions && !availableSourceTablesLoading ? 'No tables available' : undefined}
+                    value={selected}
+                    onChange={(value) => setSelected(value)}
+                    options={sourceOptionSections}
+                />
+            </div>
+            <div>
+                <LemonLabel>Refresh interval</LemonLabel>
+                <LemonSelect
+                    value={frequency}
+                    onChange={(value) => value && setFrequency(value)}
+                    options={FREQUENCY_OPTIONS}
+                />
+            </div>
+            <div className="flex gap-2 justify-end">
+                <LemonButton type="secondary" onClick={onCancel} disabledReason={isSaving ? 'Saving...' : undefined}>
+                    Cancel
+                </LemonButton>
+                <LemonButton
+                    type="primary"
+                    loading={isSaving}
+                    disabledReason={!selected ? 'Pick a table to promote' : undefined}
+                    onClick={() => {
+                        if (!selected) {
+                            return
+                        }
+                        const dotIdx = selected.indexOf('.')
+                        const schema = selected.slice(0, dotIdx)
+                        const name = selected.slice(dotIdx + 1)
+                        promoteTable({
+                            source_schema_name: schema,
+                            source_table_name: name,
+                            sync_frequency: frequency,
+                        })
+                    }}
+                >
+                    Promote
+                </LemonButton>
+            </div>
+        </div>
+    )
+}
+
+function PromotedTablesSection(): JSX.Element {
+    const { promotedTables, promotedTablesLoading, isCreating } = useValues(managedWarehousePromotedTablesLogic)
+    const { setIsCreating, deletePromotion, triggerPromotion, updateFrequency } = useActions(
+        managedWarehousePromotedTablesLogic
+    )
+
+    return (
+        <div className="space-y-3">
+            <div className="flex items-center justify-between">
+                <h2 className="mb-0">Promoted tables</h2>
+                {!isCreating && (
+                    <LemonButton type="primary" onClick={() => setIsCreating(true)}>
+                        Promote a table
+                    </LemonButton>
+                )}
+            </div>
+            <p className="text-muted">
+                Tables in your managed warehouse that have been promoted as queryable tables in PostHog. Each promotion
+                refreshes on its own schedule.
+            </p>
+
+            {isCreating && <PromoteTableForm onCancel={() => setIsCreating(false)} />}
+
+            <LemonTable
+                dataSource={promotedTables}
+                loading={promotedTablesLoading}
+                emptyState="No promoted tables yet."
+                columns={[
+                    {
+                        title: 'Source',
+                        key: 'source',
+                        render: (_, row: ManagedWarehousePromotedTable) =>
+                            `${row.source_schema_name}.${row.source_table_name}`,
+                    },
+                    {
+                        title: 'Status',
+                        key: 'status',
+                        render: (_, row: ManagedWarehousePromotedTable) => (
+                            <LemonTag type={statusToTagType(row.status)}>{row.status.toUpperCase()}</LemonTag>
+                        ),
+                    },
+                    {
+                        title: 'Last synced',
+                        key: 'last_synced_at',
+                        render: (_, row: ManagedWarehousePromotedTable) =>
+                            row.last_synced_at ? new Date(row.last_synced_at).toLocaleString() : '—',
+                    },
+                    {
+                        title: 'Rows',
+                        key: 'row_count',
+                        render: (_, row: ManagedWarehousePromotedTable) =>
+                            row.row_count !== null ? row.row_count.toLocaleString() : '—',
+                    },
+                    {
+                        title: 'Refresh interval',
+                        key: 'sync_frequency_interval',
+                        render: (_, row: ManagedWarehousePromotedTable) => (
+                            <LemonSelect
+                                size="small"
+                                value={row.sync_frequency_interval}
+                                onChange={(value) => value && updateFrequency(row.id, value)}
+                                options={FREQUENCY_OPTIONS}
+                            />
+                        ),
+                    },
+                    {
+                        title: '',
+                        key: 'actions',
+                        render: (_, row: ManagedWarehousePromotedTable) => (
+                            <div className="flex gap-1">
+                                <LemonButton
+                                    size="small"
+                                    type="secondary"
+                                    onClick={() => triggerPromotion(row.id)}
+                                    disabledReason={row.status === 'running' ? 'Already running' : undefined}
+                                >
+                                    Refresh now
+                                </LemonButton>
+                                <LemonButton
+                                    size="small"
+                                    type="secondary"
+                                    status="danger"
+                                    onClick={() =>
+                                        LemonDialog.open({
+                                            title: 'Remove promoted table?',
+                                            description:
+                                                'This stops the schedule and removes the linked DataWarehouseTable. The parquet files in your bucket are kept.',
+                                            primaryButton: {
+                                                children: 'Remove',
+                                                status: 'danger',
+                                                onClick: () => deletePromotion(row.id),
+                                            },
+                                            secondaryButton: { children: 'Cancel' },
+                                        })
+                                    }
+                                >
+                                    Remove
+                                </LemonButton>
+                            </div>
+                        ),
+                    },
+                ]}
+            />
+        </div>
+    )
+}
 
 function stateToTagType(state: DataWarehouseProvisioningState): 'success' | 'warning' | 'danger' | 'default' {
     switch (state) {
@@ -244,6 +476,8 @@ export function SettingsTab(): JSX.Element {
                     {isReady && warehouseStatus?.connection && (
                         <ConnectionDetails connection={warehouseStatus.connection} />
                     )}
+
+                    {isReady && <PromotedTablesSection />}
 
                     <div className="flex gap-2">
                         {isReady && (
