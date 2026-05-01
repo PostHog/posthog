@@ -1,5 +1,9 @@
+import os
+import csv
+import tempfile
+from dataclasses import dataclass, field
 from datetime import timedelta
-from typing import Optional
+from typing import IO, Any, Optional
 
 from django.db import models
 from django.utils import timezone
@@ -11,6 +15,10 @@ from posthog.models.utils import RootTeamMixin, UUIDModel
 # DB and so we can hand the user a downloadable artifact. The file is short-
 # lived: we only keep it around long enough for the user to triage their import.
 UNMATCHED_RECORDS_TTL = timedelta(hours=24)
+
+# Header for the unmatched-records CSV. Single column so the file can be
+# round-tripped back into another import attempt.
+UNMATCHED_RECORDS_CSV_HEADER = ["id"]
 
 
 class CohortCSVImport(RootTeamMixin, UUIDModel):
@@ -142,3 +150,114 @@ class CohortCSVImport(RootTeamMixin, UUIDModel):
         if self.unmatched_records_expires_at is None:
             return True
         return self.unmatched_records_expires_at > timezone.now()
+
+
+@dataclass
+class CSVImportTracker:
+    """
+    Accumulates per-stage metrics across batches during async matching/insertion.
+
+    Unmatched IDs can run into the millions, so we stream them straight to a
+    temporary file instead of buffering in memory. The Celery task uploads
+    that file to object storage once the import finishes; the tracker itself
+    is responsible only for opening, writing, and cleaning up the temp file.
+
+    Lifecycle:
+      tracker = CSVImportTracker()
+      try:
+          ... record_matched / record_unmatched / record_added / record_already_in_cohort ...
+          tracker.apply_to(import_record)             # copy counts onto the row
+          path = tracker.unmatched_records_temp_path  # None when nothing was unmatched
+          if path:
+              ... upload `path` to object storage, set location + expires_at ...
+      finally:
+          tracker.cleanup()                            # always delete the temp file
+    """
+
+    persons_matched: int = 0
+    persons_added: int = 0
+    persons_already_in_cohort: int = 0
+    unmatched_count: int = 0
+
+    _matched_person_uuids: set[str] = field(default_factory=set)
+    _unmatched_file: Optional[IO[str]] = field(default=None, init=False, repr=False)
+    _unmatched_writer: Any = field(default=None, init=False, repr=False)
+    _unmatched_path: Optional[str] = field(default=None, init=False, repr=False)
+    _cleaned_up: bool = field(default=False, init=False, repr=False)
+
+    def record_matched(self, matched_person_uuids: list[str]) -> None:
+        for uuid in matched_person_uuids:
+            uuid_str = str(uuid)
+            if uuid_str not in self._matched_person_uuids:
+                self._matched_person_uuids.add(uuid_str)
+                self.persons_matched += 1
+
+    def record_unmatched(self, ids: list[str]) -> None:
+        if not ids:
+            return
+        self._ensure_unmatched_file()
+        assert self._unmatched_writer is not None
+        for raw in ids:
+            self._unmatched_writer.writerow([str(raw)])
+        self.unmatched_count += len(ids)
+
+    def record_added(self, count: int) -> None:
+        self.persons_added += count
+
+    def record_already_in_cohort(self, count: int) -> None:
+        self.persons_already_in_cohort += count
+
+    @property
+    def unmatched_records_temp_path(self) -> Optional[str]:
+        """Path to the flushed CSV of unmatched IDs, or None if nothing was unmatched."""
+        if self._unmatched_file is None:
+            return None
+        self._unmatched_file.flush()
+        return self._unmatched_path
+
+    def apply_to(self, import_record: CohortCSVImport) -> None:
+        """Copy aggregate counts onto the import row. Caller handles file location."""
+        import_record.persons_matched = self.persons_matched
+        import_record.persons_added = self.persons_added
+        import_record.persons_already_in_cohort = self.persons_already_in_cohort
+        import_record.unmatched_count = self.unmatched_count
+        # Note: unmatched_sample is not populated by the streaming tracker
+        # as unmatched IDs are written directly to a temp file
+
+    def cleanup(self) -> None:
+        """Close and delete the temp file. Idempotent."""
+        if self._cleaned_up:
+            return
+        self._cleaned_up = True
+        if self._unmatched_file is not None:
+            try:
+                self._unmatched_file.close()
+            except Exception:  # noqa: BLE001
+                pass
+        if self._unmatched_path is not None:
+            try:
+                os.unlink(self._unmatched_path)
+            except FileNotFoundError:
+                pass
+            except OSError:
+                # Best effort — operator can sweep stale temp files.
+                pass
+
+    def _ensure_unmatched_file(self) -> None:
+        if self._unmatched_file is not None:
+            return
+        # delete=False so we can close the handle, hand the path to the uploader,
+        # and reopen the file from a clean offset on the upload side.
+        handle = tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            newline="",
+            suffix=".csv",
+            prefix="cohort-csv-import-unmatched-",
+            delete=False,
+        )
+        writer = csv.writer(handle)
+        writer.writerow(UNMATCHED_RECORDS_CSV_HEADER)
+        self._unmatched_file = handle
+        self._unmatched_writer = writer
+        self._unmatched_path = handle.name
