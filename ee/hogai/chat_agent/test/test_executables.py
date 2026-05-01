@@ -69,8 +69,8 @@ class TestChatAgentGatewayRouting(BaseTest):
         mock_get_variant.return_value = variant
 
         test_cases = [
-            ("http://gateway:3308", "http://gateway:3308/django"),
-            ("http://gateway:3308/", "http://gateway:3308/django"),
+            ("http://gateway:3308", "http://gateway:3308/posthog_ai"),
+            ("http://gateway:3308/", "http://gateway:3308/posthog_ai"),
         ]
 
         for configured_url, expected_gateway_url in test_cases:

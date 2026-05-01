@@ -11,6 +11,7 @@ Product = Literal[
     "background_agents",
     "wizard",
     "django",
+    "posthog_ai",
     "growth",
     "llma_translation",
     "llma_summarization",

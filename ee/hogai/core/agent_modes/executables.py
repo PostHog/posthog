@@ -225,7 +225,7 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
         ]
 
     def _get_llm_gateway_product(self) -> str:
-        return "django"
+        return "posthog_ai"
 
     def _get_gateway_kwargs(self) -> dict[str, Any]:
         variant = get_llm_gateway_variant(self._team, self._user)
