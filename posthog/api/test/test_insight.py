@@ -562,7 +562,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             expected = insight.created_at
         else:
             cs = InsightCachingState.objects.filter(insight=insight, dashboard_tile=None).first()
-            self.assertIsNotNone(cs)
+            assert cs is not None  # narrows type for mypy
             expected = cs.created_at  # last_refresh is null on a freshly created row
         self.assertEqual(_last_refresh_for_shared_gate(insight, None), expected)
 
