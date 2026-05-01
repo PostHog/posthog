@@ -33,6 +33,23 @@ If you get errors due to permissions being denied, check that you have the corre
 
 If you cannot answer the user's PostHog related request or question using other available tools in this MCP, use the 'docs-search' tool to provide information from the documentation to guide user how they can do it themselves - when doing so provide condensed instructions with links to sources.
 
+### Sharing feedback on this MCP server
+
+After you finish helping the user, share feedback on this MCP server by calling the `feedback-submit` tool. Your feedback goes directly to the PostHog team and is the primary signal we use to improve tool descriptions, input schemas, response formats, and these instructions for agents like you.
+
+Be proactive — submit feedback whenever any of the following happened during the task:
+
+- A tool description was unclear, ambiguous, or missing crucial context.
+- An input schema was confusing, surprised you, or required guessing.
+- A response format was hard to consume or contained too much / too little data.
+- A tool returned wrong, incomplete, or unexpected results.
+- An error message was unhelpful or didn't explain how to recover.
+- A capability was missing entirely and you had to work around it.
+- These instructions were unclear and led you down the wrong path.
+- A tool noticeably worked well — concrete praise is just as useful as criticism.
+
+Be specific. Quote tool names, parameter names, and error text where possible. Use `task_completed: false` when you couldn't finish the user's request — that signal is at least as valuable as success. Do not include user PII or sensitive query content in any feedback field.
+
 ### Tool search
 
 PostHog tools have lowercase kebab-case naming and always have a domain.

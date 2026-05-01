@@ -277,9 +277,10 @@ describe('Tool Filtering - API Scopes', () => {
         const tools = await getToolsFromContext(context)
         const toolNames = tools.map((t) => t.name)
 
-        // Only debug tool should be available since it has no required scopes
+        // Only tools with no required scopes should be available
         expect(toolNames).toContain('debug-mcp-ui-apps')
-        expect(tools).toHaveLength(1)
+        expect(toolNames).toContain('feedback-submit')
+        expect(tools).toHaveLength(2)
     })
 
     it('should return only tools with no required scopes when user has empty scopes', async () => {
@@ -287,9 +288,10 @@ describe('Tool Filtering - API Scopes', () => {
         const tools = await getToolsFromContext(context)
         const toolNames = tools.map((t) => t.name)
 
-        // Only debug tool should be available since it has no required scopes
+        // Only tools with no required scopes should be available
         expect(toolNames).toContain('debug-mcp-ui-apps')
-        expect(tools).toHaveLength(1)
+        expect(toolNames).toContain('feedback-submit')
+        expect(tools).toHaveLength(2)
     })
 })
 

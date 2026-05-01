@@ -2170,6 +2170,21 @@
             "readOnlyHint": true
         }
     },
+    "feedback-submit": {
+        "description": "Submit structured feedback about your experience using this PostHog MCP server. Use this tool whenever you finish helping the user — especially when something was friction-y, surprising, missing, or particularly smooth. The feedback goes directly to the PostHog team and is the primary way we improve tool descriptions, input schemas, response formats, and instructions for agents like you. Be specific and quote tool names, parameters, and error messages where possible. Do not include user PII or sensitive query content.",
+        "category": "Feedback",
+        "feature": "feedback",
+        "summary": "Submit feedback about the PostHog MCP server.",
+        "title": "Submit MCP feedback",
+        "required_scopes": [],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": false,
+            "readOnlyHint": true
+        }
+    },
     "get-llm-total-costs-for-project": {
         "description": "Fetches the total LLM daily costs for each model for a project over a given number of days. If no number of days is provided, it defaults to 7. The results are sorted by model name. The total cost is rounded to 4 decimal places. The query is executed against the project's data warehouse. Show the results as a Markdown formatted table with the following information for each model: Model name, Total cost in USD, Each day's date, Each day's cost in USD. Write in bold the model name with the highest total cost. Properly render the markdown table in the response.",
         "category": "LLM analytics",
