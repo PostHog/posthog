@@ -151,6 +151,40 @@ class TestBaselinesOverview(APIBaseTest):
         assert result.totals.all_snapshots == 2
         assert result.totals.by_run_type == {RunType.STORYBOOK: 2}
 
+    def test_in_flight_pending_master_run_does_not_replace_universe(self):
+        """A freshly started PENDING master run sets `superseded_by` on the
+        prior completed run while still having 0 RunSnapshots ingested.
+        Anchoring on `superseded_by IS NULL` would collapse the universe to
+        whatever sparse rows the in-flight run has loaded so far. Anchor on
+        `status=COMPLETED` instead so the previous fully-ingested run wins.
+        """
+        completed = _mk_run(self.repo, branch="master", completed_offset=timedelta(hours=1))
+        _mk_snapshot(completed, identifier="canon-a")
+        _mk_snapshot(completed, identifier="canon-b")
+
+        # Real flow: PENDING run starts and supersedes the completed one
+        # before any RunSnapshots have been written for it. The partial
+        # unique index `unique_latest_run_per_group` forbids two un-superseded
+        # rows per (repo, branch, run_type), so supersede the prior latest
+        # with the new id BEFORE inserting it.
+        pending_id = uuid4()
+        Run.objects.filter(id=completed.id).update(superseded_by_id=pending_id)
+        Run.objects.create(
+            id=pending_id,
+            team_id=self.repo.team_id,
+            repo=self.repo,
+            run_type=RunType.STORYBOOK,
+            branch="master",
+            commit_sha=uuid4().hex[:12],
+            status=RunStatus.PENDING,
+        )
+
+        result = vr_api.get_baselines_overview(self.repo.id)
+
+        identifiers = sorted(e.identifier for e in result.entries)
+        assert identifiers == ["canon-a", "canon-b"]
+        assert result.totals.all_snapshots == 2
+
     def test_main_branch_treated_same_as_master(self):
         # Some repos use `main`, some use `master`. Both anchor the universe.
         run = _mk_run(self.repo, branch="main")

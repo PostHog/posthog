@@ -687,9 +687,11 @@ class FieldType(Type):
             # to determine if this field supports property access (JSON / array).
             constant_type = self.resolve_constant_type(context)
             if isinstance(constant_type, (StringJSONType, StringArrayType)):
+                self._check_property_access_control(name, context)
                 return PropertyType(chain=[name], field_type=self)
             raise ResolutionError(f'Can not access property "{name}" on field "{self.name}".')
         if isinstance(database_field, StringJSONDatabaseField):
+            self._check_property_access_control(name, context)
             return PropertyType(chain=[name], field_type=self)
         if isinstance(database_field, StringArrayDatabaseField):
             return PropertyType(chain=[name], field_type=self)
@@ -699,6 +701,48 @@ class FieldType(Type):
         raise ResolutionError(
             f'Can not access property "{name}" on field "{self.name}" of type: {type(database_field).__name__}'
         )
+
+    def _check_property_access_control(self, property_name: str | int, context: HogQLContext) -> None:
+        """
+        Raises ResolutionError if the property is restricted by property-level access control.
+
+        The error message intentionally matches the message for genuinely non-existent fields
+        so that an attacker cannot distinguish between "this property exists but I can't see it"
+        and "this property doesn't exist".
+        """
+        if not context.restricted_properties or self.name != "properties":
+            return
+
+        from posthog.hogql.database.schema.events import EventsTable
+        from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
+
+        from products.event_definitions.backend.models.property_definition import PropertyDefinition
+
+        prop_name_str = str(property_name)
+        prop_def_types: list[int] = []
+
+        if isinstance(self.table_type, BaseTableType):
+            try:
+                table = self.table_type.resolve_database_table(context)
+            except ResolutionError:
+                return
+
+            if isinstance(table, EventsTable):
+                if isinstance(self.table_type, VirtualTableType) and self.table_type.field == "poe":
+                    prop_def_types.append(PropertyDefinition.Type.PERSON)
+                else:
+                    prop_def_types.append(PropertyDefinition.Type.EVENT)
+            elif isinstance(table, (PersonsTable, RawPersonsTable)):
+                prop_def_types.append(PropertyDefinition.Type.PERSON)
+            else:
+                return
+
+        if not prop_def_types:
+            return
+
+        for prop_type in prop_def_types:
+            if (prop_name_str, prop_type) in context.restricted_properties:
+                raise ResolutionError(f'Can not access property "{prop_name_str}" on field "{self.name}".')
 
     def resolve_table_type(self, context: HogQLContext):
         return self.table_type
