@@ -1,5 +1,6 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "description": "Serializer mixin that redacts PII (email, uuid, distinct_id, role, ...) from\nnested user-serializer payloads when the requester is a guest.\n\nDeclare which fields hold serialized users in `guest_redacted_user_fields`:\n\n    class NotebookMinimalSerializer(\n        GuestRedactedUserFieldsMixin,\n        serializers.ModelSerializer,\n        UserAccessControlSerializerMixin,\n    ):\n        guest_redacted_user_fields = (\"created_by\", \"last_modified_by\")\n\nPlace this mixin BEFORE `serializers.ModelSerializer` in the MRO so its\n`to_representation` runs after the base implementation has already produced the\nserialized dict.",
     "properties": {
         "content": {
             "anyOf": [
