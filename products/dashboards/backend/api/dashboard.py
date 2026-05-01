@@ -941,6 +941,9 @@ class DashboardSerializer(DashboardMetadataSerializer):
         serialized_tiles: list[ReturnDict] = []
 
         tiles = DashboardTile.dashboard_queryset(dashboard.tiles.all()).prefetch_related(
+            # Used by the shared-insight force_blocking gate in `posthog/api/insight.py` to avoid an
+            # N+1 lookup of last_refresh per tile on shared dashboard renders.
+            "caching_states",
             Prefetch(
                 "insight__tagged_items",
                 queryset=TaggedItem.objects.select_related("tag"),

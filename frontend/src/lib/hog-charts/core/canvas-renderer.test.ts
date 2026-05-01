@@ -487,6 +487,27 @@ describe('hog-charts canvas-renderer', () => {
             drawGrid(drawCtx, { gridColor: 'rgb(1, 2, 3)' })
             expect(ctx.strokeStyle).toBe('rgb(1, 2, 3)')
         })
+
+        it('draws vertical grid lines and a top baseline in horizontal orientation', () => {
+            const ctx = mockCanvasContext()
+            const drawCtx = makeDrawContext(ctx, ['a', 'b'])
+            drawGrid(drawCtx, { orientation: 'horizontal' })
+            const tickCount = ctx.moveTo.mock.calls.length - 1
+            expect(tickCount).toBeGreaterThan(0)
+            for (let i = 0; i < tickCount; i++) {
+                const [moveX, moveY] = ctx.moveTo.mock.calls[i] as [number, number]
+                const [lineX, lineY] = ctx.lineTo.mock.calls[i] as [number, number]
+                expect(moveX).toBe(lineX)
+                expect(moveY).toBe(dimensions.plotTop)
+                expect(lineY).toBe(dimensions.plotTop + dimensions.plotHeight)
+            }
+            const lastMoveTo = ctx.moveTo.mock.calls[ctx.moveTo.mock.calls.length - 1] as [number, number]
+            const lastLineTo = ctx.lineTo.mock.calls[ctx.lineTo.mock.calls.length - 1] as [number, number]
+            expect(lastMoveTo[1]).toBe(dimensions.plotTop + 0.5)
+            expect(lastLineTo[1]).toBe(dimensions.plotTop + 0.5)
+            expect(lastMoveTo[0]).toBe(dimensions.plotLeft)
+            expect(lastLineTo[0]).toBe(dimensions.plotLeft + dimensions.plotWidth)
+        })
     })
 
     describe('composeDrawHoverWithCrosshair', () => {
@@ -514,35 +535,50 @@ describe('hog-charts canvas-renderer', () => {
         it('always invokes the underlying drawHover', () => {
             const ctx = mockCanvasContext()
             const drawHover = jest.fn()
-            const composed = composeDrawHoverWithCrosshair(() => drawHover, '#f00', true)
+            const composed = composeDrawHoverWithCrosshair(() => drawHover, {
+                crosshairColor: '#f00',
+                showCrosshair: true,
+            })
             composed(makeArgs(ctx, 1, 200))
             expect(drawHover).toHaveBeenCalledTimes(1)
         })
 
         it('skips crosshair when showCrosshair is false', () => {
             const ctx = mockCanvasContext()
-            const composed = composeDrawHoverWithCrosshair(() => jest.fn(), '#f00', false)
+            const composed = composeDrawHoverWithCrosshair(() => jest.fn(), {
+                crosshairColor: '#f00',
+                showCrosshair: false,
+            })
             composed(makeArgs(ctx, 1, 200))
             expect(ctx.stroke).not.toHaveBeenCalled()
         })
 
         it('skips crosshair when crosshairColor is undefined', () => {
             const ctx = mockCanvasContext()
-            const composed = composeDrawHoverWithCrosshair(() => jest.fn(), undefined, true)
+            const composed = composeDrawHoverWithCrosshair(() => jest.fn(), {
+                crosshairColor: undefined,
+                showCrosshair: true,
+            })
             composed(makeArgs(ctx, 1, 200))
             expect(ctx.stroke).not.toHaveBeenCalled()
         })
 
         it('skips crosshair when hoverIndex is negative', () => {
             const ctx = mockCanvasContext()
-            const composed = composeDrawHoverWithCrosshair(() => jest.fn(), '#f00', true)
+            const composed = composeDrawHoverWithCrosshair(() => jest.fn(), {
+                crosshairColor: '#f00',
+                showCrosshair: true,
+            })
             composed(makeArgs(ctx, -1, 200))
             expect(ctx.stroke).not.toHaveBeenCalled()
         })
 
         it('skips crosshair when scales.x returns a non-finite value', () => {
             const ctx = mockCanvasContext()
-            const composed = composeDrawHoverWithCrosshair(() => jest.fn(), '#f00', true)
+            const composed = composeDrawHoverWithCrosshair(() => jest.fn(), {
+                crosshairColor: '#f00',
+                showCrosshair: true,
+            })
             composed(makeArgs(ctx, 1, undefined))
             expect(ctx.stroke).not.toHaveBeenCalled()
         })
@@ -550,11 +586,34 @@ describe('hog-charts canvas-renderer', () => {
         it('draws the crosshair on the happy path', () => {
             const ctx = mockCanvasContext()
             const drawHover = jest.fn()
-            const composed = composeDrawHoverWithCrosshair(() => drawHover, '#abc', true)
+            const composed = composeDrawHoverWithCrosshair(() => drawHover, {
+                crosshairColor: '#abc',
+                showCrosshair: true,
+            })
             composed(makeArgs(ctx, 1, 200))
             expect(ctx.stroke).toHaveBeenCalled()
             expect(ctx.strokeStyle).toBe('#abc')
             expect(drawHover).toHaveBeenCalledTimes(1)
+        })
+
+        it('uses labelToCoord when provided in horizontal orientation', () => {
+            const ctx = mockCanvasContext()
+            const drawHover = jest.fn()
+            const labelToCoord = jest.fn((label: string) => (label === 'Tue' ? 150 : undefined))
+            const composed = composeDrawHoverWithCrosshair(() => drawHover, {
+                crosshairColor: '#0f0',
+                showCrosshair: true,
+                axisOrientation: 'horizontal',
+                labelToCoord,
+            })
+            composed(makeArgs(ctx, 1, 200))
+            expect(labelToCoord).toHaveBeenCalledWith('Tue')
+            const moves = (ctx.moveTo as jest.Mock).mock.calls
+            const lines = (ctx.lineTo as jest.Mock).mock.calls
+            const lastMove = moves[moves.length - 1]
+            const lastLine = lines[lines.length - 1]
+            expect(lastMove[1]).toBeCloseTo(lastLine[1])
+            expect(lastMove[0]).not.toBeCloseTo(lastLine[0])
         })
 
         it('reads the latest drawHover via the getter on each call', () => {
@@ -562,7 +621,10 @@ describe('hog-charts canvas-renderer', () => {
             const first = jest.fn()
             const second = jest.fn()
             let current = first
-            const composed = composeDrawHoverWithCrosshair(() => current, '#f00', false)
+            const composed = composeDrawHoverWithCrosshair(() => current, {
+                crosshairColor: '#f00',
+                showCrosshair: false,
+            })
             composed(makeArgs(ctx, 0, 100))
             current = second
             composed(makeArgs(ctx, 0, 100))
