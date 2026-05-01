@@ -274,7 +274,8 @@ def send_invite(invite_id: str) -> None:
                 "%B %d, %Y at %H:%M %Z"
             ),
             "inviter_first_name": inviter_name,
-            "organization_name": invite.organization.name,
+            "inviter_email": invite.created_by.email if invite.created_by and invite.created_by.email else "",
+            "org_name": invite.organization.name,
             "url": f"{settings.SITE_URL}/signup/{invite_id}",
         },
         reply_to=invite.created_by.email if invite.created_by and invite.created_by.email else "",

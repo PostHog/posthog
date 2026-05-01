@@ -1,32 +1,20 @@
 {% extends "email/base.html" %} {% load posthog_assets %} {% block section %}
 <h1 class="invite-header">
     <strong>{{ inviter_first_name }}</strong> asked you to finish setting up PostHog for
-    <strong>{{ invite.organization.name }}</strong>
+    <strong>{{ org_name }}</strong>
 </h1>
 <p class="text-center">
-    <strong>{{ inviter_first_name }}</strong> ({{ invite.created_by.email }}) started setting up PostHog for
-    <strong>{{ invite.organization.name }}</strong> and would like you to finish the setup. Accept the invite below
-    to get started — you'll be taken through the full setup flow.
+    <strong>{{ inviter_first_name }}</strong> ({{ inviter_email }}) started setting up PostHog for
+    <strong>{{ org_name }}</strong> and would like you to finish the setup. Accept the invite below to get
+    started — you'll be taken through the full setup flow.
 </p>
-{% if invite.message %}
-<div class="invite-message">
-    <div class="invite-message-divider"></div>
-    {{ invite.message }}
-</div>
-{% endif %}
-<div class="mb mt text-center">
-    <a class="button primary" href="{{ invite }}">Accept invitation</a>
-</div>
-<div class="mt text-center dashed-border">
-    <p>Or paste this link into your browser:</p>
-    <a href="{{ invite }}" class="invite-link"><b>{{ invite }}</b></a>
-</div>
-<p class="invite-bottom">This invitation will expire on {{ expiry_date }}.</p>
 <p class="text-center">
-    <a target="_blank" href="https://posthog.com"><b>https://posthog.com</b></a>
+    What is PostHog? It's a platform for building better products. It's got product analytics, session recording,
+    feature flags, surveys, A/B experiments, an AI product manager, a data warehouse, LLM observability, and loads of
+    other tools built-in.
 </p>
-<div class="text-center">
-    <img src="{% absolute_asset_url 'email/invite-email-welcome.png' %}" />
+<div class="mb mt text-center">
+    <a class="button primary" href="{{ url }}">Accept &amp; set up PostHog</a>
 </div>
 
 {% block footer %}
