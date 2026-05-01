@@ -56,7 +56,7 @@ class TestCreateNotification(BaseTest):
 
         data = NotificationData(
             team_id=self.team.id,
-            notification_type=NotificationType.ALERT_FIRING,
+            notification_type=NotificationType.COMMENT_MENTION,
             title="Org-wide alert",
             body="Something happened",
             target_type=TargetType.ORGANIZATION,
@@ -84,7 +84,7 @@ class TestCreateNotification(BaseTest):
 
         data = NotificationData(
             team_id=self.team.id,
-            notification_type=NotificationType.ALERT_FIRING,
+            notification_type=NotificationType.COMMENT_MENTION,
             title="Cache invalidation test",
             body="",
             target_type=TargetType.ORGANIZATION,
@@ -249,7 +249,7 @@ class TestAccessControlFiltering(BaseTest):
     def test_no_ac_filtering_for_notification_only_resource_types(self, mock_ac_filter, mock_publish, mock_ff):
         data = NotificationData(
             team_id=self.team.id,
-            notification_type=NotificationType.PIPELINE_FAILURE,
+            notification_type=NotificationType.COMMENT_MENTION,
             title="Pipeline failed",
             body="",
             target_type=TargetType.USER,
