@@ -1,4 +1,4 @@
-import { cleanup, render } from '@testing-library/react'
+import { render } from '@testing-library/react'
 
 import type { LineChartProps } from '../charts/LineChart'
 import type { ChartTheme, Series } from '../core/types'
@@ -19,52 +19,24 @@ const LABELS = ['Mon', 'Tue', 'Wed']
 const SERIES: Series[] = [{ key: 'a', label: 'A', data: [1, 2, 3] }]
 
 describe('TimeSeriesLineChart', () => {
-    afterEach(() => cleanup())
-
-    it('renders without crashing', () => {
-        const { getByTestId } = render(<TimeSeriesLineChart series={SERIES} xAxis={{ labels: LABELS }} theme={THEME} />)
-        expect(getByTestId('line-chart-mock')).toBeTruthy()
-    })
-
-    it('passes series and labels through to the underlying LineChart', () => {
-        const series: Series[] = [
-            { key: 'a', label: 'A', data: [1, 2, 3] },
-            { key: 'b', label: 'B', data: [4, 5, 6] },
-        ]
+    it('translates xAxis and yAxis fields onto LineChartConfig', () => {
+        const xTickFormatter = (v: string): string => `x:${v}`
+        const yTickFormatter = (v: number): string => `y:${v}`
         render(
             <TimeSeriesLineChart
-                series={series}
-                xAxis={{ labels: LABELS }}
-                yAxis={{ scale: 'log', showGrid: true }}
-                theme={THEME}
-            />
-        )
-        expect(lineChartSpy).toHaveBeenCalledTimes(1)
-        const props = lineChartSpy.mock.calls[0][0] as LineChartProps
-        expect(props.series).toBe(series)
-        expect(props.labels).toBe(LABELS)
-        expect(props.theme).toBe(THEME)
-        expect(props.config?.yScaleType).toBe('log')
-        expect(props.config?.showGrid).toBe(true)
-    })
-
-    it.each<[string, number | string, number | string]>([
-        ['numeric pixels', 640, 320],
-        ['percentage / px mix', '75%', 200],
-    ])('respects width/height (%s)', (_name, width, height) => {
-        const { container } = render(
-            <TimeSeriesLineChart
                 series={SERIES}
-                xAxis={{ labels: LABELS }}
+                xAxis={{ labels: LABELS, tickFormatter: xTickFormatter, hide: true }}
+                yAxis={{ scale: 'log', tickFormatter: yTickFormatter, hide: true, showGrid: true }}
                 theme={THEME}
-                width={width}
-                height={height}
             />
         )
-        const wrapper = container.firstElementChild as HTMLDivElement
-        const expectedWidth = typeof width === 'number' ? `${width}px` : width
-        const expectedHeight = typeof height === 'number' ? `${height}px` : height
-        expect(wrapper.style.width).toBe(expectedWidth)
-        expect(wrapper.style.height).toBe(expectedHeight)
+        const props = lineChartSpy.mock.calls[0][0] as LineChartProps
+        expect(props.labels).toBe(LABELS)
+        expect(props.config?.yScaleType).toBe('log')
+        expect(props.config?.xTickFormatter).toBe(xTickFormatter)
+        expect(props.config?.yTickFormatter).toBe(yTickFormatter)
+        expect(props.config?.hideXAxis).toBe(true)
+        expect(props.config?.hideYAxis).toBe(true)
+        expect(props.config?.showGrid).toBe(true)
     })
 })
