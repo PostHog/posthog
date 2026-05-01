@@ -39,6 +39,24 @@ class TestGetGroupByKey(SimpleTestCase):
         self.group_type_index = 0
         self.group_key = "org:123"
 
+    @patch(_ROUTING_TOTAL_PATCH)
+    @patch(_CLIENT_PATCH)
+    def test_personhog_client_none_falls_back_to_orm_silently(self, mock_get_client, mock_routing_counter):
+        mock_get_client.return_value = None
+
+        from posthog.models.group.group import Group
+
+        with patch.object(Group, "objects") as mock_objects:
+            mock_group = MagicMock(spec=Group)
+            mock_objects.get.return_value = mock_group
+
+            result = get_group_by_key(self.team_id, self.group_type_index, self.group_key)
+
+            assert result is mock_group
+            mock_routing_counter.labels.assert_called_once_with(
+                operation="get_group_by_key", source="django_orm", client_name="posthog-django"
+            )
+
     @patch(_ROUTING_ERRORS_PATCH)
     @patch(_ROUTING_TOTAL_PATCH)
     @patch(_CONVERTER_PATCH)
@@ -84,23 +102,6 @@ class TestGetGroupByKey(SimpleTestCase):
         mock_routing_counter.labels.assert_called_with(
             operation="get_group_by_key", source="personhog", client_name="posthog-django"
         )
-
-    @patch(_ROUTING_ERRORS_PATCH)
-    @patch(_ROUTING_TOTAL_PATCH)
-    @patch(_CLIENT_PATCH)
-    def test_personhog_client_none_falls_back_to_orm(self, mock_get_client, mock_routing_counter, mock_errors_counter):
-        mock_get_client.return_value = None
-
-        from posthog.models.group.group import Group
-
-        with patch.object(Group, "objects") as mock_objects:
-            mock_group = MagicMock(spec=Group)
-            mock_objects.get.return_value = mock_group
-
-            result = get_group_by_key(self.team_id, self.group_type_index, self.group_key)
-
-            assert result is mock_group
-            mock_errors_counter.labels.assert_called_once()
 
     @parameterized.expand(
         [
@@ -248,10 +249,9 @@ class TestGetGroupsByIdentifiers(SimpleTestCase):
             calls = [str(c) for c in mock_routing_counter.labels.call_args_list]
             assert any("django_orm" in c for c in calls)
 
-    @patch(_ROUTING_ERRORS_PATCH)
     @patch(_ROUTING_TOTAL_PATCH)
     @patch(_CLIENT_PATCH)
-    def test_personhog_client_none_falls_back_to_orm(self, mock_get_client, mock_routing_counter, mock_errors_counter):
+    def test_personhog_client_none_falls_back_to_orm_silently(self, mock_get_client, mock_routing_counter):
         mock_get_client.return_value = None
 
         from posthog.models.group.group import Group
@@ -265,7 +265,9 @@ class TestGetGroupsByIdentifiers(SimpleTestCase):
             result = get_groups_by_identifiers(self.team_id, self.group_type_index, ["k1"])
 
             assert result == orm_groups
-            mock_errors_counter.labels.assert_called_once()
+            mock_routing_counter.labels.assert_called_once_with(
+                operation="get_groups_by_identifiers", source="django_orm", client_name="posthog-django"
+            )
 
     @parameterized.expand(
         [
@@ -503,10 +505,9 @@ class TestGetGroupsByTypeIndices(SimpleTestCase):
             calls = [str(c) for c in mock_routing_counter.labels.call_args_list]
             assert any("django_orm" in c for c in calls)
 
-    @patch(_ROUTING_ERRORS_PATCH)
     @patch(_ROUTING_TOTAL_PATCH)
     @patch(_CLIENT_PATCH)
-    def test_personhog_client_none_falls_back_to_orm(self, mock_get_client, mock_routing_counter, mock_errors_counter):
+    def test_personhog_client_none_falls_back_to_orm_silently(self, mock_get_client, mock_routing_counter):
         mock_get_client.return_value = None
 
         from posthog.models.group.group import Group
@@ -520,7 +521,9 @@ class TestGetGroupsByTypeIndices(SimpleTestCase):
             result = get_groups_by_type_indices(self.team_id, {0}, {"k1"})
 
             assert result == orm_groups
-            mock_errors_counter.labels.assert_called_once()
+            mock_routing_counter.labels.assert_called_once_with(
+                operation="get_groups_by_type_indices", source="django_orm", client_name="posthog-django"
+            )
 
     @parameterized.expand(
         [

@@ -89,37 +89,35 @@ def get_group_by_key(team_id: int, group_type_index: int, group_key: str) -> Gro
     from posthog.personhog_client.converters import proto_group_to_model
     from posthog.personhog_client.proto import GetGroupRequest
 
-    try:
-        client = get_personhog_client()
-        if client is None:
-            raise RuntimeError("personhog client not configured")
-
-        resp = client.get_group(
-            GetGroupRequest(team_id=team_id, group_type_index=group_type_index, group_key=group_key)
-        )
-        if resp.group and resp.group.id:
+    client = get_personhog_client()
+    if client is not None:
+        try:
+            resp = client.get_group(
+                GetGroupRequest(team_id=team_id, group_type_index=group_type_index, group_key=group_key)
+            )
+            if resp.group and resp.group.id:
+                PERSONHOG_ROUTING_TOTAL.labels(
+                    operation="get_group_by_key", source="personhog", client_name=get_client_name()
+                ).inc()
+                return proto_group_to_model(resp.group)
             PERSONHOG_ROUTING_TOTAL.labels(
                 operation="get_group_by_key", source="personhog", client_name=get_client_name()
             ).inc()
-            return proto_group_to_model(resp.group)
-        PERSONHOG_ROUTING_TOTAL.labels(
-            operation="get_group_by_key", source="personhog", client_name=get_client_name()
-        ).inc()
-        return None
-    except Exception:
-        PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
-            operation="get_group_by_key",
-            source="personhog",
-            error_type="grpc_error",
-            client_name=get_client_name(),
-        ).inc()
-        logger.warning(
-            "personhog_get_group_by_key_failure",
-            team_id=team_id,
-            group_type_index=group_type_index,
-            group_key=group_key,
-            exc_info=True,
-        )
+            return None
+        except Exception:
+            PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
+                operation="get_group_by_key",
+                source="personhog",
+                error_type="grpc_error",
+                client_name=get_client_name(),
+            ).inc()
+            logger.warning(
+                "personhog_get_group_by_key_failure",
+                team_id=team_id,
+                group_type_index=group_type_index,
+                group_key=group_key,
+                exc_info=True,
+            )
 
     PERSONHOG_ROUTING_TOTAL.labels(
         operation="get_group_by_key", source="django_orm", client_name=get_client_name()
@@ -150,30 +148,28 @@ def get_groups_by_identifiers(team_id: int, group_type_index: int, group_keys: l
     if not group_keys:
         return []
 
-    try:
-        client = get_personhog_client()
-        if client is None:
-            raise RuntimeError("personhog client not configured")
-
-        identifiers = [GroupIdentifier(group_type_index=group_type_index, group_key=key) for key in group_keys]
-        resp = client.get_groups(GetGroupsRequest(team_id=team_id, group_identifiers=identifiers))
-        PERSONHOG_ROUTING_TOTAL.labels(
-            operation="get_groups_by_identifiers", source="personhog", client_name=get_client_name()
-        ).inc()
-        return [proto_group_to_model(g) for g in resp.groups if g.id]
-    except Exception:
-        PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
-            operation="get_groups_by_identifiers",
-            source="personhog",
-            error_type="grpc_error",
-            client_name=get_client_name(),
-        ).inc()
-        logger.warning(
-            "personhog_get_groups_by_identifiers_failure",
-            team_id=team_id,
-            group_type_index=group_type_index,
-            exc_info=True,
-        )
+    client = get_personhog_client()
+    if client is not None:
+        try:
+            identifiers = [GroupIdentifier(group_type_index=group_type_index, group_key=key) for key in group_keys]
+            resp = client.get_groups(GetGroupsRequest(team_id=team_id, group_identifiers=identifiers))
+            PERSONHOG_ROUTING_TOTAL.labels(
+                operation="get_groups_by_identifiers", source="personhog", client_name=get_client_name()
+            ).inc()
+            return [proto_group_to_model(g) for g in resp.groups if g.id]
+        except Exception:
+            PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
+                operation="get_groups_by_identifiers",
+                source="personhog",
+                error_type="grpc_error",
+                client_name=get_client_name(),
+            ).inc()
+            logger.warning(
+                "personhog_get_groups_by_identifiers_failure",
+                team_id=team_id,
+                group_type_index=group_type_index,
+                exc_info=True,
+            )
 
     PERSONHOG_ROUTING_TOTAL.labels(
         operation="get_groups_by_identifiers", source="django_orm", client_name=get_client_name()
@@ -206,32 +202,30 @@ def get_groups_by_type_indices(team_id: int, group_type_indices: set[int], group
     if not group_type_indices or not group_keys:
         return []
 
-    try:
-        client = get_personhog_client()
-        if client is None:
-            raise RuntimeError("personhog client not configured")
-
-        identifiers = [
-            GroupIdentifier(group_type_index=gti, group_key=key) for gti in group_type_indices for key in group_keys
-        ]
-        resp = client.get_groups(GetGroupsRequest(team_id=team_id, group_identifiers=identifiers))
-        PERSONHOG_ROUTING_TOTAL.labels(
-            operation="get_groups_by_type_indices", source="personhog", client_name=get_client_name()
-        ).inc()
-        return [proto_group_to_model(g) for g in resp.groups if g.id]
-    except Exception:
-        PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
-            operation="get_groups_by_type_indices",
-            source="personhog",
-            error_type="grpc_error",
-            client_name=get_client_name(),
-        ).inc()
-        logger.warning(
-            "personhog_get_groups_by_type_indices_failure",
-            team_id=team_id,
-            group_type_indices=list(group_type_indices),
-            exc_info=True,
-        )
+    client = get_personhog_client()
+    if client is not None:
+        try:
+            identifiers = [
+                GroupIdentifier(group_type_index=gti, group_key=key) for gti in group_type_indices for key in group_keys
+            ]
+            resp = client.get_groups(GetGroupsRequest(team_id=team_id, group_identifiers=identifiers))
+            PERSONHOG_ROUTING_TOTAL.labels(
+                operation="get_groups_by_type_indices", source="personhog", client_name=get_client_name()
+            ).inc()
+            return [proto_group_to_model(g) for g in resp.groups if g.id]
+        except Exception:
+            PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
+                operation="get_groups_by_type_indices",
+                source="personhog",
+                error_type="grpc_error",
+                client_name=get_client_name(),
+            ).inc()
+            logger.warning(
+                "personhog_get_groups_by_type_indices_failure",
+                team_id=team_id,
+                group_type_indices=list(group_type_indices),
+                exc_info=True,
+            )
 
     PERSONHOG_ROUTING_TOTAL.labels(
         operation="get_groups_by_type_indices", source="django_orm", client_name=get_client_name()

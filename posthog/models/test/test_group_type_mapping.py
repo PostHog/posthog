@@ -53,12 +53,18 @@ ORM_DATA = [
 ]
 
 
+_CLIENT_PATCH = "posthog.personhog_client.client.get_personhog_client"
+
+
 class TestGetGroupTypesForProjectRouting(SimpleTestCase):
     def setUp(self):
         self.project_id = 999
         _clear_cache(self.project_id)
+        self._client_patcher = patch(_CLIENT_PATCH, return_value=MagicMock())
+        self._client_patcher.start()
 
     def tearDown(self):
+        self._client_patcher.stop()
         _clear_cache(self.project_id)
 
     @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
@@ -187,6 +193,11 @@ class TestGetGroupTypesForProjectRouting(SimpleTestCase):
 class TestGetGroupTypesForTeamRouting(SimpleTestCase):
     def setUp(self):
         self.team_id = 42
+        self._client_patcher = patch(_CLIENT_PATCH, return_value=MagicMock())
+        self._client_patcher.start()
+
+    def tearDown(self):
+        self._client_patcher.stop()
 
     @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
     @patch("posthog.models.group_type_mapping._fetch_group_types_for_team_via_personhog")
@@ -292,6 +303,11 @@ class TestGetGroupTypesForTeamRouting(SimpleTestCase):
 class TestGetGroupTypesForProjectsRouting(SimpleTestCase):
     def setUp(self):
         self.project_ids = [1, 2, 3]
+        self._client_patcher = patch(_CLIENT_PATCH, return_value=MagicMock())
+        self._client_patcher.start()
+
+    def tearDown(self):
+        self._client_patcher.stop()
 
     @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
     @patch("posthog.models.group_type_mapping._fetch_group_types_for_projects_via_personhog")
@@ -435,8 +451,11 @@ class TestGetGroupTypesForProjectCacheBehavior(SimpleTestCase):
     def setUp(self):
         self.project_id = 888
         _clear_cache(self.project_id)
+        self._client_patcher = patch(_CLIENT_PATCH, return_value=MagicMock())
+        self._client_patcher.start()
 
     def tearDown(self):
+        self._client_patcher.stop()
         _clear_cache(self.project_id)
 
     @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
@@ -482,6 +501,13 @@ class TestGetGroupTypesForProjectCacheBehavior(SimpleTestCase):
 
 
 class TestGetGroupTypesForTeamEdgeCases(SimpleTestCase):
+    def setUp(self):
+        self._client_patcher = patch(_CLIENT_PATCH, return_value=MagicMock())
+        self._client_patcher.start()
+
+    def tearDown(self):
+        self._client_patcher.stop()
+
     @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
     @patch("posthog.models.group_type_mapping._fetch_group_types_for_team_via_personhog")
     @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
@@ -530,6 +556,13 @@ class TestGetGroupTypesForTeamEdgeCases(SimpleTestCase):
 
 
 class TestGetGroupTypesForProjectsEdgeCases(SimpleTestCase):
+    def setUp(self):
+        self._client_patcher = patch(_CLIENT_PATCH, return_value=MagicMock())
+        self._client_patcher.start()
+
+    def tearDown(self):
+        self._client_patcher.stop()
+
     @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
     @patch("posthog.models.group_type_mapping._fetch_group_types_for_projects_via_personhog")
     @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
