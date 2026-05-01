@@ -401,6 +401,93 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         self.assertEqual(response.status_code, 302)
         self.assertIn("github_link_error=missing_params", response["Location"])
 
+    @override_settings(GITHUB_APP_CLIENT_ID="client_id", GITHUB_APP_CLIENT_SECRET="client_secret")
+    @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
+    @patch("posthog.api.user_integration.requests.get")
+    @patch("posthog.models.integration.GitHubIntegration.client_request")
+    @patch("posthog.models.integration.GitHubIntegration.github_user_from_code")
+    def test_github_link_callback_team_oauth_authorize_creates_team_integration(
+        self,
+        mock_user_from_code,
+        mock_client_request,
+        mock_verify_get,
+        mock_integration_from_install,
+    ):
+        # Verify-access call returns 200 → user has access to the installation.
+        mock_verify_get.return_value = MagicMock(status_code=200)
+        mock_user_from_code.return_value = _authorization()
+        mock_install_info = MagicMock()
+        mock_install_info.json.return_value = {"account": {"type": "Organization", "login": "acme"}}
+        mock_access_token = MagicMock()
+        mock_access_token.json.return_value = {
+            "token": "ghs_install_token",
+            "expires_at": "2099-01-01T00:00:00Z",
+            "repository_selection": "all",
+        }
+        mock_client_request.side_effect = [mock_install_info, mock_access_token]
+
+        team_integration = Integration.objects.create(
+            team=self.team,
+            kind="github",
+            integration_id="12345",
+            config={"installation_id": "12345"},
+            sensitive_config={"access_token": "ghs_install_token"},
+            created_by=self.user,
+        )
+        mock_integration_from_install.return_value = team_integration
+
+        state = "tok_team_oauth_123"
+        cache.set(
+            f"github_user_install_state:{state}",
+            {
+                "user_id": self.user.id,
+                "team_id": self.team.pk,
+                "installation_id": "12345",
+                "flow": "team_oauth_authorize",
+                "next": "/project/{}/settings/project-integrations".format(self.team.pk),
+            },
+            timeout=600,
+        )
+
+        response = self.client.get(
+            "/complete/github-link/",
+            {"code": "test_code", "state": state},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        # Used the OAuth-flow redirect URI so the code exchange matches GitHub's expectation.
+        mock_user_from_code.assert_called_once()
+        _, kwargs = mock_user_from_code.call_args
+        self.assertTrue(kwargs.get("redirect_uri", "").endswith("/complete/github-link/"))
+        mock_integration_from_install.assert_called_once_with("12345", self.team.pk, self.user)
+        # Redirected back to the requested ``next`` URL with the install/integration ids appended.
+        location = response["Location"]
+        self.assertIn(f"/project/{self.team.pk}/settings/project-integrations", location)
+        self.assertIn("installation_id=12345", location)
+        self.assertIn(f"integration_id={team_integration.id}", location)
+
+    def test_github_link_callback_team_oauth_authorize_rejects_user_outside_team(self):
+        state = "tok_team_outside"
+        # Random team_id that the user doesn't belong to.
+        cache.set(
+            f"github_user_install_state:{state}",
+            {
+                "user_id": self.user.id,
+                "team_id": 999_999,
+                "installation_id": "12345",
+                "flow": "team_oauth_authorize",
+            },
+            timeout=600,
+        )
+
+        response = self.client.get(
+            "/complete/github-link/",
+            {"code": "test_code", "state": state},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("github_link_error=invalid_team", response["Location"])
+
 
 class TestGetGithubLoginPrecedence(APIBaseTest):
     """User.get_github_login() precedence: UserIntegration > UserSocialAuth > team Integration."""

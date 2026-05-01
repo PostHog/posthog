@@ -2737,8 +2737,20 @@ const api = {
                 log_count: number
                 error_count: number
                 error_rate: number
+                volume_share_pct?: number
+                severity_breakdown?: {
+                    debug: number
+                    info: number
+                    warn: number
+                    error: number
+                }
+                active_rules?: { rule_id: string; rule_name: string; summary_string: string }[]
             }[]
             sparkline: { time: string; service_name: string; count: number }[]
+            summary?: {
+                top_services_count: number
+                top_services_volume_share_pct: number
+            }
         }> {
             return new ApiRequest().logsServices().create({ signal, data: { query } })
         },
@@ -5297,7 +5309,7 @@ const api = {
         },
         async createWebhook(
             sourceId: ExternalDataSource['id']
-        ): Promise<{ success: boolean; webhook_url: string; error?: string }> {
+        ): Promise<{ success: boolean; webhook_url: string; error?: string; pending_inputs?: string[] }> {
             return await new ApiRequest().externalDataSource(sourceId).withAction('create_webhook').create()
         },
         async updateWebhookInputs(
@@ -5679,6 +5691,25 @@ const api = {
             params?: { limit?: number; offset?: number }
         ): Promise<GitHubReposResponseApi> {
             return await new ApiRequest().integrationGitHubRepositories(id).withQueryString(params).get()
+        },
+        async githubLinkExisting(
+            data: {
+                source_team_id?: number
+                installation_id?: string | number
+            },
+            teamId?: TeamType['id']
+        ): Promise<IntegrationType> {
+            return await new ApiRequest().integrations(teamId).withAction('github/link_existing').create({ data })
+        },
+        async githubOAuthAuthorize(
+            data: {
+                installation_id: string | number
+                next?: string
+                connect_from?: string
+            },
+            teamId?: TeamType['id']
+        ): Promise<{ oauth_url: string }> {
+            return await new ApiRequest().integrations(teamId).withAction('github/oauth_authorize').create({ data })
         },
         async jiraProjects(id: IntegrationType['id']): Promise<{ projects: JiraProjectType[] }> {
             return await new ApiRequest().integrationJiraProjects(id).get()

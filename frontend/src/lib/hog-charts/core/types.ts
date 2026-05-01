@@ -153,6 +153,8 @@ export interface ChartConfig {
     tooltip?: TooltipConfig
     /** Show a vertical crosshair line that follows the cursor. */
     showCrosshair?: boolean
+    /** `vertical` (default): categories on x, values on y. `horizontal`: swapped. */
+    axisOrientation?: 'vertical' | 'horizontal'
 }
 
 export interface TooltipConfig {
@@ -164,6 +166,15 @@ export interface TooltipConfig {
      *  at the hovered x; `top` fixes the tooltip to the top of the chart so it doesn't jump
      *  vertically as the cursor moves between data points. */
     placement?: 'follow-data' | 'top'
+}
+
+export interface BarChartConfig extends ChartConfig {
+    /** Defaults to `stacked`. */
+    barLayout?: 'stacked' | 'grouped' | 'percent'
+    bandPadding?: number
+    groupPadding?: number
+    /** Stacked bars only round the topmost segment. */
+    barCornerRadius?: number
 }
 
 export interface LineChartConfig extends ChartConfig {

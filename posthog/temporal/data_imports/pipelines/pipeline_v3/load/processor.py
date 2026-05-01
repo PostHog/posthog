@@ -231,6 +231,7 @@ def _mark_job_completed(export_signal: ExportSignalMessage) -> None:
         job_id=export_signal.job_id,
         team_id=export_signal.team_id,
         status=ExternalDataJob.Status.COMPLETED,
+        logger=logger,
         latest_error=None,
     )
 
@@ -264,6 +265,7 @@ def _mark_job_failed(export_signal: ExportSignalMessage, error: Exception) -> No
         job_id=export_signal.job_id,
         team_id=export_signal.team_id,
         status=ExternalDataJob.Status.FAILED,
+        logger=logger,
         latest_error=str(error),
     )
 

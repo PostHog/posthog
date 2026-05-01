@@ -1,5 +1,7 @@
 import datetime as dt
 
+from structlog.types import FilteringBoundLogger
+
 from posthog.temporal.data_imports.metrics import TERMINAL_JOB_STATUSES, emit_data_import_app_metrics
 
 from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
@@ -7,7 +9,7 @@ from products.data_warehouse.backend.models.external_data_schema import External
 
 
 def update_external_job_status(
-    job_id: str, team_id: int, status: ExternalDataJob.Status, latest_error: str | None
+    job_id: str, team_id: int, status: ExternalDataJob.Status, logger: FilteringBoundLogger, latest_error: str | None
 ) -> ExternalDataJob:
     model = ExternalDataJob.objects.get(id=job_id, team_id=team_id)
     model.status = status
@@ -39,6 +41,7 @@ def update_external_job_status(
     model.refresh_from_db()
 
     if is_first_terminal_transition:
+        logger.debug("Emitting app metrics")
         emit_data_import_app_metrics(model)
 
     return model

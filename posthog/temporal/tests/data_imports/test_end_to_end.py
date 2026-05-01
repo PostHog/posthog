@@ -228,6 +228,48 @@ def mock_paddle_client():
         yield set_response
 
 
+@pytest.fixture
+def mock_customer_io_client():
+    """Mock the Customer.io App API session inside `api_client`.
+
+    The Customer.io source skips the REST framework patched by `_execute_run`
+    and talks to the App API through a tracked `requests.Session` returned by
+    `_session(api_key)`. We patch that helper to return a stub session whose
+    `.get(...)` yields a canned payload.
+    """
+    response_data: dict[str, Any] = {"payload": {}}
+
+    class MockResponse:
+        def __init__(self, json_data: dict):
+            self.json_data = json_data
+            self.status_code = 200
+
+        def json(self):
+            return self.json_data
+
+        def raise_for_status(self):
+            pass
+
+    class _StubSession:
+        def get(self, *args, **kwargs):
+            return MockResponse(response_data["payload"])
+
+    def set_response(payload: dict) -> None:
+        response_data["payload"] = payload
+
+    with (
+        mock.patch(
+            "posthog.temporal.data_imports.sources.customer_io.api_client._session",
+            return_value=_StubSession(),
+        ),
+        mock.patch(
+            "posthog.temporal.data_imports.sources.customer_io.api_client.validate_credentials",
+            return_value=(True, None),
+        ),
+    ):
+        yield set_response
+
+
 @pytest_asyncio.fixture(autouse=True)
 async def minio_client():
     """Manage an S3 client to interact with a MinIO bucket.
@@ -938,6 +980,148 @@ async def test_paddle_subscriptions(team, paddle_subscriptions, mock_paddle_clie
         source_type="Paddle",
         job_inputs={"paddle_api_key": "test_api_key"},
         mock_data_response=paddle_subscriptions["data"],
+    )
+
+
+async def _run_customer_io(team, schema_name, table_name, mock_data, mock_customer_io_client, payload):
+    mock_customer_io_client(payload)
+    await _run(
+        team=team,
+        schema_name=schema_name,
+        table_name=table_name,
+        source_type="CustomerIO",
+        job_inputs={"app_api_key": "test-key", "region": "us"},
+        mock_data_response=mock_data,
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_customer_io_broadcasts(team, customer_io_broadcasts, mock_customer_io_client):
+    await _run_customer_io(
+        team,
+        schema_name="broadcasts",
+        table_name="customerio_broadcasts",
+        mock_data=customer_io_broadcasts["broadcasts"],
+        mock_customer_io_client=mock_customer_io_client,
+        payload=customer_io_broadcasts,
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_customer_io_campaigns(team, customer_io_campaigns, mock_customer_io_client):
+    await _run_customer_io(
+        team,
+        schema_name="campaigns",
+        table_name="customerio_campaigns",
+        mock_data=customer_io_campaigns["campaigns"],
+        mock_customer_io_client=mock_customer_io_client,
+        payload=customer_io_campaigns,
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_customer_io_collections(team, customer_io_collections, mock_customer_io_client):
+    await _run_customer_io(
+        team,
+        schema_name="collections",
+        table_name="customerio_collections",
+        mock_data=customer_io_collections["collections"],
+        mock_customer_io_client=mock_customer_io_client,
+        payload=customer_io_collections,
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_customer_io_newsletters(team, customer_io_newsletters, mock_customer_io_client):
+    await _run_customer_io(
+        team,
+        schema_name="newsletters",
+        table_name="customerio_newsletters",
+        mock_data=customer_io_newsletters["newsletters"],
+        mock_customer_io_client=mock_customer_io_client,
+        payload=customer_io_newsletters,
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_customer_io_object_types(team, customer_io_object_types, mock_customer_io_client):
+    await _run_customer_io(
+        team,
+        schema_name="object_types",
+        table_name="customerio_object_types",
+        mock_data=customer_io_object_types["types"],
+        mock_customer_io_client=mock_customer_io_client,
+        payload=customer_io_object_types,
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_customer_io_segments(team, customer_io_segments, mock_customer_io_client):
+    await _run_customer_io(
+        team,
+        schema_name="segments",
+        table_name="customerio_segments",
+        mock_data=customer_io_segments["segments"],
+        mock_customer_io_client=mock_customer_io_client,
+        payload=customer_io_segments,
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_customer_io_sender_identities(team, customer_io_sender_identities, mock_customer_io_client):
+    await _run_customer_io(
+        team,
+        schema_name="sender_identities",
+        table_name="customerio_sender_identities",
+        mock_data=customer_io_sender_identities["sender_identities"],
+        mock_customer_io_client=mock_customer_io_client,
+        payload=customer_io_sender_identities,
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_customer_io_snippets(team, customer_io_snippets, mock_customer_io_client):
+    await _run_customer_io(
+        team,
+        schema_name="snippets",
+        table_name="customerio_snippets",
+        mock_data=customer_io_snippets["snippets"],
+        mock_customer_io_client=mock_customer_io_client,
+        payload=customer_io_snippets,
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_customer_io_subscription_topics(team, customer_io_subscription_topics, mock_customer_io_client):
+    await _run_customer_io(
+        team,
+        schema_name="subscription_topics",
+        table_name="customerio_subscription_topics",
+        mock_data=customer_io_subscription_topics["topics"],
+        mock_customer_io_client=mock_customer_io_client,
+        payload=customer_io_subscription_topics,
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_customer_io_transactional(team, customer_io_transactional, mock_customer_io_client):
+    await _run_customer_io(
+        team,
+        schema_name="transactional",
+        table_name="customerio_transactional",
+        mock_data=customer_io_transactional["messages"],
+        mock_customer_io_client=mock_customer_io_client,
+        payload=customer_io_transactional,
     )
 
 

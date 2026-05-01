@@ -1,9 +1,12 @@
 import datetime as dt
+from typing import Any
 
 import pytest
 from unittest.mock import MagicMock, patch
 
 from django.conf import settings
+
+from parameterized import parameterized
 
 from products.logs.backend.alert_state_machine import AlertState, NotificationAction
 from products.logs.backend.temporal.metrics import (
@@ -16,7 +19,9 @@ from products.logs.backend.temporal.metrics import (
     increment_checks_total,
     increment_notification_failures,
     increment_state_transition,
+    record_alert_event_create_duration,
     record_alert_save_duration,
+    record_alert_update_duration,
     record_alerts_active,
     record_check_duration,
     record_checkpoint_lag,
@@ -200,15 +205,38 @@ class TestRecordSemaphoreWait:
         )
 
 
-class TestRecordAlertSaveDuration:
+class TestRecordAlertSaveSubstageDurations:
+    @parameterized.expand(
+        [
+            (
+                "save_total",
+                record_alert_save_duration,
+                "logs_alerting_alert_save_ms",
+                "Postgres write time for the per-eval alert state update (full transaction)",
+                45,
+            ),
+            (
+                "event_create",
+                record_alert_event_create_duration,
+                "logs_alerting_alert_event_create_ms",
+                "Postgres INSERT time for the per-eval LogsAlertEvent audit row (only on state change or error)",
+                12,
+            ),
+            (
+                "alert_update",
+                record_alert_update_duration,
+                "logs_alerting_alert_update_ms",
+                "Postgres UPDATE time for the alert configuration row (without surrounding transaction overhead)",
+                28,
+            ),
+        ]
+    )
     @patch("products.logs.backend.temporal.metrics._record_histogram")
-    def test_records_histogram_with_duration(self, mock_record: MagicMock):
-        record_alert_save_duration(45)
-        mock_record.assert_called_once_with(
-            "logs_alerting_alert_save_ms",
-            "Postgres write time for the per-eval alert state update",
-            45,
-        )
+    def test_records_histogram_with_duration(
+        self, _name: str, fn: Any, metric_name: str, description: str, sample_value: int, mock_record: MagicMock
+    ):
+        fn(sample_value)
+        mock_record.assert_called_once_with(metric_name, description, sample_value)
 
 
 class TestRecordPendingAlerts:
