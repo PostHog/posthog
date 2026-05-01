@@ -404,6 +404,19 @@ export interface PatchedExternalDataSchemaApi {
 }
 
 /**
+ * * `web` - web
+ * `api` - api
+ * `mcp` - mcp
+ */
+export type CreatedViaEnumApi = (typeof CreatedViaEnumApi)[keyof typeof CreatedViaEnumApi]
+
+export const CreatedViaEnumApi = {
+    Web: 'web',
+    Api: 'api',
+    Mcp: 'mcp',
+} as const
+
+/**
  * * `Ashby` - Ashby
  * `Supabase` - Supabase
  * `CustomerIO` - CustomerIO
@@ -736,6 +749,12 @@ export interface ExternalDataSourceSerializersApi {
     readonly created_at: string
     /** @nullable */
     readonly created_by: string | null
+    /** How this source was created. Required on create. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. Ignored on update.
+
+* `web` - web
+* `api` - api
+* `mcp` - mcp */
+    created_via?: CreatedViaEnumApi
     readonly status: string
     client_secret: string
     account_id: string
@@ -964,6 +983,12 @@ export interface PatchedExternalDataSourceSerializersApi {
     readonly created_at?: string
     /** @nullable */
     readonly created_by?: string | null
+    /** How this source was created. Required on create. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. Ignored on update.
+
+* `web` - web
+* `api` - api
+* `mcp` - mcp */
+    created_via?: CreatedViaEnumApi
     readonly status?: string
     client_secret?: string
     account_id?: string
@@ -1503,6 +1528,11 @@ export interface DataWarehouseSavedQueryMinimalApi {
      * @nullable
      */
     readonly expires_at: string | null
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
 }
 
 export interface PaginatedDataWarehouseSavedQueryMinimalListApi {
@@ -1593,6 +1623,11 @@ export interface DataWarehouseSavedQueryApi {
      * @nullable
      */
     readonly expires_at: string | null
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
 }
 
 export type PatchedDataWarehouseSavedQueryApiColumnsItem = { [key: string]: unknown }
@@ -1674,8 +1709,16 @@ export interface PatchedDataWarehouseSavedQueryApi {
      * @nullable
      */
     readonly expires_at?: string | null
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level?: string | null
 }
 
+/**
+ * Mixin for serializers to add user access control fields
+ */
 export interface DataWarehouseSavedQueryFolderApi {
     readonly id: string
     /**
@@ -1686,8 +1729,16 @@ export interface DataWarehouseSavedQueryFolderApi {
     readonly created_at: string
     readonly created_by: UserBasicApi
     readonly view_count: number
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
 }
 
+/**
+ * Mixin for serializers to add user access control fields
+ */
 export interface PatchedDataWarehouseSavedQueryFolderApi {
     readonly id?: string
     /**
@@ -1698,6 +1749,11 @@ export interface PatchedDataWarehouseSavedQueryFolderApi {
     readonly created_at?: string
     readonly created_by?: UserBasicApi
     readonly view_count?: number
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level?: string | null
 }
 
 /**
@@ -1747,6 +1803,9 @@ export type TableApiExternalSchema = { [key: string]: unknown } | null | null
 
 export type TableApiOptions = { [key: string]: unknown }
 
+/**
+ * Mixin for serializers to add user access control fields
+ */
 export interface TableApi {
     readonly id: string
     /** @nullable */
@@ -1764,6 +1823,11 @@ export interface TableApi {
     /** @nullable */
     readonly external_schema: TableApiExternalSchema
     options?: TableApiOptions
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
 }
 
 export interface PaginatedTableListApi {

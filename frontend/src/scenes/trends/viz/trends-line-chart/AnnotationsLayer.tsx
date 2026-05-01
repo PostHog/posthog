@@ -2,7 +2,7 @@ import React, { useMemo } from 'react'
 
 import { Chart } from 'lib/Chart'
 import { AnnotationsOverlay } from 'lib/components/AnnotationsOverlay'
-import { computeVisibleXLabels, useChart } from 'lib/hog-charts'
+import { computeVisibleXLabels, useChartLayout } from 'lib/hog-charts'
 
 interface AnnotationsLayerProps {
     /** Numeric insight id used by the annotations logic. Pass `'new'` for unsaved insights. */
@@ -20,9 +20,8 @@ const WRAPPER_STYLE: React.CSSProperties = {
     pointerEvents: 'auto',
 }
 
-// Stop badge clicks from bubbling to the chart wrapper, which would otherwise
-// fire the chart's onPointClick (e.g. opening the persons modal).
-const stopClickPropagation = (e: React.MouseEvent<HTMLDivElement>): void => {
+// Annotation badges must not drive the chart's crosshair or onPointClick.
+const stopPointerPropagation = (e: React.MouseEvent<HTMLDivElement>): void => {
     e.stopPropagation()
 }
 
@@ -31,7 +30,7 @@ export function AnnotationsLayer({
     dates,
     xTickFormatter,
 }: AnnotationsLayerProps): React.ReactElement | null {
-    const { scales, dimensions, labels } = useChart()
+    const { scales, dimensions, labels } = useChartLayout()
 
     const chartLike = useMemo(() => {
         const visibleXLabels = computeVisibleXLabels(labels, scales.x, xTickFormatter)
@@ -54,7 +53,13 @@ export function AnnotationsLayer({
     }
 
     return (
-        <div className="HogChartsAnnotationsLayer" style={WRAPPER_STYLE} onClick={stopClickPropagation}>
+        <div
+            className="HogChartsAnnotationsLayer"
+            style={WRAPPER_STYLE}
+            onClick={stopPointerPropagation}
+            onMouseMove={stopPointerPropagation}
+            onMouseDown={stopPointerPropagation}
+        >
             <AnnotationsOverlay
                 chart={chartLike as unknown as Chart}
                 dates={dates}

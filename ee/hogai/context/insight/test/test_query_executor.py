@@ -45,6 +45,7 @@ from posthog.schema import (
 from posthog.hogql.constants import DEFAULT_POSTHOG_AI_RETURNED_ROWS
 from posthog.hogql.errors import ExposedHogQLError
 
+from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tags_context
 from posthog.errors import ExposedCHQueryError
 
 from ee.hogai.context.insight.query_executor import (
@@ -695,6 +696,50 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
 
         result, used_fallback = await self.query_runner.arun_and_format_query(query)
         self.assertIn("Date|test2", result)
+
+    @patch("ee.hogai.context.insight.query_executor.process_query_dict")
+    async def test_outer_tags_propagate_across_sync_boundary(self, mock_process_query):
+        """Outer-context query tags must survive the database_sync_to_async thread switch."""
+        captured_tags: dict[str, Any] = {}
+
+        def fake_process_query_dict(*args, **kwargs):
+            # Captured from inside the threaded sync function — i.e. across the async-to-sync boundary
+            captured_tags.update(get_query_tags().model_dump(exclude_none=True))
+            return {"results": []}
+
+        mock_process_query.side_effect = fake_process_query_dict
+
+        query = AssistantTrendsQuery(series=[])
+
+        # Tags set in the outer async context — these would be lost without the snapshot/replay logic
+        with tags_context(feature=Feature.MCP, scene="my-scene"):
+            await self.query_runner.arun_and_format_query(query, insight_id=42)
+
+        # Outer-context tags propagated through the sync boundary
+        self.assertEqual(captured_tags.get("scene"), "my-scene")
+        # Outer feature wins over the default POSTHOG_AI fallback in arun_and_format_query
+        self.assertEqual(captured_tags.get("feature"), Feature.MCP.value)
+        # Tags applied by arun_and_format_query also propagate
+        self.assertEqual(captured_tags.get("product"), Product.MAX_AI.value)
+        self.assertEqual(captured_tags.get("team_id"), self.team.pk)
+        self.assertEqual(captured_tags.get("insight_id"), 42)
+
+    @patch("ee.hogai.context.insight.query_executor.process_query_dict")
+    async def test_default_feature_when_no_outer_feature(self, mock_process_query):
+        """When no outer feature is set, arun_and_format_query falls back to POSTHOG_AI."""
+        captured_tags: dict[str, Any] = {}
+
+        def fake_process_query_dict(*args, **kwargs):
+            captured_tags.update(get_query_tags().model_dump(exclude_none=True))
+            return {"results": []}
+
+        mock_process_query.side_effect = fake_process_query_dict
+
+        query = AssistantTrendsQuery(series=[])
+        await self.query_runner.arun_and_format_query(query)
+
+        self.assertEqual(captured_tags.get("feature"), Feature.POSTHOG_AI.value)
+        self.assertEqual(captured_tags.get("product"), Product.MAX_AI.value)
 
 
 class TestAssistantQueryExecutorAsync(NonAtomicBaseTest):

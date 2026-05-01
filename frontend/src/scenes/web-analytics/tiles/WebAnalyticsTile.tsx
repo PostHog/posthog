@@ -30,6 +30,7 @@ import {
     countryCodeToFlag,
     languageCodeToFlag,
 } from 'lib/utils/geography/country'
+import { StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -51,6 +52,8 @@ import { webAnalyticsFilterLogic } from 'scenes/web-analytics/webAnalyticsFilter
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { actionsModel } from '~/models/actionsModel'
+import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { Query } from '~/queries/Query/Query'
 import {
     DataTableNode,
@@ -1227,6 +1230,18 @@ const BotHogQLTableTile = ({ uniqueKey, attachTo, query, insightProps, tileId }:
     const { setBotAnalyticsFilters } = useActions(botAnalyticsLogic)
     const { rawBotAnalyticsFilters } = useValues(botAnalyticsLogic)
 
+    // Mirror the props DataTable uses internally so we share the same dataNodeLogic instance —
+    // mounting it here lets us drive a richer initial loading state without triggering a duplicate fetch.
+    const dataNodeLogicKey = insightVizDataNodeKey(insightProps)
+    const { response, responseLoading, queryId, pollResponse } = useValues(
+        dataNodeLogic({
+            query: query.source,
+            key: dataNodeLogicKey,
+            dataNodeCollectionId: insightProps.dataNodeCollectionId || dataNodeLogicKey,
+        })
+    )
+    const isInitialLoading = responseLoading && !response
+
     const context = useMemo((): QueryContext => {
         // Single-select toggle: clicking the same value clears it, any other click replaces.
         const toggleFilter = (key: string, value: string): void => {
@@ -1273,7 +1288,13 @@ const BotHogQLTableTile = ({ uniqueKey, attachTo, query, insightProps, tileId }:
 
     return (
         <div className="border rounded bg-surface-primary flex-1 flex flex-col py-2 px-1">
-            <Query uniqueKey={uniqueKey} attachTo={attachTo} query={query} readOnly={true} context={context} />
+            {isInitialLoading ? (
+                <div className="flex flex-1 p-2 w-full justify-center items-center">
+                    <StatelessInsightLoadingState queryId={queryId} pollResponse={pollResponse} />
+                </div>
+            ) : (
+                <Query uniqueKey={uniqueKey} attachTo={attachTo} query={query} readOnly={true} context={context} />
+            )}
         </div>
     )
 }

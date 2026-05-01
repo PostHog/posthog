@@ -106,7 +106,11 @@ class TestBatchImportActivityLogging(ActivityLogTestHelper):
             batch_import = self.create_batch_import()
             initial_count = ActivityLog.objects.count()
 
-            self.update_batch_import(batch_import["id"], {"status": "completed"})
+            # `status` is read-only on the serializer; mutate via the pause action instead.
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/managed_migrations/{batch_import['id']}/pause", format="json"
+            )
+            self.assertEqual(response.status_code, 200)
 
             self.assertEqual(ActivityLog.objects.count(), initial_count + 1)
 
