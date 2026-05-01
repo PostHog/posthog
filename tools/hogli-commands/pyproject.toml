@@ -4,18 +4,21 @@ build-backend = "hatchling.build"
 
 [project]
 name = "hogli-commands"
-version = "0.1.0"
-description = "PostHog-specific Click commands and boot hooks for the hogli framework"
+version = "0.0.0"
+description = "Internal: PostHog-specific Click commands and boot hooks for the hogli framework. Not for distribution."
 readme = "README.md"
-license = "MIT"
 requires-python = ">=3.10"
 authors = [
     { name = "PostHog", email = "engineering@posthog.com" }
 ]
+# `Private :: Do Not Upload` is the conventional guard against accidental
+# PyPI uploads — the index rejects any package carrying it. This package is
+# tightly coupled to the PostHog monorepo (hardcoded paths, internal tooling)
+# and is consumed only as a uv workspace member.
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Private :: Do Not Upload",
+    "Development Status :: 7 - Inactive",
     "Environment :: Console",
-    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
 ]
 # Base deps are deliberately light: click + pyyaml are enough to import every

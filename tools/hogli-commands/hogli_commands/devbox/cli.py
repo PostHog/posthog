@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 import click
+from hogli.manifest import get_manifest
 
 from . import keychain
 from .coder import (
@@ -372,14 +373,11 @@ def maybe_configure_dotfiles(configure_dotfiles: bool | None) -> None:
 @click.command(name="devbox", help="Show available devbox commands")
 def devbox_help() -> None:
     """Show the available `hogli devbox:*` commands."""
-    # Lazy import: this module is loaded on first `hogli devbox*` dispatch, by
-    # which point hogli.cli is fully initialized. Avoids an import-time cycle.
-    from hogli.cli import cli
-
+    devbox_section = get_manifest().data.get("devbox", {})
     commands = sorted(
-        (name, cmd.get_short_help_str() or "")
-        for name, cmd in cli.commands.items()
-        if name.startswith("devbox:") and not getattr(cmd, "hidden", False)
+        (name, cfg.get("description", ""))
+        for name, cfg in devbox_section.items()
+        if isinstance(cfg, dict) and name != "devbox" and not cfg.get("hidden", False)
     )
     click.echo("Available devbox commands:")
     click.echo()
