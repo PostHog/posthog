@@ -35,9 +35,11 @@
       WHERE
           and(equals(raw_sessions_v3.team_id, <TEAM_ID>), equals(raw_sessions_v3.session_timestamp, fromUnixTimestamp64Milli(toUInt64(bitShiftRight(toUInt128(accurateCastOrNull(%(hogql_val_0)s, %(hogql_val_1)s)), 80)))))
       GROUP BY
-          raw_sessions_v3.session_id_v7) AS sessions
+          raw_sessions_v3.session_id_v7
+      HAVING
+          ifNull(equals(session_id, %(hogql_val_2)s), 0)) AS sessions
   WHERE
-      ifNull(equals(sessions.session_id, %(hogql_val_2)s), 0)
+      ifNull(equals(sessions.session_id, %(hogql_val_3)s), 0)
   LIMIT 50000
   '''
 # ---
@@ -59,11 +61,13 @@
           WHERE
               and(equals(raw_sessions_v3.team_id, <TEAM_ID>), greaterOrEquals(raw_sessions_v3.session_timestamp, minus(%(hogql_val_1)s, toIntervalDay(3))))
           GROUP BY
-              raw_sessions_v3.session_id_v7) AS sessions
+              raw_sessions_v3.session_id_v7
+          HAVING
+              ifNull(greaterOrEquals(`$start_timestamp`, %(hogql_val_2)s), 0)) AS sessions
       WHERE
-          ifNull(greaterOrEquals(sessions.`$start_timestamp`, %(hogql_val_2)s), 0)) AS subquery
+          ifNull(greaterOrEquals(sessions.`$start_timestamp`, %(hogql_val_3)s), 0)) AS subquery
   WHERE
-      ifNull(equals(subquery.session_id, %(hogql_val_3)s), 0)
+      ifNull(equals(subquery.session_id, %(hogql_val_4)s), 0)
   LIMIT 50000
   '''
 # ---
@@ -81,9 +85,11 @@
       WHERE
           and(equals(raw_sessions_v3.team_id, <TEAM_ID>), greaterOrEquals(raw_sessions_v3.session_timestamp, minus(%(hogql_val_1)s, toIntervalDay(3))))
       GROUP BY
-          raw_sessions_v3.session_id_v7) AS sessions
+          raw_sessions_v3.session_id_v7
+      HAVING
+          ifNull(greater(`$start_timestamp`, %(hogql_val_2)s), 0)) AS sessions
   WHERE
-      ifNull(greater(sessions.`$start_timestamp`, %(hogql_val_2)s), 0)
+      ifNull(greater(sessions.`$start_timestamp`, %(hogql_val_3)s), 0)
   LIMIT 50000
   '''
 # ---
@@ -133,7 +139,7 @@
   '''
   SELECT
       s.session_id AS session_id,
-      min(toTimeZone(s.min_first_timestamp, %(hogql_val_3)s)) AS start_time
+      min(toTimeZone(s.min_first_timestamp, %(hogql_val_4)s)) AS start_time
   FROM
       session_replay_events AS s
       LEFT JOIN (SELECT
@@ -144,9 +150,11 @@
       WHERE
           and(equals(raw_sessions_v3.team_id, <TEAM_ID>), greaterOrEquals(raw_sessions_v3.session_timestamp, minus(%(hogql_val_0)s, toIntervalDay(3))), lessOrEquals(raw_sessions_v3.session_timestamp, plus(now64(6, %(hogql_val_1)s), toIntervalDay(3))))
       GROUP BY
-          raw_sessions_v3.session_id_v7) AS s__session ON equals(toUInt128(accurateCastOrNull(s.session_id, %(hogql_val_2)s)), s__session.session_id_v7)
+          raw_sessions_v3.session_id_v7
+      HAVING
+          ifNull(equals(`$entry_pathname`, %(hogql_val_2)s), 0)) AS s__session ON equals(toUInt128(accurateCastOrNull(s.session_id, %(hogql_val_3)s)), s__session.session_id_v7)
   WHERE
-      and(equals(s.team_id, <TEAM_ID>), ifNull(equals(s__session.`$entry_pathname`, %(hogql_val_4)s), 0), greaterOrEquals(s.min_first_timestamp, toDateTime64(%(hogql_val_5)s, 6, %(hogql_val_6)s)), less(s.min_first_timestamp, now64(6, %(hogql_val_7)s)))
+      and(equals(s.team_id, <TEAM_ID>), ifNull(equals(s__session.`$entry_pathname`, %(hogql_val_5)s), 0), greaterOrEquals(s.min_first_timestamp, toDateTime64(%(hogql_val_6)s, 6, %(hogql_val_7)s)), less(s.min_first_timestamp, now64(6, %(hogql_val_8)s)))
   GROUP BY
       s.session_id
   LIMIT 50000
@@ -169,9 +177,11 @@
       WHERE
           and(equals(raw_sessions_v3.team_id, <TEAM_ID>), greaterOrEquals(raw_sessions_v3.session_timestamp, minus(UUIDv7ToDateTime(accurateCastOrNull(%(hogql_val_2)s, %(hogql_val_3)s)), toIntervalDay(3))), lessOrEquals(raw_sessions_v3.session_timestamp, plus(plus(UUIDv7ToDateTime(accurateCastOrNull(%(hogql_val_4)s, %(hogql_val_5)s)), toIntervalHour(1)), toIntervalDay(3))), equals(raw_sessions_v3.session_timestamp, fromUnixTimestamp64Milli(toUInt64(bitShiftRight(toUInt128(accurateCastOrNull(%(hogql_val_6)s, %(hogql_val_7)s)), 80)))))
       GROUP BY
-          raw_sessions_v3.session_id_v7) AS sessions
+          raw_sessions_v3.session_id_v7
+      HAVING
+          and(ifNull(greaterOrEquals(`$start_timestamp`, UUIDv7ToDateTime(accurateCastOrNull(%(hogql_val_8)s, %(hogql_val_9)s))), 0), ifNull(lessOrEquals(`$start_timestamp`, 1), 0), ifNull(equals(session_id, %(hogql_val_10)s), 0))) AS sessions
   WHERE
-      and(ifNull(greaterOrEquals(sessions.`$start_timestamp`, UUIDv7ToDateTime(accurateCastOrNull(%(hogql_val_8)s, %(hogql_val_9)s))), 0), ifNull(lessOrEquals(sessions.`$start_timestamp`, plus(UUIDv7ToDateTime(accurateCastOrNull(%(hogql_val_10)s, %(hogql_val_11)s)), toIntervalHour(1))), 0), ifNull(equals(sessions.session_id, %(hogql_val_12)s), 0))
+      and(ifNull(greaterOrEquals(sessions.`$start_timestamp`, UUIDv7ToDateTime(accurateCastOrNull(%(hogql_val_11)s, %(hogql_val_12)s))), 0), ifNull(lessOrEquals(sessions.`$start_timestamp`, plus(UUIDv7ToDateTime(accurateCastOrNull(%(hogql_val_13)s, %(hogql_val_14)s)), toIntervalHour(1))), 0), ifNull(equals(sessions.session_id, %(hogql_val_15)s), 0))
   LIMIT 1
   '''
 # ---
@@ -189,9 +199,11 @@
       WHERE
           and(equals(raw_sessions_v3.team_id, <TEAM_ID>), greaterOrEquals(raw_sessions_v3.session_timestamp, minus(UUIDv7ToDateTime(accurateCastOrNull(%(hogql_val_1)s, %(hogql_val_2)s)), toIntervalDay(3))), lessOrEquals(raw_sessions_v3.session_timestamp, plus(plus(UUIDv7ToDateTime(accurateCastOrNull(%(hogql_val_3)s, %(hogql_val_4)s)), toIntervalDay(2)), toIntervalDay(3))), equals(raw_sessions_v3.session_timestamp, fromUnixTimestamp64Milli(toUInt64(bitShiftRight(toUInt128(accurateCastOrNull(%(hogql_val_5)s, %(hogql_val_6)s)), 80)))))
       GROUP BY
-          raw_sessions_v3.session_id_v7) AS sessions
+          raw_sessions_v3.session_id_v7
+      HAVING
+          and(ifNull(greaterOrEquals(`$start_timestamp`, UUIDv7ToDateTime(accurateCastOrNull(%(hogql_val_7)s, %(hogql_val_8)s))), 0), ifNull(lessOrEquals(`$start_timestamp`, 1), 0), ifNull(equals(session_id, %(hogql_val_9)s), 0))) AS sessions
   WHERE
-      and(ifNull(greaterOrEquals(sessions.`$start_timestamp`, UUIDv7ToDateTime(accurateCastOrNull(%(hogql_val_7)s, %(hogql_val_8)s))), 0), ifNull(lessOrEquals(sessions.`$start_timestamp`, plus(UUIDv7ToDateTime(accurateCastOrNull(%(hogql_val_9)s, %(hogql_val_10)s)), toIntervalDay(2))), 0), ifNull(equals(sessions.session_id, %(hogql_val_11)s), 0))
+      and(ifNull(greaterOrEquals(sessions.`$start_timestamp`, UUIDv7ToDateTime(accurateCastOrNull(%(hogql_val_10)s, %(hogql_val_11)s))), 0), ifNull(lessOrEquals(sessions.`$start_timestamp`, plus(UUIDv7ToDateTime(accurateCastOrNull(%(hogql_val_12)s, %(hogql_val_13)s)), toIntervalDay(2))), 0), ifNull(equals(sessions.session_id, %(hogql_val_14)s), 0))
   LIMIT 50000
   '''
 # ---
@@ -236,7 +248,9 @@
       WHERE
           and(equals(raw_sessions_v3.team_id, <TEAM_ID>), greaterOrEquals(raw_sessions_v3.session_timestamp, minus(minus(now64(6, %(hogql_val_1)s), toIntervalDay(7)), toIntervalDay(3))))
       GROUP BY
-          raw_sessions_v3.session_id_v7) AS sessions
+          raw_sessions_v3.session_id_v7
+      HAVING
+          ifNull(greaterOrEquals(`$start_timestamp`, 1), 0)) AS sessions
   WHERE
       ifNull(greaterOrEquals(sessions.`$start_timestamp`, minus(now64(6, %(hogql_val_2)s), toIntervalDay(7))), 0)
   LIMIT 50000

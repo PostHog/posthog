@@ -42,7 +42,8 @@
             raw_sessions_v3.session_id_v7 AS session_id_v7
      FROM raw_sessions_v3
      WHERE and(equals(raw_sessions_v3.team_id, 99999), equals(raw_sessions_v3.session_timestamp, fromUnixTimestamp64Milli(toUInt64(bitShiftRight(toUInt128(accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID')), 80)))))
-     GROUP BY raw_sessions_v3.session_id_v7) AS sessions
+     GROUP BY raw_sessions_v3.session_id_v7
+     HAVING ifNull(equals(session_id, '00000000-0000-0000-0000-000000000000'), 0)) AS sessions
   WHERE ifNull(equals(sessions.session_id, '00000000-0000-0000-0000-000000000000'), 0)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -65,7 +66,8 @@
             raw_sessions_v3.session_id_v7 AS session_id_v7
      FROM raw_sessions_v3
      WHERE and(equals(raw_sessions_v3.team_id, 99999), equals(raw_sessions_v3.session_timestamp, fromUnixTimestamp64Milli(toUInt64(bitShiftRight(toUInt128(accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID')), 80)))))
-     GROUP BY raw_sessions_v3.session_id_v7) AS sessions
+     GROUP BY raw_sessions_v3.session_id_v7
+     HAVING ifNull(equals(session_id, '00000000-0000-0000-0000-000000000000'), 0)) AS sessions
   WHERE ifNull(equals(sessions.session_id, '00000000-0000-0000-0000-000000000000'), 0)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -92,7 +94,8 @@
             raw_sessions_v3.session_id_v7 AS session_id_v7
      FROM raw_sessions_v3
      WHERE and(equals(raw_sessions_v3.team_id, 99999), equals(raw_sessions_v3.session_timestamp, fromUnixTimestamp64Milli(toUInt64(bitShiftRight(toUInt128(accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID')), 80)))))
-     GROUP BY raw_sessions_v3.session_id_v7) AS sessions
+     GROUP BY raw_sessions_v3.session_id_v7
+     HAVING ifNull(equals(id, '00000000-0000-0000-0000-000000000000'), 0)) AS sessions
   WHERE ifNull(equals(sessions.id, '00000000-0000-0000-0000-000000000000'), 0)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -191,7 +194,8 @@
             raw_sessions_v3.session_id_v7 AS session_id_v7
      FROM raw_sessions_v3
      WHERE and(equals(raw_sessions_v3.team_id, 99999), equals(raw_sessions_v3.session_timestamp, fromUnixTimestamp64Milli(toUInt64(bitShiftRight(toUInt128(accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID')), 80)))))
-     GROUP BY raw_sessions_v3.session_id_v7) AS sessions
+     GROUP BY raw_sessions_v3.session_id_v7
+     HAVING ifNull(equals(id, '00000000-0000-0000-0000-000000000000'), 0)) AS sessions
   WHERE ifNull(equals(sessions.id, '00000000-0000-0000-0000-000000000000'), 0)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -214,7 +218,8 @@
             raw_sessions_v3.session_id_v7 AS session_id_v7
      FROM raw_sessions_v3
      WHERE equals(raw_sessions_v3.team_id, 99999)
-     GROUP BY raw_sessions_v3.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
+     GROUP BY raw_sessions_v3.session_id_v7
+     HAVING ifNull(equals(`$entry_pathname`, '/pathname'), 0)) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
   WHERE and(equals(events.team_id, 99999), ifNull(equals(events__session.`$entry_pathname`, '/pathname'), 0))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -264,7 +269,8 @@
             raw_sessions_v3.session_id_v7 AS session_id_v7
      FROM raw_sessions_v3
      WHERE and(equals(raw_sessions_v3.team_id, 99999), equals(raw_sessions_v3.session_timestamp, fromUnixTimestamp64Milli(toUInt64(bitShiftRight(toUInt128(accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID')), 80)))))
-     GROUP BY raw_sessions_v3.session_id_v7) AS sessions
+     GROUP BY raw_sessions_v3.session_id_v7
+     HAVING ifNull(equals(id, '00000000-0000-0000-0000-000000000000'), 0)) AS sessions
   WHERE ifNull(equals(sessions.id, '00000000-0000-0000-0000-000000000000'), 0)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -287,7 +293,8 @@
             raw_sessions_v3.session_id_v7 AS session_id_v7
      FROM raw_sessions_v3
      WHERE and(equals(raw_sessions_v3.team_id, 99999), equals(raw_sessions_v3.session_timestamp, fromUnixTimestamp64Milli(toUInt64(bitShiftRight(toUInt128(accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID')), 80)))))
-     GROUP BY raw_sessions_v3.session_id_v7) AS sessions
+     GROUP BY raw_sessions_v3.session_id_v7
+     HAVING ifNull(equals(session_id, '00000000-0000-0000-0000-000000000000'), 0)) AS sessions
   WHERE ifNull(equals(sessions.session_id, '00000000-0000-0000-0000-000000000000'), 0)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -538,7 +545,8 @@
      FROM raw_sessions_v3
      WHERE and(equals(raw_sessions_v3.team_id, 99999), equals(raw_sessions_v3.session_timestamp, fromUnixTimestamp64Milli(toUInt64(bitShiftRight(toUInt128(accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID')), 80)))))
      GROUP BY raw_sessions_v3.session_timestamp,
-              raw_sessions_v3.session_id_v7) AS sessions
+              raw_sessions_v3.session_id_v7
+     HAVING ifNull(equals(session_id, '00000000-0000-0000-0000-000000000000'), 0)) AS sessions
   WHERE ifNull(equals(sessions.session_id, '00000000-0000-0000-0000-000000000000'), 0)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
