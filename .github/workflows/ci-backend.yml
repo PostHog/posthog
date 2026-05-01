@@ -1317,7 +1317,7 @@ jobs:
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' }}
               env:
                   PERSON_ON_EVENTS_V2_ENABLED: ${{ matrix.person-on-events && 'true' || 'false' }}
-                  POSTHOG_DB_SETUP_TIMING: "1"  # trial: surface django_db_setup + per-migration timings (posthog/conftest.py)
+                  POSTHOG_DB_SETUP_TIMING: '1' # trial: surface django_db_setup + per-migration timings (posthog/conftest.py)
               shell: bash
               run: | # async_migrations covered in ci-async-migrations.yml
                   set +e
