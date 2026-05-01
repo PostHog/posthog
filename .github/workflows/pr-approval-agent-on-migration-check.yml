@@ -24,8 +24,11 @@ permissions:
 
 concurrency:
     # Share the per-PR group with pr-approval-agent.yml so a bounce queued
-    # behind an in-flight review waits rather than racing it.
-    group: pr-approval-${{ github.event.check_run.pull_requests[0].number }}
+    # behind an in-flight review waits rather than racing it. Fallback when
+    # the check has no associated PRs — concurrency evaluates before the
+    # job's `if`, so without this, all PR-less runs would collapse into one
+    # malformed group and queue against each other.
+    group: pr-approval-${{ github.event.check_run.pull_requests[0].number || 'no-pr' }}
     cancel-in-progress: false
 
 jobs:
