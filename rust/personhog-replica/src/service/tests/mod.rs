@@ -571,7 +571,7 @@ async fn test_create_group_storage_error(
             group_type_index: 0,
             group_key: "test-key".to_string(),
             group_properties: b"{}".to_vec(),
-            created_at: 1000,
+            created_at: Some(1000),
         }))
         .await;
 
@@ -588,7 +588,7 @@ async fn test_create_group_invalid_timestamp() {
             group_type_index: 0,
             group_key: "test-key".to_string(),
             group_properties: b"{}".to_vec(),
-            created_at: i64::MIN,
+            created_at: Some(i64::MIN),
         }))
         .await
         .unwrap_err();
@@ -607,7 +607,7 @@ async fn test_create_group_invalid_json() {
             group_type_index: 0,
             group_key: "test-key".to_string(),
             group_properties: b"not json".to_vec(),
-            created_at: 1000,
+            created_at: Some(1000),
         }))
         .await
         .unwrap_err();
@@ -626,7 +626,25 @@ async fn test_create_group_success() {
             group_type_index: 0,
             group_key: "test-key".to_string(),
             group_properties: b"{}".to_vec(),
-            created_at: 1000,
+            created_at: Some(1000),
+        }))
+        .await;
+
+    let response = result.unwrap().into_inner();
+    assert!(response.group.is_some());
+}
+
+#[tokio::test]
+async fn test_create_group_defaults_created_at_to_now() {
+    let service = PersonHogReplicaService::new(Arc::new(mocks::SuccessStorage));
+
+    let result = service
+        .create_group(Request::new(CreateGroupRequest {
+            team_id: 1,
+            group_type_index: 0,
+            group_key: "test-key".to_string(),
+            group_properties: b"{}".to_vec(),
+            created_at: None,
         }))
         .await;
 

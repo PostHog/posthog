@@ -110,7 +110,7 @@ message CreateGroupRequest {
   int32 group_type_index = 2;
   string group_key = 3;
   bytes group_properties = 4;
-  int64 created_at = 5;
+  optional int64 created_at = 5;
 }
 
 message CreateGroupResponse {

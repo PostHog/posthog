@@ -857,13 +857,12 @@ impl PersonHogReplica for PersonHogReplicaService {
     ) -> Result<Response<CreateGroupResponse>, Status> {
         let req = request.into_inner();
 
-        let created_at =
-            chrono::DateTime::from_timestamp_millis(req.created_at).ok_or_else(|| {
-                Status::invalid_argument(format!(
-                    "Invalid created_at timestamp: {}",
-                    req.created_at
-                ))
-            })?;
+        let created_at = match req.created_at {
+            Some(ts) => chrono::DateTime::from_timestamp_millis(ts).ok_or_else(|| {
+                Status::invalid_argument(format!("Invalid created_at timestamp: {ts}"))
+            })?,
+            None => chrono::Utc::now(),
+        };
 
         let group_properties: serde_json::Value = serde_json::from_slice(&req.group_properties)
             .map_err(|e| Status::invalid_argument(format!("Invalid group_properties JSON: {e}")))?;

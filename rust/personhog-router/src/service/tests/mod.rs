@@ -199,7 +199,7 @@ async fn test_create_group_routes_to_replica() {
         group_type_index: 0,
         group_key: "test-group".to_string(),
         group_properties: b"{}".to_vec(),
-        created_at: 1700000000000,
+        created_at: Some(1700000000000),
     });
 
     let response = service.create_group(request).await.unwrap();
@@ -218,7 +218,7 @@ async fn test_create_group_error_passthrough() {
         group_type_index: 0,
         group_key: "test-group".to_string(),
         group_properties: b"{}".to_vec(),
-        created_at: 1700000000000,
+        created_at: Some(1700000000000),
     });
 
     let result = service.create_group(request).await;
