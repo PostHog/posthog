@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
+import { useEffect, useMemo, useState } from 'react'
 
 import { IconEllipsis, IconShare } from '@posthog/icons'
 import {
@@ -23,6 +24,9 @@ import { logsViewerModalLogic } from 'products/logs/frontend/components/LogsView
 import { LogsFeatureFlagKeys } from 'products/logs/frontend/logsFeatureFlagKeys'
 
 import { logsServicesLogic, ServiceRow } from './logsServicesLogic'
+
+/** Collapsed Rules column shows this many rule chips before "+ N more". */
+const RULES_PREVIEW_COUNT = 3
 
 const DATE_OPTIONS = [
     { value: '-1h', label: 'Last hour' },
@@ -84,6 +88,66 @@ function severityMixBar(row: ServiceRow): JSX.Element {
     )
 }
 
+function ServiceRulesCell({
+    row,
+    rulesExpandAll,
+    rulesExpandedByService,
+    onToggleRow,
+}: {
+    row: ServiceRow
+    rulesExpandAll: boolean
+    rulesExpandedByService: Record<string, boolean>
+    onToggleRow: (serviceName: string) => void
+}): JSX.Element {
+    const rules = row.active_rules ?? []
+    if (rules.length === 0) {
+        return <span className="text-muted">-</span>
+    }
+
+    const rowExpanded = rulesExpandAll || rulesExpandedByService[row.service_name]
+    const needsTruncate = rules.length > RULES_PREVIEW_COUNT
+    const showAll = rowExpanded || !needsTruncate
+    const visibleRules = showAll ? rules : rules.slice(0, RULES_PREVIEW_COUNT)
+    const hiddenCount = rules.length - RULES_PREVIEW_COUNT
+
+    return (
+        <div className="flex flex-col gap-1 max-w-md">
+            <div className="flex flex-wrap gap-1">
+                {visibleRules.map((r) => (
+                    <LemonButton
+                        key={r.rule_id}
+                        size="xsmall"
+                        to={urls.logsSamplingDetail(r.rule_id)}
+                        className="font-normal"
+                    >
+                        {r.rule_name}
+                    </LemonButton>
+                ))}
+            </div>
+            {needsTruncate && !rowExpanded ? (
+                <LemonButton
+                    type="tertiary"
+                    size="xsmall"
+                    className="self-start font-normal"
+                    onClick={() => onToggleRow(row.service_name)}
+                >
+                    Show {hiddenCount} more
+                </LemonButton>
+            ) : null}
+            {needsTruncate && rowExpanded && !rulesExpandAll ? (
+                <LemonButton
+                    type="tertiary"
+                    size="xsmall"
+                    className="self-start font-normal"
+                    onClick={() => onToggleRow(row.service_name)}
+                >
+                    Show less
+                </LemonButton>
+            ) : null}
+        </div>
+    )
+}
+
 function copyServiceDeepLink(serviceName: string): void {
     const path = combineUrl(urls.currentProject(urls.logs()), {
         activeTab: 'viewer',
@@ -102,6 +166,25 @@ export function LogsServices(): JSX.Element {
     const { setDateFrom } = useActions(logsServicesLogic)
     const { openLogsViewerModal } = useActions(logsViewerModalLogic)
     const samplingRulesUi = useFeatureFlag(LogsFeatureFlagKeys.dropRules)
+
+    const [rulesExpandAll, setRulesExpandAll] = useState(false)
+    const [rulesExpandedByService, setRulesExpandedByService] = useState<Record<string, boolean>>({})
+
+    const servicesWithManyRules = useMemo(
+        () => services.filter((s) => (s.active_rules?.length ?? 0) > RULES_PREVIEW_COUNT),
+        [services]
+    )
+    const showRulesBulkControls = samplingRulesUi && servicesWithManyRules.length > 0
+
+    useEffect(() => {
+        if (servicesWithManyRules.length === 0) {
+            setRulesExpandAll(false)
+        }
+    }, [servicesWithManyRules.length])
+
+    const toggleServiceRulesExpanded = (serviceName: string): void => {
+        setRulesExpandedByService((prev) => ({ ...prev, [serviceName]: !prev[serviceName] }))
+    }
 
     const presetItems = DATE_OPTIONS.map((opt) => ({
         label: opt.label,
@@ -168,28 +251,37 @@ export function LogsServices(): JSX.Element {
         ...(samplingRulesUi
             ? ([
                   {
-                      title: 'Rules',
+                      title: showRulesBulkControls ? (
+                          <div className="flex items-center gap-2 min-w-0">
+                              <span className="shrink-0">Rules</span>
+                              <LemonButton
+                                  size="xsmall"
+                                  type="secondary"
+                                  onClick={() => {
+                                      if (rulesExpandAll) {
+                                          setRulesExpandAll(false)
+                                          setRulesExpandedByService({})
+                                      } else {
+                                          setRulesExpandAll(true)
+                                          setRulesExpandedByService({})
+                                      }
+                                  }}
+                              >
+                                  {rulesExpandAll ? 'Collapse all' : 'Expand all'}
+                              </LemonButton>
+                          </div>
+                      ) : (
+                          'Rules'
+                      ),
                       key: 'active_rules',
-                      render: (_: unknown, row: ServiceRow) => {
-                          const rules = row.active_rules ?? []
-                          if (rules.length === 0) {
-                              return <span className="text-muted">-</span>
-                          }
-                          return (
-                              <div className="flex flex-wrap gap-1 max-w-xs">
-                                  {rules.map((r) => (
-                                      <LemonButton
-                                          key={r.rule_id}
-                                          size="xsmall"
-                                          to={urls.logsSamplingDetail(r.rule_id)}
-                                          className="font-normal"
-                                      >
-                                          {r.rule_name}
-                                      </LemonButton>
-                                  ))}
-                              </div>
-                          )
-                      },
+                      render: (_: unknown, row: ServiceRow) => (
+                          <ServiceRulesCell
+                              row={row}
+                              rulesExpandAll={rulesExpandAll}
+                              rulesExpandedByService={rulesExpandedByService}
+                              onToggleRow={toggleServiceRulesExpanded}
+                          />
+                      ),
                   },
               ] as LemonTableColumns<ServiceRow>)
             : []),
