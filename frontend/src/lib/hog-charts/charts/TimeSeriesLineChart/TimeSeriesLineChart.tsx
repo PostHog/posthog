@@ -1,7 +1,7 @@
 import React from 'react'
 
-import { LineChart } from '../charts/LineChart'
-import type { ChartTheme, LineChartConfig, PointClickData, Series, TooltipContext } from '../core/types'
+import type { ChartTheme, LineChartConfig, PointClickData, Series, TooltipContext } from '../../core/types'
+import { LineChart } from '../LineChart'
 
 export interface TimeSeriesLineChartConfig {
     xAxis?: {

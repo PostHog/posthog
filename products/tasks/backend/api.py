@@ -119,6 +119,7 @@ from .temporal.process_task.utils import (
     cache_github_user_token,
     get_provider_for_runtime_adapter,
     get_reasoning_effort_error,
+    get_user_github_integration,
     parse_run_state,
 )
 
@@ -613,9 +614,40 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 status=400,
             )
 
-        # Only require a user token when the task has a repo (no-repo cloud runs skip GitHub operations)
+        # User-authored cloud runs need *some* GitHub credential: either the caller
+        # ships its own token in ``github_user_token`` (backward-compat for PostHog Code),
+        # or the task creator has linked GitHub from Settings so the server has stored
+        # user-to-server tokens. No-repo runs skip this gate since they never touch GitHub.
         if pr_authorship_mode == PrAuthorshipMode.USER and task.repository and not github_user_token:
-            return Response({"detail": "github_user_token is required for user-authored cloud runs"}, status=400)
+            if task.created_by_id != getattr(request.user, "id", None):
+                return Response(
+                    {
+                        "type": "validation_error",
+                        "code": "github_authorization_required",
+                        "detail": "User-authored runs must be started by the task creator, or provide github_user_token.",
+                        "attr": "pr_authorship_mode",
+                    },
+                    status=400,
+                )
+            user_github_integration = get_user_github_integration(task.created_by)
+            if (
+                user_github_integration is None
+                or not user_github_integration.user_access_token
+                or user_github_integration.user_refresh_token_expired()
+                or not user_github_integration.user_refresh_token
+            ):
+                return Response(
+                    {
+                        "type": "validation_error",
+                        "code": "github_authorization_required",
+                        "detail": (
+                            "Provide github_user_token, or have the task creator link a GitHub account "
+                            "with repo access from Settings → Linked accounts before running user-authored tasks."
+                        ),
+                        "attr": "pr_authorship_mode",
+                    },
+                    status=400,
+                )
 
         if sandbox_environment_id is not None:
             sandbox_environment = SandboxEnvironment.get_accessible_for_task(

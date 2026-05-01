@@ -31,10 +31,10 @@ from statshog.defaults.django import statsd
 
 from posthog.api.shared import UserBasicSerializer
 from posthog.clickhouse.client.execute import clickhouse_query_counter
-from posthog.clickhouse.query_tagging import Feature, Product, QueryCounter, reset_query_tags, tag_queries
+from posthog.clickhouse.query_tagging import QueryCounter, reset_query_tags, tag_queries
 from posthog.cloud_utils import is_cloud, is_dev_mode
 from posthog.constants import AUTH_BACKEND_KEYS
-from posthog.event_usage import EventSource, get_event_source, get_mcp_properties
+from posthog.event_usage import get_event_source, get_mcp_properties
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.impersonation import get_original_user_from_session
 from posthog.helpers.user_devices import set_known_device_cookie
@@ -382,11 +382,6 @@ class CHQueries:
             if request_id := structlog.get_context(self.logger).get("request_id"):
                 tag_queries(http_request_id=uuid.UUID(request_id))
 
-        source = get_event_source(request)
-        # MCP-originated requests can't tag queries themselves (no `tags.scene` or
-        # per-tool product/feature plumbing yet), so default both here. View-level
-        # `@monitor` decorators still override `feature` per endpoint.
-        mcp_defaults: dict = {"product": Product.MCP, "feature": Feature.QUERY} if source == EventSource.MCP else {}
         tag_queries(
             user_id=user.pk,
             kind="request",
@@ -397,8 +392,7 @@ class CHQueries:
             session_id=self._get_param(request, "session_id"),
             http_referer=request.headers.get("referer"),
             http_user_agent=request.headers.get("user-agent"),
-            source=source,
-            **mcp_defaults,
+            source=get_event_source(request),
             **get_mcp_properties(request),
         )
 

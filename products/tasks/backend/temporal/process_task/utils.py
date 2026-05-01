@@ -11,12 +11,15 @@ from django.core.cache import cache
 from pydantic import BaseModel
 
 from posthog.models.integration import GitHubIntegration, Integration
+from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration, UserIntegration
 from posthog.temporal.oauth import TOKEN_EXPIRATION_SECONDS, PosthogMcpScopes, has_write_scopes
 
 from products.mcp_store.backend.facade.api import get_active_installations
 from products.tasks.backend.constants import InitialPermissionMode
 
 if TYPE_CHECKING:
+    from posthog.models.user import User
+
     from products.tasks.backend.models import Task
 
 
@@ -329,6 +332,22 @@ def get_github_token(github_integration_id: int) -> Optional[str]:
     return github_integration.integration.access_token or None
 
 
+def get_user_github_integration(user: User | None) -> UserGitHubIntegration | None:
+    """Return the requesting user's GitHub integration wrapper, if linked."""
+    if user is None:
+        return None
+    integration = UserIntegration.objects.filter(user=user, kind="github").first()
+    if integration is None:
+        return None
+    return UserGitHubIntegration(integration)
+
+
+# TTL for the per-run GitHub user token cache. Kept for backward-compat with callers
+# (notably the PostHog Code CLI) that still pass ``github_user_token`` on the run request.
+# The server-side identity flow should be preferred going forward.
+GITHUB_USER_TOKEN_CACHE_TTL_SECONDS = 6 * 60 * 60
+
+
 def _github_user_token_cache_key(run_id: str) -> str:
     return f"task-run-github-user-token:{run_id}"
 
@@ -343,17 +362,33 @@ def get_cached_github_user_token(run_id: str) -> str | None:
 
 
 def get_sandbox_github_token(
-    github_integration_id: int | None, *, run_id: str, state: dict[str, Any] | None = None
+    github_integration_id: int | None,
+    *,
+    run_id: str,
+    state: dict[str, Any] | None = None,
+    created_by: User | None = None,
 ) -> str | None:
+    """Resolve the GitHub token used inside a task sandbox.
+
+    Resolution order for ``USER`` authorship:
+
+    1. Caller-supplied token cached at run-create time (backward compat for the
+       PostHog Code CLI — wins when present so self-managed tokens still work).
+    2. Server-side ``UserIntegration`` for the task creator, refreshing on demand.
+
+    ``BOT`` authorship falls through to the team's ``Integration`` installation token.
+    """
     run_state = parse_run_state(state)
     if run_state.pr_authorship_mode == PrAuthorshipMode.USER:
-        github_user_token = get_cached_github_user_token(run_id)
-        if not github_user_token:
-            raise ValueError(
-                f"Missing GitHub user token for user-authored run {run_id} "
-                f"(token may have expired after {GITHUB_USER_TOKEN_CACHE_TTL_SECONDS // 3600}h TTL)"
+        cached = get_cached_github_user_token(run_id)
+        if cached:
+            return cached
+        user_github_integration = get_user_github_integration(created_by)
+        if user_github_integration is None:
+            raise ReauthorizationRequired(
+                f"User-authored run {run_id} requires a linked GitHub account with repo access."
             )
-        return github_user_token
+        return user_github_integration.get_usable_user_access_token()
 
     if github_integration_id is None:
         return None
