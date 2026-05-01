@@ -398,17 +398,9 @@ def select_from_sessions_table_v3(
 
     where = SessionMinTimestampWhereClauseExtractorV3(context).get_inner_where(node)
 
-    # Push outer-WHERE predicates that reference session properties down as HAVING on
-    # this aggregation subquery, so ClickHouse drops unmatched groups immediately after
-    # aggregation, before the JOIN materializes them. Without this, shapes like
-    # `unique_session` + a session-typed regex on `$entry_current_url` + a breakdown
-    # by the computed `$channel_type` size the aggregation hash table by every session
-    # in the date range — `$channel_type`'s `multiIf` + dictionary lookups materialize
-    # per-session and OOM in production.
-    #
-    # `WhereClauseExtractor` already strips field chains to alias names and tombstones
-    # anything it can't reason about, so the HAVING lines up against the inner SELECT's
-    # aliases by construction.
+    # Push outer-WHERE predicates referencing session properties down as HAVING so
+    # ClickHouse drops unmatched groups before the JOIN materializes them — otherwise
+    # `$channel_type`'s per-session `multiIf` + dictionary lookups OOM on the unfiltered set.
     having: Optional[ast.Expr] = None
     if join_or_table_to_add is not None:
         having_extractor = WhereClauseExtractor(context)

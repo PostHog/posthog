@@ -1074,18 +1074,6 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             )
 
     def test_unique_session_with_session_channel_type_breakdown_and_url_regex_filter(self):
-        """Regression test for a slack-reported "query immediately times out" papercut.
-
-        The query combined three things at once and was timing out in production:
-          - ``unique_session`` math on ``$pageview``
-          - a session-typed regex filter on ``$entry_current_url``
-          - a multi-breakdown by the computed ``$channel_type`` session field
-
-        Before the regression test landed there was no coverage for the
-        ``unique_session + session URL filter + session $channel_type breakdown``
-        combination, which goes through ``$channel_type``'s computed expression
-        on the sessions lazy join. We exercise it here so the path keeps working.
-        """
         s_direct = str(uuid7("2020-01-01", 1))
         s_search = str(uuid7("2020-01-01", 2))
         s_other_url = str(uuid7("2020-01-01", 3))
