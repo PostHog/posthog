@@ -214,8 +214,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/logs': ['Logs', 'logs'],
     '/logs/alerts/new': ['LogsAlertNew', 'logsAlertNew'],
     '/logs/alerts/:id': ['LogsAlertDetail', 'logsAlertDetail'],
-    '/logs/sampling/new': ['LogsSamplingNew', 'logsSamplingNew'],
-    '/logs/sampling/:id': ['LogsSamplingDetail', 'logsSamplingDetail'],
+    '/logs/drop-rules/new': ['LogsSamplingNew', 'logsSamplingNew'],
+    '/logs/drop-rules/:id': ['LogsSamplingDetail', 'logsSamplingDetail'],
     '/managed_migrations': ['ManagedMigration', 'managedMigration'],
     '/managed_migrations/new': ['ManagedMigration', 'managedMigration'],
     '/metrics': ['Metrics', 'metrics'],
@@ -287,6 +287,10 @@ export const productRedirects: Record<
         combineUrl(`/llm-analytics/playground`, searchParams, hashParams).url,
     '/llm-analytics/evaluations/offline': (_params, searchParams, hashParams) =>
         combineUrl(urls.llmAnalyticsOfflineEvaluations(), searchParams, hashParams).url,
+    '/logs/sampling/new': (_params, searchParams, hashParams) =>
+        combineUrl('/logs/drop-rules/new', searchParams, hashParams).url,
+    '/logs/sampling/:id': (params, searchParams, hashParams) =>
+        combineUrl(`/logs/drop-rules/${params.id}`, searchParams, hashParams).url,
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -500,13 +504,13 @@ export const productConfiguration: Record<string, any> = {
     LogsAlertDetail: { projectBased: true, name: 'Alert', activityScope: ActivityScope.LOG, layout: 'app-container' },
     LogsSamplingNew: {
         projectBased: true,
-        name: 'New sampling rule',
+        name: 'New drop rule',
         activityScope: ActivityScope.LOG,
         layout: 'app-container',
     },
     LogsSamplingDetail: {
         projectBased: true,
-        name: 'Sampling rule',
+        name: 'Drop rule',
         activityScope: ActivityScope.LOG,
         layout: 'app-container',
     },
@@ -838,8 +842,8 @@ export const productUrls = {
     logsAlertNew: (): string => '/logs/alerts/new',
     logsAlertDetail: (id: string, tab?: string): string =>
         tab ? `/logs/alerts/${id}?tab=${tab}` : `/logs/alerts/${id}`,
-    logsSamplingNew: (): string => '/logs/sampling/new',
-    logsSamplingDetail: (id: string): string => `/logs/sampling/${id}`,
+    logsSamplingNew: (): string => '/logs/drop-rules/new',
+    logsSamplingDetail: (id: string): string => `/logs/drop-rules/${id}`,
     managedMigration: (): string => '/managed_migrations',
     managedMigrationNew: (): string => '/managed_migrations/new',
     marketingAnalyticsApp: (): string => '/marketing',

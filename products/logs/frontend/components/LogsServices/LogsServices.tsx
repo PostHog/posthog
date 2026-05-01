@@ -31,6 +31,31 @@ const DATE_OPTIONS = [
     { value: '-30d', label: 'Last 30 days' },
 ]
 
+function severityMixTooltipBody(b: NonNullable<ServiceRow['severity_breakdown']>, total: number): JSX.Element {
+    const rows: { label: string; n: number; dotClass: string }[] = [
+        { label: 'Debug', n: b.debug, dotClass: 'bg-accent-secondary' },
+        { label: 'Info', n: b.info, dotClass: 'bg-blue-400' },
+        { label: 'Warn', n: b.warn, dotClass: 'bg-yellow-500' },
+        { label: 'Error', n: b.error, dotClass: 'bg-danger' },
+    ]
+    return (
+        <div className="text-xs space-y-1 min-w-[11rem]">
+            <div className="font-semibold text-muted">Severity mix</div>
+            {rows.map(({ label, n, dotClass }) => (
+                <div key={label} className="flex items-center justify-between gap-3">
+                    <span className="flex items-center gap-1.5">
+                        <span className={`inline-block size-2 shrink-0 rounded-sm ${dotClass}`} />
+                        {label}
+                    </span>
+                    <span className="tabular-nums text-muted">
+                        {total > 0 ? ((n / total) * 100).toFixed(1) : '0.0'}% · {humanFriendlyNumber(n)}
+                    </span>
+                </div>
+            ))}
+        </div>
+    )
+}
+
 function severityMixBar(row: ServiceRow): JSX.Element {
     const b = row.severity_breakdown
     if (!b || row.log_count === 0) {
@@ -40,24 +65,22 @@ function severityMixBar(row: ServiceRow): JSX.Element {
     if (total <= 0) {
         return <span className="text-muted">-</span>
     }
-    const seg = (n: number, className: string, label: string): JSX.Element | null => {
+    const seg = (n: number, className: string): JSX.Element | null => {
         if (n <= 0) {
             return null
         }
         const flex = Math.max(0.02, n / total)
-        return (
-            <Tooltip key={label} title={`${label}: ${humanFriendlyNumber(n)}`}>
-                <div className={`h-2 min-w-0 ${className}`} style={{ flex }} />
-            </Tooltip>
-        )
+        return <div className={`h-2 min-w-0 ${className}`} style={{ flex }} />
     }
     return (
-        <div className="flex h-2 w-28 overflow-hidden rounded bg-surface-secondary">
-            {seg(b.debug, 'bg-accent-secondary', 'Debug')}
-            {seg(b.info, 'bg-blue-400', 'Info')}
-            {seg(b.warn, 'bg-yellow-500', 'Warn')}
-            {seg(b.error, 'bg-danger', 'Error')}
-        </div>
+        <Tooltip title={severityMixTooltipBody(b, total)} placement="top">
+            <div className="flex h-2 w-28 overflow-hidden rounded bg-surface-secondary cursor-default">
+                {seg(b.debug, 'bg-accent-secondary')}
+                {seg(b.info, 'bg-blue-400')}
+                {seg(b.warn, 'bg-yellow-500')}
+                {seg(b.error, 'bg-danger')}
+            </div>
+        </Tooltip>
     )
 }
 

@@ -6,7 +6,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { RuleTypeEnumApi } from 'products/logs/frontend/generated/api.schemas'
 
-import { LogsSamplingFormType, SeverityActionChoice } from './logsSamplingFormLogic'
+import { LogsSamplingFormType, PathDropMatchTarget, SeverityActionChoice } from './logsSamplingFormLogic'
 import { logsSamplingFormLogic } from './logsSamplingFormLogic'
 
 const RULE_TYPE_OPTIONS_CREATE: { value: RuleTypeEnumApi; label: string }[] = [
@@ -18,6 +18,11 @@ const RULE_TYPE_OPTIONS_CREATE: { value: RuleTypeEnumApi; label: string }[] = [
         value: RuleTypeEnumApi.SeveritySampling,
         label: 'Drop by severity',
     },
+]
+
+const PATH_DROP_MATCH_TARGET_OPTIONS: { value: PathDropMatchTarget; label: string }[] = [
+    { value: 'auto_path', label: 'Automatic path (http.route, url.path, …)' },
+    { value: 'custom_attribute', label: 'One log attribute' },
 ]
 
 const ACTION_OPTIONS: { value: SeverityActionChoice; label: string }[] = [
@@ -40,27 +45,34 @@ function SeverityRow({
     const action = samplingForm[actionKey] as SeverityActionChoice
     const rate = samplingForm[rateKey] as number
 
+    const pctKept = Math.round(Math.min(1, Math.max(0, rate)) * 100)
+
     return (
-        <div className="flex flex-wrap items-center gap-2">
-            <span className="w-24 text-muted">{label}</span>
+        <div className="grid grid-cols-[5.5rem_minmax(11rem,16rem)_minmax(0,1fr)] items-center gap-x-3 gap-y-1">
+            <span className="text-muted text-sm">{label}</span>
             <LemonSelect
                 options={ACTION_OPTIONS}
                 value={action}
                 onChange={(v) => v && setSamplingFormValue(actionKey, v)}
             />
-            {action === 'sample' && (
-                <LemonField.Pure label="Rate" className="mb-0">
+            {action === 'sample' ? (
+                <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm text-muted shrink-0">Keep fraction</span>
                     <LemonInput
                         type="number"
                         min={0}
                         max={1}
                         step={0.05}
                         value={rate}
+                        className="max-w-[7rem]"
                         onChange={(v) =>
                             setSamplingFormValue(rateKey, typeof v === 'number' ? v : parseFloat(String(v)) || 0)
                         }
                     />
-                </LemonField.Pure>
+                    <span className="text-sm text-muted tabular-nums whitespace-nowrap">≈{pctKept}% kept</span>
+                </div>
+            ) : (
+                <div />
             )}
         </div>
     )
@@ -77,7 +89,8 @@ function ruleTypeLabel(ruleType: RuleTypeEnumApi): string {
 }
 
 export function LogsSamplingForm(): JSX.Element {
-    const { samplingForm, simulation, simulationLoading, canSimulate, isNewRule } = useValues(logsSamplingFormLogic)
+    const { samplingForm, samplingFormErrors, simulation, simulationLoading, canSimulate, isNewRule } =
+        useValues(logsSamplingFormLogic)
     const { setSamplingFormValue } = useActions(logsSamplingFormLogic)
 
     const isPathDrop = samplingForm.rule_type === RuleTypeEnumApi.PathDrop
@@ -106,10 +119,7 @@ export function LogsSamplingForm(): JSX.Element {
                     placeholder="e.g. Drop noisy health checks"
                 />
             </LemonField.Pure>
-            <LemonField.Pure
-                label="Enabled"
-                info="Turn off to stop this rule from running. Other rules and project defaults still apply."
-            >
+            <LemonField.Pure label="Enabled">
                 <LemonSwitch checked={samplingForm.enabled} onChange={(v) => setSamplingFormValue('enabled', v)} />
             </LemonField.Pure>
             {isNewRule ? (
@@ -120,8 +130,8 @@ export function LogsSamplingForm(): JSX.Element {
                         <>
                             “Drop by severity” is for whole severity levels (info, warn, …). “Drop when matched” is for
                             regex on a path string or one attribute you pick. Optional{' '}
-                            <strong>Sample (keep some)</strong> on severity only reduces volume while keeping a random
-                            subset per trace.
+                            <strong>Sample (keep some)</strong> on severity keeps a fraction of traffic (see
+                            per-severity help for trace vs no-trace behavior).
                         </>
                     }
                 >
@@ -147,8 +157,8 @@ export function LogsSamplingForm(): JSX.Element {
                 />
             </LemonField.Pure>
             <LemonField.Pure
-                label="Restrict to path (regex, optional)"
-                info="If set, the rule only applies when this regex matches the same path-like value ingestion uses (first non-empty among url.path, http.path, http.route, path). This is a scope filter, not the list of strings to drop."
+                label="Limit rule to matching path (optional)"
+                info="If set, this rule only runs for log lines where this regex matches the automatic path string (first non-empty among url.path, http.path, http.route, path). Separate from “what your drop patterns match” below. Applies to severity rules too."
             >
                 <LemonInput
                     value={samplingForm.scope_path_pattern}
@@ -158,53 +168,84 @@ export function LogsSamplingForm(): JSX.Element {
             </LemonField.Pure>
             {isPathDrop ? (
                 <>
-                    <LemonBanner type="info">
-                        <div className="text-sm space-y-2">
-                            <div>
-                                <strong>Example — drop health checks (default path):</strong> leave “Attribute key”
-                                empty. Patterns{' '}
-                                <code className="text-xs font-mono bg-bg-mid rounded px-1 py-0.5">/healthz</code> and{' '}
-                                <code className="text-xs font-mono bg-bg-mid rounded px-1 py-0.5">/ready</code> — if{' '}
-                                <em>any</em> line matches the log’s path-like value (first of{' '}
-                                <code className="text-xs font-mono">url.path</code>,{' '}
-                                <code className="text-xs font-mono">http.path</code>,{' '}
-                                <code className="text-xs font-mono">http.route</code>,{' '}
-                                <code className="text-xs font-mono">path</code>), the whole log line is dropped.
-                            </div>
-                            <div>
-                                <strong>Example — drop by custom attribute:</strong> attribute key{' '}
-                                <code className="text-xs font-mono bg-bg-mid rounded px-1 py-0.5">
-                                    deployment.environment
-                                </code>
-                                , pattern{' '}
-                                <code className="text-xs font-mono bg-bg-mid rounded px-1 py-0.5">^staging$</code> —
-                                only that attribute’s string is tested (not the URL). One key per rule; combine scopes
-                                with separate rules if needed.
-                            </div>
-                        </div>
-                    </LemonBanner>
                     <LemonField.Pure
-                        label="Attribute key (optional)"
-                        info="Not a dropdown: type the exact OpenTelemetry log attribute name (same string as in your SDK / collector). Empty = use PostHog’s built-in path-like attributes in order: url.path, http.path, http.route, path."
-                        help="This is the single string field your regex lines are tested against. It is not a property picker—copy the key from your logs (e.g. http.route) or leave empty for automatic path matching."
+                        label="Drop patterns match on"
+                        help="Choose what each regex line is compared to. Switching to automatic path clears the attribute key."
+                        info="Automatic path uses the same path-like fields as the limit-to-path filter above. One log attribute tests only that field’s string (missing counts as empty)."
                     >
-                        <LemonInput
-                            value={samplingForm.path_drop_match_attribute_key}
-                            onChange={(v) => setSamplingFormValue('path_drop_match_attribute_key', v)}
-                            placeholder="Leave empty for path — or e.g. http.route"
+                        <LemonSelect<PathDropMatchTarget>
+                            options={PATH_DROP_MATCH_TARGET_OPTIONS}
+                            value={samplingForm.path_drop_match_target}
+                            onChange={(v) => {
+                                if (!v) {
+                                    return
+                                }
+                                setSamplingFormValue('path_drop_match_target', v)
+                                if (v === 'auto_path') {
+                                    setSamplingFormValue('path_drop_match_attribute_key', '')
+                                }
+                            }}
                         />
                     </LemonField.Pure>
+                    {samplingForm.path_drop_match_target === 'auto_path' ? (
+                        <LemonBanner type="info">
+                            <div className="text-sm">
+                                <strong>Example:</strong> add lines{' '}
+                                <code className="text-xs font-mono bg-bg-mid rounded px-1 py-0.5">/healthz</code> and{' '}
+                                <code className="text-xs font-mono bg-bg-mid rounded px-1 py-0.5">/ready</code> — if{' '}
+                                <em>any</em> pattern matches the log’s automatic path value, the line is dropped. Add a
+                                limit above if you only want this under e.g.{' '}
+                                <code className="text-xs font-mono bg-bg-mid rounded px-1 py-0.5">^/api/</code>.
+                            </div>
+                        </LemonBanner>
+                    ) : (
+                        <>
+                            <LemonBanner type="info">
+                                <div className="text-sm">
+                                    <strong>Example:</strong> key{' '}
+                                    <code className="text-xs font-mono bg-bg-mid rounded px-1 py-0.5">
+                                        deployment.environment
+                                    </code>
+                                    , pattern line{' '}
+                                    <code className="text-xs font-mono bg-bg-mid rounded px-1 py-0.5">^staging$</code> —
+                                    only that attribute is tested (not the URL path).
+                                </div>
+                            </LemonBanner>
+                            <LemonField.Pure
+                                label="Log attribute key"
+                                info="Exact OpenTelemetry attribute name as it appears on the log (copy from the log detail inspector)."
+                                help="Not a property picker — type the key string."
+                                error={samplingFormErrors.path_drop_match_attribute_key}
+                            >
+                                <LemonInput
+                                    value={samplingForm.path_drop_match_attribute_key}
+                                    onChange={(v) => setSamplingFormValue('path_drop_match_attribute_key', v)}
+                                    placeholder="e.g. deployment.environment"
+                                />
+                            </LemonField.Pure>
+                        </>
+                    )}
                     <LemonField.Pure
                         label="Patterns to drop (regex, one per line)"
                         info={
-                            <>
-                                Each non-empty line is its own JavaScript-style regular expression. If{' '}
-                                <strong>any</strong> pattern matches the string from the attribute key (or the default
-                                path-like value), the log line is dropped. Invalid regex lines are skipped at
-                                ingestion—test patterns carefully.
-                            </>
+                            samplingForm.path_drop_match_target === 'auto_path' ? (
+                                <>
+                                    Each line is a JavaScript-style regex tested against the automatic path string. If{' '}
+                                    <strong>any</strong> line matches, the log is dropped. Invalid regex lines are
+                                    skipped at ingestion.
+                                </>
+                            ) : (
+                                <>
+                                    Each line is a regex tested against the attribute value only. If{' '}
+                                    <strong>any</strong> line matches, the log is dropped.
+                                </>
+                            )
                         }
-                        help="Example lines: /internal/ (substring), ^/api/v1/debug/ (prefix), .*noise.* (broad — use carefully). OR across lines: first matching pattern wins the drop."
+                        help={
+                            samplingForm.path_drop_match_target === 'auto_path'
+                                ? 'Examples: /internal/ (substring), ^/api/v1/debug/ (prefix). Multiple lines are OR’d.'
+                                : 'Examples: ^prod$, staging|dev. Multiple lines are OR’d.'
+                        }
                     >
                         <LemonTextArea
                             value={samplingForm.path_drop_patterns}
@@ -226,9 +267,10 @@ export function LogsSamplingForm(): JSX.Element {
                                 unless another rule matches first.
                             </div>
                             <div>
-                                <strong>Advanced:</strong> <strong>Sample (keep some)</strong> keeps a stable random
-                                fraction per trace (same trace → same decision). Use when you still want some lines at
-                                that severity in PostHog.
+                                <strong>Advanced:</strong> <strong>Sample (keep some)</strong> uses your rate as the
+                                approximate share of traffic kept. With a <strong>trace ID</strong>, all lines in that
+                                trace share one keep/drop coin flip at this severity (not “half the lines inside one
+                                trace”). Without a trace ID, each line is decided on its own at random.
                             </div>
                         </div>
                     </LemonBanner>
@@ -239,6 +281,7 @@ export function LogsSamplingForm(): JSX.Element {
                     <LemonField.Pure
                         label="Per severity level"
                         info="Evaluated after scope (service + path filter above). Ordinals follow OpenTelemetry severity on the log line (debug, info, warn, error)."
+                        help="Keep fraction is 0–1 (e.g. 0.5 ≈ 50% of affected traffic stored). With a trace ID, every line in that trace gets the same keep/drop at this severity; without one, each line is random independently."
                     >
                         <div className="flex flex-col gap-2">
                             <SeverityRow label="Debug" actionKey="severity_debug" rateKey="severity_debug_rate" />
