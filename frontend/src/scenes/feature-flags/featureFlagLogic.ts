@@ -1892,14 +1892,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
         },
         loadFeatureFlagSuccess: async ({ featureFlag }) => {
-            // Auto-fix invalid combination of device ID bucketing + persist across auth
-            if (featureFlag?.bucketing_identifier === 'device_id' && featureFlag.ensure_experience_continuity) {
-                actions.setFeatureFlag({
-                    ...featureFlag,
-                    ensure_experience_continuity: false,
-                })
-            }
-
             actions.loadRelatedInsights()
             actions.loadDependentFlags()
             // Experiment is now loaded inline during loadFeatureFlag, not here
