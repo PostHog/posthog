@@ -2396,7 +2396,6 @@ export interface EndpointVersionMaterializationType {
     last_materialized_at?: string
     saved_query_id?: string
     sync_frequency?: DataModelingSyncInterval
-    saved_query_id?: string
 }
 
 export interface DashboardBasicType extends WithAccessControl {

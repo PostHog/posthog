@@ -18,7 +18,7 @@ export const scene: SceneExport = {
 export function EditorScene({ tabId }: { tabId?: string }): JSX.Element {
     if (!userHasAccess(AccessControlResourceType.WarehouseObjects, AccessControlLevel.Viewer)) {
         return (
-            <AccessDenied reason="The SQL editor requires Data warehouse tables & views access, which you don't have." />
+            <AccessDenied reason="You don't have access to Data warehouse tables & views, so the SQL editor isn't available." />
         )
     }
     return <SQLEditor tabId={tabId} mode={SQLEditorMode.FullScene} showDatabaseTree={true} />
