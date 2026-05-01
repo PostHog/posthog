@@ -19,15 +19,18 @@ const LABELS = ['Mon', 'Tue', 'Wed']
 const SERIES: Series[] = [{ key: 'a', label: 'A', data: [1, 2, 3] }]
 
 describe('TimeSeriesLineChart', () => {
-    it('translates xAxis and yAxis fields onto LineChartConfig', () => {
+    it('translates config.xAxis and config.yAxis fields onto LineChartConfig', () => {
         const xTickFormatter = (v: string): string => `x:${v}`
         const yTickFormatter = (v: number): string => `y:${v}`
         render(
             <TimeSeriesLineChart
                 series={SERIES}
-                xAxis={{ labels: LABELS, tickFormatter: xTickFormatter, hide: true }}
-                yAxis={{ scale: 'log', tickFormatter: yTickFormatter, hide: true, showGrid: true }}
+                labels={LABELS}
                 theme={THEME}
+                config={{
+                    xAxis: { tickFormatter: xTickFormatter, hide: true },
+                    yAxis: { scale: 'log', tickFormatter: yTickFormatter, hide: true, showGrid: true },
+                }}
             />
         )
         const props = lineChartSpy.mock.calls[0][0] as LineChartProps

@@ -28,9 +28,9 @@ export const Basic: Story = {
             <Stage>
                 <TimeSeriesLineChart
                     series={SERIES}
-                    xAxis={{ labels: DAYS }}
-                    yAxis={{ showGrid: true }}
+                    labels={DAYS}
                     theme={theme}
+                    config={{ yAxis: { showGrid: true } }}
                 />
             </Stage>
         )

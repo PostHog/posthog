@@ -2,7 +2,7 @@
 export { LineChart } from './charts/LineChart'
 export type { LineChartProps } from './charts/LineChart'
 export { TimeSeriesLineChart } from './timeseries/TimeSeriesLineChart'
-export type { TimeSeriesLineChartProps, TimeSeriesXAxis, TimeSeriesYAxis } from './timeseries/TimeSeriesLineChart'
+export type { TimeSeriesLineChartConfig, TimeSeriesLineChartProps } from './timeseries/TimeSeriesLineChart'
 
 // Base chart (for building new chart types)
 export { Chart } from './core/Chart'
