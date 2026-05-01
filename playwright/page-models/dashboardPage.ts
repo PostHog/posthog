@@ -270,7 +270,7 @@ export class DashboardPage {
     }
 
     async editPopoverTitle(newTitle: string): Promise<void> {
-        await this.popoverTitleField.locator('.EditableField__display').click()
+        await this.popoverTitleField.locator('[data-attr="editable-field-display"]').click()
         const input = this.popoverTitleField.locator('input')
         await expect(input).toBeVisible()
         await input.fill(newTitle)
@@ -278,7 +278,7 @@ export class DashboardPage {
     }
 
     async editPopoverDescription(description: string): Promise<void> {
-        await this.popoverDescriptionField.locator('.EditableField__display').click()
+        await this.popoverDescriptionField.locator('[data-attr="editable-field-display"]').click()
         const textarea = this.popoverDescriptionField.locator('textarea')
         await expect(textarea).toBeVisible()
         await textarea.fill(description)

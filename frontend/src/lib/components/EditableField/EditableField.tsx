@@ -293,7 +293,11 @@ export function EditableField({
                 ) : (
                     <>
                         {localTentativeValue && markdown ? (
-                            <div className={clsx(clickToEdit && 'cursor-text')} onClick={handleClick}>
+                            <div
+                                className={clsx(clickToEdit && 'cursor-text')}
+                                onClick={handleClick}
+                                data-attr="editable-field-display"
+                            >
                                 <LemonMarkdown lowKeyHeadings>{localTentativeValue}</LemonMarkdown>
                             </div>
                         ) : (
@@ -306,6 +310,7 @@ export function EditableField({
                                     className={clsx('EditableField__display', clickToEdit && 'cursor-text')}
                                     ref={displayRef}
                                     onClick={handleClick}
+                                    data-attr="editable-field-display"
                                 >
                                     {localTentativeValue || <i>{placeholder}</i>}
                                 </span>
