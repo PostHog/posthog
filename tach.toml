@@ -484,7 +484,7 @@ expose = [
     "backend\\.presentation\\.views.*",
 ]
 from = [
-    "products\\.(experiments|mcp_store|notifications|visual_review|tracing|metrics|mcp_analytics|platform_features)",
+    "products\\.(business_knowledge|experiments|mcp_store|notifications|visual_review|tracing|metrics|mcp_analytics|platform_features)",
 ]
 
 # TODO: Experiments-specific temporary interface
@@ -558,10 +558,6 @@ depends_on = [
     "posthog",
 ]
 layer = "modules"
-interfaces = [
-    "products.business_knowledge.backend.facade",
-    "products.business_knowledge.backend.presentation.views",
-]
 
 [[interfaces]]
 expose = [
