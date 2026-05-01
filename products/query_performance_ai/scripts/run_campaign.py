@@ -139,13 +139,49 @@ class LockdownFailed(CampaignError):
     """
 
 
-def lockdown_network(coordinator_url: str) -> None:
-    """iptables OUTPUT-DROP except localhost + the coordinator port.
+def _resolve_all(host: str, *, label: str) -> list[str]:
+    """Return all IPv4 addresses ``host`` resolves to via ``getent hosts``.
 
-    Requires NET_ADMIN, `iptables` on PATH, and the coordinator URL
-    hostname must resolve. Raises :class:`LockdownFailed` on any
-    precondition failure or rule error so the caller can decide to fail
-    the campaign (correct when ANTHROPIC_API_KEY is in env).
+    Raises :class:`LockdownFailed` if resolution fails. We call ``getent``
+    rather than Python's resolver so the rule pinning matches what
+    container-side connections will actually see.
+    """
+    try:
+        out = subprocess.check_output(  # noqa: S603
+            ["getent", "ahostsv4", host],
+            text=True,
+            timeout=5,
+        )
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as e:
+        raise LockdownFailed(f"could not resolve {label} host {host!r}: {e}") from e
+
+    ips: list[str] = []
+    for line in out.splitlines():
+        parts = line.split()
+        if not parts:
+            continue
+        ip = parts[0]
+        if ip not in ips:
+            ips.append(ip)
+    if not ips:
+        raise LockdownFailed(f"{label} host {host!r} resolved to zero addresses")
+    return ips
+
+
+def lockdown_network(coordinator_url: str) -> None:
+    """iptables OUTPUT-DROP except: loopback, the coordinator port at the
+    gateway IP, and HTTPS to the Anthropic API (so pi-coding-agent can
+    reach the LLM).
+
+    Requires NET_ADMIN, `iptables` on PATH, and DNS resolution for
+    ``host.docker.internal`` plus the Anthropic API host. Raises
+    :class:`LockdownFailed` on any precondition failure or rule error.
+
+    The Anthropic host is taken from ``ANTHROPIC_BASE_URL`` if set, else
+    defaults to ``api.anthropic.com``. We resolve and pin its current
+    IPs at lockdown time; if Anthropic rotates IPs during the campaign,
+    new connections will fail with a clean network error rather than
+    silently hanging.
     """
     parsed = urllib.parse.urlparse(coordinator_url)
     port = parsed.port
@@ -155,25 +191,29 @@ def lockdown_network(coordinator_url: str) -> None:
         )
     # `host.docker.internal` resolves to the gateway via `--add-host`; resolve
     # it once so the rule pins the IP rather than depending on DNS later.
-    try:
-        gateway_ip = subprocess.check_output(  # noqa: S603
-            ["getent", "hosts", parsed.hostname or "host.docker.internal"],
-            text=True,
-            timeout=5,
-        ).split()[0]
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError, IndexError) as e:
-        raise LockdownFailed(f"could not resolve {parsed.hostname!r}: {e}") from e
+    gateway_ip = _resolve_all(parsed.hostname or "host.docker.internal", label="coordinator")[0]
 
-    rules = [
-        # Allow loopback (the agent's own helpers may bind to 127.0.0.1).
-        ["iptables", "-I", "OUTPUT", "1", "-o", "lo", "-j", "ACCEPT"],
-        # Allow returning bytes for connections we initiated.
-        ["iptables", "-I", "OUTPUT", "2", "-m", "state", "--state", "ESTABLISHED,RELATED", "-j", "ACCEPT"],
-        # Allow only the coordinator port at the gateway IP.
-        ["iptables", "-I", "OUTPUT", "3", "-d", gateway_ip, "-p", "tcp", "--dport", str(port), "-j", "ACCEPT"],
-        # Drop everything else.
-        ["iptables", "-P", "OUTPUT", "DROP"],
-    ]
+    anthropic_base = os.environ.get("ANTHROPIC_BASE_URL", "").strip() or "https://api.anthropic.com"
+    anthropic_parsed = urllib.parse.urlparse(anthropic_base)
+    anthropic_host = anthropic_parsed.hostname
+    if not anthropic_host:
+        raise LockdownFailed(f"ANTHROPIC_BASE_URL has no host: {anthropic_base!r}")
+    anthropic_port = anthropic_parsed.port or (443 if anthropic_parsed.scheme == "https" else 80)
+    anthropic_ips = _resolve_all(anthropic_host, label="anthropic")
+
+    # Allow rules go in OUTPUT slot 1..N (insertions push earlier ones down).
+    # Build them in reverse so the final order is: lo, ESTABLISHED, coordinator,
+    # anthropic-IP-1, anthropic-IP-2, ...
+    allow_rules: list[list[str]] = []
+    allow_rules.append(["-o", "lo", "-j", "ACCEPT"])
+    allow_rules.append(["-m", "state", "--state", "ESTABLISHED,RELATED", "-j", "ACCEPT"])
+    allow_rules.append(["-d", gateway_ip, "-p", "tcp", "--dport", str(port), "-j", "ACCEPT"])
+    for ip in anthropic_ips:
+        allow_rules.append(["-d", ip, "-p", "tcp", "--dport", str(anthropic_port), "-j", "ACCEPT"])
+
+    rules: list[list[str]] = [["iptables", "-I", "OUTPUT", "1", *r] for r in allow_rules]
+    rules.append(["iptables", "-P", "OUTPUT", "DROP"])
+
     for argv in rules:
         try:
             subprocess.run(argv, check=True, text=True, capture_output=True, timeout=5)  # noqa: S603
@@ -184,7 +224,12 @@ def lockdown_network(coordinator_url: str) -> None:
             if "Operation not permitted" in stderr or "Permission denied" in stderr:
                 raise LockdownFailed("iptables refused (NET_ADMIN not granted to this sandbox)") from e
             raise LockdownFailed(f"iptables rule failed ({argv[-1]}): {stderr}") from e
-    log(f"network locked down: only {gateway_ip}:{port} reachable")
+
+    anthropic_ip_summary = ",".join(anthropic_ips)
+    log(
+        f"network locked down: coordinator {gateway_ip}:{port} + "
+        f"{anthropic_host}:{anthropic_port} ([{anthropic_ip_summary}])"
+    )
 
 
 def install_pi_toolchain() -> None:

@@ -334,6 +334,15 @@ class DockerSandbox(SandboxBase):
                     container_skill = f"/scripts/plugins/posthog/skills/{entry}"
                     volume_args.extend(["-v", f"{host_skill}:{container_skill}:ro"])
 
+            cap_args = ["--cap-add", "SYS_PTRACE"]
+            # The PI_BASE image is used by autoresearch sandboxes, which install
+            # iptables DROP rules to restrict egress to the coordinator port
+            # before pi launches. iptables modifications need NET_ADMIN; without
+            # this cap, the lockdown step fails and `run_campaign.py` aborts
+            # rather than run pi against an open network.
+            if config.template == SandboxTemplate.PI_BASE:
+                cap_args.extend(["--cap-add", "NET_ADMIN"])
+
             docker_args = [
                 "docker",
                 "run",
@@ -342,8 +351,7 @@ class DockerSandbox(SandboxBase):
                 container_name,
                 "--add-host",
                 "host.docker.internal:host-gateway",
-                "--cap-add",
-                "SYS_PTRACE",
+                *cap_args,
                 "-w",
                 WORKING_DIR,
                 f"--memory={config.memory_gb}g",
