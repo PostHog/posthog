@@ -169,17 +169,11 @@ export interface TooltipConfig {
 }
 
 export interface BarChartConfig extends ChartConfig {
-    /** How bars from different series are arranged at each x-axis position.
-     *  `stacked` (default): bars are stacked on top of each other, summed values determine y-extent.
-     *  `grouped`: bars are placed side-by-side at each x.
-     *  `percent`: stacked bars normalized to 100%. */
+    /** Defaults to `stacked`. */
     barLayout?: 'stacked' | 'grouped' | 'percent'
-    /** Inner padding between adjacent bands (categorical groups) as a fraction of the band width. 0–1. Defaults to 0.2. */
     bandPadding?: number
-    /** Inner padding between bars within a `grouped` band. 0–1. Defaults to 0.1. */
     groupPadding?: number
-    /** Corner radius for the outer (cap) end of each bar in CSS pixels. Defaults to 4.
-     *  Stacked bars only round the top of the topmost segment. */
+    /** Stacked bars only round the topmost segment. */
     barCornerRadius?: number
 }
 

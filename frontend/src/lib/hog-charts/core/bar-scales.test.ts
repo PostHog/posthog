@@ -53,14 +53,12 @@ describe('hog-charts bar scales', () => {
             const grouped = createBarScales(series, ['a', 'b'], dimensions, { barLayout: 'grouped' })
             expect(stacked.group).toBeUndefined()
             expect(grouped.group).not.toBeUndefined()
-            // Two series so each gets ~half the band, minus padding
             expect(grouped.group!.bandwidth()).toBeLessThan(grouped.band.bandwidth())
         })
 
         it('uses [0, 1] for the value domain in percent layout', () => {
             const series = [makeSeries({ key: 's1', data: [50, 100, 150] })]
             const { value } = createBarScales(series, ['a', 'b', 'c'], dimensions, { barLayout: 'percent' })
-            // Linear nice() over [0,1] keeps the domain at [0, 1]
             const yAt1 = value(1)
             const yAt0 = value(0)
             expect(yAt1).toBeLessThan(yAt0)
@@ -86,8 +84,6 @@ describe('hog-charts bar scales', () => {
     })
 
     describe('createBarScales — pixel positioning', () => {
-        // Vertical: y-axis inverts, so larger value → smaller pixel.
-        // Horizontal: x-axis runs left→right, so larger value → larger pixel.
         it.each([
             { orientation: 'vertical' as const, expected: 'less' as const },
             { orientation: 'horizontal' as const, expected: 'greater' as const },
