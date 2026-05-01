@@ -1,3 +1,5 @@
+import { combineUrl } from 'kea-router'
+
 import { urls } from 'scenes/urls'
 
 import { FileSystemIconType, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
@@ -33,14 +35,14 @@ export const manifest: ProductManifest = {
         LogsSamplingNew: {
             import: () => import('./frontend/scenes/LogsSamplingNewScene/LogsSamplingNewScene'),
             projectBased: true,
-            name: 'New sampling rule',
+            name: 'New drop rule',
             activityScope: ActivityScope.LOG,
             layout: 'app-container',
         },
         LogsSamplingDetail: {
             import: () => import('./frontend/scenes/LogsSamplingDetailScene/LogsSamplingDetailScene'),
             projectBased: true,
-            name: 'Sampling rule',
+            name: 'Drop rule',
             activityScope: ActivityScope.LOG,
             layout: 'app-container',
         },
@@ -49,17 +51,22 @@ export const manifest: ProductManifest = {
         '/logs': ['Logs', 'logs'],
         '/logs/alerts/new': ['LogsAlertNew', 'logsAlertNew'],
         '/logs/alerts/:id': ['LogsAlertDetail', 'logsAlertDetail'],
-        '/logs/sampling/new': ['LogsSamplingNew', 'logsSamplingNew'],
-        '/logs/sampling/:id': ['LogsSamplingDetail', 'logsSamplingDetail'],
+        '/logs/drop-rules/new': ['LogsSamplingNew', 'logsSamplingNew'],
+        '/logs/drop-rules/:id': ['LogsSamplingDetail', 'logsSamplingDetail'],
     },
-    redirects: {},
+    redirects: {
+        '/logs/sampling/new': (_params, searchParams, hashParams) =>
+            combineUrl('/logs/drop-rules/new', searchParams, hashParams).url,
+        '/logs/sampling/:id': (params, searchParams, hashParams) =>
+            combineUrl(`/logs/drop-rules/${params.id}`, searchParams, hashParams).url,
+    },
     urls: {
         logs: (): string => '/logs',
         logsAlertNew: (): string => '/logs/alerts/new',
         logsAlertDetail: (id: string, tab?: string): string =>
             tab ? `/logs/alerts/${id}?tab=${tab}` : `/logs/alerts/${id}`,
-        logsSamplingNew: (): string => '/logs/sampling/new',
-        logsSamplingDetail: (id: string): string => `/logs/sampling/${id}`,
+        logsSamplingNew: (): string => '/logs/drop-rules/new',
+        logsSamplingDetail: (id: string): string => `/logs/drop-rules/${id}`,
     },
     fileSystemTypes: {},
     treeItemsNew: [],

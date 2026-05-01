@@ -60,7 +60,13 @@ class LogsSamplingRuleSerializer(serializers.ModelSerializer):
         help_text='Optional list of predicates over string attributes, e.g. [{"key":"http.route","op":"eq","value":"/api"}].',
     )
     config = serializers.JSONField(
-        help_text="Type-specific JSON (severity actions, path_drop patterns, or future rate_limit settings)."
+        help_text=(
+            "Type-specific JSON. For path_drop: object with required `patterns` (list of regex strings) and optional "
+            "`match_attribute_key` (string). When `match_attribute_key` is omitted or empty, patterns match the same "
+            "virtual path string as ingestion (url.path, http.path, http.route, path). When set, each pattern is "
+            "tested only against that string attribute on the log record. For severity_sampling: object with "
+            "`actions` per severity level and optional `always_keep`. rate_limit is reserved."
+        )
     )
     version = serializers.IntegerField(
         read_only=True, help_text="Incremented on each update for worker cache coherency."
@@ -85,6 +91,30 @@ class LogsSamplingRuleSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
         read_only_fields = ["id", "version", "created_by", "created_at", "updated_at"]
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        attrs = super().validate(attrs)
+        rule_type = attrs.get("rule_type")
+        if rule_type is None and self.instance is not None:
+            rule_type = self.instance.rule_type
+        config = attrs.get("config")
+        if config is None and self.instance is not None:
+            config = self.instance.config
+
+        if rule_type == LogsExclusionRule.RuleType.PATH_DROP:
+            if not isinstance(config, dict):
+                raise ValidationError({"config": "path_drop rules require config to be a JSON object."})
+            patterns = config.get("patterns")
+            if patterns is not None:
+                if not isinstance(patterns, list):
+                    raise ValidationError({"config": "patterns must be a list of strings."})
+                for i, p in enumerate(patterns):
+                    if not isinstance(p, str):
+                        raise ValidationError({"config": {f"patterns[{i}]": "Each pattern must be a string."}})
+            mak = config.get("match_attribute_key")
+            if mak is not None and mak != "" and not isinstance(mak, str):
+                raise ValidationError({"config": {"match_attribute_key": "Must be a string when provided."}})
+        return attrs
 
     def validate_scope_attribute_filters(self, value: Any) -> Any:
         if not isinstance(value, list):
@@ -117,7 +147,7 @@ class LogsSamplingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = LogsExclusionRule.objects.all().order_by("priority", "created_at")
     serializer_class = LogsSamplingRuleSerializer
     lookup_field = "id"
-    posthog_feature_flag = "logs-sampling-rules"
+    posthog_feature_flag = "logs-settings-drop-rules"
     permission_classes = [PostHogFeatureFlagPermission]
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:

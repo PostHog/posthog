@@ -30,7 +30,13 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.api.integration import GitHubReposQuerySerializer, GitHubReposResponseSerializer
+from posthog.api.integration import (
+    GITHUB_INSTALL_STATE_CACHE_PREFIX,
+    GITHUB_INSTALL_STATE_TTL_SECONDS,
+    GitHubReposQuerySerializer,
+    GitHubReposResponseSerializer,
+    github_oauth_redirect_uri,
+)
 from posthog.auth import (
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
@@ -50,18 +56,8 @@ from posthog.rate_limit import UserAuthenticationThrottle
 
 logger = structlog.get_logger(__name__)
 
-GITHUB_INSTALL_STATE_CACHE_PREFIX = "github_user_install_state:"
-GITHUB_INSTALL_STATE_TTL_SECONDS = 10 * 60
-
-# Frontend route for the personal Settings → Personal integrations section.
 PERSONAL_INTEGRATIONS_SETTINGS_PATH = "/settings/user-personal-integrations"
-# PostHog Code: personal GitHub integration complete → web → deep-link (see ``AccountConnected`` / ``github-integration``).
 ACCOUNT_CONNECTED_GITHUB_INTEGRATION_PATH = "/account-connected/github-integration"
-
-
-def github_oauth_redirect_uri() -> str:
-    """GitHub OAuth redirect for personal link; reads SITE_URL at call time so tests can override."""
-    return f"{settings.SITE_URL.rstrip('/')}/complete/github-link/"
 
 
 class UserGitHubAccountSerializer(serializers.Serializer):
@@ -388,6 +384,9 @@ def github_link_complete(request: HttpRequest) -> HttpResponseRedirect:
     cache.delete(cache_key)
 
     oauth_flow = state_payload.get("flow") == "oauth_authorize"
+    team_oauth_flow = state_payload.get("flow") == "team_oauth_authorize"
+    team_oauth_team_id: int | None = None
+    team_oauth_next: str | None = None
     if oauth_flow:
         installation_id = state_payload.get("installation_id")
         if not installation_id or not isinstance(installation_id, str):
@@ -398,6 +397,20 @@ def github_link_complete(request: HttpRequest) -> HttpResponseRedirect:
             kind="github", integration_id=installation_id, team__in=request.user.teams.all()
         ).exists():
             return _error("invalid_installation")
+    elif team_oauth_flow:
+        # Triggered when the GitHub App is already installed on the org but no PostHog
+        # team has captured it (orphan installation). The frontend redirects the user
+        # through GitHub's User OAuth so we get a `code` for verify_user_installation_access.
+        installation_id = state_payload.get("installation_id")
+        team_oauth_team_id = state_payload.get("team_id")
+        team_oauth_next = state_payload.get("next") or None
+        if not installation_id or not isinstance(installation_id, str):
+            return _error("missing_params")
+        if not isinstance(team_oauth_team_id, int):
+            return _error("invalid_state")
+        # Confirm the user still has access to the team they started this flow from.
+        if not request.user.teams.filter(id=team_oauth_team_id).exists():
+            return _error("invalid_team")
     else:
         installation_id = request.GET.get("installation_id")
         if not installation_id:
@@ -411,7 +424,7 @@ def github_link_complete(request: HttpRequest) -> HttpResponseRedirect:
     installation_id = str(installation_id)
 
     # Exchange code for user-to-server tokens
-    if oauth_flow:
+    if oauth_flow or team_oauth_flow:
         authorization = GitHubIntegration.github_user_from_code(code, redirect_uri=github_oauth_redirect_uri())
     else:
         authorization = GitHubIntegration.github_user_from_code(code)
@@ -468,6 +481,36 @@ def github_link_complete(request: HttpRequest) -> HttpResponseRedirect:
         ),
         authorization,
     )
+
+    if team_oauth_flow and team_oauth_team_id is not None:
+        # Create the team-level Integration that the user originally tried to install.
+        # ``integration_from_installation_id`` re-fetches the installation token, so it
+        # works whether or not another team in the org has already linked this install.
+        try:
+            team_integration = GitHubIntegration.integration_from_installation_id(
+                installation_id, team_oauth_team_id, cast(User, request.user)
+            )
+        except Exception:
+            logger.warning(
+                "github_link: failed to create team integration",
+                installation_id=installation_id,
+                team_id=team_oauth_team_id,
+                exc_info=True,
+            )
+            return _error("integration_create_failed")
+
+        # Mirror the fresh-install flow: stamp the connecting user's GitHub login on
+        # the team integration card.
+        team_integration.config["connecting_user_github_login"] = authorization.gh_login
+        team_integration.save(update_fields=["config"])
+
+        target = team_oauth_next or PERSONAL_INTEGRATIONS_SETTINGS_PATH
+        forwarded_params: dict[str, str] = {
+            "installation_id": installation_id,
+            "integration_id": str(team_integration.id),
+        }
+        joiner = "&" if "?" in target else "?"
+        return redirect(f"{target}{joiner}{urlencode(forwarded_params)}")
 
     if posthog_code_flow:
         return redirect(f"{ACCOUNT_CONNECTED_GITHUB_INTEGRATION_PATH}?{urlencode({'provider': 'github'})}")

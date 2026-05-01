@@ -1884,6 +1884,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 "success": result.success,
                 "webhook_url": result.webhook_url,
                 "error": result.error,
+                "pending_inputs": result.pending_inputs,
             },
         )
 

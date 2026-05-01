@@ -20,6 +20,7 @@ from posthog.temporal.data_imports.sources.google_ads.google_ads import (
     GoogleAdsTable,
     _search_as_arrow_tables,
     get_schemas,
+    google_ads_client,
     google_ads_source,
 )
 from posthog.temporal.data_imports.sources.google_ads.source import GoogleAdsSource
@@ -534,3 +535,58 @@ class TestGoogleAdsSourceValidation:
         assert is_valid is False
         assert error is not None
         assert "is not accessible" in error
+
+
+class TestGoogleAdsClientStaleConnection:
+    """Regression tests for stale Postgres connections inside `google_ads_client`.
+
+    When an import streams rows for many minutes, the Django connection that the
+    Temporal worker thread holds can be dropped server-side. The next call into
+    `Integration.objects.get(...)` from `get_rows` then raises
+    `OperationalError: server closed the connection unexpectedly`. We close stale
+    connections before the ORM query so the next lookup grabs a fresh one.
+    """
+
+    @mock.patch("posthog.temporal.data_imports.sources.google_ads.google_ads.GoogleAdsClient")
+    @mock.patch("posthog.temporal.data_imports.sources.google_ads.google_ads.Integration")
+    @mock.patch("posthog.temporal.data_imports.sources.google_ads.google_ads.close_old_connections")
+    def test_oauth_client_closes_stale_connections_before_integration_lookup(
+        self, mock_close_old_connections, mock_integration_model, mock_client_cls
+    ):
+        manager = mock.MagicMock()
+        manager.attach_mock(mock_close_old_connections, "close_old_connections")
+        manager.attach_mock(mock_integration_model.objects.get, "integration_get")
+
+        mock_integration = mock.MagicMock()
+        mock_integration.refresh_token = "fake-refresh-token"
+        mock_integration_model.objects.get.return_value = mock_integration
+
+        config = GoogleAdsSourceConfig(customer_id="123-456-7890", google_ads_integration_id=42)
+
+        google_ads_client(config, team_id=7)
+
+        mock_close_old_connections.assert_called_once_with()
+        mock_integration_model.objects.get.assert_called_once_with(id=42, team_id=7)
+        # Order matters: closing stale connections AFTER the failing query would
+        # not prevent the OperationalError we are guarding against.
+        call_order = [name for name, _, _ in manager.mock_calls]
+        assert call_order.index("close_old_connections") < call_order.index("integration_get")
+
+    @mock.patch("posthog.temporal.data_imports.sources.google_ads.google_ads.service_account")
+    @mock.patch("posthog.temporal.data_imports.sources.google_ads.google_ads.GoogleAdsClient")
+    @mock.patch("posthog.temporal.data_imports.sources.google_ads.google_ads.close_old_connections")
+    def test_service_account_client_does_not_touch_django_connections(
+        self, mock_close_old_connections, mock_client_cls, mock_service_account
+    ):
+        config = GoogleAdsServiceAccountSourceConfig(
+            customer_id="1234567890",
+            private_key="pk",
+            private_key_id="pk_id",
+            client_email="sa@example.com",
+            token_uri="https://example.com",
+            developer_token="dev",
+        )
+
+        google_ads_client(config, team_id=7)
+
+        mock_close_old_connections.assert_not_called()

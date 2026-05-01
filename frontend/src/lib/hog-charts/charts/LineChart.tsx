@@ -40,6 +40,8 @@ export interface LineChartProps<Meta = unknown> {
     tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
     onPointClick?: (data: PointClickData<Meta>) => void
     className?: string
+    /** `data-attr` applied to the chart wrapper. See `ChartProps.dataAttr`. */
+    dataAttr?: string
     children?: React.ReactNode
     onError?: (error: Error, info: React.ErrorInfo) => void
 }
@@ -60,6 +62,7 @@ function LineChartInner<Meta = unknown>({
     tooltip,
     onPointClick,
     className,
+    dataAttr,
     children,
 }: LineChartProps<Meta>): React.ReactElement {
     const { yScaleType = 'linear', percentStackView = false, showGrid = false } = config ?? {}
@@ -234,6 +237,7 @@ function LineChartInner<Meta = unknown>({
             tooltip={tooltip}
             onPointClick={onPointClick}
             className={className}
+            dataAttr={dataAttr}
             resolveValue={resolveValue}
         >
             {children}

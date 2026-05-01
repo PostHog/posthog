@@ -9,7 +9,20 @@ import { inStorybookTestRunner } from 'lib/utils'
 
 import { AppMetricsLogicProps, appMetricsLogic } from './appMetricsLogic'
 
-export function AppMetricsSparkline(props: AppMetricsLogicProps): JSX.Element {
+export interface AppMetricsSparklineProps extends AppMetricsLogicProps {
+    /** Series names to render in the success color. Defaults to `['success']`. */
+    successMetricNames?: string[]
+    /** Optional display labels keyed by series name (e.g. `{ rows_synced: 'Rows synced' }`). */
+    metricLabels?: Record<string, string>
+}
+
+const DEFAULT_SUCCESS_METRIC_NAMES = ['success']
+
+export function AppMetricsSparkline({
+    successMetricNames,
+    metricLabels,
+    ...props
+}: AppMetricsSparklineProps): JSX.Element {
     const logic = appMetricsLogic(props)
     const { appMetricsTrends, appMetricsTrendsLoading, params } = useValues(logic)
     const { loadAppMetricsTrends } = useActions(logic)
@@ -24,8 +37,9 @@ export function AppMetricsSparkline(props: AppMetricsLogicProps): JSX.Element {
     }, [inView]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const displayData: SparklineTimeSeries[] = useMemo(() => {
-        // We sort the series based on the given metricKind
+        const successNames = successMetricNames ?? DEFAULT_SUCCESS_METRIC_NAMES
 
+        // We sort the series based on the given metricKind
         const sortListValue = params.breakdownBy === 'metric_kind' ? params.metricKind : params.metricName
         const sortList = sortListValue ? (Array.isArray(sortListValue) ? sortListValue : [sortListValue]) : []
 
@@ -38,12 +52,12 @@ export function AppMetricsSparkline(props: AppMetricsLogicProps): JSX.Element {
 
         return (
             sortedSeries?.map((s) => ({
-                color: s.name === 'success' ? 'success' : 'danger',
-                name: s.name,
+                color: successNames.includes(s.name) ? 'success' : 'danger',
+                name: metricLabels?.[s.name] ?? s.name,
                 values: s.values,
             })) || []
         )
-    }, [appMetricsTrends, params])
+    }, [appMetricsTrends, params, successMetricNames, metricLabels])
 
     const labels = appMetricsTrends?.labels || []
 

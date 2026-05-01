@@ -43,6 +43,7 @@ import {
     groupDirectQueryTablesBySchema,
     splitDirectQueryTableName,
 } from '../../shared/components/forms/directQuerySchemaUtils'
+import type { WebhookCreateResult } from '../../shared/components/forms/WebhookSetupForm'
 import { sourceManagementLogic } from '../../shared/logics/sourceManagementLogic'
 import { selfManagedSourceLogic } from './selfManagedSourceLogic'
 import type { sourceWizardLogicType } from './sourceWizardLogicType'
@@ -344,7 +345,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         }),
         saveFormStateBeforeRedirect: true,
         createWebhook: true,
-        setWebhookResult: (result: { success: boolean; webhook_url: string; error?: string } | null) => ({
+        setWebhookResult: (result: WebhookCreateResult | null) => ({
             result,
         }),
         submitWebhookFields: true,
@@ -548,7 +549,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             },
         ],
         webhookResult: [
-            null as { success: boolean; webhook_url: string; error?: string } | null,
+            null as WebhookCreateResult | null,
             {
                 setWebhookResult: (_, { result }) => result,
                 onClear: () => null,
@@ -695,8 +696,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         ],
         webhookStepComplete: [
             (s) => [s.webhookResult, s.selectedConnector],
-            (webhookResult: { success: boolean } | null, selectedConnector: SourceConfig | null): boolean => {
-                if (webhookResult?.success) {
+            (webhookResult: WebhookCreateResult | null, selectedConnector: SourceConfig | null): boolean => {
+                if (webhookResult?.success && (webhookResult.pending_inputs?.length ?? 0) === 0) {
                     return true
                 }
                 if (!webhookResult) {
@@ -1156,10 +1157,11 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             }
 
             if (values.currentStep === 4) {
-                if (values.webhookResult?.success) {
+                if (values.webhookResult?.success && (values.webhookResult.pending_inputs?.length ?? 0) === 0) {
                     actions.onNext()
                 } else {
-                    // Manual mode - submit webhook form (validates, then triggers submitWebhookFields)
+                    // Manual mode (or auto-create with pending inputs) — submit webhook form
+                    // (validates, then triggers submitWebhookFields)
                     actions.submitWebhookFieldInputs()
                 }
             }

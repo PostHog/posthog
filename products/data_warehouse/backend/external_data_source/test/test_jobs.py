@@ -1,7 +1,7 @@
 import uuid
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from posthog.models import Organization, Team
 
@@ -48,6 +48,7 @@ class TestUpdateExternalJobStatus:
                 job_id=str(job.id),
                 team_id=team.pk,
                 status=ExternalDataJob.Status.COMPLETED,
+                logger=MagicMock(),
                 latest_error=None,
             )
 
@@ -70,6 +71,7 @@ class TestUpdateExternalJobStatus:
                 job_id=str(job.id),
                 team_id=team.pk,
                 status=ExternalDataJob.Status.COMPLETED,
+                logger=MagicMock(),
                 latest_error=None,
             )
             first_finished_at = ExternalDataJob.objects.get(id=job.id).finished_at
@@ -78,6 +80,7 @@ class TestUpdateExternalJobStatus:
                 job_id=str(job.id),
                 team_id=team.pk,
                 status=ExternalDataJob.Status.COMPLETED,
+                logger=MagicMock(),
                 latest_error=None,
             )
 
@@ -95,6 +98,7 @@ class TestUpdateExternalJobStatus:
                 job_id=str(job.id),
                 team_id=team.pk,
                 status=ExternalDataJob.Status.RUNNING,
+                logger=MagicMock(),
                 latest_error=None,
             )
 
@@ -111,6 +115,7 @@ class TestUpdateExternalJobStatus:
                 job_id=str(job.id),
                 team_id=team.pk,
                 status=ExternalDataJob.Status.FAILED,
+                logger=MagicMock(),
                 latest_error="boom",
             )
 
