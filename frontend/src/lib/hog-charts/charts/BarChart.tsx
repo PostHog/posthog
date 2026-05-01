@@ -20,6 +20,7 @@ import type {
     ChartTheme,
     CreateScalesFn,
     PointClickData,
+    ResolvedSeries,
     Series,
     TooltipContext,
 } from '../core/types'
@@ -32,6 +33,8 @@ export interface BarChartProps<Meta = unknown> {
     tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
     onPointClick?: (data: PointClickData<Meta>) => void
     className?: string
+    /** `data-attr` applied to the chart wrapper. See `ChartProps.dataAttr`. */
+    dataAttr?: string
     children?: React.ReactNode
     onError?: (error: Error, info: React.ErrorInfo) => void
 }
@@ -52,6 +55,7 @@ function BarChartInner<Meta = unknown>({
     tooltip,
     onPointClick,
     className,
+    dataAttr,
     children,
 }: Omit<BarChartProps<Meta>, 'onError'>): React.ReactElement {
     const {
@@ -103,7 +107,7 @@ function BarChartInner<Meta = unknown>({
     const d3ScalesRef = useRef<BarScaleSet | null>(null)
 
     const createScales: CreateScalesFn = useCallback(
-        (coloredSeries: Series[], scaleLabels: string[], dimensions: ChartDimensions): ChartScales => {
+        (coloredSeries: ResolvedSeries[], scaleLabels: string[], dimensions: ChartDimensions): ChartScales => {
             // For stacked/percent, the value-axis domain must reflect cumulative sums, not
             // individual series ranges — pass a synthetic series whose data is each layer's top.
             let stackedSeries: Series[] | undefined
@@ -268,6 +272,7 @@ function BarChartInner<Meta = unknown>({
             tooltip={tooltip}
             onPointClick={onPointClick}
             className={className}
+            dataAttr={dataAttr}
             resolveValue={resolveValue}
             labelToCoord={isHorizontal ? labelToCoord : undefined}
         >
