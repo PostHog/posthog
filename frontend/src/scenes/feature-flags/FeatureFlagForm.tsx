@@ -1059,9 +1059,19 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                         variants={nonEmptyVariants}
                                         isDisabled={!featureFlag.active}
                                         bucketingIdentifier={featureFlag.bucketing_identifier}
-                                        onBucketingIdentifierChange={(value: FeatureFlagBucketingIdentifier | null) =>
+                                        onBucketingIdentifierChange={(value: FeatureFlagBucketingIdentifier | null) => {
+                                            // Auto-disable persist across auth when switching to device ID
+                                            if (
+                                                value === FeatureFlagBucketingIdentifier.DEVICE_ID &&
+                                                featureFlag.ensure_experience_continuity
+                                            ) {
+                                                setFeatureFlag({
+                                                    ...featureFlag,
+                                                    ensure_experience_continuity: false,
+                                                })
+                                            }
                                             setBucketingIdentifier(value)
-                                        }
+                                        }}
                                         evaluationRuntime={featureFlag.evaluation_runtime}
                                     />
                                 </div>

@@ -785,11 +785,6 @@ export function FeatureFlagReleaseConditionsCollapsible({
     const isDragDropEnabled = !!featureFlags[FEATURE_FLAGS.FEATURE_FLAG_DRAG_DROP_CONDITIONS]
     const isMixedTargetingEnabled = !!featureFlags[FEATURE_FLAGS.FEATURE_FLAG_MIXED_TARGETING]
 
-    // Access the main feature flag logic to update both bucketing and persist across auth
-    const flagLogic = featureFlagLogic({ id: flagId })
-    const { featureFlag } = useValues(flagLogic)
-    const { setFeatureFlag } = useActions(flagLogic)
-
     // Ref map for focus management
     const optionRefs = useRef<Record<string, HTMLDivElement | null>>({})
 
@@ -926,44 +921,17 @@ export function FeatureFlagReleaseConditionsCollapsible({
             } else if (targetValue === 'device') {
                 setIsMixedTargeting(false)
                 setAggregationGroupTypeIndex(null)
-                // Auto-disable persist across auth when switching to device ID
-                if (featureFlag && setFeatureFlag) {
-                    setFeatureFlag({
-                        ...featureFlag,
-                        bucketing_identifier: FeatureFlagBucketingIdentifier.DEVICE_ID,
-                        ensure_experience_continuity: false,
-                    })
-                } else {
-                    onBucketingIdentifierChange?.(FeatureFlagBucketingIdentifier.DEVICE_ID)
-                }
+                onBucketingIdentifierChange?.(FeatureFlagBucketingIdentifier.DEVICE_ID)
             } else if (targetValue === 'group') {
                 setIsMixedTargeting(false)
                 const firstGroupType = groupTypeValues[0]
                 if (firstGroupType) {
                     setAggregationGroupTypeIndex(firstGroupType.group_type_index)
                 }
-                // Auto-disable persist across auth when switching to group (not User)
-                if (featureFlag && setFeatureFlag) {
-                    setFeatureFlag({
-                        ...featureFlag,
-                        bucketing_identifier: null,
-                        ensure_experience_continuity: false,
-                    })
-                } else {
-                    onBucketingIdentifierChange?.(null)
-                }
+                onBucketingIdentifierChange?.(null)
             } else if (targetValue === 'mixed') {
                 switchToMixedTargeting()
-                // Auto-disable persist across auth when switching to mixed (not User)
-                if (featureFlag && setFeatureFlag) {
-                    setFeatureFlag({
-                        ...featureFlag,
-                        bucketing_identifier: null,
-                        ensure_experience_continuity: false,
-                    })
-                } else {
-                    onBucketingIdentifierChange?.(null)
-                }
+                onBucketingIdentifierChange?.(null)
             }
         }
 
