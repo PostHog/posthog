@@ -7,6 +7,7 @@ from temporalio import activity
 
 from posthog.models import Integration
 from posthog.models.integration import GitHubIntegration
+from posthog.temporal.common.utils import close_db_connections
 
 from products.tasks.backend.models import TaskRun
 from products.tasks.backend.temporal.exceptions import TaskInvalidStateError
@@ -47,6 +48,7 @@ def get_github_integration(github_integration_id: int) -> GitHubIntegration:
 
 
 @activity.defn
+@close_db_connections
 def get_pr_context(input: GetPrContextInput) -> GetPrContextOutput | None:
     """Get PR context for a task run, including PR URL, repository, and allowed domains."""
     ctx = input.context

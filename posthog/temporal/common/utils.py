@@ -70,6 +70,12 @@ def asyncify(fn: Callable[P, T]) -> Callable[P, Coroutine[Any, Any, T]]:
     return wrapper
 
 
+def _close_db_connections() -> None:
+    """Close old database connections to prevent usage of stale connections in long-running Temporal workers."""
+    if not settings.TEST:
+        close_old_connections()
+
+
 def close_db_connections(fn: Callable[P, T]) -> Callable[P, T]:
     """Decorator that evicts stale Django DB connections around an activity.
 
@@ -100,25 +106,21 @@ def close_db_connections(fn: Callable[P, T]) -> Callable[P, T]:
 
         @wraps(fn)
         async def async_wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
-            if not settings.TEST:
-                await sync_to_async(close_old_connections)()
+            await sync_to_async(_close_db_connections)()
             try:
                 return await fn(*args, **kwargs)
             finally:
-                if not settings.TEST:
-                    await sync_to_async(close_old_connections)()
+                await sync_to_async(_close_db_connections)()
 
         return cast(Callable[P, T], async_wrapper)
 
     @wraps(fn)
     def sync_wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
-        if not settings.TEST:
-            close_old_connections()
+        _close_db_connections()
         try:
             return fn(*args, **kwargs)
         finally:
-            if not settings.TEST:
-                close_old_connections()
+            _close_db_connections()
 
     return sync_wrapper
 
