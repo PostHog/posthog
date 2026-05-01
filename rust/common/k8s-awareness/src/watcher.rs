@@ -11,7 +11,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
 use crate::detection;
-use crate::discovery::{self, DiscoveryError};
+use crate::discovery::{self, DiscoveryError, KUBE_CALL_TIMEOUT};
 use crate::types::{ClusterIntent, ControllerKind, ControllerRef, DepartureReason, PodInfo};
 
 #[derive(Debug, thiserror::Error)]
@@ -238,8 +238,22 @@ async fn handle_deployment_event(
     // If this fails, skip the entire intent update to avoid mixing fresh
     // deployment fields (like rollout_in_progress) with stale generation data,
     // which would create an inconsistent ClusterIntent.
-    let owned_rses =
-        list_owned_replicasets(client, namespace, &controller.name, &label_selector).await;
+    let owned_rses = match tokio::time::timeout(
+        KUBE_CALL_TIMEOUT,
+        list_owned_replicasets(client, namespace, &controller.name, &label_selector),
+    )
+    .await
+    {
+        Ok(result) => result,
+        Err(_) => {
+            warn!(
+                controller = %controller,
+                timeout = ?KUBE_CALL_TIMEOUT,
+                "kube replicaset.list timed out, skipping intent update"
+            );
+            return;
+        }
+    };
     let rses = match owned_rses {
         Ok(rses) => rses,
         Err(e) => {
