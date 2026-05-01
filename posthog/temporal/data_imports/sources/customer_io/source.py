@@ -110,7 +110,7 @@ class CustomerIOSource(
                 "PostHog tries to register the reporting webhook for you using your App API Key. "
                 "Customer.io doesn't return the signing key in the API response, so you still need "
                 "to copy it from the **Reporting Webhooks** page in Customer.io and paste it below."
-                "\n\nGo to your **Customer.io workspace** > **Integrations** > **Reporting Webhooks** > **PostHog data warehoise**\n\n\n"
+                "\n\nGo to your **Customer.io workspace** > **Integrations** > **Reporting Webhooks** > **{CIO_AUTO_WEBHOOK_NAME}**\n\n\n"
                 "**Manual setup** (only needed if auto-registration failed):\n\n"
                 "1. Go to your **Customer.io workspace** > **Integrations** > **Add Integration**\n"
                 "2. Search for **Reporting Webhook**\n"
