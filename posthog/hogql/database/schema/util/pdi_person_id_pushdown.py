@@ -13,15 +13,12 @@ from posthog.hogql.visitor import TraversingVisitor, clone_expr
 logger = structlog.get_logger(__name__)
 
 
-# Filter on a distinct_id IN subquery on raw_person_distinct_ids is the only safe
-# way to narrow person_distinct_id2 by person_id. The naive WHERE person_id IN (X)
-# would filter raw rows pre-argMax and report stale mappings for distinct_ids that
-# were rebound to a different person.
-#
-# The aliased table name "pdi_pushdown_pdi" is intentional: it appears in the
-# generated SQL and lets us grep system.query_log to measure how often the
-# optimization fires post-deploy.
 def build_distinct_id_pushdown(person_id_filter: ast.Expr) -> ast.CompareOperation:
+    """Build `distinct_id IN (SELECT distinct_id FROM raw_pdi WHERE <person_id_filter>)`.
+
+    Narrows on the GROUP BY key (distinct_id), so pre-argMax filtering stays
+    correct; the outer argMax still picks the current owner.
+    """
     inner = cast(
         ast.SelectQuery,
         parse_select("SELECT distinct_id FROM raw_person_distinct_ids AS pdi_pushdown_pdi"),
