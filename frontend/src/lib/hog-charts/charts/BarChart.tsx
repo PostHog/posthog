@@ -269,7 +269,6 @@ function BarChartInner<Meta = unknown>({
             onPointClick={onPointClick}
             className={className}
             resolveValue={resolveValue}
-            interactionAxis={isHorizontal ? 'y' : 'x'}
             labelToCoord={isHorizontal ? labelToCoord : undefined}
         >
             {children}
