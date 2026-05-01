@@ -23,6 +23,7 @@ from posthog.temporal.session_replay.summarization_sweep.constants import (
     WORKFLOW_NAME,
 )
 from posthog.temporal.session_replay.summarization_sweep.models import (
+    ConsumeSummaryQuotaInput,
     DeleteTeamScheduleInput,
     FindSessionsInput,
     SummarizeTeamSessionsInputs,
@@ -37,6 +38,7 @@ with workflow.unsafe.imports_passed_through():
     from posthog.temporal.session_replay.session_summary.summarize_session import SummarizeSingleSessionWorkflow
     from posthog.temporal.session_replay.session_summary.types.single import SingleSessionSummaryInputs
     from posthog.temporal.session_replay.summarization_sweep.activities import (
+        consume_summary_quota_activity,
         delete_team_schedule_activity,
         find_sessions_for_team_activity,
     )
@@ -133,6 +135,19 @@ class SummarizeTeamSessionsWorkflow(PostHogWorkflow):
             raise ApplicationError(
                 f"All {failed} child workflow starts failed for team {inputs.team_id}",
                 type="AllChildStartsFailed",
+            )
+
+        # Charge the per-team monthly cap by what we actually dispatched. Skipped
+        # workflows are deduped existing runs (no extra LLM cost), failed starts
+        # never reach the LLM either. Consuming after the fact rather than at
+        # find-time means a transient Temporal outage doesn't burn quota for
+        # work that never happened.
+        if started > 0:
+            await workflow.execute_activity(
+                consume_summary_quota_activity,
+                args=[ConsumeSummaryQuotaInput(team_id=inputs.team_id, n=started)],
+                start_to_close_timeout=timedelta(seconds=15),
+                retry_policy=RetryPolicy(maximum_attempts=3),
             )
 
         return {

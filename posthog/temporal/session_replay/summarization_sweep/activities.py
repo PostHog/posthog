@@ -6,6 +6,11 @@ from temporalio import activity
 
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.session_recordings.ai_summary_cap import (
+    consume as consume_summary_quota,
+    current_usage,
+    get_cap_for_team,
+)
 from posthog.sync import database_sync_to_async, database_sync_to_async_pool
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.search_attributes import POSTHOG_SESSION_RECORDING_ID_KEY
@@ -17,6 +22,7 @@ from posthog.temporal.session_replay.summarization_sweep.constants import (
     WORKFLOW_NAME,
 )
 from posthog.temporal.session_replay.summarization_sweep.models import (
+    ConsumeSummaryQuotaInput,
     DeleteTeamScheduleInput,
     FindSessionsInput,
     FindSessionsResult,
@@ -66,7 +72,15 @@ def _load_team_user_and_sessions(team_id: int, lookback_minutes: int) -> tuple[T
     )
     if not session_ids:
         return team, [], None
-    return team, session_ids, _select_summarization_user(team)
+    # Slice to the team's remaining monthly cap so we don't dispatch summaries
+    # we'd immediately reject anyway. The actual counter increment happens in
+    # the workflow after children are started — see consume_summary_quota_activity.
+    # Slicing pre-dedup is fine: a backstop, not strict billing — the dedup
+    # downstream may further trim, which under-shoots the cap rather than over.
+    headroom = max(0, get_cap_for_team(team_id) - current_usage(team_id))
+    if headroom == 0:
+        return team, [], None
+    return team, session_ids[:headroom], _select_summarization_user(team)
 
 
 # Session ids land here from ClickHouse and originate at SDK clients. Rejecting anything
@@ -207,3 +221,13 @@ async def upsert_team_schedule_activity(inputs: UpsertTeamScheduleInput) -> None
     from posthog.temporal.session_replay.summarization_sweep.schedule import a_upsert_team_schedule
 
     await a_upsert_team_schedule(inputs.team_id)
+
+
+@activity.defn
+async def consume_summary_quota_activity(inputs: ConsumeSummaryQuotaInput) -> None:
+    """Increment the team's monthly summary counter by `n`. Called once per
+    sweep tick after children have been started, so we only count what we
+    actually dispatched. Workflow can't touch Redis directly (sandbox)."""
+    if inputs.n <= 0:
+        return
+    await database_sync_to_async(consume_summary_quota, thread_sensitive=False)(inputs.team_id, inputs.n)

@@ -68,7 +68,7 @@ from posthog.auth import (
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.errors import CHQueryErrorCannotScheduleTask, CHQueryErrorTooManySimultaneousQueries
-from posthog.event_usage import report_user_action
+from posthog.event_usage import groups, report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
@@ -1533,6 +1533,30 @@ class SessionRecordingViewSet(
         ):
             raise exceptions.ValidationError("session summary is not enabled for this user")
         session_id = str(recording.session_id)
+
+        # Per-team monthly hard cap as a cost backstop. Consumed on entry (not LLM
+        # success) — counts failed calls too, but avoids streaming-response
+        # finalization complexity. See posthog/session_recordings/ai_summary_cap.py.
+        from posthog.session_recordings.ai_summary_cap import check_and_consume
+
+        cap_decision = check_and_consume(self.team.id)
+        if not cap_decision.allowed:
+            posthoganalytics.capture(
+                distinct_id=user.distinct_id,
+                event="replay summary quota blocked",
+                properties={
+                    "team_id": self.team.id,
+                    "used": cap_decision.used,
+                    "cap": cap_decision.cap,
+                    "source": "dock",
+                },
+                groups=groups(None, self.team),
+            )
+            return Response(
+                {"status": "quota_exceeded", "used": cap_decision.used, "cap": cap_decision.cap},
+                status=status.HTTP_402_PAYMENT_REQUIRED,
+            )
+
         tracking_id = generate_tracking_id()
         force_restart = bool(request.data.get("force_restart", False)) if isinstance(request.data, dict) else False
         product_context = self._load_team_product_context()

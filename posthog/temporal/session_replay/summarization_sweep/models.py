@@ -37,6 +37,12 @@ class UpsertTeamScheduleInput:
 
 
 @dataclass
+class ConsumeSummaryQuotaInput:
+    team_id: int
+    n: int
+
+
+@dataclass
 class ReconcileSchedulesInputs:
     dry_run: bool = False
 
