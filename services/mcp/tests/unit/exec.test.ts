@@ -10,7 +10,7 @@ import { SessionManager } from '@/lib/SessionManager'
 import CLI_PROXY_COMMAND from '@/templates/cli-proxy-command.md'
 import CLI_PROXY_TOOL from '@/templates/cli-proxy-tool.md'
 import { getToolsFromContext } from '@/tools'
-import { createExecTool } from '@/tools/exec'
+import { createExecTool, type ExecInnerCallProperties } from '@/tools/exec'
 import { getToolDefinition } from '@/tools/toolDefinitions'
 import { POSTHOG_META_KEY, type Context, type Tool, type ZodObjectAny } from '@/tools/types'
 
@@ -150,6 +150,74 @@ describe('exec tool', () => {
             const result = await exec.handler(mockContext, { command: 'call mock-tool {}' })
             // Plain text fallback — no CallToolResult shape leaks out
             expect(typeof result).toBe('string')
+        })
+
+        it('invokes the inner-call tracker on successful inner tool dispatch', async () => {
+            const calls: { toolName: string; properties: ExecInnerCallProperties }[] = []
+            const tracker = (toolName: string, properties: ExecInnerCallProperties): void => {
+                calls.push({ toolName, properties })
+            }
+            const exec = createExecTool(
+                [makeMockTool()],
+                mockContext,
+                'test description',
+                'test command reference',
+                undefined,
+                tracker
+            )
+            await exec.handler(mockContext, { command: 'call --json mock-tool {}' })
+            expect(calls).toHaveLength(1)
+            expect(calls[0]!.toolName).toBe('mock-tool')
+            expect(calls[0]!.properties.success).toBe(true)
+            expect(calls[0]!.properties.output_format).toBe('json')
+            expect(typeof calls[0]!.properties.duration_ms).toBe('number')
+        })
+
+        it('invokes the inner-call tracker with success=false when the inner tool throws', async () => {
+            const calls: { toolName: string; properties: ExecInnerCallProperties }[] = []
+            const tracker = (toolName: string, properties: ExecInnerCallProperties): void => {
+                calls.push({ toolName, properties })
+            }
+            const failing = makeMockTool({
+                handler: async () => {
+                    throw new Error('boom')
+                },
+            })
+            const exec = createExecTool(
+                [failing],
+                mockContext,
+                'test description',
+                'test command reference',
+                undefined,
+                tracker
+            )
+            await expect(exec.handler(mockContext, { command: 'call mock-tool {}' })).rejects.toThrow('boom')
+            expect(calls).toHaveLength(1)
+            expect(calls[0]!.properties.success).toBe(false)
+            expect(calls[0]!.properties.error_message).toBe('boom')
+            expect(calls[0]!.properties.output_format).toBe('text')
+        })
+    })
+
+    describe('deprecated tool redirects', () => {
+        it.each([
+            ['entity-search', 'execute-sql'],
+            ['event-definitions-list', 'read-data-schema'],
+            ['properties-list', 'read-data-schema'],
+            ['property-definitions', 'read-data-schema'],
+            ['query-generate-hogql-from-question', 'execute-sql'],
+            ['query-run', 'execute-sql'],
+        ])('throws redirect when calling deprecated %s', async (deprecated, replacement) => {
+            const exec = createExec()
+            await expect(exec.handler(mockContext, { command: `call ${deprecated} {}` })).rejects.toThrow(
+                new RegExp(`removed in MCP v2[\\s\\S]*${replacement}`)
+            )
+        })
+
+        it('lists available query-* tools when query-run is called', async () => {
+            const queryTrends = makeMockTool({ name: 'query-trends', description: 'Run a trends query' })
+            const exec = createExec([queryTrends])
+            await expect(exec.handler(mockContext, { command: 'call query-run {}' })).rejects.toThrow(/query-trends/)
         })
     })
 

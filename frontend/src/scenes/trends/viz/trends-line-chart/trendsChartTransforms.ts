@@ -1,0 +1,189 @@
+import { DEFAULT_Y_AXIS_ID } from 'lib/hog-charts'
+import type { LineChartConfig, Series } from 'lib/hog-charts'
+import { ciRanges, movingAverage, trendLine } from 'lib/statistics'
+import { hexToRGBA } from 'lib/utils'
+
+import { ChartDisplayType } from '~/types'
+
+const COMPARE_PREVIOUS_DIM_OPACITY = 0.5
+const TRENDLINE_DIM_OPACITY = 0.5
+
+// Shape both IndexedTrendResult (kea) and TrendsResultItem (MCP) satisfy.
+export interface TrendsResultLike {
+    id?: string | number
+    label?: string | null
+    data: number[]
+    days?: string[]
+    compare?: boolean
+    compare_label?: string | null
+    action?: { order?: number } | null
+    breakdown_value?: unknown
+    filter?: unknown
+}
+
+export interface BuildTrendsSeriesOpts<R extends TrendsResultLike, M = unknown> {
+    display?: ChartDisplayType
+    showMultipleYAxes?: boolean
+    // Negative number — index from the end where the in-progress tail begins. Omit to skip.
+    incompletenessOffsetFromEnd?: number
+    isStickiness?: boolean
+    getColor: (r: R, index: number) => string
+    getHidden?: (r: R, index: number) => boolean
+    buildMeta?: (r: R, index: number) => M
+    // Derived series — opt-in. Each block is independent so MCP-side callers
+    // can leave them off without unintended overlays.
+    showConfidenceIntervals?: boolean
+    confidenceLevel?: number
+    showMovingAverage?: boolean
+    movingAverageIntervals?: number
+    showTrendLines?: boolean
+}
+
+export interface BuiltTrendsSeries<M> {
+    main: Series<M>
+    // Un-dimmed base color, exposed so derived series can dim further without re-resolving.
+    baseColor: string
+    dashedFromIndex: number | undefined
+    excluded: boolean
+}
+
+export function buildMainTrendsSeries<R extends TrendsResultLike, M = unknown>(
+    r: R,
+    index: number,
+    opts: BuildTrendsSeriesOpts<R, M>
+): BuiltTrendsSeries<M> {
+    const isActiveSeries = !r.compare || r.compare_label !== 'previous'
+    const isInProgress =
+        !opts.isStickiness && opts.incompletenessOffsetFromEnd !== undefined && opts.incompletenessOffsetFromEnd < 0
+    const dashedFromIndex =
+        isInProgress && isActiveSeries ? r.data.length + (opts.incompletenessOffsetFromEnd as number) : undefined
+    const yAxisId = opts.showMultipleYAxes && index > 0 ? `y${index}` : DEFAULT_Y_AXIS_ID
+    const baseColor = opts.getColor(r, index)
+    const displayColor = r.compare_label === 'previous' ? hexToRGBA(baseColor, COMPARE_PREVIOUS_DIM_OPACITY) : baseColor
+    const excluded = opts.getHidden ? opts.getHidden(r, index) : false
+    const meta: M | undefined = opts.buildMeta ? opts.buildMeta(r, index) : undefined
+    const main: Series<M> = {
+        key: String(r.id),
+        label: r.label ?? '',
+        data: r.data,
+        color: displayColor,
+        yAxisId,
+        meta,
+        fill: opts.display === ChartDisplayType.ActionsAreaGraph ? {} : undefined,
+        stroke: dashedFromIndex !== undefined ? { partial: { fromIndex: dashedFromIndex } } : undefined,
+        visibility: excluded ? { excluded: true } : undefined,
+    }
+    return { main, baseColor, dashedFromIndex, excluded }
+}
+
+function buildDerivedTrendsSeries<R extends TrendsResultLike, M = unknown>(
+    r: R,
+    built: BuiltTrendsSeries<M>,
+    opts: BuildTrendsSeriesOpts<R, M>
+): Series<M>[] {
+    const { main, baseColor, dashedFromIndex, excluded } = built
+    const out: Series<M>[] = []
+
+    if (opts.showConfidenceIntervals) {
+        const ci = (opts.confidenceLevel ?? 95) / 100
+        const [lower, upper] = ciRanges(r.data, ci)
+        out.push({
+            key: `${r.id}__ci`,
+            label: `${r.label ?? ''} (CI)`,
+            data: upper,
+            color: main.color,
+            yAxisId: main.yAxisId,
+            meta: main.meta,
+            fill: { opacity: 0.2, lowerData: lower },
+            visibility: { excluded, fromTooltip: true, fromValueLabels: true },
+        })
+    }
+
+    if (
+        opts.showMovingAverage &&
+        opts.movingAverageIntervals !== undefined &&
+        r.data.length >= opts.movingAverageIntervals
+    ) {
+        const maData = movingAverage(r.data, opts.movingAverageIntervals)
+        out.push({
+            key: `${r.id}-ma`,
+            label: `${r.label ?? ''} (Moving avg)`,
+            data: maData,
+            color: main.color,
+            yAxisId: main.yAxisId,
+            meta: main.meta,
+            stroke: { pattern: [10, 3] },
+            visibility: { fromTooltip: true, fromStack: true },
+        })
+
+        if (opts.showTrendLines && !excluded) {
+            out.push({
+                key: `${r.id}-ma__trendline`,
+                label: `${r.label ?? ''} (Moving avg)`,
+                data: trendLine(maData),
+                color: hexToRGBA(baseColor, TRENDLINE_DIM_OPACITY),
+                yAxisId: main.yAxisId,
+                stroke: { pattern: [1, 3] },
+                visibility: { fromTooltip: true, fromValueLabels: true, fromStack: true },
+            })
+        }
+    }
+
+    // Fit excludes the in-progress tail (dashedFromIndex..end) so the flat
+    // partial bucket doesn't drag the slope down. Dimmed so the dashed
+    // overlay reads as subordinate to the series line — at full intensity
+    // the two colors visually compete, especially on a dark background.
+    if (opts.showTrendLines && !excluded) {
+        out.push({
+            key: `${r.id}__trendline`,
+            label: r.label ?? '',
+            data: trendLine(r.data, dashedFromIndex),
+            color: hexToRGBA(baseColor, TRENDLINE_DIM_OPACITY),
+            yAxisId: main.yAxisId,
+            stroke: { pattern: [1, 3] },
+            visibility: { fromTooltip: true, fromValueLabels: true, fromStack: true },
+        })
+    }
+
+    return out
+}
+
+export function buildTrendsSeries<R extends TrendsResultLike, M = unknown>(
+    results: R[],
+    opts: BuildTrendsSeriesOpts<R, M>
+): Series<M>[] {
+    return results.flatMap((r, index) => {
+        const built = buildMainTrendsSeries(r, index, opts)
+        return [built.main, ...buildDerivedTrendsSeries(r, built, opts)]
+    })
+}
+
+export interface BuildTrendsChartConfigOpts {
+    // Anything other than 'log10' is treated as linear.
+    yAxisScaleType?: string | null
+    isPercentStackView?: boolean
+    showCrosshair?: boolean
+    showGrid?: boolean
+    pinnableTooltip?: boolean
+    tooltipPlacement?: 'top' | 'follow-data'
+    xTickFormatter?: (value: string | number, index: number) => string | null
+    yTickFormatter?: (value: number) => string
+}
+
+// Undefined keys fall through to hog-charts defaults — don't add fallbacks here.
+export function buildTrendsChartConfig(opts: BuildTrendsChartConfigOpts): LineChartConfig {
+    const tooltip =
+        opts.pinnableTooltip !== undefined || opts.tooltipPlacement !== undefined
+            ? { pinnable: opts.pinnableTooltip, placement: opts.tooltipPlacement }
+            : undefined
+    const yScaleType: 'linear' | 'log' = opts.yAxisScaleType === 'log10' ? 'log' : 'linear'
+    return {
+        showGrid: opts.showGrid,
+        showCrosshair: opts.showCrosshair,
+        tooltip,
+        yScaleType,
+        percentStackView: opts.isPercentStackView,
+        xTickFormatter: opts.xTickFormatter,
+        yTickFormatter: opts.yTickFormatter,
+    }
+}

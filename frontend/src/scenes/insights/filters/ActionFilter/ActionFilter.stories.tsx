@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react'
-import { userEvent, waitFor } from '@storybook/testing-library'
+import { waitFor } from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
 import { BindLogic, useMountedLogic, useValues } from 'kea'
 import { useRef, useState } from 'react'
 

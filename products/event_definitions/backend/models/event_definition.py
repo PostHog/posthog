@@ -36,6 +36,8 @@ class EventDefinition(UUIDTModel):
         default=SchemaEnforcementMode.ALLOW,
     )
 
+    promoted_property = models.CharField(max_length=400, null=True, blank=True)
+
     class Meta:
         db_table = "posthog_eventdefinition"
         indexes = [

@@ -4,7 +4,7 @@
  * Finds all PNGs in a directory and derives snapshot IDs from filenames.
  * Contract: filename == snapshot ID (without extension)
  */
-import { readdirSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, statSync } from 'node:fs'
 import { basename, extname, join } from 'node:path'
 
 export interface ScannedSnapshot {
@@ -15,8 +15,16 @@ export interface ScannedSnapshot {
 /**
  * Recursively scan directory for PNG files.
  * Derives snapshot ID from filename: `button--primary.png` → `button--primary`
+ *
+ * Returns an empty array if the directory does not exist — callers decide
+ * whether that is an error (verify/submit) or a no-op (run upload, which can
+ * fire even when a prior test step produced no screenshots).
  */
 export function scanDirectory(dir: string): ScannedSnapshot[] {
+    if (!existsSync(dir)) {
+        return []
+    }
+
     const snapshots: ScannedSnapshot[] = []
 
     function scan(currentDir: string): void {

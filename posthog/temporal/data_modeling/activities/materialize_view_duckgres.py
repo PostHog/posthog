@@ -7,7 +7,7 @@ import posthoganalytics
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
-from posthog.ducklake.common import get_duckgres_server_for_team, is_dev_mode
+from posthog.ducklake.common import get_duckgres_server_for_organization, is_dev_mode
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
@@ -58,7 +58,7 @@ def _is_duckgres_shadow_enabled(team: Team) -> bool:
 
         return os.environ.get("DUCKGRES_SHADOW_ENABLED", "").lower() in ("1", "true")
 
-    if get_duckgres_server_for_team(team.id) is None:
+    if get_duckgres_server_for_organization(str(team.organization_id)) is None:
         return False
 
     try:

@@ -35,6 +35,9 @@ LOGS_ALERTING_LATENCY_HISTOGRAM_METRICS = (
     "logs_alerting_cycle_duration_ms",
     "logs_alerting_scheduler_lag_ms",
     "logs_alerting_schedule_to_start_ms",
+    "logs_alerting_clickhouse_duration_ms",
+    "logs_alerting_semaphore_wait_ms",
+    "logs_alerting_alert_save_ms",
 )
 
 LOGS_ALERTING_LATENCY_HISTOGRAM_BUCKETS = [
@@ -47,6 +50,8 @@ LOGS_ALERTING_LATENCY_HISTOGRAM_BUCKETS = [
     60_000.0,
     120_000.0,
     300_000.0,
+    600_000.0,
+    1_800_000.0,
 ]
 
 
@@ -118,6 +123,15 @@ def record_alerts_active(count: int) -> None:
     gauge.set(count)
 
 
+def record_pending_alerts(count: int) -> None:
+    meter = get_metric_meter()
+    gauge = meter.create_gauge(
+        "logs_alerting_pending_alerts",
+        "Number of due alerts still waiting to be evaluated at end of cycle (backlog)",
+    )
+    gauge.set(count)
+
+
 def record_checkpoint_lag(now: dt.datetime, checkpoint: dt.datetime) -> None:
     meter = get_metric_meter()
     gauge = meter.create_gauge(
@@ -139,6 +153,30 @@ def increment_checkpoint_unavailable() -> None:
 
 def record_check_duration(duration_ms: int) -> None:
     _record_histogram("logs_alerting_check_duration_ms", "Per-alert evaluation duration", duration_ms)
+
+
+def record_clickhouse_duration(duration_ms: int) -> None:
+    _record_histogram(
+        "logs_alerting_clickhouse_duration_ms",
+        "ClickHouse query wall time for a single alert evaluation",
+        duration_ms,
+    )
+
+
+def record_semaphore_wait(wait_ms: int) -> None:
+    _record_histogram(
+        "logs_alerting_semaphore_wait_ms",
+        "Time an alert spent waiting on the per-cycle concurrency semaphore",
+        wait_ms,
+    )
+
+
+def record_alert_save_duration(duration_ms: int) -> None:
+    _record_histogram(
+        "logs_alerting_alert_save_ms",
+        "Postgres write time for the per-eval alert state update",
+        duration_ms,
+    )
 
 
 def record_scheduler_lag(lag_ms: int) -> None:

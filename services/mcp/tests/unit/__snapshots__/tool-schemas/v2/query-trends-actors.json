@@ -105,14 +105,15 @@
                                             },
                                             "type": {
                                                 "enum": [
-                                                    "cohort",
                                                     "person",
                                                     "event",
                                                     "event_metadata",
                                                     "session",
                                                     "hogql",
-                                                    "data_warehouse_person_property",
-                                                    "revenue_analytics"
+                                                    "cohort",
+                                                    "revenue_analytics",
+                                                    "data_warehouse",
+                                                    "data_warehouse_person_property"
                                                 ],
                                                 "type": "string"
                                             }

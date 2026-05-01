@@ -21,9 +21,8 @@ describe('DataWarehouseSourceScene', () => {
     })
 
     it('hides the syncs tab until the source is loaded and for direct query sources', () => {
-        expect(shouldShowManagedSourceSyncsTab(null, true)).toEqual(false)
-        expect(shouldShowManagedSourceSyncsTab({ access_method: 'direct' }, true)).toEqual(false)
-        expect(shouldShowManagedSourceSyncsTab({ access_method: 'warehouse' }, true)).toEqual(true)
-        expect(shouldShowManagedSourceSyncsTab({ access_method: 'direct' }, false)).toEqual(true)
+        expect(shouldShowManagedSourceSyncsTab(null)).toEqual(false)
+        expect(shouldShowManagedSourceSyncsTab({ access_method: 'direct' })).toEqual(false)
+        expect(shouldShowManagedSourceSyncsTab({ access_method: 'warehouse' })).toEqual(true)
     })
 })

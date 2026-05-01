@@ -89,6 +89,17 @@ def create_event_definitions_sql(
         """
 
 
+class PromotedPropertiesResponseSerializer(serializers.Serializer):
+    promoted_properties = serializers.DictField(
+        child=serializers.CharField(),
+        help_text=(
+            "Mapping from event name to the team-configured promoted property for that event. "
+            "Names without a configured promoted property are omitted; callers should fall back "
+            "to the core taxonomy defaults for those."
+        ),
+    )
+
+
 @extend_schema_serializer(component_name="EventDefinitionRecord")
 class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
     is_action = serializers.SerializerMethodField(read_only=True)
@@ -98,6 +109,17 @@ class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSeri
     last_calculated_at = serializers.DateTimeField(read_only=True)
     last_updated_at = serializers.DateTimeField(read_only=True)
     post_to_slack = serializers.BooleanField(default=False)
+    promoted_property = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=False,
+        max_length=400,
+        help_text=(
+            "Name of a single property on this event that PostHog UIs should display alongside the event "
+            "(for example `$pathname` on `$pageview`). When set, surfaces like the session replay inspector "
+            "show the property's value next to the event name without the user having to open the event."
+        ),
+    )
 
     class Meta:
         model = EventDefinition
@@ -109,6 +131,7 @@ class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSeri
             "last_updated_at",
             "tags",
             "enforcement_mode",
+            "promoted_property",
             # Action fields
             "is_action",
             "action_id",
@@ -547,6 +570,43 @@ class EventDefinitionViewSet(
 
         serializer = self.get_serializer(event_def)
         return response.Response(serializer.data)
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "names",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                many=True,
+                description=(
+                    "Optional: restrict the response to these event names. "
+                    "Repeat the parameter for multiple names (e.g. `?names=a&names=b`). "
+                    "When omitted, returns every team-configured promoted property."
+                ),
+            ),
+        ],
+        responses={200: PromotedPropertiesResponseSerializer},
+    )
+    @action(detail=False, methods=["GET"], url_path="promoted_properties", required_scopes=["event_definition:read"])
+    def promoted_properties(self, request, *args, **kwargs):
+        """Resolve team-configured promoted properties for event definitions.
+
+        The response only contains entries where a non-null promoted_property is set on the
+        EventDefinition. Callers should fall back to the core taxonomy defaults client-side
+        for names not present in the response.
+        """
+        queryset = EventDefinition.objects.filter(
+            team__project_id=self.project_id,
+            promoted_property__isnull=False,
+        ).exclude(promoted_property="")
+
+        names = [name for name in request.query_params.getlist("names") if name]
+        if names:
+            queryset = queryset.filter(name__in=list(set(names)))
+
+        rows = queryset.values_list("name", "promoted_property")
+        return response.Response({"promoted_properties": dict(rows)})
 
 
 def fetch_30day_event_queries(

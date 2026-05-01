@@ -37,6 +37,76 @@ export interface PauseResponseApi {
 }
 
 /**
+ * * `potential` - Potential
+ * `candidate` - Candidate
+ * `in_progress` - In Progress
+ * `pending_input` - Pending Input
+ * `ready` - Ready
+ * `failed` - Failed
+ * `deleted` - Deleted
+ * `suppressed` - Suppressed
+ */
+export type SignalReportStatusEnumApi = (typeof SignalReportStatusEnumApi)[keyof typeof SignalReportStatusEnumApi]
+
+export const SignalReportStatusEnumApi = {
+    Potential: 'potential',
+    Candidate: 'candidate',
+    InProgress: 'in_progress',
+    PendingInput: 'pending_input',
+    Ready: 'ready',
+    Failed: 'failed',
+    Deleted: 'deleted',
+    Suppressed: 'suppressed',
+} as const
+
+export interface SignalReportApi {
+    readonly id: string
+    /** @nullable */
+    readonly title: string | null
+    /** @nullable */
+    readonly summary: string | null
+    readonly status: SignalReportStatusEnumApi
+    readonly total_weight: number
+    readonly signal_count: number
+    readonly signals_at_run: number
+    readonly created_at: string
+    readonly updated_at: string
+    readonly artefact_count: number
+    /**
+     * P0–P4 from the latest priority judgment artefact (when present).
+     * @nullable
+     */
+    readonly priority: string | null
+    /**
+     * Actionability choice from the latest actionability judgment artefact (when present).
+     * @nullable
+     */
+    readonly actionability: string | null
+    /**
+     * Whether the issue appears already fixed, from the actionability judgment artefact.
+     * @nullable
+     */
+    readonly already_addressed: boolean | null
+    readonly is_suggested_reviewer: boolean
+    /** Distinct source products contributing signals to this report (from ClickHouse). */
+    readonly source_products: readonly string[]
+    /**
+     * PR URL from the latest implementation task run, if available.
+     * @nullable
+     */
+    readonly implementation_pr_url: string | null
+}
+
+export interface PaginatedSignalReportListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: SignalReportApi[]
+}
+
+/**
  * * `session_replay` - Session replay
  * `llm_analytics` - LLM analytics
  * `github` - GitHub
@@ -164,6 +234,37 @@ export type SignalsProcessingListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type SignalsReportsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Comma-separated ordering clauses. Each clause is a field name optionally prefixed with '-' for descending. Allowed fields: status, is_suggested_reviewer, signal_count, total_weight, priority, created_at, updated_at, id. Defaults to '-is_suggested_reviewer,status,-updated_at'.
+     */
+    ordering?: string
+    /**
+     * Case-insensitive substring match against report title and summary.
+     */
+    search?: string
+    /**
+     * Comma-separated list of source products to include. Reports are kept if at least one of their contributing signals comes from one of these products (e.g. error_tracking, session_replay).
+     */
+    source_product?: string
+    /**
+     * Comma-separated list of statuses to include. Valid values: potential, candidate, in_progress, pending_input, ready, failed, suppressed. Defaults to all statuses except suppressed.
+     */
+    status?: string
+    /**
+     * Comma-separated list of PostHog user UUIDs. Reports are kept if their suggested reviewers include any of the given users.
+     */
+    suggested_reviewers?: string
 }
 
 export type SignalsSourceConfigsListParams = {

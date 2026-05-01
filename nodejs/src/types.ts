@@ -20,7 +20,6 @@ import type { CommonConfig } from './common/config'
 import type { IngestionConsumerConfig } from './ingestion/config'
 import type { CookielessManager } from './ingestion/cookieless/cookieless-manager'
 import type { ErrorTrackingConsumerConfig } from './ingestion/error-tracking/config'
-import { KafkaProducerWrapper } from './kafka/producer'
 import type { LlmAnalyticsConfig } from './llm-analytics/config'
 import type { LogsIngestionConsumerConfig, TracesIngestionConsumerConfig } from './logs-ingestion/config'
 import type { SessionRecordingApiConfig, SessionRecordingConfig } from './session-recording/config'
@@ -133,7 +132,6 @@ export interface HubServices {
     redisPool: GenericPool<Redis>
     posthogRedisPool: GenericPool<Redis>
     cookielessRedisPool: GenericPool<Redis>
-    kafkaProducer: KafkaProducerWrapper
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
     groupRepository: GroupRepository

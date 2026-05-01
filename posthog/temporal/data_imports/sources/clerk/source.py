@@ -51,6 +51,7 @@ The secret key starts with `sk_live_`.
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="sk_live_...",
+                        secret=True,
                     ),
                 ],
             ),
@@ -75,6 +76,12 @@ The secret key starts with `sk_live_`.
             schemas = [s for s in schemas if s.name in names_set]
 
         return schemas
+
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {
+            "401 Client Error: Unauthorized for url: https://api.clerk.com": "Your Clerk secret key is invalid or has been revoked. Please update the secret key in your Clerk dashboard and reconnect.",
+            "403 Client Error: Forbidden for url: https://api.clerk.com": "Your Clerk secret key does not have permission to access this endpoint. Please check the key's permissions in your Clerk dashboard.",
+        }
 
     def validate_credentials(
         self, config: ClerkSourceConfig, team_id: int, schema_name: Optional[str] = None

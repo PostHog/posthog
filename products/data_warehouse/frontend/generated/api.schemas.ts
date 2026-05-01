@@ -547,6 +547,7 @@ export interface PatchedExternalDataSchemaApi {
  * `Convex` - Convex
  * `ClickHouse` - ClickHouse
  * `Plain` - Plain
+ * `Resend` - Resend
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -695,6 +696,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Convex: 'Convex',
     ClickHouse: 'ClickHouse',
     Plain: 'Plain',
+    Resend: 'Resend',
 } as const
 
 /**
@@ -928,7 +930,8 @@ export interface ExternalDataSourceCreateApi {
 * `BuildBetter` - BuildBetter
 * `Convex` - Convex
 * `ClickHouse` - ClickHouse
-* `Plain` - Plain */
+* `Plain` - Plain
+* `Resend` - Resend */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
     payload: ExternalDataSourceCreateApiPayload
@@ -1214,7 +1217,8 @@ export interface DatabaseSchemaRequestApi {
 * `BuildBetter` - BuildBetter
 * `Convex` - Convex
 * `ClickHouse` - ClickHouse
-* `Plain` - Plain */
+* `Plain` - Plain
+* `Resend` - Resend */
     source_type: ExternalDataSourceTypeEnumApi
 }
 
@@ -1499,6 +1503,11 @@ export interface DataWarehouseSavedQueryMinimalApi {
      * @nullable
      */
     readonly expires_at: string | null
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
 }
 
 export interface PaginatedDataWarehouseSavedQueryMinimalListApi {
@@ -1589,6 +1598,11 @@ export interface DataWarehouseSavedQueryApi {
      * @nullable
      */
     readonly expires_at: string | null
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
 }
 
 export type PatchedDataWarehouseSavedQueryApiColumnsItem = { [key: string]: unknown }
@@ -1670,8 +1684,16 @@ export interface PatchedDataWarehouseSavedQueryApi {
      * @nullable
      */
     readonly expires_at?: string | null
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level?: string | null
 }
 
+/**
+ * Mixin for serializers to add user access control fields
+ */
 export interface DataWarehouseSavedQueryFolderApi {
     readonly id: string
     /**
@@ -1682,8 +1704,16 @@ export interface DataWarehouseSavedQueryFolderApi {
     readonly created_at: string
     readonly created_by: UserBasicApi
     readonly view_count: number
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
 }
 
+/**
+ * Mixin for serializers to add user access control fields
+ */
 export interface PatchedDataWarehouseSavedQueryFolderApi {
     readonly id?: string
     /**
@@ -1694,6 +1724,11 @@ export interface PatchedDataWarehouseSavedQueryFolderApi {
     readonly created_at?: string
     readonly created_by?: UserBasicApi
     readonly view_count?: number
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level?: string | null
 }
 
 /**
@@ -1743,6 +1778,9 @@ export type TableApiExternalSchema = { [key: string]: unknown } | null | null
 
 export type TableApiOptions = { [key: string]: unknown }
 
+/**
+ * Mixin for serializers to add user access control fields
+ */
 export interface TableApi {
     readonly id: string
     /** @nullable */
@@ -1760,6 +1798,11 @@ export interface TableApi {
     /** @nullable */
     readonly external_schema: TableApiExternalSchema
     options?: TableApiOptions
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
 }
 
 export interface PaginatedTableListApi {

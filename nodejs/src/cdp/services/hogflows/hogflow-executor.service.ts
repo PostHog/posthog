@@ -46,7 +46,7 @@ const DUPLICATE_OBSERVATION_TTL_SECONDS = 15 * 60
 
 const hogflowDuplicateInvocationDetectedTotal = new Counter({
     name: 'hogflow_duplicate_invocation_detected_total',
-    help: 'Workflow invocations created for a (workflow, event) pair already seen within the observation window',
+    help: 'Fired once per action reached by a duplicate invocation of the same (workflow, event). Inflated by N actions per duplicate pair - treat as trend signal, not exact count.',
     labelNames: ['workflow_id'],
 })
 
@@ -153,7 +153,6 @@ export class HogFlowExecutorService {
 
             const invocation = createHogFlowInvocation(triggerGlobals, hogFlow, filterGlobals)
             invocations.push(invocation)
-            this.observeDuplicateInvocation(invocation)
         }
 
         return {
@@ -163,22 +162,29 @@ export class HogFlowExecutorService {
         }
     }
 
-    private observeDuplicateInvocation(invocation: CyclotronJobInvocationHogFlow): void {
-        const eventUuid = invocation.state.event?.uuid
+    private async observeDuplicateInvocation(
+        invocation: CyclotronJobInvocationHogFlow,
+        currentAction: HogFlowAction
+    ): Promise<void> {
+        const eventUuid = invocation.state?.event?.uuid
         if (!this.redis || !eventUuid) {
             return
         }
-        const key = `hogflow:observe:${invocation.functionId}:${eventUuid}`
-        void this.redis
-            .useClient({ name: 'hogflow-observe', failOpen: true }, async (client) => {
+        const key = `hogflow:observe:${invocation.functionId}:${eventUuid}:${currentAction.id}`
+        try {
+            await this.redis.useClient({ name: 'hogflow-observe', failOpen: true }, async (client) => {
                 const wasSet = await client.set(key, invocation.id, 'EX', DUPLICATE_OBSERVATION_TTL_SECONDS, 'NX')
-                if (!wasSet) {
+                if (wasSet) {
+                    return
+                }
+                const existingId = await client.get(key)
+                if (existingId && existingId !== invocation.id) {
                     hogflowDuplicateInvocationDetectedTotal.inc({ workflow_id: invocation.functionId })
                 }
             })
-            .catch((error: unknown) => {
-                logger.debug('🦔', '[HogFlowExecutor] Duplicate observer skipped', { error: String(error) })
-            })
+        } catch (error) {
+            logger.debug('🦔', '[HogFlowExecutor] Duplicate observer failed', { error: String(error) })
+        }
     }
 
     async execute(
@@ -370,6 +376,8 @@ export class HogFlowExecutorService {
 
                 return result
             }
+
+            await this.observeDuplicateInvocation(invocation, currentAction)
 
             result.logs.push({
                 level: 'debug',

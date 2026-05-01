@@ -173,12 +173,12 @@ class TestExperimentMeanMetricCuped(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_variant.sum, 30)
         self.assertEqual(control_variant.covariate_sum, 7)
         self.assertEqual(control_variant.covariate_sum_squares, 25)
-        self.assertEqual(control_variant.main_covariate_sum_product, 110)
+        self.assertEqual(control_variant.covariate_sum_product, 110)
 
         self.assertEqual(test_variant.sum, 70)
         self.assertEqual(test_variant.covariate_sum, 11)
         self.assertEqual(test_variant.covariate_sum_squares, 61)
-        self.assertEqual(test_variant.main_covariate_sum_product, 390)
+        self.assertEqual(test_variant.covariate_sum_product, 390)
 
     @freeze_time("2020-01-15T12:00:00Z")
     def test_cuped_uses_pre_exposure_window_relative_to_first_exposure(self):
@@ -215,11 +215,11 @@ class TestExperimentMeanMetricCuped(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_variant.sum, 7)
         self.assertEqual(control_variant.covariate_sum, 5)
         self.assertEqual(control_variant.covariate_sum_squares, 25)
-        self.assertEqual(control_variant.main_covariate_sum_product, 35)
+        self.assertEqual(control_variant.covariate_sum_product, 35)
 
         self.assertEqual(test_variant.sum, 8)
         self.assertEqual(test_variant.covariate_sum, 6)
-        self.assertEqual(test_variant.main_covariate_sum_product, 48)
+        self.assertEqual(test_variant.covariate_sum_product, 48)
 
     @freeze_time("2020-01-15T12:00:00Z")
     def test_cuped_respects_conversion_window_for_post_values(self):
@@ -256,10 +256,10 @@ class TestExperimentMeanMetricCuped(ExperimentQueryRunnerBaseTest):
         assert result.variant_results is not None
         self.assertEqual(result.baseline.sum, 10)
         self.assertEqual(result.baseline.covariate_sum, 4)
-        self.assertEqual(result.baseline.main_covariate_sum_product, 40)
+        self.assertEqual(result.baseline.covariate_sum_product, 40)
         self.assertEqual(result.variant_results[0].sum, 20)
         self.assertEqual(result.variant_results[0].covariate_sum, 5)
-        self.assertEqual(result.variant_results[0].main_covariate_sum_product, 100)
+        self.assertEqual(result.variant_results[0].covariate_sum_product, 100)
 
     @parameterized.expand(
         [
@@ -448,10 +448,10 @@ class TestExperimentMeanMetricCuped(ExperimentQueryRunnerBaseTest):
         variant = cast(ExperimentVariantResultFrequentist, result.variant_results[0])
         self.assertEqual(result.baseline.covariate_sum, 0)
         self.assertEqual(result.baseline.covariate_sum_squares, 0)
-        self.assertEqual(result.baseline.main_covariate_sum_product, 0)
+        self.assertEqual(result.baseline.covariate_sum_product, 0)
         self.assertEqual(variant.covariate_sum, 0)
         self.assertEqual(variant.covariate_sum_squares, 0)
-        self.assertEqual(variant.main_covariate_sum_product, 0)
+        self.assertEqual(variant.covariate_sum_product, 0)
         assert variant.p_value is not None
 
     @freeze_time("2020-01-15T12:00:00Z")
@@ -505,9 +505,9 @@ class TestExperimentMeanMetricCuped(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_variant.sum, 2)
         self.assertEqual(control_variant.covariate_sum, 2)
         self.assertEqual(control_variant.covariate_sum_squares, 4)
-        self.assertEqual(control_variant.main_covariate_sum_product, 2)
+        self.assertEqual(control_variant.covariate_sum_product, 2)
 
         self.assertEqual(test_variant.sum, 3)
         self.assertEqual(test_variant.covariate_sum, 3)
         self.assertEqual(test_variant.covariate_sum_squares, 5)
-        self.assertEqual(test_variant.main_covariate_sum_product, 4)
+        self.assertEqual(test_variant.covariate_sum_product, 4)

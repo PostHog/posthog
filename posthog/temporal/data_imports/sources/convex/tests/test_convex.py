@@ -66,14 +66,14 @@ class TestValidateDeployUrl:
             with pytest.raises(InvalidDeployUrlError):
                 validate_deploy_url(url)
 
-    @patch("posthog.temporal.data_imports.sources.convex.convex.requests.get")
+    @patch("posthog.temporal.data_imports.sources.convex.convex.make_tracked_session")
     def test_validate_credentials_rejects_bad_url_without_network_call(self, mock_get):
         ok, err = validate_credentials("http://169.254.169.254", "deploy-key")
         assert not ok
         assert err is not None
         mock_get.assert_not_called()
 
-    @patch("posthog.temporal.data_imports.sources.convex.convex.requests.get")
+    @patch("posthog.temporal.data_imports.sources.convex.convex.make_tracked_session")
     def test_validate_credentials_accepts_valid_url(self, mock_get):
         mock_response = Mock(status_code=200)
         mock_response.json.return_value = {}
@@ -83,15 +83,15 @@ class TestValidateDeployUrl:
         ok, err = validate_credentials("https://swift-lemur-123.convex.cloud", "prod:abc123")
         assert ok
         assert err is None
-        called_url = mock_get.call_args.args[0]
+        called_url = mock_get.return_value.get.call_args.args[0]
         assert called_url.startswith("https://swift-lemur-123.convex.cloud/api/")
 
 
 class TestListSnapshotResumable:
-    @patch("posthog.temporal.data_imports.sources.convex.convex.requests.get")
+    @patch("posthog.temporal.data_imports.sources.convex.convex.make_tracked_session")
     def test_fresh_run_saves_state_after_each_page(self, mock_get: Mock) -> None:
         manager = _make_manager(can_resume=False)
-        mock_get.side_effect = [
+        mock_get.return_value.get.side_effect = [
             _make_response({"values": [{"_id": "a"}], "cursor": 100, "snapshot": 500, "hasMore": True}),
             _make_response({"values": [{"_id": "b"}], "cursor": 200, "snapshot": 500, "hasMore": True}),
             _make_response({"values": [{"_id": "c"}], "cursor": 300, "snapshot": 500, "hasMore": False}),
@@ -112,18 +112,18 @@ class TestListSnapshotResumable:
         ]
 
         # First request has no cursor/snapshot params; subsequent requests use the saved values.
-        first_params = mock_get.call_args_list[0].kwargs["params"]
+        first_params = mock_get.return_value.get.call_args_list[0].kwargs["params"]
         assert "cursor" not in first_params
         assert "snapshot" not in first_params
-        second_params = mock_get.call_args_list[1].kwargs["params"]
+        second_params = mock_get.return_value.get.call_args_list[1].kwargs["params"]
         assert second_params["cursor"] == 100
         assert second_params["snapshot"] == 500
 
-    @patch("posthog.temporal.data_imports.sources.convex.convex.requests.get")
+    @patch("posthog.temporal.data_imports.sources.convex.convex.make_tracked_session")
     def test_resume_seeds_paginator_from_saved_state(self, mock_get: Mock) -> None:
         saved = ConvexResumeConfig(cursor=200, snapshot=500)
         manager = _make_manager(can_resume=True, state=saved)
-        mock_get.return_value = _make_response(
+        mock_get.return_value.get.return_value = _make_response(
             {"values": [{"_id": "b"}], "cursor": 300, "snapshot": 500, "hasMore": False}
         )
 
@@ -132,16 +132,16 @@ class TestListSnapshotResumable:
         assert batches == [[{"_id": "b"}]]
         manager.load_state.assert_called_once()
         # Paginator must start from saved cursor/snapshot, not from scratch.
-        first_params = mock_get.call_args_list[0].kwargs["params"]
+        first_params = mock_get.return_value.get.call_args_list[0].kwargs["params"]
         assert first_params["cursor"] == 200
         assert first_params["snapshot"] == 500
         # Final page terminates the loop before any save_state.
         manager.save_state.assert_not_called()
 
-    @patch("posthog.temporal.data_imports.sources.convex.convex.requests.get")
+    @patch("posthog.temporal.data_imports.sources.convex.convex.make_tracked_session")
     def test_empty_final_page_does_not_save_state(self, mock_get: Mock) -> None:
         manager = _make_manager(can_resume=False)
-        mock_get.return_value = _make_response({"values": [], "snapshot": 0, "hasMore": False})
+        mock_get.return_value.get.return_value = _make_response({"values": [], "snapshot": 0, "hasMore": False})
 
         batches = list(list_snapshot("https://x.convex.cloud", "key", "t", manager))
 
@@ -150,10 +150,10 @@ class TestListSnapshotResumable:
 
 
 class TestDocumentDeltasResumable:
-    @patch("posthog.temporal.data_imports.sources.convex.convex.requests.get")
+    @patch("posthog.temporal.data_imports.sources.convex.convex.make_tracked_session")
     def test_fresh_run_saves_state_after_each_page(self, mock_get: Mock) -> None:
         manager = _make_manager(can_resume=False)
-        mock_get.side_effect = [
+        mock_get.return_value.get.side_effect = [
             _make_response({"values": [{"_id": "a"}], "cursor": 20, "hasMore": True}),
             _make_response({"values": [{"_id": "b"}], "cursor": 30, "hasMore": False}),
         ]
@@ -167,20 +167,22 @@ class TestDocumentDeltasResumable:
         assert saved == [ConvexResumeConfig(cursor=20)]
 
         # First request starts from the provided db cursor.
-        first_params = mock_get.call_args_list[0].kwargs["params"]
+        first_params = mock_get.return_value.get.call_args_list[0].kwargs["params"]
         assert first_params["cursor"] == 10
 
-    @patch("posthog.temporal.data_imports.sources.convex.convex.requests.get")
+    @patch("posthog.temporal.data_imports.sources.convex.convex.make_tracked_session")
     def test_resume_overrides_db_cursor(self, mock_get: Mock) -> None:
         saved = ConvexResumeConfig(cursor=25)
         manager = _make_manager(can_resume=True, state=saved)
-        mock_get.return_value = _make_response({"values": [{"_id": "b"}], "cursor": 30, "hasMore": False})
+        mock_get.return_value.get.return_value = _make_response(
+            {"values": [{"_id": "b"}], "cursor": 30, "hasMore": False}
+        )
 
         batches = list(document_deltas("https://x.convex.cloud", "key", "t", 10, manager))
 
         assert batches == [[{"_id": "b"}]]
         # Resume state wins over the db_incremental_field_last_value seed.
-        first_params = mock_get.call_args_list[0].kwargs["params"]
+        first_params = mock_get.return_value.get.call_args_list[0].kwargs["params"]
         assert first_params["cursor"] == 25
         manager.save_state.assert_not_called()
 
@@ -208,7 +210,7 @@ class TestConvexSource:
             ),
         ]
     )
-    @patch("posthog.temporal.data_imports.sources.convex.convex.requests.get")
+    @patch("posthog.temporal.data_imports.sources.convex.convex.make_tracked_session")
     def test_threads_manager(
         self,
         _name: str,
@@ -221,7 +223,7 @@ class TestConvexSource:
         mock_get: Mock,
     ) -> None:
         manager = _make_manager(can_resume=False)
-        mock_get.return_value = _make_response(response_json)
+        mock_get.return_value.get.return_value = _make_response(response_json)
 
         response = convex_source(
             deploy_url="https://x.convex.cloud",
@@ -238,8 +240,8 @@ class TestConvexSource:
         assert batches == expected_batches
         assert response.primary_keys == ["_id"]
         manager.can_resume.assert_called_once()
-        called_url = mock_get.call_args_list[0].args[0]
+        called_url = mock_get.return_value.get.call_args_list[0].args[0]
         assert expected_url_fragment in called_url
-        first_params = mock_get.call_args_list[0].kwargs["params"]
+        first_params = mock_get.return_value.get.call_args_list[0].kwargs["params"]
         for key, value in expected_first_params.items():
             assert first_params[key] == value

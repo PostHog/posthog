@@ -15,6 +15,7 @@ from .review_queues import ReviewQueueItemViewSet, ReviewQueueViewSet
 from .score_definitions import ScoreDefinitionViewSet
 from .sentiment import LLMAnalyticsSentimentViewSet
 from .summarization import LLMAnalyticsSummarizationViewSet
+from .taggers import TaggerViewSet
 from .text_repr import LLMAnalyticsTextReprViewSet
 from .trace_reviews import TraceReviewViewSet
 from .translate import LLMAnalyticsTranslateViewSet
@@ -43,5 +44,6 @@ __all__ = [
     "ScoreDefinitionViewSet",
     "LLMAnalyticsSentimentViewSet",
     "LLMAnalyticsOfflineEvaluationsViewSet",
+    "TaggerViewSet",
     "TraceReviewViewSet",
 ]

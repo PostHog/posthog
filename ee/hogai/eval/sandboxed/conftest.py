@@ -34,6 +34,46 @@ MCP_PORT = 18787  # Non-default port to avoid conflicts with dev MCP
 DJANGO_LIVE_PORT = 18000  # Non-default port for in-process Django server
 LLM_GATEWAY_PORT = 13308  # Non-default port to avoid conflicts with dev LLM gateway
 
+# Sandboxed evals issue HogQL validation that touches the `persons_db_*`
+# replicas (the validator opens connections even when the query itself
+# doesn't read persons). pytest-django defaults a test's allowed
+# databases to ``{"default"}`` only, so without this whitelist
+# `execute-sql` raises an internal error. Applied via
+# ``pytest_collection_modifyitems`` below so individual evals don't have
+# to repeat it on every ``@pytest.mark.django_db`` marker.
+SANDBOXED_EVAL_DATABASES = ("default", "persons_db_writer", "persons_db_reader")
+
+
+def pytest_collection_modifyitems(config, items):  # noqa: ARG001
+    """Auto-extend ``@pytest.mark.django_db`` for every sandboxed eval.
+
+    Tests under this directory transparently get access to the persons
+    replicas. If a test ever needs a narrower whitelist it can set
+    ``databases=...`` on its own marker — explicit kwargs win.
+
+    Prepended via ``append=False`` so it beats the function-level
+    ``@pytest.mark.django_db`` in pytest's ``iter_markers``/``get_closest_marker``
+    resolution; otherwise the original (no-kwargs) marker is read first
+    and pytest-django defaults ``databases`` back to ``{"default"}``.
+
+    This piggybacks on the same ``pytest_collection_modifyitems`` hook
+    that ``mcp_mode`` parametrization uses.
+    """
+    base_dir = Path(__file__).parent
+    for item in items:
+        try:
+            test_path = Path(str(item.fspath))
+            test_path.relative_to(base_dir)
+        except (TypeError, ValueError):
+            continue
+        existing = item.get_closest_marker("django_db")
+        if existing is not None and "databases" in existing.kwargs:
+            continue  # respect explicit per-test override
+        args = existing.args if existing is not None else ()
+        kwargs = {**(existing.kwargs if existing is not None else {}), "databases": list(SANDBOXED_EVAL_DATABASES)}
+        item.add_marker(pytest.mark.django_db(*args, **kwargs), append=False)
+
+
 # Sandbox container name prefix used by the eval harness (set in SandboxConfig.name)
 _EVAL_CONTAINER_PREFIX = "task-sandbox-"
 
@@ -162,6 +202,52 @@ def _sandbox_settings(_django_live_server, _llm_gateway):
         patch.object(posthoganalytics, "feature_enabled", return_value=True),
     ):
         yield
+
+
+# MCP mode selection — see `--mcp-mode` option in ee/hogai/eval/conftest.py.
+# The PostHog MCP server can register tools individually ("tools" mode) or
+# wrap them all behind a single `exec` tool ("cli" mode). Each sandboxed
+# eval is parametrized across both modes by default so we can compare
+# agent behavior across the two surfaces in a single run.
+
+
+def pytest_generate_tests(metafunc):
+    """Parametrize sandboxed tests across the requested MCP execution modes.
+
+    Triggered for any test whose dependency graph touches ``mcp_mode`` —
+    which covers every test under ``ee/hogai/eval/sandboxed/`` because the
+    autouse ``_apply_mcp_mode`` fixture depends on it.
+    """
+    if "mcp_mode" not in metafunc.fixturenames:
+        return
+    option = metafunc.config.getoption("--mcp-mode")
+    if option == "both":
+        modes = ["tools", "cli"]
+    else:
+        modes = [option]
+    metafunc.parametrize("mcp_mode", modes)
+
+
+@pytest.fixture(autouse=True)
+def _apply_mcp_mode(mcp_mode, _sandbox_settings):
+    """Per-test override that pins the MCP execution mode.
+
+    Appends ``?mode=<mcp_mode>`` to ``SANDBOX_MCP_URL`` so the MCP server
+    registers either every tool individually (``tools``) or wraps them all
+    in a single ``posthog`` exec tool (``cli``). The explicit query
+    parameter wins over the feature-flag + client-profile heuristic in
+    ``services/mcp/src/mcp.ts``, and the MCP service runs in a Cloudflare
+    Worker outside this Python process — so a Python-side
+    ``posthoganalytics.feature_enabled`` patch wouldn't reach it anyway.
+    """
+    from django.test import override_settings
+
+    base = settings.SANDBOX_MCP_URL or ""
+    sep = "&" if "?" in base else "?"
+    moded_url = f"{base}{sep}mode={mcp_mode}"
+
+    with override_settings(SANDBOX_MCP_URL=moded_url):
+        yield mcp_mode
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -430,9 +516,10 @@ class SandboxedDemoData:
     access, so concurrent eval cases can't pollute each other's state.
     """
 
-    def __init__(self, master_team_id: int, django_db_blocker):
+    def __init__(self, master_team_id: int, django_db_blocker, agent_model: str | None = None):
         self.master_team_id = master_team_id
         self._django_db_blocker = django_db_blocker
+        self.agent_model = agent_model
 
     def make_context(self, case_label: str) -> CustomPromptSandboxContext:
         from products.tasks.backend.models import CodeInvite, CodeInviteRedemption
@@ -447,6 +534,7 @@ class SandboxedDemoData:
             team_id=team.id,
             user_id=user.id,
             repository="posthog/hedgebox",
+            model=self.agent_model,
         )
 
 
@@ -454,6 +542,7 @@ class SandboxedDemoData:
 def sandboxed_demo_data(
     set_up_evals,  # noqa: F811
     django_db_blocker,
+    pytestconfig,
 ) -> SandboxedDemoData:
     """Seed the master Hedgebox team (once) and expose a per-case context factory."""
     from posthog.clickhouse.client import sync_execute
@@ -466,7 +555,13 @@ def sandboxed_demo_data(
         )
     logger.info("Master demo ready: team_id=%d event_counts=%s", master_team_id, rows)
 
-    return SandboxedDemoData(master_team_id=master_team_id, django_db_blocker=django_db_blocker)
+    agent_model = pytestconfig.getoption("--agent-model")
+    logger.info("Sandboxed eval agent model pinned to %r", agent_model)
+    return SandboxedDemoData(
+        master_team_id=master_team_id,
+        django_db_blocker=django_db_blocker,
+        agent_model=agent_model,
+    )
 
 
 @pytest.fixture(scope="session")

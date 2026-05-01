@@ -70,6 +70,7 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
                                     type=SourceFieldInputConfigType.TEXTAREA,
                                     required=False,
                                     placeholder=", ".join(default_props),
+                                    secret=False,
                                 )
                                 for schema_name, default_props in DEFAULT_PROPS.items()
                             ],

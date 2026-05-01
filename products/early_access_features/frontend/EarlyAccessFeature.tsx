@@ -144,6 +144,7 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
         showGAPromotionConfirmation,
         saveEarlyAccessFeature,
         setEarlyAccessFeatureValue,
+        submitEarlyAccessFeature,
     } = useActions(earlyAccessFeatureLogic)
     const { currentTeamId } = useValues(teamLogic)
     const { canCopyToProject } = useValues(interProjectCopyLogic)
@@ -194,7 +195,7 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
             : null
 
     return (
-        <Form id="early-access-feature" formKey="earlyAccessFeature" logic={earlyAccessFeatureLogic} enableFormOnSubmit>
+        <Form id="early-access-feature" formKey="earlyAccessFeature" logic={earlyAccessFeatureLogic}>
             <SceneContent>
                 <SceneTitleSection
                     name={earlyAccessFeature.name}
@@ -233,7 +234,7 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                                         </LemonButton>
                                         <LemonButton
                                             type="primary"
-                                            htmlType="submit"
+                                            onClick={submitEarlyAccessFeature}
                                             data-attr="save-feature"
                                             loading={isEarlyAccessFeatureSubmitting}
                                             size="small"

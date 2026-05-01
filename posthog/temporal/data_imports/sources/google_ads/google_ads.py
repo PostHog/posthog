@@ -11,6 +11,7 @@ from google.ads.googleads.v23.common import types as ga_common
 from google.ads.googleads.v23.enums import types as ga_enums
 from google.ads.googleads.v23.resources import types as ga_resources
 from google.ads.googleads.v23.services import types as ga_services
+from google.ads.googleads.v23.services.services.google_ads_service import GoogleAdsServiceClient
 from google.oauth2 import service_account
 from google.protobuf.json_format import MessageToJson
 
@@ -419,7 +420,7 @@ def google_ads_source(
             query += f" {'AND' if 'WHERE' in query else 'WHERE'} {table.extra_where}"
 
         client = google_ads_client(config, team_id)
-        service = client.get_service("GoogleAdsService", version="v23")
+        service: GoogleAdsServiceClient = client.get_service("GoogleAdsService", version="v23")
         customer_id = clean_customer_id(config.customer_id)
 
         yield from _search_as_arrow_tables(
@@ -443,7 +444,7 @@ def google_ads_source(
 
 
 def _search_as_arrow_tables(
-    service: typing.Any,
+    service: GoogleAdsServiceClient,
     customer_id: str | None,
     query: str,
     table: GoogleAdsTable,
@@ -465,10 +466,15 @@ def _search_as_arrow_tables(
             page_token = resume.page_token
 
     while True:
+        # `GoogleAdsServiceClient.search` only accepts `customer_id` and `query`
+        # as convenience kwargs — `page_token` must be passed via the `request`
+        # argument (a dict is coerced to ``SearchGoogleAdsRequest`` by gapic).
         response = service.search(
-            customer_id=customer_id,
-            query=query,
-            page_token=page_token,
+            request={
+                "customer_id": customer_id,
+                "query": query,
+                "page_token": page_token,
+            }
         )
 
         # ``response.pages`` is a gapic pager — we only consume the first page per

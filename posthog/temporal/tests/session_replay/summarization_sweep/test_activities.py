@@ -290,3 +290,151 @@ async def test_list_enabled_teams_filters_ai_consent(activity_environment, organ
     result = await activity_environment.run(list_enabled_teams_activity)
     assert t_consented.id in result
     assert t_revoked.id not in result
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_find_sessions_skips_recordings_with_too_many_failures(activity_environment, organization, team):
+    from posthog.models.user import User
+
+    await sync_to_async(enable_signal_source)(team)
+    user = await sync_to_async(User.objects.create_and_join)(organization, "skip@posthog.com", "pw", "Skip")
+    try:
+        candidate_ids = ["good-1", "stuck-2", "good-3"]
+        with (
+            patch(
+                "posthog.temporal.session_replay.summarization_sweep.activities.fetch_recent_session_ids",
+                return_value=candidate_ids,
+            ),
+            patch(
+                "ee.models.session_summaries.SingleSessionSummary.objects.summaries_exist",
+                return_value={},
+            ),
+            patch(
+                "posthog.temporal.session_replay.summarization_sweep.activities._stuck_session_ids",
+                return_value={"stuck-2"},
+            ),
+        ):
+            result = await activity_environment.run(
+                find_sessions_for_team_activity,
+                FindSessionsInput(team_id=team.id, lookback_minutes=30, max_sessions=5),
+            )
+        assert sorted(result.session_ids) == ["good-1", "good-3"]
+    finally:
+        await sync_to_async(user.delete)()
+
+
+@pytest.mark.asyncio
+async def test_stuck_session_ids_returns_empty_for_empty_input():
+    from posthog.temporal.session_replay.summarization_sweep.activities import _stuck_session_ids
+
+    result = await _stuck_session_ids([])
+    assert result == set()
+
+
+@pytest.mark.asyncio
+async def test_stuck_session_ids_thresholds_failures():
+    from unittest.mock import AsyncMock, MagicMock
+
+    from posthog.temporal.session_replay.summarization_sweep.activities import _stuck_session_ids
+    from posthog.temporal.session_replay.summarization_sweep.constants import STUCK_RASTERIZE_THRESHOLD
+
+    def _make_wf(session_id: str):
+        attr_key = MagicMock()
+        attr_key.name = "PostHogSessionRecordingId"
+        pair = MagicMock()
+        pair.key = attr_key
+        pair.value = session_id
+        wf = MagicMock()
+        wf.typed_search_attributes = [pair]
+        return wf
+
+    class _AsyncIter:
+        def __init__(self, items):
+            self._items = items
+
+        def __aiter__(self):
+            self._iter = iter(self._items)
+            return self
+
+        async def __anext__(self):
+            try:
+                return next(self._iter)
+            except StopIteration:
+                raise StopAsyncIteration
+
+    # Three failures for "stuck", one for "transient", none for "fresh"
+    workflows = [_make_wf("stuck")] * STUCK_RASTERIZE_THRESHOLD + [_make_wf("transient")]
+    client = MagicMock()
+    client.list_workflows = MagicMock(return_value=_AsyncIter(workflows))
+    with patch(
+        "posthog.temporal.session_replay.summarization_sweep.activities.async_connect",
+        AsyncMock(return_value=client),
+    ):
+        result = await _stuck_session_ids(["stuck", "transient", "fresh"])
+    assert result == {"stuck"}
+
+
+@pytest.mark.asyncio
+async def test_stuck_session_ids_swallows_temporal_errors():
+    from unittest.mock import AsyncMock
+
+    from posthog.temporal.session_replay.summarization_sweep.activities import _stuck_session_ids
+
+    with patch(
+        "posthog.temporal.session_replay.summarization_sweep.activities.async_connect",
+        AsyncMock(side_effect=RuntimeError("temporal unavailable")),
+    ):
+        result = await _stuck_session_ids(["a", "b"])
+    # Degrade gracefully — better to dispatch and risk a retry than block summarization.
+    assert result == set()
+
+
+@pytest.mark.asyncio
+async def test_stuck_session_ids_rejects_unsafe_session_ids():
+    from unittest.mock import AsyncMock, MagicMock
+
+    from posthog.temporal.session_replay.summarization_sweep.activities import _stuck_session_ids
+
+    client = MagicMock()
+    captured_query: list[str] = []
+
+    class _AsyncIter:
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            raise StopAsyncIteration
+
+    def _list_workflows(query: str):
+        captured_query.append(query)
+        return _AsyncIter()
+
+    client.list_workflows = _list_workflows
+    unsafe_ids = ['evil") OR (true', "back\\slash", "with space", "with;semi"]
+    safe_id = "019dbfc3-27b0-74fb-8ee3-5b500a7b9074"
+    with patch(
+        "posthog.temporal.session_replay.summarization_sweep.activities.async_connect",
+        AsyncMock(return_value=client),
+    ):
+        await _stuck_session_ids([*unsafe_ids, safe_id])
+    assert len(captured_query) == 1
+    for bad in unsafe_ids:
+        assert bad not in captured_query[0]
+    assert safe_id in captured_query[0]
+
+
+@pytest.mark.asyncio
+async def test_stuck_session_ids_skips_query_when_all_unsafe():
+    from unittest.mock import AsyncMock, MagicMock
+
+    from posthog.temporal.session_replay.summarization_sweep.activities import _stuck_session_ids
+
+    client = MagicMock()
+    client.list_workflows = MagicMock(side_effect=AssertionError("must not query Temporal"))
+    with patch(
+        "posthog.temporal.session_replay.summarization_sweep.activities.async_connect",
+        AsyncMock(return_value=client),
+    ):
+        result = await _stuck_session_ids(['"', "x y"])
+    assert result == set()

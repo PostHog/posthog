@@ -1,6 +1,7 @@
 """Temporal activities for logs alerting."""
 
 import time
+import asyncio
 import dataclasses
 from datetime import UTC, datetime, timedelta
 
@@ -35,16 +36,21 @@ from products.logs.backend.alert_state_machine import (
 from products.logs.backend.alert_utils import advance_next_check_at
 from products.logs.backend.logs_url_params import build_logs_url_params
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
+from products.logs.backend.temporal.constants import MAX_CONCURRENT_ALERT_EVALS
 from products.logs.backend.temporal.metrics import (
     increment_check_errors,
     increment_checkpoint_unavailable,
     increment_checks_total,
     increment_notification_failures,
     increment_state_transition,
+    record_alert_save_duration,
     record_alerts_active,
     record_check_duration,
     record_checkpoint_lag,
+    record_clickhouse_duration,
+    record_pending_alerts,
     record_scheduler_lag,
+    record_semaphore_wait,
 )
 
 logger = structlog.get_logger(__name__)
@@ -93,23 +99,80 @@ class CheckAlertsOutput:
 
 @temporalio.activity.defn
 async def check_alerts_activity(input: CheckAlertsInput) -> CheckAlertsOutput:
-    """Find all due alerts and evaluate them sequentially."""
-    return await database_sync_to_async_pool(_check_alerts_sync)()
+    """Find all due alerts and evaluate them with bounded concurrency."""
+    now, all_alerts, checkpoint = await database_sync_to_async_pool(_load_alerts_and_checkpoint)()
+
+    semaphore = asyncio.Semaphore(MAX_CONCURRENT_ALERT_EVALS)
+    eval_async = database_sync_to_async_pool(_evaluate_single_alert)
+
+    async def _bounded_eval(alert: LogsAlertConfiguration) -> dict[str, int]:
+        wait_start = time.perf_counter()
+        local_stats = {"checked": 0, "fired": 0, "resolved": 0, "errored": 0}
+        async with semaphore:
+            wait_ms = int((time.perf_counter() - wait_start) * 1000)
+            try:
+                await eval_async(alert, now, local_stats, checkpoint=checkpoint)
+            except Exception:
+                logger.exception(
+                    "Unexpected error evaluating alert",
+                    alert_id=str(alert.id),
+                    alert_name=alert.name,
+                    team_id=alert.team_id,
+                )
+                local_stats["errored"] += 1
+        try:
+            record_semaphore_wait(wait_ms)
+        except Exception:
+            logger.exception("Failed to record semaphore_wait histogram")
+        return local_stats
+
+    tasks: list[asyncio.Task[dict[str, int]]] = []
+    async with asyncio.TaskGroup() as tg:
+        for alert in all_alerts:
+            tasks.append(tg.create_task(_bounded_eval(alert)))
+
+    aggregated = {"checked": 0, "fired": 0, "resolved": 0, "errored": 0}
+    for task in tasks:
+        for k, v in task.result().items():
+            aggregated[k] += v
+
+    if aggregated["checked"] > 0:
+        logger.info("Alert check cycle complete", **aggregated)
+
+    try:
+        pending = await database_sync_to_async_pool(_count_pending_alerts)()
+        record_pending_alerts(pending)
+    except Exception:
+        logger.exception("Failed to record pending_alerts gauge")
+
+    return CheckAlertsOutput(
+        alerts_checked=aggregated["checked"],
+        alerts_fired=aggregated["fired"],
+        alerts_resolved=aggregated["resolved"],
+        alerts_errored=aggregated["errored"],
+    )
 
 
-def _check_alerts_sync() -> CheckAlertsOutput:
-    """Synchronous alert checking — runs in a thread."""
-    now = datetime.now(UTC)
-
-    all_alerts = list(
+def _due_alerts_qs(now: datetime):
+    return (
         LogsAlertConfiguration.objects.filter(
             Q(enabled=True),
             Q(next_check_at__lte=now) | Q(next_check_at__isnull=True),
         )
-        .select_related("team")
         .exclude(state=LogsAlertConfiguration.State.SNOOZED, snooze_until__gt=now)
         .exclude(state=LogsAlertConfiguration.State.BROKEN)
     )
+
+
+def _count_pending_alerts() -> int:
+    return _due_alerts_qs(datetime.now(UTC)).count()
+
+
+def _load_alerts_and_checkpoint() -> tuple[datetime, list[LogsAlertConfiguration], datetime | None]:
+    """Sync setup: pin `now`, load due alerts, fetch ingestion checkpoint, emit cycle metrics."""
+    now = datetime.now(UTC)
+
+    all_alerts = list(_due_alerts_qs(now).select_related("team"))
 
     try:
         record_alerts_active(len(all_alerts))
@@ -131,10 +194,15 @@ def _check_alerts_sync() -> CheckAlertsOutput:
     except Exception:
         logger.exception("Failed to record checkpoint metric")
 
-    stats = {"checked": 0, "fired": 0, "resolved": 0, "errored": 0}
+    return now, all_alerts, checkpoint
 
-    # Sequential for now. TODO, stagger
-    # or cap concurrency to avoid bursting all ClickHouse queries at :00 each minute.
+
+def _check_alerts_sync() -> CheckAlertsOutput:
+    """Synchronous variant kept for unit tests. Production runs through
+    `check_alerts_activity` (async + bounded concurrency)."""
+    now, all_alerts, checkpoint = _load_alerts_and_checkpoint()
+
+    stats = {"checked": 0, "fired": 0, "resolved": 0, "errored": 0}
     for alert in all_alerts:
         try:
             _evaluate_single_alert(alert, now, stats, checkpoint=checkpoint)
@@ -148,10 +216,7 @@ def _check_alerts_sync() -> CheckAlertsOutput:
             stats["errored"] += 1
 
     if stats["checked"] > 0:
-        logger.info(
-            "Alert check cycle complete",
-            **stats,
-        )
+        logger.info("Alert check cycle complete", **stats)
 
     return CheckAlertsOutput(
         alerts_checked=stats["checked"],
@@ -296,6 +361,7 @@ def _evaluate_single_alert(
     state_before = alert.state
     state_changed = state_before != committed_state.value
     is_error = outcome.error_message is not None
+    save_start = time.perf_counter()
     with transaction.atomic():
         # Stateless eval: write a CHECK row only on state transition or eval error.
         # Steady-state same-state evals don't write — the N-of-M evaluator gets its
@@ -327,6 +393,7 @@ def _evaluate_single_alert(
             update_fields.append("last_notified_at")
 
         alert.save(update_fields=update_fields)
+    save_ms = int((time.perf_counter() - save_start) * 1000)
 
     stats["checked"] += 1
 
@@ -337,6 +404,9 @@ def _evaluate_single_alert(
     try:
         elapsed_ms = int((time.perf_counter() - start_time) * 1000)
         record_check_duration(elapsed_ms)
+        record_alert_save_duration(save_ms)
+        if check_result.query_duration_ms is not None:
+            record_clickhouse_duration(check_result.query_duration_ms)
         if original_next_check_at is not None:
             lag_ms = int((now - original_next_check_at).total_seconds() * 1000)
             if lag_ms > 0:

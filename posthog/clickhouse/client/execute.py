@@ -302,6 +302,11 @@ def sync_execute(
     # update tags if inside temporal (should not)
     update_query_tags_with_temporal_info()
 
+    from posthog.event_usage import EventSource
+
+    if tags.product is None and tags.source == EventSource.MCP:
+        tags.product = Product.MCP
+
     if tags.product == Product.MAX_AI or tags.service_name == "temporal-worker-max-ai":
         ch_user = ClickHouseUser.MAX_AI
     elif tags.product == Product.ENDPOINTS:

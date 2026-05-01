@@ -74,10 +74,25 @@ class SentimentRequestSerializer(serializers.Serializer):
         choices=ANALYSIS_LEVEL_CHOICES,
         default="trace",
         required=False,
+        help_text="Whether the IDs are 'trace' IDs or 'generation' IDs.",
     )
-    force_refresh = serializers.BooleanField(default=False, required=False)
-    date_from = serializers.CharField(required=False, default=None, allow_null=True)
-    date_to = serializers.CharField(required=False, default=None, allow_null=True)
+    force_refresh = serializers.BooleanField(
+        default=False,
+        required=False,
+        help_text="If true, bypass cache and reclassify.",
+    )
+    date_from = serializers.CharField(
+        required=False,
+        default=None,
+        allow_null=True,
+        help_text="Start of date range for the lookup (e.g. '-7d' or '2026-01-01'). Defaults to -30d.",
+    )
+    date_to = serializers.CharField(
+        required=False,
+        default=None,
+        allow_null=True,
+        help_text="End of date range for the lookup. Defaults to now.",
+    )
 
 
 class MessageSentimentSerializer(serializers.Serializer):

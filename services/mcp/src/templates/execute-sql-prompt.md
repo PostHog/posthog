@@ -14,9 +14,9 @@ Reach for `execute-sql` only when a wrapper cannot express the question:
 
 If a wrapper fits, use the wrapper.
 
-### Always consult the `query-examples` skill
+### Always consult the `querying-posthog-data` skill
 
-Before writing any SQL, read the PostHog `query-examples` skill. It is the source of truth for up-to-date HogQL patterns, system table schemas (`system.insights`, `system.dashboards`, `system.cohorts`, etc.), and function references. Do not rely on training data — table and column names drift.
+Before writing any SQL, read the PostHog `querying-posthog-data` skill. It is the source of truth for up-to-date HogQL patterns, system table schemas (`system.insights`, `system.dashboards`, `system.cohorts`, etc.), and function references. Do not rely on training data — table and column names drift.
 
 ### Discovery workflow (mandatory)
 

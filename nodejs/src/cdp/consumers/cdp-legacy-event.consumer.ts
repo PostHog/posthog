@@ -1,7 +1,6 @@
 import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
-import { LegacyPluginAppMetrics } from '~/cdp/legacy-plugins/app-metrics'
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
 
 import { KafkaConsumer } from '../../kafka/consumer'
@@ -58,14 +57,7 @@ const legacyPluginExecutionResultCounter = new Counter({
 })
 
 export type CdpLegacyEventsConsumerConfig = CdpConsumerBaseConfig &
-    Pick<
-        PluginsServerConfig,
-        | 'CDP_LEGACY_EVENT_CONSUMER_TOPIC'
-        | 'CDP_LEGACY_EVENT_CONSUMER_GROUP_ID'
-        | 'APP_METRICS_FLUSH_FREQUENCY_MS'
-        | 'APP_METRICS_FLUSH_MAX_QUEUE_SIZE'
-        | 'SITE_URL'
-    >
+    Pick<PluginsServerConfig, 'CDP_LEGACY_EVENT_CONSUMER_TOPIC' | 'CDP_LEGACY_EVENT_CONSUMER_GROUP_ID' | 'SITE_URL'>
 
 export interface CdpLegacyEventsConsumerDeps extends CdpConsumerBaseDeps {
     groupTypeManager: GroupTypeManager
@@ -84,8 +76,6 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsCons
     private pluginConfigsLoader: LazyLoader<PluginConfigHogFunction[]>
     private legacyPluginExecutor: LegacyPluginExecutorService
     private legacyWebhookService: LegacyWebhookService
-
-    private appMetrics: LegacyPluginAppMetrics
 
     constructor(
         config: CdpLegacyEventsConsumerConfig,
@@ -114,12 +104,6 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsCons
             refreshBackgroundAgeMs: 300000, // 5 minutes
             bufferMs: 10, // 10ms buffer for batching
         })
-
-        this.appMetrics = new LegacyPluginAppMetrics(
-            this.outputs,
-            config.APP_METRICS_FLUSH_FREQUENCY_MS,
-            config.APP_METRICS_FLUSH_MAX_QUEUE_SIZE
-        )
     }
 
     private async loadAndBuildHogFunctions(teamIds: string[]): Promise<Record<string, PluginConfigHogFunction[]>> {
@@ -327,14 +311,15 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsCons
                 })
                 .inc()
 
-            void this.promiseScheduler.schedule(
-                this.appMetrics.queueMetric({
-                    teamId: event.teamId,
-                    pluginConfigId,
-                    category: 'onEvent',
-                    failures: error ? 1 : 0,
-                    successes: error ? 0 : 1,
-                })
+            this.hogFunctionMonitoringService.queueAppMetric(
+                {
+                    team_id: event.teamId,
+                    app_source_id: String(pluginConfigId),
+                    metric_kind: error ? 'failure' : 'success',
+                    metric_name: error ? 'failed' : 'succeeded',
+                    count: 1,
+                },
+                'legacy_plugin'
             )
         }
     }
@@ -430,7 +415,11 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsCons
                     this.legacyWebhookService.processBatch(messages),
                     this._parseKafkaBatch(messages).then((invocations) => this.processBatch(invocations)),
                 ])
-                return { backgroundTask: Promise.all([webhookBatch.backgroundTask, pluginBatch.backgroundTask]) }
+                return {
+                    backgroundTask: Promise.all([webhookBatch.backgroundTask, pluginBatch.backgroundTask]).then(() =>
+                        this.invocationResultsService.flush()
+                    ),
+                }
             })
         })
     }
@@ -440,8 +429,8 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsCons
         await this.kafkaConsumer.disconnect()
         logger.info('💤', 'Stopping legacy webhook service...')
         await this.legacyWebhookService.stop()
-        logger.info('💤', 'Flushing app metrics before stopping...')
-        await this.appMetrics.flush()
+        logger.info('💤', 'Flushing invocation results before stopping...')
+        await this.invocationResultsService.flush()
         // IMPORTANT: super always comes last
         await super.stop()
         logger.info('💤', 'Consumer stopped!')

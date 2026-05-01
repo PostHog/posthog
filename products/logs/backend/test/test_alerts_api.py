@@ -317,7 +317,13 @@ class TestLogsAlertAPI(APIBaseTest):
 
     # --- Per-team limit ---
 
-    def test_per_team_limit(self):
+    @parameterized.expand(
+        [
+            ("capped", False, status.HTTP_400_BAD_REQUEST, MAX_ALERTS_PER_TEAM),
+            ("uncapped", True, status.HTTP_201_CREATED, MAX_ALERTS_PER_TEAM + 1),
+        ]
+    )
+    def test_per_team_limit(self, _name, uncapped, expected_status, expected_count):
         for i in range(MAX_ALERTS_PER_TEAM):
             LogsAlertConfiguration.objects.create(
                 team=self.team,
@@ -327,13 +333,15 @@ class TestLogsAlertAPI(APIBaseTest):
                 filters={"severityLevels": ["error"]},
             )
 
-        response = self.client.post(
-            self.base_url,
-            self._valid_payload(name="One too many"),
-            format="json",
-        )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "Maximum" in str(response.json())
+        patched_ids = frozenset({self.team.id}) if uncapped else frozenset()
+        with patch("products.logs.backend.alerts_api.UNCAPPED_ALERT_TEAM_IDS", patched_ids):
+            response = self.client.post(
+                self.base_url,
+                self._valid_payload(name="Boundary"),
+                format="json",
+            )
+        assert response.status_code == expected_status
+        assert LogsAlertConfiguration.objects.filter(team=self.team).count() == expected_count
 
     # --- Read-only fields ---
 

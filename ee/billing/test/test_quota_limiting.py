@@ -11,8 +11,10 @@ from django.utils import timezone
 from django.utils.timezone import now
 
 from dateutil.relativedelta import relativedelta
+from parameterized import parameterized
 
 from posthog.api.test.test_team import create_team
+from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.redis import get_client
 
@@ -22,6 +24,8 @@ from ee.billing.quota_limiting import (
     QuotaLimitingCaches,
     QuotaResource,
     UsageCounters,
+    _identify_refresh_candidates,
+    _patch_todays_usage,
     add_limited_team_tokens,
     get_team_attribute_by_quota_resource,
     list_limited_team_attributes,
@@ -30,6 +34,7 @@ from ee.billing.quota_limiting import (
     set_org_usage_summary,
     update_all_orgs_billing_quotas,
     update_org_billing_quotas,
+    update_organization_usage_fields,
 )
 from ee.clickhouse.materialized_columns.columns import materialize
 
@@ -1784,3 +1789,750 @@ class TestQuotaLimiting(BaseTest):
             f"UsageCounters is missing keys from OrganizationUsageInfo: {missing_from_counters}"
         )
         assert not extra_in_counters, f"UsageCounters has extra keys not in OrganizationUsageInfo: {extra_in_counters}"
+
+    @patch("posthoganalytics.capture")
+    @freeze_time("2021-01-25T12:00:00Z")
+    def test_update_all_orgs_billing_quotas_refreshes_candidate_orgs_before_decision(self, patch_capture) -> None:
+        """
+        End-to-end: an over-limit-looking org is identified as a refresh candidate, so a
+        concurrent billing webhook that lands after the queries phase but before the org
+        loop reaches that row is observed by the per-iteration refresh. The decision and
+        targeted writes that follow must not clobber the fresh `usage` / `limit` /
+        `period` written by billing.
+
+        This is the customer incident shape: free-tier upgrade fires before the cron's
+        per-org iteration would have written the row.
+        """
+        from posthog.models.organization import Organization
+
+        with self.settings(USE_TZ=False):
+            stale_usage = {
+                "events": {"usage": 9_999_999, "limit": 10_000, "todays_usage": 0},
+                "recordings": {"usage": 0, "limit": 10_000, "todays_usage": 0},
+                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+            }
+            self.organization.usage = stale_usage
+            self.organization.customer_trust_scores = zero_trust_scores()
+            self.organization.save()
+
+            # Create events so the ClickHouse rollup produces a non-zero todays_usage,
+            # exercising the targeted patch path. Without events the loop short-circuits
+            # before any write.
+            distinct_id = str(uuid4())
+            for _ in range(5):
+                _create_event(
+                    distinct_id=distinct_id,
+                    event="$event1",
+                    properties={"$lib": "$web"},
+                    timestamp=now() - relativedelta(hours=1),
+                    team=self.team,
+                )
+            time.sleep(1)
+
+            fresh_usage = {
+                "events": {"usage": 0, "limit": 10_000_000, "todays_usage": 0},
+                "recordings": {"usage": 0, "limit": 10_000_000, "todays_usage": 0},
+                "period": ["2021-01-15T00:00:00Z", "2021-02-14T23:59:59Z"],
+            }
+
+            # Hook the simulated webhook write between the queries phase and the org
+            # loop. `list_limited_team_attributes` is called once per resource right
+            # before the candidate-detection pass, so wrapping it lands the write at the
+            # right moment without patching anything inside the loop itself.
+            org_id = self.organization.id
+            simulated_webhook_write_count = {"count": 0}
+
+            real_list_limited_team_attributes = list_limited_team_attributes
+
+            def list_then_simulate_webhook(*args, **kwargs):
+                if simulated_webhook_write_count["count"] == 0:
+                    Organization.objects.filter(id=org_id).update(usage=fresh_usage)
+                    simulated_webhook_write_count["count"] += 1
+                return real_list_limited_team_attributes(*args, **kwargs)
+
+            with patch(
+                "ee.billing.quota_limiting.list_limited_team_attributes",
+                side_effect=list_then_simulate_webhook,
+            ):
+                update_all_orgs_billing_quotas()
+
+            assert simulated_webhook_write_count["count"] == 1, (
+                "The simulated webhook hook did not fire — the test no longer covers the "
+                "queries-phase-to-loop-start window. Re-anchor the hook to a call site "
+                "between the queries phase and the org loop."
+            )
+
+            final_org = Organization.objects.get(id=org_id)
+            assert final_org.usage["events"]["usage"] == 0, (
+                "The per-iteration refresh must observe the webhook's fresh `usage` and "
+                "the targeted patch must not clobber it back to the stale snapshot "
+                "loaded at the start of the job (Calmio regression)."
+            )
+            assert final_org.usage["events"]["limit"] == 10_000_000, (
+                "Fresh `limit` from the webhook must survive the targeted patch."
+            )
+            assert final_org.usage["period"] == [
+                "2021-01-15T00:00:00Z",
+                "2021-02-14T23:59:59Z",
+            ], "Fresh `period` from the webhook must survive the targeted patch."
+
+    @patch("posthoganalytics.capture")
+    @freeze_time("2021-01-25T12:00:00Z")
+    def test_update_all_orgs_billing_quotas_targeted_patch_preserves_concurrent_billing_writes(
+        self, patch_capture
+    ) -> None:
+        """
+        End-to-end: even for orgs that are NOT refresh candidates (under limit, no quota
+        markers), a billing webhook that lands mid-iteration must survive the per-org
+        write. The targeted `jsonb_set` patch only touches `usage[resource][todays_usage]`,
+        so billing-owned `usage` / `limit` / `period` are not clobbered.
+        """
+        from posthog.models.organization import Organization
+
+        with self.settings(USE_TZ=False):
+            cached_snapshot = {
+                "events": {"usage": 0, "limit": 10_000_000, "todays_usage": 0},
+                "recordings": {"usage": 0, "limit": 10_000_000, "todays_usage": 0},
+                "period": ["2021-01-15T00:00:00Z", "2021-02-14T23:59:59Z"],
+            }
+            self.organization.usage = cached_snapshot
+            self.organization.customer_trust_scores = zero_trust_scores()
+            self.organization.save()
+
+            distinct_id = str(uuid4())
+            for _ in range(5):
+                _create_event(
+                    distinct_id=distinct_id,
+                    event="$event1",
+                    properties={"$lib": "$web"},
+                    timestamp=now() - relativedelta(hours=1),
+                    team=self.team,
+                )
+            time.sleep(1)
+
+            mid_loop_webhook = {
+                "events": {"usage": 0, "limit": 50_000_000, "todays_usage": 0},
+                "recordings": {"usage": 0, "limit": 50_000_000, "todays_usage": 0},
+                "period": ["2021-01-20T00:00:00Z", "2021-02-19T23:59:59Z"],
+            }
+
+            org_id = self.organization.id
+            mid_loop_write_count = {"count": 0}
+            real_patch = _patch_todays_usage
+
+            def webhook_before_per_org_patch(organization, *args, **kwargs):
+                # Land the webhook write between candidate detection (already done) and
+                # the targeted per-org patch (about to happen). Subsequent calls pass
+                # through unchanged.
+                if organization.id == org_id and mid_loop_write_count["count"] == 0:
+                    Organization.objects.filter(id=org_id).update(usage=mid_loop_webhook)
+                    mid_loop_write_count["count"] += 1
+                return real_patch(organization, *args, **kwargs)
+
+            with patch(
+                "ee.billing.quota_limiting._patch_todays_usage",
+                side_effect=webhook_before_per_org_patch,
+            ):
+                update_all_orgs_billing_quotas()
+
+            assert mid_loop_write_count["count"] == 1
+
+            final_org = Organization.objects.get(id=org_id)
+            assert final_org.usage["period"] == [
+                "2021-01-20T00:00:00Z",
+                "2021-02-19T23:59:59Z",
+            ], "Fresh `period` from the webhook must survive the targeted patch."
+            assert final_org.usage["events"]["limit"] == 50_000_000, (
+                "Fresh `limit` from the webhook must survive the targeted patch."
+            )
+            assert final_org.usage["events"]["todays_usage"] == 5, (
+                "Targeted patch must still write the cron's `todays_usage` for the resource."
+            )
+
+    @patch("posthoganalytics.capture")
+    @freeze_time("2021-01-25T12:00:00Z")
+    def test_candidate_refresh_changes_quota_decision(self, patch_capture) -> None:
+        """
+        End-to-end: the per-iteration refresh must actually change the decision when
+        the DB row has moved. Without the refresh, the cached over-limit snapshot
+        would cause us to add the team's token to Redis and report the org as
+        quota-limited. With the refresh, fresh DB state shows the org is comfortably
+        under the (now much higher) limit, so no Redis token is added.
+        """
+        with self.settings(USE_TZ=False):
+            stale_usage = {
+                "events": {"usage": 9_999_999, "limit": 10_000, "todays_usage": 0},
+                "recordings": {"usage": 0, "limit": 10_000, "todays_usage": 0},
+                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+            }
+            self.organization.usage = stale_usage
+            self.organization.customer_trust_scores = zero_trust_scores()
+            self.organization.save()
+
+            distinct_id = str(uuid4())
+            for _ in range(5):
+                _create_event(
+                    distinct_id=distinct_id,
+                    event="$event1",
+                    properties={"$lib": "$web"},
+                    timestamp=now() - relativedelta(hours=1),
+                    team=self.team,
+                )
+            time.sleep(1)
+
+            # A billing webhook lands a fresh paid plan with much higher limits before
+            # the org loop reaches this org.
+            fresh_usage = {
+                "events": {"usage": 0, "limit": 10_000_000, "todays_usage": 0},
+                "recordings": {"usage": 0, "limit": 10_000_000, "todays_usage": 0},
+                "period": ["2021-01-15T00:00:00Z", "2021-02-14T23:59:59Z"],
+            }
+            org_id = self.organization.id
+            simulated_webhook_write_count = {"count": 0}
+            real_list_limited_team_attributes = list_limited_team_attributes
+
+            def list_then_simulate_webhook(*args, **kwargs):
+                if simulated_webhook_write_count["count"] == 0:
+                    Organization.objects.filter(id=org_id).update(usage=fresh_usage)
+                    simulated_webhook_write_count["count"] += 1
+                return real_list_limited_team_attributes(*args, **kwargs)
+
+            with patch(
+                "ee.billing.quota_limiting.list_limited_team_attributes",
+                side_effect=list_then_simulate_webhook,
+            ):
+                quota_limited_orgs, quota_limiting_suspended_orgs, _ = update_all_orgs_billing_quotas()
+
+            # The decision flipped from "limit" (cached) to "no limit" (refreshed).
+            assert str(org_id) not in quota_limited_orgs["events"]
+            assert str(org_id) not in quota_limiting_suspended_orgs["events"]
+            # And no Redis token was added — the team is free to ingest.
+            assert self.redis_client.zrange("@posthog/quota-limits/events", 0, -1) == []
+
+    @patch("posthoganalytics.capture")
+    @freeze_time("2021-01-25T12:00:00Z")
+    def test_limit_decrease_for_non_candidate_uses_stale_snapshot(self, patch_capture) -> None:
+        """
+        Documents the residual race window the targeted refresh does NOT close: a
+        billing-driven *limit decrease* (e.g. a downgrade) that lands after the
+        candidate set is computed is not caught this run. The cached `limit` still
+        looks high, so the org is not flagged as a candidate, no per-iteration refresh
+        happens, and the decision is made against the stale (high-limit) snapshot. The
+        next cron run picks it up within ~30 minutes.
+
+        This asserts the current contract directly. When a future change closes the
+        race, this test fails loudly with a meaningful diff and the assertion below
+        gets flipped in the same PR.
+        """
+        with self.settings(USE_TZ=False):
+            cached_high_limit = {
+                "events": {"usage": 0, "limit": 10_000_000, "todays_usage": 0},
+                "recordings": {"usage": 0, "limit": 10_000_000, "todays_usage": 0},
+                "period": ["2021-01-15T00:00:00Z", "2021-02-14T23:59:59Z"],
+            }
+            self.organization.usage = cached_high_limit
+            self.organization.customer_trust_scores = zero_trust_scores()
+            self.organization.save()
+
+            distinct_id = str(uuid4())
+            for _ in range(50):
+                _create_event(
+                    distinct_id=distinct_id,
+                    event="$event1",
+                    properties={"$lib": "$web"},
+                    timestamp=now() - relativedelta(hours=1),
+                    team=self.team,
+                )
+            time.sleep(1)
+
+            # Mid-loop downgrade lands a much lower limit; the 50 events from
+            # ClickHouse now exceed it. A candidate-refresh would catch this; a
+            # non-candidate path doesn't.
+            mid_loop_downgrade = {
+                "events": {"usage": 0, "limit": 10, "todays_usage": 0},
+                "recordings": {"usage": 0, "limit": 10, "todays_usage": 0},
+                "period": ["2021-01-15T00:00:00Z", "2021-02-14T23:59:59Z"],
+            }
+            org_id = self.organization.id
+            mid_loop_write_count = {"count": 0}
+            real_patch = _patch_todays_usage
+
+            def webhook_before_per_org_patch(organization, *args, **kwargs):
+                if organization.id == org_id and mid_loop_write_count["count"] == 0:
+                    Organization.objects.filter(id=org_id).update(usage=mid_loop_downgrade)
+                    mid_loop_write_count["count"] += 1
+                return real_patch(organization, *args, **kwargs)
+
+            with patch(
+                "ee.billing.quota_limiting._patch_todays_usage",
+                side_effect=webhook_before_per_org_patch,
+            ):
+                quota_limited_orgs, _, _ = update_all_orgs_billing_quotas()
+
+            assert mid_loop_write_count["count"] == 1
+            # Current contract: the same-run downgrade is missed because the org was
+            # never flagged as a candidate (cached limit was high), so no refresh
+            # happened and `org_quota_limited_until` ran against the stale snapshot.
+            # If this assertion ever fails, the residual race has been closed —
+            # flip it to `in quota_limited_orgs["events"]` in the same PR.
+            assert str(org_id) not in quota_limited_orgs["events"]
+
+
+def _full_usage_counters(**overrides: int) -> UsageCounters:
+    base = UsageCounters(
+        events=0,
+        exceptions=0,
+        recordings=0,
+        rows_synced=0,
+        feature_flag_requests=0,
+        api_queries_read_bytes=0,
+        survey_responses=0,
+        llm_events=0,
+        ai_credits=0,
+        cdp_trigger_events=0,
+        rows_exported=0,
+        workflow_emails=0,
+        workflow_destinations_dispatched=0,
+        logs_mb_ingested=0,
+    )
+    base.update(overrides)  # type: ignore[typeddict-item]
+    return base
+
+
+def _empty_previously_limited() -> dict[str, list[str]]:
+    return {resource.value: [] for resource in QuotaResource}
+
+
+def _fake_org(usage: dict | None) -> Any:
+    org = type("FakeOrg", (), {})()
+    org.id = uuid4()
+    org.usage = usage
+    return org
+
+
+_PERIOD = ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"]
+
+
+@override_settings(CLOUD_DEPLOYMENT="US")
+class TestIdentifyRefreshCandidates(BaseTest):
+    """Isolated unit coverage for `_identify_refresh_candidates`. The cron-loop
+    integration tests above also exercise this function but conflate it with the rest
+    of the run; these cases cover each candidate-selection branch in isolation."""
+
+    @parameterized.expand(
+        [
+            (
+                "skips_orgs_with_no_usage",
+                None,
+                _full_usage_counters(),
+                [],
+                {},
+                {},
+                False,
+            ),
+            (
+                "skips_orgs_with_usage_but_no_period",
+                {"events": {"usage": 5, "limit": 10}},
+                _full_usage_counters(),
+                [],
+                {},
+                {},
+                False,
+            ),
+            (
+                "flags_orgs_with_existing_quota_marker",
+                {
+                    "events": {"usage": 0, "limit": 1_000, "quota_limited_until": 1_700_000_000},
+                    "period": _PERIOD,
+                },
+                _full_usage_counters(),
+                [],
+                {},
+                {},
+                True,
+            ),
+            (
+                "flags_orgs_with_existing_suspension_marker",
+                {
+                    "events": {"usage": 0, "limit": 1_000, "quota_limiting_suspended_until": 1_700_000_000},
+                    "period": _PERIOD,
+                },
+                _full_usage_counters(),
+                [],
+                {},
+                {},
+                True,
+            ),
+            (
+                "flags_orgs_appearing_newly_over_limit",
+                {
+                    "events": {"usage": 950, "limit": 1_000, "todays_usage": 0},
+                    "period": _PERIOD,
+                },
+                # 950 cached + 100 today = 1050 >= 1000 + 0 buffer → candidate
+                _full_usage_counters(events=100),
+                [],
+                {},
+                {},
+                True,
+            ),
+            (
+                "skips_under_limit_orgs_without_markers_or_redis",
+                {
+                    "events": {"usage": 100, "limit": 1_000, "todays_usage": 0},
+                    "period": _PERIOD,
+                },
+                _full_usage_counters(events=10),
+                [],
+                {},
+                {},
+                False,
+            ),
+            (
+                "skips_resources_with_no_limit_set",
+                # `limit=None` means the org has no cap on this resource.
+                {
+                    "events": {"usage": 999_999, "limit": None, "todays_usage": 0},
+                    "period": _PERIOD,
+                },
+                _full_usage_counters(events=999_999),
+                [],
+                {},
+                {},
+                False,
+            ),
+            (
+                "flags_orgs_with_team_token_in_redis_limiter_set",
+                {
+                    "events": {"usage": 10, "limit": 1_000, "todays_usage": 0},
+                    "period": _PERIOD,
+                },
+                _full_usage_counters(),
+                ["phc_xyz"],
+                {"events": ["phc_xyz"]},
+                {},
+                True,
+            ),
+            (
+                # Regression: stale entry in the Redis limiter set must flag the org
+                # even when `usage[resource]` is missing — otherwise we'd never refresh
+                # and never get the chance to clear the stale entry.
+                "redis_token_flags_org_with_empty_resource_dict",
+                {"period": _PERIOD},
+                _full_usage_counters(),
+                ["phc_stale"],
+                {"events": ["phc_stale"]},
+                {},
+                True,
+            ),
+            (
+                # Symmetric regression: a stale entry in the suspension Redis set must
+                # also flag the org. Without this, a team only present in the suspended
+                # set (no overage, no usage marker) would never be re-evaluated and the
+                # suspension entry could persist past its grace period.
+                "flags_orgs_with_team_token_in_redis_suspended_set",
+                {
+                    "events": {"usage": 10, "limit": 1_000, "todays_usage": 0},
+                    "period": _PERIOD,
+                },
+                _full_usage_counters(),
+                ["phc_susp"],
+                {},
+                {"events": ["phc_susp"]},
+                True,
+            ),
+            (
+                "suspended_redis_token_flags_org_with_empty_resource_dict",
+                {"period": _PERIOD},
+                _full_usage_counters(),
+                ["phc_susp_stale"],
+                {},
+                {"events": ["phc_susp_stale"]},
+                True,
+            ),
+            (
+                # Only `events` is over limit; other resources are well under. The org
+                # should still be flagged from the single over-limit resource.
+                "multi_resource_partial_overage_flags_from_one_resource",
+                {
+                    "events": {"usage": 990, "limit": 1_000, "todays_usage": 0},
+                    "recordings": {"usage": 0, "limit": 100_000, "todays_usage": 0},
+                    "rows_synced": {"usage": 0, "limit": 100_000, "todays_usage": 0},
+                    "period": _PERIOD,
+                },
+                _full_usage_counters(events=20, recordings=5, rows_synced=5),
+                [],
+                {},
+                {},
+                True,
+            ),
+            (
+                # Some orgs land with `usage=None` on a resource (legacy/partial init).
+                # The check must coerce to 0, not raise or flag on falsy comparisons.
+                "usage_value_none_treated_as_zero",
+                {
+                    "events": {"usage": None, "limit": 1_000, "todays_usage": 0},
+                    "period": _PERIOD,
+                },
+                _full_usage_counters(events=10),
+                [],
+                {},
+                {},
+                False,
+            ),
+            (
+                # Recordings get a 1000-event buffer per `OVERAGE_BUFFER`. Cached usage
+                # right at the limit is not yet a candidate.
+                "recordings_overage_buffer_is_respected",
+                {
+                    "recordings": {"usage": 1_000, "limit": 1_000, "todays_usage": 0},
+                    "period": _PERIOD,
+                },
+                # 1000 + 999 = 1999, threshold = 1000 + 1000 = 2000
+                _full_usage_counters(recordings=999),
+                [],
+                {},
+                {},
+                False,
+            ),
+        ]
+    )
+    def test_candidate_selection(
+        self,
+        _name: str,
+        usage: dict | None,
+        todays: UsageCounters,
+        team_tokens: list[str],
+        previously_limited_overrides: dict[str, list[str]],
+        previously_suspended_overrides: dict[str, list[str]],
+        expected_candidate: bool,
+    ) -> None:
+        org = _fake_org(usage=usage)
+        org_id = str(org.id)
+        orgs_by_id = {org_id: org}
+        todays_usage_report = {org_id: todays}
+        teams_by_org = {org_id: team_tokens} if team_tokens else {}
+
+        previously_limited = _empty_previously_limited()
+        previously_limited.update(previously_limited_overrides)
+        previously_suspended = _empty_previously_limited()
+        previously_suspended.update(previously_suspended_overrides)
+
+        candidates = _identify_refresh_candidates(
+            orgs_by_id, todays_usage_report, teams_by_org, previously_limited, previously_suspended
+        )
+
+        assert candidates == ({org_id} if expected_candidate else set())
+
+
+@override_settings(CLOUD_DEPLOYMENT="US")
+class TestPatchTodaysUsage(BaseTest):
+    """Isolated unit coverage for `_patch_todays_usage`. Verifies the targeted-patch
+    semantics that protect billing-owned `usage` / `limit` / `period` from being
+    clobbered by stale snapshots."""
+
+    def test_returns_false_when_organization_usage_is_none(self) -> None:
+        self.organization.usage = None
+        self.organization.save()
+
+        changed = _patch_todays_usage(self.organization, _full_usage_counters(events=42))
+
+        assert changed is False
+
+    def test_returns_false_when_no_resources_to_patch(self) -> None:
+        # Org has only `period` — no per-resource dicts to patch.
+        self.organization.usage = {"period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"]}
+        self.organization.save()
+
+        changed = _patch_todays_usage(self.organization, _full_usage_counters(events=42))
+
+        assert changed is False
+
+    def test_returns_false_when_value_is_unchanged(self) -> None:
+        self.organization.usage = {
+            "events": {"usage": 100, "limit": 1_000, "todays_usage": 7},
+            "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+        }
+        self.organization.save()
+        before_updated_at = self.organization.updated_at
+
+        changed = _patch_todays_usage(self.organization, _full_usage_counters(events=7))
+
+        assert changed is False
+        # No SQL UPDATE means `updated_at` should not move.
+        self.organization.refresh_from_db()
+        assert self.organization.updated_at == before_updated_at
+
+    def test_writes_zero_when_todays_usage_missing_and_report_is_zero(self) -> None:
+        # Edge case: a freshly-billed resource arrives with no `todays_usage` key at
+        # all, and ClickHouse reports 0 for the period. `existing.get("todays_usage")`
+        # returns `None`, which compares unequal to `0`, so the patch must write `0`
+        # explicitly — initializing the key on the row instead of leaving it absent.
+        self.organization.usage = {
+            "events": {"usage": 100, "limit": 1_000},  # no `todays_usage` key
+            "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+        }
+        self.organization.save()
+
+        changed = _patch_todays_usage(self.organization, _full_usage_counters(events=0))
+
+        assert changed is True
+        self.organization.refresh_from_db()
+        assert self.organization.usage["events"]["todays_usage"] == 0
+        # Sibling fields untouched.
+        assert self.organization.usage["events"]["usage"] == 100
+        assert self.organization.usage["events"]["limit"] == 1_000
+
+    def test_partial_patch_writes_only_changed_resources(self) -> None:
+        self.organization.usage = {
+            "events": {"usage": 100, "limit": 1_000, "todays_usage": 5},
+            "recordings": {"usage": 200, "limit": 1_000, "todays_usage": 5},
+            "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+        }
+        self.organization.save()
+        before_updated_at = self.organization.updated_at
+
+        # Only `events` changes; `recordings` stays identical.
+        changed = _patch_todays_usage(self.organization, _full_usage_counters(events=42, recordings=5))
+
+        assert changed is True
+        # In-memory mirror reflects the change.
+        assert self.organization.usage["events"]["todays_usage"] == 42
+        assert self.organization.usage["recordings"]["todays_usage"] == 5
+
+        self.organization.refresh_from_db()
+        assert self.organization.usage["events"]["todays_usage"] == 42
+        # Sibling fields untouched.
+        assert self.organization.usage["events"]["usage"] == 100
+        assert self.organization.usage["events"]["limit"] == 1_000
+        assert self.organization.usage["recordings"]["todays_usage"] == 5
+        assert self.organization.usage["period"] == ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"]
+        # Matches prior `save(update_fields=["usage"])` behavior: `auto_now=True` only
+        # fires for fields actually in `update_fields`, so `updated_at` wasn't bumped
+        # before and isn't bumped now.
+        assert self.organization.updated_at == before_updated_at
+
+    def test_targeted_patch_does_not_clobber_concurrent_billing_write(self) -> None:
+        self.organization.usage = {
+            "events": {"usage": 100, "limit": 1_000, "todays_usage": 0},
+            "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+        }
+        self.organization.save()
+
+        # Concurrent billing write lands fresh `usage` / `limit` / `period` after the
+        # in-memory snapshot was loaded.
+        Organization.objects.filter(id=self.organization.id).update(
+            usage={
+                "events": {"usage": 0, "limit": 50_000_000, "todays_usage": 0},
+                "period": ["2021-02-01T00:00:00Z", "2021-02-28T23:59:59Z"],
+            }
+        )
+
+        # The stale in-memory org still believes limit=1000; the targeted patch must
+        # only touch `usage[events][todays_usage]` and leave billing-owned fields alone.
+        changed = _patch_todays_usage(self.organization, _full_usage_counters(events=99))
+
+        assert changed is True
+        fresh = Organization.objects.get(id=self.organization.id)
+        assert fresh.usage["events"]["todays_usage"] == 99
+        assert fresh.usage["events"]["usage"] == 0
+        assert fresh.usage["events"]["limit"] == 50_000_000
+        assert fresh.usage["period"] == ["2021-02-01T00:00:00Z", "2021-02-28T23:59:59Z"]
+
+
+@override_settings(CLOUD_DEPLOYMENT="US")
+class TestUpdateOrganizationUsageFields(BaseTest):
+    """Isolated unit coverage for the partial-write helper that writes the
+    quota-limiting-owned keys (`quota_limited_until`, `quota_limiting_suspended_until`)
+    inside `usage[resource]`."""
+
+    def test_empty_fields_skips_db_write(self) -> None:
+        self.organization.usage = {
+            "events": {"usage": 100, "limit": 1_000, "todays_usage": 0},
+            "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+        }
+        self.organization.save()
+        before_updated_at = self.organization.updated_at
+
+        update_organization_usage_fields(self.organization, QuotaResource.EVENTS, {})
+
+        self.organization.refresh_from_db()
+        assert self.organization.updated_at == before_updated_at
+
+    def test_set_and_delete_keys_in_one_call(self) -> None:
+        self.organization.usage = {
+            "events": {
+                "usage": 100,
+                "limit": 1_000,
+                "todays_usage": 0,
+                "quota_limiting_suspended_until": 1_700_000_000,
+            },
+            "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+        }
+        self.organization.save()
+
+        update_organization_usage_fields(
+            self.organization,
+            QuotaResource.EVENTS,
+            {"quota_limited_until": 1_800_000_000, "quota_limiting_suspended_until": None},
+        )
+
+        # In-memory mirror.
+        assert self.organization.usage["events"]["quota_limited_until"] == 1_800_000_000
+        assert "quota_limiting_suspended_until" not in self.organization.usage["events"]
+
+        # Persisted state.
+        self.organization.refresh_from_db()
+        assert self.organization.usage["events"]["quota_limited_until"] == 1_800_000_000
+        assert "quota_limiting_suspended_until" not in self.organization.usage["events"]
+        # Billing-owned fields untouched.
+        assert self.organization.usage["events"]["usage"] == 100
+        assert self.organization.usage["events"]["limit"] == 1_000
+
+    def test_all_none_deletes_on_missing_keys_is_a_noop(self) -> None:
+        # Clearing markers that aren't present should not raise and should leave the
+        # row's `usage` shape untouched (the SQL UPDATE still runs but produces an
+        # equivalent jsonb). Mirrors the common cron path where `org_quota_limited_until`
+        # clears markers on every "not over limit" pass even when there were none to
+        # begin with.
+        self.organization.usage = {
+            "events": {"usage": 100, "limit": 1_000, "todays_usage": 0},
+            "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+        }
+        self.organization.save()
+        before_usage = dict(self.organization.usage["events"])
+
+        update_organization_usage_fields(
+            self.organization,
+            QuotaResource.EVENTS,
+            {"quota_limited_until": None, "quota_limiting_suspended_until": None},
+        )
+
+        self.organization.refresh_from_db()
+        # Same shape — no spurious null keys introduced, billing-owned fields untouched.
+        assert self.organization.usage["events"] == before_usage
+
+    def test_concurrent_billing_period_change_is_preserved(self) -> None:
+        self.organization.usage = {
+            "events": {"usage": 100, "limit": 1_000, "todays_usage": 0},
+            "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+        }
+        self.organization.save()
+
+        # Billing rewrites `usage` and `period` after we loaded our in-memory copy.
+        Organization.objects.filter(id=self.organization.id).update(
+            usage={
+                "events": {"usage": 0, "limit": 10_000_000, "todays_usage": 0},
+                "period": ["2021-02-01T00:00:00Z", "2021-02-28T23:59:59Z"],
+            }
+        )
+
+        update_organization_usage_fields(
+            self.organization, QuotaResource.EVENTS, {"quota_limited_until": 1_800_000_000}
+        )
+
+        fresh = Organization.objects.get(id=self.organization.id)
+        assert fresh.usage["events"]["quota_limited_until"] == 1_800_000_000
+        assert fresh.usage["events"]["usage"] == 0
+        assert fresh.usage["events"]["limit"] == 10_000_000
+        assert fresh.usage["period"] == ["2021-02-01T00:00:00Z", "2021-02-28T23:59:59Z"]

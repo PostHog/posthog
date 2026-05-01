@@ -76,6 +76,7 @@ import {
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import { CurrentFilterIndicator } from './CurrentFilterIndicator'
 import { DurationFilter } from './DurationFilter'
+import { ProductAnalyticsOverLimitBanner } from './ProductAnalyticsOverLimitBanner'
 import { SavedFilters } from './SavedFilters'
 
 function HideRecordingsMenu(): JSX.Element {
@@ -670,6 +671,7 @@ const ReplayFiltersTab = ({
 
     return (
         <div className={clsx('relative bg-surface-primary w-full h-full', className)}>
+            <ProductAnalyticsOverLimitBanner />
             {appliedSavedFilter && (
                 <div className="border-b px-2 py-3 flex flex-wrap items-center gap-2">
                     <div className="flex items-center gap-2 min-w-0 flex-1 basis-3/5">

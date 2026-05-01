@@ -1,3 +1,4 @@
+import os
 import datetime as dt
 from datetime import UTC, datetime
 from typing import Final, TypedDict, cast
@@ -48,6 +49,14 @@ from products.logs.backend.models import MAX_EVALUATION_PERIODS, LogsAlertConfig
 
 ALLOWED_WINDOW_MINUTES = {5, 10, 15, 30, 60}
 MAX_ALERTS_PER_TEAM = 20
+# Comma-separated team IDs that bypass MAX_ALERTS_PER_TEAM. Configured via
+# argocd for internal dogfood projects whose observability needs exceed the
+# customer-facing cap; the cap's correctness assumptions (bounded N+1 in list,
+# semaphore-sized fan-out in the Temporal activity) still hold for any team
+# not in this set.
+UNCAPPED_ALERT_TEAM_IDS: frozenset[int] = frozenset(
+    int(t) for x in os.environ.get("LOGS_ALERTS_UNCAPPED_TEAM_IDS", "").split(",") if (t := x.strip()).isdigit()
+)
 MAX_SIMULATE_LOOKBACK_DAYS = 30
 MAX_SIMULATE_BUCKETS = 15_000
 STATE_TIMELINE_LOOKBACK_HOURS = 24
@@ -455,9 +464,10 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             # Django optimises count() to SELECT COUNT(*). Locking the team
             # row instead serialises concurrent creates for this team.
             Team.objects.select_for_update().get(id=validated_data["team_id"])
-            count = LogsAlertConfiguration.objects.filter(team_id=validated_data["team_id"]).count()
-            if count >= MAX_ALERTS_PER_TEAM:
-                raise ValidationError(f"Maximum number of alerts ({MAX_ALERTS_PER_TEAM}) reached for this team.")
+            if validated_data["team_id"] not in UNCAPPED_ALERT_TEAM_IDS:
+                count = LogsAlertConfiguration.objects.filter(team_id=validated_data["team_id"]).count()
+                if count >= MAX_ALERTS_PER_TEAM:
+                    raise ValidationError(f"Maximum number of alerts ({MAX_ALERTS_PER_TEAM}) reached for this team.")
             return super().create(validated_data)
 
 
