@@ -500,10 +500,13 @@ class TestGitHubCommentWebhook(TestCase):
             },
         }
 
+    @patch("products.tasks.backend.webhooks.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.webhooks._signal_running_workflow")
     @patch("products.tasks.backend.models.posthoganalytics.capture")
-    def test_issue_comment_signals_running_workflow(self, mock_capture, mock_signal, mock_get_secret):
+    def test_issue_comment_signals_running_workflow(
+        self, mock_capture, mock_signal, mock_get_secret, mock_feature_enabled
+    ):
         mock_get_secret.return_value = self.webhook_secret
         task_run = TaskRun.objects.create(
             task=self.task,
