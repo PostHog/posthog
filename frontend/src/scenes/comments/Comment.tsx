@@ -134,7 +134,7 @@ const CommentEditingForm = ({ comment }: { comment: CommentType }): JSX.Element 
     } = useActions(commentsLogic)
 
     return (
-        <div className="deprecated-space-y-2">
+        <div className="deprecated-space-y-2 border-t p-2">
             <LemonRichContentEditor
                 placeholder="Edit comment"
                 initialContent={comment.rich_content}
@@ -223,8 +223,10 @@ const CommentTopRow = ({ comment }: { comment: CommentType }): JSX.Element => {
 }
 
 const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
-    const { editingComment, replyingCommentId, selectedCommentId } = useValues(commentsLogic)
+    const { editingComment, replyingCommentId, selectedCommentId, commentContexts } = useValues(commentsLogic)
     const { setSelectedComment } = useActions(commentsLogic)
+    const contextText = commentContexts[comment.id]
+    const isInlineComment = comment.item_context?.type === 'mark'
 
     const ref = useRef<HTMLDivElement | null>(null)
 
@@ -255,6 +257,11 @@ const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
 
                     <div className="flex flex-col flex-1 min-w-0">
                         <CommentTopRow comment={comment} />
+                        {contextText && !isEditing && isInlineComment && (
+                            <div className="border-l-2 border-border pl-2 my-2">
+                                <span className="block text-muted truncate text-sm">{contextText}</span>
+                            </div>
+                        )}
                         {isEditing ? (
                             <CommentEditingForm comment={comment} />
                         ) : (

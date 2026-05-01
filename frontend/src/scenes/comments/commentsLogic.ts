@@ -73,6 +73,7 @@ export const commentsLogic = kea<commentsLogicType>([
         setEditingComment: (comment: CommentType | null) => ({ comment }),
         setReplyingComment: (commentId: string | null) => ({ commentId }),
         setSelectedComment: (commentId: string | null) => ({ commentId }),
+        setCommentContexts: (contexts: Record<string, string>) => ({ contexts }),
         setItemContext: (context: Record<string, any> | null, callback?: (event: { sent: boolean }) => void) => ({
             context,
             callback,
@@ -94,6 +95,12 @@ export const commentsLogic = kea<commentsLogicType>([
                 setSelectedComment: (_, { commentId }) => commentId,
                 setReplyingComment: (state, { commentId }) => commentId ?? state,
                 sendComposedContentSuccess: () => null,
+            },
+        ],
+        commentContexts: [
+            {} as Record<string, string>,
+            {
+                setCommentContexts: (_, { contexts }) => contexts,
             },
         ],
         itemContext: [

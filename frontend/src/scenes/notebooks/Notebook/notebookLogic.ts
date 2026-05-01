@@ -101,6 +101,24 @@ async function runWhenEditorIsReady(waitForEditor: () => boolean, fn: () => any)
     return fn()
 }
 
+function buildCommentContexts(editor: NotebookEditor, comments: CommentType[], title: string): Record<string, string> {
+    const contexts: Record<string, string> = {}
+    for (const comment of comments) {
+        if (comment.source_comment) {
+            continue
+        }
+        if (comment.item_context?.type === 'mark') {
+            const text = editor.getMarkText(comment.item_context.id)
+            if (text) {
+                contexts[comment.id] = text
+            }
+        } else {
+            contexts[comment.id] = title
+        }
+    }
+    return contexts
+}
+
 export const notebookLogic = kea<notebookLogicType>([
     props({} as NotebookLogicProps),
     path((key) => ['scenes', 'notebooks', 'Notebook', 'notebookLogic', key]),
@@ -133,7 +151,7 @@ export const notebookLogic = kea<notebookLogicType>([
                 scope: ActivityScope.NOTEBOOK,
                 item_id: props.shortId,
             }),
-            ['setItemContext', 'maybeLoadComments', 'setSelectedComment'],
+            ['setItemContext', 'maybeLoadComments', 'setSelectedComment', 'setCommentContexts'],
             notebookCollabLogic({ shortId: props.shortId }),
             ['ackLocalSteps', 'applyRemoteSteps'],
         ],
@@ -884,7 +902,12 @@ export const notebookLogic = kea<notebookLogicType>([
                 cache.throttledOnUpdateEditorTimeout = null
             }, 16) // ~60fps throttling
         },
-        setEditor: () => {},
+        setEditor: () => {
+            // Compute contexts immediately if comments are already loaded when the editor mounts
+            if (values.editor && values.comments) {
+                actions.setCommentContexts(buildCommentContexts(values.editor, values.comments, values.title))
+            }
+        },
 
         saveNotebookSuccess: actions.scheduleNotebookRefresh,
         loadNotebookSuccess: () => {
@@ -1014,6 +1037,8 @@ export const notebookLogic = kea<notebookLogicType>([
                         editor.removeComment(mark.pos)
                     }
                 })
+
+                actions.setCommentContexts(buildCommentContexts(editor, comments, values.title))
             }
         },
         activeCommentMarkId: (markId: string | null) => {
