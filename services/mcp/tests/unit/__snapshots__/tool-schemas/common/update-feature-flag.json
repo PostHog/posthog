@@ -52,6 +52,11 @@
                                 ],
                                 "description": "Group type index for this condition set. None means person-level aggregation."
                             },
+                            "early_exit": {
+                                "default": false,
+                                "description": "Indicates whether evaluation should exit early when user matches conditions but is not included in the rollout percentage. If true, the flag will return false instead of continuing to evaluate other conditions.",
+                                "type": "boolean"
+                            },
                             "properties": {
                                 "description": "Property conditions for this release condition group.",
                                 "items": {
