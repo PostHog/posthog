@@ -469,6 +469,7 @@
     'cohortpeople_set',
     'count',
     'created_by_id',
+    'csv_imports',
     'enqueue_calculation',
     'errors_calculating',
     'errortrackingissuecohort_set',
