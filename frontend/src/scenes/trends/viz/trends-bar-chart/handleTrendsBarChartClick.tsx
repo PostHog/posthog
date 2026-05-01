@@ -17,7 +17,6 @@ export interface TrendsBarChartClickDeps {
     resolvedDateRange: ResolvedDateRangeResponse | null | undefined
     querySource: InsightActorsQuery['source'] | null | undefined
     indexedResults: IndexedTrendResult[]
-    // Injected so the adapter stays decoupled from PersonsModal's dep graph.
     openPersonsModal: (props: OpenPersonsModalProps) => void
 }
 
@@ -25,8 +24,6 @@ function resolveDataset(seriesKey: string, indexedResults: IndexedTrendResult[])
     return indexedResults.find((r) => String(r.id) === seriesKey) ?? null
 }
 
-/** Click handler for vertical time-series bars (ActionsBar). Mirrors handleTrendsLineChartClick:
- *  resolves the clicked series + day index back to the actors-by-day query. */
 export function handleTrendsBarChartClick(seriesKey: string, dataIndex: number, deps: TrendsBarChartClickDeps): void {
     const dataset = resolveDataset(seriesKey, deps.indexedResults)
     if (!dataset) {

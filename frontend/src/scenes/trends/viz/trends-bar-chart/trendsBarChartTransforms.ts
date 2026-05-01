@@ -23,7 +23,6 @@ export interface BuildTrendsBarSeriesOpts<R extends TrendsBarResultLike, M = unk
     buildMeta?: (r: R, index: number) => M
 }
 
-/** Vertical bars: each result is a series with values across time (the same shape the line chart uses). */
 export function buildTrendsBarTimeSeries<R extends TrendsBarResultLike, M = unknown>(
     results: R[],
     opts: BuildTrendsBarSeriesOpts<R, M>
