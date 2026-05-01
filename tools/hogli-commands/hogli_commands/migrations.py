@@ -33,7 +33,6 @@ from pathlib import Path
 from urllib.parse import quote
 
 import click
-from hogli.cli import cli
 from hogli.manifest import REPO_ROOT
 from migration_utils import (
     MIGRATION_CACHE_DIR,
@@ -577,7 +576,7 @@ def _apply_migrations(pending: list[MigrationInfo] | None = None, dry_run: bool 
     return MigrationResult(success=True)
 
 
-@cli.command(name="migrations:status", help="Show migration diff between database and code")
+@click.command(name="migrations:status", help="Show migration diff between database and code")
 def migrations_status() -> None:
     """Show which migrations are orphaned, pending, or synced."""
     click.echo("\nAnalyzing migrations…\n")
@@ -605,7 +604,7 @@ def migrations_status() -> None:
         click.echo("Run 'hogli migrations:sync' to fix, or use 'down'/'up' individually.")
 
 
-@cli.command(name="migrations:down", help="Roll back orphaned migrations")
+@click.command(name="migrations:down", help="Roll back orphaned migrations")
 @click.option("--dry-run", "-n", is_flag=True, help="Show what would be done without executing")
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompts")
 @click.option("--force", "-f", is_flag=True, help="Force removal without schema rollback (just deletes DB records)")
@@ -733,7 +732,7 @@ def _handle_duplicate_error(result: MigrationResult, pending: list[MigrationInfo
         return False
 
 
-@cli.command(name="migrations:up", help="Apply pending migrations")
+@click.command(name="migrations:up", help="Apply pending migrations")
 @click.option("--dry-run", "-n", is_flag=True, help="Show what would be done without executing")
 @click.option("--yes", "-y", is_flag=True, help="Auto-confirm faking migrations with duplicate schema")
 def migrations_up(dry_run: bool, yes: bool) -> None:
@@ -781,7 +780,7 @@ def migrations_up(dry_run: bool, yes: bool) -> None:
         click.secho("✓ Migrations applied and cached", fg="green", bold=True)
 
 
-@cli.command(name="migrations:sync", help="Sync migrations: roll back orphaned, apply pending")
+@click.command(name="migrations:sync", help="Sync migrations: roll back orphaned, apply pending")
 @click.option("--dry-run", "-n", is_flag=True, help="Show what would be done without executing")
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompts")
 @click.option("--force", "-f", is_flag=True, help="Force sync even if some migrations can't be properly rolled back")
@@ -910,7 +909,7 @@ def migrations_sync(dry_run: bool, yes: bool, force: bool) -> None:
     click.secho("✓ Sync complete", fg="green", bold=True)
 
 
-@cli.command(name="migrations:cache-sync", help="Populate cache from currently applied migrations")
+@click.command(name="migrations:cache-sync", help="Populate cache from currently applied migrations")
 def migrations_cache_sync() -> None:
     """Cache all currently applied migrations that exist in code.
 

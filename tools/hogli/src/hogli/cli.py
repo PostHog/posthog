@@ -12,14 +12,13 @@ import time as _time
 import shutil
 import platform
 import importlib
-import importlib.util
 from collections import defaultdict
 from typing import Any
 
 import click
 
 from hogli import telemetry
-from hogli.command_types import BinScriptCommand, CompositeCommand, DirectCommand, HogliCommand
+from hogli.command_types import BinScriptCommand, CompositeCommand, DirectCommand, HogliCommand, LazyClickCommand
 from hogli.hooks import post_command_hooks, telemetry_property_hooks
 from hogli.manifest import get_category_for_command, get_manifest, get_services_for_command, load_manifest
 from hogli.validate import auto_update_manifest, find_missing_manifest_entries
@@ -212,10 +211,13 @@ def concepts() -> None:
 def _register_script_commands() -> None:
     """Dynamically register commands from hogli.yaml.
 
-    Supports three types of entries:
-    1. bin_script: Delegate to a shell script (in config.scripts_dir, default: bin/)
-    2. steps: Compose multiple hogli commands in sequence
-    3. cmd: Execute a direct shell command
+    Supports five entry types, dispatched in order:
+    1. ``click:`` — lazy-loaded Click command. Registered as a stub; the
+       backing module is imported on first per-command --help or invocation.
+    2. ``steps:`` — compose multiple hogli commands in sequence.
+    3. ``cmd:`` — execute a direct shell command.
+    4. ``hogli:`` — wrap another hogli command with extra args.
+    5. ``bin_script:`` — delegate to a shell script in ``config.scripts_dir``.
     """
     manifest = get_manifest()
     scripts_dir = manifest.scripts_dir
@@ -228,105 +230,63 @@ def _register_script_commands() -> None:
             if not isinstance(config, dict):
                 continue
 
-            # Determine command type
-            bin_script = config.get("bin_script")
+            click_target = config.get("click")
             steps = config.get("steps")
             cmd = config.get("cmd")
             hogli = config.get("hogli")
+            bin_script = config.get("bin_script")
 
-            if not (bin_script or steps or cmd or hogli):
+            if click_target:
+                LazyClickCommand.from_manifest(cli_name, config).register(cli)
                 continue
 
-            # Handle composition (steps field)
             if steps:
-                command = CompositeCommand(cli_name, config)
-                command.register(cli)
+                CompositeCommand(cli_name, config).register(cli)
                 continue
 
-            # Handle direct commands (cmd field)
             if cmd:
-                command = DirectCommand(cli_name, config)
-                command.register(cli)
+                DirectCommand(cli_name, config).register(cli)
                 continue
 
-            # Handle hogli wrapper commands (hogli field)
             if hogli:
-                command = HogliCommand(cli_name, config)
-                command.register(cli)
+                HogliCommand(cli_name, config).register(cli)
                 continue
 
-            # Handle bin_script delegation
             if bin_script:
                 script_path = scripts_dir / bin_script
-                if not script_path.exists():
-                    continue
-
-                command = BinScriptCommand(cli_name, config, script_path)
-                command.register(cli)
+                if script_path.exists():
+                    BinScriptCommand(cli_name, config, script_path).register(cli)
 
 
-# Register all script commands from manifest before app runs
-_register_script_commands()
+def _load_boot_modules() -> None:
+    """Import modules listed in ``config.boot_modules`` once at startup.
 
-
-def _import_custom_commands() -> None:
-    """Import custom commands from configured commands_dir.
-
-    Looks for commands in:
-    1. config.commands_dir in hogli.yaml (e.g., tools/hogli-commands/hogli_commands)
-    2. Default: hogli/ folder next to hogli.yaml
+    Boot modules register precheck handlers, telemetry property hooks, and
+    post-command hooks against ``hogli.hooks``. They run eagerly so the hooks
+    are populated before the first command dispatches. They must be cheap to
+    import — keep heavy work behind lazy imports inside handler bodies.
     """
     manifest = get_manifest()
     commands_dir = manifest.commands_dir
 
-    if not commands_dir:
-        return
+    if commands_dir:
+        parent_dir = str(commands_dir.parent)
+        if parent_dir not in sys.path:
+            sys.path.insert(0, parent_dir)
 
-    # Skip if the commands package or any of its submodules is already in sys.modules.
-    # Submodules are what carry `@cli.command` decorators, so re-importing would create
-    # a second module object and duplicate registrations against different module
-    # identities, which breaks test patches that target one path or the other.
-    # NOTE: commands_dir should NOT be named "hogli" to avoid clobbering the hogli package
-    package_name = commands_dir.name
-    for mod_name in sys.modules:
-        if mod_name == package_name or mod_name.startswith(package_name + "."):
-            return
-
-    # Add commands dir to path so imports work
-    parent_dir = str(commands_dir.parent)
-    if parent_dir not in sys.path:
-        sys.path.insert(0, parent_dir)
-
-    try:
-        importlib.import_module(package_name)
-        return
-    except ModuleNotFoundError:
-        # The package itself isn't importable via sys.path - fall back to file-spec load.
-        # Narrower than ImportError so that a broken import *inside* the package
-        # (e.g. a typo in one of its modules) still surfaces instead of being swallowed.
-        pass
-
-    # Fallback: manual load via file spec when the package isn't on sys.path in the normal sense
-    init_file = commands_dir / "__init__.py"
-    commands_file = commands_dir / "commands.py"
-
-    if init_file.exists():
-        spec = importlib.util.spec_from_file_location(
-            package_name, init_file, submodule_search_locations=[str(commands_dir)]
-        )
-        if spec and spec.loader:
-            module = importlib.util.module_from_spec(spec)
-            sys.modules[package_name] = module
-            spec.loader.exec_module(module)
-    elif commands_file.exists():
-        spec = importlib.util.spec_from_file_location(f"{package_name}.commands", commands_file)
-        if spec and spec.loader:
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
+    for module_path in manifest.config.get("boot_modules", []):
+        if not isinstance(module_path, str) or not module_path:
+            continue
+        if module_path in sys.modules:
+            continue
+        importlib.import_module(module_path)
 
 
-# Import custom commands from configured location
-_import_custom_commands()
+# Register all script commands from manifest, then trigger boot modules so
+# any framework-extension hooks (prechecks, telemetry props, post-command
+# hints) are registered before the first command runs.
+_register_script_commands()
+_load_boot_modules()
 
 
 def _env_properties(command: str | None = None) -> dict[str, Any]:
