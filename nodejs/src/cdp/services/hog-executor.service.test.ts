@@ -913,6 +913,99 @@ describe('Hog Executor', () => {
         })
     })
 
+    describe('claudeCreateSession', () => {
+        const mockExecHogForAsyncFunction = (asyncFunctionName: string, asyncFunctionArgs: any[]) => {
+            const hogExecModule = require('../utils/hog-exec')
+            jest.spyOn(hogExecModule, 'execHog').mockResolvedValue({
+                execResult: {
+                    finished: false,
+                    asyncFunctionName,
+                    asyncFunctionArgs,
+                    state: { syncDuration: 1, maxMemUsed: 100, ops: 10, stack: [] },
+                },
+                error: undefined,
+                durationMs: 1,
+                waitedForThreadRelief: false,
+            })
+        }
+
+        const createInvocation = () =>
+            createExampleInvocation(
+                createHogFunction({
+                    ...HOG_EXAMPLES.simple_fetch,
+                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                    ...HOG_FILTERS_EXAMPLES.no_filters,
+                }),
+                { inputs: {} }
+            )
+
+        it('queues fetch with the managed-agents beta header and required body fields', async () => {
+            mockExecHogForAsyncFunction('claudeCreateSession', [
+                {
+                    api_key: 'sk-ant-test',
+                    agent: 'agt_1',
+                    environment_id: 'env_prod',
+                    vault_ids: ['vault_1'],
+                    message: 'hello',
+                },
+            ])
+
+            const result = await executor.execute(createInvocation())
+
+            expect(result.invocation.queueParameters).toEqual({
+                type: 'fetch',
+                url: 'https://api.anthropic.com/v1/sessions',
+                method: 'POST',
+                headers: {
+                    'x-api-key': 'sk-ant-test',
+                    'anthropic-version': '2023-06-01',
+                    'anthropic-beta': 'managed-agents-2026-04-01',
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    agent: 'agt_1',
+                    environment_id: 'env_prod',
+                    initial_message: 'hello',
+                    vault_ids: ['vault_1'],
+                }),
+            })
+        })
+
+        it('omits vault_ids when not provided', async () => {
+            mockExecHogForAsyncFunction('claudeCreateSession', [
+                {
+                    api_key: 'sk-ant-test',
+                    agent: 'agt_1',
+                    environment_id: 'env_prod',
+                    message: 'hello',
+                },
+            ])
+
+            const result = await executor.execute(createInvocation())
+            const params = result.invocation.queueParameters as { body: string }
+            const parsed = parseJSON(params.body)
+            expect(parsed).not.toHaveProperty('vault_ids')
+        })
+
+        it('errors when api_key is missing', async () => {
+            mockExecHogForAsyncFunction('claudeCreateSession', [
+                { agent: 'agt_1', environment_id: 'env_prod', message: 'hello' },
+            ])
+
+            const result = await executor.execute(createInvocation())
+            expect(result.error).toContain("missing 'api_key'")
+        })
+
+        it('errors when agent is missing', async () => {
+            mockExecHogForAsyncFunction('claudeCreateSession', [
+                { api_key: 'sk-ant-test', environment_id: 'env_prod', message: 'hello' },
+            ])
+
+            const result = await executor.execute(createInvocation())
+            expect(result.error).toContain("missing 'agent'")
+        })
+    })
+
     describe('produceToWarehouseWebhooks', () => {
         const buildInvocation = async (code: string): Promise<CyclotronJobInvocationHogFunction> => {
             const bytecode = await compileHog(code)
