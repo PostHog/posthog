@@ -31,6 +31,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.database.schema.persons import _is_virtual_field_requiring_join
+from posthog.hogql.database.schema.util import pdi_person_id_pushdown
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
@@ -40,7 +41,7 @@ from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.models import Cohort
 from posthog.models.cohort.util import recalculate_cohortpeople
-from posthog.models.person.util import create_person
+from posthog.models.person.util import create_person, create_person_distinct_id
 from posthog.models.utils import UUIDT
 
 
@@ -505,22 +506,8 @@ class TestPersonsPdiPersonIdPushdown(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
     @snapshot_clickhouse_queries
-    def test_pdi_subquery_filtered_when_outer_filters_persons_id(self):
-        response = execute_hogql_query(
-            parse_select(
-                "SELECT id, arraySort(groupArray(pdi.distinct_id)) AS distinct_ids "
-                "FROM persons WHERE id IN ({alice_id}) GROUP BY id"
-            ),
-            self.team,
-            placeholders={"alice_id": ast.Constant(value=self.alice.uuid)},
-        )
-        assert response.clickhouse is not None
-        assert "pdi_pushdown_pdi" in response.clickhouse
-        assert len(response.results) == 1
-        assert response.results[0][1] == ["alice_a", "alice_b"]
-
-    @snapshot_clickhouse_queries
-    def test_pdi_subquery_filtered_when_outer_filters_persons_property(self):
+    def test_pdi_subquery_pushdown_snapshot(self):
+        # Lock in the canonical generated SQL shape for the hot prod case.
         response = execute_hogql_query(
             parse_select(
                 "SELECT pdi.distinct_id, properties.name AS name FROM persons WHERE properties.name = 'alice'"
@@ -530,25 +517,82 @@ class TestPersonsPdiPersonIdPushdown(ClickhouseTestMixin, APIBaseTest):
         assert response.clickhouse is not None
         assert "pdi_pushdown_pdi" in response.clickhouse
         assert "pdi_pushdown_persons" in response.clickhouse
-        distinct_ids = sorted(row[0] for row in response.results)
-        assert distinct_ids == ["alice_a", "alice_b"]
+
+    @parameterized.expand(
+        [
+            (
+                "id_in",
+                "SELECT pdi.distinct_id FROM persons WHERE id IN ({alice_id})",
+                {"alice_id": "ALICE_UUID"},
+                ["alice_a", "alice_b"],
+                [],
+            ),
+            (
+                "property_eq",
+                "SELECT pdi.distinct_id FROM persons WHERE properties.name = 'alice'",
+                None,
+                ["alice_a", "alice_b"],
+                ["pdi_pushdown_persons"],
+            ),
+            (
+                "negated_property_eq",
+                "SELECT pdi.distinct_id FROM persons WHERE NOT (properties.name = 'bob')",
+                None,
+                ["alice_a", "alice_b"],
+                ["not("],
+            ),
+            (
+                "not_like",
+                "SELECT pdi.distinct_id FROM persons WHERE properties.name NOT LIKE 'bob'",
+                None,
+                ["alice_a", "alice_b"],
+                ["notLike"],
+            ),
+            (
+                "or_across_persons_filters",
+                "SELECT pdi.distinct_id FROM persons WHERE properties.name = 'alice' OR properties.name = 'bob'",
+                None,
+                ["alice_a", "alice_b", "bob_a"],
+                [],
+            ),
+            # WhereClauseExtractor would flip is_join=True and tombstone NOT
+            # if next_join were set; revenue_analytics seeds next_join, so this
+            # case proves _strip_next_join works.
+            (
+                "negation_with_outer_join",
+                "SELECT pdi.distinct_id, revenue_analytics.mrr FROM persons WHERE NOT (properties.name = 'bob')",
+                None,
+                None,
+                ["pdi_pushdown_pdi", "not("],
+            ),
+        ]
+    )
+    def test_pdi_pushdown_fires_and_is_correct(
+        self, _name, hogql, placeholder_keys, expected_distinct_ids, extra_sql_substrings
+    ):
+        placeholders = None
+        if placeholder_keys:
+            placeholders = {k: ast.Constant(value=self.alice.uuid) for k in placeholder_keys}
+        response = execute_hogql_query(parse_select(hogql), self.team, placeholders=placeholders)
+        assert response.clickhouse is not None
+        assert "pdi_pushdown_pdi" in response.clickhouse
+        for needle in extra_sql_substrings:
+            assert needle in response.clickhouse, f"missing {needle!r} in generated SQL"
+        if expected_distinct_ids is not None:
+            distinct_ids = sorted(row[0] for row in response.results)
+            assert distinct_ids == expected_distinct_ids
 
     def test_pdi_subquery_unfiltered_when_no_pushdown_target(self):
-        response = execute_hogql_query(
-            parse_select("SELECT id FROM persons"),
-            self.team,
-        )
+        response = execute_hogql_query(parse_select("SELECT id FROM persons"), self.team)
         assert response.clickhouse is not None
         assert "pdi_pushdown_pdi" not in response.clickhouse
 
     def test_pdi_subquery_correct_when_distinct_id_was_rebound(self):
         # Rebind one of alice's distinct_ids to bob via a higher-version pdi row.
-        # The motivating correctness case for the distinct_id IN (subquery) shape:
+        # Motivating correctness case for the distinct_id IN (subquery) shape:
         # filtering raw pdi rows by person_id pre-argMax would return a stale
         # mapping for "alice_b", but the outer argMax must report bob as the
         # current owner.
-        from posthog.models.person.util import create_person_distinct_id
-
         create_person_distinct_id(
             team_id=self.team.pk,
             distinct_id="alice_b",
@@ -568,72 +612,12 @@ class TestPersonsPdiPersonIdPushdown(ClickhouseTestMixin, APIBaseTest):
         assert response.clickhouse is not None
         assert "pdi_pushdown_pdi" in response.clickhouse
         assert len(response.results) == 1
-        # alice_b now belongs to bob, so alice should only be associated with alice_a.
         assert response.results[0][1] == ["alice_a"]
-
-    def test_pdi_subquery_with_negated_persons_filter(self):
-        response = execute_hogql_query(
-            parse_select("SELECT pdi.distinct_id FROM persons WHERE NOT (properties.name = 'bob')"),
-            self.team,
-        )
-        assert response.clickhouse is not None
-        # Pushdown must actually fire AND must include the negation in the inner
-        # subquery. WhereClauseExtractor would tombstone NOT to True if is_join
-        # were set; we strip next_join before calling it to prevent that.
-        assert "pdi_pushdown_pdi" in response.clickhouse
-        assert "pdi_pushdown_persons" in response.clickhouse
-        assert "not(" in response.clickhouse or "notLike" in response.clickhouse
-        distinct_ids = sorted(row[0] for row in response.results)
-        assert distinct_ids == ["alice_a", "alice_b"]
-
-    def test_pdi_subquery_with_not_like(self):
-        response = execute_hogql_query(
-            parse_select("SELECT pdi.distinct_id FROM persons WHERE properties.name NOT LIKE 'bob'"),
-            self.team,
-        )
-        assert response.clickhouse is not None
-        assert "pdi_pushdown_pdi" in response.clickhouse
-        assert "notLike" in response.clickhouse
-        distinct_ids = sorted(row[0] for row in response.results)
-        assert distinct_ids == ["alice_a", "alice_b"]
-
-    def test_pdi_subquery_with_negation_and_outer_join(self):
-        # When the outer query has a JOIN already in select_from.next_join,
-        # WhereClauseExtractor.get_inner_where would normally flip is_join=True
-        # and tombstone the NOT predicate. _strip_next_join in the helper
-        # prevents that. Use revenue_analytics (a real LazyJoin) to seed
-        # next_join.
-        response = execute_hogql_query(
-            parse_select(
-                "SELECT pdi.distinct_id, revenue_analytics.mrr FROM persons WHERE NOT (properties.name = 'bob')"
-            ),
-            self.team,
-        )
-        assert response.clickhouse is not None
-        assert "pdi_pushdown_pdi" in response.clickhouse
-        assert "not(" in response.clickhouse or "notLike" in response.clickhouse
-
-    def test_pdi_subquery_with_or_persons_filter(self):
-        # OR across persons-side predicates is safe to push down: both branches
-        # bind to the same persons table and both narrow person_id candidates.
-        response = execute_hogql_query(
-            parse_select(
-                "SELECT pdi.distinct_id FROM persons WHERE properties.name = 'alice' OR properties.name = 'bob'"
-            ),
-            self.team,
-        )
-        assert response.clickhouse is not None
-        distinct_ids = sorted(row[0] for row in response.results)
-        assert distinct_ids == ["alice_a", "alice_b", "bob_a"]
 
     def test_pdi_subquery_pushdown_fails_open_on_extractor_error(self):
         # If the helper raises, the optimization must skip silently rather than
-        # break the query. We can't easily inject an exception via a real query,
-        # but we can verify the wrapper by patching the inner function.
-        from unittest.mock import patch
-
-        from posthog.hogql.database.schema.util import pdi_person_id_pushdown
-
+        # break the query. Patching the inner function lets us verify the
+        # try/except envelope without contriving a real failure.
         with patch.object(pdi_person_id_pushdown, "_derive_person_id_filter_inner", side_effect=RuntimeError("boom")):
             response = execute_hogql_query(
                 parse_select("SELECT pdi.distinct_id FROM persons WHERE properties.name = 'alice'"),

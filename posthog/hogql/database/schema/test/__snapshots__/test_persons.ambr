@@ -92,49 +92,7 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestPersonsPdiPersonIdPushdown.test_pdi_subquery_filtered_when_outer_filters_persons_id
-  '''
-  SELECT persons.id AS id,
-         arraySort(groupArray(persons__pdi.distinct_id)) AS distinct_ids
-  FROM
-    (SELECT tupleElement(argMax(tuple(person.id), person.version), 1) AS persons___id,
-            person.id AS id
-     FROM person
-     WHERE and(equals(person.team_id, 99999), in(id,
-                                                   (SELECT where_optimization.id AS id
-                                                    FROM person AS where_optimization
-                                                    WHERE and(equals(where_optimization.team_id, 99999), in(where_optimization.id, toUUIDOrNull('00000000-0000-4000-8000-000000000000'))))))
-     GROUP BY person.id
-     HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
-  LEFT JOIN
-    (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
-            person_distinct_id2.distinct_id AS distinct_id
-     FROM person_distinct_id2
-     WHERE and(equals(person_distinct_id2.team_id, 99999), in(distinct_id,
-                                                                (SELECT pdi_pushdown_pdi.distinct_id AS distinct_id
-                                                                 FROM person_distinct_id2 AS pdi_pushdown_pdi
-                                                                 WHERE and(equals(pdi_pushdown_pdi.team_id, 99999), in(pdi_pushdown_pdi.person_id,
-                                                                                                                         (SELECT pdi_pushdown_persons.id AS id
-                                                                                                                          FROM person AS pdi_pushdown_persons
-                                                                                                                          WHERE and(equals(pdi_pushdown_persons.team_id, 99999), in(pdi_pushdown_persons.id, toUUIDOrNull('00000000-0000-4000-8000-000000000000')))))))))
-     GROUP BY person_distinct_id2.distinct_id
-     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons__pdi ON equals(persons.persons___id, persons__pdi.person_id)
-  WHERE in(persons.id,
-           toUUIDOrNull('00000000-0000-4000-8000-000000000000'))
-  GROUP BY persons.id
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
-  '''
-# ---
-# name: TestPersonsPdiPersonIdPushdown.test_pdi_subquery_filtered_when_outer_filters_persons_property
+# name: TestPersonsPdiPersonIdPushdown.test_pdi_subquery_pushdown_snapshot
   '''
   SELECT persons__pdi.distinct_id AS distinct_id,
          persons.properties___name AS name

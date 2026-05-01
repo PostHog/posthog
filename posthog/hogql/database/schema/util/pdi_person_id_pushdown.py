@@ -1,3 +1,4 @@
+from dataclasses import replace
 from typing import Optional, cast
 
 import structlog
@@ -131,7 +132,7 @@ class _FindPersonsTableVisitor(TraversingVisitor):
 def _strip_next_join(node: ast.SelectQuery) -> ast.SelectQuery:
     if node.select_from is None or node.select_from.next_join is None:
         return node
-    return node.model_copy(update={"select_from": node.select_from.model_copy(update={"next_join": None})})
+    return replace(node, select_from=replace(node.select_from, next_join=None))
 
 
 def _find_persons_table(node: ast.SelectQuery):
