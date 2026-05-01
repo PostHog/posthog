@@ -46,8 +46,11 @@ export class CdpEventsConsumer<
     ) {
         super(config, deps)
         this.cyclotronJobQueue = new CyclotronJobQueue(config.CONSUMER_BATCH_SIZE, config.KAFKA_CLIENT_RACK, config)
+        // NOTE: do not prefix with `KAFKA_CONSUMER_` — that namespace is auto-passed through
+        // to librdkafka as a config property (e.g. `KAFKA_CONSUMER_V2_CDP_EVENTS` would
+        // become `v2.cdp.events` and crash on startup).
         this.kafkaConsumer =
-            process.env.KAFKA_CONSUMER_V2_CDP_EVENTS === 'true'
+            process.env.CONSUMER_V2_CDP_EVENTS === 'true'
                 ? new KafkaConsumerV2({ groupId, topic })
                 : new KafkaConsumer({ groupId, topic })
         this.hogRateLimiter = new HogRateLimiterService(
