@@ -296,7 +296,7 @@ def get_sandbox_ph_mcp_configs(
         {"name": "Authorization", "value": f"Bearer {token}"},
         {"name": "x-posthog-project-id", "value": str(project_id)},
         {"name": "x-posthog-mcp-version", "value": "2"},
-        {"name": "x-posthog-read-only", "value": str(read_only).lower()},
+        {"name": "x-posthog-readonly", "value": str(read_only).lower()},
         {"name": "x-posthog-mcp-consumer", "value": _resolve_mcp_consumer(interaction_origin)},
     ]
     return [McpServerConfig(type="http", name="posthog", url=url, headers=headers)]

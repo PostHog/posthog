@@ -143,6 +143,14 @@ const generateErrorResponseFromMessage = (message: string): Response | null => {
     return null
 }
 
+export const getReadOnlyFromRequest = (request: Request, url: URL): boolean | undefined => {
+    const readOnlyRaw =
+        request.headers.get('x-posthog-readonly') ||
+        request.headers.get('x-posthog-read-only') ||
+        url.searchParams.get('readonly')
+    return readOnlyRaw === 'true' || readOnlyRaw === '1' || undefined
+}
+
 const handleRequest = async (
     request: Request,
     env: Env,
@@ -342,8 +350,7 @@ const handleRequest = async (
 
     const version = Number(request.headers.get('x-posthog-mcp-version') || url.searchParams.get('v')) || 1
 
-    const readOnlyRaw = request.headers.get('x-posthog-readonly') || url.searchParams.get('readonly')
-    const readOnly = readOnlyRaw === 'true' || readOnlyRaw === '1' || undefined
+    const readOnly = getReadOnlyFromRequest(request, url)
 
     // Explicit selection between tool-based and CLI-based MCP. Falls back to the
     // flag + client-detection logic in `MCP.init()` when unset. See `parseMcpMode`.
