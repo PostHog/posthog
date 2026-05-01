@@ -88,7 +88,7 @@ def _insert_persons(
                 target_team_id,
                 uuid,
                 properties_json,
-                row.get("is_identified", False),
+                bool(row.get("is_identified", False)),
                 row.get("created_at"),
                 row.get("version"),
                 row.get("last_seen_at"),
