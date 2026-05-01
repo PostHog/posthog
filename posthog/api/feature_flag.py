@@ -917,6 +917,12 @@ class FeatureFlagSerializer(
                 f"groups[{group_index}].aggregation_group_type_index",
             )
 
+            early_exit = group.get("early_exit")
+            if early_exit is not None and not isinstance(early_exit, bool):
+                raise serializers.ValidationError(
+                    f"groups[{group_index}].early_exit must be a boolean or null, got {type(early_exit).__name__}"
+                )
+
             for prop_index, prop in enumerate(group.get("properties", [])):
                 _validate_integer(
                     prop.get("group_type_index"),
