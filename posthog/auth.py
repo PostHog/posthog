@@ -628,8 +628,13 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
         return None
 
     def _validate_token(self, token: str):
+        from posthog.models.oauth import find_oauth_access_token
+
         try:
-            access_token = OAuthAccessToken.objects.select_related("user").get(token=token)
+            access_token = find_oauth_access_token(token)
+
+            if access_token is None:
+                return None
 
             if access_token.is_expired():
                 raise AuthenticationFailed(detail="Access token has expired.")
@@ -645,8 +650,6 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
 
             return access_token
 
-        except OAuthAccessToken.DoesNotExist:
-            return None
         except AuthenticationFailed:
             raise
         except Exception:

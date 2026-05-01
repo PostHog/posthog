@@ -103,46 +103,56 @@ export class StateManager {
         organizationId?: string
         projectId?: number
     }> {
-        const [{ scoped_organizations, scoped_teams }, user] = await Promise.all([this.getApiKey(), this.getUser()])
-        const { organization: activeOrganization, team: activeTeam } = user
-
-        // Team-scoped key: prefer the active team if the scope allows it,
-        // otherwise pick the first scoped team deterministically. The org is
-        // omitted here — `getAnalyticsContext` recovers it from the project.
-        if (scoped_teams.length > 0) {
-            if (scoped_teams.includes(activeTeam.id)) {
-                return { projectId: activeTeam.id }
-            }
-            return { projectId: scoped_teams[0]! }
-        }
-
-        // No team scoping: prefer the user's active org/team when the scope
-        // allows it.
-        if (scoped_organizations.length === 0 || scoped_organizations.includes(activeOrganization.id)) {
-            return { organizationId: activeOrganization.id, projectId: activeTeam.id }
-        }
-
-        // Active org isn't in the scope. Pick the first allowed org and fall
-        // back to its first project. If the project lookup fails or the org has
-        // no projects, return the org alone and let the agent disambiguate.
-        const organizationId = scoped_organizations[0]!
         try {
-            const projectsResult = await this._api.organizations().projects({ orgId: organizationId }).list()
-            if (projectsResult.success && projectsResult.data.length > 0) {
-                return { organizationId, projectId: Number(projectsResult.data[0]!) }
+            const [{ scoped_organizations, scoped_teams }, user] = await Promise.all([this.getApiKey(), this.getUser()])
+            const activeOrganization = user.organization ?? undefined
+            const activeTeam = user.team ?? undefined
+
+            // Team-scoped key: prefer the active team if the scope allows it,
+            // otherwise pick the first scoped team deterministically. The org is
+            // omitted here — `getAnalyticsContext` recovers it from the project.
+            if (scoped_teams.length > 0) {
+                if (activeTeam && scoped_teams.includes(activeTeam.id)) {
+                    return { projectId: activeTeam.id }
+                }
+                return { projectId: scoped_teams[0]! }
             }
-            if (!projectsResult.success) {
-                this._reportException(projectsResult.error, 'default_org_project_projects_list_failed', {
+
+            if (!activeOrganization || !activeTeam) {
+                return {}
+            }
+
+            // No team scoping: prefer the user's active org/team when the scope
+            // allows it.
+            if (scoped_organizations.length === 0 || scoped_organizations.includes(activeOrganization.id)) {
+                return { organizationId: activeOrganization.id, projectId: activeTeam.id }
+            }
+
+            // Active org isn't in the scope. Pick the first allowed org and fall
+            // back to its first project. If the project lookup fails or the org has
+            // no projects, return the org alone and let the agent disambiguate.
+            const organizationId = scoped_organizations[0]!
+            try {
+                const projectsResult = await this._api.organizations().projects({ orgId: organizationId }).list()
+                if (projectsResult.success && projectsResult.data.length > 0) {
+                    return { organizationId, projectId: Number(projectsResult.data[0]!) }
+                }
+                if (!projectsResult.success) {
+                    this._reportException(projectsResult.error, 'default_org_project_projects_list_failed', {
+                        organization_id: organizationId,
+                    })
+                }
+            } catch (error) {
+                this._reportException(error, 'default_org_project_projects_list_threw', {
                     organization_id: organizationId,
                 })
             }
-        } catch (error) {
-            this._reportException(error, 'default_org_project_projects_list_threw', {
-                organization_id: organizationId,
-            })
-        }
 
-        return { organizationId }
+            return { organizationId }
+        } catch (error) {
+            this._reportException(error, 'default_org_project_resolution_failed')
+            return {}
+        }
     }
 
     private _reportException(error: unknown, context: string, extra: Record<string, unknown> = {}): void {

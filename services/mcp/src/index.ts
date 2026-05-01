@@ -130,11 +130,27 @@ const onCatchErrorHandler = async (
     return new Response('Internal server error', { status: 500 })
 }
 
+const AUTH_ERROR_PATTERNS = [
+    'Access token has expired',
+    'access token is disabled',
+    'access token not found',
+    'Failed to validate access token',
+    'Authentication credentials were not provided',
+]
+
 const generateErrorResponseFromMessage = (message: string): Response | null => {
     if (message.includes(ErrorCode.INACTIVE_OAUTH_TOKEN)) {
         return new Response('OAuth token is inactive', { status: 401 })
     } else if (message.includes(ErrorCode.INVALID_API_KEY)) {
         return new Response('Invalid API key', { status: 401 })
+    }
+
+    if (AUTH_ERROR_PATTERNS.some((pattern) => message.includes(pattern))) {
+        return new Response('Authentication failed', { status: 401 })
+    }
+
+    if (message.includes('Rate limit exceeded')) {
+        return new Response('Rate limited', { status: 429 })
     }
 
     return null
