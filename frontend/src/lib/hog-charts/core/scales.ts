@@ -291,40 +291,37 @@ export function createBarScales(
         ? [dimensions.plotLeft, dimensions.plotLeft + dimensions.plotWidth]
         : [dimensions.plotTop + dimensions.plotHeight, dimensions.plotTop]
 
+    return {
+        band,
+        value: buildBarValueScale(series, valueRange, tickCount, barLayout, scaleType, stackedSeries),
+        group,
+    }
+}
+
+function buildBarValueScale(
+    series: Series[],
+    valueRange: [number, number],
+    tickCount: number,
+    barLayout: 'stacked' | 'grouped' | 'percent',
+    scaleType: 'linear' | 'log',
+    stackedSeries: Series[] | undefined
+): D3YScale {
     if (barLayout === 'percent') {
-        const value = d3.scaleLinear().domain([0, 1]).nice(tickCount).range(valueRange)
-        return { band, value, group }
+        return d3.scaleLinear().domain([0, 1]).nice(tickCount).range(valueRange)
     }
-
-    const seriesForRange = stackedSeries ?? series
-    const range = seriesValueRange(seriesForRange)
-
+    const range = seriesValueRange(stackedSeries ?? series)
     if (range.count === 0) {
-        const value = d3.scaleLinear().domain([0, 1]).range(valueRange)
-        return { band, value, group }
+        return d3.scaleLinear().domain([0, 1]).range(valueRange)
     }
-
-    let { min, max } = range
-    if (min > 0) {
-        min = 0
-    } else if (max < 0) {
-        max = 0
-    }
-
-    if (scaleType === 'log') {
-        if (!isFinite(range.minPositive)) {
-            const value = d3.scaleLinear().domain([min, max]).nice(tickCount).range(valueRange)
-            return { band, value, group }
-        }
+    const min = range.min > 0 ? 0 : range.min
+    const max = range.max < 0 ? 0 : range.max
+    if (scaleType === 'log' && isFinite(range.minPositive)) {
         const niceMin = Math.pow(10, Math.ceil(Math.log10(range.minPositive)) - 1)
         const maxDecade = Math.pow(10, Math.floor(Math.log10(max)))
         const niceMax = Math.ceil(max / maxDecade) * maxDecade
-        const value = d3.scaleLog().domain([niceMin, niceMax]).range(valueRange).clamp(true)
-        return { band, value, group }
+        return d3.scaleLog().domain([niceMin, niceMax]).range(valueRange).clamp(true)
     }
-
-    const value = d3.scaleLinear().domain([min, max]).nice(tickCount).range(valueRange)
-    return { band, value, group }
+    return d3.scaleLinear().domain([min, max]).nice(tickCount).range(valueRange)
 }
 
 export function autoFormatYTick(value: number, domainMax: number): string {

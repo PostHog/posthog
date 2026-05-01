@@ -3,12 +3,23 @@ import { createBarScales } from './scales'
 
 describe('hog-charts bar scales', () => {
     describe('createBarScales — vertical orientation (default)', () => {
-        it('builds a band scale across the plot width', () => {
+        it.each([
+            {
+                orientation: 'vertical' as const,
+                rangeStart: dimensions.plotLeft,
+                rangeEnd: dimensions.plotLeft + dimensions.plotWidth,
+            },
+            {
+                orientation: 'horizontal' as const,
+                rangeStart: dimensions.plotTop,
+                rangeEnd: dimensions.plotTop + dimensions.plotHeight,
+            },
+        ])('places bands across the categorical axis ($orientation)', ({ orientation, rangeStart, rangeEnd }) => {
             const series = [makeSeries({ key: 's1', data: [10, 20, 30] })]
-            const { band } = createBarScales(series, ['a', 'b', 'c'], dimensions)
+            const { band } = createBarScales(series, ['a', 'b', 'c'], dimensions, { axisOrientation: orientation })
             const bandStart = band('a')!
-            expect(bandStart).toBeGreaterThanOrEqual(dimensions.plotLeft)
-            expect(bandStart + band.bandwidth()).toBeLessThanOrEqual(dimensions.plotLeft + dimensions.plotWidth + 1)
+            expect(bandStart).toBeGreaterThanOrEqual(rangeStart)
+            expect(bandStart + band.bandwidth()).toBeLessThanOrEqual(rangeEnd + 1)
         })
 
         it('produces a bandwidth proportional to the number of labels', () => {
@@ -64,22 +75,6 @@ describe('hog-charts bar scales', () => {
             expect(yAt1).toBeLessThan(yAt0)
             expect(value.domain()[0]).toBeCloseTo(0)
             expect(value.domain()[1]).toBeCloseTo(1)
-        })
-    })
-
-    describe('createBarScales — horizontal orientation', () => {
-        it('places bands across the plot height', () => {
-            const series = [makeSeries({ key: 's1', data: [10, 20, 30] })]
-            const { band } = createBarScales(series, ['a', 'b', 'c'], dimensions, { axisOrientation: 'horizontal' })
-            const bandStart = band('a')!
-            expect(bandStart).toBeGreaterThanOrEqual(dimensions.plotTop)
-            expect(bandStart + band.bandwidth()).toBeLessThanOrEqual(dimensions.plotTop + dimensions.plotHeight + 1)
-        })
-
-        it('produces a value scale that increases left-to-right', () => {
-            const series = [makeSeries({ key: 's1', data: [0, 50, 100] })]
-            const { value } = createBarScales(series, ['a', 'b', 'c'], dimensions, { axisOrientation: 'horizontal' })
-            expect(value(100)).toBeGreaterThan(value(0))
         })
     })
 

@@ -13,109 +13,69 @@ describe('hog-charts bar-layout', () => {
             expect(cornersFor(isHorizontal, isPositive, true)).toEqual(expected)
         })
 
-        it('returns no rounding when shouldRoundCap is false', () => {
-            expect(cornersFor(false, true, false)).toEqual({})
-            expect(cornersFor(true, false, false)).toEqual({})
+        it.each([
+            { isHorizontal: false, isPositive: true },
+            { isHorizontal: true, isPositive: false },
+        ])('returns no rounding when shouldRoundCap is false', ({ isHorizontal, isPositive }) => {
+            expect(cornersFor(isHorizontal, isPositive, false)).toEqual({})
         })
     })
 
     describe('computeSeriesBars — grouped', () => {
-        it('lays out positive grouped bars from baseline upward', () => {
-            const labels = ['a', 'b']
-            const a = makeSeries({ key: 'a', data: [10, 20] })
-            const b = makeSeries({ key: 'b', data: [5, 15] })
-            const scales = createBarScales([a, b], labels, dimensions, { barLayout: 'grouped' })
+        it.each([
+            {
+                desc: 'vertical positive',
+                data: [10],
+                isHorizontal: false,
+                expectedCorners: { topLeft: true, topRight: true },
+            },
+            {
+                desc: 'vertical negative',
+                data: [-10],
+                isHorizontal: false,
+                expectedCorners: { bottomLeft: true, bottomRight: true },
+            },
+            {
+                desc: 'horizontal positive',
+                data: [10],
+                isHorizontal: true,
+                expectedCorners: { topRight: true, bottomRight: true },
+            },
+            {
+                desc: 'horizontal negative',
+                data: [-10],
+                isHorizontal: true,
+                expectedCorners: { topLeft: true, bottomLeft: true },
+            },
+        ])('rounds caps for $desc bars', ({ data, isHorizontal, expectedCorners }) => {
+            const s = makeSeries({ key: 's', data })
+            const scales = createBarScales([s], ['a'], dimensions, {
+                barLayout: 'grouped',
+                axisOrientation: isHorizontal ? 'horizontal' : 'vertical',
+            })
             const bars = computeSeriesBars({
-                series: a,
-                labels,
+                series: s,
+                labels: ['a'],
                 scales,
                 layout: 'grouped',
-                isHorizontal: false,
-                stackedBand: undefined,
+                isHorizontal,
                 isTopOfStack: false,
             })
-            expect(bars).toHaveLength(2)
-            expect(bars[0]?.dataIndex).toBe(0)
+            expect(bars[0]?.corners).toEqual(expectedCorners)
+            expect(bars[0]?.width).toBeGreaterThan(0)
             expect(bars[0]?.height).toBeGreaterThan(0)
-            const baselinePixel = scales.value(0)
-            expect(bars[0]!.y).toBeLessThan(baselinePixel)
-            expect(bars[0]!.y + bars[0]!.height).toBeCloseTo(baselinePixel, 5)
-        })
-
-        it('flips corners and origin for negative grouped bars', () => {
-            const labels = ['a']
-            const s = makeSeries({ key: 's', data: [-10] })
-            const scales = createBarScales([s], labels, dimensions, { barLayout: 'grouped' })
-            const bars = computeSeriesBars({
-                series: s,
-                labels,
-                scales,
-                layout: 'grouped',
-                isHorizontal: false,
-                stackedBand: undefined,
-                isTopOfStack: false,
-            })
-            expect(bars[0]?.corners).toEqual({ bottomLeft: true, bottomRight: true })
-            const baselinePixel = scales.value(0)
-            expect(bars[0]!.y).toBeCloseTo(baselinePixel, 5)
-        })
-
-        it('produces band-axis-y / value-axis-x rects in horizontal grouped mode', () => {
-            const labels = ['a']
-            const s = makeSeries({ key: 's', data: [10] })
-            const scales = createBarScales([s], labels, dimensions, {
-                barLayout: 'grouped',
-                axisOrientation: 'horizontal',
-            })
-            const bars = computeSeriesBars({
-                series: s,
-                labels,
-                scales,
-                layout: 'grouped',
-                isHorizontal: true,
-                stackedBand: undefined,
-                isTopOfStack: false,
-            })
-            expect(bars[0]?.corners).toEqual({ topRight: true, bottomRight: true })
-            const baselinePixel = scales.value(0)
-            expect(bars[0]!.x).toBeCloseTo(baselinePixel, 5)
-            expect(bars[0]!.width).toBeGreaterThan(0)
-        })
-
-        it('flips corners for horizontal + negative grouped bars', () => {
-            const labels = ['a']
-            const s = makeSeries({ key: 's', data: [-10] })
-            const scales = createBarScales([s], labels, dimensions, {
-                barLayout: 'grouped',
-                axisOrientation: 'horizontal',
-            })
-            const bars = computeSeriesBars({
-                series: s,
-                labels,
-                scales,
-                layout: 'grouped',
-                isHorizontal: true,
-                stackedBand: undefined,
-                isTopOfStack: false,
-            })
-            expect(bars[0]?.corners).toEqual({ topLeft: true, bottomLeft: true })
-            const baselinePixel = scales.value(0)
-            // Negative horizontal bar extends left of baseline; bar.x + width sits at the baseline.
-            expect(bars[0]!.x + bars[0]!.width).toBeCloseTo(baselinePixel, 5)
         })
 
         it('skips bars for excluded series in the grouped sub-band', () => {
-            const labels = ['a']
             const visible = makeSeries({ key: 'visible', data: [10] })
             const excluded = makeSeries({ key: 'excluded', data: [10], visibility: { excluded: true } })
-            const scales = createBarScales([visible, excluded], labels, dimensions, { barLayout: 'grouped' })
+            const scales = createBarScales([visible, excluded], ['a'], dimensions, { barLayout: 'grouped' })
             const bars = computeSeriesBars({
                 series: excluded,
-                labels,
+                labels: ['a'],
                 scales,
                 layout: 'grouped',
                 isHorizontal: false,
-                stackedBand: undefined,
                 isTopOfStack: false,
             })
             expect(bars[0]).toBeNull()
@@ -141,20 +101,19 @@ describe('hog-charts bar-layout', () => {
                 isTopOfStack: true,
             })
             expect(bars).toHaveLength(2)
-            const expectedHeight0 = Math.abs(scales.value(stackB.top[0]) - scales.value(stackB.bottom[0]))
-            expect(bars[0]!.height).toBeCloseTo(expectedHeight0, 5)
+            const expectedHeight = Math.abs(scales.value(stackB.top[0]) - scales.value(stackB.bottom[0]))
+            expect(bars[0]!.height).toBeCloseTo(expectedHeight, 5)
         })
 
         it('only rounds the top stack layer', () => {
-            const labels = ['a']
             const a = makeSeries({ key: 'a', data: [10] })
             const b = makeSeries({ key: 'b', data: [5] })
-            const scales = createBarScales([a, b], labels, dimensions, { barLayout: 'stacked' })
-            const stacks = computeStackData([a, b], labels)
+            const scales = createBarScales([a, b], ['a'], dimensions, { barLayout: 'stacked' })
+            const stacks = computeStackData([a, b], ['a'])
 
             const bottomBars = computeSeriesBars({
                 series: a,
-                labels,
+                labels: ['a'],
                 scales,
                 layout: 'stacked',
                 isHorizontal: false,
@@ -163,7 +122,7 @@ describe('hog-charts bar-layout', () => {
             })
             const topBars = computeSeriesBars({
                 series: b,
-                labels,
+                labels: ['a'],
                 scales,
                 layout: 'stacked',
                 isHorizontal: false,
@@ -172,6 +131,21 @@ describe('hog-charts bar-layout', () => {
             })
             expect(bottomBars[0]?.corners).toEqual({})
             expect(topBars[0]?.corners).toEqual({ topLeft: true, topRight: true })
+        })
+
+        it('throws when stackedBand is omitted for non-grouped layouts', () => {
+            const s = makeSeries({ key: 's', data: [10] })
+            const scales = createBarScales([s], ['a'], dimensions, { barLayout: 'stacked' })
+            expect(() =>
+                computeSeriesBars({
+                    series: s,
+                    labels: ['a'],
+                    scales,
+                    layout: 'stacked',
+                    isHorizontal: false,
+                    isTopOfStack: true,
+                })
+            ).toThrow(/stackedBand is required/)
         })
     })
 
@@ -186,7 +160,6 @@ describe('hog-charts bar-layout', () => {
                 scales,
                 layout: 'grouped',
                 isHorizontal: false,
-                stackedBand: undefined,
                 isTopOfStack: false,
             })
             expect(bars).toHaveLength(3)

@@ -4,8 +4,8 @@ import type { Series } from './types'
 
 export type SeriesBarLayout = (BarRect | null)[]
 
-/** Cap is the side away from the value-axis baseline; for stacked layers below the topmost
- *  the caller should pass `shouldRoundCap: false`. */
+/** Cap is the side away from the value-axis baseline; pass `shouldRoundCap: false` for stacked
+ *  layers below the topmost. */
 export function cornersFor(isHorizontal: boolean, isPositive: boolean, shouldRoundCap: boolean): BarRoundedCorners {
     if (!shouldRoundCap) {
         return {}
@@ -16,13 +16,30 @@ export function cornersFor(isHorizontal: boolean, isPositive: boolean, shouldRou
     return isPositive ? { topLeft: true, topRight: true } : { bottomLeft: true, bottomRight: true }
 }
 
+function makeBarRect(
+    isHorizontal: boolean,
+    bandStart: number,
+    bandSize: number,
+    valueA: number,
+    valueB: number,
+    corners: BarRoundedCorners,
+    dataIndex: number
+): BarRect {
+    const valueMin = Math.min(valueA, valueB)
+    const valueSize = Math.abs(valueA - valueB)
+    return isHorizontal
+        ? { x: valueMin, y: bandStart, width: valueSize, height: bandSize, corners, dataIndex }
+        : { x: bandStart, y: valueMin, width: bandSize, height: valueSize, corners, dataIndex }
+}
+
 export interface ComputeSeriesBarsOptions {
     series: Series
     labels: string[]
     scales: BarScaleSet
     layout: 'stacked' | 'grouped' | 'percent'
     isHorizontal: boolean
-    stackedBand: StackedBand | undefined
+    /** Required for `stacked` and `percent` layouts. Must be omitted for `grouped`. */
+    stackedBand?: StackedBand
     isTopOfStack: boolean
 }
 
@@ -35,92 +52,59 @@ export function computeSeriesBars({
     stackedBand,
     isTopOfStack,
 }: ComputeSeriesBarsOptions): SeriesBarLayout {
+    const isGrouped = layout === 'grouped'
+    if (!isGrouped && !stackedBand) {
+        throw new Error(`computeSeriesBars: stackedBand is required for layout '${layout}'`)
+    }
+
     const result: SeriesBarLayout = []
     const bandWidth = scales.band.bandwidth()
     const valueAtZero = scales.value(0)
-    const isGrouped = layout === 'grouped'
     const shouldRoundCap = isGrouped || isTopOfStack
     const groupOffsetForKey = isGrouped ? scales.group?.(series.key) : undefined
     const groupBandWidth = isGrouped ? (scales.group?.bandwidth() ?? bandWidth) : bandWidth
+    // For stacked/percent the bar's "positive direction" depends on which pixel is further from baseline,
+    // which differs by orientation: horizontal = larger x-pixel, vertical = smaller y-pixel (axis is inverted).
+    const isPositiveByPixels = (topPx: number, bottomPx: number): boolean =>
+        isHorizontal ? topPx >= bottomPx : topPx <= bottomPx
 
     for (let i = 0; i < labels.length; i++) {
         const bandStart = scales.band(labels[i])
-        if (bandStart == null) {
-            result.push(null)
-            continue
-        }
-
         const raw = series.data[i]
-        if (raw == null || !isFinite(raw)) {
+        if (bandStart == null || raw == null || !isFinite(raw)) {
             result.push(null)
             continue
         }
 
         if (isGrouped) {
-            if (groupOffsetForKey == null) {
-                result.push(null)
-                continue
-            }
             const valuePixel = scales.value(raw)
-            if (!isFinite(valuePixel)) {
+            if (groupOffsetForKey == null || !isFinite(valuePixel)) {
                 result.push(null)
                 continue
             }
-
             const corners = cornersFor(isHorizontal, raw >= 0, shouldRoundCap)
-            if (isHorizontal) {
-                result.push({
-                    x: Math.min(valueAtZero, valuePixel),
-                    y: bandStart + groupOffsetForKey,
-                    width: Math.abs(valuePixel - valueAtZero),
-                    height: groupBandWidth,
+            result.push(
+                makeBarRect(
+                    isHorizontal,
+                    bandStart + groupOffsetForKey,
+                    groupBandWidth,
+                    valueAtZero,
+                    valuePixel,
                     corners,
-                    dataIndex: i,
-                })
-            } else {
-                result.push({
-                    x: bandStart + groupOffsetForKey,
-                    y: Math.min(valueAtZero, valuePixel),
-                    width: groupBandWidth,
-                    height: Math.abs(valuePixel - valueAtZero),
-                    corners,
-                    dataIndex: i,
-                })
-            }
+                    i
+                )
+            )
             continue
         }
 
-        // Stacked / percent: stack data is non-negative (computeStackData clamps via Math.max(0, …)),
-        // so cornersFor's `isPositive=true` is correct here.
-        const top = stackedBand?.top[i] ?? raw
-        const bottom = stackedBand?.bottom[i] ?? 0
-        const topPixel = scales.value(top)
-        const bottomPixel = scales.value(bottom)
+        const topPixel = scales.value(stackedBand!.top[i])
+        const bottomPixel = scales.value(stackedBand!.bottom[i])
         if (!isFinite(topPixel) || !isFinite(bottomPixel)) {
             result.push(null)
             continue
         }
-
-        const corners = cornersFor(isHorizontal, true, shouldRoundCap)
-        if (isHorizontal) {
-            result.push({
-                x: Math.min(topPixel, bottomPixel),
-                y: bandStart,
-                width: Math.abs(topPixel - bottomPixel),
-                height: bandWidth,
-                corners,
-                dataIndex: i,
-            })
-        } else {
-            result.push({
-                x: bandStart,
-                y: Math.min(topPixel, bottomPixel),
-                width: bandWidth,
-                height: Math.abs(topPixel - bottomPixel),
-                corners,
-                dataIndex: i,
-            })
-        }
+        const corners = cornersFor(isHorizontal, isPositiveByPixels(topPixel, bottomPixel), shouldRoundCap)
+        result.push(makeBarRect(isHorizontal, bandStart, bandWidth, topPixel, bottomPixel, corners, i))
     }
     return result
 }
