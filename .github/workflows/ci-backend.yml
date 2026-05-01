@@ -843,7 +843,19 @@ jobs:
                   REPO: ${{ github.repository }}
               run: |
                   if [ ! -f migration_analysis.json ]; then
-                    echo "No migration_analysis.json — analyzer didn't run; skipping check"
+                    # Publish a failure check rather than exiting silently.
+                    # Without a published check, stamphog returns WAITING and
+                    # the bridge (which only fires on check_run:completed for
+                    # this name) never retriggers — leaving the PR stuck.
+                    echo "No migration_analysis.json — analyzer didn't run; publishing failure check"
+                    jq -n \
+                      --arg name "Migration risk" \
+                      --arg head_sha "$HEAD_SHA" \
+                      '{name: $name, head_sha: $head_sha, status: "completed",
+                        conclusion: "failure",
+                        output: {title: "❌ Analyzer failed",
+                                 summary: "Migration analyzer did not produce migration_analysis.json. Re-run the Backend CI job; if it keeps failing, inspect the analyzer step logs."}}' \
+                      | gh api "repos/$REPO/check-runs" --method POST --input -
                     exit 0
                   fi
 
