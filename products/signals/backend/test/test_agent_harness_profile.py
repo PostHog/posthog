@@ -146,7 +146,7 @@ class TestExistingInboxReports(BaseTest):
 
 
 class TestBuildInventory(BaseTest):
-    def test_returns_all_six_inventory_keys(self) -> None:
+    def test_returns_all_inventory_keys(self) -> None:
         inventory = build_inventory(self.team)
         assert set(inventory.keys()) == {
             "products_in_use",
@@ -155,6 +155,7 @@ class TestBuildInventory(BaseTest):
             "external_data_sources",
             "signal_source_configs",
             "existing_inbox_reports",
+            "top_events",
         }
 
 

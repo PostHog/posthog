@@ -13,8 +13,13 @@ tables only" rule and warrant their own iteration.
 
 from __future__ import annotations
 
+import logging
 from collections import Counter
 from typing import Any
+
+from posthog.hogql import ast
+from posthog.hogql.parser import parse_select
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.models.integration import Integration
 from posthog.models.product_intent.product_intent import ProductIntent
@@ -23,11 +28,20 @@ from posthog.models.team.team import Team
 from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
 from products.signals.backend.models import SignalReport, SignalSourceConfig
 
+logger = logging.getLogger(__name__)
+
 # Bumps when the inventory schema changes meaningfully — `get_project_profile` invalidates
 # rows whose `source_version` doesn't match the current build, so adding a new key here
 # (or restructuring an existing one) without bumping the version would silently mix old
 # and new shapes in the cache.
-INVENTORY_SOURCE_VERSION = "v1"
+INVENTORY_SOURCE_VERSION = "v3"
+
+# Top-events ClickHouse query bounds. 7d is short enough to spot recent bursts and long
+# enough to stabilize counts on low-traffic teams; 50 covers the long tail without
+# bloating the profile payload. Adjust if shadow runs surface a clear ask.
+TOP_EVENTS_LOOKBACK_DAYS = 7
+TOP_EVENTS_RECENT_DAYS = 1
+TOP_EVENTS_LIMIT = 50
 
 
 def build_inventory(team: Team) -> dict[str, Any]:
@@ -45,6 +59,7 @@ def build_inventory(team: Team) -> dict[str, Any]:
         "external_data_sources": _external_data_sources(team),
         "signal_source_configs": _signal_source_configs(team),
         "existing_inbox_reports": _existing_inbox_reports(team),
+        "top_events": _top_events(team),
     }
 
 
@@ -146,3 +161,66 @@ def _existing_inbox_reports(team: Team) -> dict[str, Any]:
     counter: Counter[str] = Counter(qs)
     by_status = [{"status": status, "count": count} for status, count in sorted(counter.items())]
     return {"total": sum(counter.values()), "by_status": by_status}
+
+
+def _top_events(team: Team) -> list[dict[str, Any]] | None:
+    """Top events by count over the lookback window, with reach + burst signals.
+
+    For each of the top 50 events in the last 7 days:
+      - `count` — total occurrences in the window
+      - `distinct_users` — `uniq(person_id)`; reach. Distinguishes a high-count event
+        from one power user vs from many users.
+      - `recent_24h_count` — count in the last 24h. Compare to `count / 7` to spot
+        bursts: ratio well above 1/7 means the event is concentrated in the last day.
+      - `recent_24h_users` — `uniq(person_id)` over the last 24h. A burst across many
+        users is qualitatively different from one user looping.
+      - `first_seen` / `last_seen` — both *within the window*. Recent `first_seen`
+        suggests a new event type or fresh burst; near-window-edge `first_seen` just
+        means it's been around at least that long (the window can't tell you the
+        true first-ever timestamp).
+
+    Returns `None` rather than `[]` if the query fails or times out, so the agent can
+    distinguish "team has no captures" (`[]`) from "we couldn't compute it" (`None`).
+    """
+    query = parse_select(
+        """
+        SELECT
+            event,
+            count() AS count,
+            uniq(person_id) AS distinct_users,
+            countIf(timestamp >= now() - INTERVAL {recent_days} DAY) AS recent_24h_count,
+            uniqIf(person_id, timestamp >= now() - INTERVAL {recent_days} DAY) AS recent_24h_users,
+            min(timestamp) AS first_seen,
+            max(timestamp) AS last_seen
+        FROM events
+        WHERE timestamp >= now() - INTERVAL {lookback_days} DAY
+        GROUP BY event
+        ORDER BY count DESC
+        LIMIT {limit}
+        """,
+        placeholders={
+            "lookback_days": ast.Constant(value=TOP_EVENTS_LOOKBACK_DAYS),
+            "recent_days": ast.Constant(value=TOP_EVENTS_RECENT_DAYS),
+            "limit": ast.Constant(value=TOP_EVENTS_LIMIT),
+        },
+    )
+    try:
+        response = execute_hogql_query(query=query, team=team, limit_context=None)
+    except Exception:
+        # Defensive: ClickHouse can be slow or unavailable. Profile build shouldn't
+        # crash on this — the rest of the inventory is still valuable orientation.
+        logger.warning("signals_agent_profile: top_events query failed for team_id=%s", team.id, exc_info=True)
+        return None
+    rows = response.results or []
+    return [
+        {
+            "event": row[0],
+            "count": int(row[1]),
+            "distinct_users": int(row[2]),
+            "recent_24h_count": int(row[3]),
+            "recent_24h_users": int(row[4]),
+            "first_seen": row[5].isoformat() if row[5] else None,
+            "last_seen": row[6].isoformat() if row[6] else None,
+        }
+        for row in rows
+    ]

@@ -341,6 +341,45 @@ class ExistingInboxReportsSerializer(serializers.Serializer):
     )
 
 
+class TopEventEntrySerializer(serializers.Serializer):
+    """One row in `inventory.top_events`."""
+
+    event = serializers.CharField(help_text="Event name as captured.")
+    count = serializers.IntegerField(help_text="Number of occurrences in the lookback window (last 7 days).")
+    distinct_users = serializers.IntegerField(
+        help_text=(
+            "`uniq(person_id)` over the window — reach. Distinguishes a high-count "
+            "event firing on one power user from one firing on many users."
+        ),
+    )
+    recent_24h_count = serializers.IntegerField(
+        help_text=(
+            "Count in just the last 24 hours. Compare to `count / 7` to spot bursts: "
+            "a ratio well above 1/7 means the event is concentrated in the last day."
+        ),
+    )
+    recent_24h_users = serializers.IntegerField(
+        help_text=(
+            "`uniq(person_id)` over just the last 24 hours. A burst across many "
+            "users is qualitatively different from one user in a loop."
+        ),
+    )
+    first_seen = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "ISO-8601 timestamp of the earliest occurrence within the lookback window. "
+            "Compare to the window start to spot new event types: `first_seen` close to "
+            "`now` ⇒ likely new or recently bursting; close to the window edge ⇒ has "
+            "been around at least that long (the window can't tell you when the event "
+            "*truly* first appeared)."
+        ),
+    )
+    last_seen = serializers.CharField(
+        allow_null=True,
+        help_text="ISO-8601 timestamp of the most recent occurrence within the lookback window.",
+    )
+
+
 class ProjectProfileInventorySerializer(serializers.Serializer):
     """The deterministic inventory layer of a project profile.
 
@@ -370,6 +409,17 @@ class ProjectProfileInventorySerializer(serializers.Serializer):
     )
     existing_inbox_reports = ExistingInboxReportsSerializer(
         help_text="Counts of reports already in the inbox, grouped by status.",
+    )
+    top_events = serializers.ListField(
+        child=TopEventEntrySerializer(),
+        allow_null=True,
+        help_text=(
+            "Top ~50 events by count over the last 7 days, with first/last seen "
+            "timestamps within the window. `null` if the underlying ClickHouse query "
+            "failed or timed out (distinct from `[]`, which means the team has no "
+            "captures in the window). Use the gap between `first_seen` and `now` to "
+            "spot new event types or recent bursts."
+        ),
     )
 
 
