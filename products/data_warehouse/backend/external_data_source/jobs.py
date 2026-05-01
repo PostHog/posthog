@@ -20,10 +20,15 @@ def update_external_job_status(
     # Kafka message can land here with the job already in a terminal state, and
     # re-emitting would inflate the counters.
     is_first_terminal_transition = status in TERMINAL_JOB_STATUSES and model.finished_at is None
+    update_fields = ["status", "latest_error", "updated_at"]
     if is_first_terminal_transition:
         model.finished_at = dt.datetime.now(dt.UTC)
+        update_fields.append("finished_at")
 
-    model.save()
+    # Scope the save to the fields we mutated so a concurrent F-update from
+    # `update_job_row_count` (V3 activity) isn't clobbered by writing back the
+    # in-memory `rows_synced` we read at the top of this function.
+    model.save(update_fields=update_fields)
 
     if status == ExternalDataJob.Status.FAILED:
         schema_status: ExternalDataSchema.Status = ExternalDataSchema.Status.FAILED
