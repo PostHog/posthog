@@ -60,3 +60,4 @@ export { computeVisibleXLabels } from './overlays/AxisLabels'
 
 // Timeseries utils
 export { createXAxisTickCallback, parseDateForAxis } from './charts/TimeSeriesLineChart/utils/dates'
+export type { TimeInterval } from './charts/TimeSeriesLineChart/utils/dates'
