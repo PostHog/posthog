@@ -78,7 +78,19 @@ export const DashboardsRetrieveParams = /* @__PURE__ */ zod.object({
 })
 
 export const DashboardsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    filters_override: zod
+        .string()
+        .optional()
+        .describe(
+            'JSON object to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. See the dashboard filters schema for available keys (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a dashboard sharing token.'
+        ),
     format: zod.enum(['json', 'txt']).optional(),
+    variables_override: zod
+        .string()
+        .optional()
+        .describe(
+            'JSON object to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response\'s `variables` field, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a dashboard sharing token.'
+        ),
 })
 
 export const DashboardsPartialUpdateParams = /* @__PURE__ */ zod.object({
@@ -175,6 +187,12 @@ export const DashboardsRunInsightsRetrieveParams = /* @__PURE__ */ zod.object({
 })
 
 export const DashboardsRunInsightsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    filters_override: zod
+        .string()
+        .optional()
+        .describe(
+            'JSON object to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. See the dashboard filters schema for available keys (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a dashboard sharing token.'
+        ),
     format: zod.enum(['json', 'txt']).optional(),
     output_format: zod
         .enum(['json', 'optimized'])
@@ -187,5 +205,11 @@ export const DashboardsRunInsightsRetrieveQueryParams = /* @__PURE__ */ zod.obje
         .optional()
         .describe(
             "Cache behavior. 'force_cache' (default) serves from cache even if stale. 'blocking' uses cache if fresh, otherwise recalculates. 'force_blocking' always recalculates."
+        ),
+    variables_override: zod
+        .string()
+        .optional()
+        .describe(
+            'JSON object to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response\'s `variables` field, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a dashboard sharing token.'
         ),
 })

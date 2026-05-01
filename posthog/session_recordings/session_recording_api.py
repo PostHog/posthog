@@ -103,7 +103,11 @@ from posthog.temporal.session_replay.session_summary.summarize_session import (
 
 from ee.hogai.session_summaries.llm.call import get_openai_client
 from ee.hogai.session_summaries.session.output_data import OutcomeSerializer
-from ee.hogai.session_summaries.tracking import capture_session_summary_started, generate_tracking_id
+from ee.hogai.session_summaries.tracking import (
+    capture_session_summary_generated,
+    capture_session_summary_started,
+    generate_tracking_id,
+)
 from ee.hogai.session_summaries.utils import serialize_to_sse_event
 from ee.models.team_session_summaries_config import TeamSessionSummariesConfig
 
@@ -1434,6 +1438,7 @@ class SessionRecordingViewSet(
         self,
         session_id: str,
         user: User,
+        tracking_id: str,
         product_context: str | None = None,
         force_restart: bool = False,
     ) -> AsyncGenerator[str, None]:
@@ -1448,6 +1453,9 @@ class SessionRecordingViewSet(
         hit Django's ``list()``-materialize fallback path and buffer the entire
         response server-side before any bytes reach the client.
         """
+        success: bool | None = None
+        error_type: str | None = None
+        error_message: str | None = None
         try:
             async for chunk in execute_summarize_session_video_stream(
                 session_id=session_id,
@@ -1456,13 +1464,36 @@ class SessionRecordingViewSet(
                 force_restart=force_restart,
                 product_context=product_context,
             ):
+                if chunk.startswith("event: session-summary-stream"):
+                    success = True
+                elif chunk.startswith("event: session-summary-error"):
+                    success = False
+                    error_type = "stream_error"
                 yield chunk
         except Exception as e:
+            success = False
+            error_type = type(e).__name__
+            error_message = str(e)
             capture_exception(e)
             yield serialize_to_sse_event(
                 event_label="session-summary-error",
                 event_data="Something went wrong while generating the summary. Please try again.",
             )
+        finally:
+            if success is not None:
+                await asyncio.to_thread(
+                    capture_session_summary_generated,
+                    user=user,
+                    team=self.team,
+                    tracking_id=tracking_id,
+                    summary_source="dock",
+                    summary_type="single",
+                    session_ids=[session_id],
+                    video_based=True,
+                    success=success,
+                    error_type=error_type,
+                    error_message=error_message,
+                )
 
     def _load_team_product_context(self) -> str | None:
         team_config = get_or_create_team_extension(self.team, TeamSessionSummariesConfig)
@@ -1510,13 +1541,15 @@ class SessionRecordingViewSet(
             user=user,
             team=self.team,
             tracking_id=tracking_id,
-            summary_source="api",
+            summary_source="dock",
             summary_type="single",
             session_ids=[session_id],
             video_based=True,
         )
         response = StreamingHttpResponse(
-            self._generate_video_based_summary(session_id, user, product_context, force_restart=force_restart),
+            self._generate_video_based_summary(
+                session_id, user, tracking_id, product_context, force_restart=force_restart
+            ),
             content_type=ServerSentEventRenderer.media_type,
         )
         response["Cache-Control"] = "no-cache"

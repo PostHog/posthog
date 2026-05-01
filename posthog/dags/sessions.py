@@ -47,7 +47,7 @@ MAX_PARTITIONS_PER_RUN = 1
 
 # Number of sub-chunks to split a chunk into when retrying after a ClickHouse OOM error.
 # Each chunk_i is retried at most once by splitting into this many sub-queries.
-OOM_RETRY_SUB_CHUNKS = 32
+OOM_RETRY_SUB_CHUNKS = 128
 
 # Keep the number of concurrent runs low to avoid overloading ClickHouse and running into the dread "Too many parts".
 # This tag needs to also exist in Dagster Cloud (and the local dev dagster.yaml) for the concurrency limit to take effect.

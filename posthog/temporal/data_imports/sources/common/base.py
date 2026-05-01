@@ -130,6 +130,10 @@ class WebhookCreationResult:
     success: bool
     error: str | None = None
     extra_inputs: dict[str, Any] = dataclasses.field(default_factory=dict)
+    # Names of `webhookFields` the user still needs to fill in after creation
+    # (e.g. when the source's API doesn't return the signing secret on create).
+    # Empty list means the auto-created webhook is fully configured.
+    pending_inputs: list[str] = dataclasses.field(default_factory=list)
 
 
 @dataclasses.dataclass

@@ -238,6 +238,92 @@ export function computePercentStackData(series: Series[], labels: string[]): Map
     return buildStackData(series, labels, d3.stackOffsetExpand)
 }
 
+export interface BarScaleSet {
+    band: d3.ScaleBand<string>
+    value: D3YScale
+    /** Sub-band for grouped layout — maps a series key to its offset inside a band. */
+    group?: d3.ScaleBand<string>
+}
+
+export function createBarScales(
+    series: Series[],
+    labels: string[],
+    dimensions: ChartDimensions,
+    options: {
+        scaleType?: 'linear' | 'log'
+        barLayout?: 'stacked' | 'grouped' | 'percent'
+        axisOrientation?: 'vertical' | 'horizontal'
+        bandPadding?: number
+        groupPadding?: number
+        stackedSeries?: Series[]
+    } = {}
+): BarScaleSet {
+    const {
+        scaleType = 'linear',
+        barLayout = 'stacked',
+        axisOrientation = 'vertical',
+        bandPadding = 0.2,
+        groupPadding = 0.1,
+        stackedSeries,
+    } = options
+
+    const isHorizontal = axisOrientation === 'horizontal'
+    const tickCount = yTickCountForHeight(isHorizontal ? dimensions.plotWidth : dimensions.plotHeight)
+
+    const band = d3
+        .scaleBand<string>()
+        .domain(labels)
+        .range(
+            isHorizontal
+                ? [dimensions.plotTop, dimensions.plotTop + dimensions.plotHeight]
+                : [dimensions.plotLeft, dimensions.plotLeft + dimensions.plotWidth]
+        )
+        .paddingInner(bandPadding)
+        .paddingOuter(bandPadding / 2)
+
+    let group: d3.ScaleBand<string> | undefined
+    if (barLayout === 'grouped') {
+        const visibleKeys = series.filter((s) => !s.visibility?.excluded).map((s) => s.key)
+        group = d3.scaleBand<string>().domain(visibleKeys).range([0, band.bandwidth()]).padding(groupPadding)
+    }
+
+    const valueRange: [number, number] = isHorizontal
+        ? [dimensions.plotLeft, dimensions.plotLeft + dimensions.plotWidth]
+        : [dimensions.plotTop + dimensions.plotHeight, dimensions.plotTop]
+
+    return {
+        band,
+        value: buildBarValueScale(series, valueRange, tickCount, barLayout, scaleType, stackedSeries),
+        group,
+    }
+}
+
+function buildBarValueScale(
+    series: Series[],
+    valueRange: [number, number],
+    tickCount: number,
+    barLayout: 'stacked' | 'grouped' | 'percent',
+    scaleType: 'linear' | 'log',
+    stackedSeries: Series[] | undefined
+): D3YScale {
+    if (barLayout === 'percent') {
+        return d3.scaleLinear().domain([0, 1]).nice(tickCount).range(valueRange)
+    }
+    const range = seriesValueRange(stackedSeries ?? series)
+    if (range.count === 0) {
+        return d3.scaleLinear().domain([0, 1]).range(valueRange)
+    }
+    const min = range.min > 0 ? 0 : range.min
+    const max = range.max < 0 ? 0 : range.max
+    if (scaleType === 'log' && isFinite(range.minPositive)) {
+        const niceMin = Math.pow(10, Math.ceil(Math.log10(range.minPositive)) - 1)
+        const maxDecade = Math.pow(10, Math.floor(Math.log10(max)))
+        const niceMax = Math.ceil(max / maxDecade) * maxDecade
+        return d3.scaleLog().domain([niceMin, niceMax]).range(valueRange).clamp(true)
+    }
+    return d3.scaleLinear().domain([min, max]).nice(tickCount).range(valueRange)
+}
+
 export function autoFormatYTick(value: number, domainMax: number): string {
     if (domainMax < 2) {
         return value.toFixed(2)
