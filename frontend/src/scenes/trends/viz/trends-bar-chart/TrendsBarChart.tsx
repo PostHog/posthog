@@ -3,9 +3,9 @@ import posthog from 'posthog-js'
 import { useCallback, useMemo, type ErrorInfo } from 'react'
 
 import { buildTheme } from 'lib/charts/utils/theme'
-import { BarChart } from 'lib/hog-charts'
+import { BarChart, createXAxisTickCallback } from 'lib/hog-charts'
 import type { BarChartConfig, PointClickData, TooltipContext } from 'lib/hog-charts'
-import { createXAxisTickCallback } from 'lib/hog-charts/charts/TimeSeriesLineChart/utils/dates'
+import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { teamLogic } from 'scenes/teamLogic'
@@ -15,7 +15,6 @@ import { groupsModel } from '~/models/groupsModel'
 import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
-import { InsightEmptyState } from '../../../insights/EmptyStates'
 import { openPersonsModal } from '../../persons-modal/PersonsModal'
 import { trendsDataLogic } from '../../trendsDataLogic'
 import type { IndexedTrendResult } from '../../types'
@@ -27,6 +26,36 @@ import { buildTrendsBarTimeSeries } from './trendsBarChartTransforms'
 
 interface TrendsBarChartProps {
     context?: QueryContext<InsightVizNode>
+}
+
+const EMPTY_LABELS: string[] = []
+
+const buildBarMeta = (r: IndexedTrendResult): TrendsSeriesMeta => ({
+    action: r.action,
+    breakdown_value: r.breakdown_value,
+    compare_label: r.compare_label,
+    days: r.days,
+    order: r.action?.order ?? r.id,
+    filter: r.filter,
+})
+
+type AggregationLabelFn = (groupTypeIndex: number | null | undefined) => { plural: string }
+
+const resolveGroupTypeLabel = (
+    labelGroupType: 'people' | 'none' | number,
+    aggregationLabel: AggregationLabelFn,
+    contextOverride: string | undefined
+): string => {
+    if (contextOverride != null) {
+        return contextOverride
+    }
+    if (labelGroupType === 'people') {
+        return 'people'
+    }
+    if (labelGroupType === 'none') {
+        return ''
+    }
+    return aggregationLabel(labelGroupType).plural
 }
 
 const handleChartError = (error: Error, info: ErrorInfo): void => {
@@ -64,42 +93,20 @@ export function TrendsBarChart({ context }: TrendsBarChartProps): JSX.Element | 
 
     const isPercentStackView = !!showPercentStackView && !!supportsPercentStackView
 
-    const resolvedGroupTypeLabel =
-        context?.groupTypeLabel ??
-        (labelGroupType === 'people'
-            ? 'people'
-            : labelGroupType === 'none'
-              ? ''
-              : aggregationLabel(labelGroupType).plural)
+    const resolvedGroupTypeLabel = resolveGroupTypeLabel(labelGroupType, aggregationLabel, context?.groupTypeLabel)
 
-    const hasData =
-        indexedResults &&
-        indexedResults[0] &&
-        indexedResults[0].data &&
-        indexedResults.filter((r: IndexedTrendResult) => r.count !== 0).length > 0
-
-    const buildMeta = useCallback(
-        (rr: IndexedTrendResult): TrendsSeriesMeta => ({
-            action: rr.action,
-            breakdown_value: rr.breakdown_value,
-            compare_label: rr.compare_label,
-            days: rr.days,
-            order: rr.action?.order ?? rr.id,
-            filter: rr.filter,
-        }),
-        []
-    )
+    const hasData = !!indexedResults?.[0]?.data && indexedResults.some((r: IndexedTrendResult) => r.count !== 0)
 
     const series = useMemo(
         () =>
             buildTrendsBarTimeSeries<IndexedTrendResult, TrendsSeriesMeta>(indexedResults ?? [], {
                 getColor: getTrendsColor,
                 getHidden: getTrendsHidden,
-                buildMeta,
+                buildMeta: buildBarMeta,
             }),
-        [indexedResults, getTrendsColor, getTrendsHidden, buildMeta]
+        [indexedResults, getTrendsColor, getTrendsHidden]
     )
-    const labels = currentPeriodResult?.labels ?? []
+    const labels = currentPeriodResult?.labels ?? EMPTY_LABELS
 
     const xTickFormatter = useMemo(
         () =>
