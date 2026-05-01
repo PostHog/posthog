@@ -13,8 +13,8 @@ interface AxisLabelsProps {
     /** Axis orientation: `vertical` (default) puts categories on the x-axis bottom and value ticks on the y-axis left.
      *  `horizontal` swaps them — categories on the y-axis left, value ticks on the x-axis bottom. */
     orientation?: 'vertical' | 'horizontal'
-    /** Used for horizontal orientation — maps labels to y pixel coordinates (band centers).
-     *  When omitted, falls back to `scales.x` which only makes sense for vertical orientation. */
+    /** Required for horizontal orientation — maps labels to y pixel coordinates (band centers).
+     *  When omitted in horizontal mode, every category label is hidden. Ignored in vertical mode. */
     labelToCoord?: (label: string) => number | undefined
 }
 
