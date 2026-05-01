@@ -26,19 +26,10 @@ import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
-import { LogsSamplingRuleApi, RuleTypeEnumApi } from 'products/logs/frontend/generated/api.schemas'
+import { LogsSamplingRuleApi } from 'products/logs/frontend/generated/api.schemas'
 
 import { logsSamplingSectionLogic } from './logsSamplingSectionLogic'
-
-function ruleTypeLabel(t: RuleTypeEnumApi): string {
-    if (t === RuleTypeEnumApi.SeveritySampling) {
-        return 'Drop by severity'
-    }
-    if (t === RuleTypeEnumApi.PathDrop) {
-        return 'Drop when matched'
-    }
-    return 'Rate limit'
-}
+import { ruleTypeLabel } from './ruleTypeLabel'
 
 interface SortableRowProps {
     row: LogsSamplingRuleApi

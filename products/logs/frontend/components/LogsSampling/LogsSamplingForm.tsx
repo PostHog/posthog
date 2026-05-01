@@ -8,6 +8,7 @@ import { RuleTypeEnumApi } from 'products/logs/frontend/generated/api.schemas'
 
 import { LogsSamplingFormType, PathDropMatchTarget, SeverityActionChoice } from './logsSamplingFormLogic'
 import { logsSamplingFormLogic } from './logsSamplingFormLogic'
+import { ruleTypeLabel } from './ruleTypeLabel'
 
 const RULE_TYPE_OPTIONS_CREATE: { value: RuleTypeEnumApi; label: string }[] = [
     {
@@ -78,16 +79,6 @@ function SeverityRow({
     )
 }
 
-function ruleTypeLabel(ruleType: RuleTypeEnumApi): string {
-    if (ruleType === RuleTypeEnumApi.PathDrop) {
-        return 'Drop when matched'
-    }
-    if (ruleType === RuleTypeEnumApi.SeveritySampling) {
-        return 'Drop by severity'
-    }
-    return ruleType
-}
-
 export function LogsSamplingForm(): JSX.Element {
     const { samplingForm, samplingFormErrors, simulation, simulationLoading, canSimulate, isNewRule } =
         useValues(logsSamplingFormLogic)
@@ -98,7 +89,7 @@ export function LogsSamplingForm(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4 max-w-3xl">
-            <LemonBanner type="error">
+            <LemonBanner type="warning">
                 When this rule is <strong>enabled</strong> and matches a log line, that line is{' '}
                 <strong>not stored</strong>. Dropped logs do not appear in the UI, exports, or alerts. Disabling the
                 rule or editing patterns only affects <em>new</em> ingestion—already dropped data cannot be recovered.
