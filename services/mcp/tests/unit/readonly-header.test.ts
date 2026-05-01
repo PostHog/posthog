@@ -3,24 +3,12 @@ import { describe, expect, it } from 'vitest'
 import { getReadOnlyFromRequest } from '@/index'
 
 describe('getReadOnlyFromRequest', () => {
-    it('reads the canonical readonly header', () => {
-        const request = new Request('https://mcp.posthog.com/mcp', {
-            headers: { 'x-posthog-readonly': 'true' },
-        })
-
-        expect(getReadOnlyFromRequest(request, new URL(request.url))).toBe(true)
-    })
-
-    it('accepts the legacy read-only header for compatibility', () => {
-        const request = new Request('https://mcp.posthog.com/mcp', {
-            headers: { 'x-posthog-read-only': '1' },
-        })
-
-        expect(getReadOnlyFromRequest(request, new URL(request.url))).toBe(true)
-    })
-
-    it('falls back to the readonly query parameter', () => {
-        const request = new Request('https://mcp.posthog.com/mcp?readonly=true')
+    it.each([
+        ['canonical x-posthog-readonly header', { 'x-posthog-readonly': 'true' }, ''],
+        ['legacy x-posthog-read-only header', { 'x-posthog-read-only': '1' }, ''],
+        ['readonly query parameter', {}, '?readonly=true'],
+    ])('reads read-only from %s', (_, headers, qs) => {
+        const request = new Request(`https://mcp.posthog.com/mcp${qs}`, { headers })
 
         expect(getReadOnlyFromRequest(request, new URL(request.url))).toBe(true)
     })
