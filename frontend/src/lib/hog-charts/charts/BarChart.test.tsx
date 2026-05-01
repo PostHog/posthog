@@ -1,5 +1,4 @@
 import { cleanup, render } from '@testing-library/react'
-import React from 'react'
 
 import type { ChartTheme, Series } from '../core/types'
 import { setupJsdom } from '../test-helpers'
