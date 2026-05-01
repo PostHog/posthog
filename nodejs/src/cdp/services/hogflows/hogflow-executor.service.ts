@@ -313,6 +313,13 @@ export class HogFlowExecutorService {
             }
         }
 
+        // Event-based conversion goal: subscription matcher consumer flagged a matching
+        // incoming event. Treat as a conversion match and clear the flag.
+        if (invocation.state?.conversionMatched === true) {
+            conversionMatch = true
+            invocation.state.conversionMatched = false
+        }
+
         switch (hogFlow.exit_condition) {
             case 'exit_on_trigger_not_matched':
                 if (triggerMatch === false) {

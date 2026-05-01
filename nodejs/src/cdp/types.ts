@@ -321,6 +321,9 @@ export type HogFlowInvocationContext = {
         // job because a matching event arrived (as opposed to a scheduled timeout firing).
         eventMatched?: boolean
     }
+    // Set by the subscription matcher consumer when an incoming event matched the
+    // workflow's event-based conversion goals. shouldExitEarly reads and clears it.
+    conversionMatched?: boolean
     variables?: Record<string, any>
 }
 

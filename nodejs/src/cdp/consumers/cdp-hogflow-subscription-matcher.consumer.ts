@@ -5,7 +5,7 @@ import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
 
 import { KAFKA_EVENTS_JSON } from '../../config/kafka-topics'
 import { KafkaConsumer } from '../../kafka/consumer'
-import { HogFlowAction } from '../../schema/hogflow'
+import { HogFlow, HogFlowAction } from '../../schema/hogflow'
 import { HealthCheckResult, RawClickHouseEvent } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
@@ -25,18 +25,28 @@ type ParkedJob = {
     rawState: Buffer
 }
 
+type WakeRequest = {
+    id: string
+    state: Buffer
+}
+
 /**
- * Dedicated consumer that matches incoming events against parked hogflow jobs
- * (wait_until_condition, conversion goals) and wakes them when conditions are met.
+ * Dedicated consumer that matches incoming events against parked hogflow jobs and
+ * wakes them when either:
+ *   - The job is parked at a `wait_until_condition` step whose events or condition
+ *     filters match the incoming event (sets `currentAction.eventMatched`).
+ *   - The workflow has event-based conversion goals configured and the incoming
+ *     event matches one (sets `state.conversionMatched`, executor exits early).
  *
- * For each event batch, the consumer:
- * 1. Finds all parked hogflow jobs for the event's distinct_id via cyclotron_jobs
- * 2. Loads the hogflow config from cache to determine what each step is waiting for
- * 3. Evaluates the step's filters against the incoming event
- * 4. Wakes matching jobs by setting scheduled = NOW() and eventMatched = true
+ * For each event batch the consumer:
+ * 1. Finds parked hogflow jobs for the event's distinct_id via cyclotron_jobs
+ * 2. Loads the hogflow config from cache (HogFlowManager) for each job
+ * 3. Evaluates the parked step's filters and the workflow's conversion events
+ * 4. Wakes matching jobs in a single batched UPDATE
  *
- * Lives in its own deployment so that failures talking to the Cyclotron V2
- * database do not block `cdp-events-consumer`.
+ * Lives in its own deployment so failures talking to the Cyclotron V2 database do
+ * not block `cdp-events-consumer`. If `CYCLOTRON_NODE_DATABASE_URL` is unset, the
+ * consumer is a no-op (safe to run where V2 is not configured).
  */
 export class CdpHogflowSubscriptionMatcherConsumer extends CdpConsumerBase {
     protected name = 'CdpHogflowSubscriptionMatcherConsumer'
@@ -65,18 +75,12 @@ export class CdpHogflowSubscriptionMatcherConsumer extends CdpConsumerBase {
         await this.wakeMatchingWorkflows(invocationGlobals)
     }
 
-    /**
-     * For each event in the batch, find parked hogflow jobs for the same
-     * distinct_id, load the hogflow config from cache, evaluate the current
-     * step's conditions against the event, and wake matching jobs.
-     */
     @instrumented('cdpHogflowSubscriptionMatcher.wakeMatchingWorkflows')
     private async wakeMatchingWorkflows(invocationGlobals: HogFunctionInvocationGlobals[]): Promise<void> {
         if (!this.cyclotronPool) {
             return
         }
 
-        // Collect unique (team_id, distinct_id) lookup keys from the event batch.
         const globalsByKey = new Map<string, HogFunctionInvocationGlobals>()
 
         for (const globals of invocationGlobals) {
@@ -94,7 +98,6 @@ export class CdpHogflowSubscriptionMatcherConsumer extends CdpConsumerBase {
             return
         }
 
-        // Find parked hogflow jobs matching those distinct_ids.
         const teamIds = [...new Set([...globalsByKey.values()].map((g) => g.project.id))]
         const distinctIds = [...new Set([...globalsByKey.values()].map((g) => g.event.distinct_id))]
 
@@ -103,12 +106,10 @@ export class CdpHogflowSubscriptionMatcherConsumer extends CdpConsumerBase {
             return
         }
 
-        // Load hogflow configs for the parked jobs.
         const hogflowIds = [...new Set(parkedJobs.map((j) => j.functionId))]
         const hogflows = await this.hogFlowManager.getHogFlows(hogflowIds)
 
-        // Evaluate each parked job against the incoming event.
-        const jobsToWake: { id: string; state: Buffer }[] = []
+        const jobsToWake: WakeRequest[] = []
 
         for (const job of parkedJobs) {
             const hogflow = hogflows[job.functionId]
@@ -116,44 +117,29 @@ export class CdpHogflowSubscriptionMatcherConsumer extends CdpConsumerBase {
                 continue
             }
 
-            const currentActionId = job.state.currentAction?.id
-            if (!currentActionId) {
-                continue
-            }
-
-            const action = hogflow.actions.find((a: HogFlowAction) => a.id === currentActionId)
-            if (!action) {
-                continue
-            }
-
-            // Only evaluate wait steps that are actively parked.
-            if (action.type !== 'wait_until_condition') {
-                continue
-            }
-
-            // Find the globals for this job's team + distinct_id.
             const distinctId = job.state.event?.distinct_id || job.state.personId
-            const lookupKey = `${job.teamId}:${distinctId}`
-            const globals = globalsByKey.get(lookupKey)
+            const globals = globalsByKey.get(`${job.teamId}:${distinctId}`)
             if (!globals) {
                 continue
             }
 
-            const matched = await this.evaluateStepFilters(action, globals)
-            if (matched) {
-                // Mark eventMatched in the state so the handler knows this was
-                // a match (not a timeout) on re-entry.
-                const updatedState = { ...job.state }
-                if (updatedState.currentAction) {
-                    updatedState.currentAction = { ...updatedState.currentAction, eventMatched: true }
-                }
+            const filterGlobals = convertToHogFunctionFilterGlobal(globals)
+            const action = job.state.currentAction?.id
+                ? hogflow.actions.find((a: HogFlowAction) => a.id === job.state.currentAction!.id)
+                : undefined
 
-                // Re-serialize the full state blob (preserving queueParameters/queueMetadata).
-                const rawParsed = parseJSON(job.rawState.toString('utf-8'))
-                rawParsed.state = updatedState
-                const newRawState = Buffer.from(JSON.stringify(rawParsed))
+            const stepMatched =
+                action?.type === 'wait_until_condition'
+                    ? await this.evaluateWaitUntilCondition(action, filterGlobals, globals.event.event)
+                    : false
 
-                jobsToWake.push({ id: job.id, state: newRawState })
+            const conversionMatched = await this.evaluateConversionEvents(hogflow, filterGlobals, globals.event.event)
+
+            if (stepMatched || conversionMatched) {
+                jobsToWake.push({
+                    id: job.id,
+                    state: this.buildWakeStateBuffer(job, { stepMatched, conversionMatched }),
+                })
             }
         }
 
@@ -173,14 +159,13 @@ export class CdpHogflowSubscriptionMatcherConsumer extends CdpConsumerBase {
      * Evaluate a wait_until_condition step's filters against the incoming event.
      * Either an event match or a property condition match wakes the step.
      */
-    private async evaluateStepFilters(
+    private async evaluateWaitUntilCondition(
         action: Extract<HogFlowAction, { type: 'wait_until_condition' }>,
-        globals: HogFunctionInvocationGlobals
+        filterGlobals: ReturnType<typeof convertToHogFunctionFilterGlobal>,
+        incomingEventName: string
     ): Promise<boolean> {
-        const filterGlobals = convertToHogFunctionFilterGlobal(globals)
-
         for (const eventConfig of action.config.events ?? []) {
-            if (await this.evaluateEventConfig(eventConfig, globals, filterGlobals, action.id)) {
+            if (await this.evaluateEventConfig(eventConfig, filterGlobals, incomingEventName, action.id)) {
                 return true
             }
         }
@@ -203,11 +188,36 @@ export class CdpHogflowSubscriptionMatcherConsumer extends CdpConsumerBase {
         return false
     }
 
+    /**
+     * Evaluate the workflow's event-based conversion goals against the incoming event.
+     * A match here causes the executor to exit the workflow early on next pickup.
+     */
+    private async evaluateConversionEvents(
+        hogflow: HogFlow,
+        filterGlobals: ReturnType<typeof convertToHogFunctionFilterGlobal>,
+        incomingEventName: string
+    ): Promise<boolean> {
+        const conversionEvents = (hogflow.conversion as any)?.events ?? []
+        for (const eventConfig of conversionEvents) {
+            if (
+                await this.evaluateEventConfig(
+                    eventConfig,
+                    filterGlobals,
+                    incomingEventName,
+                    `${hogflow.id}/conversion`
+                )
+            ) {
+                return true
+            }
+        }
+        return false
+    }
+
     private async evaluateEventConfig(
         eventConfig: { filters?: any },
-        globals: HogFunctionInvocationGlobals,
         filterGlobals: ReturnType<typeof convertToHogFunctionFilterGlobal>,
-        actionId: string
+        incomingEventName: string,
+        contextId: string
     ): Promise<boolean> {
         const bytecode = eventConfig.filters?.bytecode
         if (Array.isArray(bytecode) && bytecode.length > 0) {
@@ -215,14 +225,32 @@ export class CdpHogflowSubscriptionMatcherConsumer extends CdpConsumerBase {
                 const result = await execHog(bytecode, { globals: filterGlobals })
                 return result.execResult?.result === true
             } catch (err) {
-                logger.warn('Event filter evaluation error', { actionId, error: String(err) })
+                logger.warn('Event filter evaluation error', { contextId, error: String(err) })
                 return false
             }
         }
 
-        // No bytecode: match on event name alone. An empty event list matches nothing.
+        // No bytecode: match on event name alone. Empty event list matches nothing.
         const configuredNames = extractEventNames(eventConfig.filters)
-        return configuredNames.includes(globals.event.event)
+        return configuredNames.includes(incomingEventName)
+    }
+
+    /**
+     * Build the new state buffer for a job being woken. Mirrors the SerializedJobState
+     * shape from job-queue-postgres-v2 (kept in sync; if that format changes this
+     * needs updating).
+     */
+    private buildWakeStateBuffer(job: ParkedJob, flags: { stepMatched: boolean; conversionMatched: boolean }): Buffer {
+        const updatedState: HogFlowInvocationContext = { ...job.state }
+        if (flags.stepMatched && updatedState.currentAction) {
+            updatedState.currentAction = { ...updatedState.currentAction, eventMatched: true }
+        }
+        if (flags.conversionMatched) {
+            updatedState.conversionMatched = true
+        }
+        const rawParsed = parseJSON(job.rawState.toString('utf-8'))
+        rawParsed.state = updatedState
+        return Buffer.from(JSON.stringify(rawParsed))
     }
 
     /**
@@ -268,25 +296,27 @@ export class CdpHogflowSubscriptionMatcherConsumer extends CdpConsumerBase {
     }
 
     /**
-     * Wake jobs by setting scheduled = NOW() and updating their state.
-     * Only affects jobs that are still 'available' (not picked up by a worker).
+     * Wake jobs by setting scheduled = NOW() and updating their state in a single
+     * batched UPDATE. Only affects jobs still 'available' (worker hasn't claimed them).
      */
-    private async wakeJobs(jobs: { id: string; state: Buffer }[]): Promise<number> {
+    private async wakeJobs(jobs: WakeRequest[]): Promise<number> {
         if (!this.cyclotronPool || jobs.length === 0) {
             return 0
         }
 
-        let woken = 0
-        for (const job of jobs) {
-            const result = await this.cyclotronPool.query(
-                `UPDATE cyclotron_jobs
-                 SET scheduled = NOW(), state = $2
-                 WHERE id = $1 AND status = 'available'`,
-                [job.id, job.state]
-            )
-            woken += result.rowCount ?? 0
-        }
-        return woken
+        const ids = jobs.map((j) => j.id)
+        const states = jobs.map((j) => j.state)
+
+        const result = await this.cyclotronPool.query(
+            `UPDATE cyclotron_jobs cj
+             SET scheduled = NOW(), state = u.state
+             FROM (
+                 SELECT unnest($1::uuid[]) AS id, unnest($2::bytea[]) AS state
+             ) u
+             WHERE cj.id = u.id AND cj.status = 'available'`,
+            [ids, states]
+        )
+        return result.rowCount ?? 0
     }
 
     @instrumented('cdpHogflowSubscriptionMatcher.parseKafkaMessages')
