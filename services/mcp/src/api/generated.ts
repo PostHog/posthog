@@ -6467,6 +6467,50 @@ export namespace Schemas {
       Zmw: 'ZMW',
     } as const;
 
+    export interface BaselineSparklineDay {
+      clean: number;
+      tolerated: number;
+      changed: number;
+      quarantined: number;
+    }
+
+    export interface BaselineEntry {
+      sparkline: BaselineSparklineDay[];
+      identifier: string;
+      run_type: string;
+      /** @nullable */
+      browser: string | null;
+      /** @nullable */
+      thumbnail_hash: string | null;
+      /** @nullable */
+      width: number | null;
+      /** @nullable */
+      height: number | null;
+      tolerate_count_30d: number;
+      tolerate_count_90d: number;
+      is_quarantined: boolean;
+      last_run_at: string;
+      /** @nullable */
+      recent_diff_avg: number | null;
+    }
+
+    export type BaselineTotalsByRunType = {[key: string]: number};
+
+    export interface BaselineTotals {
+      by_run_type: BaselineTotalsByRunType;
+      all_snapshots: number;
+      recently_tolerated: number;
+      frequently_tolerated: number;
+      currently_quarantined: number;
+    }
+
+    export interface BaselineOverview {
+      entries: BaselineEntry[];
+      totals: BaselineTotals;
+      truncated: boolean;
+      generated_at: string;
+    }
+
     /**
      * * `minimal` - minimal
     * `detailed` - detailed
@@ -6882,10 +6926,10 @@ export namespace Schemas {
       readonly state: unknown | null;
       /** @nullable */
       readonly created_by: BatchImportCreatedBy;
-      status?: BatchImportStatusEnum;
+      readonly status: BatchImportStatusEnum;
       /** @nullable */
       readonly display_status_message: string | null;
-      import_config: unknown;
+      readonly import_config: unknown;
     }
 
     export type BehavioralFilterType = typeof BehavioralFilterType[keyof typeof BehavioralFilterType];
@@ -16304,6 +16348,8 @@ export namespace Schemas {
       ExitOnlyAtEnd: 'exit_only_at_end',
     } as const;
 
+    export type ExperimentFeatureFlag = { [key: string]: unknown };
+
     export interface ExperimentHoldout {
       readonly id: number;
       /** @maxLength 400 */
@@ -16521,7 +16567,7 @@ export namespace Schemas {
       end_date?: string | null;
       /** Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flags-get-all tool first — reuse an existing flag when possible. */
       feature_flag_key: string;
-      readonly feature_flag: MinimalFeatureFlag;
+      readonly feature_flag: ExperimentFeatureFlag;
       readonly holdout: ExperimentHoldout;
       /**
        * ID of a holdout group to exclude from the experiment.
@@ -18027,7 +18073,11 @@ export namespace Schemas {
     }
 
     /**
-     * HogQL filter definition used to compute the metric. Same shape as HogFunction filters: a dict containing an `events` list and optional `properties` list.
+     * Filter definition for the metric. Two shapes are accepted, discriminated by an optional `source` key.
+
+    **Events** (default, when `source` is missing or `"events"`): HogFunction filter shape — `events: [...]`, optional `actions: [...]`, `properties: [...]`, `filter_test_accounts: bool`.
+
+    **Data warehouse** (`source: "data_warehouse"`): `table_name` (synced DW table), `timestamp_field` (timestamp column or HogQL expression), `key_field` (column whose value matches the entity key). Currently DW metrics only render on group profiles — person profiles are not yet supported.
      */
     export type GroupUsageMetricFilters = { [key: string]: unknown };
 
@@ -18086,7 +18136,11 @@ export namespace Schemas {
     * `number` - number
     * `sparkline` - sparkline */
       display?: GroupUsageMetricDisplayEnum;
-      /** HogQL filter definition used to compute the metric. Same shape as HogFunction filters: a dict containing an `events` list and optional `properties` list. */
+      /** Filter definition for the metric. Two shapes are accepted, discriminated by an optional `source` key.
+
+    **Events** (default, when `source` is missing or `"events"`): HogFunction filter shape — `events: [...]`, optional `actions: [...]`, `properties: [...]`, `filter_test_accounts: bool`.
+
+    **Data warehouse** (`source: "data_warehouse"`): `table_name` (synced DW table), `timestamp_field` (timestamp column or HogQL expression), `key_field` (column whose value matches the entity key). Currently DW metrics only render on group profiles — person profiles are not yet supported. */
       filters: GroupUsageMetricFilters;
       /** Aggregation function. `count` counts matching events; `sum` sums the value of `math_property` on matching events.
 
@@ -18094,7 +18148,7 @@ export namespace Schemas {
     * `sum` - sum */
       math?: MathEnum;
       /**
-       * Event property to sum. Required when `math` is `sum` and forbidden when `math` is `count`.
+       * Required when `math` is `sum`; must be empty when `math` is `count`. For events metrics this is an event property name. For data warehouse metrics this is the column name (or HogQL expression) to sum on the DW table.
        * @maxLength 255
        * @nullable
        */
@@ -20601,7 +20655,8 @@ export namespace Schemas {
     }
 
     /**
-     * * `azure-blob` - Azure Blob
+     * * `apns` - Apple Push
+    * `azure-blob` - Azure Blob
     * `bing-ads` - Bing Ads
     * `clickup` - Clickup
     * `customerio-app` - Customerio App
@@ -20639,6 +20694,7 @@ export namespace Schemas {
 
 
     export const IntegrationKindEnum = {
+      Apns: 'apns',
       AzureBlob: 'azure-blob',
       BingAds: 'bing-ads',
       Clickup: 'clickup',
@@ -21434,6 +21490,80 @@ export namespace Schemas {
       threshold_count: number;
       /** Threshold operator used for evaluation. */
       threshold_operator: string;
+    }
+
+    export type LogsSamplingRuleScopeAttributeFiltersItem = { [key: string]: unknown };
+
+    /**
+     * * `severity_sampling` - Severity-based reduction
+    * `path_drop` - Path exclusion
+    * `rate_limit` - Rate limit
+     */
+    export type RuleTypeEnum = typeof RuleTypeEnum[keyof typeof RuleTypeEnum];
+
+
+    export const RuleTypeEnum = {
+      SeveritySampling: 'severity_sampling',
+      PathDrop: 'path_drop',
+      RateLimit: 'rate_limit',
+    } as const;
+
+    export interface LogsSamplingRule {
+      /** Unique identifier for this sampling rule. */
+      readonly id: string;
+      /**
+       * User-visible label for this rule.
+       * @maxLength 255
+       */
+      name: string;
+      /** When false, the rule is ignored by ingestion and listing UIs that show active rules only. */
+      enabled?: boolean;
+      /**
+       * Lower numbers are evaluated first; the first matching rule wins. Omit to append after existing rules.
+       * @minimum 0
+       * @nullable
+       */
+      priority?: number | null;
+      /** Rule kind: severity_sampling, path_drop, or rate_limit (rate_limit reserved for a future release).
+
+    * `severity_sampling` - Severity-based reduction
+    * `path_drop` - Path exclusion
+    * `rate_limit` - Rate limit */
+      rule_type: RuleTypeEnum;
+      /**
+       * If set, the rule applies only to this service name; null means all services.
+       * @maxLength 512
+       * @nullable
+       */
+      scope_service?: string | null;
+      /**
+       * Optional regex matched against a path-like log attribute when present.
+       * @maxLength 1024
+       * @nullable
+       */
+      scope_path_pattern?: string | null;
+      /** Optional list of predicates over string attributes, e.g. [{"key":"http.route","op":"eq","value":"/api"}]. */
+      scope_attribute_filters?: LogsSamplingRuleScopeAttributeFiltersItem[];
+      /** Type-specific JSON (severity actions, path_drop patterns, or future rate_limit settings). */
+      config: unknown;
+      /** Incremented on each update for worker cache coherency. */
+      readonly version: number;
+      readonly created_by: number;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+    }
+
+    export interface LogsSamplingRuleReorder {
+      /** Rule IDs in the desired evaluation order (first element is highest priority / lowest order index). */
+      ordered_ids: string[];
+    }
+
+    export interface LogsSamplingRuleSimulateResponse {
+      /** Rough percent of log volume this rule would drop (0–100). Stub until ClickHouse-backed estimate ships. */
+      estimated_reduction_pct: number;
+      /** Human-readable caveats for the estimate. */
+      notes: string;
     }
 
     /**
@@ -23238,6 +23368,15 @@ export namespace Schemas {
       results: LogsAlertEvent[];
     }
 
+    export interface PaginatedLogsSamplingRuleList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: LogsSamplingRule[];
+    }
+
     export interface PaginatedLogsViewList {
       count: number;
       /** @nullable */
@@ -24194,6 +24333,77 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: SessionRecordingPlaylist[];
+    }
+
+    /**
+     * * `potential` - Potential
+    * `candidate` - Candidate
+    * `in_progress` - In Progress
+    * `pending_input` - Pending Input
+    * `ready` - Ready
+    * `failed` - Failed
+    * `deleted` - Deleted
+    * `suppressed` - Suppressed
+     */
+    export type SignalReportStatusEnum = typeof SignalReportStatusEnum[keyof typeof SignalReportStatusEnum];
+
+
+    export const SignalReportStatusEnum = {
+      Potential: 'potential',
+      Candidate: 'candidate',
+      InProgress: 'in_progress',
+      PendingInput: 'pending_input',
+      Ready: 'ready',
+      Failed: 'failed',
+      Deleted: 'deleted',
+      Suppressed: 'suppressed',
+    } as const;
+
+    export interface SignalReport {
+      readonly id: string;
+      /** @nullable */
+      readonly title: string | null;
+      /** @nullable */
+      readonly summary: string | null;
+      readonly status: SignalReportStatusEnum;
+      readonly total_weight: number;
+      readonly signal_count: number;
+      readonly signals_at_run: number;
+      readonly created_at: string;
+      readonly updated_at: string;
+      readonly artefact_count: number;
+      /**
+       * P0–P4 from the latest priority judgment artefact (when present).
+       * @nullable
+       */
+      readonly priority: string | null;
+      /**
+       * Actionability choice from the latest actionability judgment artefact (when present).
+       * @nullable
+       */
+      readonly actionability: string | null;
+      /**
+       * Whether the issue appears already fixed, from the actionability judgment artefact.
+       * @nullable
+       */
+      readonly already_addressed: boolean | null;
+      readonly is_suggested_reviewer: boolean;
+      /** Distinct source products contributing signals to this report (from ClickHouse). */
+      readonly source_products: readonly string[];
+      /**
+       * PR URL from the latest implementation task run, if available.
+       * @nullable
+       */
+      readonly implementation_pr_url: string | null;
+    }
+
+    export interface PaginatedSignalReportList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: SignalReport[];
     }
 
     /**
@@ -26062,10 +26272,10 @@ export namespace Schemas {
       readonly state?: unknown | null;
       /** @nullable */
       readonly created_by?: PatchedBatchImportCreatedBy;
-      status?: BatchImportStatusEnum;
+      readonly status?: BatchImportStatusEnum;
       /** @nullable */
       readonly display_status_message?: string | null;
-      import_config?: unknown;
+      readonly import_config?: unknown;
     }
 
     export interface PatchedClusteringJob {
@@ -27127,6 +27337,8 @@ export namespace Schemas {
       readonly updated_at?: string;
     }
 
+    export type PatchedExperimentFeatureFlag = { [key: string]: unknown };
+
     /**
      * Mixin for serializers to add user access control fields
      */
@@ -27149,7 +27361,7 @@ export namespace Schemas {
       end_date?: string | null;
       /** Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flags-get-all tool first — reuse an existing flag when possible. */
       feature_flag_key?: string;
-      readonly feature_flag?: MinimalFeatureFlag;
+      readonly feature_flag?: PatchedExperimentFeatureFlag;
       readonly holdout?: ExperimentHoldout;
       /**
        * ID of a holdout group to exclude from the experiment.
@@ -27464,7 +27676,11 @@ export namespace Schemas {
     }
 
     /**
-     * HogQL filter definition used to compute the metric. Same shape as HogFunction filters: a dict containing an `events` list and optional `properties` list.
+     * Filter definition for the metric. Two shapes are accepted, discriminated by an optional `source` key.
+
+    **Events** (default, when `source` is missing or `"events"`): HogFunction filter shape — `events: [...]`, optional `actions: [...]`, `properties: [...]`, `filter_test_accounts: bool`.
+
+    **Data warehouse** (`source: "data_warehouse"`): `table_name` (synced DW table), `timestamp_field` (timestamp column or HogQL expression), `key_field` (column whose value matches the entity key). Currently DW metrics only render on group profiles — person profiles are not yet supported.
      */
     export type PatchedGroupUsageMetricFilters = { [key: string]: unknown };
 
@@ -27487,7 +27703,11 @@ export namespace Schemas {
     * `number` - number
     * `sparkline` - sparkline */
       display?: GroupUsageMetricDisplayEnum;
-      /** HogQL filter definition used to compute the metric. Same shape as HogFunction filters: a dict containing an `events` list and optional `properties` list. */
+      /** Filter definition for the metric. Two shapes are accepted, discriminated by an optional `source` key.
+
+    **Events** (default, when `source` is missing or `"events"`): HogFunction filter shape — `events: [...]`, optional `actions: [...]`, `properties: [...]`, `filter_test_accounts: bool`.
+
+    **Data warehouse** (`source: "data_warehouse"`): `table_name` (synced DW table), `timestamp_field` (timestamp column or HogQL expression), `key_field` (column whose value matches the entity key). Currently DW metrics only render on group profiles — person profiles are not yet supported. */
       filters?: PatchedGroupUsageMetricFilters;
       /** Aggregation function. `count` counts matching events; `sum` sums the value of `math_property` on matching events.
 
@@ -27495,7 +27715,7 @@ export namespace Schemas {
     * `sum` - sum */
       math?: MathEnum;
       /**
-       * Event property to sum. Required when `math` is `sum` and forbidden when `math` is `count`.
+       * Required when `math` is `sum`; must be empty when `math` is `count`. For events metrics this is an event property name. For data warehouse metrics this is the column name (or HogQL expression) to sum on the DW table.
        * @maxLength 255
        * @nullable
        */
@@ -28057,6 +28277,54 @@ export namespace Schemas {
        * When the alert was last modified.
        * @nullable
        */
+      readonly updated_at?: string | null;
+    }
+
+    export type PatchedLogsSamplingRuleScopeAttributeFiltersItem = { [key: string]: unknown };
+
+    export interface PatchedLogsSamplingRule {
+      /** Unique identifier for this sampling rule. */
+      readonly id?: string;
+      /**
+       * User-visible label for this rule.
+       * @maxLength 255
+       */
+      name?: string;
+      /** When false, the rule is ignored by ingestion and listing UIs that show active rules only. */
+      enabled?: boolean;
+      /**
+       * Lower numbers are evaluated first; the first matching rule wins. Omit to append after existing rules.
+       * @minimum 0
+       * @nullable
+       */
+      priority?: number | null;
+      /** Rule kind: severity_sampling, path_drop, or rate_limit (rate_limit reserved for a future release).
+
+    * `severity_sampling` - Severity-based reduction
+    * `path_drop` - Path exclusion
+    * `rate_limit` - Rate limit */
+      rule_type?: RuleTypeEnum;
+      /**
+       * If set, the rule applies only to this service name; null means all services.
+       * @maxLength 512
+       * @nullable
+       */
+      scope_service?: string | null;
+      /**
+       * Optional regex matched against a path-like log attribute when present.
+       * @maxLength 1024
+       * @nullable
+       */
+      scope_path_pattern?: string | null;
+      /** Optional list of predicates over string attributes, e.g. [{"key":"http.route","op":"eq","value":"/api"}]. */
+      scope_attribute_filters?: PatchedLogsSamplingRuleScopeAttributeFiltersItem[];
+      /** Type-specific JSON (severity actions, path_drop patterns, or future rate_limit settings). */
+      config?: unknown;
+      /** Incremented on each update for worker cache coherency. */
+      readonly version?: number;
+      readonly created_by?: number;
+      readonly created_at?: string;
+      /** @nullable */
       readonly updated_at?: string | null;
     }
 
@@ -35465,6 +35733,31 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
+    export interface SlackChannel {
+      /** Slack channel ID (e.g. C0123ABC) — pass to cdp-functions inputs.channel. */
+      id: string;
+      /** Slack channel name without the leading '#'. */
+      name: string;
+      /** True if the channel is private. */
+      is_private: boolean;
+      /** True if the PostHog Slack app is a member of the channel and can post to it. */
+      is_member: boolean;
+      /** True if the channel is shared with another Slack workspace. */
+      is_ext_shared: boolean;
+      /** True if the channel is private and the PostHog Slack app cannot access it. */
+      is_private_without_access: boolean;
+    }
+
+    export interface SlackChannelsResponse {
+      /** Slack channels visible to the PostHog Slack app. */
+      channels: SlackChannel[];
+      /**
+       * ISO 8601 timestamp of the last full Slack API refresh (only set on full lists, not single-channel lookups).
+       * @nullable
+       */
+      lastRefreshedAt?: string | null;
+    }
+
     /**
      * * `none` - none
     * `auto` - auto
@@ -37369,6 +37662,19 @@ export namespace Schemas {
       maxExportableLogs: number;
     }
 
+    export interface _LogsServiceActiveRule {
+      rule_id: string;
+      rule_name: string;
+      summary_string: string;
+    }
+
+    export interface _LogsServiceSeverityBreakdown {
+      debug: number;
+      info: number;
+      warn: number;
+      error: number;
+    }
+
     export interface _LogsServiceAggregate {
       /** Service name, or "(no value)" / "(no service)" placeholder for unset entries. */
       service_name: string;
@@ -37378,6 +37684,12 @@ export namespace Schemas {
       error_count: number;
       /** Pre-computed error_count / log_count, rounded to 4 decimals. Useful for ranking noisy services. */
       error_rate: number;
+      /** Share of total log volume in the window for this service (0–100). */
+      volume_share_pct?: number;
+      /** Counts by coarse severity bucket (debug, info, warn, error+fatal). */
+      severity_breakdown?: _LogsServiceSeverityBreakdown;
+      /** Enabled sampling rules whose scope includes this service. */
+      active_rules?: _LogsServiceActiveRule[];
     }
 
     export interface _LogsServicesBody {
@@ -37405,11 +37717,20 @@ export namespace Schemas {
       count: number;
     }
 
+    export interface _LogsServicesSummary {
+      /** Number of top services included in the volume_share aggregate (up to 5). */
+      top_services_count: number;
+      /** Combined volume share (percent) of the top services by log_count. */
+      top_services_volume_share_pct: number;
+    }
+
     export interface _LogsServicesResponse {
       /** Per-service aggregates, ordered by log_count descending. Capped at 25 services. */
       services: _LogsServiceAggregate[];
       /** Time-bucketed counts broken down by service, for plotting volume over time. */
       sparkline: _LogsServicesSparklineBucket[];
+      /** Roll-up stats for the Services tab header. */
+      summary?: _LogsServicesSummary;
     }
 
     export interface _LogsSparklineBody {
@@ -39130,6 +39451,28 @@ export namespace Schemas {
     export type EnvironmentsLogsExportCreate201 = { [key: string]: unknown };
 
     export type EnvironmentsLogsHasLogsRetrieve200 = { [key: string]: unknown };
+
+    export type EnvironmentsLogsSamplingRulesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type EnvironmentsLogsSamplingRulesReorderCreateParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
 
     export type EnvironmentsLogsValuesRetrieveParams = {
     /**
@@ -41103,6 +41446,7 @@ export namespace Schemas {
     * `CustomerProfileConfig` - CustomerProfileConfig
     * `Log` - Log
     * `LogsAlertConfiguration` - LogsAlertConfiguration
+    * `LogsExclusionRule` - LogsExclusionRule
     * `ProductTour` - ProductTour
     * `Ticket` - Ticket
      * @minLength 1
@@ -41177,6 +41521,7 @@ export namespace Schemas {
       CustomerProfileConfig: 'CustomerProfileConfig',
       Log: 'Log',
       LogsAlertConfiguration: 'LogsAlertConfiguration',
+      LogsExclusionRule: 'LogsExclusionRule',
       ProductTour: 'ProductTour',
       Ticket: 'Ticket',
     } as const;
@@ -41237,6 +41582,7 @@ export namespace Schemas {
     * `CustomerProfileConfig` - CustomerProfileConfig
     * `Log` - Log
     * `LogsAlertConfiguration` - LogsAlertConfiguration
+    * `LogsExclusionRule` - LogsExclusionRule
     * `ProductTour` - ProductTour
     * `Ticket` - Ticket
      */
@@ -41299,6 +41645,7 @@ export namespace Schemas {
       CustomerProfileConfig: 'CustomerProfileConfig',
       Log: 'Log',
       LogsAlertConfiguration: 'LogsAlertConfiguration',
+      LogsExclusionRule: 'LogsExclusionRule',
       ProductTour: 'ProductTour',
       Ticket: 'Ticket',
     } as const;
@@ -43554,6 +43901,28 @@ export namespace Schemas {
 
     export type LogsHasLogsRetrieve200 = { [key: string]: unknown };
 
+    export type LogsSamplingRulesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type LogsSamplingRulesReorderCreateParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type LogsValuesRetrieveParams = {
     /**
      * Type of attribute: "log" or "resource". Defaults to "log".
@@ -44296,6 +44665,37 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type SignalsReportsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Comma-separated ordering clauses. Each clause is a field name optionally prefixed with '-' for descending. Allowed fields: status, is_suggested_reviewer, signal_count, total_weight, priority, created_at, updated_at, id. Defaults to '-is_suggested_reviewer,status,-updated_at'.
+     */
+    ordering?: string;
+    /**
+     * Case-insensitive substring match against report title and summary.
+     */
+    search?: string;
+    /**
+     * Comma-separated list of source products to include. Reports are kept if at least one of their contributing signals comes from one of these products (e.g. error_tracking, session_replay).
+     */
+    source_product?: string;
+    /**
+     * Comma-separated list of statuses to include. Valid values: potential, candidate, in_progress, pending_input, ready, failed, suppressed. Defaults to all statuses except suppressed.
+     */
+    status?: string;
+    /**
+     * Comma-separated list of PostHog user UUIDs. Reports are kept if their suggested reviewers include any of the given users.
+     */
+    suggested_reviewers?: string;
+    };
+
     export type SignalsSourceConfigsListParams = {
     /**
      * Number of results to return per page.
@@ -44586,6 +44986,21 @@ export namespace Schemas {
     run_type?: string;
     };
 
+    export type VisualReviewReposRunsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Filter by review state
+     */
+    review_state?: string;
+    };
+
     export type VisualReviewReposSnapshotsListParams = {
     /**
      * Number of results to return per page.
@@ -44599,6 +45014,14 @@ export namespace Schemas {
 
     export type VisualReviewRunsListParams = {
     /**
+     * Filter by branch name
+     */
+    branch?: string;
+    /**
+     * Filter by full commit SHA
+     */
+    commit_sha?: string;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -44607,9 +45030,28 @@ export namespace Schemas {
      */
     offset?: number;
     /**
+     * Filter by GitHub PR number
+     */
+    pr_number?: number;
+    /**
      * Filter by review state
      */
     review_state?: string;
+    };
+
+    export type VisualReviewRunsSnapshotHistoryListParams = {
+    /**
+     * Snapshot identifier
+     */
+    identifier: string;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type VisualReviewRunsSnapshotsListParams = {

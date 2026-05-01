@@ -46,8 +46,10 @@ from posthog.temporal.data_imports.sources.stripe.settings import (
     ENDPOINTS as STRIPE_ENDPOINTS,
 )
 from posthog.temporal.data_imports.sources.stripe.stripe import (
+    StripeAuthenticationError,
     StripePermissionError,
     StripeResumeConfig,
+    StripeValidationError,
     create_webhook,
     delete_webhook,
     get_external_webhook_info,
@@ -283,9 +285,34 @@ If automatic creation failed due to a permissions error and you're using a restr
                 return True, None
             else:
                 return False, "Invalid Stripe credentials"
+        except StripeAuthenticationError as e:
+            return (
+                False,
+                f"Stripe rejected the API key: {e.stripe_message}. Double-check that you pasted a restricted key (rk_live_...) for the same Stripe account, with no extra whitespace, and that it has not been revoked.",
+            )
         except StripePermissionError as e:
-            missing_resources = ", ".join(e.missing_permissions.keys())
-            return False, f"Stripe credentials lack permissions for {missing_resources}"
+            # 403s are self-explanatory — the resource name tells the customer which Stripe scope
+            # to enable. Stripe's verbose error (request id, status, headers) bloats the toast
+            # without adding signal, so render a plain resource list.
+            return (
+                False,
+                f"Stripe credentials lack permissions for {', '.join(e.missing_permissions.keys())}",
+            )
+        except StripeValidationError as e:
+            # Non-403 failures (network, schema, rate limit, etc.) are not configuration issues, so
+            # surface the underlying Stripe message verbatim — the cause isn't obvious from the
+            # resource name. Fold any 403s collected before the unknown error into the same toast.
+            # Guard against empty / whitespace-only error strings so we never crash the response
+            # path while reporting a different error.
+            def _first_line(msg: str) -> str:
+                lines = (msg or "").splitlines()
+                return lines[0][:200] if lines else "(no detail)"
+
+            details = "; ".join(f"{name}: {_first_line(msg)}" for name, msg in e.errors.items())
+            message = f"Stripe validation failed — {details}"
+            if e.missing_permissions:
+                message += f". Additionally lacks permissions for {', '.join(e.missing_permissions.keys())}"
+            return False, message
         except Exception as e:
             return False, str(e)
 

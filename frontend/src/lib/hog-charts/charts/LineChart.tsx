@@ -3,6 +3,7 @@ import React, { useCallback, useMemo } from 'react'
 import { drawArea, drawGrid, drawHighlightPoint, drawLine, drawPoints } from '../core/canvas-renderer'
 import type { DrawContext } from '../core/canvas-renderer'
 import { Chart } from '../core/Chart'
+import { ChartErrorBoundary } from '../core/ChartErrorBoundary'
 import {
     computePercentStackData,
     computeStackData,
@@ -39,10 +40,21 @@ export interface LineChartProps<Meta = unknown> {
     tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
     onPointClick?: (data: PointClickData<Meta>) => void
     className?: string
+    /** `data-attr` applied to the chart wrapper. See `ChartProps.dataAttr`. */
+    dataAttr?: string
     children?: React.ReactNode
+    onError?: (error: Error, info: React.ErrorInfo) => void
 }
 
-export function LineChart<Meta = unknown>({
+export function LineChart<Meta = unknown>({ onError, ...rest }: LineChartProps<Meta>): React.ReactElement {
+    return (
+        <ChartErrorBoundary onError={onError}>
+            <LineChartInner {...rest} />
+        </ChartErrorBoundary>
+    )
+}
+
+function LineChartInner<Meta = unknown>({
     series,
     labels,
     config,
@@ -50,6 +62,7 @@ export function LineChart<Meta = unknown>({
     tooltip,
     onPointClick,
     className,
+    dataAttr,
     children,
 }: LineChartProps<Meta>): React.ReactElement {
     const { yScaleType = 'linear', percentStackView = false, showGrid = false } = config ?? {}
@@ -224,6 +237,7 @@ export function LineChart<Meta = unknown>({
             tooltip={tooltip}
             onPointClick={onPointClick}
             className={className}
+            dataAttr={dataAttr}
             resolveValue={resolveValue}
         >
             {children}

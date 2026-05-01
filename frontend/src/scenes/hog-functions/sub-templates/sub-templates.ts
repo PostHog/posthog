@@ -645,6 +645,12 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
     'error-tracking-issue-spiking': [
         {
             ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['error-tracking-issue-spiking'],
+            template_id: 'template-webhook',
+            name: 'HTTP Webhook on issue spiking',
+            description: 'Send a webhook when an issue is spiking',
+        },
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['error-tracking-issue-spiking'],
             template_id: 'template-discord',
             name: 'Post to Discord on issue spiking',
             description: 'Posts a message to Discord when an issue is spiking',

@@ -13,7 +13,13 @@ import posthoganalytics
 from dateutil import parser as dateutil_parser
 from redis import Redis
 from temporalio.client import WorkflowExecutionStatus, WorkflowHandle
-from temporalio.common import RetryPolicy, SearchAttributePair, TypedSearchAttributes, WorkflowIDReusePolicy
+from temporalio.common import (
+    RetryPolicy,
+    SearchAttributePair,
+    TypedSearchAttributes,
+    WorkflowIDConflictPolicy,
+    WorkflowIDReusePolicy,
+)
 from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 
 from posthog.schema import ReplayInactivityPeriod
@@ -731,19 +737,42 @@ async def ensure_llm_single_session_summary(
         )
 
 
-async def _start_video_summary_workflow(inputs: SingleSessionSummaryInputs, workflow_id: str) -> WorkflowHandle:
+async def _start_video_summary_workflow(
+    inputs: SingleSessionSummaryInputs,
+    workflow_id: str,
+    force_restart: bool = False,
+) -> WorkflowHandle:
     """Start the video-based single-session summary workflow and return its handle.
 
     Non-blocking alternative to ``_execute_single_session_summary_workflow`` so
     the API layer can poll the ``get_progress`` query while the workflow runs.
+
+    Conflict policy is intent-driven:
+    - ``force_restart=False`` (default): ``USE_EXISTING`` so a duplicate click
+      while a workflow is already running attaches to it instead of killing
+      it — preserves the per-(team, session) dedup that lets multiple watchers
+      share one rasterizer/LLM run.
+    - ``force_restart=True``: ``TERMINATE_EXISTING`` so a user-driven retry
+      after cancel cleanly preempts any leftover run. Required because
+      ``handle.cancel()`` is asynchronous on the Temporal side; the previous
+      workflow may still be in the brief CANCEL_REQUESTED → CANCELLED window
+      when the retry click arrives.
+
+    ``ALLOW_DUPLICATE`` reuse policy is used in both cases so a fresh start is
+    permitted once a previous run has reached any terminal state (CANCELLED,
+    FAILED, TERMINATED, COMPLETED).
     """
     client = await async_connect()
     retry_policy = RetryPolicy(maximum_attempts=int(settings.TEMPORAL_WORKFLOW_MAX_ATTEMPTS))
+    conflict_policy = (
+        WorkflowIDConflictPolicy.TERMINATE_EXISTING if force_restart else WorkflowIDConflictPolicy.USE_EXISTING
+    )
     handle = await client.start_workflow(
         "summarize-session",
         inputs,
         id=workflow_id,
-        id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+        id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+        id_conflict_policy=conflict_policy,
         task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
         retry_policy=retry_policy,
         search_attributes=TypedSearchAttributes(
@@ -754,14 +783,23 @@ async def _start_video_summary_workflow(inputs: SingleSessionSummaryInputs, work
 
 
 async def _execute_single_session_summary_workflow(inputs: SingleSessionSummaryInputs, workflow_id: str) -> None:
-    """Execute the single-session summary workflow."""
+    """Execute the single-session summary workflow.
+
+    Uses ``ALLOW_DUPLICATE`` + ``USE_EXISTING`` so this path is compatible with
+    workflow ids that may have just been cancelled by the UI cancel endpoint:
+    - If the workflow is currently running, ``USE_EXISTING`` attaches to it
+      and ``execute_workflow`` awaits its result instead of raising.
+    - If the previous run is in any terminal state (including CANCELLED),
+      ``ALLOW_DUPLICATE`` lets a fresh run start under the same id.
+    """
     client = await async_connect()
     retry_policy = RetryPolicy(maximum_attempts=int(settings.TEMPORAL_WORKFLOW_MAX_ATTEMPTS))
     await client.execute_workflow(
         "summarize-session",
         inputs,
         id=workflow_id,
-        id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+        id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+        id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
         task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
         retry_policy=retry_policy,
         search_attributes=TypedSearchAttributes(
@@ -936,6 +974,7 @@ async def execute_summarize_session_video_stream(
     extra_summary_context: ExtraSummaryContext | None = None,
     product_context: str | None = None,
     local_reads_prod: bool = False,
+    force_restart: bool = False,
 ) -> AsyncGenerator[str, None]:
     """Start the video-based summarization workflow and stream progress events.
 
@@ -976,7 +1015,9 @@ async def execute_summarize_session_video_stream(
 
     client = await async_connect()
     try:
-        handle = await _start_video_summary_workflow(inputs=session_input, workflow_id=workflow_id)
+        handle = await _start_video_summary_workflow(
+            inputs=session_input, workflow_id=workflow_id, force_restart=force_restart
+        )
     except WorkflowAlreadyStartedError:
         handle = client.get_workflow_handle(workflow_id)
 

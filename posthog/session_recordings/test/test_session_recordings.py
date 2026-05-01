@@ -15,7 +15,7 @@ from posthog.test.base import (
     snapshot_postgres_queries,
     snapshot_postgres_queries_context,
 )
-from unittest.mock import ANY, MagicMock, call, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, call, patch
 
 from django.utils.timezone import now
 
@@ -2191,6 +2191,133 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert call_kwargs["session_id"] == session_id
         assert call_kwargs["user"] == self.user
         assert call_kwargs["team"] == self.team
+        assert call_kwargs["force_restart"] is False
+
+    @parameterized.expand(
+        [
+            ("explicit_true", {"force_restart": True}, True),
+            ("explicit_false", {"force_restart": False}, False),
+            ("missing_defaults_to_false", {}, False),
+            ("non_boolean_truthy_coerces", {"force_restart": "1"}, True),
+        ]
+    )
+    @patch("posthog.session_recordings.session_recording_api.execute_summarize_session_video_stream")
+    @patch("posthog.session_recordings.session_recording_api.is_cloud", return_value=True)
+    @patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"})
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_summarize_threads_force_restart_through_body(
+        self,
+        _name: str,
+        body: dict,
+        expected_force_restart: bool,
+        mock_feature_enabled: MagicMock,
+        mock_is_cloud: MagicMock,
+        mock_execute_summarize: MagicMock,
+    ):
+        session_id = str(uuid7())
+        self.produce_replay_summary(
+            distinct_id="user",
+            session_id=session_id,
+            timestamp=now() - timedelta(hours=1),
+        )
+
+        async def mock_video_stream(*args, **kwargs):
+            yield "data: test\n\n"
+
+        mock_execute_summarize.side_effect = mock_video_stream
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recordings/{session_id}/summarize",
+            data=body,
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        streaming_content = response.streaming_content  # type: ignore[attr-defined]
+        if hasattr(streaming_content, "__aiter__"):
+
+            async def _drain() -> None:
+                async for _ in streaming_content:
+                    pass
+
+            async_to_sync(_drain)()
+        else:
+            list(streaming_content)
+
+        mock_execute_summarize.assert_called_once()
+        assert mock_execute_summarize.call_args.kwargs["force_restart"] is expected_force_restart
+
+    @patch(
+        "posthog.session_recordings.session_recording_api._cancel_summary_workflow",
+        new_callable=AsyncMock,
+    )
+    def test_cancel_summary_succeeds(self, mock_cancel: AsyncMock) -> None:
+        mock_cancel.return_value = None
+        session_id = str(uuid7())
+        self.produce_replay_summary(
+            distinct_id="user",
+            session_id=session_id,
+            timestamp=now() - timedelta(hours=1),
+        )
+
+        response = self.client.post(f"/api/projects/{self.team.id}/session_recordings/{session_id}/summarize/cancel")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"cancelled": True}
+        mock_cancel.assert_awaited_once()
+        # Workflow id is per-(team, session) so leaks of either scope id would
+        # silently break dedup; assert both flow through.
+        called_workflow_id = mock_cancel.call_args[0][0]
+        assert str(self.team.id) in called_workflow_id
+        assert session_id in called_workflow_id
+
+    def test_cancel_summary_requires_auth(self) -> None:
+        session_id = str(uuid7())
+        self.produce_replay_summary(
+            distinct_id="user",
+            session_id=session_id,
+            timestamp=now() - timedelta(hours=1),
+        )
+        url = f"/api/projects/{self.team.id}/session_recordings/{session_id}/summarize/cancel"
+        self.client.logout()
+
+        response = self.client.post(url)
+
+        assert response.status_code in (
+            status.HTTP_401_UNAUTHORIZED,
+            status.HTTP_403_FORBIDDEN,
+        )
+
+    @patch(
+        "posthog.session_recordings.session_recording_api._cancel_summary_workflow",
+        new_callable=AsyncMock,
+    )
+    def test_cancel_summary_returns_generic_500_on_temporal_failure(
+        self,
+        mock_cancel: AsyncMock,
+    ) -> None:
+        """Raw Temporal errors must not be surfaced to the client. They can leak
+        internal hostnames, namespaces, or TLS details. The client gets a
+        generic message and the full exception is logged server-side.
+        """
+        sensitive_message = "internal-temporal-host.svc.cluster.local: TLS handshake failure namespace=secret-ns"
+        mock_cancel.side_effect = RuntimeError(sensitive_message)
+
+        session_id = str(uuid7())
+        self.produce_replay_summary(
+            distinct_id="user",
+            session_id=session_id,
+            timestamp=now() - timedelta(hours=1),
+        )
+
+        response = self.client.post(f"/api/projects/{self.team.id}/session_recordings/{session_id}/summarize/cancel")
+
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        body = response.json()
+        assert body["cancelled"] is False
+        assert sensitive_message not in body["error"]
+        assert "internal-temporal-host" not in body["error"]
+        assert "namespace" not in body["error"].lower()
 
     @patch(
         "posthog.session_recordings.session_recording_api.SessionRecordingViewSet._delete_via_recording_api",
@@ -2287,3 +2414,90 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             failed_session_ids=["bulk_partial_3"],
             failed_count=1,
         )
+
+
+class TestCancelSummaryWorkflowHelper:
+    """Unit tests for the ``_cancel_summary_workflow`` helper.
+
+    Endpoint-level tests in ``TestSessionRecordings`` mock this helper, so the
+    idempotent NOT_FOUND path and propagation of other RPC errors live here.
+    """
+
+    @pytest.mark.asyncio
+    async def test_swallows_not_found_for_idempotent_cancel(self) -> None:
+        """The cancel endpoint must be safe to fire-and-forget — a workflow
+        that has already finished, never started, or already been cancelled
+        should not surface as a client-visible error.
+        """
+        from temporalio.service import RPCError, RPCStatusCode
+
+        from posthog.session_recordings.session_recording_api import _cancel_summary_workflow
+
+        handle = MagicMock()
+        handle.cancel = AsyncMock(side_effect=RPCError("workflow not found", RPCStatusCode.NOT_FOUND, b""))
+        client = MagicMock()
+        client.get_workflow_handle = MagicMock(return_value=handle)
+
+        with patch(
+            "posthog.session_recordings.session_recording_api.async_connect",
+            AsyncMock(return_value=client),
+        ):
+            await _cancel_summary_workflow("workflow-id-123")
+
+        handle.cancel.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    @parameterized.expand(
+        [
+            ("internal", "INTERNAL"),
+            ("unavailable", "UNAVAILABLE"),
+            ("permission_denied", "PERMISSION_DENIED"),
+            ("deadline_exceeded", "DEADLINE_EXCEEDED"),
+        ]
+    )
+    async def test_propagates_other_rpc_errors(self, _name: str, status_attr: str) -> None:
+        """Only NOT_FOUND is treated as a benign no-op. Everything else (real
+        infra failures, auth errors, deadlines) must propagate so the endpoint
+        returns 500 and we can alert on it.
+        """
+        from temporalio.service import RPCError, RPCStatusCode
+
+        from posthog.session_recordings.session_recording_api import _cancel_summary_workflow
+
+        rpc_status = getattr(RPCStatusCode, status_attr)
+        handle = MagicMock()
+        handle.cancel = AsyncMock(side_effect=RPCError("upstream failure", rpc_status, b""))
+        client = MagicMock()
+        client.get_workflow_handle = MagicMock(return_value=handle)
+
+        with (
+            patch(
+                "posthog.session_recordings.session_recording_api.async_connect",
+                AsyncMock(return_value=client),
+            ),
+            pytest.raises(RPCError) as exc_info,
+        ):
+            await _cancel_summary_workflow("workflow-id-123")
+
+        assert exc_info.value.status == rpc_status
+
+    @pytest.mark.asyncio
+    async def test_propagates_non_rpc_exceptions(self) -> None:
+        """Non-RPC errors (e.g. asyncio cancellation, programming errors) must
+        not be silently swallowed by the NOT_FOUND check.
+        """
+        from posthog.session_recordings.session_recording_api import _cancel_summary_workflow
+
+        handle = MagicMock()
+        handle.cancel = AsyncMock(side_effect=RuntimeError("connection failed"))
+        client = MagicMock()
+        client.get_workflow_handle = MagicMock(return_value=handle)
+
+        with (
+            patch(
+                "posthog.session_recordings.session_recording_api.async_connect",
+                AsyncMock(return_value=client),
+            ),
+            pytest.raises(RuntimeError, match="connection failed"),
+        ):
+            await _cancel_summary_workflow("workflow-id-123")
