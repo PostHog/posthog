@@ -541,15 +541,15 @@ class TestExecuteSummarizeSessionVideoStream:
                 MagicMock(side_effect=[None, completed_summary]),
             ),
             patch(
-                "posthog.temporal.session_replay.session_summary.summarize_session._prepare_execution",
+                "posthog.temporal.session_replay.session_summary.workflow._prepare_execution",
                 return_value=(None, None, None, MagicMock(), "workflow-id"),
             ),
             patch(
-                "posthog.temporal.session_replay.session_summary.summarize_session._start_video_summary_workflow",
+                "posthog.temporal.session_replay.session_summary.workflow._start_video_summary_workflow",
                 AsyncMock(return_value=handle),
             ) as mock_start,
             patch(
-                "posthog.temporal.session_replay.session_summary.summarize_session.async_connect",
+                "posthog.temporal.session_replay.session_summary.workflow.async_connect",
                 AsyncMock(return_value=MagicMock()),
             ),
         ):
@@ -572,7 +572,7 @@ class TestExecuteSummarizeSessionVideoStream:
         client = MagicMock()
         client.start_workflow = AsyncMock(return_value=handle)
         with patch(
-            "posthog.temporal.session_replay.session_summary.summarize_session.async_connect",
+            "posthog.temporal.session_replay.session_summary.workflow.async_connect",
             AsyncMock(return_value=client),
         ):
             await _start_video_summary_workflow(
@@ -593,7 +593,7 @@ class TestStartVideoSummaryWorkflow:
         client = MagicMock()
         client.start_workflow = AsyncMock(return_value=MagicMock())
         with patch(
-            "posthog.temporal.session_replay.session_summary.summarize_session.async_connect",
+            "posthog.temporal.session_replay.session_summary.workflow.async_connect",
             AsyncMock(return_value=client),
         ):
             await _start_video_summary_workflow(
@@ -611,7 +611,7 @@ class TestStartVideoSummaryWorkflow:
         client = MagicMock()
         client.start_workflow = AsyncMock(return_value=MagicMock())
         with patch(
-            "posthog.temporal.session_replay.session_summary.summarize_session.async_connect",
+            "posthog.temporal.session_replay.session_summary.workflow.async_connect",
             AsyncMock(return_value=client),
         ):
             await _start_video_summary_workflow(
@@ -634,7 +634,7 @@ class TestExecuteSingleSessionSummaryWorkflow:
         client = MagicMock()
         client.execute_workflow = AsyncMock(return_value=None)
         with patch(
-            "posthog.temporal.session_replay.session_summary.summarize_session.async_connect",
+            "posthog.temporal.session_replay.session_summary.workflow.async_connect",
             AsyncMock(return_value=client),
         ):
             await _execute_single_session_summary_workflow(
@@ -660,7 +660,7 @@ class TestExecuteSummarizeSession:
         with (
             patch.object(SingleSessionSummary.objects, "get_summary", MagicMock(return_value=cached)),
             patch(
-                "posthog.temporal.session_replay.session_summary.summarize_session._execute_single_session_summary_workflow"
+                "posthog.temporal.session_replay.session_summary.workflow._execute_single_session_summary_workflow"
             ) as mock_execute,
         ):
             result = await execute_summarize_session(
