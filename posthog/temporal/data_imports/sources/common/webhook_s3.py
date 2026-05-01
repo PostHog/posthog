@@ -66,7 +66,7 @@ class WebhookSourceManager:
     def _strip_s3_protocol(self, s3_path: str) -> str:
         return s3_path.replace("s3://", "")
 
-    async def webhook_enabled(self, skip_initial_sync_complete_check: bool | None = None) -> bool:
+    async def webhook_enabled(self, skip_initial_sync_complete_check: bool = False) -> bool:
         from posthog.models.hog_functions.hog_function import HogFunction
 
         from products.data_warehouse.backend.models import ExternalDataSchema
