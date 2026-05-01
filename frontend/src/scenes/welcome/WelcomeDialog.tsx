@@ -12,7 +12,18 @@ import { ProductsInUseCard } from './cards/ProductsInUseCard'
 import { RecentActivityCard } from './cards/RecentActivityCard'
 import { SuggestedNextStepsCard } from './cards/SuggestedNextStepsCard'
 import { TeamMembersCard } from './cards/TeamMembersCard'
-import { welcomeDialogLogic } from './welcomeDialogLogic'
+import { wasWelcomeDismissed, welcomeDialogLogic } from './welcomeDialogLogic'
+
+/** Only mount the welcome dialog (and its kea logic) for users actually eligible to see it.
+ * Lives in GlobalModals so it can render regardless of which scene the user lands on after
+ * signup (project home, primary dashboard, etc.). */
+export function MaybeWelcomeDialog(): JSX.Element | null {
+    const { user } = useValues(userLogic)
+    if (!user || user.is_organization_first_user !== false || wasWelcomeDismissed(user.uuid, user.organization?.id)) {
+        return null
+    }
+    return <WelcomeDialog />
+}
 
 export function WelcomeDialog(): JSX.Element | null {
     const {

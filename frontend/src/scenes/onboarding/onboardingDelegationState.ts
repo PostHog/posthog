@@ -20,6 +20,13 @@ function hasSkippedForCurrentOrg(user: UserType | null | undefined): boolean {
     )
 }
 
+function isInvitedUser(user: UserType | null | undefined): boolean {
+    // Invitees join an org that someone else already set up, so the org-founder onboarding
+    // flow doesn't apply to them — and suppressing the redirect is what lets them land on
+    // the project home where the welcome dialog mounts.
+    return user?.is_organization_first_user === false
+}
+
 export function isOnboardingRedirectSuppressed(user: UserType | null | undefined): boolean {
-    return hasSkippedForCurrentOrg(user) || hasPendingDelegationForCurrentOrg(user)
+    return hasSkippedForCurrentOrg(user) || hasPendingDelegationForCurrentOrg(user) || isInvitedUser(user)
 }

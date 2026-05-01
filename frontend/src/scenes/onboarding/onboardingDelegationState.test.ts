@@ -78,4 +78,22 @@ describe('isOnboardingRedirectSuppressed', () => {
             } as any)
         ).toEqual(true)
     })
+
+    it('suppresses for invited users (so they land on home and see the welcome dialog)', () => {
+        expect(
+            isOnboardingRedirectSuppressed({
+                is_organization_first_user: false,
+                organization: { id: 'org-1' },
+            } as any)
+        ).toEqual(true)
+    })
+
+    it('does NOT suppress for org founders', () => {
+        expect(
+            isOnboardingRedirectSuppressed({
+                is_organization_first_user: true,
+                organization: { id: 'org-1' },
+            } as any)
+        ).toEqual(false)
+    })
 })
