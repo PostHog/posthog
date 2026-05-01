@@ -19,6 +19,7 @@ from posthog.helpers.email_utils import (
     _get_esp_suppression_cache_key,
     check_esp_suppression,
     sanitize_display_name,
+    sanitize_email_string,
     sanitize_message_body,
     validate_display_name,
     validate_message_body,
@@ -488,3 +489,61 @@ class TestSanitizeMessageBody(SimpleTestCase):
         # fallback so callers can rely on getting a non-None string back.
         self.assertEqual(sanitize_message_body(None), "")
         self.assertEqual(sanitize_message_body(""), "")
+
+
+class TestSanitizeEmailString(SimpleTestCase):
+    @parameterized.expand(
+        [
+            # Plain text passes through (with html.escape only).
+            ("plain", "Marius", "Marius"),
+            ("apostrophe", "O'Brien", "O&#x27;Brien"),
+            ("emoji", "Marius 🦔", "Marius 🦔"),
+            ("hello_world", "Hello, world.", "Hello, world."),
+            # Numeric / punctuation strings without a TLD aren't defanged.
+            ("ip_v4", "192.168.1.1", "192.168.1.1"),
+            ("time", "12:34", "12:34"),
+            ("version", "v1.2.3", "v1.2.3"),
+            # HTML is escaped — preserves existing sanitize_email_properties behaviour.
+            ("script_tag", "<script>x</script>", "&lt;script&gt;x&lt;/script&gt;"),
+            ("ampersand", "Ben & Jerry's", "Ben &amp; Jerry&#x27;s"),
+            # URL-shaped substrings are defanged so mail clients don't auto-link.
+            ("https_url", "Visit https://evil.com today", "Visit https&#58;//evil&#46;com today"),
+            ("http_url", "see http://phish.me/", "see http&#58;//phish&#46;me/"),
+            ("www_only", "go www.scam.io", "go www&#46;scam&#46;io"),
+            ("bare_domain", "join evil.com now", "join evil&#46;com now"),
+            ("tld_only_legit_org", "Acme.com", "Acme&#46;com"),
+            ("javascript_scheme", "click javascript:alert(1)", "click javascript&#58;alert(1)"),
+            ("data_scheme", "see data:text/html,x", "see data&#58;text/html,x"),
+            ("ftp_scheme", "grab ftp://x.io", "grab ftp&#58;//x&#46;io"),
+            # Fullwidth / compatibility characters are NFKC-folded then defanged so
+            # `ｈｔｔｐ：／／evil.com` cannot bypass the URL regex.
+            (
+                "fullwidth_url",
+                "go ｈｔｔｐ：／／evil.com",
+                "go http&#58;//evil&#46;com",
+            ),
+            # Zero-width / direction-override characters are stripped so they can't
+            # hide URL structure (`evil​.com` -> `evil.com`).
+            ("zero_width_in_domain", "evil​.com", "evil&#46;com"),
+            ("rtl_override", "foo‮bar", "foobar"),
+            # Combined: HTML-escape an injected attribute that smuggles a URL scheme,
+            # the scheme is then defanged (regression for the existing
+            # `javascript:alert(1)` test in test_sanitize_email_properties).
+            (
+                "escaped_then_defanged",
+                '<img src="x" onerror="javascript:alert(1)">',
+                "&lt;img src=&quot;x&quot; onerror=&quot;javascript&#58;alert(1)&quot;&gt;",
+            ),
+        ]
+    )
+    def test_sanitizes(self, _name: str, value: str, expected: str) -> None:
+        self.assertEqual(sanitize_email_string(value), expected)
+
+    def test_empty_string(self) -> None:
+        self.assertEqual(sanitize_email_string(""), "")
+
+    def test_does_not_double_encode_already_escaped(self) -> None:
+        # `&amp;` survives a second pass — html.escape would re-encode the `&` in
+        # the entity, which is the existing trade-off of running sanitize_email_string
+        # over already-sanitised data. Documented as a guardrail.
+        self.assertEqual(sanitize_email_string("&amp;"), "&amp;amp;")
