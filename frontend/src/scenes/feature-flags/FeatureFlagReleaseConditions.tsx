@@ -668,11 +668,11 @@ export function FeatureFlagReleaseConditions({
                                       ? 'device'
                                       : 'user'
 
-                            const applyChange = (): void => {
-                                if (value === 'user') {
+                            const applyChange = (targetValue: string): void => {
+                                if (targetValue === 'user') {
                                     setAggregationGroupTypeIndex(null)
                                     setBucketingIdentifier(FeatureFlagBucketingIdentifier.DISTINCT_ID)
-                                } else if (value === 'device') {
+                                } else if (targetValue === 'device') {
                                     setAggregationGroupTypeIndex(null)
                                     setBucketingIdentifier(FeatureFlagBucketingIdentifier.DEVICE_ID)
                                     // Auto-disable persist across auth when switching to device ID
@@ -682,7 +682,7 @@ export function FeatureFlagReleaseConditions({
                                             ensure_experience_continuity: false,
                                         })
                                     }
-                                } else if (value === 'group') {
+                                } else if (targetValue === 'group') {
                                     // Default to first group type when selecting Group
                                     const firstGroupType = Array.from(groupTypes.values())[0]
                                     if (firstGroupType) {
@@ -700,7 +700,7 @@ export function FeatureFlagReleaseConditions({
                                         'Changing the bucketing option will cause users to re-evaluate the flag and may cause changes in the evaluation results. Are you sure you want to continue?',
                                     primaryButton: {
                                         children: 'Continue',
-                                        onClick: applyChange,
+                                        onClick: () => applyChange(value),
                                         size: 'small',
                                     },
                                     secondaryButton: {
@@ -711,7 +711,7 @@ export function FeatureFlagReleaseConditions({
                                 })
                             } else {
                                 // No change, just apply directly
-                                applyChange()
+                                applyChange(value)
                             }
                         }}
                         options={[
