@@ -65,6 +65,9 @@ tools:
             - count
             - experiment_set
         ui_app: cohort
+    cohorts-csv-imports-retrieve:
+        operation: cohorts_csv_imports_retrieve
+        enabled: false
     cohorts-destroy:
         operation: cohorts_destroy
         enabled: false

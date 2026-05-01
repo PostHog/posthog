@@ -59,6 +59,9 @@ tools:
     cohorts-create:
         operation: cohorts_create
         enabled: false
+    cohorts-csv-imports-retrieve:
+        operation: cohorts_csv_imports_retrieve
+        enabled: false
     cohorts-destroy:
         operation: cohorts_destroy
         enabled: false
