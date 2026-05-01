@@ -1,6 +1,9 @@
 /* eslint-disable react/forbid-dom-props -- dynamic pixel positions from d3 scales */
 import React from 'react'
 
+// TODO(hog-charts): transitional reach-back into scenes/trends. The AnomalyMarker type
+// is generic in shape but lives next to the trends-specific adapter that produces it;
+// move the type into hog-charts before this layer is reusable from non-trends call sites.
 import type { AnomalyMarker } from 'scenes/trends/viz/trends-line-chart/anomalyPointsAdapter'
 
 import { useChartLayout } from '../../core/chart-context'

@@ -2,6 +2,9 @@ import { useValues } from 'kea'
 import React, { useMemo } from 'react'
 
 import { insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
+// TODO(hog-charts): transitional reach-back into scenes/trends. The IndexedTrendResult
+// type and the buildAnomalyMarkers adapter need to move into hog-charts (or be replaced
+// by a generic shape) before this overlay is reusable from non-trends call sites.
 import type { IndexedTrendResult } from 'scenes/trends/types'
 import { buildAnomalyMarkers } from 'scenes/trends/viz/trends-line-chart/anomalyPointsAdapter'
 
