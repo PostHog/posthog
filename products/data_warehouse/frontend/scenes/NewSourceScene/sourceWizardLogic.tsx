@@ -8,7 +8,6 @@ import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -44,6 +43,7 @@ import {
     groupDirectQueryTablesBySchema,
     splitDirectQueryTableName,
 } from '../../shared/components/forms/directQuerySchemaUtils'
+import type { WebhookCreateResult } from '../../shared/components/forms/WebhookSetupForm'
 import { sourceManagementLogic } from '../../shared/logics/sourceManagementLogic'
 import { selfManagedSourceLogic } from './selfManagedSourceLogic'
 import type { sourceWizardLogicType } from './sourceWizardLogicType'
@@ -345,7 +345,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         }),
         saveFormStateBeforeRedirect: true,
         createWebhook: true,
-        setWebhookResult: (result: { success: boolean; webhook_url: string; error?: string } | null) => ({
+        setWebhookResult: (result: WebhookCreateResult | null) => ({
             result,
         }),
         submitWebhookFields: true,
@@ -549,7 +549,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             },
         ],
         webhookResult: [
-            null as { success: boolean; webhook_url: string; error?: string } | null,
+            null as WebhookCreateResult | null,
             {
                 setWebhookResult: (_, { result }) => result,
                 onClear: () => null,
@@ -696,8 +696,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         ],
         webhookStepComplete: [
             (s) => [s.webhookResult, s.selectedConnector],
-            (webhookResult: { success: boolean } | null, selectedConnector: SourceConfig | null): boolean => {
-                if (webhookResult?.success) {
+            (webhookResult: WebhookCreateResult | null, selectedConnector: SourceConfig | null): boolean => {
+                if (webhookResult?.success && (webhookResult.pending_inputs?.length ?? 0) === 0) {
                     return true
                 }
                 if (!webhookResult) {
@@ -711,11 +711,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         ],
         isManualLinkingSelected: [(s) => [s.selectedConnector], (selectedConnector): boolean => !selectedConnector],
         isDirectQueryMode: [
-            (s) => [s.source, s.selectedConnector, s.featureFlags],
-            (source, selectedConnector, featureFlags): boolean =>
-                source.access_method === 'direct' &&
-                selectedConnector?.name === 'Postgres' &&
-                !!featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY],
+            (s) => [s.source, s.selectedConnector],
+            (source, selectedConnector): boolean =>
+                source.access_method === 'direct' && selectedConnector?.name === 'Postgres',
         ],
         canGoBack: [
             (s) => [s.currentStep],
@@ -1159,10 +1157,11 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             }
 
             if (values.currentStep === 4) {
-                if (values.webhookResult?.success) {
+                if (values.webhookResult?.success && (values.webhookResult.pending_inputs?.length ?? 0) === 0) {
                     actions.onNext()
                 } else {
-                    // Manual mode - submit webhook form (validates, then triggers submitWebhookFields)
+                    // Manual mode (or auto-create with pending inputs) — submit webhook form
+                    // (validates, then triggers submitWebhookFields)
                     actions.submitWebhookFieldInputs()
                 }
             }
@@ -1490,9 +1489,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             submit: async (sourceValues) => {
                 if (values.selectedConnector) {
                     const isDirectQueryMode =
-                        !!values.featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY] &&
-                        values.selectedConnector.name === 'Postgres' &&
-                        sourceValues.access_method === 'direct'
+                        values.selectedConnector.name === 'Postgres' && sourceValues.access_method === 'direct'
                     const payload: Record<string, any> = {
                         ...sourceValues,
                         access_method: isDirectQueryMode ? 'direct' : 'warehouse',

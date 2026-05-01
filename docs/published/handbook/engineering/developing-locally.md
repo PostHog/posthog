@@ -150,6 +150,25 @@ You can now change PostHog in any way you want. See [Project structure](./projec
 
 By default, `hogli start` runs a minimal set of services (enough for product analytics). To customize which services start, run `hogli dev:setup` which lets you select intents based on the products you're working on. Your choices are saved and used automatically by `hogli start`.
 
+### Running in detached mode
+
+By default, `hogli start` runs interactively with a terminal UI (phrocs) that displays logs from all processes. If you prefer to run the dev stack in the background without an attached terminal, use detached mode:
+
+```bash
+hogli up -d
+```
+
+This starts all services in the background and returns once the IPC socket is bound. `hogli start -d` is also available as an equivalent. Detached mode is useful for:
+
+- Coder workspaces and remote development environments
+- CI pipelines and automated testing
+- Agent sessions and headless development
+
+**Companion commands:**
+
+- `hogli wait` – blocks until all services are ready (useful in scripts)
+- `hogli down` – gracefully stops the detached stack (`hogli stop` is also available as an equivalent)
+
 ### Manual setup
 
 If you need to set up without Flox, see the [manual development setup](./manual-dev-setup) guide.

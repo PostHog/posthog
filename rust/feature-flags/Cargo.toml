@@ -71,7 +71,12 @@ semver = "1.0.28"
 
 [features]
 # Gated to keep the AWS SDK, clap, and common-s3 out of library/server builds.
-warm-flags-cache = ["dep:aws-config", "dep:aws-sdk-s3", "dep:clap", "dep:common-s3"]
+warm-flags-cache = [
+  "dep:aws-config",
+  "dep:aws-sdk-s3",
+  "dep:clap",
+  "dep:common-s3",
+]
 
 [[bin]]
 name = "warm-flags-cache"

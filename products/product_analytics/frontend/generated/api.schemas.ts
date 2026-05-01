@@ -4854,6 +4854,7 @@ export const AIEventTypeApi = {
     AiMetric: '$ai_metric',
     AiFeedback: '$ai_feedback',
     AiEvaluation: '$ai_evaluation',
+    AiTag: '$ai_tag',
     AiTraceSummary: '$ai_trace_summary',
     AiGenerationSummary: '$ai_generation_summary',
     AiTraceClusters: '$ai_trace_clusters',

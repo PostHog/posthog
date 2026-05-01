@@ -11,6 +11,7 @@ use crate::cohorts::membership::{
 use crate::config::{Config, TeamIdCollection};
 use crate::database_pools::DatabasePools;
 use crate::db_monitor::DatabasePoolMonitor;
+use crate::flags::flag_definitions_cache::FlagDefinitionsCache;
 use crate::flags::flag_group_type_mapping::GroupTypeCacheManager;
 use crate::rayon_dispatcher::RayonDispatcher;
 use crate::router;
@@ -35,6 +36,7 @@ pub struct LifecycleHandles {
     pub http: Handle,
     pub db_monitor: Handle,
     pub cohort_cache_monitor: Handle,
+    pub flag_defs_cache_monitor: Handle,
     pub tokio_monitor: Handle,
     pub readiness: ReadinessHandler,
     pub liveness: LivenessHandler,
@@ -64,6 +66,10 @@ pub fn register_components(manager: &mut Manager) -> LifecycleHandles {
         "cohort-cache-monitor",
         ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(2)),
     );
+    let flag_defs_cache_monitor = manager.register(
+        "flag-definitions-cache-monitor",
+        ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(2)),
+    );
     let tokio_monitor = manager.register(
         "tokio-runtime-monitor",
         ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(2)),
@@ -74,6 +80,7 @@ pub fn register_components(manager: &mut Manager) -> LifecycleHandles {
         http,
         db_monitor,
         cohort_cache_monitor,
+        flag_defs_cache_monitor,
         tokio_monitor,
         readiness,
         liveness,
@@ -91,6 +98,7 @@ impl LifecycleHandles {
         self.http.work_completed();
         self.db_monitor.work_completed();
         self.cohort_cache_monitor.work_completed();
+        self.flag_defs_cache_monitor.work_completed();
         self.tokio_monitor.work_completed();
     }
 }
@@ -185,6 +193,11 @@ pub async fn serve(
         database_pools.non_persons_reader.clone(),
         Some(config.cohort_cache_capacity_bytes),
         Some(config.cache_ttl_seconds),
+    ));
+
+    let flag_definitions_cache = Arc::new(FlagDefinitionsCache::new(
+        Some(config.flag_definitions_cache_capacity_bytes),
+        Some(config.flag_definitions_cache_ttl_seconds),
     ));
 
     let group_type_cache = Arc::new(GroupTypeCacheManager::new(
@@ -450,6 +463,7 @@ pub async fn serve(
         http: http_handle,
         db_monitor: db_monitor_handle,
         cohort_cache_monitor: cohort_cache_monitor_handle,
+        flag_defs_cache_monitor: flag_defs_cache_monitor_handle,
         tokio_monitor: tokio_monitor_handle,
         readiness,
         liveness,
@@ -465,6 +479,17 @@ pub async fn serve(
     tokio::spawn(async move {
         cohort_cache_clone
             .start_monitoring(cohort_cache_monitor_interval, cohort_cache_monitor_handle)
+            .await;
+    });
+
+    let flag_defs_cache_clone = flag_definitions_cache.clone();
+    let flag_defs_cache_monitor_interval = config.flag_definitions_cache_monitor_interval_secs;
+    tokio::spawn(async move {
+        flag_defs_cache_clone
+            .start_monitoring(
+                flag_defs_cache_monitor_interval,
+                flag_defs_cache_monitor_handle,
+            )
             .await;
     });
 
@@ -486,6 +511,7 @@ pub async fn serve(
         session_replay_billing_limiter,
         cookieless_manager,
         flags_hypercache_reader,
+        flag_definitions_cache,
         flags_with_cohorts_hypercache_reader,
         team_hypercache_reader,
         config_hypercache_reader,

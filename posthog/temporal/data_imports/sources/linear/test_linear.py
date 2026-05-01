@@ -78,7 +78,7 @@ class TestMakePaginatedRequest:
             ),
         ]
     )
-    @patch("posthog.temporal.data_imports.sources.linear.linear.requests.Session")
+    @patch("posthog.temporal.data_imports.sources.linear.linear.make_tracked_session")
     def test_pagination_state(
         self,
         _name: str,
@@ -123,7 +123,7 @@ class TestMakePaginatedRequest:
                 assert variables["filter"] == {"updatedAt": {"gt": filter_gte}}
 
     @parameterized.expand([("null_end_cursor", None), ("empty_end_cursor", "")])
-    @patch("posthog.temporal.data_imports.sources.linear.linear.requests.Session")
+    @patch("posthog.temporal.data_imports.sources.linear.linear.make_tracked_session")
     def test_raises_when_has_next_page_but_cursor_missing(
         self,
         _name: str,
@@ -167,7 +167,7 @@ class TestLinearSource:
         assert response.primary_keys == ["id"]
         assert callable(response.items)
 
-    @patch("posthog.temporal.data_imports.sources.linear.linear.requests.Session")
+    @patch("posthog.temporal.data_imports.sources.linear.linear.make_tracked_session")
     def test_get_rows_threads_manager_through(self, mock_session_cls: MagicMock) -> None:
         session = MagicMock()
         session.post.side_effect = [

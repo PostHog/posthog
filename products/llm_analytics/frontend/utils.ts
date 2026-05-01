@@ -3,6 +3,7 @@ import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
+import { isObject } from 'lib/utils'
 
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
@@ -1301,6 +1302,54 @@ function simulateNaiveTruncation(raw: unknown): string {
 export function parsePartialJSON(json: string): unknown {
     const flags = PartialJSON.STR | PartialJSON.OBJ | PartialJSON.ARR
     return PartialJSON.parse(json, flags)
+}
+
+export function isEmptyJSONStructure(value: unknown): boolean {
+    return (
+        (Array.isArray(value) && value.length === 0) ||
+        (isObject(value) && Object.keys(value as Record<string, unknown>).length === 0)
+    )
+}
+
+export type ToolArgumentsForDisplay =
+    | { kind: 'empty' }
+    | { kind: 'parsed'; value: object }
+    | { kind: 'raw'; value: string }
+
+/**
+ * Tool-call arguments arrive in a few shapes: a JSON-stringified string (raw OpenAI),
+ * a parsed object (post-normalization or hand-authored), null/undefined (no args),
+ * or an empty container. Normalizes them into a tagged union for rendering.
+ */
+export function parseToolArgumentsForDisplay(rawArgs: unknown): ToolArgumentsForDisplay {
+    if (rawArgs === null || rawArgs === undefined || rawArgs === '') {
+        return { kind: 'empty' }
+    }
+    if (typeof rawArgs === 'string') {
+        // Treat literal empty containers as intentional "no args". Anything else that
+        // happens to parse to an empty object (e.g. partial-json salvaging broken input)
+        // falls through to raw, so the user still sees what they sent.
+        const trimmed = rawArgs.trim()
+        if (trimmed === '{}' || trimmed === '[]') {
+            return { kind: 'empty' }
+        }
+        try {
+            const parsed = parsePartialJSON(rawArgs)
+            if (typeof parsed === 'object' && parsed !== null && !isEmptyJSONStructure(parsed)) {
+                return { kind: 'parsed', value: parsed }
+            }
+            return { kind: 'raw', value: rawArgs }
+        } catch {
+            return { kind: 'raw', value: rawArgs }
+        }
+    }
+    if (typeof rawArgs === 'object') {
+        if (isEmptyJSONStructure(rawArgs)) {
+            return { kind: 'empty' }
+        }
+        return { kind: 'parsed', value: rawArgs as object }
+    }
+    return { kind: 'raw', value: String(rawArgs) }
 }
 
 export function parseJSONPreview(raw: unknown): unknown {
