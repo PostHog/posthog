@@ -22,15 +22,17 @@ SPEC.loader.exec_module(report_test_timings)
 @pytest.mark.parametrize(
     "dir_name,expected",
     [
-        ("junit-results-backend-core-29", ("Core", 29)),
-        ("junit-results-backend-temporal-5", ("Temporal", 5)),
-        ("junit-results-backend-compat-1", ("Compat", 1)),
-        ("junit-results-backend-core-poe-12", ("CorePoe", 12)),
-        ("junit-results-async-migrations", ("AsyncMigrations", None)),
+        ("junit-results-backend-core-29", ("backend", "core", 29)),
+        ("junit-results-backend-temporal-5", ("backend", "temporal", 5)),
+        ("junit-results-backend-compat-1", ("backend", "compat", 1)),
+        ("junit-results-backend-core-poe-12", ("backend", "core-poe", 12)),
+        ("junit-results-async-migrations", ("async-migrations", "async-migrations", None)),
+        ("junit-results-dagster-3", ("dagster", "dagster", 3)),
+        ("junit-results-llm-gateway", ("llm-gateway", "llm-gateway", None)),
     ],
 )
-def test_derive_segment_and_group(dir_name: str, expected: tuple[str, int | None]) -> None:
-    assert report_test_timings.derive_segment_and_group(dir_name) == expected
+def test_derive_suite_segment_and_group(dir_name: str, expected: tuple[str, str, int | None]) -> None:
+    assert report_test_timings.derive_suite_segment_and_group(dir_name) == expected
 
 
 @pytest.mark.parametrize(
@@ -125,7 +127,8 @@ def test_collect_testcases_end_to_end(tmp_path: Path) -> None:
     assert events[0].test_file == "pkg/test_a.py"
     assert events[0].is_first_in_file is True
     assert events[0].duration_seconds == 120.5
-    assert events[0].shard_segment == "Core"
+    assert events[0].test_suite == "backend"
+    assert events[0].shard_segment == "core"
     assert events[0].shard_group == 7
     assert events[0].shard_total == 7
     assert events[1].is_first_in_file is False

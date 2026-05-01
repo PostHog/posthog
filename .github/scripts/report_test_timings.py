@@ -48,7 +48,8 @@ class TestEvent:
     duration_seconds: float
     outcome: str  # passed | failed | error | skipped | rerun_passed
     attempts: int  # 1 + number of pytest-rerunfailures retries before final outcome
-    shard_segment: str  # e.g. Core, Temporal, Compat, AsyncMigrations
+    test_suite: str  # e.g. backend, async-migrations, dagster, llm-gateway
+    shard_segment: str  # e.g. core, temporal, compat, async-migrations
     shard_group: int | None  # e.g. 29 for shard 29 of N; None for unsharded jobs
     shard_total: int | None  # e.g. 38 for shard N of 38; None for unsharded jobs
     junit_filename: str
@@ -58,41 +59,59 @@ class TestEvent:
 @dataclass(frozen=True)
 class ArtifactInfo:
     path: Path
+    suite: str
     segment: str
     group: int | None
     total: int | None
 
 
-def derive_segment_and_group(artifact_dir_name: str) -> tuple[str, int | None]:
-    """Parse `junit-results-backend-core-29` → ("Core", 29).
+def split_artifact_name(name_parts: list[str]) -> tuple[str, str]:
+    if not name_parts:
+        return "", ""
+    if name_parts[0] == "backend" and len(name_parts) > 1:
+        return "backend", "-".join(name_parts[1:])
+    return "-".join(name_parts), "-".join(name_parts)
 
-    Trailing numeric token is the shard group; the rest becomes a TitleCase
-    segment. `junit-results-async-migrations` → ("AsyncMigrations", None).
+
+def derive_suite_segment_and_group(artifact_dir_name: str) -> tuple[str, str, int | None]:
+    """Parse `junit-results-backend-core-29` → ("backend", "core", 29).
+
+    Trailing numeric token is the shard group. Slug values are kept as-is so
+    event properties match workflow artifact names.
     """
-    suffix = artifact_dir_name.removeprefix("junit-results-backend-").removeprefix("junit-results-")
+    suffix = artifact_dir_name.removeprefix("junit-results-")
     parts = suffix.split("-")
-    if len(parts) > 1 and parts[-1].isdigit():
-        return "".join(p.title() for p in parts[:-1]), int(parts[-1])
-    return "".join(p.title() for p in parts), None
+    group = int(parts[-1]) if len(parts) > 1 and parts[-1].isdigit() else None
+    name_parts = parts[:-1] if group is not None else parts
+    suite, segment = split_artifact_name(name_parts)
+    return suite, segment, group
 
 
 def collect_artifact_infos(artifacts_root: Path) -> list[ArtifactInfo]:
     artifact_dirs = sorted(d for d in artifacts_root.iterdir() if d.is_dir()) or [artifacts_root]
-    parsed_artifacts = [(artifact_dir, *derive_segment_and_group(artifact_dir.name)) for artifact_dir in artifact_dirs]
+    parsed_artifacts = [
+        (artifact_dir, *derive_suite_segment_and_group(artifact_dir.name)) for artifact_dir in artifact_dirs
+    ]
 
-    groups_by_segment: dict[str, set[int]] = {}
-    for _, segment, group in parsed_artifacts:
+    groups_by_shard_key: dict[tuple[str, str], set[int]] = {}
+    for _, suite, segment, group in parsed_artifacts:
         if group is not None:
-            groups_by_segment.setdefault(segment, set()).add(group)
+            groups_by_shard_key.setdefault((suite, segment), set()).add(group)
 
     shard_totals = {
-        segment: max(groups) if groups == set(range(1, max(groups) + 1)) else None
-        for segment, groups in groups_by_segment.items()
+        shard_key: max(groups) if groups == set(range(1, max(groups) + 1)) else None
+        for shard_key, groups in groups_by_shard_key.items()
     }
 
     return [
-        ArtifactInfo(path=artifact_dir, segment=segment, group=group, total=shard_totals.get(segment))
-        for artifact_dir, segment, group in parsed_artifacts
+        ArtifactInfo(
+            path=artifact_dir,
+            suite=suite,
+            segment=segment,
+            group=group,
+            total=shard_totals.get((suite, segment)),
+        )
+        for artifact_dir, suite, segment, group in parsed_artifacts
     ]
 
 
@@ -180,6 +199,7 @@ def collect_testcases(artifacts_root: Path) -> list[TestEvent]:
                         duration_seconds=duration,
                         outcome=outcome,
                         attempts=attempts,
+                        test_suite=artifact.suite,
                         shard_segment=artifact.segment,
                         shard_group=artifact.group,
                         shard_total=artifact.total,
