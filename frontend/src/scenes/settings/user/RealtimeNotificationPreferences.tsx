@@ -64,7 +64,13 @@ export function RealtimeNotificationPreferences(): JSX.Element {
                                 <LemonButton
                                     size="xsmall"
                                     type="tertiary"
-                                    icon={isOpen ? <IconChevronDown /> : <IconChevronRight />}
+                                    icon={
+                                        isOpen ? (
+                                            <IconChevronDown className="text-base" />
+                                        ) : (
+                                            <IconChevronRight className="text-base" />
+                                        )
+                                    }
                                     onClick={() => setExpanded({ ...expanded, [team.id]: !isOpen })}
                                 />
                                 <LemonCheckbox
