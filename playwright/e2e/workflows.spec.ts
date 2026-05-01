@@ -185,7 +185,7 @@ test.describe('Workflows', () => {
         })
 
         test('invocations tab shows logs viewer', async ({ page }) => {
-            const sceneTabs = page.getByTestId('workflow-scene-tabs')
+            const sceneTabs = page.locator('[data-attr="workflow-scene-tabs"] > ul[role="tablist"]')
 
             await sceneTabs.getByRole('tab', { name: /Invocations/ }).click()
             await page.waitForSelector('[data-attr="workflow-logs"]', { timeout: 10000 })
@@ -196,7 +196,7 @@ test.describe('Workflows', () => {
         })
 
         test('metrics tab shows metrics dashboard', async ({ page }) => {
-            const sceneTabs = page.getByTestId('workflow-scene-tabs')
+            const sceneTabs = page.locator('[data-attr="workflow-scene-tabs"] > ul[role="tablist"]')
 
             await sceneTabs.getByRole('tab', { name: 'Metrics' }).click()
             await page.waitForSelector('[data-attr="workflow-metrics"]', { timeout: 10000 })
@@ -205,7 +205,7 @@ test.describe('Workflows', () => {
         })
 
         test('history tab shows activity log', async ({ page }) => {
-            const sceneTabs = page.getByTestId('workflow-scene-tabs')
+            const sceneTabs = page.locator('[data-attr="workflow-scene-tabs"] > ul[role="tablist"]')
 
             await sceneTabs.getByRole('tab', { name: 'History' }).click()
             await page.waitForSelector('[data-attr="activity-log"]', { timeout: 10000 })
@@ -214,7 +214,7 @@ test.describe('Workflows', () => {
         })
 
         test('can navigate between all workflow tabs', async ({ page }) => {
-            const sceneTabs = page.getByTestId('workflow-scene-tabs')
+            const sceneTabs = page.locator('[data-attr="workflow-scene-tabs"] > ul[role="tablist"]')
 
             // Start on workflow tab
             await expect(page.locator('[data-attr="workflow-editor"]')).toBeVisible()
