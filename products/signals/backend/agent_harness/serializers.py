@@ -156,10 +156,13 @@ class RememberRequestSerializer(serializers.Serializer):
         max_value=90,
         help_text="Days until expiry (default 7, hard cap 90).",
     )
-    run_id = serializers.CharField(
+    run_id = serializers.UUIDField(
         required=False,
         allow_null=True,
-        help_text="Run that authored this memory; persisted as `created_by_run_id` for lineage.",
+        help_text=(
+            "Run that authored this memory; persisted as `created_by_run_id` for lineage. "
+            "Must reference a run on this same project — cross-project run UUIDs are rejected."
+        ),
     )
 
 

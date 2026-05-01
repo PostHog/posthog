@@ -151,6 +151,60 @@ async def test_planned_runs_sort_by_team_then_skill(ateam, aother_team):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
+async def test_lazy_seeds_canonical_skills_for_brand_new_team(ateam):
+    # An enabled config on a brand-new team (no signals-agent-* skills yet) should
+    # still produce planned runs: the coordinator lazy-seeds the canonical set on
+    # first encounter so the cadence path doesn't depend on a manual seed step.
+    await database_sync_to_async(SignalAgentConfig.objects.create)(team=ateam, enabled=True, enabled_skill_names=None)
+
+    pre = await database_sync_to_async(
+        lambda: list(
+            LLMSkill.objects.filter(team=ateam, name__startswith="signals-agent-").values_list("name", flat=True)
+        )
+    )()
+    assert pre == []
+
+    env = ActivityEnvironment()
+    output = await env.run(fetch_enabled_signals_agent_runs_activity, FetchEnabledRunsInput())
+
+    seeded = await database_sync_to_async(
+        lambda: list(
+            LLMSkill.objects.filter(team=ateam, name__startswith="signals-agent-").values_list("name", flat=True)
+        )
+    )()
+    # signals-agent-scout is the canonical skill shipped in-repo; assert membership
+    # rather than equality so future canonical additions don't break this test.
+    assert "signals-agent-scout" in seeded
+    assert any(p.skill_name == "signals-agent-scout" for p in output.planned_runs)
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_lazy_seed_failure_does_not_abort_tick(ateam, aother_team):
+    # If lazy seed fails for one team, the coordinator should still plan runs for
+    # other teams and for skills that already exist on the failing team.
+    await database_sync_to_async(SignalAgentConfig.objects.create)(team=ateam, enabled=True)
+    await database_sync_to_async(SignalAgentConfig.objects.create)(team=aother_team, enabled=True)
+    # ateam already has a hand-authored skill — the seed call shouldn't even fire
+    # for them (existing-rows short-circuit) but if it did and somehow raised,
+    # we still want planning to succeed.
+    await database_sync_to_async(_create_skill)(ateam, "signals-agent-existing")
+
+    with patch(
+        "products.signals.backend.temporal.agentic.agent_coordinator.seed_canonical_skills",
+        side_effect=RuntimeError("simulated seed failure"),
+    ):
+        env = ActivityEnvironment()
+        output = await env.run(fetch_enabled_signals_agent_runs_activity, FetchEnabledRunsInput())
+
+    # ateam's existing skill is still plannable; aother_team has no skills and
+    # the failed seed left it empty, so it contributes nothing — but the tick
+    # didn't crash.
+    assert any(p.team_id == ateam.id and p.skill_name == "signals-agent-existing" for p in output.planned_runs)
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
 async def test_truncates_above_hard_cap(ateam):
     await database_sync_to_async(SignalAgentConfig.objects.create)(team=ateam, enabled=True)
     # Exceed the cap.

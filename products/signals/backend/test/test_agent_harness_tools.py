@@ -593,7 +593,20 @@ async def aorganization_emit():
 async def ateam_emit(aorganization_emit):
     from posthog.models import Team
 
+    from products.signals.backend.models import SignalSourceConfig
+
     team = await database_sync_to_async(Team.objects.create)(organization=aorganization_emit, name="emit-team")
+    # The signals_agent source must be explicitly enabled per-team — emit_signal()
+    # silently no-ops without it, and the harness preflight mirrors that gate.
+    # Default to enabled in tests so the existing happy-path / failure-path emit
+    # tests stay focused on what they actually exercise. Tests that exercise the
+    # gates themselves create their own SignalSourceConfig overrides.
+    await database_sync_to_async(SignalSourceConfig.objects.create)(
+        team=team,
+        source_product="signals_agent",
+        source_type="cross_source_issue",
+        enabled=True,
+    )
     return team
 
 
@@ -760,3 +773,84 @@ async def test_emit_finding_auto_generates_finding_id_when_not_provided(ateam_em
     import uuid
 
     uuid.UUID(result.finding_id)  # raises ValueError if not a valid uuid
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_emit_finding_returns_skipped_when_ai_processing_not_approved(arun_emit, ateam_emit):
+    # Flip the org gate that emit_signal() checks. Without the harness preflight, the
+    # emit_signal call would silently no-op and we'd report emitted=True; with the
+    # preflight, we surface the truth on the run row.
+    org = await database_sync_to_async(lambda: ateam_emit.organization)()
+    org.is_ai_data_processing_approved = False
+    await database_sync_to_async(org.save)()
+
+    with patch("products.signals.backend.api.emit_signal", new=AsyncMock()) as mock_emit:
+        result = await emit_finding(
+            team=ateam_emit,
+            run=arun_emit,
+            description="d",
+            weight=0.5,
+            confidence=0.5,
+            evidence=[EvidenceEntry(source_product="logs", summary="x")],
+            finding_id="f-not-approved",
+        )
+
+    assert result.emitted is False
+    assert result.skipped_reason == "ai_processing_not_approved"
+    mock_emit.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_emit_finding_returns_skipped_when_source_disabled(arun_emit, ateam_emit):
+    # Fixture seeds an enabled config; flip it off to exercise the gate.
+    from products.signals.backend.models import SignalSourceConfig
+
+    await database_sync_to_async(
+        SignalSourceConfig.objects.filter(
+            team=ateam_emit, source_product=SOURCE_PRODUCT, source_type=SOURCE_TYPE
+        ).update
+    )(enabled=False)
+
+    with patch("products.signals.backend.api.emit_signal", new=AsyncMock()) as mock_emit:
+        result = await emit_finding(
+            team=ateam_emit,
+            run=arun_emit,
+            description="d",
+            weight=0.5,
+            confidence=0.5,
+            evidence=[EvidenceEntry(source_product="logs", summary="x")],
+            finding_id="f-source-off",
+        )
+
+    assert result.emitted is False
+    assert result.skipped_reason == "source_disabled"
+    mock_emit.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_emit_finding_shadow_mode_short_circuits_before_preflight(arun_emit, ateam_emit):
+    # Shadow_mode wins over preflight: the agent's intent is "don't fire externally,
+    # just persist", which we honor regardless of org/source gates so shadow runs
+    # produce predictable observability data even on misconfigured teams.
+    org = await database_sync_to_async(lambda: ateam_emit.organization)()
+    org.is_ai_data_processing_approved = False
+    await database_sync_to_async(org.save)()
+
+    with patch("products.signals.backend.api.emit_signal", new=AsyncMock()) as mock_emit:
+        result = await emit_finding(
+            team=ateam_emit,
+            run=arun_emit,
+            description="d",
+            weight=0.5,
+            confidence=0.5,
+            evidence=[EvidenceEntry(source_product="logs", summary="x")],
+            shadow_mode=True,
+            finding_id="f-shadow-vs-preflight",
+        )
+
+    assert result.emitted is False
+    assert result.skipped_reason == "shadow_mode"
+    mock_emit.assert_not_called()
