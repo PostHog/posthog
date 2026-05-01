@@ -221,6 +221,27 @@ tools:
             Cannot overwrite `human_confirmed` entries — those are managed by humans only.
             Use this to record "already saw it" notes, dedupe keys, validated hypotheses, or
             narrow the scope of future runs.
+    signals-agent-harness-project-profile-get:
+        operation: signals_agent_harness_project_profile_get
+        enabled: true
+        scopes:
+            - task:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get the project profile
+        description: >
+            Return a deterministic snapshot of "what's true about this project" — products
+            in use, product intents (stuck onboardings), connected integrations, warehouse
+            sources, signal source configs (split enabled/disabled), and existing inbox
+            report counts. Singleton per team; the response reflects either the newest
+            non-expired cached profile or a freshly-built one. Read this once at the start
+            of a run (right after `skill-get`) to orient on the team in one tool call
+            instead of paginating through `inbox-source-configs-list` /
+            `inbox-reports-list` / `read-data-schema` / `activity-log-list`. Distinct from
+            `signals-agent-harness-memory-list`: profile is ground truth from authoritative
+            tables; memory is the agent's inferred learnings.
     signals-agent-harness-memory-forget-create:
         operation: signals_agent_harness_memory_forget_create
         enabled: true

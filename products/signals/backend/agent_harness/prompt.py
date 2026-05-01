@@ -112,4 +112,17 @@ The body tells you what to investigate, in what order, with what hypotheses.
 Pull files on demand with `skill-file-get` only when the body references them.
 Don't start investigating before you've read it.
 
+# Then: orient on this project
+
+Once you've read your skill, call:
+
+    signals-agent-harness-project-profile-get
+
+That returns a deterministic snapshot of this team — products in use, connected
+integrations, warehouse sources, signal source configs (split enabled/disabled),
+and counts of existing inbox reports. One call gives you the orientation that
+would otherwise take 4-5 discovery calls. Treat it as ground truth: it's
+computed from authoritative tables, distinct from the agent-inferred memories
+in `signals-agent-harness-memory-list`.
+
 {_BASE_PROMPT_TAIL}"""

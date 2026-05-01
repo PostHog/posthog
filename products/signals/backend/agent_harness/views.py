@@ -30,6 +30,7 @@ from products.signals.backend.agent_harness.serializers import (
     ForgetRequestSerializer,
     ForgetResponseSerializer,
     MemoryEntrySerializer,
+    ProjectProfileSerializer,
     RememberRequestSerializer,
     SearchMemoryQuerySerializer,
     SearchRecentRunsQuerySerializer,
@@ -44,8 +45,9 @@ from products.signals.backend.agent_harness.tools.memory import (
     remember,
     search_memory,
 )
+from products.signals.backend.agent_harness.tools.profile import get_project_profile
 from products.signals.backend.agent_harness.tools.runs import get_run, search_recent_runs
-from products.signals.backend.models import SignalAgentRun
+from products.signals.backend.models import SignalAgentRun, SignalProjectProfile
 
 
 class SignalAgentRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
@@ -300,3 +302,45 @@ class SignalMemoryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         except HumanConfirmedMemoryError as exc:
             raise exceptions.PermissionDenied(detail=str(exc))
         return Response(ForgetResponseSerializer({"deleted": removed}).data)
+
+
+class SignalProjectProfileViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    """Project profile — deterministic snapshot of \"what's true about this project\".
+
+    Singleton per team — there's no list, retrieve, or write surface. The agent calls the
+    `list` action right after reading its skill to orient on this team's product mix,
+    integrations, signal coverage, and existing inbox surface in one tool call instead of
+    burning 4-5 discovery calls. Lazy-recomputes on cache miss / TTL expiry / source-version
+    bump; the response is always either the latest cached profile or a freshly-built one.
+    """
+
+    serializer_class = ProjectProfileSerializer
+    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
+    permission_classes = [IsAuthenticated, APIScopePermission]
+    scope_object = "task"
+    queryset = SignalProjectProfile.objects.all()
+    pagination_class = None
+
+    # The DRF default `list` operation_id would be `signals_agent_harness_project_profile_list`,
+    # which renders as `signals-agent-harness-project-profile-list` in the MCP. The agent-facing
+    # tool is semantically a "get the current profile" (singleton), not a "list" — override the
+    # id so it matches the locked tool name in the skill body and the scout's bootstrap step.
+    @extend_schema(
+        operation_id="signals_agent_harness_project_profile_get",
+        responses={
+            200: OpenApiResponse(
+                response=ProjectProfileSerializer,
+                description="The team's current project profile (cached or freshly computed).",
+            ),
+        },
+        summary="Get the current project profile",
+        description=(
+            "Return the team's deterministic project profile. The response always reflects "
+            "either the newest non-expired cached row or a freshly-built one (lazy compute "
+            "on cache miss). Read this at the start of a run to orient on the team's product "
+            "mix, integrations, warehouse sources, signal coverage, and existing inbox surface."
+        ),
+    )
+    def list(self, request: Request, *args, **kwargs) -> Response:
+        profile = get_project_profile(team_id=self.team_id)
+        return Response(ProjectProfileSerializer(profile.as_dict()).data)

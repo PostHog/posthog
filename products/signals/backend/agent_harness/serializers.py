@@ -263,3 +263,140 @@ class EmitFindingResponseSerializer(serializers.Serializer):
         allow_null=True,
         help_text="`shadow_mode` | `already_emitted` | null when emitted normally.",
     )
+
+
+# --- Project profile ------------------------------------------------------
+
+
+class ProductIntentEntrySerializer(serializers.Serializer):
+    """One row in `inventory.product_intents`."""
+
+    product_type = serializers.CharField(help_text="Product key the team signaled intent to use.")
+    activated_at = serializers.CharField(
+        allow_null=True,
+        help_text="ISO-8601 timestamp the team activated the product, or null if intent only.",
+    )
+    created_at = serializers.CharField(
+        allow_null=True,
+        help_text="ISO-8601 timestamp the intent was first recorded.",
+    )
+
+
+class IntegrationEntrySerializer(serializers.Serializer):
+    """One row in `inventory.integrations`. Sensitive config is intentionally excluded."""
+
+    kind = serializers.CharField(help_text="Integration kind (e.g. `slack`, `github`, `linear`).")
+    created_at = serializers.CharField(
+        allow_null=True,
+        help_text="ISO-8601 timestamp the integration was connected.",
+    )
+
+
+class ExternalDataSourceEntrySerializer(serializers.Serializer):
+    """One row in `inventory.external_data_sources`."""
+
+    source_type = serializers.CharField(help_text="Warehouse source type (e.g. `Stripe`, `Postgres`, `BigQuery`).")
+    status = serializers.CharField(help_text="Current sync status (`Running`, `Failed`, `Paused`, etc.).")
+    prefix = serializers.CharField(allow_blank=True, help_text="Schema prefix used by this source, if any.")
+    created_at = serializers.CharField(
+        allow_null=True,
+        help_text="ISO-8601 timestamp the source was connected.",
+    )
+
+
+class SignalSourceConfigEntrySerializer(serializers.Serializer):
+    """One row in either bucket of `inventory.signal_source_configs`."""
+
+    source_product = serializers.CharField(help_text="Source product the config applies to.")
+    source_type = serializers.CharField(help_text="Source type within the product.")
+
+
+class SignalSourceConfigsBucketsSerializer(serializers.Serializer):
+    """`inventory.signal_source_configs` split into enabled and disabled buckets."""
+
+    enabled = serializers.ListField(
+        child=SignalSourceConfigEntrySerializer(),
+        help_text="Source configs the team has explicitly enabled.",
+    )
+    disabled = serializers.ListField(
+        child=SignalSourceConfigEntrySerializer(),
+        help_text="Source configs the team has explicitly disabled (different from never wired up).",
+    )
+
+
+class InboxReportStatusBucketSerializer(serializers.Serializer):
+    """One bucket in `inventory.existing_inbox_reports.by_status`."""
+
+    status = serializers.CharField(help_text="Report status (e.g. `potential`, `candidate`, `ready`).")
+    count = serializers.IntegerField(help_text="Number of reports in this status (excludes deleted/suppressed).")
+
+
+class ExistingInboxReportsSerializer(serializers.Serializer):
+    """`inventory.existing_inbox_reports` — what's already been surfaced to the inbox."""
+
+    total = serializers.IntegerField(help_text="Total non-deleted, non-suppressed reports for this team.")
+    by_status = serializers.ListField(
+        child=InboxReportStatusBucketSerializer(),
+        help_text="Per-status breakdown of inbox reports.",
+    )
+
+
+class ProjectProfileInventorySerializer(serializers.Serializer):
+    """The deterministic inventory layer of a project profile.
+
+    Read this to orient on the team's product mix, integrations, warehouse sources, signal
+    coverage, and existing inbox surface in one tool call. Distinct from `SignalMemory`:
+    profile is ground truth from authoritative tables; memory is agent inference.
+    """
+
+    products_in_use = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Product keys this team has completed onboarding for, sorted alphabetically.",
+    )
+    product_intents = serializers.ListField(
+        child=ProductIntentEntrySerializer(),
+        help_text="Products the team signaled intent to use; useful for spotting stuck onboardings.",
+    )
+    integrations = serializers.ListField(
+        child=IntegrationEntrySerializer(),
+        help_text="Connected integrations (kind + connection time only — config never surfaced).",
+    )
+    external_data_sources = serializers.ListField(
+        child=ExternalDataSourceEntrySerializer(),
+        help_text="Connected warehouse sources (excludes soft-deleted).",
+    )
+    signal_source_configs = SignalSourceConfigsBucketsSerializer(
+        help_text="Signal source configs split into enabled / disabled buckets.",
+    )
+    existing_inbox_reports = ExistingInboxReportsSerializer(
+        help_text="Counts of reports already in the inbox, grouped by status.",
+    )
+
+
+class ProjectProfilePayloadSerializer(serializers.Serializer):
+    """Top-level `payload` shape on a `SignalProjectProfile` row.
+
+    v1 carries `inventory` only. Phase 7 will add `deltas`, `activity_notes`, and
+    `narrative` slots — they're absent (not null) in v1 responses.
+    """
+
+    inventory = ProjectProfileInventorySerializer(help_text="Deterministic snapshot of what's true about the project.")
+
+
+class ProjectProfileSerializer(serializers.Serializer):
+    """Wire shape for the project profile returned by `signals-agent-harness-project-profile-list`.
+
+    Read this once at the start of a run (after `skill-get`) to orient on the team. Cache
+    is per-team with a ~36h soft TTL; the response always reflects either the latest cached
+    profile or a freshly-built one if the cache was stale.
+    """
+
+    profile_id = serializers.CharField(help_text="UUID of the `SignalProjectProfile` row.")
+    computed_at = serializers.CharField(help_text="ISO-8601 timestamp the profile was built.")
+    expires_at = serializers.CharField(help_text="ISO-8601 timestamp after which the profile is considered stale.")
+    source_version = serializers.CharField(
+        help_text="Schema version of the inventory builder. Bumps invalidate older cached rows.",
+    )
+    payload = ProjectProfilePayloadSerializer(
+        help_text="Structured profile content. v1 has `inventory` only.",
+    )
