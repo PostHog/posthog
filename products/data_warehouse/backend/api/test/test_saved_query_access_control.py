@@ -150,6 +150,62 @@ class TestDataWarehouseSavedQueryAccessControl(WarehouseAccessControlTestMixin):
         self.saved_query.refresh_from_db()
         self.assertEqual(self.saved_query.query, {"kind": "HogQLQuery", "query": "select 1"})
 
+    def test_resource_level_row_on_child_alone_has_no_effect(self):
+        # Contract: warehouse_view inherits from warehouse_objects, so resource-level rows
+        # keyed on warehouse_view (without resource_id) are intentionally bypassed — only
+        # the umbrella warehouse_objects scope counts. The distinguishing assertion is that
+        # creator bypass (resolved via access_level_for_object) still returns "manager" on
+        # the user's own query, even with a child-only `none` row that would otherwise
+        # short-circuit resource access. If has_access_levels_for_resource ever started
+        # honoring child rows it would route through access_level_for_resource and lose
+        # creator bypass, returning the default ("editor") instead.
+        own_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="own_view",
+            query={"kind": "HogQLQuery", "query": "select 1"},
+            created_by=self.viewer_user,
+        )
+        AccessControl.objects.create(team=self.team, resource="warehouse_view", access_level="none")
+        self.client.force_login(self.viewer_user)
+
+        url = f"/api/environments/{self.team.pk}/warehouse_saved_queries/{own_query.id}/"
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # Creator bypass: highest level for warehouse_view is "manager".
+        self.assertEqual(response.json().get("user_access_level"), "manager")
+
+    def test_object_level_access_grants_through_resource_default_none(self):
+        # When the project default is 'none' (no resource access), an object-level grant on a
+        # specific saved query still lets the user retrieve and edit that query, while other
+        # queries remain blocked. This relies on AccessControlPermission falling back to
+        # has_any_specific_access_for_resource.
+        other_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="other_view",
+            query={"kind": "HogQLQuery", "query": "select 1"},
+            created_by=self.user,
+        )
+        self._create_project_default(access_level="none")
+        # Grant editor on this specific saved query (object-level row keyed on warehouse_view).
+        self._create_access_control(
+            self.viewer_user,
+            resource="warehouse_view",
+            resource_id=str(self.saved_query.id),
+            access_level="editor",
+        )
+        self.client.force_login(self.viewer_user)
+
+        # The granted query is retrievable and editable.
+        self.assertEqual(self.client.get(self._detail_url()).status_code, status.HTTP_200_OK)
+        patch_response = self.client.patch(
+            self._detail_url(), data={"name": "renamed_via_object_grant"}, content_type="application/json"
+        )
+        self.assertEqual(patch_response.status_code, status.HTTP_200_OK)
+
+        # A different query without an object-level grant stays blocked.
+        other_url = f"/api/environments/{self.team.pk}/warehouse_saved_queries/{other_query.id}/"
+        self.assertEqual(self.client.get(other_url).status_code, status.HTTP_403_FORBIDDEN)
+
 
 @pytest.mark.ee
 class TestDataWarehouseSavedQueryFolderAccessControl(WarehouseAccessControlTestMixin):

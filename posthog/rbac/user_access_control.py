@@ -736,7 +736,12 @@ class UserAccessControl:
             # If there is no team, then there can't be any access controls on this resource
             return False
 
-        # Resolve inheritance so child resources see their parent's AC rows.
+        # Inheriting children (e.g. warehouse_view -> warehouse_objects) intentionally
+        # bypass their own resource-level rows: only the parent (umbrella) is consulted.
+        # This keeps the AC picker simple — admins configure one umbrella scope instead
+        # of N child scopes — at the cost of ignoring any standalone resource-level row
+        # written against a child. Object-level rows on the child are still honored via
+        # specific_access_level_for_object, which queries the child resource directly.
         parent_resource = RESOURCE_INHERITANCE_MAP.get(resource)
         if parent_resource:
             return self.has_access_levels_for_resource(parent_resource)
