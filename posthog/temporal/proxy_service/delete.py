@@ -16,6 +16,11 @@ from temporalio import activity, workflow
 from posthog.models import ProxyRecord
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import get_logger
+from posthog.temporal.proxy_service.cloudflare import (
+    CloudflareAPIError,
+    delete_custom_hostname,
+    get_custom_hostname_by_domain,
+)
 from posthog.temporal.proxy_service.common import (
     NonRetriableException,
     UpdateProxyRecordInputs,
@@ -25,12 +30,6 @@ from posthog.temporal.proxy_service.common import (
     use_gateway_api,
 )
 from posthog.temporal.proxy_service.proto import DeleteRequest
-
-from products.platform_features.backend.proxy.cloudflare import (
-    CloudflareAPIError,
-    delete_custom_hostname,
-    get_custom_hostname_by_domain,
-)
 
 LOGGER = get_logger(__name__)
 

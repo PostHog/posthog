@@ -12,6 +12,7 @@ from rest_framework.exceptions import NotFound
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
 
+from posthog.api.proxy_record_diagnostics import diagnose as diagnose_proxy_record
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.constants import AvailableFeature
 from posthog.event_usage import groups
@@ -21,8 +22,6 @@ from posthog.models.organization import Organization
 from posthog.permissions import OrganizationAdminWritePermissions, TimeSensitiveActionPermission
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.proxy_service import CreateManagedProxyInputs, DeleteManagedProxyInputs
-
-from products.platform_features.backend.proxy.diagnostics import diagnose as diagnose_proxy_record
 
 
 def generate_target_cname(organization_id, domain) -> str:

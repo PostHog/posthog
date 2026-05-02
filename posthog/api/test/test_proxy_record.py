@@ -381,7 +381,7 @@ class TestProxyRecordAPI(APIBaseTest):
     def test_diagnose_returns_report(self, mock_diagnose):
         import datetime as dt
 
-        from products.platform_features.backend.proxy.diagnostics import (
+        from posthog.api.proxy_record_diagnostics import (
             CheckResult,
             DiagnosticReport,
             DnsRecord,

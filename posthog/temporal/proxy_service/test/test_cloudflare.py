@@ -2,7 +2,7 @@ from django.test import TestCase
 
 from parameterized import parameterized
 
-from products.platform_features.backend.proxy.cloudflare import CloudflareAPIError
+from posthog.temporal.proxy_service.cloudflare import CloudflareAPIError
 
 
 class TestCloudflareAPIErrorIsRateLimited(TestCase):

@@ -4,10 +4,9 @@ from typing import Any
 from asgiref.sync import sync_to_async
 from pydantic import BaseModel, Field
 
+from posthog.api.proxy_record_diagnostics import diagnose
 from posthog.exceptions_capture import capture_exception
 from posthog.models import ProxyRecord
-
-from products.platform_features.backend.proxy.diagnostics import diagnose
 
 from ee.hogai.tool import MaxTool
 

@@ -30,6 +30,12 @@ from posthog.models import ProxyRecord
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.schedule import a_create_schedule
+from posthog.temporal.proxy_service.cloudflare import (
+    CloudflareAPIError,
+    CustomHostnameSSLStatus,
+    create_custom_hostname,
+    get_custom_hostname_by_domain,
+)
 from posthog.temporal.proxy_service.common import (
     NonRetriableException,
     RecordDeletedException,
@@ -45,13 +51,6 @@ from posthog.temporal.proxy_service.common import (
 )
 from posthog.temporal.proxy_service.monitor import MonitorManagedProxyInputs
 from posthog.temporal.proxy_service.proto import CertificateState_READY, CreateRequest, StatusRequest
-
-from products.platform_features.backend.proxy.cloudflare import (
-    CloudflareAPIError,
-    CustomHostnameSSLStatus,
-    create_custom_hostname,
-    get_custom_hostname_by_domain,
-)
 
 LOGGER = get_logger(__name__)
 
