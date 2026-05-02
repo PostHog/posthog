@@ -4,6 +4,7 @@ from parameterized import parameterized
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.database.models import Table
 from posthog.hogql.database.schema.system import SystemTables
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
@@ -93,10 +94,11 @@ class TestSystemTablesTeamScoping(BaseTest):
         )
 
     def test_error_tracking_symbol_sets_does_not_expose_storage_internals(self):
-        fields = SystemTables().children["error_tracking_symbol_sets"].table.fields
+        table = SystemTables().children["error_tracking_symbol_sets"].get()
+        assert isinstance(table, Table)
 
-        assert "storage_ptr" not in fields
-        assert "content_hash" not in fields
+        assert "storage_ptr" not in table.fields
+        assert "content_hash" not in table.fields
 
 
 def _create_batch_export(team: Team, label: str):

@@ -397,10 +397,10 @@ class TestErrorTracking(APIBaseTest):
         response = self.client.patch(
             f"/api/environments/{self.team.id}/error_tracking/symbol_sets/{symbol_set.id}",
             data={"storage_ptr": "symbolsets/other_team_file"},
-            format="json",
+            format="multipart",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         symbol_set.refresh_from_db()
         self.assertEqual(symbol_set.storage_ptr, "symbolsets/source_1")
 
