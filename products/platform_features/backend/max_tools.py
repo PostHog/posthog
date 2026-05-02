@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from posthog.api.proxy_record_diagnostics import diagnose
 from posthog.exceptions_capture import capture_exception
 from posthog.models import ProxyRecord
+from posthog.models.organization import OrganizationMembership
 
 from ee.hogai.tool import MaxTool
 
@@ -64,12 +65,18 @@ class DiagnoseProxyTool(MaxTool):
     args_schema: type[BaseModel] = DiagnoseProxyToolArgs
     context_prompt_template: str = DIAGNOSE_PROXY_CONTEXT_PROMPT_TEMPLATE
 
-    # No get_required_resource_access override: diagnose is read-only and the proxy_record
-    # lookup in _get_record already filters by the user's organization, which is the actual
-    # security boundary. The DRF endpoint requires admin only because its entire viewset is
-    # admin-gated (for create/delete/retry mutations), which doesn't apply on the Max path.
+    # Permission: matches the underlying DRF endpoint's OrganizationAdminWritePermissions.
+    # We can't use get_required_resource_access([("organization", "admin")]) here because
+    # MaxTool's resource-level RBAC doesn't recognize OrganizationMembership.Level — owners
+    # would fail the check. Instead we do an explicit membership-level check below.
 
     async def _arun_impl(self, proxy_record_id: str) -> tuple[str, dict[str, Any]]:
+        if not await sync_to_async(self._is_org_admin_or_owner)():
+            return (
+                "You need to be an organization admin to run a proxy diagnostic. Ask an admin to run it for you.",
+                {"error": "permission_denied"},
+            )
+
         try:
             record = await sync_to_async(self._get_record)(proxy_record_id)
         except ProxyRecord.DoesNotExist:
@@ -89,6 +96,13 @@ class DiagnoseProxyTool(MaxTool):
             }
 
         return _format_report(record, report), _serialize_report(record, report)
+
+    def _is_org_admin_or_owner(self) -> bool:
+        membership = OrganizationMembership.objects.filter(
+            organization_id=self._team.organization_id,
+            user=self._user,
+        ).first()
+        return membership is not None and membership.level >= OrganizationMembership.Level.ADMIN
 
     def _get_record(self, proxy_record_id: str) -> ProxyRecord:
         return ProxyRecord.objects.get(id=proxy_record_id, organization_id=self._team.organization_id)

@@ -489,11 +489,16 @@ def _check_http_challenge(record: ProxyRecord, hostname_info: CustomHostnameInfo
 
 def _check_live_event(record: ProxyRecord) -> CheckResult:
     try:
+        # allow_redirects=False is a security boundary, not just a behavior choice:
+        # an org admin controlling the customer's domain could otherwise redirect
+        # us to internal targets (cloud metadata, management APIs) and exfiltrate
+        # whether they respond. Same protection as _check_http_challenge.
         response = requests.post(
             f"https://{record.domain}/i/v0/e/",
             headers={"Content-Type": "application/json"},
             data=json.dumps({"event": "test", "api_key": "test", "distinct_id": "test"}),
             timeout=CHECK_TIMEOUT_S,
+            allow_redirects=False,
         )
     except requests.exceptions.SSLError:
         return CheckResult(
@@ -544,9 +549,12 @@ def _check_cert_expiry(record: ProxyRecord) -> CheckResult:
     try:
         ctx = ssl_module.create_default_context()
         ctx.minimum_version = ssl_module.TLSVersion.TLSv1_2
-        sock = socket.create_connection((record.domain, 443), timeout=CHECK_TIMEOUT_S)
-        with ctx.wrap_socket(sock, server_hostname=record.domain) as wrapped:
-            cert = wrapped.getpeercert()
+        # Outer `with` on the raw socket guarantees the file descriptor closes
+        # even if wrap_socket() raises before the inner context manager takes
+        # ownership; closing twice is safe.
+        with socket.create_connection((record.domain, 443), timeout=CHECK_TIMEOUT_S) as sock:
+            with ctx.wrap_socket(sock, server_hostname=record.domain) as wrapped:
+                cert = wrapped.getpeercert()
     except (TimeoutError, OSError, ssl_module.SSLError) as e:
         return CheckResult(
             id="cert_expiry",
