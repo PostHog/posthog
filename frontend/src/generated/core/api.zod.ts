@@ -2910,14 +2910,6 @@ export const UsersUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.'
         ),
-    onboarding_skipped_reason: zod
-        .union([
-            zod
-                .enum(['delegated', 'later', 'other'])
-                .describe('* `delegated` - Delegated to teammate\n* `later` - Skipped for later\n* `other` - Other'),
-            zod.literal(null),
-        ])
-        .nullish(),
 })
 
 /**
@@ -2995,14 +2987,6 @@ export const UsersPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.'
         ),
-    onboarding_skipped_reason: zod
-        .union([
-            zod
-                .enum(['delegated', 'later', 'other'])
-                .describe('* `delegated` - Delegated to teammate\n* `later` - Skipped for later\n* `other` - Other'),
-            zod.literal(null),
-        ])
-        .nullish(),
 })
 
 export const usersHedgehogConfigPartialUpdateBodyFirstNameMax = 150
@@ -3077,14 +3061,6 @@ export const UsersHedgehogConfigPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.'
         ),
-    onboarding_skipped_reason: zod
-        .union([
-            zod
-                .enum(['delegated', 'later', 'other'])
-                .describe('* `delegated` - Delegated to teammate\n* `later` - Skipped for later\n* `other` - Other'),
-            zod.literal(null),
-        ])
-        .nullish(),
 })
 
 /**
@@ -3096,18 +3072,25 @@ Callers wanting to delegate setup to a teammate must use the dedicated
 invite and sets reason="delegated". This endpoint rejects that reason so state
 can't be faked without a real invite.
  */
-export const UsersOnboardingSkipCreateBody = /* @__PURE__ */ zod.object({
-    reason: zod
-        .enum(['later', 'other'])
-        .describe('* `later` - later\n* `other` - other')
-        .describe(
-            "Why the user is leaving onboarding. 'later' keeps them able to return; 'other' is a catch-all. 'delegated' is rejected here — use the delegate endpoint so the delegation invite is created atomically.\n\n* `later` - later\n* `other` - other"
-        ),
-    step_at_skip: zod
-        .string()
-        .optional()
-        .describe('Onboarding step key the user was on when skipping, for analytics only.'),
-})
+export const usersOnboardingSkipCreateBodyStepAtSkipMax = 64
+
+export const UsersOnboardingSkipCreateBody = /* @__PURE__ */ zod
+    .object({
+        reason: zod
+            .enum(['later', 'other'])
+            .describe('* `later` - Later\n* `other` - Other')
+            .describe(
+                "Why the user is leaving onboarding. 'later' keeps them able to return; 'other' is a catch-all. 'delegated' is rejected here — use the delegate endpoint so the delegation invite is created atomically.\n\n* `later` - Later\n* `other` - Other"
+            ),
+        step_at_skip: zod
+            .string()
+            .max(usersOnboardingSkipCreateBodyStepAtSkipMax)
+            .optional()
+            .describe('Onboarding step key the user was on when skipping, for analytics only.'),
+    })
+    .describe(
+        'Request body for POST /api/users/{id}/onboarding/skip/.\n\nSource of truth for OpenAPI / generated TS / zod / MCP — bind this serializer at\nruntime so the contract clients believe is enforced (length cap, choice validation,\nno extra fields) is actually enforced server-side.'
+    )
 
 export const usersScenePersonalisationCreateBodyFirstNameMax = 150
 
@@ -3181,14 +3164,6 @@ export const UsersScenePersonalisationCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.'
         ),
-    onboarding_skipped_reason: zod
-        .union([
-            zod
-                .enum(['delegated', 'later', 'other'])
-                .describe('* `delegated` - Delegated to teammate\n* `later` - Skipped for later\n* `other` - Other'),
-            zod.literal(null),
-        ])
-        .nullish(),
 })
 
 /**
@@ -3266,14 +3241,6 @@ export const UsersTwoFactorBackupCodesCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.'
         ),
-    onboarding_skipped_reason: zod
-        .union([
-            zod
-                .enum(['delegated', 'later', 'other'])
-                .describe('* `delegated` - Delegated to teammate\n* `later` - Skipped for later\n* `other` - Other'),
-            zod.literal(null),
-        ])
-        .nullish(),
 })
 
 /**
@@ -3351,14 +3318,6 @@ export const UsersTwoFactorDisableCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.'
         ),
-    onboarding_skipped_reason: zod
-        .union([
-            zod
-                .enum(['delegated', 'later', 'other'])
-                .describe('* `delegated` - Delegated to teammate\n* `later` - Skipped for later\n* `other` - Other'),
-            zod.literal(null),
-        ])
-        .nullish(),
 })
 
 export const usersTwoFactorValidateCreateBodyFirstNameMax = 150
@@ -3433,14 +3392,6 @@ export const UsersTwoFactorValidateCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.'
         ),
-    onboarding_skipped_reason: zod
-        .union([
-            zod
-                .enum(['delegated', 'later', 'other'])
-                .describe('* `delegated` - Delegated to teammate\n* `later` - Skipped for later\n* `other` - Other'),
-            zod.literal(null),
-        ])
-        .nullish(),
 })
 
 export const usersValidate2faCreateBodyFirstNameMax = 150
@@ -3515,14 +3466,6 @@ export const UsersValidate2faCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.'
         ),
-    onboarding_skipped_reason: zod
-        .union([
-            zod
-                .enum(['delegated', 'later', 'other'])
-                .describe('* `delegated` - Delegated to teammate\n* `later` - Skipped for later\n* `other` - Other'),
-            zod.literal(null),
-        ])
-        .nullish(),
 })
 
 export const usersCancelEmailChangeRequestPartialUpdateBodyFirstNameMax = 150
@@ -3597,14 +3540,6 @@ export const UsersCancelEmailChangeRequestPartialUpdateBody = /* @__PURE__ */ zo
         .describe(
             'Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.'
         ),
-    onboarding_skipped_reason: zod
-        .union([
-            zod
-                .enum(['delegated', 'later', 'other'])
-                .describe('* `delegated` - Delegated to teammate\n* `later` - Skipped for later\n* `other` - Other'),
-            zod.literal(null),
-        ])
-        .nullish(),
 })
 
 export const usersRequestEmailVerificationCreateBodyFirstNameMax = 150
@@ -3679,14 +3614,6 @@ export const UsersRequestEmailVerificationCreateBody = /* @__PURE__ */ zod.objec
         .describe(
             'Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.'
         ),
-    onboarding_skipped_reason: zod
-        .union([
-            zod
-                .enum(['delegated', 'later', 'other'])
-                .describe('* `delegated` - Delegated to teammate\n* `later` - Skipped for later\n* `other` - Other'),
-            zod.literal(null),
-        ])
-        .nullish(),
 })
 
 export const usersVerifyEmailCreateBodyFirstNameMax = 150
@@ -3761,12 +3688,4 @@ export const UsersVerifyEmailCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.'
         ),
-    onboarding_skipped_reason: zod
-        .union([
-            zod
-                .enum(['delegated', 'later', 'other'])
-                .describe('* `delegated` - Delegated to teammate\n* `later` - Skipped for later\n* `other` - Other'),
-            zod.literal(null),
-        ])
-        .nullish(),
 })

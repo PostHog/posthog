@@ -22383,8 +22383,8 @@ export namespace Schemas {
     }
 
     /**
-     * * `later` - later
-    * `other` - other
+     * * `later` - Later
+    * `other` - Other
      */
     export type OnboardingSkipRequestReasonEnum = typeof OnboardingSkipRequestReasonEnum[keyof typeof OnboardingSkipRequestReasonEnum];
 
@@ -22394,13 +22394,23 @@ export namespace Schemas {
       Other: 'other',
     } as const;
 
+    /**
+     * Request body for POST /api/users/{id}/onboarding/skip/.
+
+    Source of truth for OpenAPI / generated TS / zod / MCP — bind this serializer at
+    runtime so the contract clients believe is enforced (length cap, choice validation,
+    no extra fields) is actually enforced server-side.
+     */
     export interface OnboardingSkipRequest {
       /** Why the user is leaving onboarding. 'later' keeps them able to return; 'other' is a catch-all. 'delegated' is rejected here — use the delegate endpoint so the delegation invite is created atomically.
 
-    * `later` - later
-    * `other` - other */
+    * `later` - Later
+    * `other` - Other */
       reason: OnboardingSkipRequestReasonEnum;
-      /** Onboarding step key the user was on when skipping, for analytics only. */
+      /**
+       * Onboarding step key the user was on when skipping, for analytics only.
+       * @maxLength 64
+       */
       step_at_skip?: string;
     }
 
