@@ -110,8 +110,8 @@ class PostHogSCIMGroup(SCIMGroup):
 
         return cls(role, organization_domain)
 
-    @classmethod
-    def _parse_member_id(cls, raw_member_id) -> str | None:
+    @staticmethod
+    def _parse_member_id(raw_member_id) -> str | None:
         """
         Normalize a SCIM `members[].value` to the string form of an integer ID,
         matching the always-string `current_user_ids` set in `_update_members`.
@@ -129,8 +129,8 @@ class PostHogSCIMGroup(SCIMGroup):
             logger.warning("scim_group_skip_invalid_member_id", extra={"member_value": raw_member_id})
             return None
 
-    @classmethod
-    def _assign_role_member(cls, role: Role, user_pk: int, organization_domain: OrganizationDomain) -> None:
+    @staticmethod
+    def _assign_role_member(role: Role, user_pk: int, organization_domain: OrganizationDomain) -> None:
         try:
             user = User.objects.get(id=user_pk)
         except User.DoesNotExist:
@@ -239,27 +239,10 @@ class PostHogSCIMGroup(SCIMGroup):
                     members_to_add = [{"value": value}]
 
                 for member_data in members_to_add:
-                    user_id = member_data.get("value")
-
-                    try:
-                        user = User.objects.get(id=user_id)
-                        org_membership = OrganizationMembership.objects.filter(
-                            user=user, organization=self._organization_domain.organization
-                        ).first()
-
-                        if not org_membership:
-                            continue  # cannot assign a role to a non-member
-
-                        # nosemgrep: idor-lookup-without-org (SCIM bearer token auth, org gated by middleware)
-                        RoleMembership.objects.get_or_create(
-                            role=self.obj, user=user, defaults={"organization_member": org_membership}
-                        )
-                    except User.DoesNotExist:
+                    parsed = self._parse_member_id(member_data.get("value"))
+                    if parsed is None:
                         continue
-                    except ValueError:
-                        # Skip non-user members (e.g., nested group references from IdPs)
-                        logger.warning("scim_group_skip_invalid_member_id", extra={"member_value": user_id})
-                        continue
+                    self._assign_role_member(self.obj, int(parsed), self._organization_domain)
 
     def handle_remove(self, path: AttrPath, value: Union[str, list, dict], operation: dict) -> None:
         """
