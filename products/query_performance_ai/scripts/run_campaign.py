@@ -168,6 +168,30 @@ def _resolve_all(host: str, *, label: str) -> list[str]:
     return ips
 
 
+def _resolv_conf_nameservers(path: str = "/etc/resolv.conf") -> list[str]:
+    """Read ``nameserver`` IPs from ``/etc/resolv.conf``.
+
+    Falls back to Docker's embedded resolver (``127.0.0.11``) if no entries
+    are found, so the lockdown still produces a reachable DNS path on a
+    misconfigured container instead of dropping all DNS.
+    """
+    ips: list[str] = []
+    try:
+        with open(path) as f:
+            for raw in f:
+                line = raw.strip()
+                if not line or line.startswith("#"):
+                    continue
+                parts = line.split()
+                if len(parts) >= 2 and parts[0] == "nameserver" and parts[1] not in ips:
+                    ips.append(parts[1])
+    except OSError:
+        pass
+    if not ips:
+        ips.append("127.0.0.11")
+    return ips
+
+
 def lockdown_network(coordinator_url: str) -> None:
     """iptables OUTPUT-DROP except: loopback, the coordinator port at the
     gateway IP, and HTTPS to the Anthropic API (so pi-coding-agent can
@@ -205,12 +229,13 @@ def lockdown_network(coordinator_url: str) -> None:
     allow_rules: list[list[str]] = []
     allow_rules.append(["-o", "lo", "-j", "ACCEPT"])
     allow_rules.append(["-m", "state", "--state", "ESTABLISHED,RELATED", "-j", "ACCEPT"])
-    # Outbound DNS so api.anthropic.com (and other lookups pi may need)
-    # resolve. Docker's embedded resolver lives at 127.0.0.11 — that goes via
-    # `lo` and is already covered, but containers may also be configured to
-    # use upstream resolvers reached over the gateway interface. Allow UDP/53
-    # broadly to either; UDP/53 is a small attack surface.
-    allow_rules.append(["-p", "udp", "--dport", "53", "-j", "ACCEPT"])
+    # Outbound DNS, pinned to the resolvers in /etc/resolv.conf (typically
+    # Docker's embedded 127.0.0.11 plus whatever forwarders the daemon was
+    # given). Without this pin, an unrestricted UDP/53 rule lets a process
+    # DNS-tunnel data (e.g. ANTHROPIC_API_KEY) by encoding it as subdomains
+    # toward an attacker-controlled resolver.
+    for ip in _resolv_conf_nameservers():
+        allow_rules.append(["-d", ip, "-p", "udp", "--dport", "53", "-j", "ACCEPT"])
     allow_rules.append(["-d", gateway_ip, "-p", "tcp", "--dport", str(port), "-j", "ACCEPT"])
     for ip in anthropic_ips:
         allow_rules.append(["-d", ip, "-p", "tcp", "--dport", str(anthropic_port), "-j", "ACCEPT"])
