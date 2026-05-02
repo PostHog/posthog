@@ -328,8 +328,8 @@ export function ToolbarInfoMenu(): JSX.Element | null {
     const surveysFlag = useToolbarFeatureFlag('surveys-toolbar')
     const showSurveys = surveysFlag
 
-    const aiFlag = useToolbarFeatureFlag('toolbar-ai')
-    const showAI = inStorybook() || inStorybookTestRunner() || aiFlag
+    // AI is rendered as a full-height right-side drawer at the top-level Toolbar,
+    // not inside this floating menu — so there's no `ai` case here.
 
     const content = minimized ? null : visibleMenu === 'flags' ? (
         <FlagsToolbarMenu />
@@ -347,8 +347,6 @@ export function ToolbarInfoMenu(): JSX.Element | null {
         <ProductToursToolbarMenu />
     ) : visibleMenu === 'surveys' && showSurveys ? (
         <SurveysToolbarMenu />
-    ) : visibleMenu === 'ai' && showAI ? (
-        <ToolbarAIMenu />
     ) : null
 
     useEffect(() => {
@@ -390,7 +388,7 @@ export function ToolbarInfoMenu(): JSX.Element | null {
 
 export function Toolbar(): JSX.Element | null {
     const ref = useRef<HTMLDivElement | null>(null)
-    const { minimized, position, isDragging, hedgehogMode, isEmbeddedInApp, isExiting, isLoading } =
+    const { minimized, position, isDragging, hedgehogMode, isEmbeddedInApp, isExiting, isLoading, visibleMenu } =
         useValues(toolbarLogic)
     const { setVisibleMenu, toggleMinimized, onMouseOrTouchDown, setElement, setIsBlurred, completeGracefulExit } =
         useActions(toolbarLogic)
@@ -447,10 +445,12 @@ export function Toolbar(): JSX.Element | null {
     }
 
     const showSidebar = selectedTourId !== null && !isPreviewing
+    const showAISidebar = isAuthenticated && showAI && visibleMenu === 'ai'
 
     return (
         <>
             {showSidebar && <ProductToursSidebar />}
+            {showAISidebar && <ToolbarAIMenu />}
             <ToolbarInfoMenu />
             <div
                 ref={ref}
@@ -541,7 +541,7 @@ export function Toolbar(): JSX.Element | null {
                             </ToolbarButton>
                         )}
                         {showAI && (
-                            <ToolbarButton menuId="ai" title="Ask Max AI">
+                            <ToolbarButton menuId="ai" title="Ask PostHog AI">
                                 <IconAI />
                             </ToolbarButton>
                         )}

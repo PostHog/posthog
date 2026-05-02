@@ -50,6 +50,7 @@ from .prompts import (
     ROOT_UI_CONTEXT_PROMPT,
     TOOLBAR_CONTEXT_PROMPT,
     TOOLBAR_CONTEXT_SCREENSHOT_NOTE,
+    TOOLBAR_SELECTED_ELEMENT_PROMPT,
 )
 
 # Reserved key in `contextual_tools` that the PostHog Toolbar uses to send the
@@ -507,13 +508,41 @@ class AssistantContextManager(AssistantContextMixin):
             if isinstance(screenshot_media_id, str) and screenshot_media_id
             else ""
         )
-        return TOOLBAR_CONTEXT_PROMPT.format(
+        page_prompt = TOOLBAR_CONTEXT_PROMPT.format(
             page_title=page_title,
             page_url=page_url,
             viewport_width=viewport_width or "unknown",
             viewport_height=viewport_height or "unknown",
             dom_snapshot=dom_snapshot,
             screenshot_note=screenshot_note,
+        )
+        selected_element_prompt = self._format_toolbar_selected_element(toolbar_context.get("selected_element"))
+        if selected_element_prompt:
+            return f"{page_prompt}\n\n{selected_element_prompt}"
+        return page_prompt
+
+    @staticmethod
+    def _format_toolbar_selected_element(selected_element: Any) -> str | None:
+        """Render the user's explicitly picked element, if the toolbar attached one."""
+        if not isinstance(selected_element, dict):
+            return None
+        tag_name = selected_element.get("tag_name")
+        outer_html = selected_element.get("outer_html_preview")
+        if not isinstance(tag_name, str) or not isinstance(outer_html, str) or not outer_html.strip():
+            return None
+        selector = selected_element.get("selector") or "(no reliable selector)"
+        text_preview = str(selected_element.get("text_preview") or "").strip() or "(empty)"
+        attributes = selected_element.get("attributes")
+        if isinstance(attributes, dict) and attributes:
+            attrs_repr = " ".join(f'{k}="{v}"' for k, v in attributes.items())
+        else:
+            attrs_repr = "(none)"
+        return TOOLBAR_SELECTED_ELEMENT_PROMPT.format(
+            selector=selector,
+            tag_name=tag_name,
+            text_preview=text_preview,
+            attributes=attrs_repr,
+            outer_html=outer_html,
         )
 
     def _deduplicate_context_messages(
