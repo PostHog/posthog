@@ -1,31 +1,33 @@
-from collections import Counter
-from datetime import UTC, datetime
+import json
+import hashlib
+from collections.abc import Mapping
+from typing import Any
 
 import structlog
 from temporalio import activity
 
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.redis import get_async_client
 from posthog.sync import database_sync_to_async, database_sync_to_async_pool
-from posthog.temporal.common.client import async_connect
-from posthog.temporal.common.search_attributes import POSTHOG_SESSION_RECORDING_ID_KEY, POSTHOG_TEAM_ID_KEY
+from posthog.temporal.common.search_attributes import POSTHOG_SCHEDULE_FINGERPRINT_KEY
+from posthog.temporal.session_replay.rasterize_recording.activities.stuck_counter import read_stuck_session_ids
 from posthog.temporal.session_replay.summarization_sweep.constants import (
     CH_QUERY_MAX_EXECUTION_SECONDS,
     SCHEDULE_ID_PREFIX,
     SCHEDULE_TYPE,
-    STUCK_RASTERIZE_LOOKBACK,
     STUCK_RASTERIZE_THRESHOLD,
     WORKFLOW_NAME,
-)
-from posthog.temporal.session_replay.summarization_sweep.models import (
-    DeleteTeamScheduleInput,
-    FindSessionsInput,
-    FindSessionsResult,
-    UpsertTeamScheduleInput,
 )
 from posthog.temporal.session_replay.summarization_sweep.session_candidates import (
     coerce_sample_rate,
     fetch_recent_session_ids,
+)
+from posthog.temporal.session_replay.summarization_sweep.types import (
+    DeleteTeamScheduleInput,
+    FindSessionsInput,
+    FindSessionsResult,
+    UpsertTeamScheduleInput,
 )
 
 from products.signals.backend.models import SignalSourceConfig
@@ -83,37 +85,25 @@ def _load_team_user_and_sessions(team_id: int, lookback_minutes: int) -> tuple[T
 async def _stuck_session_ids(team_id: int, session_ids: list[str]) -> set[str]:
     if not session_ids:
         return set()
-    candidate_set = set(session_ids)
     try:
-        client = await async_connect()
-        cutoff = (datetime.now(UTC) - STUCK_RASTERIZE_LOOKBACK).strftime("%Y-%m-%dT%H:%M:%S.000Z")
-        query = (
-            f'WorkflowType = "rasterize-recording" '
-            f'AND ExecutionStatus IN ("Failed", "TimedOut") '
-            f"AND {POSTHOG_TEAM_ID_KEY.name} = {team_id} "
-            f'AND CloseTime > "{cutoff}"'
+        return await read_stuck_session_ids(
+            redis_client=get_async_client(),
+            team_id=team_id,
+            session_ids=session_ids,
+            threshold=STUCK_RASTERIZE_THRESHOLD,
         )
-        failures: Counter[str] = Counter()
-        async for wf in client.list_workflows(query=query):
-            for pair in wf.typed_search_attributes:
-                if pair.key.name == POSTHOG_SESSION_RECORDING_ID_KEY.name:
-                    sid = pair.value
-                    if sid in candidate_set:
-                        failures[sid] += 1
-                    break
-        return {sid for sid, n in failures.items() if n >= STUCK_RASTERIZE_THRESHOLD}
     except Exception as exc:
         # Degrade to dispatching normally rather than blocking summarization.
-        logger.warning("summarization_sweep.stuck_query_failed", error=str(exc))
+        logger.warning("summarization_sweep.stuck_lookup_failed", error=str(exc))
         return set()
 
 
 @activity.defn
 async def find_sessions_for_team_activity(inputs: FindSessionsInput) -> FindSessionsResult:
-    """Surfaces `team_disabled=True` so the workflow can tear down its own schedule."""
+    # No-op when disabled; the reconciler will tear down the schedule on its next tick.
     enabled = await database_sync_to_async(_is_team_summarization_allowed)(inputs.team_id)
     if not enabled:
-        return FindSessionsResult(team_id=inputs.team_id, team_disabled=True)
+        return FindSessionsResult(team_id=inputs.team_id)
 
     team, session_ids, system_user = await database_sync_to_async_pool(_load_team_user_and_sessions)(
         inputs.team_id, inputs.lookback_minutes
@@ -144,29 +134,44 @@ async def find_sessions_for_team_activity(inputs: FindSessionsInput) -> FindSess
 @activity.defn
 async def delete_team_schedule_activity(inputs: DeleteTeamScheduleInput) -> None:
     """Idempotent."""
-    if inputs.dry_run:
-        logger.info("summarization_sweep.dry_run.delete_team_schedule", team_id=inputs.team_id)
-        return
-
     from posthog.temporal.session_replay.summarization_sweep.schedule import a_delete_team_schedule
 
     await a_delete_team_schedule(inputs.team_id)
 
 
-def _list_allowed_team_ids() -> list[int]:
-    return list(
-        SignalSourceConfig.objects.filter(
-            source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
-            source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
-            enabled=True,
-            team__organization__is_ai_data_processing_approved=True,
-        ).values_list("team_id", flat=True)
-    )
+def compute_schedule_fingerprint(config: Mapping[str, Any] | None) -> str:
+    """Stable hash of the SignalSourceConfig dict — used to detect drift after UI edits."""
+    canonical = json.dumps(config or {}, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode()).hexdigest()[:16]
+
+
+def _list_allowed_team_fingerprints() -> dict[int, str]:
+    rows = SignalSourceConfig.objects.filter(
+        source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
+        source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
+        enabled=True,
+        team__organization__is_ai_data_processing_approved=True,
+    ).values_list("team_id", "config")
+    return {team_id: compute_schedule_fingerprint(config) for team_id, config in rows}
 
 
 @activity.defn
-async def list_enabled_teams_activity() -> list[int]:
-    return await database_sync_to_async(_list_allowed_team_ids)()
+async def list_enabled_teams_activity() -> dict[int, str]:
+    return await database_sync_to_async(_list_allowed_team_fingerprints)()
+
+
+def _load_team_config(team_id: int) -> Mapping[str, Any] | None:
+    cfg = (
+        SignalSourceConfig.objects.filter(
+            team_id=team_id,
+            source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
+            source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
+            enabled=True,
+        )
+        .values_list("config", flat=True)
+        .first()
+    )
+    return cfg
 
 
 def _schedule_workflow_type(listing: object) -> str | None:
@@ -176,36 +181,43 @@ def _schedule_workflow_type(listing: object) -> str | None:
         return None
 
 
+def _schedule_fingerprint(listing: object) -> str | None:
+    try:
+        attrs = listing.typed_search_attributes  # type: ignore[attr-defined]
+    except AttributeError:
+        return None
+    for pair in attrs:
+        if pair.key.name == POSTHOG_SCHEDULE_FINGERPRINT_KEY.name:
+            return pair.value
+    return None
+
+
 @activity.defn
-async def list_summarization_schedule_team_ids_activity() -> list[int]:
+async def list_summarization_schedule_team_ids_activity() -> dict[int, str | None]:
+    """{team_id: stored_fingerprint} for existing schedules; None for untagged legacy ones."""
     from posthog.temporal.common.client import async_connect
 
     client = await async_connect()
-    # The `PostHogScheduleType` attribute is set only by this module's schedules, so
-    # one visibility query returns exactly our schedules — no namespace-wide scan.
     query = f'PostHogScheduleType = "{SCHEDULE_TYPE}"'
     prefix = f"{SCHEDULE_ID_PREFIX}-"
-    team_ids: list[int] = []
+    out: dict[int, str | None] = {}
     async for listing in await client.list_schedules(query=query):
         if not listing.id.startswith(prefix):
             continue
-        # Belt-and-suspenders: the attribute query should already be exact.
         if _schedule_workflow_type(listing) != WORKFLOW_NAME:
             continue
         suffix = listing.id[len(prefix) :]
         try:
-            team_ids.append(int(suffix))
+            team_id = int(suffix)
         except ValueError:
             logger.warning("summarization_sweep.unparseable_schedule_id", schedule_id=listing.id)
-    return team_ids
+            continue
+        out[team_id] = _schedule_fingerprint(listing)
+    return out
 
 
 @activity.defn
 async def upsert_team_schedule_activity(inputs: UpsertTeamScheduleInput) -> None:
-    if inputs.dry_run:
-        logger.info("summarization_sweep.dry_run.upsert_team_schedule", team_id=inputs.team_id)
-        return
-
     from posthog.temporal.session_replay.summarization_sweep.schedule import a_upsert_team_schedule
 
     await a_upsert_team_schedule(inputs.team_id)

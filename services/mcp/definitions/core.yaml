@@ -362,6 +362,9 @@ tools:
     invites-create:
         operation: invites_create
         enabled: false
+    invites-delegate-create:
+        operation: invites_delegate_create
+        enabled: false
     invites-destroy:
         operation: invites_destroy
         enabled: false
@@ -779,6 +782,9 @@ tools:
         enabled: false
     users-list:
         operation: users_list
+        enabled: false
+    users-onboarding-skip-create:
+        operation: users_onboarding_skip_create
         enabled: false
     users-request-email-verification-create:
         operation: users_request_email_verification_create

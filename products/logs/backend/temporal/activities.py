@@ -435,7 +435,7 @@ def _run_batched_query(cohort: _AlertCohort) -> BatchedBucketedResult:
         date_from=cohort.date_from,
         date_to=cohort.date_to,
         projection_eligible=cohort.projection_eligible,
-    ).execute_bucketed(interval_minutes=cohort.window_minutes, limit=cohort.evaluation_periods)
+    ).execute_periods(period_minutes=cohort.window_minutes, period_count=cohort.evaluation_periods)
 
 
 def _run_per_alert_queries(cohort: _AlertCohort) -> _CohortQueryResult:
@@ -448,7 +448,7 @@ def _run_per_alert_queries(cohort: _AlertCohort) -> _CohortQueryResult:
                 alert=alert,
                 date_from=cohort.date_from,
                 date_to=cohort.date_to,
-            ).execute_bucketed(interval_minutes=cohort.window_minutes, limit=cohort.evaluation_periods)
+            ).execute_periods(period_minutes=cohort.window_minutes, period_count=cohort.evaluation_periods)
             duration_ms = (time.monotonic_ns() - start) // 1_000_000
             per_alert[str(alert.id)] = _PrefetchedQuery(buckets=buckets, query_duration_ms=duration_ms)
         except Exception as e:
@@ -922,13 +922,11 @@ def _evaluate_single_alert(
                 alert=alert,
                 date_from=date_from,
                 date_to=date_to,
-            ).execute_bucketed(interval_minutes=alert.window_minutes, limit=alert.evaluation_periods)
+            ).execute_periods(period_minutes=alert.window_minutes, period_count=alert.evaluation_periods)
             query_duration_ms = int((time.perf_counter() - query_start) * 1000)
 
-        # execute_bucketed returns ASC (oldest first); state machine wants newest first.
-        # Buckets that are entirely empty are absent from the result, so a sparse window
-        # naturally produces a shorter breaches tuple — same behavior as today's
-        # get_recent_breaches when fewer than M CHECK rows exist.
+        # `execute_periods` returns one entry per evaluation period in ASC order;
+        # the state machine wants newest-first, which `_derive_breaches` reverses.
         breaches = _derive_breaches(buckets, alert.threshold_count, alert.threshold_operator, alert.evaluation_periods)
         latest_count = buckets[-1].count if buckets else 0
         check_result = CheckResult(

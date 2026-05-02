@@ -626,6 +626,138 @@ class TestAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
                 query.execute()
 
 
+class TestEvaluatorWindowAccuracy(ClickhouseTestMixin, APIBaseTest):
+    """`execute_periods` counts must be invariant to `next_check_at` clock offset."""
+
+    def _make_alert(self, **kwargs) -> LogsAlertConfiguration:
+        defaults = {
+            "team": self.team,
+            "name": "Window accuracy test",
+            "threshold_count": 10,
+            "threshold_operator": "above",
+            "window_minutes": 60,
+            "filters": {"serviceNames": ["window_accuracy_test"]},
+        }
+        defaults.update(kwargs)
+        return LogsAlertConfiguration.objects.create(**defaults)
+
+    def _seed_one_log_per_minute(self, start_hour_utc: int, hours: int = 3) -> None:
+        rows = []
+        for h in range(hours):
+            for m in range(60):
+                rows.append(
+                    {
+                        "uuid": f"window-{h:02d}-{m:02d}",
+                        "team_id": self.team.id,
+                        "timestamp": f"2025-12-16 {start_hour_utc + h:02d}:{m:02d}:00",
+                        "body": "",
+                        "severity_text": "info",
+                        "severity_number": 9,
+                        "service_name": "window_accuracy_test",
+                        "resource_attributes": {},
+                        "attributes_map_str": {},
+                    }
+                )
+        sync_execute("INSERT INTO logs FORMAT JSONEachRow\n" + "\n".join(json.dumps(r) for r in rows))
+
+    @parameterized.expand(
+        [
+            ("offset_0_clock_aligned", 0),
+            ("offset_5", 5),
+            ("offset_10", 10),
+            ("offset_15", 15),
+            ("offset_20", 20),
+            ("offset_30", 30),
+            ("offset_45", 45),
+            ("offset_55", 55),
+        ]
+    )
+    @freeze_time("2025-12-16T13:30:00Z")
+    def test_m_equals_1_full_window_count_is_independent_of_nca_offset(self, _name: str, offset_minutes: int):
+        # 1 log/min × 60-min window = 60.
+        self._seed_one_log_per_minute(start_hour_utc=10, hours=3)
+        alert = self._make_alert(window_minutes=60, evaluation_periods=1)
+
+        nca = datetime(2025, 12, 16, 12, 0, tzinfo=UTC) + dt.timedelta(minutes=offset_minutes)
+        date_from = nca - dt.timedelta(minutes=alert.window_minutes * alert.evaluation_periods)
+
+        result = AlertCheckQuery(team=self.team, alert=alert, date_from=date_from, date_to=nca).execute_periods(
+            period_minutes=alert.window_minutes, period_count=alert.evaluation_periods
+        )
+
+        assert len(result) == 1
+        assert result[0].count == 60, (
+            f"NCA {nca.time()}: window [{date_from.time()}, {nca.time()}) has 60 logs by construction; "
+            f"got {result[0].count}"
+        )
+
+    @parameterized.expand(
+        [
+            ("offset_0_clock_aligned", 0),
+            ("offset_5", 5),
+            ("offset_10", 10),
+            ("offset_25", 25),
+            ("offset_55", 55),
+        ]
+    )
+    @freeze_time("2025-12-16T13:30:00Z")
+    def test_m_of_n_each_period_reports_full_window_count(self, _name: str, offset_minutes: int):
+        # 1 log/min × 3 × 20-min periods = 20 each.
+        self._seed_one_log_per_minute(start_hour_utc=10, hours=3)
+        alert = self._make_alert(window_minutes=20, evaluation_periods=3)
+
+        nca = datetime(2025, 12, 16, 12, 0, tzinfo=UTC) + dt.timedelta(minutes=offset_minutes)
+        date_from = nca - dt.timedelta(minutes=alert.window_minutes * alert.evaluation_periods)
+
+        result = AlertCheckQuery(team=self.team, alert=alert, date_from=date_from, date_to=nca).execute_periods(
+            period_minutes=alert.window_minutes, period_count=alert.evaluation_periods
+        )
+
+        assert len(result) == 3
+        # Every period must contain exactly 20 logs (1/min × 20 min).
+        for i, period in enumerate(result):
+            assert period.count == 20, (
+                f"Period {i} (offset {offset_minutes}min) at {period.timestamp.time()} should have 20 logs; "
+                f"got {period.count}. Per-period counts: {[p.count for p in result]}"
+            )
+        # Total across all periods = 60 logs.
+        assert sum(p.count for p in result) == 60
+
+    @freeze_time("2025-12-16T13:30:00Z")
+    def test_m_equals_1_steady_rate_does_not_oscillate_across_hour(self):
+        self._seed_one_log_per_minute(start_hour_utc=10, hours=3)
+        alert = self._make_alert(window_minutes=60, evaluation_periods=1)
+
+        counts_by_offset = {}
+        for offset in (0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55):
+            nca = datetime(2025, 12, 16, 12, 0, tzinfo=UTC) + dt.timedelta(minutes=offset)
+            result = AlertCheckQuery(
+                team=self.team, alert=alert, date_from=nca - dt.timedelta(minutes=60), date_to=nca
+            ).execute_periods(period_minutes=60, period_count=1)
+            counts_by_offset[offset] = result[0].count
+
+        unique_counts = set(counts_by_offset.values())
+        assert unique_counts == {60}, (
+            f"Reported counts vary across NCA offsets within the same hour, despite constant log rate. "
+            f"Per-offset counts: {counts_by_offset}"
+        )
+
+    @freeze_time("2025-12-16T13:30:00Z")
+    def test_m_of_n_steady_rate_does_not_oscillate_across_hour(self):
+        self._seed_one_log_per_minute(start_hour_utc=10, hours=3)
+        alert = self._make_alert(window_minutes=20, evaluation_periods=3)
+
+        for offset in (0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55):
+            nca = datetime(2025, 12, 16, 12, 0, tzinfo=UTC) + dt.timedelta(minutes=offset)
+            result = AlertCheckQuery(
+                team=self.team, alert=alert, date_from=nca - dt.timedelta(minutes=60), date_to=nca
+            ).execute_periods(period_minutes=20, period_count=3)
+            counts = [p.count for p in result]
+            assert counts == [20, 20, 20], (
+                f"NCA offset {offset}min: M-of-N period counts diverge from constant 20/period; got {counts}"
+            )
+
+
 class TestBatchedAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
     """Per-team batching: run N alerts in one CH query via `countIf(<predicate>)`.
 
@@ -817,6 +949,82 @@ class TestBatchedAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
         ):
             with self.assertRaisesRegex(Exception, "ClickHouse timeout"):
                 query.execute_bucketed(interval_minutes=5)
+
+    @parameterized.expand(
+        [
+            ("offset_0_clock_aligned", 0),
+            ("offset_5", 5),
+            ("offset_25", 25),
+            ("offset_55", 55),
+        ]
+    )
+    @freeze_time("2025-12-16T13:30:00Z")
+    def test_execute_periods_per_alert_per_period_indexing_is_correct(self, _name: str, offset_minutes: int):
+        # service_a: 1 log/min. service_b: 2 logs/min. Expected: A=[20,20,20], B=[40,40,40] for any NCA offset.
+        rows = []
+        for h in range(3):
+            for m in range(60):
+                # service_a: 1 log/min. service_b: 2 logs/min (a 'left' and a 'right' variant).
+                rows.append(
+                    {
+                        "uuid": f"a-{h:02d}-{m:02d}",
+                        "team_id": self.team.id,
+                        "timestamp": f"2025-12-16 {11 + h:02d}:{m:02d}:00",
+                        "body": "",
+                        "severity_text": "info",
+                        "severity_number": 9,
+                        "service_name": "batched_window_a",
+                        "resource_attributes": {},
+                        "attributes_map_str": {},
+                    }
+                )
+                rows.append(
+                    {
+                        "uuid": f"b1-{h:02d}-{m:02d}",
+                        "team_id": self.team.id,
+                        "timestamp": f"2025-12-16 {11 + h:02d}:{m:02d}:10",
+                        "body": "",
+                        "severity_text": "info",
+                        "severity_number": 9,
+                        "service_name": "batched_window_b",
+                        "resource_attributes": {},
+                        "attributes_map_str": {},
+                    }
+                )
+                rows.append(
+                    {
+                        "uuid": f"b2-{h:02d}-{m:02d}",
+                        "team_id": self.team.id,
+                        "timestamp": f"2025-12-16 {11 + h:02d}:{m:02d}:40",
+                        "body": "",
+                        "severity_text": "info",
+                        "severity_number": 9,
+                        "service_name": "batched_window_b",
+                        "resource_attributes": {},
+                        "attributes_map_str": {},
+                    }
+                )
+        sync_execute("INSERT INTO logs FORMAT JSONEachRow\n" + "\n".join(json.dumps(r) for r in rows))
+
+        alert_a = self._make_alert(name="A", filters={"serviceNames": ["batched_window_a"]})
+        alert_b = self._make_alert(name="B", filters={"serviceNames": ["batched_window_b"]})
+
+        nca = datetime(2025, 12, 16, 13, 0, tzinfo=UTC) + dt.timedelta(minutes=offset_minutes)
+        date_from = nca - dt.timedelta(minutes=60)
+
+        result = BatchedAlertCheckQuery(
+            team=self.team, alerts=[alert_a, alert_b], date_from=date_from, date_to=nca
+        ).execute_periods(period_minutes=20, period_count=3)
+
+        # Every period for A: 20 logs (1/min × 20 min). Every period for B: 40 logs (2/min × 20 min).
+        a_counts = [b.count for b in result.per_alert[str(alert_a.id)]]
+        b_counts = [b.count for b in result.per_alert[str(alert_b.id)]]
+        assert a_counts == [20, 20, 20], (
+            f"NCA offset {offset_minutes}min: alert A per-period counts diverge from constant 20; got {a_counts}"
+        )
+        assert b_counts == [40, 40, 40], (
+            f"NCA offset {offset_minutes}min: alert B per-period counts diverge from constant 40; got {b_counts}"
+        )
 
     @freeze_time("2025-12-16T11:00:00Z")
     def test_per_alert_results_match_single_query_across_random_inputs(self):

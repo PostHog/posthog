@@ -1,9 +1,13 @@
-from datetime import datetime, timedelta
+import concurrent.futures
+from datetime import timedelta
 from typing import Any, Optional, cast
 from uuid import UUID
 
-from django.db.models import QuerySet
+from django.db import transaction
+from django.db.models import Q, QuerySet
+from django.utils import timezone
 
+import structlog
 import posthoganalytics
 from drf_spectacular.utils import extend_schema
 from rest_framework import exceptions, mixins, permissions, request, response, serializers, status, viewsets
@@ -16,6 +20,11 @@ from posthog.email import is_email_available
 from posthog.event_usage import report_bulk_invited, report_team_member_invited
 from posthog.helpers.email_utils import EmailNormalizer, validate_display_name, validate_message_body
 from posthog.models import OrganizationInvite, OrganizationMembership
+from posthog.models.onboarding_delegation import (
+    get_existing_pending_delegation_invite,
+    schedule_delegation_side_effects,
+    set_delegated_state,
+)
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -25,9 +34,29 @@ from posthog.permissions import (
     TimeSensitiveActionPermission,
     UserCanInvitePermission,
 )
-from posthog.rate_limit import OrganizationInviteBurstThrottle, OrganizationInviteSustainedThrottle
+from posthog.rate_limit import (
+    OnboardingDelegationThrottle,
+    OrganizationInviteBurstThrottle,
+    OrganizationInviteSustainedThrottle,
+)
 from posthog.rbac.user_access_control import UserAccessControl, ordered_access_levels
 from posthog.tasks.email import send_invite
+
+logger = structlog.get_logger(__name__)
+
+# Module-level executor for the feature-flag eval timeout. A single shared pool with a
+# small bounded worker count caps the number of orphaned eval threads under sustained
+# flag-service degradation. Per-request executor instantiation would otherwise leak a
+# zombie thread per slow eval.
+_DELEGATION_FLAG_MAX_WORKERS = 4
+_DELEGATION_FLAG_EXECUTOR = concurrent.futures.ThreadPoolExecutor(
+    max_workers=_DELEGATION_FLAG_MAX_WORKERS, thread_name_prefix="delegation-flag"
+)
+# Bound the executor's task queue so a sustained flag-service outage can't grow it
+# unbounded — every queued task corresponds to a worker that's blocked on a slow upstream
+# call, so once the queue is full additional submits should fail-open immediately rather
+# than wait their turn behind work the caller has already abandoned via `.result(timeout=...)`.
+_DELEGATION_FLAG_MAX_QUEUE = _DELEGATION_FLAG_MAX_WORKERS * 2
 
 
 class OrganizationInviteManager:
@@ -67,7 +96,7 @@ class OrganizationInviteManager:
         }
 
         if not include_expired:
-            filters["created_at__gt"] = datetime.now() - timedelta(days=INVITE_DAYS_VALIDITY)
+            filters["created_at__gt"] = timezone.now() - timedelta(days=INVITE_DAYS_VALIDITY)
 
         return OrganizationInvite.objects.filter(**filters).order_by("-created_at")
 
@@ -297,6 +326,38 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
         return invite
 
 
+class OrganizationInviteDelegateSerializer(serializers.Serializer):
+    target_email = serializers.EmailField(
+        required=True,
+        help_text=(
+            "Email of the teammate who should complete setup on the inviter's behalf. Receives a "
+            "PostHog-branded delegation invite granting admin-level membership on accept."
+        ),
+    )
+    message = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=1000,
+        help_text="Optional personal message included in the delegation email (up to 1000 characters).",
+    )
+    step_at_delegation = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=64,
+        help_text="Onboarding step key the delegator was on when delegating, for analytics only.",
+    )
+
+    def validate_target_email(self, email: str) -> str:
+        return EmailNormalizer.normalize(email)
+
+    def validate_message(self, value: str | None) -> str | None:
+        # Mirror the standard invite serializer's body validation so URLs / control chars
+        # are rejected at the API boundary. Without this the invite still commits but
+        # `send_invite` silently bails at task time, leaving the delegator stuck on the
+        # "waiting for teammate" screen with no email ever delivered.
+        return validate_message_body(value)
+
+
 @extend_schema(tags=["core"])
 class OrganizationInviteViewSet(
     TeamAndOrgViewSetMixin,
@@ -312,7 +373,7 @@ class OrganizationInviteViewSet(
     ordering = "-created_at"
 
     def dangerously_get_permissions(self):
-        if self.action in ["create", "bulk", "update", "partial_update"]:
+        if self.action in ["create", "bulk", "delegate", "update", "partial_update"]:
             write_permissions = [
                 permission()
                 for permission in [
@@ -364,6 +425,202 @@ class OrganizationInviteViewSet(
         serializer.is_valid(raise_exception=True)
         serializer.save()
 
+        return response.Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    @staticmethod
+    def _delegation_flag_enabled(user: User) -> Optional[bool]:
+        # Wrap feature_enabled in a short timeout so a slow/down flag service can't block
+        # every delegation request. Timeout or exception → fail-open (None). Explicit False
+        # disables the flow. The shared module-level executor caps total in-flight eval
+        # threads — per-request executor creation would orphan one thread per slow eval
+        # under sustained flag-service degradation.
+        def _eval() -> Optional[bool]:
+            return posthoganalytics.feature_enabled(
+                "onboarding-delegation",
+                str(user.distinct_id) if user.distinct_id else str(user.uuid),
+                send_feature_flag_events=False,
+            )
+
+        # If the executor's queue is already saturated, every worker is blocked on a slow
+        # upstream call. Skip the eval and fail-open immediately rather than queue more
+        # work that the caller will abandon at the 1s timeout — that pattern grows the
+        # queue without bound under sustained flag-service degradation.
+        # noqa: SLF001 — accessing _work_queue is the documented way to introspect depth.
+        try:
+            queue_depth = _DELEGATION_FLAG_EXECUTOR._work_queue.qsize()
+        except Exception:
+            queue_depth = 0
+        if queue_depth >= _DELEGATION_FLAG_MAX_QUEUE:
+            return None
+
+        try:
+            return _DELEGATION_FLAG_EXECUTOR.submit(_eval).result(timeout=1.0)
+        except Exception:
+            # Includes concurrent.futures.TimeoutError, network errors, and any
+            # internal posthoganalytics exception. Fail open — delegation should not
+            # block on a degraded flag service.
+            return None
+
+    @extend_schema(
+        request=OrganizationInviteDelegateSerializer,
+        responses=OrganizationInviteSerializer,
+    )
+    @action(
+        methods=["POST"],
+        detail=False,
+        required_scopes=["organization_member:write"],
+        # Layer the per-user delegation cap (10/hour) on top of the standard invite burst /
+        # sustained throttles so a tenant with N admin sessions can't bypass per-org caps
+        # by hitting the delegation path instead of the regular invite path.
+        throttle_classes=[
+            OnboardingDelegationThrottle,
+            OrganizationInviteBurstThrottle,
+            OrganizationInviteSustainedThrottle,
+        ],
+    )
+    def delegate(self, request: request.Request, **kwargs) -> response.Response:
+        """
+        Create an onboarding delegation invite: an admin-level invite flagged as a setup delegation.
+        Sends a single dedicated delegation email and records the inviting user as having delegated.
+        """
+        user = cast(User, self.request.user)
+
+        # Validate input first so malformed requests fail fast without paying the remote
+        # feature-flag lookup latency. Email is normalized and message is body-validated
+        # at the serializer layer (so URL/control-char rejection mirrors the regular invite path).
+        input_serializer = OrganizationInviteDelegateSerializer(data=request.data)
+        input_serializer.is_valid(raise_exception=True)
+        target_email = input_serializer.validated_data["target_email"]
+        message = input_serializer.validated_data.get("message") or ""
+        step_at_delegation = input_serializer.validated_data.get("step_at_delegation") or ""
+
+        # Kill switch for the delegation flow. Wrapped in a tight timeout so a slow/down
+        # flag service doesn't block every delegation request; a None or timeout result
+        # means fail-open (delegation still works). Only an explicit False disables it.
+        flag_enabled = self._delegation_flag_enabled(user)
+        if flag_enabled is False:
+            raise exceptions.PermissionDenied(
+                "Onboarding delegation is currently disabled. Please finish setup yourself, or contact "
+                "PostHog support if you need help.",
+                code="delegation_disabled",
+            )
+
+        # Delegation invites grant ADMIN-level access on accept, so the caller must themselves
+        # hold ADMIN or higher. Without this check, regular members could escalate an unrelated
+        # account to admin via a delegation invite on orgs that allow members to invite.
+        try:
+            membership = OrganizationMembership.objects.get(organization_id=self.organization_id, user=user)
+        except OrganizationMembership.DoesNotExist:
+            raise exceptions.PermissionDenied("You must be a member of the organization to delegate setup.")
+        if membership.level < OrganizationMembership.Level.ADMIN:
+            raise exceptions.PermissionDenied(
+                "Only organization admins can delegate setup, as delegation grants admin access."
+            )
+
+        # Self-delegation guard. `user.email == target_email` is sufficient: `target_email`
+        # has been normalized and the comparison is case-insensitive via the normalizer.
+        if bool(user.email) and EmailNormalizer.normalize(user.email) == target_email:
+            raise exceptions.ValidationError("You cannot delegate setup to yourself.", code="self_delegation")
+
+        # Server-side gate: delegation only makes sense while the *target organization* is
+        # still in onboarding. `user.team` points at the caller's current_team (which could
+        # be in any org), so we query the teams of the organization we're delegating to.
+        # Use exists() so Postgres can short-circuit instead of materializing every team row.
+        target_already_onboarded = Team.objects.filter(
+            Q(ingested_event=True) | Q(completed_snippet_onboarding=True),
+            organization_id=self.organization_id,
+        ).exists()
+        if target_already_onboarded:
+            raise exceptions.ValidationError(
+                "Setup has already been completed — delegation is only available during initial onboarding.",
+                code="onboarding_complete",
+            )
+
+        # Require email to be configured; otherwise the delegation quietly strands the
+        # delegator on the "waiting for teammate" screen forever.
+        if not is_email_available(with_absolute_urls=True):
+            raise exceptions.ValidationError(
+                "Email isn't configured on this instance, so we can't send a delegation invite.",
+                code="email_not_configured",
+            )
+
+        # Idempotency: catch double-submits, tab re-plays, and TOCTOU races on the existing-invite
+        # check by locking the delegator's row and re-reading their state inside the atomic block.
+        # If a delegation is already in flight for this user, return the existing invite rather
+        # than creating a duplicate (and emitting a second email).
+        with transaction.atomic():
+            # Serialize delegation decisions per organization so two admins can't concurrently
+            # create competing setup-delegation invites for the same target email.
+            Organization.objects.select_for_update().get(id=self.organization_id)
+            locked_user = User.objects.select_for_update().get(pk=user.pk)
+
+            existing_invite = get_existing_pending_delegation_invite(
+                locked_user=locked_user, organization_id=self.organization_id
+            )
+            if existing_invite is not None:
+                # If the previous delegation committed its DB rows but the email failed to
+                # enqueue (broker outage at the time), emailing_attempt_made stays False.
+                # Retry the email dispatch instead of silently returning the same invite
+                # with no email ever having been sent.
+                if not existing_invite.emailing_attempt_made:
+                    schedule_delegation_side_effects(
+                        invite_id=existing_invite.id,
+                        distinct_id=str(user.distinct_id) if user.distinct_id else None,
+                        target_email=target_email,
+                        message=message,
+                        step_at_delegation=step_at_delegation,
+                        is_resubmit=True,
+                    )
+                serializer = OrganizationInviteSerializer(existing_invite, context=self.get_serializer_context())
+                return response.Response(serializer.data, status=status.HTTP_200_OK)
+
+            # Generic error on any pending-invite collision: leaks less about org membership
+            # than distinct existing_member / existing_invite codes.
+            already_known = OrganizationMembership.objects.filter(
+                organization_id=self.organization_id,
+                user__email__iexact=target_email,
+            ).exists()
+            pending_invite = OrganizationInviteManager._get_invites_for_user_org(
+                organization_id=self.organization_id, target_email=target_email
+            ).first()
+            if already_known or pending_invite is not None:
+                # The user-facing copy stays generic to avoid leaking org membership, but log
+                # the actual blocker for support so they can tell a delegator their delegation
+                # is being held up by an unrelated MEMBER invite vs. an existing membership.
+                logger.info(
+                    "delegation_collision",
+                    organization_id=str(self.organization_id),
+                    delegator_user_id=user.id,
+                    blocker="existing_membership" if already_known else "pending_invite",
+                    pending_invite_id=str(pending_invite.id) if pending_invite is not None else None,
+                    pending_invite_is_setup_delegation=(
+                        pending_invite.is_setup_delegation if pending_invite is not None else None
+                    ),
+                )
+                raise exceptions.ValidationError(
+                    "We can't send a delegation invite to this email — cancel any existing invite or ask a different teammate.",
+                    code="cannot_delegate_to_email",
+                )
+
+            invite = OrganizationInvite.objects.create(
+                organization_id=self.organization_id,
+                created_by=user,
+                target_email=target_email,
+                message=message,
+                level=OrganizationMembership.Level.ADMIN,
+                is_setup_delegation=True,
+            )
+            set_delegated_state(locked_user=locked_user, invite=invite, organization_id=self.organization_id)
+
+            schedule_delegation_side_effects(
+                invite_id=invite.id,
+                distinct_id=str(user.distinct_id) if user.distinct_id else None,
+                target_email=target_email,
+                message=message,
+                step_at_delegation=step_at_delegation,
+            )
+
+        serializer = OrganizationInviteSerializer(invite, context=self.get_serializer_context())
         return response.Response(serializer.data, status=status.HTTP_201_CREATED)
 
     @action(
