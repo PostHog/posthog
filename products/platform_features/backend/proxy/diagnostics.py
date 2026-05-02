@@ -26,8 +26,8 @@ import dns.exception
 from posthog.exceptions_capture import capture_exception
 from posthog.models import ProxyRecord
 
-from products.proxy.backend import messages
-from products.proxy.backend.cloudflare import (
+from products.platform_features.backend.proxy import messages
+from products.platform_features.backend.proxy.cloudflare import (
     CloudflareAPIError,
     CustomHostnameInfo,
     CustomHostnameSSLStatus,

@@ -6,8 +6,8 @@ import requests
 import dns.resolver
 from parameterized import parameterized
 
-from products.proxy.backend import diagnostics
-from products.proxy.backend.cloudflare import (
+from products.platform_features.backend.proxy import diagnostics
+from products.platform_features.backend.proxy.cloudflare import (
     CloudflareAPIError,
     CustomHostnameInfo,
     CustomHostnameSSL,
@@ -56,7 +56,7 @@ def _caa_rdata(tag: bytes, issuer: str):
 
 
 class TestCheckCname(TestCase):
-    @patch("products.proxy.backend.diagnostics.dns.resolver.Resolver")
+    @patch("products.platform_features.backend.proxy.diagnostics.dns.resolver.Resolver")
     def test_pass_when_cname_matches(self, ResolverMock):
         cname = MagicMock()
         cname.target.to_text.return_value = "abc.cf-prod-eu-proxy.europehog.com."
@@ -67,7 +67,7 @@ class TestCheckCname(TestCase):
         self.assertEqual(result.status, "pass")
         self.assertIsNone(result.remediation)
 
-    @patch("products.proxy.backend.diagnostics.dns.resolver.Resolver")
+    @patch("products.platform_features.backend.proxy.diagnostics.dns.resolver.Resolver")
     def test_fail_when_cname_mismatches(self, ResolverMock):
         cname = MagicMock()
         cname.target.to_text.return_value = "wrong.example.net."
@@ -80,7 +80,7 @@ class TestCheckCname(TestCase):
         assert result.remediation is not None
         self.assertEqual(result.remediation.records[0].type, "CNAME")
 
-    @patch("products.proxy.backend.diagnostics.dns.resolver.Resolver")
+    @patch("products.platform_features.backend.proxy.diagnostics.dns.resolver.Resolver")
     def test_fail_when_cname_missing_nxdomain(self, ResolverMock):
         ResolverMock.return_value.resolve.side_effect = dns.resolver.NXDOMAIN()
 
@@ -91,21 +91,21 @@ class TestCheckCname(TestCase):
 
 
 class TestCheckCloudflare(TestCase):
-    @patch("products.proxy.backend.diagnostics.get_custom_hostname_by_domain")
+    @patch("products.platform_features.backend.proxy.diagnostics.get_custom_hostname_by_domain")
     def test_pass_when_ssl_active(self, get_mock):
         get_mock.return_value = _hostname_info(ssl_status=CustomHostnameSSLStatus.ACTIVE)
         result, info = diagnostics._check_cloudflare(_record())
         self.assertEqual(result.status, "pass")
         self.assertIsNotNone(info)
 
-    @patch("products.proxy.backend.diagnostics.get_custom_hostname_by_domain")
+    @patch("products.platform_features.backend.proxy.diagnostics.get_custom_hostname_by_domain")
     def test_warn_when_pending_validation(self, get_mock):
         get_mock.return_value = _hostname_info(ssl_status=CustomHostnameSSLStatus.PENDING_VALIDATION)
         result, info = diagnostics._check_cloudflare(_record())
         self.assertEqual(result.status, "warn")
         self.assertIn("verification is pending", result.detail.lower())
 
-    @patch("products.proxy.backend.diagnostics.get_custom_hostname_by_domain")
+    @patch("products.platform_features.backend.proxy.diagnostics.get_custom_hostname_by_domain")
     def test_fail_when_hostname_missing(self, get_mock):
         get_mock.return_value = None
         result, info = diagnostics._check_cloudflare(_record())
@@ -114,31 +114,31 @@ class TestCheckCloudflare(TestCase):
         self.assertEqual(result.remediation.type, "retry")
         self.assertIsNone(info)
 
-    @patch("products.proxy.backend.diagnostics.get_custom_hostname_by_domain")
+    @patch("products.platform_features.backend.proxy.diagnostics.get_custom_hostname_by_domain")
     def test_fail_when_api_errors(self, get_mock):
         get_mock.side_effect = CloudflareAPIError("boom")
-        with patch("products.proxy.backend.diagnostics.capture_exception"):
+        with patch("products.platform_features.backend.proxy.diagnostics.capture_exception"):
             result, info = diagnostics._check_cloudflare(_record())
         self.assertEqual(result.status, "fail")
         self.assertIn("certificate provider", result.detail.lower())
 
 
 class TestCheckCaa(TestCase):
-    @patch("products.proxy.backend.diagnostics.dns.resolver.Resolver")
+    @patch("products.platform_features.backend.proxy.diagnostics.dns.resolver.Resolver")
     def test_pass_when_no_caa_records(self, ResolverMock):
         ResolverMock.return_value.resolve.side_effect = dns.resolver.NoAnswer()
         result = diagnostics._check_caa(_record(), _hostname_info())
         self.assertEqual(result.status, "pass")
         self.assertIn("unrestricted", result.detail.lower())
 
-    @patch("products.proxy.backend.diagnostics.dns.resolver.Resolver")
+    @patch("products.platform_features.backend.proxy.diagnostics.dns.resolver.Resolver")
     def test_pass_when_caa_authorizes_required_issuer(self, ResolverMock):
         ResolverMock.return_value.resolve.return_value = [_caa_rdata(b"issue", "pki.goog")]
         result = diagnostics._check_caa(_record(), _hostname_info(certificate_authority="google"))
         self.assertEqual(result.status, "pass")
         self.assertIn("pki.goog", result.detail)
 
-    @patch("products.proxy.backend.diagnostics.dns.resolver.Resolver")
+    @patch("products.platform_features.backend.proxy.diagnostics.dns.resolver.Resolver")
     def test_fail_when_caa_blocks_required_issuer(self, ResolverMock):
         ResolverMock.return_value.resolve.return_value = [_caa_rdata(b"issue", "digicert.com")]
         result = diagnostics._check_caa(_record(), _hostname_info(certificate_authority="google"))
@@ -151,20 +151,20 @@ class TestCheckCaa(TestCase):
 
 
 class TestCheckHttpChallenge(TestCase):
-    @patch("products.proxy.backend.diagnostics.requests.get")
+    @patch("products.platform_features.backend.proxy.diagnostics.requests.get")
     def test_pass_when_body_matches(self, get_mock):
         get_mock.return_value = MagicMock(status_code=200, text="tok.body")
         result = diagnostics._check_http_challenge(_record(), _hostname_info())
         self.assertEqual(result.status, "pass")
 
-    @patch("products.proxy.backend.diagnostics.requests.get")
+    @patch("products.platform_features.backend.proxy.diagnostics.requests.get")
     def test_fail_when_body_mismatch(self, get_mock):
         get_mock.return_value = MagicMock(status_code=200, text="other content")
         result = diagnostics._check_http_challenge(_record(), _hostname_info())
         self.assertEqual(result.status, "fail")
         self.assertIn("wrong content", result.detail.lower())
 
-    @patch("products.proxy.backend.diagnostics.requests.get")
+    @patch("products.platform_features.backend.proxy.diagnostics.requests.get")
     def test_fail_when_unreachable(self, get_mock):
         get_mock.side_effect = requests.exceptions.ConnectionError("refused")
         result = diagnostics._check_http_challenge(_record(), _hostname_info())
@@ -172,7 +172,7 @@ class TestCheckHttpChallenge(TestCase):
         assert result.remediation is not None
         self.assertEqual(result.remediation.type, "config")
 
-    @patch("products.proxy.backend.diagnostics.requests.get")
+    @patch("products.platform_features.backend.proxy.diagnostics.requests.get")
     def test_fail_when_non_200(self, get_mock):
         get_mock.return_value = MagicMock(status_code=404, text="")
         result = diagnostics._check_http_challenge(_record(), _hostname_info())
@@ -187,26 +187,26 @@ class TestCheckLiveEvent(TestCase):
             ("conn_error", requests.exceptions.ConnectionError("refused"), "fail", "connect"),
         ]
     )
-    @patch("products.proxy.backend.diagnostics.requests.post")
+    @patch("products.platform_features.backend.proxy.diagnostics.requests.post")
     def test_request_exceptions(self, _name, exc, expected_status, expected_substr, post_mock):
         post_mock.side_effect = exc
         result = diagnostics._check_live_event(_record())
         self.assertEqual(result.status, expected_status)
         self.assertIn(expected_substr, result.detail.lower())
 
-    @patch("products.proxy.backend.diagnostics.requests.post")
+    @patch("products.platform_features.backend.proxy.diagnostics.requests.post")
     def test_5xx_is_fail(self, post_mock):
         post_mock.return_value = MagicMock(status_code=502)
         result = diagnostics._check_live_event(_record())
         self.assertEqual(result.status, "fail")
 
-    @patch("products.proxy.backend.diagnostics.requests.post")
+    @patch("products.platform_features.backend.proxy.diagnostics.requests.post")
     def test_4xx_is_warn(self, post_mock):
         post_mock.return_value = MagicMock(status_code=403)
         result = diagnostics._check_live_event(_record())
         self.assertEqual(result.status, "warn")
 
-    @patch("products.proxy.backend.diagnostics.requests.post")
+    @patch("products.platform_features.backend.proxy.diagnostics.requests.post")
     def test_2xx_is_pass(self, post_mock):
         post_mock.return_value = MagicMock(status_code=200)
         result = diagnostics._check_live_event(_record())
@@ -216,10 +216,10 @@ class TestCheckLiveEvent(TestCase):
 class TestDiagnoseOrchestrator(TestCase):
     """End-to-end orchestrator with all external deps mocked."""
 
-    @patch("products.proxy.backend.diagnostics._check_cert_expiry")
-    @patch("products.proxy.backend.diagnostics.requests.post")
-    @patch("products.proxy.backend.diagnostics.get_custom_hostname_by_domain")
-    @patch("products.proxy.backend.diagnostics.dns.resolver.Resolver")
+    @patch("products.platform_features.backend.proxy.diagnostics._check_cert_expiry")
+    @patch("products.platform_features.backend.proxy.diagnostics.requests.post")
+    @patch("products.platform_features.backend.proxy.diagnostics.get_custom_hostname_by_domain")
+    @patch("products.platform_features.backend.proxy.diagnostics.dns.resolver.Resolver")
     def test_healthy_when_ssl_active_and_live_passes(self, ResolverMock, get_mock, post_mock, cert_mock):
         cname = MagicMock()
         cname.target.to_text.return_value = "abc.cf-prod-eu-proxy.europehog.com."
@@ -237,9 +237,9 @@ class TestDiagnoseOrchestrator(TestCase):
         ids = [c.id for c in report.checks]
         self.assertEqual(ids, ["cname", "cloudflare", "caa", "http_challenge", "live_event", "cert_expiry"])
 
-    @patch("products.proxy.backend.diagnostics.requests.get")
-    @patch("products.proxy.backend.diagnostics.get_custom_hostname_by_domain")
-    @patch("products.proxy.backend.diagnostics.dns.resolver.Resolver")
+    @patch("products.platform_features.backend.proxy.diagnostics.requests.get")
+    @patch("products.platform_features.backend.proxy.diagnostics.get_custom_hostname_by_domain")
+    @patch("products.platform_features.backend.proxy.diagnostics.dns.resolver.Resolver")
     def test_caa_failure_surfaces_as_primary_issue(self, ResolverMock, get_mock, http_get_mock):
         # CNAME query returns the right target; CAA query returns a blocking record.
         cname = MagicMock()

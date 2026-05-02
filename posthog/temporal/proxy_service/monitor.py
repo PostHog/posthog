@@ -34,7 +34,11 @@ from posthog.temporal.proxy_service.common import (
 )
 from posthog.temporal.proxy_service.proto import CertificateState_READY, StatusRequest
 
-from products.proxy.backend.cloudflare import CloudflareAPIError, CustomHostnameSSLStatus, get_custom_hostname_by_domain
+from products.platform_features.backend.proxy.cloudflare import (
+    CloudflareAPIError,
+    CustomHostnameSSLStatus,
+    get_custom_hostname_by_domain,
+)
 
 LOGGER = get_logger(__name__)
 

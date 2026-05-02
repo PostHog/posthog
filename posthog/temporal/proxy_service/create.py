@@ -46,7 +46,7 @@ from posthog.temporal.proxy_service.common import (
 from posthog.temporal.proxy_service.monitor import MonitorManagedProxyInputs
 from posthog.temporal.proxy_service.proto import CertificateState_READY, CreateRequest, StatusRequest
 
-from products.proxy.backend.cloudflare import (
+from products.platform_features.backend.proxy.cloudflare import (
     CloudflareAPIError,
     CustomHostnameSSLStatus,
     create_custom_hostname,
