@@ -141,11 +141,13 @@ FILTERS_OVERRIDE_PARAM = OpenApiParameter(
 
 tracer = trace.get_tracer(__name__)
 
-# Minimum trigram word similarity score for a dashboard `name` or `description` to be
-# considered a search match. Calibrated against the `test_list_filter_by_search_*` tests
-# in posthog/api/test/dashboards/test_dashboard.py — tighten it and the typo cases stop
-# matching, loosen it and unrelated rows leak in.
-MIN_TRIGRAM_SIMILARITY = 0.3
+# Minimum trigram word similarity for a name match. Calibrated against the
+# `test_list_filter_by_search_*` tests in posthog/api/test/dashboards/test_dashboard.py.
+# Tighten it and typo cases stop matching, loosen it and unrelated rows leak in.
+MIN_NAME_TRIGRAM_SIMILARITY = 0.3
+# Description thresholds run higher because descriptions are freeform prose where short
+# queries (3-5 chars) can clear a 0.3 threshold against any sufficiently long passage.
+MIN_DESCRIPTION_TRIGRAM_SIMILARITY = 0.4
 # Hard cap on the `?search=` query parameter — protects against pathological inputs
 # burning CPU on trigram comparisons against a long string (and against operational
 # `dashboard.name` is bounded at 400 chars so 200 covers any realistic prefix-as-you-type).
@@ -1100,10 +1102,23 @@ class DashboardsViewSet(
 
         return queryset
 
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        response = super().list(request, *args, **kwargs)
+        # Record search-result cardinality so we can tune MIN_*_TRIGRAM_SIMILARITY from prod
+        # telemetry — flag empty results (loosen) and high counts (tighten).
+        if request.query_params.get("search"):
+            data = response.data if isinstance(response.data, dict) else {}
+            results_len = len(data.get("results", [])) if "results" in data else 0
+            span = trace.get_current_span()
+            span.set_attribute("dashboard.search.result_count", results_len)
+            span.set_attribute("dashboard.search.empty", results_len == 0)
+        return response
+
     @staticmethod
     @tracer.start_as_current_span("DashboardViewSet._apply_search")
     def _apply_search(queryset: QuerySet, search: str) -> QuerySet:
-        search = search.strip()
+        # Postgres rejects NUL bytes in text parameters; strip before they hit the query.
+        search = search.replace("\x00", "").strip()
         span = trace.get_current_span()
         span.set_attribute("dashboard.search.length", len(search))
         if not search:
@@ -1116,14 +1131,25 @@ class DashboardsViewSet(
         # matched only on description doesn't end up with a NULL `_search_score` (which
         # Postgres orders NULLS FIRST in DESC, putting unnamed rows wrongly at the top).
         zero = Value(0.0)
-        name_word = Coalesce(TrigramWordSimilarity(search, "name"), zero)
-        name_full = Coalesce(TrigramSimilarity("name", search), zero)
-        description_word = Coalesce(TrigramWordSimilarity(search, "description"), zero)
+        name_word_score = Coalesce(TrigramWordSimilarity(search, "name"), zero)
+        name_full_score = Coalesce(TrigramSimilarity("name", search), zero)
+        description_word_score = Coalesce(TrigramWordSimilarity(search, "description"), zero)
 
         return (
-            queryset.annotate(_name_word=name_word, _name_full=name_full, _description_word=description_word)
-            .filter(Q(_name_word__gt=MIN_TRIGRAM_SIMILARITY) | Q(_description_word__gt=MIN_TRIGRAM_SIMILARITY))
-            .annotate(_search_score=F("_name_word") + F("_name_full") + F("_description_word") * 0.5)
+            queryset.annotate(
+                _name_word=name_word_score,
+                _name_full=name_full_score,
+                _description_word=description_word_score,
+            )
+            .filter(
+                Q(_name_word__gt=MIN_NAME_TRIGRAM_SIMILARITY)
+                | Q(_description_word__gt=MIN_DESCRIPTION_TRIGRAM_SIMILARITY)
+            )
+            .annotate(
+                _name_match_score=F("_name_word") + F("_name_full"),
+                _description_match_score=F("_description_word"),
+            )
+            .annotate(_search_score=F("_name_match_score") + F("_description_match_score") * 0.5)
             .order_by("-_search_score", "-pinned", "name")
         )
 
