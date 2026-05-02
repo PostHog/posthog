@@ -14,7 +14,7 @@ SCHEDULE_INTERVAL = timedelta(minutes=5)
 SESSION_LOOKBACK_MINUTES = 30
 
 SAMPLE_RATE_PRECISION = 10_000
-DEFAULT_SAMPLE_RATE = 1.0
+DEFAULT_SAMPLE_RATE = 0.1
 
 # Cap on concurrent `start_child_workflow` calls per tick. Bounds the parent's
 # task-queue pressure and the elapsed time of the dispatch loop within the
