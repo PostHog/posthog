@@ -19,9 +19,9 @@ import { InsightEmptyState } from '../../../insights/EmptyStates'
 import { openPersonsModal } from '../../persons-modal/PersonsModal'
 import { trendsDataLogic } from '../../trendsDataLogic'
 import type { IndexedTrendResult } from '../../types'
+import { handleTrendsChartClick } from '../handleTrendsChartClick'
 import { AnnotationsLayer } from './AnnotationsLayer'
 import { goalLinesToReferenceLines } from './goalLinesAdapter'
-import { handleTrendsLineChartClick } from './handleTrendsLineChartClick'
 import { TrendsAlertOverlays } from './TrendsAlertOverlays'
 import { buildTrendsYTickFormatter } from './trendsAxisFormat'
 import { buildTrendsChartConfig, buildTrendsSeries } from './trendsChartTransforms'
@@ -205,7 +205,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
 
     const onPointClick = useCallback(
         (clickData: PointClickData) => {
-            handleTrendsLineChartClick(clickData.series.key, clickData.dataIndex, clickDeps)
+            handleTrendsChartClick(clickData.series.key, clickData.dataIndex, clickDeps)
         },
         [clickDeps]
     )
@@ -215,7 +215,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
             const onRowClick = canHandleClick
                 ? (datum: SeriesDatum) => {
                       const seriesKey = ctx.seriesData[datum.datasetIndex].series.key
-                      handleTrendsLineChartClick(seriesKey, datum.dataIndex, clickDeps)
+                      handleTrendsChartClick(seriesKey, datum.dataIndex, clickDeps)
                   }
                 : undefined
             return (

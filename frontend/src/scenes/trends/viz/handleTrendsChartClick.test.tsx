@@ -1,8 +1,8 @@
 import { NodeKind } from '~/queries/schema/schema-general'
 import { CompareLabelType, EntityTypes } from '~/types'
 
-import type { IndexedTrendResult } from '../../types'
-import { handleTrendsBarChartClick, type TrendsBarChartClickDeps } from './handleTrendsBarChartClick'
+import type { IndexedTrendResult } from '../types'
+import { handleTrendsChartClick, type TrendsChartClickDeps } from './handleTrendsChartClick'
 
 function makeTrendResult(overrides: Partial<IndexedTrendResult> = {}): IndexedTrendResult {
     return {
@@ -30,7 +30,7 @@ function keyFor(trendResult: IndexedTrendResult): string {
     return `${trendResult.id}`
 }
 
-function makeDeps(overrides: Partial<TrendsBarChartClickDeps> = {}): TrendsBarChartClickDeps {
+function makeDeps(overrides: Partial<TrendsChartClickDeps> = {}): TrendsChartClickDeps {
     const trendResult = makeTrendResult()
     return {
         hasPersonsModal: true,
@@ -48,13 +48,13 @@ function makeDeps(overrides: Partial<TrendsBarChartClickDeps> = {}): TrendsBarCh
     }
 }
 
-describe('handleTrendsBarChartClick', () => {
+describe('handleTrendsChartClick', () => {
     it('opens the persons modal with the correct actors query for a basic click', () => {
         const openPersonsModal = jest.fn()
         const trendResult = makeTrendResult()
         const deps = makeDeps({ openPersonsModal, indexedResults: [trendResult] })
 
-        handleTrendsBarChartClick(keyFor(trendResult), 1, deps)
+        handleTrendsChartClick(keyFor(trendResult), 1, deps)
 
         expect(openPersonsModal).toHaveBeenCalledTimes(1)
         const call = openPersonsModal.mock.calls[0][0]
@@ -79,7 +79,7 @@ describe('handleTrendsBarChartClick', () => {
         const trendResult = makeTrendResult(override)
         const deps = makeDeps({ openPersonsModal, indexedResults: [trendResult] })
 
-        handleTrendsBarChartClick(keyFor(trendResult), dataIndex, deps)
+        handleTrendsChartClick(keyFor(trendResult), dataIndex, deps)
 
         expect(openPersonsModal.mock.calls[0][0].query).toMatchObject(expected)
     })
@@ -99,7 +99,7 @@ describe('handleTrendsBarChartClick', () => {
                 context: { onDataPointClick },
             })
 
-            handleTrendsBarChartClick(keyFor(trendResult), dataIndex, deps)
+            handleTrendsChartClick(keyFor(trendResult), dataIndex, deps)
 
             expect(openPersonsModal).not.toHaveBeenCalled()
             expect(onDataPointClick).toHaveBeenCalledTimes(1)
@@ -121,7 +121,7 @@ describe('handleTrendsBarChartClick', () => {
             context: { onDataPointClick },
         })
 
-        handleTrendsBarChartClick(keyFor(secondResult), 1, deps)
+        handleTrendsChartClick(keyFor(secondResult), 1, deps)
 
         expect(onDataPointClick).toHaveBeenCalledTimes(1)
         expect(onDataPointClick.mock.calls[0][1]).toBe(firstResult)
@@ -133,7 +133,7 @@ describe('handleTrendsBarChartClick', () => {
         const trendResult = makeTrendResult()
         const deps = makeDeps({ openPersonsModal, hasPersonsModal: false, indexedResults: [trendResult] })
 
-        handleTrendsBarChartClick(keyFor(trendResult), 1, deps)
+        handleTrendsChartClick(keyFor(trendResult), 1, deps)
 
         expect(openPersonsModal).not.toHaveBeenCalled()
     })
@@ -149,7 +149,7 @@ describe('handleTrendsBarChartClick', () => {
             context: { onDataPointClick },
         })
 
-        handleTrendsBarChartClick(keyFor(trendResult), 1, deps)
+        handleTrendsChartClick(keyFor(trendResult), 1, deps)
 
         expect(onDataPointClick).toHaveBeenCalledTimes(1)
         expect(openPersonsModal).not.toHaveBeenCalled()
@@ -165,7 +165,7 @@ describe('handleTrendsBarChartClick', () => {
             context: { onDataPointClick },
         })
 
-        expect(() => handleTrendsBarChartClick('999', 1, deps)).not.toThrow()
+        expect(() => handleTrendsChartClick('999', 1, deps)).not.toThrow()
         expect(openPersonsModal).not.toHaveBeenCalled()
         expect(onDataPointClick).not.toHaveBeenCalled()
     })
@@ -180,7 +180,7 @@ describe('handleTrendsBarChartClick', () => {
         })
         const deps = makeDeps({ openPersonsModal, indexedResults: [trendResult] })
 
-        handleTrendsBarChartClick(keyFor(trendResult), 2, deps)
+        handleTrendsChartClick(keyFor(trendResult), 2, deps)
 
         expect(openPersonsModal.mock.calls[0][0].query).toMatchObject({ day: 'D2' })
     })
@@ -198,7 +198,7 @@ describe('handleTrendsBarChartClick', () => {
             context: { onDataPointClick },
         })
 
-        handleTrendsBarChartClick(keyFor(trendResult), 2, deps)
+        handleTrendsChartClick(keyFor(trendResult), 2, deps)
 
         expect(openPersonsModal).not.toHaveBeenCalled()
         expect(onDataPointClick).not.toHaveBeenCalled()
@@ -209,7 +209,7 @@ describe('handleTrendsBarChartClick', () => {
         const trendResult = makeTrendResult()
         const deps = makeDeps({ openPersonsModal, querySource: null, indexedResults: [trendResult] })
 
-        handleTrendsBarChartClick(keyFor(trendResult), 1, deps)
+        handleTrendsChartClick(keyFor(trendResult), 1, deps)
 
         expect(openPersonsModal).not.toHaveBeenCalled()
     })

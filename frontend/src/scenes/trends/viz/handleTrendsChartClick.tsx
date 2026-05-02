@@ -4,11 +4,11 @@ import { InsightActorsQuery, InsightVizNode, ResolvedDateRangeResponse } from '~
 import { QueryContext } from '~/queries/types'
 import { IntervalType } from '~/types'
 
-import type { OpenPersonsModalProps } from '../../persons-modal/PersonsModal'
-import type { IndexedTrendResult } from '../../types'
-import { datasetToActorsQuery } from '../datasetToActorsQuery'
+import type { OpenPersonsModalProps } from '../persons-modal/PersonsModal'
+import type { IndexedTrendResult } from '../types'
+import { datasetToActorsQuery } from './datasetToActorsQuery'
 
-export interface TrendsLineChartClickDeps {
+export interface TrendsChartClickDeps {
     context?: QueryContext<InsightVizNode>
     hasPersonsModal: boolean
     interval: IntervalType | null | undefined
@@ -21,13 +21,13 @@ export interface TrendsLineChartClickDeps {
     openPersonsModal: (props: OpenPersonsModalProps) => void
 }
 
-// TrendsLineChart keys each hog-charts Series by `${r.id}`, so we can
-// resolve back to the source IndexedTrendResult without stashing it on meta.
+// Adapters key each hog-charts Series by `${r.id}`, so we can resolve back
+// to the source IndexedTrendResult without stashing it on meta.
 function resolveDataset(seriesKey: string, indexedResults: IndexedTrendResult[]): IndexedTrendResult | null {
     return indexedResults.find((r) => String(r.id) === seriesKey) ?? null
 }
 
-export function handleTrendsLineChartClick(seriesKey: string, dataIndex: number, deps: TrendsLineChartClickDeps): void {
+export function handleTrendsChartClick(seriesKey: string, dataIndex: number, deps: TrendsChartClickDeps): void {
     const dataset = resolveDataset(seriesKey, deps.indexedResults)
     if (!dataset) {
         return

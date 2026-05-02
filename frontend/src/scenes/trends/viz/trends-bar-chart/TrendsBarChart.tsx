@@ -18,10 +18,10 @@ import { QueryContext } from '~/queries/types'
 import { openPersonsModal } from '../../persons-modal/PersonsModal'
 import { trendsDataLogic } from '../../trendsDataLogic'
 import type { IndexedTrendResult } from '../../types'
+import { handleTrendsChartClick, type TrendsChartClickDeps } from '../handleTrendsChartClick'
 import { buildTrendsYTickFormatter } from '../trends-line-chart/trendsAxisFormat'
 import type { TrendsSeriesMeta } from '../trends-line-chart/trendsSeriesMeta'
 import { TrendsTooltip } from '../trends-line-chart/TrendsTooltip'
-import { handleTrendsBarChartClick, type TrendsBarChartClickDeps } from './handleTrendsBarChartClick'
 import { buildTrendsBarTimeSeries } from './trendsBarChartTransforms'
 
 interface TrendsBarChartProps {
@@ -138,7 +138,7 @@ export function TrendsBarChart({ context }: TrendsBarChartProps): JSX.Element | 
 
     const canHandleClick = !!context?.onDataPointClick || !!hasPersonsModal
 
-    const clickDeps = useMemo<TrendsBarChartClickDeps>(
+    const clickDeps = useMemo<TrendsChartClickDeps>(
         () => ({
             context,
             hasPersonsModal: !!hasPersonsModal,
@@ -164,7 +164,7 @@ export function TrendsBarChart({ context }: TrendsBarChartProps): JSX.Element | 
 
     const onPointClick = useCallback(
         (clickData: PointClickData) => {
-            handleTrendsBarChartClick(clickData.series.key, clickData.dataIndex, clickDeps)
+            handleTrendsChartClick(clickData.series.key, clickData.dataIndex, clickDeps)
         },
         [clickDeps]
     )
@@ -174,7 +174,7 @@ export function TrendsBarChart({ context }: TrendsBarChartProps): JSX.Element | 
             const onRowClick = canHandleClick
                 ? (datum: SeriesDatum) => {
                       const seriesKey = ctx.seriesData[datum.datasetIndex].series.key
-                      handleTrendsBarChartClick(seriesKey, datum.dataIndex, clickDeps)
+                      handleTrendsChartClick(seriesKey, datum.dataIndex, clickDeps)
                   }
                 : undefined
             return (
