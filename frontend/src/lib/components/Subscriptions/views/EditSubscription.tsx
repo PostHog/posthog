@@ -6,6 +6,7 @@ import { LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { UsageLimitPaywall } from 'lib/components/PayGateMini/UsageLimitPaywall'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -451,18 +452,14 @@ export function EditSubscription({
                                 )}
                             </LemonField>
 
-                            {summaryQuota?.at_limit && !subscription.summary_enabled && (
-                                <LemonBanner type="warning">
-                                    <p className="mb-1">
-                                        <b>You've reached your plan's AI summary limit.</b> Your plan includes{' '}
-                                        {summaryQuota.limit} active AI summaries (you currently have{' '}
-                                        {summaryQuota.active_count}).
-                                    </p>
-                                    <p className="mb-0">
-                                        Disable an existing summary or{' '}
-                                        <Link to="/organization/billing">upgrade your plan</Link> to add more.
-                                    </p>
-                                </LemonBanner>
+                            {summaryQuota?.at_limit && !subscription.summary_enabled && summaryQuota.limit !== null && (
+                                <UsageLimitPaywall
+                                    title="AI summary limit reached"
+                                    description="Disable an existing AI summary or upgrade your plan to add more."
+                                    limit={summaryQuota.limit}
+                                    currentUsage={summaryQuota.active_count}
+                                    unit="active AI summaries on your plan"
+                                />
                             )}
 
                             {subscription.summary_enabled && (

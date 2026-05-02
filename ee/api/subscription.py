@@ -27,6 +27,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.constants import SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE_FEATURE_FLAG_KEY, AvailableFeature
 from posthog.event_usage import groups
+from posthog.exceptions import QuotaLimitExceeded
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Insight
 from posthog.models.integration import Integration
@@ -233,7 +234,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             deleted=False,
         ).count()
         if current_active >= limit:
-            raise exceptions.PermissionDenied(
+            raise QuotaLimitExceeded(
                 f"Your plan allows up to {limit} active AI summaries. "
                 "Disable an existing summary or upgrade your plan to add more."
             )

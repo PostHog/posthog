@@ -565,8 +565,8 @@ class TestSubscriptionTemporal(APILicensedTest):
     @parameterized.expand(
         [
             ("create_under_limit", 5, 4, status.HTTP_201_CREATED),
-            ("create_at_limit", 5, 5, status.HTTP_403_FORBIDDEN),
-            ("create_over_limit_grandfathered", 5, 7, status.HTTP_403_FORBIDDEN),
+            ("create_at_limit", 5, 5, status.HTTP_402_PAYMENT_REQUIRED),
+            ("create_over_limit_grandfathered", 5, 7, status.HTTP_402_PAYMENT_REQUIRED),
             ("create_no_limit_configured", None, 1000, status.HTTP_201_CREATED),
         ]
     )
@@ -585,7 +585,7 @@ class TestSubscriptionTemporal(APILicensedTest):
             response = self._create_subscription(summary_enabled=True)
 
         assert response.status_code == expected_status, response.content
-        if expected_status == status.HTTP_403_FORBIDDEN:
+        if expected_status == status.HTTP_402_PAYMENT_REQUIRED:
             assert "active AI summaries" in response.json()["detail"]
 
     def test_patch_transition_to_summary_enabled_blocked_at_limit(self) -> None:
@@ -603,7 +603,7 @@ class TestSubscriptionTemporal(APILicensedTest):
                 {"summary_enabled": True},
             )
 
-        assert patch_response.status_code == status.HTTP_403_FORBIDDEN
+        assert patch_response.status_code == status.HTTP_402_PAYMENT_REQUIRED
         assert "active AI summaries" in patch_response.json()["detail"]
 
     def test_patch_unrelated_field_on_already_enabled_summary_when_org_over_limit(self) -> None:
@@ -668,7 +668,7 @@ class TestSubscriptionTemporal(APILicensedTest):
 
         assert off_response.status_code == status.HTTP_200_OK
         assert off_response.json()["summary_enabled"] is False
-        assert on_response.status_code == status.HTTP_403_FORBIDDEN
+        assert on_response.status_code == status.HTTP_402_PAYMENT_REQUIRED
         assert "active AI summaries" in on_response.json()["detail"]
 
     def test_deliver_subscription(self):
