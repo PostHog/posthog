@@ -3037,7 +3037,7 @@ export interface UserApi {
     passkeys_enabled_for_2fa?: boolean | null
     /** @nullable */
     readonly onboarding_skipped_at: string | null
-    onboarding_skipped_reason?: OnboardingSkippedReasonEnumApi | NullEnumApi | null
+    readonly onboarding_skipped_reason: OnboardingSkippedReasonEnumApi | NullEnumApi | null
     /** @nullable */
     readonly onboarding_skipped_organization_id: string | null
     /** @nullable */
@@ -3133,7 +3133,7 @@ export interface PatchedUserApi {
     passkeys_enabled_for_2fa?: boolean | null
     /** @nullable */
     readonly onboarding_skipped_at?: string | null
-    onboarding_skipped_reason?: OnboardingSkippedReasonEnumApi | NullEnumApi | null
+    readonly onboarding_skipped_reason?: OnboardingSkippedReasonEnumApi | NullEnumApi | null
     /** @nullable */
     readonly onboarding_skipped_organization_id?: string | null
     /** @nullable */
@@ -3151,8 +3151,8 @@ export interface PatchedUserApi {
 }
 
 /**
- * * `later` - later
- * `other` - other
+ * * `later` - Later
+ * `other` - Other
  */
 export type OnboardingSkipRequestReasonEnumApi =
     (typeof OnboardingSkipRequestReasonEnumApi)[keyof typeof OnboardingSkipRequestReasonEnumApi]
@@ -3162,13 +3162,23 @@ export const OnboardingSkipRequestReasonEnumApi = {
     Other: 'other',
 } as const
 
+/**
+ * Request body for POST /api/users/{id}/onboarding/skip/.
+
+Source of truth for OpenAPI / generated TS / zod / MCP — bind this serializer at
+runtime so the contract clients believe is enforced (length cap, choice validation,
+no extra fields) is actually enforced server-side.
+ */
 export interface OnboardingSkipRequestApi {
     /** Why the user is leaving onboarding. 'later' keeps them able to return; 'other' is a catch-all. 'delegated' is rejected here — use the delegate endpoint so the delegation invite is created atomically.
 
-* `later` - later
-* `other` - other */
+* `later` - Later
+* `other` - Other */
     reason: OnboardingSkipRequestReasonEnumApi
-    /** Onboarding step key the user was on when skipping, for analytics only. */
+    /**
+     * Onboarding step key the user was on when skipping, for analytics only.
+     * @maxLength 64
+     */
     step_at_skip?: string
 }
 
