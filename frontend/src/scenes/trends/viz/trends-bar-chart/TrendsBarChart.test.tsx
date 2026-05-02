@@ -102,4 +102,3 @@ describe('TrendsBarChart (ActionsBar)', () => {
         expect(tooltip.row('Pageview')).toMatch(/%/)
     })
 })
-

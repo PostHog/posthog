@@ -43,15 +43,8 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
     const showPersonsModal = insightLogicShowPersonsModal && !inSharedMode
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const {
-        display,
-        series,
-        breakdownFilter,
-        hasBreakdownMore,
-        breakdownValuesLoading,
-        isLifecycle,
-        isStickiness,
-    } = useValues(trendsDataLogic(insightProps))
+    const { display, series, breakdownFilter, hasBreakdownMore, breakdownValuesLoading, isLifecycle, isStickiness } =
+        useValues(trendsDataLogic(insightProps))
     const { updateBreakdownFilter } = useActions(trendsDataLogic(insightProps))
 
     const commonProps = {
