@@ -4,6 +4,7 @@ from typing import Optional
 from django.core.cache import cache
 from django.db import models
 
+import structlog
 from celery import shared_task
 from rest_framework import serializers
 
@@ -25,6 +26,8 @@ from products.event_definitions.backend.models.event_definition import EventDefi
 from products.experiments.backend.models.experiment import Experiment
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
+
+logger = structlog.get_logger(__name__)
 
 """
 How to use this model:
@@ -360,8 +363,13 @@ def enqueue_product_activation_calc_debounced(team_id: int) -> bool:
     debounce_key = f"product_activation_enqueued:{team_id}"
     try:
         was_added = cache.add(debounce_key, "1", timeout=PRODUCT_ACTIVATION_DEBOUNCE_TTL_SECONDS)
-    except Exception:
+    except Exception as e:
         # Cache error must not block the enqueue path; fall through to .delay().
+        # Log + capture so a chronic Redis problem still surfaces in monitoring
+        # rather than silently degrading to "every render enqueues" (which would
+        # otherwise look identical to working code).
+        logger.warning("product_activation_debounce_cache_failure", team_id=team_id, exc_info=True)
+        capture_exception(e)
         was_added = True
     if was_added:
         calculate_product_activation.delay(team_id, only_calc_if_days_since_last_checked=1)

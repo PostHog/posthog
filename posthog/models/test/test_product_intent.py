@@ -818,12 +818,21 @@ class TestEnqueueProductActivationCalcDebounced(BaseTest):
         assert results == expected_returns
         assert mock_delay.call_count == expected_delay_calls
 
-    def test_cache_failure_falls_open_and_still_enqueues(self):
+    def test_cache_failure_falls_open_logs_and_still_enqueues(self):
         # Redis blip must not 500 the team list endpoint. The helper falls open:
         # treat a cache exception as "we haven't enqueued recently" and proceed.
+        # We also log + capture so a chronic Redis problem still shows up rather
+        # than silently degrading to "every render enqueues".
         with (
             patch("posthog.models.product_intent.product_intent.cache.add", side_effect=Exception("redis is sad")),
             patch("posthog.models.product_intent.product_intent.calculate_product_activation.delay") as mock_delay,
+            patch("posthog.models.product_intent.product_intent.logger.warning") as mock_log,
+            patch("posthog.models.product_intent.product_intent.capture_exception") as mock_capture,
         ):
             assert enqueue_product_activation_calc_debounced(self.team.id) is True
+
         mock_delay.assert_called_once_with(self.team.id, only_calc_if_days_since_last_checked=1)
+        mock_log.assert_called_once()
+        assert mock_log.call_args.args == ("product_activation_debounce_cache_failure",)
+        assert mock_log.call_args.kwargs == {"team_id": self.team.id, "exc_info": True}
+        mock_capture.assert_called_once()
