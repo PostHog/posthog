@@ -1,7 +1,7 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
-import { clickAtIndex, hoverAtIndex } from 'lib/hog-charts/test-helpers'
+import { clickAtIndex, getHogChartTooltip, hoverAtIndex, waitForHogChartTooltip } from 'lib/hog-charts/testing'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { IndexedTrendResult } from 'scenes/trends/types'
@@ -11,7 +11,7 @@ import { InsightLogicProps } from '~/types'
 
 import { INSIGHT_TEST_ID } from './render-insight'
 import { trendsSeries } from './test-data'
-import { type TooltipAccessor, createTooltipAccessor } from './tooltip-helpers'
+import { type InsightTooltipAccessor, createInsightTooltipAccessor } from './tooltip-helpers'
 
 const DEBOUNCE_TIMEOUT = 3000
 
@@ -135,26 +135,18 @@ export function getQuerySource(): TrendsQuery {
     return getLogic().values.querySource as TrendsQuery
 }
 
-const HOG_CHARTS_TOOLTIP_SELECTOR = '[data-hog-charts-tooltip]'
-
 export const chart = {
     /** Current chart tooltip element, or null if none is rendered. */
-    getTooltip(): HTMLElement | null {
-        return document.querySelector(HOG_CHARTS_TOOLTIP_SELECTOR)
-    },
-    async hoverTooltip(index: number, totalLabels = trendsSeries.pageviews.labels.length): Promise<TooltipAccessor> {
+    getTooltip: getHogChartTooltip,
+    async hoverTooltip(
+        index: number,
+        totalLabels = trendsSeries.pageviews.labels.length
+    ): Promise<InsightTooltipAccessor> {
         const canvas = await screen.findByRole('img', { name: /chart with/i })
         const wrapper = canvas.parentElement!
-
         hoverAtIndex(wrapper, index, totalLabels)
-
-        let tooltip!: HTMLElement
-        await waitFor(() => {
-            const el = chart.getTooltip()
-            expect(el).not.toBeNull()
-            tooltip = el as HTMLElement
-        })
-        return createTooltipAccessor(tooltip)
+        const tooltip = await waitForHogChartTooltip()
+        return createInsightTooltipAccessor(tooltip)
     },
     async clickAtIndex(index: number, totalLabels = trendsSeries.pageviews.labels.length): Promise<void> {
         const canvas = await screen.findByRole('img', { name: /chart with/i })
@@ -164,13 +156,7 @@ export const chart = {
     /** Click a row inside the pinned tooltip by matching its label text. Use
      *  after `clickAtIndex` has pinned a multi-series tooltip. */
     async clickTooltipRow(label: string | RegExp): Promise<void> {
-        const tooltip = await waitFor(() => {
-            const el = chart.getTooltip()
-            if (!el) {
-                throw new Error('tooltip not pinned')
-            }
-            return el
-        })
+        const tooltip = await waitForHogChartTooltip()
         const row = within(tooltip).getByText(label)
         const clickable = row.closest('tr') ?? row
         fireEvent.click(clickable)

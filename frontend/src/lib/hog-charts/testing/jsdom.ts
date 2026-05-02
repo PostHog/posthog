@@ -40,3 +40,18 @@ export function setupJsdom(): () => void {
     const spy = jest.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue(mockRect)
     return () => spy.mockRestore()
 }
+
+/** Run requestAnimationFrame callbacks synchronously for the duration of a
+ *  test. Use when the test needs to inspect what the chart drew before the
+ *  static-layer RAF would normally fire. Call in beforeEach, and call the
+ *  returned cleanup function in afterEach. */
+export function setupSyncRaf(): () => void {
+    const original = global.requestAnimationFrame
+    global.requestAnimationFrame = ((cb: FrameRequestCallback) => {
+        cb(0)
+        return 0
+    }) as typeof global.requestAnimationFrame
+    return () => {
+        global.requestAnimationFrame = original
+    }
+}

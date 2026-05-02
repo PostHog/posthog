@@ -1,4 +1,4 @@
-export { dimensions, makeSeries, mockRect, setupJsdom } from './jsdom'
+export { dimensions, makeSeries, mockRect, setupJsdom, setupSyncRaf } from './jsdom'
 export { clickAtIndex, hoverAtIndex } from './interactions'
 export { getHogChart } from './accessor'
 export type { HogChart } from './accessor'
