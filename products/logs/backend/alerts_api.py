@@ -1010,9 +1010,16 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         buckets_per_window = window_minutes // DEFAULT_CHECK_INTERVAL_MINUTES
         counts = [b.count for b in cadence_buckets]
         rolling_counts: list[int] = []
+        # Bucket i represents `[T_i, T_i + check_interval)`. The actual evaluator
+        # at moment T queries `[T - window, T)` — purely past — so the simulator's
+        # rolling sum at bucket time T_i must exclude bucket i (which holds future
+        # data) and sum the previous `buckets_per_window` buckets ending just
+        # before T_i. Without this, the simulator looks `check_interval` minutes
+        # into the future and produces fire/resolve transitions that don't match
+        # production.
         for i in range(len(counts)):
-            window_start = max(0, i - buckets_per_window + 1)
-            rolling_counts.append(sum(counts[window_start : i + 1]))
+            window_start = max(0, i - buckets_per_window)
+            rolling_counts.append(sum(counts[window_start:i]))
 
         threshold = data["threshold_count"]
         is_above = data["threshold_operator"] == LogsAlertConfiguration.ThresholdOperator.ABOVE

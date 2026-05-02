@@ -1475,3 +1475,47 @@ class TestLogsAlertAPI(APIBaseTest):
         data = response.json()
         assert data["threshold_count"] == 42
         assert data["threshold_operator"] == "below"
+
+    @freeze_time("2025-12-16T10:30:00Z")
+    @patch("products.logs.backend.alerts_api.AlertCheckQuery")
+    def test_simulate_rolling_window_excludes_current_bucket(self, mock_query_cls):
+        # Regression test: the simulator's rolling sum at bucket time T must
+        # match the actual evaluator's `[T-window, T)` semantics — purely past,
+        # excluding the bucket starting at T (which represents the next 5 min).
+        #
+        # Setup: a single spike of 100 logs at offset 5 min, surrounded by
+        # zero-count buckets. Window = 10 min (buckets_per_window = 2).
+        #
+        # Correct rolling counts at each bucket time T:
+        #   T=0min:  past 10 min = nothing before t=0 → 0
+        #   T=5min:  past 10 min = bucket at t=0 → 0  (spike is FUTURE here)
+        #   T=10min: past 10 min = buckets at t=0,t=5 → 100  (spike enters window)
+        #   T=15min: past 10 min = buckets at t=5,t=10 → 100  (spike still in window)
+        #   T=20min: past 10 min = buckets at t=10,t=15 → 0  (spike aged out)
+        #
+        # The pre-fix code was off-by-one and would have reported 100 at T=5
+        # (including the spike's own bucket as "past" data).
+        mock_query_cls.return_value.execute_bucketed.return_value = self._mock_cadence_buckets(
+            [(0, 0), (5, 100), (10, 0), (15, 0), (20, 0)]
+        )
+
+        response = self.client.post(
+            self._simulate_url(),
+            self._simulate_payload(window_minutes=10, threshold_count=50, date_from="-1h"),
+            format="json",
+        )
+        assert response.status_code == 200, response.json()
+        data = response.json()
+
+        base = datetime(2025, 12, 16, 10, 0, tzinfo=UTC)
+        rolling_by_offset = {}
+        for bucket in data["buckets"]:
+            ts = datetime.fromisoformat(bucket["timestamp"])
+            offset_min = int((ts - base).total_seconds() / 60)
+            rolling_by_offset[offset_min] = bucket["count"]
+
+        expected = {0: 0, 5: 0, 10: 100, 15: 100, 20: 0}
+        for offset_min, expected_count in expected.items():
+            assert rolling_by_offset.get(offset_min) == expected_count, (
+                f"offset={offset_min}min: expected {expected_count}, got {rolling_by_offset.get(offset_min)}"
+            )
