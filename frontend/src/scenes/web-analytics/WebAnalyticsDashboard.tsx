@@ -503,7 +503,7 @@ const liveTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: strin
             label: (
                 <div className="flex items-center gap-1">
                     Live
-                    <LemonTag type="highlight" className="uppercase">
+                    <LemonTag type="completion" className="uppercase">
                         Alpha
                     </LemonTag>
                 </div>
@@ -526,7 +526,7 @@ const botAnalyticsTab = (
             label: (
                 <div className="flex items-center gap-1">
                     Bots
-                    <LemonTag type="highlight" className="uppercase">
+                    <LemonTag type="completion" className="uppercase">
                         Alpha
                     </LemonTag>
                 </div>

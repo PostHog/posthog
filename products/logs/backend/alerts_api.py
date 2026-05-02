@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 
 from django.db import models, transaction
 from django.db.models import F, OuterRef, Prefetch, Q, QuerySet, Subquery
+from django.utils import timezone
 
 from drf_spectacular.utils import extend_schema, extend_schema_field
 from loginas.utils import is_impersonated_session
@@ -109,20 +110,29 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
     )
     name = serializers.CharField(
         max_length=255,
-        help_text="Human-readable name for this alert.",
+        required=False,
+        allow_blank=True,
+        help_text="Human-readable name for this alert. Defaults to 'Untitled alert' on create when omitted.",
     )
     enabled = serializers.BooleanField(
         default=True,
         help_text="Whether the alert is actively being evaluated. Disabling resets the state to not_firing.",
     )
     filters = serializers.JSONField(
+        required=False,
         help_text="Filter criteria — subset of LogsViewerFilters. Must contain at least one of: "
         "severityLevels (list of severity strings), serviceNames (list of service name strings), "
-        "or filterGroup (property filter group object)."
+        "or filterGroup (property filter group object). May be empty on draft alerts (enabled=false).",
     )
     threshold_count = serializers.IntegerField(
         min_value=1,
-        help_text="Number of matching log entries that constitutes a threshold breach within the evaluation window.",
+        default=100,
+        help_text="Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100.",
+    )
+    first_enabled_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="When the alert was first enabled. Null means the alert is still in draft state.",
     )
     threshold_operator = serializers.ChoiceField(
         choices=LogsAlertConfiguration.ThresholdOperator.choices,
@@ -363,6 +373,7 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             "last_error_message",
             "state_timeline",
             "destination_types",
+            "first_enabled_at",
             "created_at",
             "created_by",
             "updated_at",
@@ -378,6 +389,7 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             "last_error_message",
             "state_timeline",
             "destination_types",
+            "first_enabled_at",
             "created_at",
             "created_by",
             "updated_at",
@@ -385,7 +397,15 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs: dict) -> dict:
         filters = attrs.get("filters", getattr(self.instance, "filters", None) or {})
-        _validate_filters(filters)
+
+        if self.instance is not None:
+            effective_enabled = attrs.get("enabled", self.instance.enabled)
+        else:
+            effective_enabled = attrs.get("enabled", True)
+
+        # Drafts (enabled=false, no filters) are allowed; otherwise filter shape is required.
+        if effective_enabled or filters:
+            _validate_filters(filters)
 
         window = attrs.get("window_minutes", getattr(self.instance, "window_minutes", None))
         if window is not None and window not in ALLOWED_WINDOW_MINUTES:
@@ -407,6 +427,9 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         return attrs
 
     def update(self, instance: LogsAlertConfiguration, validated_data: dict) -> LogsAlertConfiguration:
+        if "name" in validated_data and not validated_data.get("name", "").strip():
+            validated_data["name"] = "Untitled alert"
+
         snooze_data = validated_data.pop("snooze_until", _SENTINEL)
 
         threshold_or_filter_fields = {
@@ -434,6 +457,10 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             # place that actually writes to `state`/`consecutive_failures`.
             snapshot = instance.to_snapshot()
             if enabled_change is True:
+                if instance.first_enabled_at is None:
+                    instance.first_enabled_at = timezone.now()
+                    if "first_enabled_at" not in validated_data:
+                        validated_data["first_enabled_at"] = instance.first_enabled_at
                 apply_outcome(instance, apply_enable(snapshot), kind=LogsAlertEvent.Kind.ENABLE)
             elif enabled_change is False:
                 apply_outcome(instance, apply_disable(snapshot), kind=LogsAlertEvent.Kind.DISABLE)
@@ -458,6 +485,12 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
     def create(self, validated_data: dict) -> LogsAlertConfiguration:
         validated_data["team_id"] = self.context["team_id"]
         validated_data["created_by"] = self.context["request"].user
+
+        if not validated_data.get("name", "").strip():
+            validated_data["name"] = "Untitled alert"
+
+        if validated_data.get("enabled", True):
+            validated_data["first_enabled_at"] = timezone.now()
 
         with transaction.atomic():
             # select_for_update().count() doesn't acquire row locks because

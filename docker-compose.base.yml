@@ -397,6 +397,33 @@ services:
             COOKIELESS_REDIS_HOST: redis7
             COOKIELESS_REDIS_PORT: 6379
 
+    personhog-replica:
+        image: ghcr.io/posthog/posthog/personhog-replica:master
+        build:
+            context: rust/
+            args:
+                BIN: personhog-replica
+        restart: on-failure
+        environment:
+            GRPC_ADDRESS: '0.0.0.0:50051'
+            PRIMARY_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog_persons'
+            RUST_LOG: 'info'
+            METRICS_PORT: '9100'
+
+    personhog-router:
+        image: ghcr.io/posthog/posthog/personhog-router:master
+        build:
+            context: rust/
+            args:
+                BIN: personhog-router
+        restart: on-failure
+        environment:
+            GRPC_ADDRESS: '0.0.0.0:50052'
+            REPLICA_URL: 'http://personhog-replica:50051'
+            BACKEND_TIMEOUT_MS: '5000'
+            RUST_LOG: 'info'
+            METRICS_PORT: '9101'
+
     hypercache-server:
         image: ghcr.io/posthog/posthog/hypercache-server:master
         build:

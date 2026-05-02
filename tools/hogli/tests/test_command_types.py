@@ -178,6 +178,30 @@ class TestRunFunctionErrorHandling:
 
         assert exc_info.value.code == 1
 
+    @patch("subprocess.run")
+    def test_run_can_preserve_called_process_return_code(self, mock_subprocess: MagicMock) -> None:
+        """Test _run can preserve subprocess exit codes for wrapper commands."""
+        from hogli.command_types import _run
+
+        mock_subprocess.side_effect = subprocess.CalledProcessError(3, "cmd")
+
+        with pytest.raises(SystemExit) as exc_info:
+            _run(["some-command"], preserve_exit_code=True)
+
+        assert exc_info.value.code == 3
+
+    @patch("subprocess.run")
+    def test_run_can_preserve_missing_command_as_127(self, mock_subprocess: MagicMock) -> None:
+        """Test _run can preserve missing binary semantics for wrapper commands."""
+        from hogli.command_types import _run
+
+        mock_subprocess.side_effect = FileNotFoundError("missing")
+
+        with pytest.raises(SystemExit) as exc_info:
+            _run(["missing-command"], preserve_exit_code=True)
+
+        assert exc_info.value.code == 127
+
 
 class TestConfirmationFeature:
     """Test confirmation prompts using prompt: true/string."""

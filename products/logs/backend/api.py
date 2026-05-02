@@ -49,11 +49,12 @@ from products.logs.backend.has_logs_query_runner import team_has_logs
 from products.logs.backend.log_attributes_query_runner import LogAttributesQueryRunner
 from products.logs.backend.log_values_query_runner import LogValuesQueryRunner
 from products.logs.backend.logs_query_runner import CachedLogsQueryResponse, LogsQueryResponse, LogsQueryRunner
+from products.logs.backend.sampling_api import LogsSamplingRuleViewSet
 from products.logs.backend.services_query_runner import ServicesQueryRunner
 from products.logs.backend.sparkline_query_runner import SparklineQueryRunner
 from products.logs.backend.views_api import LogsViewViewSet
 
-__all__ = ["LogsViewSet", "LogExplainViewSet", "LogsAlertViewSet", "LogsViewViewSet"]
+__all__ = ["LogsViewSet", "LogExplainViewSet", "LogsAlertViewSet", "LogsSamplingRuleViewSet", "LogsViewViewSet"]
 
 tracer = trace.get_tracer(__name__)
 LOGS_MAX_EXPORT_ROWS = 10_000
@@ -489,6 +490,19 @@ class _LogsSparklineResponseSerializer(serializers.Serializer):
     )
 
 
+class _LogsServiceSeverityBreakdownSerializer(serializers.Serializer):
+    debug = serializers.IntegerField()
+    info = serializers.IntegerField()
+    warn = serializers.IntegerField()
+    error = serializers.IntegerField()
+
+
+class _LogsServiceActiveRuleSerializer(serializers.Serializer):
+    rule_id = serializers.UUIDField()
+    rule_name = serializers.CharField()
+    summary_string = serializers.CharField()
+
+
 class _LogsServiceAggregateSerializer(serializers.Serializer):
     service_name = serializers.CharField(
         help_text='Service name, or "(no value)" / "(no service)" placeholder for unset entries.',
@@ -500,12 +514,34 @@ class _LogsServiceAggregateSerializer(serializers.Serializer):
     error_rate = serializers.FloatField(
         help_text="Pre-computed error_count / log_count, rounded to 4 decimals. Useful for ranking noisy services.",
     )
+    volume_share_pct = serializers.FloatField(
+        required=False,
+        help_text="Share of total log volume in the window for this service (0–100).",
+    )
+    severity_breakdown = _LogsServiceSeverityBreakdownSerializer(
+        required=False,
+        help_text="Counts by coarse severity bucket (debug, info, warn, error+fatal).",
+    )
+    active_rules = _LogsServiceActiveRuleSerializer(
+        many=True,
+        required=False,
+        help_text="Enabled sampling rules whose scope includes this service.",
+    )
 
 
 class _LogsServicesSparklineBucketSerializer(serializers.Serializer):
     time = serializers.CharField(help_text="Bucket start time (ISO 8601).")
     service_name = serializers.CharField()
     count = serializers.IntegerField()
+
+
+class _LogsServicesSummarySerializer(serializers.Serializer):
+    top_services_count = serializers.IntegerField(
+        help_text="Number of top services included in the volume_share aggregate (up to 5).",
+    )
+    top_services_volume_share_pct = serializers.FloatField(
+        help_text="Combined volume share (percent) of the top services by log_count.",
+    )
 
 
 class _LogsServicesResponseSerializer(serializers.Serializer):
@@ -516,6 +552,10 @@ class _LogsServicesResponseSerializer(serializers.Serializer):
     sparkline = _LogsServicesSparklineBucketSerializer(
         many=True,
         help_text="Time-bucketed counts broken down by service, for plotting volume over time.",
+    )
+    summary = _LogsServicesSummarySerializer(
+        required=False,
+        help_text="Roll-up stats for the Services tab header.",
     )
 
 
