@@ -40,7 +40,7 @@ from products.data_warehouse.backend.models.external_data_source import External
 from products.data_warehouse.backend.models.table import DataWarehouseTable as DataWarehouseTableModel
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.endpoints.backend.models import Endpoint, EndpointVersion
-from products.error_tracking.backend.models import ErrorTrackingIssue
+from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingSymbolSet
 from products.experiments.backend.models.experiment import Experiment
 from products.llm_analytics.backend.models.review_queues import ReviewQueue, ReviewQueueItem
 from products.llm_analytics.backend.models.score_definitions import ScoreDefinition
@@ -91,6 +91,12 @@ class TestSystemTablesTeamScoping(BaseTest):
             f"Add a factory to SYSTEM_TABLE_FACTORIES in test_system_tables.py "
             f"or add to excluded_tables with a reason."
         )
+
+    def test_error_tracking_symbol_sets_does_not_expose_storage_internals(self):
+        fields = SystemTables().children["error_tracking_symbol_sets"].table.fields
+
+        assert "storage_ptr" not in fields
+        assert "content_hash" not in fields
 
 
 def _create_batch_export(team: Team, label: str):
@@ -272,6 +278,12 @@ def _create_error_tracking_release(team: Team, label: str):
 
     return ErrorTrackingRelease.objects.create(
         team=team, hash_id=f"hash_{label}", version=f"v_{label}", project=f"proj_{label}"
+    )
+
+
+def _create_error_tracking_symbol_set(team: Team, label: str) -> ErrorTrackingSymbolSet:
+    return ErrorTrackingSymbolSet.objects.create(
+        team=team, ref=f"symbol_set_{label}", storage_ptr=f"symbolsets/{label}"
     )
 
 
@@ -503,6 +515,7 @@ SYSTEM_TABLE_FACTORIES = [
     ("source_sync_jobs", _create_source_sync_job),
     ("error_tracking_issues", _create_error_tracking_issue),
     ("error_tracking_releases", _create_error_tracking_release),
+    ("error_tracking_symbol_sets", _create_error_tracking_symbol_set),
     ("error_tracking_suppression_rules", _create_error_tracking_suppression_rule),
     ("experiments", _create_experiment),
     ("exports", _create_export),

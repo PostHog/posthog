@@ -1244,6 +1244,51 @@
             "readOnlyHint": true
         }
     },
+    "error-tracking-symbol-sets-download-retrieve": {
+        "description": "Get a presigned download URL for a source map symbol set by ID. The URL expires after one hour. Use it immediately, and do not echo it back unless the user explicitly asks. If you only have a symbol set reference, call `error-tracking-symbol-sets-list` with the exact `ref` first.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "Download error tracking symbol set",
+        "title": "Download error tracking symbol set",
+        "required_scopes": ["error_tracking:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "error-tracking-symbol-sets-list": {
+        "description": "List source map symbol sets for the current project. Supports pagination plus filtering by exact `ref` or upload `status` (`valid`, `invalid`, or `all`) and sorting with `order_by`. Each result includes `has_uploaded_file` so you can tell whether the download tool will work.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "List error tracking symbol sets",
+        "title": "List error tracking symbol sets",
+        "required_scopes": ["error_tracking:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "error-tracking-symbol-sets-retrieve": {
+        "description": "Get a source map symbol set by ID. If you only have a symbol set reference, call `error-tracking-symbol-sets-list` with the exact `ref` first.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "Get error tracking symbol set",
+        "title": "Get error tracking symbol set",
+        "required_scopes": ["error_tracking:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "experiment-archive": {
         "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first. Load the managing-experiment-lifecycle skill for preconditions and side effects.\n\nArchive a stopped experiment to hide it from the default list view. The experiment must be stopped (end_date set) — cannot archive draft or running experiments.\n\nReturns 400 if already archived (\"Experiment is already archived.\") or not yet stopped (\"Experiment must be ended before it can be archived.\").\n\nNo request body needed. Can be restored later via the unarchive tool.",
         "category": "Experiments",

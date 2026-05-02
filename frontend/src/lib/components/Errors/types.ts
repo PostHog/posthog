@@ -89,8 +89,8 @@ export interface ErrorTrackingSymbolSet {
     team_id: number
     last_used: string
     created_at: string
-    storage_ptr: string | null
     failure_reason: string | null
+    has_uploaded_file: boolean
     release: ErrorTrackingRelease | null
 }
 

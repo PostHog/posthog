@@ -40,6 +40,10 @@ import type {
     ErrorTrackingSuppressionRuleCreateRequestApi,
     ErrorTrackingSuppressionRulesListParams,
     ErrorTrackingSymbolSetApi,
+    ErrorTrackingSymbolSetBulkDeleteApi,
+    ErrorTrackingSymbolSetBulkFinishUploadApi,
+    ErrorTrackingSymbolSetBulkStartUploadApi,
+    ErrorTrackingSymbolSetFinishUploadApi,
     ErrorTrackingSymbolSetsListParams,
     GitProviderFileLinkResolveResponseApi,
     PaginatedErrorTrackingAssignmentRuleListApi,
@@ -1407,14 +1411,14 @@ export const getErrorTrackingSymbolSetsFinishUploadUpdateUrl = (projectId: strin
 export const errorTrackingSymbolSetsFinishUploadUpdate = async (
     projectId: string,
     id: string,
-    errorTrackingSymbolSetApi: NonReadonly<ErrorTrackingSymbolSetApi>,
+    errorTrackingSymbolSetFinishUploadApi: ErrorTrackingSymbolSetFinishUploadApi,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getErrorTrackingSymbolSetsFinishUploadUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(errorTrackingSymbolSetApi),
+        body: JSON.stringify(errorTrackingSymbolSetFinishUploadApi),
     })
 }
 
@@ -1424,14 +1428,14 @@ export const getErrorTrackingSymbolSetsBulkDeleteCreateUrl = (projectId: string)
 
 export const errorTrackingSymbolSetsBulkDeleteCreate = async (
     projectId: string,
-    errorTrackingSymbolSetApi: NonReadonly<ErrorTrackingSymbolSetApi>,
+    errorTrackingSymbolSetBulkDeleteApi: ErrorTrackingSymbolSetBulkDeleteApi,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getErrorTrackingSymbolSetsBulkDeleteCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(errorTrackingSymbolSetApi),
+        body: JSON.stringify(errorTrackingSymbolSetBulkDeleteApi),
     })
 }
 
@@ -1441,14 +1445,14 @@ export const getErrorTrackingSymbolSetsBulkFinishUploadCreateUrl = (projectId: s
 
 export const errorTrackingSymbolSetsBulkFinishUploadCreate = async (
     projectId: string,
-    errorTrackingSymbolSetApi: NonReadonly<ErrorTrackingSymbolSetApi>,
+    errorTrackingSymbolSetBulkFinishUploadApi: ErrorTrackingSymbolSetBulkFinishUploadApi,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getErrorTrackingSymbolSetsBulkFinishUploadCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(errorTrackingSymbolSetApi),
+        body: JSON.stringify(errorTrackingSymbolSetBulkFinishUploadApi),
     })
 }
 
@@ -1458,14 +1462,14 @@ export const getErrorTrackingSymbolSetsBulkStartUploadCreateUrl = (projectId: st
 
 export const errorTrackingSymbolSetsBulkStartUploadCreate = async (
     projectId: string,
-    errorTrackingSymbolSetApi: NonReadonly<ErrorTrackingSymbolSetApi>,
+    errorTrackingSymbolSetBulkStartUploadApi: ErrorTrackingSymbolSetBulkStartUploadApi,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getErrorTrackingSymbolSetsBulkStartUploadCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(errorTrackingSymbolSetApi),
+        body: JSON.stringify(errorTrackingSymbolSetBulkStartUploadApi),
     })
 }
 
