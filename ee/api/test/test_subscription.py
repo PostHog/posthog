@@ -649,6 +649,37 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["at_limit"] is True
 
+    def test_restoring_deleted_summary_enabled_subscription_re_checks_cap(self) -> None:
+        # An attacker (or a curious user) PATCHing `deleted=False` on a
+        # soft-deleted summary_enabled=True subscription must re-trigger the
+        # cap — otherwise undeleting can grow the active count past the
+        # configured limit without ever flipping summary_enabled.
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        self._seed_active_summary_subscriptions(5)
+        deleted_summary = Subscription.objects.create(
+            team=self.team,
+            insight=self.insight,
+            target_type="email",
+            target_value="restore@posthog.com",
+            frequency="weekly",
+            interval=1,
+            start_date=datetime(2022, 1, 1, tzinfo=UTC),
+            title="soft-deleted",
+            created_by=self.user,
+            summary_enabled=True,
+            deleted=True,
+        )
+
+        with patch("ee.api.subscription.get_organization_limit", return_value=5):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/subscriptions/{deleted_summary.id}",
+                {"deleted": False},
+            )
+
+        assert response.status_code == status.HTTP_402_PAYMENT_REQUIRED
+        assert "active AI summaries" in response.json()["detail"]
+
     def test_grandfathered_toggle_off_succeeds_but_back_on_blocked(self) -> None:
         # Toggling off frees a slot; toggling back on while still at/over the
         # cap is rejected. Together this enforces "you can't grow past the cap".

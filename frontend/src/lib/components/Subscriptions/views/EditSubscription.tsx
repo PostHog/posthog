@@ -444,7 +444,7 @@ export function EditSubscription({
                                                 !dataProcessingAccepted && !value
                                                     ? 'Your organization needs to approve AI data processing before enabling AI summaries'
                                                     : summaryQuota?.at_limit && !value
-                                                      ? `You've reached your plan's limit of ${summaryQuota.limit} active AI summaries. Disable an existing summary or upgrade your plan to add more.`
+                                                      ? `Plan limit reached (${summaryQuota.limit} active AI summaries). See details below.`
                                                       : undefined
                                             }
                                         />

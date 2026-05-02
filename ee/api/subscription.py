@@ -45,6 +45,17 @@ from posthog.utils import str_to_bool
 from ee.tasks.subscriptions.subscription_utils import DEFAULT_MAX_ASSET_COUNT
 
 
+def _count_active_summaries(organization) -> int:
+    """Count subscriptions with summary_enabled=True (and not soft-deleted) across
+    every team in this organization. Single source of truth for both the cap-check
+    in the serializer and the `summary_quota` action endpoint."""
+    return Subscription.objects.filter(
+        team__organization_id=organization.id,
+        summary_enabled=True,
+        deleted=False,
+    ).count()
+
+
 @extend_schema_field({"type": "array", "items": {"type": "integer"}})
 class DashboardExportInsightsField(serializers.Field):
     """Custom field to handle ManyToMany dashboard_export_insights as a list of IDs."""
@@ -207,20 +218,33 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                 raise exceptions.PermissionDenied(
                     "AI data processing must be approved by your organization before enabling AI summaries"
                 )
+
+        # Cap gate: fire whenever the row is *becoming* an active summary
+        # (summary_enabled=True AND deleted=False) but wasn't before. This
+        # catches creates with the toggle on, off→on transitions, AND
+        # restoring a soft-deleted summary that was already summary_enabled
+        # — otherwise PATCHing `deleted=False` on a grandfathered row would
+        # bypass the cap entirely.
+        if self._is_becoming_active_summary(attrs):
+            organization = self.context["get_organization"]()
             self._validate_summary_enabled_org_limit(organization)
 
         return attrs
 
-    def _validate_summary_enabled_org_limit(self, organization) -> None:
-        # Only enforce on transition False -> True (or new with True). Already-on
-        # subscriptions stay on for grandfathered orgs already over the cap, and
-        # PATCHes that re-send summary_enabled=True without changing it don't
-        # re-trigger validation — otherwise grandfathered orgs would be locked
-        # out of editing other fields on their existing on-state rows.
-        is_transition_to_enabled = self.instance is None or not self.instance.summary_enabled
-        if not is_transition_to_enabled:
-            return
+    def _is_becoming_active_summary(self, attrs: dict) -> bool:
+        pre_summary_enabled = self.instance.summary_enabled if self.instance else False
+        pre_deleted = self.instance.deleted if self.instance else False
+        post_summary_enabled = attrs.get("summary_enabled", pre_summary_enabled)
+        post_deleted = attrs.get("deleted", pre_deleted)
 
+        pre_active = pre_summary_enabled and not pre_deleted
+        post_active = post_summary_enabled and not post_deleted
+        return post_active and not pre_active
+
+    def _validate_summary_enabled_org_limit(self, organization) -> None:
+        # Already-on subscriptions stay on for grandfathered orgs already over
+        # the cap; the becoming-active check in validate() ensures we only get
+        # here when the row is transitioning into the active-summary state.
         limit = get_organization_limit(
             organization=organization,
             key=LimitKey.MAX_ACTIVE_AI_SUMMARIES_PER_ORG,
@@ -228,12 +252,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         if limit is None:
             return
 
-        current_active = Subscription.objects.filter(
-            team__organization_id=organization.id,
-            summary_enabled=True,
-            deleted=False,
-        ).count()
-        if current_active >= limit:
+        if _count_active_summaries(organization) >= limit:
             raise QuotaLimitExceeded(
                 f"Your plan allows up to {limit} active AI summaries. "
                 "Disable an existing summary or upgrade your plan to add more."
@@ -577,11 +596,7 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
     )
     def summary_quota(self, request, **kwargs):
         organization = self.organization
-        active_count = Subscription.objects.filter(
-            team__organization_id=organization.id,
-            summary_enabled=True,
-            deleted=False,
-        ).count()
+        active_count = _count_active_summaries(organization)
         limit = get_organization_limit(
             organization=organization,
             key=LimitKey.MAX_ACTIVE_AI_SUMMARIES_PER_ORG,
