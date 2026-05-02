@@ -1,0 +1,356 @@
+"""In-sandbox setup: lockdown + pi-coding-agent toolchain provisioning.
+
+Three concerns:
+
+1. ``lockdown_network`` installs an iptables OUTPUT-DROP rule set that
+   leaves only a narrow whitelist (loopback, the coordinator port at the
+   Docker gateway, the Anthropic API host, and DNS to the configured
+   resolvers). pi-coding-agent runs after this, so its egress is fully
+   bounded.
+2. ``install_pi_toolchain`` makes the sandbox runnable: on PI_BASE
+   (#55821) the toolchain is pre-baked and this is a no-op, on
+   DEFAULT_BASE it npm-installs ``pi-coding-agent`` and clones the
+   ``pi-autoresearch`` extension at the pinned commit.
+3. ``prepare_pi_runtime`` patches the baked pi-ai bundle so it points
+   at our ``ANTHROPIC_BASE_URL`` (when set) and patches pi-autoresearch's
+   ``index.ts`` to preserve the campaign workspace dirs across pi's
+   ``git clean -fd``.
+
+The pi-ai gateway patch (`_patch_pi_ai_anthropic_baseurl`) is a no-op
+for the production flow today (we forward only ``ANTHROPIC_API_KEY``;
+the gateway-token path is intentionally disabled), but is kept so that
+a future re-introduction of the LLM gateway can route through it again.
+"""
+
+from __future__ import annotations
+
+import os
+import json
+import shutil
+import tempfile
+import subprocess
+import urllib.parse
+from pathlib import Path
+
+from ._runtime import AUTORESEARCH_DIR, CampaignError, atomic_write, log, run
+
+# Bumping these requires a fresh smoke run — `_patch_pi_ai_anthropic_baseurl`
+# is sensitive to pi-ai's bundle shape at this exact version.
+PI_CODING_AGENT_VERSION = "0.68.1"
+PI_AUTORESEARCH_COMMIT = "56e9f2ec6f0dc6f9997126e4f1d8a4223de2a534"
+
+# Layout the dedicated PI_BASE image bakes; `install_pi_toolchain` reproduces
+# it when running on DEFAULT_BASE.
+BAKED_PI_AUTORESEARCH_EXTENSION = Path("/root/.pi/agent/extensions/pi-autoresearch")
+
+
+class LockdownFailed(CampaignError):
+    pass
+
+
+def _resolve_all(host: str, *, label: str) -> list[str]:
+    """Return all IPv4 addresses ``host`` resolves to via ``getent hosts``.
+
+    Raises :class:`LockdownFailed` if resolution fails. We call ``getent``
+    rather than Python's resolver so the rule pinning matches what
+    container-side connections will actually see.
+    """
+    try:
+        out = subprocess.check_output(  # noqa: S603
+            ["getent", "ahostsv4", host],
+            text=True,
+            timeout=5,
+        )
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as e:
+        raise LockdownFailed(f"could not resolve {label} host {host!r}: {e}") from e
+
+    ips: list[str] = []
+    for line in out.splitlines():
+        parts = line.split()
+        if not parts:
+            continue
+        ip = parts[0]
+        if ip not in ips:
+            ips.append(ip)
+    if not ips:
+        raise LockdownFailed(f"{label} host {host!r} resolved to zero addresses")
+    return ips
+
+
+def _resolv_conf_nameservers(path: str = "/etc/resolv.conf") -> list[str]:
+    """Read ``nameserver`` IPs from ``/etc/resolv.conf``.
+
+    Falls back to Docker's embedded resolver (``127.0.0.11``) if no entries
+    are found, so the lockdown still produces a reachable DNS path on a
+    misconfigured container instead of dropping all DNS.
+    """
+    ips: list[str] = []
+    try:
+        with open(path) as f:
+            for raw in f:
+                line = raw.strip()
+                if not line or line.startswith("#"):
+                    continue
+                parts = line.split()
+                if len(parts) >= 2 and parts[0] == "nameserver" and parts[1] not in ips:
+                    ips.append(parts[1])
+    except OSError:
+        pass
+    if not ips:
+        ips.append("127.0.0.11")
+    return ips
+
+
+def lockdown_network(coordinator_url: str) -> None:
+    """iptables OUTPUT-DROP except: loopback, the coordinator port at the
+    gateway IP, and HTTPS to the Anthropic API (so pi-coding-agent can
+    reach the LLM).
+
+    Requires NET_ADMIN, `iptables` on PATH, and DNS resolution for
+    ``host.docker.internal`` plus the Anthropic API host. Raises
+    :class:`LockdownFailed` on any precondition failure or rule error.
+
+    The Anthropic host is taken from ``ANTHROPIC_BASE_URL`` if set, else
+    defaults to ``api.anthropic.com``. We resolve and pin its current
+    IPs at lockdown time; if Anthropic rotates IPs during the campaign,
+    new connections will fail with a clean network error rather than
+    silently hanging.
+    """
+    parsed = urllib.parse.urlparse(coordinator_url)
+    port = parsed.port
+    if not port:
+        raise LockdownFailed(
+            f"coordinator URL has no explicit port: {coordinator_url!r} — refusing to lock down without a target"
+        )
+    # `host.docker.internal` resolves to the gateway via `--add-host`; resolve
+    # it once so the rule pins the IP rather than depending on DNS later.
+    gateway_ip = _resolve_all(parsed.hostname or "host.docker.internal", label="coordinator")[0]
+
+    anthropic_base = os.environ.get("ANTHROPIC_BASE_URL", "").strip() or "https://api.anthropic.com"
+    anthropic_parsed = urllib.parse.urlparse(anthropic_base)
+    anthropic_host = anthropic_parsed.hostname
+    if not anthropic_host:
+        raise LockdownFailed(f"ANTHROPIC_BASE_URL has no host: {anthropic_base!r}")
+    anthropic_port = anthropic_parsed.port or (443 if anthropic_parsed.scheme == "https" else 80)
+    anthropic_ips = _resolve_all(anthropic_host, label="anthropic")
+
+    # Allow rules go in OUTPUT slot 1..N (insertions push earlier ones down).
+    allow_rules: list[list[str]] = []
+    allow_rules.append(["-o", "lo", "-j", "ACCEPT"])
+    allow_rules.append(["-m", "state", "--state", "ESTABLISHED,RELATED", "-j", "ACCEPT"])
+    # Outbound DNS, pinned to the resolvers in /etc/resolv.conf (typically
+    # Docker's embedded 127.0.0.11 plus whatever forwarders the daemon was
+    # given). Without this pin, an unrestricted UDP/53 rule lets a process
+    # DNS-tunnel data (e.g. ANTHROPIC_API_KEY) by encoding it as subdomains
+    # toward an attacker-controlled resolver.
+    for ip in _resolv_conf_nameservers():
+        allow_rules.append(["-d", ip, "-p", "udp", "--dport", "53", "-j", "ACCEPT"])
+    allow_rules.append(["-d", gateway_ip, "-p", "tcp", "--dport", str(port), "-j", "ACCEPT"])
+    for ip in anthropic_ips:
+        allow_rules.append(["-d", ip, "-p", "tcp", "--dport", str(anthropic_port), "-j", "ACCEPT"])
+
+    rules: list[list[str]] = [["iptables", "-I", "OUTPUT", "1", *r] for r in allow_rules]
+    rules.append(["iptables", "-P", "OUTPUT", "DROP"])
+
+    for argv in rules:
+        try:
+            subprocess.run(argv, check=True, text=True, capture_output=True, timeout=5)  # noqa: S603
+        except FileNotFoundError as e:
+            raise LockdownFailed("iptables binary missing in sandbox image") from e
+        except subprocess.CalledProcessError as e:
+            stderr = (e.stderr or "").strip()
+            if "Operation not permitted" in stderr or "Permission denied" in stderr:
+                raise LockdownFailed("iptables refused (NET_ADMIN not granted to this sandbox)") from e
+            raise LockdownFailed(f"iptables rule failed ({argv[-1]}): {stderr}") from e
+
+    # Drop IPv6 outbound entirely. Anthropic publishes AAAA records and
+    # Node's HTTP client will prefer IPv6 if the resolver returns one; if
+    # IPv6 routing in the container is broken (Docker default networks
+    # disable IPv6) the connect fails fast and the agent reports
+    # "Connection error" without falling back to IPv4. Forcing v6 to drop
+    # via ip6tables makes happy-eyeballs fall through to v4 cleanly. We
+    # don't whitelist any v6 destinations because our v4 whitelist is
+    # already enough for pi to function.
+    try:
+        subprocess.run(  # noqa: S603
+            ["ip6tables", "-P", "OUTPUT", "DROP"], check=True, text=True, capture_output=True, timeout=5
+        )
+    except FileNotFoundError:
+        # ip6tables may be absent on stripped-down images; swallow because
+        # IPv4 lockdown is the load-bearing part.
+        pass
+    except subprocess.CalledProcessError as e:
+        # Don't fail the campaign on IPv6 lockdown failure either — same
+        # rationale.
+        log(f"warning: ip6tables OUTPUT DROP failed: {(e.stderr or '').strip()}")
+
+    anthropic_ip_summary = ",".join(anthropic_ips)
+    log(
+        f"network locked down: coordinator {gateway_ip}:{port} + "
+        f"{anthropic_host}:{anthropic_port} ([{anthropic_ip_summary}])"
+    )
+
+    # Diagnostic: prove the lockdown didn't accidentally break LLM access.
+    # `curl -m 5` against the Anthropic API root will 401/404 (no API key in
+    # the curl) but a non-zero TCP connection means the rules are right.
+    try:
+        diag = subprocess.run(  # noqa: S603
+            [
+                "curl",
+                "-sS",
+                "-o",
+                "/dev/null",
+                "-w",
+                "%{http_code} %{time_total}s",
+                "-m",
+                "5",
+                f"https://{anthropic_host}/v1/models",
+            ],
+            text=True,
+            capture_output=True,
+            timeout=10,
+        )
+        log(
+            f"lockdown diagnostic: curl https://{anthropic_host}/v1/models → {diag.stdout.strip()} (rc={diag.returncode})"
+        )
+        if diag.returncode != 0:
+            log(f"lockdown diagnostic stderr: {(diag.stderr or '').strip()[:500]}")
+    except (FileNotFoundError, subprocess.TimeoutExpired) as e:
+        log(f"lockdown diagnostic skipped: {e}")
+
+
+def install_pi_toolchain() -> None:
+    """No-op once PI_BASE (#55821) lands; until then DEFAULT_BASE pays a
+    ~30-90s install per sandbox."""
+    pi_already_installed = shutil.which("pi") is not None
+    extension_present = BAKED_PI_AUTORESEARCH_EXTENSION.is_dir()
+    if pi_already_installed and extension_present:
+        log(f"pi toolchain pre-installed (pi @ {shutil.which('pi')}, extension at {BAKED_PI_AUTORESEARCH_EXTENSION})")
+        return
+
+    if not pi_already_installed:
+        log(f"installing pi-coding-agent@{PI_CODING_AGENT_VERSION} via npm (global)")
+        run(
+            [
+                "npm",
+                "install",
+                "-g",
+                f"@mariozechner/pi-coding-agent@{PI_CODING_AGENT_VERSION}",
+            ]
+        )
+
+    if not extension_present:
+        with tempfile.TemporaryDirectory(prefix="pi-autoresearch-src-") as tmpdir:
+            src_root = Path(tmpdir) / "pi-autoresearch"
+            log(f"cloning pi-autoresearch@{PI_AUTORESEARCH_COMMIT[:8]} → {src_root}")
+            run(
+                [
+                    "git",
+                    "clone",
+                    "--quiet",
+                    "https://github.com/davebcn87/pi-autoresearch.git",
+                    str(src_root),
+                ]
+            )
+            run(["git", "checkout", "--quiet", PI_AUTORESEARCH_COMMIT], cwd=src_root)
+
+            ext_src = src_root / "extensions" / "pi-autoresearch"
+            if not ext_src.is_dir():
+                raise CampaignError(
+                    f"pi-autoresearch upstream missing {ext_src.relative_to(src_root)} at pinned commit"
+                )
+            BAKED_PI_AUTORESEARCH_EXTENSION.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(ext_src, BAKED_PI_AUTORESEARCH_EXTENSION)
+            log(f"copied extension files to {BAKED_PI_AUTORESEARCH_EXTENSION}")
+
+            skills_src = src_root / "skills"
+            if skills_src.is_dir():
+                skills_dst = Path("/root/.pi/agent/skills")
+                skills_dst.mkdir(parents=True, exist_ok=True)
+                for skill_dir in skills_src.iterdir():
+                    if skill_dir.is_dir():
+                        target = skills_dst / skill_dir.name
+                        if not target.exists():
+                            shutil.copytree(skill_dir, target)
+                log(f"copied skills to {skills_dst}")
+
+
+def prepare_pi_runtime() -> None:
+    """Patch baked pi-ai / pi-autoresearch state and install the in-repo plugin."""
+    _patch_pi_ai_anthropic_baseurl()
+    _patch_pi_autoresearch_index_ts()
+
+    plugin_dir = Path.home() / ".pi/packages/pi-clickhouse-autoresearch"
+    if not plugin_dir.is_dir():
+        log("installing local pi-clickhouse-autoresearch plugin")
+        run(["pi", "install", str(AUTORESEARCH_DIR)])
+    else:
+        log("pi-clickhouse-autoresearch already installed")
+
+
+def _patch_pi_autoresearch_index_ts() -> None:
+    index_ts = BAKED_PI_AUTORESEARCH_EXTENSION / "index.ts"
+    if not index_ts.is_file():
+        raise CampaignError(f"pi-autoresearch index.ts not found at {index_ts} — image is broken")
+    preserve = " ".join(
+        f"-e {name}"
+        for name in (
+            "runs lanes hypotheses reviews baseline runtime state.json "
+            "campaign.json adapter.json out-of-scope-suggestions.md"
+        ).split()
+    )
+    pre_marker = "git clean -fd 2>/dev/null"
+    post_marker = f"git clean -fd {preserve} 2>/dev/null"
+
+    contents = index_ts.read_text()
+    pre_count = contents.count(pre_marker)
+    if pre_count > 0:
+        if pre_count != 1:
+            raise CampaignError(
+                f"pi-autoresearch {index_ts.name}: expected exactly 1 `{pre_marker}` "
+                f"occurrence, got {pre_count} — patch needs updating"
+            )
+        atomic_write(index_ts, contents.replace(pre_marker, post_marker))
+        log(f"patched {index_ts.name} to preserve workspace dirs")
+    elif post_marker in contents:
+        pass
+    else:
+        raise CampaignError(
+            f"pi-autoresearch {index_ts.name}: neither the pre- nor post-patch marker is "
+            f"present — upstream shape changed, workspace-preservation patch needs updating"
+        )
+
+
+def _patch_pi_ai_anthropic_baseurl() -> None:
+    gateway_base = os.environ.get("ANTHROPIC_BASE_URL", "").rstrip("/")
+    if not gateway_base:
+        return
+
+    candidates = [
+        Path(
+            "/usr/lib/node_modules/@mariozechner/pi-coding-agent/node_modules/@mariozechner/pi-ai/dist/models.generated.js"
+        ),
+        Path(
+            "/usr/local/lib/node_modules/@mariozechner/pi-coding-agent/node_modules/@mariozechner/pi-ai/dist/models.generated.js"
+        ),
+    ]
+    models_file = next((p for p in candidates if p.is_file()), None)
+    if models_file is None:
+        raise CampaignError("pi-ai models.generated.js not found in any known location — image is broken")
+
+    contents = models_file.read_text()
+    marker = '"https://api.anthropic.com"'
+    occurrences = contents.count(marker)
+    if occurrences == 0:
+        if gateway_base in contents:
+            log(f"pi-ai models.generated.js already points at {gateway_base}")
+            return
+        raise CampaignError(
+            "pi-ai models.generated.js: neither the Anthropic baseUrl marker nor our gateway URL "
+            "is present — pi-ai's bundle shape changed, baseUrl patch needs updating"
+        )
+
+    replacement = json.dumps(gateway_base)
+    patched = contents.replace(marker, replacement)
+    atomic_write(models_file, patched)
+    log(f"patched pi-ai models.generated.js: rewrote {occurrences} Anthropic baseUrl occurrence(s) to {replacement}")
