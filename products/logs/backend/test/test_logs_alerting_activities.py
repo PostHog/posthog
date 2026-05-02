@@ -559,14 +559,6 @@ class TestSaveCohortOutcomesFallback(APIBaseTest):
 
 
 class TestRunCohortQueryFallback(unittest.TestCase):
-    """Per-alert fallback when the batched cohort query fails.
-
-    Critical for auto-disable correctness: without the fallback, one alert with
-    a bad config would take down the whole cohort's batched query, propagating
-    `consecutive_failures += 1` to all N alerts and eventually disabling all of
-    them. The fallback isolates the failure to the alert that actually broke.
-    """
-
     @staticmethod
     def _make_cohort(n: int) -> _AlertCohort:
         alerts = tuple(MagicMock(id=f"alert-{i}", team_id=1, name=f"alert-{i}") for i in range(n))
@@ -687,11 +679,7 @@ class TestRunCohortQueryFallback(unittest.TestCase):
 
 
 class TestRunCohortQueryFallbackEndToEnd(ClickhouseTestMixin, APIBaseTest):
-    """CH-backed integration test: when the batched cohort query fails, the
-    fallback runs real per-alert `AlertCheckQuery.execute_bucketed` calls
-    against test ClickHouse. Verifies that the per-alert results survive the
-    fallback path with correct bucket counts.
-    """
+    """CH-backed integration test for the per-alert fallback path."""
 
     def setUp(self):
         super().setUp()
@@ -810,6 +798,7 @@ class TestRunCohortQueryFallbackEndToEnd(ClickhouseTestMixin, APIBaseTest):
         assert bad_prefetch.buckets is None
         assert bad_prefetch.error is not None
         assert "simulated per-alert query failure" in str(bad_prefetch.error)
+        assert bad_prefetch.query_duration_ms is not None and bad_prefetch.query_duration_ms >= 0
 
 
 class TestEvaluateSingleAlert(APIBaseTest):

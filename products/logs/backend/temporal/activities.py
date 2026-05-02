@@ -4,6 +4,7 @@ import time
 import asyncio
 import dataclasses
 from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING
 
 from django.db import transaction
 from django.db.models import Q
@@ -62,15 +63,14 @@ from products.logs.backend.temporal.metrics import (
     record_semaphore_wait,
 )
 
+if TYPE_CHECKING:
+    from posthog.models import Team
+
 logger = structlog.get_logger(__name__)
 
 
 def _safe_record(label: str, fn, *args, **kwargs) -> None:
-    """Best-effort metric recording. Metric failures must never break alerting.
-
-    Use only when wrapping a single metric call. Multi-metric blocks should
-    keep their own grouped try/except so one failure doesn't skip the rest.
-    """
+    """Best-effort metric recording — failures must never break alerting."""
     try:
         fn(*args, **kwargs)
     except Exception:
@@ -127,7 +127,7 @@ class _AlertCohort:
     projection_eligible: bool
 
     @property
-    def team(self):
+    def team(self) -> "Team":
         return self.alerts[0].team
 
     @property
@@ -149,15 +149,7 @@ class _AlertCohort:
 
 @dataclasses.dataclass(frozen=True)
 class _PrefetchedQuery:
-    """Result of a CH query for one alert in a cohort.
-
-    Either `buckets` is set (success path; `query_duration_ms` carries the
-    relevant query wall time) or `error` is set (failure — re-raised inside the
-    per-alert eval to flow through the same classification as a per-alert query
-    failure). For batched queries `query_duration_ms` is the shared batch
-    duration; for the per-alert fallback path it's the individual alert's query
-    duration.
-    """
+    """CH query result for one alert: either `buckets` or `error` is set."""
 
     buckets: list[BucketedCount] | None = None
     query_duration_ms: int | None = None
@@ -166,15 +158,6 @@ class _PrefetchedQuery:
 
 @dataclasses.dataclass(frozen=True)
 class _CohortQueryResult:
-    """Per-alert CH query results for a cohort.
-
-    Maps `alert_id -> _PrefetchedQuery`. The happy path populates this from a
-    single batched query (all entries share the batch's `query_duration_ms`,
-    none have `error` set). The fallback path runs per-alert queries and
-    populates each entry independently — alerts whose individual query failed
-    carry their error, others carry their successful buckets.
-    """
-
     per_alert: dict[str, _PrefetchedQuery]
 
     def for_alert(self, alert: LogsAlertConfiguration) -> _PrefetchedQuery:
@@ -456,14 +439,6 @@ def _run_batched_query(cohort: _AlertCohort) -> BatchedBucketedResult:
 
 
 def _run_per_alert_queries(cohort: _AlertCohort) -> _CohortQueryResult:
-    """Fallback: run each alert's CH query individually.
-
-    Used when the batched cohort query fails (e.g., one alert's predicate is
-    expensive enough to time out the whole batch). Per-alert queries isolate
-    the bad alert: it fails its individual query and advances its own
-    `consecutive_failures`, while the rest of the cohort evaluates normally —
-    preserving the per-alert auto-disable semantics.
-    """
     per_alert: dict[str, _PrefetchedQuery] = {}
     for alert in cohort.alerts:
         start = time.monotonic_ns()
@@ -477,25 +452,16 @@ def _run_per_alert_queries(cohort: _AlertCohort) -> _CohortQueryResult:
             duration_ms = (time.monotonic_ns() - start) // 1_000_000
             per_alert[str(alert.id)] = _PrefetchedQuery(buckets=buckets, query_duration_ms=duration_ms)
         except Exception as e:
-            per_alert[str(alert.id)] = _PrefetchedQuery(error=e)
+            duration_ms = (time.monotonic_ns() - start) // 1_000_000
+            per_alert[str(alert.id)] = _PrefetchedQuery(error=e, query_duration_ms=duration_ms)
     return _CohortQueryResult(per_alert=per_alert)
 
 
 def _run_cohort_query(cohort: _AlertCohort) -> _CohortQueryResult:
-    """Run the cohort's batched CH query, falling back to per-alert on failure.
+    """Batched cohort CH query; per-alert fallback on non-transient failure.
 
-    The fallback exists so a single bad-config alert can't poison the cohort:
-    its batched-query failure would otherwise propagate to all N alerts and
-    drive them all to BROKEN in lockstep — a regression from the pre-batching
-    per-alert auto-disable semantics.
-
-    We skip the fallback in two cases:
-      * Single-alert cohort: per-alert path would just hit the same error.
-      * Transient cluster errors (rate-limited, server busy, etc.): fallback
-        would hammer a struggling cluster with N more queries that are about
-        to fail the same way. Propagate as cohort-wide error; transient
-        errors typically clear by the next cycle so `consecutive_failures`
-        resets before anything hits BROKEN.
+    Skip fallback for single-alert cohorts (would hit the same error) and transient cluster
+    errors (would hammer a struggling cluster with N more failing queries).
     """
     try:
         batched = _run_batched_query(cohort)

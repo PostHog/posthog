@@ -60,7 +60,6 @@ def _build_logs_query(alert: LogsAlertConfiguration, date_range: DateRange) -> L
 
 
 def _tag_alert_query(*, team: Team, alert_config_id: str, source: str) -> None:
-    """Shared CH query tagging for both single-alert and batched alert checks."""
     tag_queries(
         product=Product.LOGS,
         feature=Feature.ALERTING,
