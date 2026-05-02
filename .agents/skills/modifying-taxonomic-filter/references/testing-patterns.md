@@ -61,9 +61,11 @@ for (const groupType of taxonomicGroupTypes) {
   infiniteListLogic({ ...logic.props, listGroupType: groupType }).mount()
 }
 
-await expectLogic(infiniteListLogic({ ...logic.props, listGroupType: groupType })).toDispatchActions([
-  'loadRemoteItemsSuccess',
-])
+for (const groupType of taxonomicGroupTypes) {
+  await expectLogic(infiniteListLogic({ ...logic.props, listGroupType: groupType })).toDispatchActions([
+    'loadRemoteItemsSuccess',
+  ])
+}
 ```
 
 ## Don't delete the property-promotion test

@@ -143,7 +143,7 @@ ORDER BY share_pct DESC
 
 ## Updating the doc
 
-1. Run each query above via `posthog:exec call execute-sql` against
+1. Run each query above via `posthog:execute-sql` against
    project 2 on us.posthog.com.
 2. Convert findings into ratios (drop absolute event and user counts).
 3. Update the tables in `SKILL.md` and bump the "last refreshed" date.
