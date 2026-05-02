@@ -1,7 +1,6 @@
 from typing import TYPE_CHECKING, Any
 
 from django.contrib.postgres.fields import ArrayField
-from django.contrib.postgres.indexes import GinIndex
 from django.db import models
 from django.db.models import QuerySet
 
@@ -105,8 +104,6 @@ class Dashboard(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.M
                 fields=["-pinned", "name", "deleted", "team_id"],
                 condition=models.Q(deleted=False),
             ),
-            # Speeds up the trigram similarity branch of the list endpoint's `?search=` filter.
-            GinIndex(name="idx_dashboard_name_trgm", fields=["name"], opclasses=["gin_trgm_ops"]),
         ]
         db_table = "posthog_dashboard"
 

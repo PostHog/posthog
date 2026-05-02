@@ -1,1 +1,1 @@
-0002_dashboard_name_trgm_index
+0001_migrate_dashboards_models
