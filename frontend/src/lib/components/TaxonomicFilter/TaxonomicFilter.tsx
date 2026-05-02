@@ -204,6 +204,7 @@ export const TaxonomicFilterSearchInput = forwardRef<
     const { searchQuery, searchPlaceholder, showNumericalPropsOnly } = useValues(taxonomicFilterLogic)
     const {
         setSearchQuery: setTaxonomicSearchQuery,
+        markUserInteraction,
         recordPaste,
         moveUp,
         moveDown,
@@ -213,6 +214,7 @@ export const TaxonomicFilterSearchInput = forwardRef<
     } = useActions(taxonomicFilterLogic)
 
     const _onChange = (query: string): void => {
+        markUserInteraction()
         setTaxonomicSearchQuery(query)
         onChange?.(query)
     }
