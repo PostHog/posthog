@@ -48,6 +48,7 @@ class TestLogsAlertAPI(APIBaseTest):
         assert data["threshold_count"] == 10
         assert data["state"] == "not_firing"
         assert data["enabled"] is True
+        assert data["first_enabled_at"] is not None
         assert data["created_by"]["id"] == self.user.pk
         assert data["filters"] == {"severityLevels": ["error"]}
 
@@ -242,6 +243,93 @@ class TestLogsAlertAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "filters"
+
+    # --- Draft creation (enabled=false stub) ---
+
+    def test_create_with_empty_payload_creates_draft(self):
+        response = self.client.post(self.base_url, {"enabled": False}, format="json")
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        data = response.json()
+        assert data["name"] == "Untitled alert"
+        assert data["enabled"] is False
+        assert data["first_enabled_at"] is None
+        assert data["threshold_count"] == 100
+        assert data["filters"] == {}
+
+    def test_create_disabled_with_empty_filters_succeeds(self):
+        response = self.client.post(
+            self.base_url,
+            {"name": "Just naming", "enabled": False, "threshold_count": 5},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+    def test_create_enabled_without_filters_fails(self):
+        response = self.client.post(
+            self.base_url,
+            {"name": "Bad", "enabled": True, "threshold_count": 5},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "filters"
+
+    # --- first_enabled_at stamping ---
+
+    def test_first_enabled_at_stamped_on_first_enable(self):
+        created = self._create_via_api(enabled=False)
+        alert_id = created["id"]
+        assert created["first_enabled_at"] is None
+
+        response = self.client.patch(
+            f"{self.base_url}{alert_id}/",
+            {"enabled": True, "filters": {"severityLevels": ["error"]}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["first_enabled_at"] is not None
+
+    def test_first_enabled_at_not_overwritten_on_subsequent_enable(self):
+        created = self._create_via_api()
+        alert_id = created["id"]
+        first_stamp = self.client.get(f"{self.base_url}{alert_id}/").json()["first_enabled_at"]
+        assert first_stamp is not None
+
+        self.client.patch(f"{self.base_url}{alert_id}/", {"enabled": False}, format="json")
+        response = self.client.patch(f"{self.base_url}{alert_id}/", {"enabled": True}, format="json")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["first_enabled_at"] == first_stamp
+
+    def test_enable_with_empty_filters_returns_400(self):
+        create_response = self.client.post(self.base_url, {"enabled": False}, format="json")
+        assert create_response.status_code == status.HTTP_201_CREATED, create_response.json()
+        alert_id = create_response.json()["id"]
+        response = self.client.patch(
+            f"{self.base_url}{alert_id}/",
+            {"enabled": True},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "filters"
+
+    def test_patch_empty_name_falls_back_to_default(self):
+        created = self._create_via_api(name="My alert")
+        response = self.client.patch(
+            f"{self.base_url}{created['id']}/",
+            {"name": ""},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["name"] == "Untitled alert"
+
+    def test_patch_whitespace_name_falls_back_to_default(self):
+        created = self._create_via_api(name="My alert")
+        response = self.client.patch(
+            f"{self.base_url}{created['id']}/",
+            {"name": "   "},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["name"] == "Untitled alert"
 
     @parameterized.expand(
         [

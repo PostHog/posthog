@@ -10,7 +10,6 @@ class SummarizeTeamSessionsInputs:
 class FindSessionsInput:
     team_id: int
     lookback_minutes: int
-    max_sessions: int
 
 
 @dataclass

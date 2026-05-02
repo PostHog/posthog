@@ -3,6 +3,11 @@ export { BarChart } from './charts/BarChart'
 export type { BarChartProps } from './charts/BarChart'
 export { LineChart } from './charts/LineChart'
 export type { LineChartProps } from './charts/LineChart'
+export { TimeSeriesLineChart } from './charts/TimeSeriesLineChart/TimeSeriesLineChart'
+export type {
+    TimeSeriesLineChartConfig,
+    TimeSeriesLineChartProps,
+} from './charts/TimeSeriesLineChart/TimeSeriesLineChart'
 
 // Base chart (for building new chart types)
 export { Chart } from './core/Chart'
@@ -52,3 +57,7 @@ export type { ValueLabelsProps } from './overlays/ValueLabels'
 
 // Helper for adapters that need to align with the same x-axis tick selection the chart draws.
 export { computeVisibleXLabels } from './overlays/AxisLabels'
+
+// Timeseries utils
+export { createXAxisTickCallback, parseDateForAxis } from './charts/TimeSeriesLineChart/utils/dates'
+export type { TimeInterval } from './charts/TimeSeriesLineChart/utils/dates'

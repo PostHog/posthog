@@ -7,7 +7,7 @@ import contextvars
 from collections.abc import Generator
 from contextlib import contextmanager, suppress
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, NotRequired, Optional, TypedDict, assert_never
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -18,7 +18,7 @@ import structlog
 from cachetools import cached
 from pydantic import BaseModel, ConfigDict
 
-from posthog.schema import ProductKey
+from posthog.schema import NodeKind, ProductKey
 
 logger = structlog.get_logger(__name__)
 
@@ -32,6 +32,7 @@ class AccessMethod(StrEnum):
 class Product(StrEnum):
     API = "api"
     BATCH_EXPORT = "batch_export"
+    COHORTS = "cohorts"
     ENDPOINTS = "endpoints"
     ERROR_TRACKING = "error_tracking"
     EXPERIMENTS = "experiments"
@@ -39,6 +40,7 @@ class Product(StrEnum):
     GROUP_ANALYTICS = "group_analytics"
     LLM_ANALYTICS = "llm_analytics"
     LOGS = "logs"
+    MARKETING_ANALYTICS = "marketing_analytics"
     MAX_AI = "max_ai"
     MCP = "mcp"
     MESSAGING = "messaging"
@@ -47,6 +49,7 @@ class Product(StrEnum):
     PLATFORM_AND_SUPPORT = "platform_and_support"
     PRODUCT_ANALYTICS = "product_analytics"
     REPLAY = "replay"
+    REVENUE_ANALYTICS = "revenue_analytics"
     SDK_DOCTOR = "sdk_doctor"
     SESSION_SUMMARY = "session_summary"
     SIGNALS = "signals"
@@ -98,6 +101,162 @@ class Feature(StrEnum):
     ENDPOINT_LAST_EXECUTION = "endpoint_last_execution"  # Usage tab query_log lookup
     POSTHOG_AI = "posthog_ai"
     MCP = "mcp"
+
+
+class FallbackTags(TypedDict):
+    product: NotRequired[Product]
+    feature: NotRequired[Feature]
+
+
+# Scene keys come from frontend `activeSceneId` — the manifest-registered key for the route
+# (e.g. `EndpointScene` for `/endpoints/:name`, `EndpointsScene` for `/endpoints`). This map
+# is *not* exhaustive over the frontend `Scene` enum: pulling Scene into the generated schema
+# would churn it every time a scene is added. Three categories below — scenes we attribute,
+# container scenes (`None`, defer to kind), and everything else falls through to the kind
+# fallback. The `None` rows double as breadcrumbs so the absence of a common scene is loud.
+SCENE_TO_TAGS: dict[str, FallbackTags | None] = {
+    "Cohort": {"product": Product.COHORTS, "feature": Feature.COHORT},
+    "EndpointScene": {"product": Product.ENDPOINTS, "feature": Feature.QUERY},
+    "EndpointsScene": {"product": Product.ENDPOINTS, "feature": Feature.QUERY},
+    "EventDefinition": {"product": Product.PRODUCT_ANALYTICS, "feature": Feature.EVENT_DEFINITION_SCENE},
+    "EventDefinitionEdit": {"product": Product.PRODUCT_ANALYTICS, "feature": Feature.EVENT_DEFINITION_SCENE},
+    "EventDefinitions": {"product": Product.PRODUCT_ANALYTICS, "feature": Feature.EVENT_DEFINITION_SCENE},
+    "SQLEditor": {"product": Product.WAREHOUSE, "feature": Feature.QUERY},
+    "PropertyDefinition": {"product": Product.PRODUCT_ANALYTICS, "feature": Feature.PROPERTY_DEFINITION_SCENE},
+    "PropertyDefinitionEdit": {"product": Product.PRODUCT_ANALYTICS, "feature": Feature.PROPERTY_DEFINITION_SCENE},
+    "PropertyDefinitions": {"product": Product.PRODUCT_ANALYTICS, "feature": Feature.PROPERTY_DEFINITION_SCENE},
+    "ExploreEvents": {"product": Product.PRODUCT_ANALYTICS, "feature": Feature.EXPLORE_EVENTS_SCENE},
+    # Container scenes — host arbitrary query kinds, so let the kind fallback decide.
+    "Dashboard": None,
+    "Dashboards": None,
+    "Insight": None,
+    "Notebook": None,
+    "Notebooks": None,
+    "DebugQuery": None,
+    "Max": None,
+    "WebAnalytics": None,
+}
+
+
+def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
+    """Exhaustive — `assert_never(kind)` makes pyright/mypy fail when a new NodeKind has no
+    case arm. Return `None` for kinds that exist but shouldn't drive product attribution."""
+    match kind:
+        case (
+            NodeKind.TRENDS_QUERY
+            | NodeKind.FUNNELS_QUERY
+            | NodeKind.RETENTION_QUERY
+            | NodeKind.PATHS_QUERY
+            | NodeKind.STICKINESS_QUERY
+            | NodeKind.LIFECYCLE_QUERY
+            | NodeKind.EVENTS_QUERY
+            | NodeKind.CALENDAR_HEATMAP_QUERY
+            | NodeKind.SESSIONS_QUERY
+            | NodeKind.SESSIONS_TIMELINE_QUERY
+            | NodeKind.STICKINESS_ACTORS_QUERY
+        ):
+            return {"product": Product.PRODUCT_ANALYTICS}
+        case (
+            NodeKind.WEB_OVERVIEW_QUERY
+            | NodeKind.WEB_STATS_TABLE_QUERY
+            | NodeKind.WEB_GOALS_QUERY
+            | NodeKind.WEB_TRENDS_QUERY
+            | NodeKind.WEB_EXTERNAL_CLICKS_TABLE_QUERY
+            | NodeKind.WEB_PAGE_URL_SEARCH_QUERY
+            | NodeKind.WEB_VITALS_QUERY
+            | NodeKind.WEB_VITALS_PATH_BREAKDOWN_QUERY
+            | NodeKind.SESSION_ATTRIBUTION_EXPLORER_QUERY
+            | NodeKind.WEB_NOTABLE_CHANGES_QUERY
+            | NodeKind.WEB_ANALYTICS_EXTERNAL_SUMMARY_QUERY
+        ):
+            return {"product": Product.WEB_ANALYTICS}
+        case (
+            NodeKind.ERROR_TRACKING_QUERY
+            | NodeKind.ERROR_TRACKING_ISSUE_CORRELATION_QUERY
+            | NodeKind.ERROR_TRACKING_SIMILAR_ISSUES_QUERY
+            | NodeKind.ERROR_TRACKING_BREAKDOWNS_QUERY
+        ):
+            return {"product": Product.ERROR_TRACKING}
+        case NodeKind.LOGS_QUERY | NodeKind.LOG_ATTRIBUTES_QUERY | NodeKind.LOG_VALUES_QUERY:
+            return {"product": Product.LOGS}
+        case NodeKind.RECORDINGS_QUERY | NodeKind.SESSION_BATCH_EVENTS_QUERY:
+            return {"product": Product.REPLAY}
+        case (
+            NodeKind.ENDPOINTS_USAGE_OVERVIEW_QUERY
+            | NodeKind.ENDPOINTS_USAGE_TABLE_QUERY
+            | NodeKind.ENDPOINTS_USAGE_TRENDS_QUERY
+        ):
+            return {"product": Product.ENDPOINTS}
+        case (
+            NodeKind.EXPERIMENT_QUERY
+            | NodeKind.EXPERIMENT_TRENDS_QUERY
+            | NodeKind.EXPERIMENT_FUNNELS_QUERY
+            | NodeKind.EXPERIMENT_EXPOSURE_QUERY
+            | NodeKind.EXPERIMENT_ACTORS_QUERY
+            | NodeKind.EXPERIMENT_METRIC
+            | NodeKind.EXPERIMENT_EVENT_EXPOSURE_CONFIG
+            | NodeKind.EXPERIMENT_DATA_WAREHOUSE_NODE
+        ):
+            return {"product": Product.EXPERIMENTS}
+        case NodeKind.TRACE_QUERY | NodeKind.TRACES_QUERY | NodeKind.TRACE_NEIGHBORS_QUERY | NodeKind.TRACE_SPANS_QUERY:
+            return {"product": Product.LLM_ANALYTICS}
+        case (
+            NodeKind.VECTOR_SEARCH_QUERY
+            | NodeKind.DOCUMENT_SIMILARITY_QUERY
+            | NodeKind.SUGGESTED_QUESTIONS_QUERY
+            | NodeKind.TEAM_TAXONOMY_QUERY
+            | NodeKind.EVENT_TAXONOMY_QUERY
+            | NodeKind.ACTORS_PROPERTY_TAXONOMY_QUERY
+        ):
+            return {"product": Product.MAX_AI}
+        case (
+            NodeKind.REVENUE_ANALYTICS_GROSS_REVENUE_QUERY
+            | NodeKind.REVENUE_ANALYTICS_MRR_QUERY
+            | NodeKind.REVENUE_ANALYTICS_METRICS_QUERY
+            | NodeKind.REVENUE_ANALYTICS_OVERVIEW_QUERY
+            | NodeKind.REVENUE_ANALYTICS_TOP_CUSTOMERS_QUERY
+            | NodeKind.REVENUE_EXAMPLE_EVENTS_QUERY
+            | NodeKind.REVENUE_EXAMPLE_DATA_WAREHOUSE_TABLES_QUERY
+        ):
+            return {"product": Product.REVENUE_ANALYTICS}
+        case (
+            NodeKind.MARKETING_ANALYTICS_TABLE_QUERY
+            | NodeKind.MARKETING_ANALYTICS_AGGREGATED_QUERY
+            | NodeKind.NON_INTEGRATED_CONVERSIONS_TABLE_QUERY
+        ):
+            return {"product": Product.MARKETING_ANALYTICS}
+        case (
+            # not attributable on their own
+            NodeKind.HOG_QL_QUERY
+            | NodeKind.HOG_QL_METADATA
+            | NodeKind.HOG_QL_AUTOCOMPLETE
+            | NodeKind.HOG_QUERY
+            | NodeKind.DATABASE_SCHEMA_QUERY
+            | NodeKind.PROPERTY_VALUES_QUERY
+            | NodeKind.USAGE_METRICS_QUERY
+            # drill-downs — caller's product is what matters
+            | NodeKind.ACTORS_QUERY
+            | NodeKind.GROUPS_QUERY
+            | NodeKind.INSIGHT_ACTORS_QUERY
+            | NodeKind.INSIGHT_ACTORS_QUERY_OPTIONS
+            | NodeKind.FUNNELS_ACTORS_QUERY
+            | NodeKind.FUNNEL_CORRELATION_QUERY
+            | NodeKind.FUNNEL_CORRELATION_ACTORS_QUERY
+            # data-source nodes, not full queries
+            | NodeKind.EVENTS_NODE
+            | NodeKind.GROUP_NODE
+            | NodeKind.ACTIONS_NODE
+            | NodeKind.PERSONS_NODE
+            | NodeKind.DATA_WAREHOUSE_NODE
+            | NodeKind.FUNNELS_DATA_WAREHOUSE_NODE
+            | NodeKind.LIFECYCLE_DATA_WAREHOUSE_NODE
+            | NodeKind.DATA_TABLE_NODE
+            | NodeKind.DATA_VISUALIZATION_NODE
+            | NodeKind.SAVED_INSIGHT_NODE
+            | NodeKind.INSIGHT_VIZ_NODE
+        ):
+            return None
+    assert_never(kind)
 
 
 class TemporalTags(BaseModel):
@@ -363,6 +522,32 @@ def clear_tag(key):
 
 def reset_query_tags():
     query_tags.set(create_base_tags())
+
+
+def _apply_fallback_tags(tags: QueryTags, mapped: FallbackTags) -> None:
+    if tags.product is None and "product" in mapped:
+        tags.product = mapped["product"]
+    if tags.feature is None and "feature" in mapped:
+        tags.feature = mapped["feature"]
+
+
+def add_fallback_query_tags(tags: QueryTags) -> None:
+    """Order: scene → kind → mcp source. Never overrides values that are already set."""
+    if tags.scene and (scene_mapped := SCENE_TO_TAGS.get(tags.scene)) is not None:
+        _apply_fallback_tags(tags, scene_mapped)
+
+    if tags.product is None and tags.query_type:
+        try:
+            kind = NodeKind(tags.query_type)
+        except ValueError:
+            kind = None
+        if kind is not None and (kind_mapped := kind_fallback_tags(kind)) is not None:
+            _apply_fallback_tags(tags, kind_mapped)
+
+    from posthog.event_usage import EventSource
+
+    if tags.product is None and tags.source == EventSource.MCP:
+        tags.product = Product.MCP
 
 
 class QueryCounter:

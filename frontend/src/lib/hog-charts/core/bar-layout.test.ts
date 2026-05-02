@@ -1,6 +1,18 @@
 import { dimensions, makeSeries } from '../test-helpers'
 import { type ComputeSeriesBarsOptions, computeSeriesBars, cornersFor } from './bar-layout'
+import type { BarRect } from './canvas-renderer'
 import { computeStackData, createBarScales } from './scales'
+import type { ChartDimensions } from './types'
+
+// Compact plot area chosen so band/value scales produce round pixel values for snapshots.
+const PIXEL_TEST_DIMENSIONS: ChartDimensions = {
+    width: 200,
+    height: 100,
+    plotLeft: 0,
+    plotTop: 0,
+    plotWidth: 200,
+    plotHeight: 100,
+}
 
 function layoutOf(
     args: Partial<ComputeSeriesBarsOptions> & Pick<ComputeSeriesBarsOptions, 'series' | 'scales'>
@@ -125,5 +137,204 @@ describe('hog-charts bar-layout', () => {
         expect(bars[0]?.dataIndex).toBe(0)
         expect(bars[1]).toBeNull()
         expect(bars[2]?.dataIndex).toBe(2)
+    })
+
+    describe('computeSeriesBars — exact pixel positions', () => {
+        interface PixelCase {
+            name: string
+            labels: string[]
+            seriesData: { key: string; data: number[] }[]
+            layout: 'stacked' | 'grouped'
+            isHorizontal: boolean
+            expected: { key: string; isTopOfStack: boolean; bars: BarRect[] }[]
+        }
+
+        it.each<PixelCase>([
+            {
+                name: 'vertical stacked',
+                labels: ['L1', 'L2'],
+                seriesData: [
+                    { key: 'a', data: [25, 50] },
+                    { key: 'b', data: [25, 50] },
+                ],
+                layout: 'stacked',
+                isHorizontal: false,
+                expected: [
+                    {
+                        key: 'a',
+                        isTopOfStack: false,
+                        bars: [
+                            { x: 0, y: 75, width: 100, height: 25, corners: {}, dataIndex: 0 },
+                            { x: 100, y: 50, width: 100, height: 50, corners: {}, dataIndex: 1 },
+                        ],
+                    },
+                    {
+                        key: 'b',
+                        isTopOfStack: true,
+                        bars: [
+                            {
+                                x: 0,
+                                y: 50,
+                                width: 100,
+                                height: 25,
+                                corners: { topLeft: true, topRight: true },
+                                dataIndex: 0,
+                            },
+                            {
+                                x: 100,
+                                y: 0,
+                                width: 100,
+                                height: 50,
+                                corners: { topLeft: true, topRight: true },
+                                dataIndex: 1,
+                            },
+                        ],
+                    },
+                ],
+            },
+            {
+                name: 'vertical grouped',
+                labels: ['L1', 'L2'],
+                seriesData: [
+                    { key: 'a', data: [10, 20] },
+                    { key: 'b', data: [20, 10] },
+                ],
+                layout: 'grouped',
+                isHorizontal: false,
+                expected: [
+                    {
+                        key: 'a',
+                        isTopOfStack: false,
+                        bars: [
+                            {
+                                x: 0,
+                                y: 50,
+                                width: 50,
+                                height: 50,
+                                corners: { topLeft: true, topRight: true },
+                                dataIndex: 0,
+                            },
+                            {
+                                x: 100,
+                                y: 0,
+                                width: 50,
+                                height: 100,
+                                corners: { topLeft: true, topRight: true },
+                                dataIndex: 1,
+                            },
+                        ],
+                    },
+                    {
+                        key: 'b',
+                        isTopOfStack: false,
+                        bars: [
+                            {
+                                x: 50,
+                                y: 0,
+                                width: 50,
+                                height: 100,
+                                corners: { topLeft: true, topRight: true },
+                                dataIndex: 0,
+                            },
+                            {
+                                x: 150,
+                                y: 50,
+                                width: 50,
+                                height: 50,
+                                corners: { topLeft: true, topRight: true },
+                                dataIndex: 1,
+                            },
+                        ],
+                    },
+                ],
+            },
+            {
+                name: 'horizontal stacked',
+                labels: ['L1'],
+                seriesData: [
+                    { key: 'a', data: [50] },
+                    { key: 'b', data: [50] },
+                ],
+                layout: 'stacked',
+                isHorizontal: true,
+                expected: [
+                    {
+                        key: 'a',
+                        isTopOfStack: false,
+                        bars: [{ x: 0, y: 0, width: 100, height: 100, corners: {}, dataIndex: 0 }],
+                    },
+                    {
+                        key: 'b',
+                        isTopOfStack: true,
+                        bars: [
+                            {
+                                x: 100,
+                                y: 0,
+                                width: 100,
+                                height: 100,
+                                corners: { topRight: true, bottomRight: true },
+                                dataIndex: 0,
+                            },
+                        ],
+                    },
+                ],
+            },
+            {
+                name: 'vertical grouped with positive and negative values',
+                labels: ['L1', 'L2'],
+                seriesData: [{ key: 'a', data: [50, -50] }],
+                layout: 'grouped',
+                isHorizontal: false,
+                expected: [
+                    {
+                        key: 'a',
+                        isTopOfStack: false,
+                        bars: [
+                            {
+                                x: 0,
+                                y: 0,
+                                width: 100,
+                                height: 50,
+                                corners: { topLeft: true, topRight: true },
+                                dataIndex: 0,
+                            },
+                            {
+                                x: 100,
+                                y: 50,
+                                width: 100,
+                                height: 50,
+                                corners: { bottomLeft: true, bottomRight: true },
+                                dataIndex: 1,
+                            },
+                        ],
+                    },
+                ],
+            },
+        ])('$name', ({ labels, seriesData, layout, isHorizontal, expected }) => {
+            const series = seriesData.map((s) => makeSeries(s))
+            const stacks = layout === 'stacked' ? computeStackData(series, labels) : undefined
+            const stackedSeries = stacks ? series.map((s) => ({ ...s, data: stacks.get(s.key)!.top })) : undefined
+            const scales = createBarScales(series, labels, PIXEL_TEST_DIMENSIONS, {
+                barLayout: layout,
+                axisOrientation: isHorizontal ? 'horizontal' : 'vertical',
+                bandPadding: 0,
+                groupPadding: 0,
+                stackedSeries,
+            })
+
+            for (const { key, isTopOfStack, bars: expectedBars } of expected) {
+                const seriesForKey = series.find((s) => s.key === key)!
+                const bars = computeSeriesBars({
+                    series: seriesForKey,
+                    labels,
+                    scales,
+                    layout,
+                    isHorizontal,
+                    stackedBand: stacks?.get(key),
+                    isTopOfStack,
+                })
+                expect(bars).toEqual(expectedBars)
+            }
+        })
     })
 })

@@ -6,7 +6,7 @@ from functools import lru_cache
 from typing import Any, Union, cast
 
 from django.db import transaction
-from django.db.models import Count, F, Max, Prefetch, QuerySet
+from django.db.models import Count, Exists, F, Max, OuterRef, Prefetch, QuerySet, Subquery
 from django.db.models.query_utils import Q
 from django.http import HttpResponse
 from django.utils.text import slugify
@@ -1399,7 +1399,12 @@ class InsightViewSet(
 
         if self.action == "list":
             queryset = queryset.prefetch_related("tagged_items__tag")
-            queryset = queryset.annotate(last_viewed_at=Max("insightviewed__last_viewed_at"))
+            last_viewed_at = (
+                InsightViewed.objects.filter(insight=OuterRef("pk"))
+                .order_by("-last_viewed_at")
+                .values("last_viewed_at")[:1]
+            )
+            queryset = queryset.annotate(last_viewed_at=Subquery(last_viewed_at))
             queryset = self._filter_request(self.request, queryset)
 
         return self.order_queryset(queryset)
@@ -1517,12 +1522,10 @@ class InsightViewSet(
         for key in filters:
             if key == "saved":
                 if str_to_bool(request.GET["saved"]):
-                    queryset = queryset.annotate(
-                        visible_dashboards_count=Count(
-                            "dashboards", filter=~Q(dashboard_tiles__dashboard__creation_mode="unlisted")
-                        )
+                    visible_tile_for_insight = DashboardTile.objects.filter(insight=OuterRef("pk")).exclude(
+                        dashboard__creation_mode="unlisted"
                     )
-                    queryset = queryset.filter(Q(saved=True) | Q(visible_dashboards_count__gte=1))
+                    queryset = queryset.filter(Q(saved=True) | Exists(visible_tile_for_insight))
                 else:
                     queryset = queryset.filter(Q(saved=False))
             elif key == "feature_flag":
@@ -1601,7 +1604,7 @@ class InsightViewSet(
                     | Q(derived_name__icontains=request.GET["search"])
                     | Q(tagged_items__tag__name__icontains=request.GET["search"])
                     | Q(description__icontains=request.GET["search"])
-                )
+                ).distinct()
             elif key == "dashboards":
                 dashboards_filter = request.GET["dashboards"]
                 if dashboards_filter:

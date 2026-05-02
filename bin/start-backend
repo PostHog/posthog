@@ -14,6 +14,10 @@ export CLICKHOUSE_API_PASSWORD="apipass"
 export CLICKHOUSE_APP_USER="app"
 export CLICKHOUSE_APP_PASSWORD="apppass"
 
+export PERSONHOG_ADDR=${PERSONHOG_ADDR:-http://127.0.0.1:50052}
+export PERSONHOG_ENABLED=${PERSONHOG_ENABLED:-true}
+export PERSONHOG_ROLLOUT_PERCENTAGE=${PERSONHOG_ROLLOUT_PERCENTAGE:-100}
+
 # Suppress frozen modules warning since we only debug our code, not stdlib
 export PYDEVD_DISABLE_FILE_VALIDATION=1
 

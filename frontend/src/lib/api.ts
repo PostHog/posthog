@@ -2792,13 +2792,21 @@ const api = {
         },
         async getTrace(
             traceId: string,
-            dateRange?: { date_from?: string | null; date_to?: string | null }
+            query?: {
+                dateRange?: { date_from?: string | null; date_to?: string | null }
+                serviceNames?: string[]
+                statusCodes?: number[]
+                filterGroup?: PropertyGroupFilter
+            }
         ): Promise<{ results: Record<string, any>[] }> {
             return new ApiRequest()
                 .tracingSpans()
                 .withAction(`trace/${traceId}`)
                 .create({
-                    data: { dateRange: dateRange ?? { date_from: '-24h' } },
+                    data: {
+                        ...query,
+                        dateRange: query?.dateRange ?? { date_from: '-24h' },
+                    },
                 })
         },
         async sparkline(query: {
