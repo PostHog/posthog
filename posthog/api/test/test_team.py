@@ -3290,3 +3290,44 @@ class TestTeamSerializerHomeViewWins(APIBaseTest):
             assert _default_data_color_theme_id() == 7
 
         assert mock_objects.filter.call_count == 1
+
+
+class TestGetOrMintLiveEventsToken(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        cache.clear()
+
+    def test_returns_a_signed_jwt_for_the_team_user_pair(self):
+        from posthog.api.team import get_or_mint_live_events_token
+        from posthog.jwt import PosthogJwtAudience, decode_jwt
+
+        token = get_or_mint_live_events_token(self.team, self.user.id)
+        claims = decode_jwt(token, PosthogJwtAudience.LIVESTREAM)
+        assert claims["team_id"] == self.team.id
+        assert claims["api_token"] == self.team.api_token
+        assert claims["user_id"] == self.user.id
+        assert claims["organization_id"] == str(self.team.organization_id)
+
+    def test_second_call_returns_cached_token_without_re_signing(self):
+        from posthog.api.team import get_or_mint_live_events_token
+
+        first = get_or_mint_live_events_token(self.team, self.user.id)
+        with patch("posthog.api.team.encode_jwt") as mock_encode:
+            second = get_or_mint_live_events_token(self.team, self.user.id)
+        mock_encode.assert_not_called()
+        assert first == second
+
+    def test_different_user_ids_get_different_cached_tokens(self):
+        from posthog.api.team import get_or_mint_live_events_token
+
+        token_a = get_or_mint_live_events_token(self.team, self.user.id)
+        token_b = get_or_mint_live_events_token(self.team, self.user.id + 9999)
+        assert token_a != token_b
+
+    def test_api_token_rotation_busts_the_cache(self):
+        from posthog.api.team import get_or_mint_live_events_token
+
+        token_before = get_or_mint_live_events_token(self.team, self.user.id)
+        self.team.api_token = "rotated_token_value"
+        token_after = get_or_mint_live_events_token(self.team, self.user.id)
+        assert token_before != token_after
