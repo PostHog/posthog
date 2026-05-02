@@ -376,3 +376,97 @@ class TestProxyRecordAPI(APIBaseTest):
             f"/api/organizations/{self.organization.id}/proxy_records/{record.id}/",
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    @patch("posthog.api.proxy_record.diagnose_proxy_record")
+    def test_diagnose_returns_report(self, mock_diagnose):
+        import datetime as dt
+
+        from products.platform_features.backend.proxy.diagnostics import (
+            CheckResult,
+            DiagnosticReport,
+            DnsRecord,
+            Remediation,
+            ReportSummary,
+        )
+
+        record = ProxyRecord.objects.create(
+            organization=self.organization,
+            created_by=self.user,
+            domain="diagnose.example.com",
+            target_cname="abc123.proxy.posthog.com",
+            status=ProxyRecord.Status.ERRORING,
+        )
+        mock_diagnose.return_value = DiagnosticReport(
+            ran_at=dt.datetime(2026, 5, 2, 12, 0, 0, tzinfo=dt.UTC),
+            summary=ReportSummary(status="fail", primary_issue="caa", next_action="Authorize pki.goog in CAA."),
+            checks=[
+                CheckResult(id="cname", name="DNS CNAME", status="pass", detail="ok"),
+                CheckResult(
+                    id="caa",
+                    name="CAA records",
+                    status="fail",
+                    detail="CAA blocks pki.goog.",
+                    remediation=Remediation(
+                        type="dns",
+                        summary="Add a CAA record authorizing pki.goog.",
+                        records=[DnsRecord(name="example.com", type="CAA", value='0 issue "pki.goog"')],
+                    ),
+                ),
+            ],
+        )
+
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/proxy_records/{record.id}/diagnose/",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        data = response.json()
+        assert data["summary"]["status"] == "fail"
+        assert data["summary"]["primary_issue"] == "caa"
+        assert "pki.goog" in data["summary"]["next_action"]
+        assert len(data["checks"]) == 2
+        caa_check = next(c for c in data["checks"] if c["id"] == "caa")
+        assert caa_check["status"] == "fail"
+        assert caa_check["remediation"]["type"] == "dns"
+        assert caa_check["remediation"]["records"][0]["type"] == "CAA"
+        mock_diagnose.assert_called_once()
+        # confirms the diagnose function was invoked with our specific record
+        called_with = mock_diagnose.call_args[0][0]
+        assert called_with.id == record.id
+
+    def test_diagnose_returns_404_for_unknown_id(self):
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/proxy_records/00000000-0000-0000-0000-000000000000/diagnose/",
+        )
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_diagnose_returns_404_for_other_org_record(self):
+        other_org = Organization.objects.create(name="Other Org Diagnose")
+        record = ProxyRecord.objects.create(
+            organization=other_org,
+            created_by=self.user,
+            domain="other-diagnose.example.com",
+            target_cname="abc123.proxy.posthog.com",
+            status=ProxyRecord.Status.VALID,
+        )
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/proxy_records/{record.id}/diagnose/",
+        )
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_non_admin_cannot_diagnose_proxy_record(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        record = ProxyRecord.objects.create(
+            organization=self.organization,
+            created_by=self.user,
+            domain="noadmindiagnose.example.com",
+            target_cname="abc123.proxy.posthog.com",
+            status=ProxyRecord.Status.ERRORING,
+        )
+
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/proxy_records/{record.id}/diagnose/",
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
