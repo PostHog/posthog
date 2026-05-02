@@ -19,6 +19,11 @@ from rest_framework import status, test
 from temporalio.service import RPCError
 
 from posthog.api.oauth.test_dcr import generate_rsa_key
+from posthog.api.team import (
+    _default_data_color_theme_id,
+    _group_types_for_team,
+    _reset_default_data_color_theme_id_cache,
+)
 from posthog.api.test.batch_exports.conftest import start_test_worker
 from posthog.constants import AvailableFeature
 from posthog.models import ActivityLog
@@ -3227,34 +3232,34 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
 
 
 class TestTeamSerializerHomeViewWins(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        _reset_default_data_color_theme_id_cache()
+        self.addCleanup(_reset_default_data_color_theme_id_cache)
+
     def test_group_types_for_team_memoises_per_instance(self):
         # has_group_types and group_types are sibling SerializerMethodFields; previously
         # each hit Redis. They now share a request-scoped memo on the team instance.
-        from posthog.api.team import _group_types_for_team
-
         with patch("posthog.api.team.get_group_types_for_project", return_value=[]) as mock_fetch:
             _group_types_for_team(self.team)
             _group_types_for_team(self.team)
             _group_types_for_team(self.team)
         assert mock_fetch.call_count == 1
 
-        # Different team instance bypasses the memo (cache lives on the instance).
-        from posthog.models.team import Team
-
+        # Different team instance bypasses the memo: a single mock spanning both
+        # instances must see exactly two fetches (one per instance), not one.
         fresh_team = Team.objects.get(pk=self.team.pk)
         with patch("posthog.api.team.get_group_types_for_project", return_value=[]) as mock_fetch:
-            _group_types_for_team(fresh_team)
+            _group_types_for_team(self.team)  # already cached on this instance
+            _group_types_for_team(fresh_team)  # uncached on fresh instance
         assert mock_fetch.call_count == 1
+        assert mock_fetch.call_args.args == (fresh_team.project_id,)
 
-    def test_default_data_color_theme_id_is_lru_cached(self):
+    def test_default_data_color_theme_id_is_cached_for_process_lifetime(self):
         # System-wide default DataColorTheme is a deploy-time fixture; cache for
         # process lifetime to skip a per-render PG round-trip on the home view.
-        from posthog.api.team import _default_data_color_theme_id
-
-        _default_data_color_theme_id.cache_clear()
-
         with patch("posthog.api.team.DataColorTheme.objects") as mock_objects:
-            chained = mock_objects.filter.return_value.values_list.return_value
+            chained = mock_objects.filter.return_value.order_by.return_value.values_list.return_value
             chained.first.return_value = 42
 
             assert _default_data_color_theme_id() == 42
@@ -3263,6 +3268,26 @@ class TestTeamSerializerHomeViewWins(APIBaseTest):
 
         # Only the first call hit the ORM
         assert mock_objects.filter.call_count == 1
-        info = _default_data_color_theme_id.cache_info()
-        assert info.misses == 1
-        assert info.hits == 2
+
+    def test_default_data_color_theme_id_does_not_cache_none(self):
+        # If the very first call lands before the data migration is applied, a
+        # None must NOT be cached - subsequent calls should retry so we recover
+        # automatically once the row appears.
+        with patch("posthog.api.team.DataColorTheme.objects") as mock_objects:
+            chained = mock_objects.filter.return_value.order_by.return_value.values_list.return_value
+            chained.first.return_value = None
+
+            assert _default_data_color_theme_id() is None
+            assert _default_data_color_theme_id() is None
+
+        assert mock_objects.filter.call_count == 2  # both calls hit the ORM
+
+        # Once the row appears, the next call picks it up and caches it.
+        with patch("posthog.api.team.DataColorTheme.objects") as mock_objects:
+            chained = mock_objects.filter.return_value.order_by.return_value.values_list.return_value
+            chained.first.return_value = 7
+
+            assert _default_data_color_theme_id() == 7
+            assert _default_data_color_theme_id() == 7
+
+        assert mock_objects.filter.call_count == 1

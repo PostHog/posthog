@@ -3,7 +3,7 @@ import json
 import math
 import secrets
 from datetime import timedelta
-from functools import cached_property, lru_cache
+from functools import cached_property
 from typing import Any, Literal, cast
 
 from django.conf import settings
@@ -369,26 +369,51 @@ def _validate_trigger_property_filters(properties: object, context: str) -> None
             raise exceptions.ValidationError(f"{context}: property {prop_idx} must have a 'value' field.")
 
 
-_GROUP_TYPES_REQUEST_CACHE_ATTR = "_serializer_cached_group_types"
+_REQUEST_CACHED_GROUP_TYPES_ATTR = "_request_cached_group_types"
 
 
 def _group_types_for_team(team: Team) -> list[dict[str, Any]]:
     """Memoise `get_group_types_for_project` per request on the team instance.
 
     `has_group_types` and `group_types` are sibling SerializerMethodFields that
-    both want the same answer; without this, each render hit Redis twice.
+    both want the same answer; without this, each render hit Redis twice. Cache
+    is request-scoped because callers do not retain Team instances across
+    requests (DRF builds a fresh serializer + ORM instance each request).
     """
-    if not hasattr(team, _GROUP_TYPES_REQUEST_CACHE_ATTR):
-        setattr(team, _GROUP_TYPES_REQUEST_CACHE_ATTR, get_group_types_for_project(team.project_id))
-    return getattr(team, _GROUP_TYPES_REQUEST_CACHE_ATTR)
+    if not hasattr(team, _REQUEST_CACHED_GROUP_TYPES_ATTR):
+        setattr(team, _REQUEST_CACHED_GROUP_TYPES_ATTR, get_group_types_for_project(team.project_id))
+    return getattr(team, _REQUEST_CACHED_GROUP_TYPES_ATTR)
 
 
-@lru_cache(maxsize=1)
+_default_theme_id_cache: int | None = None
+
+
 def _default_data_color_theme_id() -> int | None:
-    """The system-wide default DataColorTheme is a deploy-time fixture - effectively
-    a constant. Cache it for process lifetime to skip a per-render PG round-trip
-    on the home view's TeamSerializer for orgs without DATA_COLOR_THEMES."""
-    return DataColorTheme.objects.filter(team_id__isnull=True).values_list("id", flat=True).first()
+    """Return the system-wide default DataColorTheme id, cached for process lifetime.
+
+    The default is created by data migration `0537_data_color_themes.py` and
+    is effectively a constant after deploy - cache it to skip a per-render PG
+    round-trip in `TeamSerializer.to_representation` for orgs without the
+    DATA_COLOR_THEMES feature.
+
+    We deliberately do NOT cache `None`: if the first call lands before the
+    migration is applied, or against an instance where no global default
+    exists yet, we want subsequent calls to recover automatically once the
+    row appears. `.order_by("id")` keeps the chosen ID deterministic across
+    workers if multiple globals ever exist.
+    """
+    global _default_theme_id_cache
+    if _default_theme_id_cache is None:
+        _default_theme_id_cache = (
+            DataColorTheme.objects.filter(team_id__isnull=True).order_by("id").values_list("id", flat=True).first()
+        )
+    return _default_theme_id_cache
+
+
+def _reset_default_data_color_theme_id_cache() -> None:
+    """Test-only helper for explicit cache invalidation."""
+    global _default_theme_id_cache
+    _default_theme_id_cache = None
 
 
 class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin):

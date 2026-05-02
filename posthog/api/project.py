@@ -73,18 +73,20 @@ logger = structlog.get_logger(__name__)
 MAX_ALLOWED_PROJECTS_PER_ORG = 1500
 
 
-_GROUP_TYPES_REQUEST_CACHE_ATTR = "_serializer_cached_group_types"
+_REQUEST_CACHED_GROUP_TYPES_ATTR = "_request_cached_group_types"
 
 
 def _group_types_for_project(project: Project) -> list[dict[str, Any]]:
     """Memoise `get_group_types_for_project` per request on the project instance.
 
     `has_group_types` and `group_types` are sibling SerializerMethodFields that
-    both want the same answer; without this, each render hit Redis twice.
+    both want the same answer; without this, each render hit Redis twice. Cache
+    is request-scoped because callers do not retain Project instances across
+    requests (DRF builds a fresh serializer + ORM instance each request).
     """
-    if not hasattr(project, _GROUP_TYPES_REQUEST_CACHE_ATTR):
-        setattr(project, _GROUP_TYPES_REQUEST_CACHE_ATTR, get_group_types_for_project(project.id))
-    return getattr(project, _GROUP_TYPES_REQUEST_CACHE_ATTR)
+    if not hasattr(project, _REQUEST_CACHED_GROUP_TYPES_ATTR):
+        setattr(project, _REQUEST_CACHED_GROUP_TYPES_ATTR, get_group_types_for_project(project.id))
+    return getattr(project, _REQUEST_CACHED_GROUP_TYPES_ATTR)
 
 
 class ProjectSerializer(serializers.ModelSerializer):
