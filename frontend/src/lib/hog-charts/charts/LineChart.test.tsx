@@ -33,22 +33,13 @@ describe('LineChart', () => {
         cleanup()
     })
 
-    it('renders a canvas without throwing for default config', () => {
-        const { container } = render(<LineChart series={SERIES} labels={LABELS} theme={THEME} />)
-        expect(container.querySelector('canvas')).not.toBeNull()
-    })
-
-    it('renders area mode without throwing', () => {
-        const series: Series[] = [{ key: 'a', label: 'A', data: [10, 20, 30], fill: {} }]
-        const { container } = render(<LineChart series={series} labels={LABELS} theme={THEME} />)
-        expect(container.querySelector('canvas')).not.toBeNull()
-    })
-
-    it('renders percent stack mode without throwing', () => {
-        const { container } = render(
-            <LineChart series={SERIES} labels={LABELS} theme={THEME} config={{ percentStackView: true }} />
-        )
-        expect(container.querySelector('canvas')).not.toBeNull()
+    it.each([
+        ['default config', SERIES, undefined],
+        ['area mode', [{ key: 'a', label: 'A', data: [10, 20, 30], fill: {} }] as Series[], undefined],
+        ['percent stack mode', SERIES, { percentStackView: true }],
+    ] as const)('renders without throwing in %s', (_, series, config) => {
+        const { chart } = renderHogChart(<LineChart series={series} labels={LABELS} theme={THEME} config={config} />)
+        expect(chart.seriesCount).toBeGreaterThan(0)
     })
 
     it('renders empty state without crashing', () => {
