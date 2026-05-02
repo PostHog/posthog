@@ -1,6 +1,7 @@
 from datetime import UTC, datetime
 from typing import Optional
 
+from django.core.cache import cache
 from django.db import models
 
 from celery import shared_task
@@ -328,3 +329,22 @@ def calculate_product_activation(team_id: int, only_calc_if_days_since_last_chec
         ):
             continue
         product_intent.check_and_update_activation()
+
+
+PRODUCT_ACTIVATION_DEBOUNCE_TTL_SECONDS = 24 * 60 * 60
+
+
+def enqueue_product_activation_calc_debounced(team_id: int) -> bool:
+    """Enqueue `calculate_product_activation` for this team at most once per 24h.
+
+    The task itself already short-circuits with `only_calc_if_days_since_last_checked=1`,
+    so enqueueing on every page render was wasted broker traffic. This guard skips the
+    Celery enqueue when we've already enqueued for this team within the debounce window.
+
+    Returns True when the task was enqueued, False when the call was debounced.
+    """
+    debounce_key = f"product_activation_enqueued:{team_id}"
+    if cache.add(debounce_key, "1", timeout=PRODUCT_ACTIVATION_DEBOUNCE_TTL_SECONDS):
+        calculate_product_activation.delay(team_id, only_calc_if_days_since_last_checked=1)
+        return True
+    return False

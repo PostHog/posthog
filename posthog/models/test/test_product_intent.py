@@ -785,3 +785,35 @@ class TestProductIntent(BaseTest):
         self.product_intent.save()
 
         assert self.product_intent.has_activated_workflows() is False
+
+
+class TestEnqueueProductActivationCalcDebounced(BaseTest):
+    def setUp(self):
+        super().setUp()
+        from django.core.cache import cache
+
+        cache.clear()
+
+    def test_first_call_enqueues_the_celery_task(self):
+        from posthog.models.product_intent.product_intent import enqueue_product_activation_calc_debounced
+
+        with patch("posthog.models.product_intent.product_intent.calculate_product_activation.delay") as mock_delay:
+            assert enqueue_product_activation_calc_debounced(self.team.id) is True
+        mock_delay.assert_called_once_with(self.team.id, only_calc_if_days_since_last_checked=1)
+
+    def test_subsequent_calls_within_window_are_debounced(self):
+        from posthog.models.product_intent.product_intent import enqueue_product_activation_calc_debounced
+
+        with patch("posthog.models.product_intent.product_intent.calculate_product_activation.delay") as mock_delay:
+            assert enqueue_product_activation_calc_debounced(self.team.id) is True
+            assert enqueue_product_activation_calc_debounced(self.team.id) is False
+            assert enqueue_product_activation_calc_debounced(self.team.id) is False
+        assert mock_delay.call_count == 1
+
+    def test_other_teams_are_not_debounced(self):
+        from posthog.models.product_intent.product_intent import enqueue_product_activation_calc_debounced
+
+        with patch("posthog.models.product_intent.product_intent.calculate_product_activation.delay") as mock_delay:
+            assert enqueue_product_activation_calc_debounced(self.team.id) is True
+            assert enqueue_product_activation_calc_debounced(self.team.id + 9999) is True
+        assert mock_delay.call_count == 2

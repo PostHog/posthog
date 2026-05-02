@@ -44,7 +44,7 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.product_intent.product_intent import (
     ProductIntent,
     ProductIntentSerializer,
-    calculate_product_activation,
+    enqueue_product_activation_calc_debounced,
 )
 from posthog.models.project import Project
 from posthog.models.team.setup_tasks import SetupTaskId
@@ -385,7 +385,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
     def get_product_intents(self, obj):
         project = obj
         team = project.passthrough_team
-        calculate_product_activation.delay(team.id, only_calc_if_days_since_last_checked=1)
+        enqueue_product_activation_calc_debounced(team.id)
         return ProductIntent.objects.filter(team=team).values(
             "product_type", "created_at", "onboarding_completed_at", "updated_at"
         )
