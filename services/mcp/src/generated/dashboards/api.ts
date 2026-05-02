@@ -20,6 +20,12 @@ export const DashboardsListQueryParams = /* @__PURE__ */ zod.object({
     format: zod.enum(['json', 'txt']).optional(),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    search: zod
+        .string()
+        .optional()
+        .describe(
+            'Optional. Fuzzy full-text search across `name` and `description`. Combines weighted Postgres full-text search (name weight A, description weight C, with prefix-as-you-type matching on the last token) with trigram similarity on `name` (handles typos and transpositions). Results are ordered by relevance score, then pinned status, then name. When omitted, dashboards are ordered by pinned status then alphabetical name.'
+        ),
 })
 
 export const DashboardsCreateParams = /* @__PURE__ */ zod.object({
