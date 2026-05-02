@@ -1,3 +1,8 @@
+import json
+import hashlib
+from collections.abc import Mapping
+from typing import Any
+
 import structlog
 from temporalio import activity
 
@@ -5,12 +10,12 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.redis import get_async_client
 from posthog.sync import database_sync_to_async, database_sync_to_async_pool
+from posthog.temporal.common.search_attributes import POSTHOG_SCHEDULE_FINGERPRINT_KEY
 from posthog.temporal.session_replay.rasterize_recording.activities.stuck_counter import read_stuck_session_ids
 from posthog.temporal.session_replay.summarization_sweep.constants import (
     CH_QUERY_MAX_EXECUTION_SECONDS,
     SCHEDULE_ID_PREFIX,
     SCHEDULE_TYPE,
-    STUCK_RASTERIZE_LOOKBACK,
     STUCK_RASTERIZE_THRESHOLD,
     WORKFLOW_NAME,
 )
@@ -135,20 +140,45 @@ async def delete_team_schedule_activity(inputs: DeleteTeamScheduleInput) -> None
     await a_delete_team_schedule(inputs.team_id)
 
 
-def _list_allowed_team_ids() -> list[int]:
-    return list(
-        SignalSourceConfig.objects.filter(
-            source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
-            source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
-            enabled=True,
-            team__organization__is_ai_data_processing_approved=True,
-        ).values_list("team_id", flat=True)
-    )
+def compute_schedule_fingerprint(config: Mapping[str, Any] | None) -> str:
+    """Stable hash of the team's SignalSourceConfig dict (sample_rate,
+    recording_filters, future per-team overrides). The reconciler stores this on
+    each schedule's PostHogScheduleFingerprint search attribute and rewrites
+    schedules whose stored value drifts from the freshly-computed one — so a UI
+    edit propagates within RECONCILER_INTERVAL.
+    """
+    canonical = json.dumps(config or {}, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode()).hexdigest()[:16]
+
+
+def _list_allowed_team_fingerprints() -> dict[int, str]:
+    """Return {team_id: schedule_fingerprint} for every enabled, AI-approved team."""
+    rows = SignalSourceConfig.objects.filter(
+        source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
+        source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
+        enabled=True,
+        team__organization__is_ai_data_processing_approved=True,
+    ).values_list("team_id", "config")
+    return {team_id: compute_schedule_fingerprint(config) for team_id, config in rows}
 
 
 @activity.defn
-async def list_enabled_teams_activity() -> list[int]:
-    return await database_sync_to_async(_list_allowed_team_ids)()
+async def list_enabled_teams_activity() -> dict[int, str]:
+    return await database_sync_to_async(_list_allowed_team_fingerprints)()
+
+
+def _load_team_config(team_id: int) -> Mapping[str, Any] | None:
+    cfg = (
+        SignalSourceConfig.objects.filter(
+            team_id=team_id,
+            source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
+            source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
+            enabled=True,
+        )
+        .values_list("config", flat=True)
+        .first()
+    )
+    return cfg
 
 
 def _schedule_workflow_type(listing: object) -> str | None:
@@ -158,8 +188,26 @@ def _schedule_workflow_type(listing: object) -> str | None:
         return None
 
 
+def _schedule_fingerprint(listing: object) -> str | None:
+    """Read PostHogScheduleFingerprint from a ScheduleListDescription, or None if absent."""
+    try:
+        attrs = listing.typed_search_attributes  # type: ignore[attr-defined]
+    except AttributeError:
+        return None
+    for pair in attrs:
+        if pair.key.name == POSTHOG_SCHEDULE_FINGERPRINT_KEY.name:
+            return pair.value
+    return None
+
+
 @activity.defn
-async def list_summarization_schedule_team_ids_activity() -> list[int]:
+async def list_summarization_schedule_team_ids_activity() -> dict[int, str | None]:
+    """Return {team_id: stored_fingerprint} for each existing per-team schedule.
+
+    The fingerprint is None for legacy schedules created before this tag was introduced.
+    The reconciler treats None or any mismatch against the freshly-computed fingerprint
+    as drift and rewrites the schedule.
+    """
     from posthog.temporal.common.client import async_connect
 
     client = await async_connect()
@@ -167,7 +215,7 @@ async def list_summarization_schedule_team_ids_activity() -> list[int]:
     # one visibility query returns exactly our schedules — no namespace-wide scan.
     query = f'PostHogScheduleType = "{SCHEDULE_TYPE}"'
     prefix = f"{SCHEDULE_ID_PREFIX}-"
-    team_ids: list[int] = []
+    out: dict[int, str | None] = {}
     async for listing in await client.list_schedules(query=query):
         if not listing.id.startswith(prefix):
             continue
@@ -176,10 +224,12 @@ async def list_summarization_schedule_team_ids_activity() -> list[int]:
             continue
         suffix = listing.id[len(prefix) :]
         try:
-            team_ids.append(int(suffix))
+            team_id = int(suffix)
         except ValueError:
             logger.warning("summarization_sweep.unparseable_schedule_id", schedule_id=listing.id)
-    return team_ids
+            continue
+        out[team_id] = _schedule_fingerprint(listing)
+    return out
 
 
 @activity.defn

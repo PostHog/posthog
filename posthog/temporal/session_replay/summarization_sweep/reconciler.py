@@ -1,9 +1,12 @@
 """Syncs per-team schedules with SignalSourceConfig on every tick.
 
-Only upserts *new* teams rather than all enabled teams — re-upserting every
-cycle would fix schedule-definition drift automatically but costs one Temporal
-RPC per enabled team per minute. Recreate schedules manually if `_build_schedule`
-changes and needs to apply to existing ones.
+Each schedule is tagged with a PostHogScheduleFingerprint search attribute — a
+hash of the SignalSourceConfig dict that produced it plus a code-side format
+version. The reconciler computes the freshly-derived fingerprint from the DB
+for every enabled team and compares against the schedule's stored tag; mismatches
+get rewritten so UI config edits propagate within RECONCILER_INTERVAL. Drift
+detection uses search attributes returned by list_schedules — no extra Temporal
+RPCs in steady state.
 """
 
 import asyncio
@@ -45,7 +48,7 @@ class ReconcileSummarizationSchedulesWorkflow(PostHogWorkflow):
     async def run(self, inputs: ReconcileSchedulesInputs) -> dict[str, Any]:
         # A team enabled between the two listings may get deleted this tick and
         # recreated next tick — worst case ~one RECONCILER_INTERVAL of missed summaries.
-        enabled_ids, existing_ids = await asyncio.gather(
+        enabled_fingerprints, existing_fingerprints = await asyncio.gather(
             workflow.execute_activity(
                 list_enabled_teams_activity,
                 start_to_close_timeout=LIST_ENABLED_TEAMS_TIMEOUT,
@@ -57,9 +60,14 @@ class ReconcileSummarizationSchedulesWorkflow(PostHogWorkflow):
                 retry_policy=RetryPolicy(maximum_attempts=3),
             ),
         )
-        enabled = set(enabled_ids)
-        existing = set(existing_ids)
-        to_upsert = sorted(enabled - existing)
+        enabled = set(enabled_fingerprints)
+        existing = set(existing_fingerprints)
+        # Drift: schedules whose stored fingerprint differs from what the team's current
+        # SignalSourceConfig would produce (UI edit, or code-side format bump). Untagged
+        # legacy schedules surface as None vs. a real hash, also drift. Only consider
+        # still-enabled teams — disabled ones are deleted below.
+        drifted = {tid for tid in (enabled & existing) if existing_fingerprints[tid] != enabled_fingerprints[tid]}
+        to_upsert = sorted((enabled - existing) | drifted)
         to_delete = sorted(existing - enabled)
 
         upsert_results, delete_results = await asyncio.gather(

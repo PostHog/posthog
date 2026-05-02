@@ -16,9 +16,18 @@ from temporalio.client import (
 )
 from temporalio.common import SearchAttributePair, TypedSearchAttributes
 
+from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.schedule import a_create_schedule, a_delete_schedule, a_schedule_exists, a_update_schedule
-from posthog.temporal.common.search_attributes import POSTHOG_SCHEDULE_TYPE_KEY, POSTHOG_TEAM_ID_KEY
+from posthog.temporal.common.search_attributes import (
+    POSTHOG_SCHEDULE_FINGERPRINT_KEY,
+    POSTHOG_SCHEDULE_TYPE_KEY,
+    POSTHOG_TEAM_ID_KEY,
+)
+from posthog.temporal.session_replay.summarization_sweep.activities import (
+    _load_team_config,
+    compute_schedule_fingerprint,
+)
 from posthog.temporal.session_replay.summarization_sweep.constants import (
     SCHEDULE_ID_PREFIX,
     SCHEDULE_INTERVAL,
@@ -63,10 +72,17 @@ async def a_upsert_team_schedule(team_id: int) -> None:
     client = await async_connect()
     schedule = _build_schedule(team_id)
     schedule_id = team_schedule_id(team_id)
+    # Fingerprint covers everything that determines the schedule's shape: the team's
+    # SignalSourceConfig dict (so a UI edit triggers a reconciler rewrite) and a
+    # code-side format version. Stored on the schedule as a search attribute so the
+    # reconciler can detect drift via list_schedules without a separate describe.
+    config = await database_sync_to_async(_load_team_config)(team_id)
+    fingerprint = compute_schedule_fingerprint(config)
     search_attributes = TypedSearchAttributes(
         search_attributes=[
             SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=team_id),
             SearchAttributePair(key=POSTHOG_SCHEDULE_TYPE_KEY, value=SCHEDULE_TYPE),
+            SearchAttributePair(key=POSTHOG_SCHEDULE_FINGERPRINT_KEY, value=fingerprint),
         ]
     )
 
