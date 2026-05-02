@@ -1,4 +1,5 @@
 import json
+from typing import Any
 from unittest.mock import MagicMock, patch
 from uuid import UUID
 
@@ -358,7 +359,8 @@ class TestPostHogCallback:
 
 class TestNormalizeTraceId:
     def test_returns_fresh_uuid_when_value_is_falsy(self) -> None:
-        for raw in (None, "", 0, []):
+        falsy_inputs: list[Any] = [None, "", 0, []]
+        for raw in falsy_inputs:
             value = _normalize_trace_id(raw)
             assert _is_uuid(value)
 
