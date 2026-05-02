@@ -40,7 +40,7 @@ from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.data_color_theme import DataColorTheme
 from posthog.models.evaluation_context import EvaluationContext, TeamDefaultEvaluationContext, normalize_context_name
 from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig
-from posthog.models.group_type_mapping import cached_group_types_for_request
+from posthog.models.group_type_mapping import cached_group_types_for_team
 from posthog.models.organization import OrganizationMembership
 from posthog.models.product_intent.product_intent import ProductIntentSerializer, calculate_product_activation
 from posthog.models.project import Project
@@ -481,10 +481,10 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         return self.user_permissions.team(team).effective_membership_level
 
     def get_has_group_types(self, team: Team) -> bool:
-        return bool(cached_group_types_for_request(team, team.project_id))
+        return bool(cached_group_types_for_team(team))
 
     def get_group_types(self, team: Team) -> list[dict[str, Any]]:
-        return cached_group_types_for_request(team, team.project_id)
+        return cached_group_types_for_team(team)
 
     def get_live_events_token(self, team: Team) -> str | None:
         request = self.context.get("request")
