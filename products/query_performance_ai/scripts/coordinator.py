@@ -306,7 +306,10 @@ def _spawn_one_sandbox(
             f"trap 'rm -f {shlex.quote(env_file)}' EXIT && "
             f"chmod 600 {shlex.quote(env_file)} && "
             f"set -a && . {shlex.quote(env_file)} && set +a && "
-            f"python3 products/query_performance_ai/scripts/run_campaign.py 2>&1"
+            # `-m` (not direct script invocation) so relative imports inside
+            # the package resolve. `python3 path/to/run_campaign.py` runs the
+            # file with no parent package, which breaks `from .runtime import …`.
+            f"python3 -m products.query_performance_ai.scripts.run_campaign 2>&1"
         )
 
         _log(f"[{query.query_id}] running run_campaign.py inside sandbox {sandbox.id}")
