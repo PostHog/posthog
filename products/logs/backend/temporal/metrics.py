@@ -209,12 +209,33 @@ def record_cohort_size(size: int) -> None:
     )
 
 
-def increment_cohort_save_fallback(reason: str) -> None:
+CohortSaveFallbackReason = typing.Literal["integrity_error"]
+CohortQueryFallbackReason = typing.Literal["batched_failure", "transient_no_fallback"]
+
+
+def increment_cohort_save_fallback(reason: CohortSaveFallbackReason) -> None:
     """Counts cohort bulk-save failures that triggered the per-alert fallback path."""
     meter = get_metric_meter({"reason": reason})
     counter = meter.create_counter(
         "logs_alerting_cohort_save_fallback_total",
         "Cohort bulk-save fell back to per-alert UPDATEs (e.g. IntegrityError)",
+    )
+    counter.add(1)
+
+
+def increment_cohort_query_fallback(reason: CohortQueryFallbackReason) -> None:
+    """Counts batched CH query failures that triggered the per-alert query fallback path.
+
+    Sustained > 0 = at least one team has an alert whose predicate is taking down
+    its cohort's batched query. The fallback isolates the bad alert (its
+    consecutive_failures advances independently) so good alerts in the cohort
+    keep evaluating. If this fires regularly, investigate the team's alert
+    configs.
+    """
+    meter = get_metric_meter({"reason": reason})
+    counter = meter.create_counter(
+        "logs_alerting_cohort_query_fallback_total",
+        "Batched CH cohort query failed and fell back to per-alert queries",
     )
     counter.add(1)
 

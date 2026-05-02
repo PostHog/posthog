@@ -2,6 +2,7 @@ export { dimensions, makeSeries, mockRect, setupJsdom, setupSyncRaf } from './js
 export { clickAtIndex, hoverAtIndex } from './interactions'
 export { getHogChart } from './accessor'
 export type { HogChart } from './accessor'
+export { renderHogChart } from './render'
 export {
     createHogChartTooltip,
     getHogChartTooltip,

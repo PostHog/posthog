@@ -21,7 +21,7 @@ from parameterized import parameterized
 from posthog.clickhouse.client import sync_execute
 from posthog.errors import QueryErrorCategory
 
-from products.logs.backend.alert_check_query import BatchedBucketedResult, BucketedCount
+from products.logs.backend.alert_check_query import AlertCheckQuery, BatchedBucketedResult, BucketedCount
 from products.logs.backend.alert_state_machine import AlertState, NotificationAction
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 from products.logs.backend.temporal.activities import (
@@ -520,7 +520,6 @@ class TestSaveCohortOutcomesFallback(APIBaseTest):
             check_result=CheckResult(result_count=0, threshold_breached=False, query_duration_ms=10),
             date_from=datetime(2025, 1, 1, 0, 0, tzinfo=UTC),
             date_to=datetime(2025, 1, 1, 0, 5, tzinfo=UTC),
-            error_category=None,
             state_before=alert.state,
         )
         return _DispatchedAlert(evaluation=evaluation, notification_failed=False)
@@ -557,6 +556,249 @@ class TestSaveCohortOutcomesFallback(APIBaseTest):
 
         with self.assertRaises(OperationalError):
             _save_cohort_outcomes(dispatched, now)
+
+
+class TestRunCohortQueryFallback(unittest.TestCase):
+    @staticmethod
+    def _make_cohort(n: int) -> _AlertCohort:
+        alerts = tuple(MagicMock(id=f"alert-{i}", team_id=1, name=f"alert-{i}") for i in range(n))
+        for a in alerts:
+            a.window_minutes = 5
+            a.evaluation_periods = 1
+        return _AlertCohort(
+            alerts=alerts,
+            date_to=datetime(2025, 1, 1, 0, 5, 0, tzinfo=UTC),
+            projection_eligible=True,
+        )
+
+    @patch("products.logs.backend.temporal.activities.increment_cohort_query_fallback")
+    @patch("products.logs.backend.temporal.activities.classify_alert_error")
+    @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
+    @patch("products.logs.backend.temporal.activities._run_batched_query")
+    def test_falls_back_to_per_alert_on_non_transient_failure(
+        self, mock_batched, mock_alert_check_query_cls, mock_classify, mock_fallback_counter
+    ):
+        from products.logs.backend.temporal.activities import _run_cohort_query
+
+        # Non-transient classification → fallback runs.
+        mock_batched.side_effect = RuntimeError("query_performance error")
+        mock_classify.return_value = MagicMock(is_transient=False, code="query_performance")
+
+        # Per-alert AlertCheckQuery: alert-0 succeeds, alert-1 raises (the bad one).
+        def make_query_instance(*, team, alert, **_kwargs):
+            instance = MagicMock()
+            if alert.id == "alert-1":
+                instance.execute_bucketed.side_effect = RuntimeError("alert-1 also bad")
+            else:
+                instance.execute_bucketed.return_value = [
+                    BucketedCount(timestamp=datetime(2025, 1, 1, 0, 0, tzinfo=UTC), count=42)
+                ]
+            return instance
+
+        mock_alert_check_query_cls.side_effect = make_query_instance
+
+        cohort = self._make_cohort(2)
+        result = _run_cohort_query(cohort)
+
+        # Fallback counter fired with the "batched_failure" reason (non-transient → fallback ran).
+        mock_fallback_counter.assert_called_once_with("batched_failure")
+
+        # Good alert has buckets, bad alert has the per-alert error captured.
+        good = result.per_alert["alert-0"]
+        bad = result.per_alert["alert-1"]
+        assert good.buckets is not None and good.buckets[0].count == 42
+        assert good.error is None
+        assert bad.buckets is None
+        assert bad.error is not None and "alert-1 also bad" in str(bad.error)
+
+    @patch("products.logs.backend.temporal.activities.increment_cohort_query_fallback")
+    @patch("products.logs.backend.temporal.activities.classify_alert_error")
+    @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
+    @patch("products.logs.backend.temporal.activities._run_batched_query")
+    def test_skips_fallback_on_transient_error(
+        self, mock_batched, mock_alert_check_query_cls, mock_classify, mock_fallback_counter
+    ):
+        # Transient classification → no fallback. Don't hammer a sick cluster.
+        from products.logs.backend.temporal.activities import _run_cohort_query
+
+        mock_batched.side_effect = RuntimeError("server busy")
+        mock_classify.return_value = MagicMock(is_transient=True, code="server_busy")
+
+        cohort = self._make_cohort(3)
+        result = _run_cohort_query(cohort)
+
+        # Fallback counter fired with the "transient_no_fallback" reason.
+        mock_fallback_counter.assert_called_once_with("transient_no_fallback")
+        # AlertCheckQuery is never instantiated because we don't run the fallback.
+        mock_alert_check_query_cls.assert_not_called()
+
+        # Every alert in the cohort gets the same error — no isolation needed
+        # because the next cycle will retry once the cluster recovers.
+        for alert in cohort.alerts:
+            prefetched = result.per_alert[str(alert.id)]
+            assert prefetched.buckets is None
+            assert prefetched.error is not None and "server busy" in str(prefetched.error)
+
+    @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
+    @patch("products.logs.backend.temporal.activities._run_batched_query")
+    def test_single_alert_cohort_skips_fallback(self, mock_batched, mock_alert_check_query_cls):
+        from products.logs.backend.temporal.activities import _run_cohort_query
+
+        mock_batched.side_effect = RuntimeError("query failed")
+
+        cohort = self._make_cohort(1)
+        result = _run_cohort_query(cohort)
+
+        # No fallback for single-alert cohorts — the per-alert path would just hit the same error.
+        mock_alert_check_query_cls.assert_not_called()
+        assert "alert-0" in result.per_alert
+        prefetched = result.per_alert["alert-0"]
+        assert prefetched.error is not None and "query failed" in str(prefetched.error)
+
+    @patch("products.logs.backend.temporal.activities._run_batched_query")
+    def test_batched_success_skips_fallback(self, mock_batched):
+        from products.logs.backend.alert_check_query import BatchedBucketedResult
+        from products.logs.backend.temporal.activities import _run_cohort_query
+
+        cohort = self._make_cohort(3)
+        mock_batched.return_value = BatchedBucketedResult(
+            per_alert={
+                str(a.id): [BucketedCount(timestamp=datetime(2025, 1, 1, tzinfo=UTC), count=i)]
+                for i, a in enumerate(cohort.alerts)
+            },
+            query_duration_ms=42,
+        )
+
+        result = _run_cohort_query(cohort)
+
+        for i, alert in enumerate(cohort.alerts):
+            prefetched = result.per_alert[str(alert.id)]
+            assert prefetched.error is None
+            assert prefetched.buckets is not None and prefetched.buckets[0].count == i
+            assert prefetched.query_duration_ms == 42
+
+
+class TestRunCohortQueryFallbackEndToEnd(ClickhouseTestMixin, APIBaseTest):
+    """CH-backed integration test for the per-alert fallback path."""
+
+    def setUp(self):
+        super().setUp()
+        rows = [
+            {
+                "uuid": f"fallback-{i}",
+                "team_id": self.team.id,
+                "timestamp": ts,
+                "body": "",
+                "severity_text": "info",
+                "severity_number": 9,
+                "service_name": service,
+                "resource_attributes": {},
+                "attributes_map_str": {},
+            }
+            for i, (ts, service) in enumerate(
+                [
+                    ("2026-01-01 10:00:30", "fallback_service_a"),
+                    ("2026-01-01 10:01:00", "fallback_service_a"),
+                    ("2026-01-01 10:00:45", "fallback_service_a"),
+                    ("2026-01-01 10:02:30", "fallback_service_b"),
+                    ("2026-01-01 10:03:30", "fallback_service_b"),
+                ]
+            )
+        ]
+        sync_execute("INSERT INTO logs FORMAT JSONEachRow\n" + "\n".join(json.dumps(r) for r in rows))
+
+    def _make_alert(self, *, name: str, service: str) -> LogsAlertConfiguration:
+        return LogsAlertConfiguration.objects.create(
+            team=self.team,
+            name=name,
+            threshold_count=10,
+            threshold_operator="above",
+            window_minutes=5,
+            evaluation_periods=1,
+            filters={"serviceNames": [service]},
+        )
+
+    @freeze_time("2026-01-01T10:05:00Z")
+    @patch("products.logs.backend.temporal.activities.classify_alert_error")
+    @patch("products.logs.backend.temporal.activities.increment_cohort_query_fallback")
+    @patch("products.logs.backend.temporal.activities._run_batched_query")
+    def test_fallback_runs_per_alert_queries_against_real_clickhouse(self, mock_batched, _mock_counter, mock_classify):
+        from products.logs.backend.temporal.activities import _AlertCohort, _run_cohort_query
+
+        # Non-transient classification → fallback runs against real CH.
+        mock_batched.side_effect = RuntimeError("batched query timed out")
+        mock_classify.return_value = MagicMock(is_transient=False, code="query_performance")
+
+        alert_a = self._make_alert(name="A", service="fallback_service_a")
+        alert_b = self._make_alert(name="B", service="fallback_service_b")
+        cohort = _AlertCohort(
+            alerts=(alert_a, alert_b),
+            date_to=datetime(2026, 1, 1, 10, 5, 0, tzinfo=UTC),
+            projection_eligible=True,
+        )
+
+        result = _run_cohort_query(cohort)
+
+        # Both alerts evaluated successfully via the per-alert fallback.
+        prefetch_a = result.per_alert[str(alert_a.id)]
+        prefetch_b = result.per_alert[str(alert_b.id)]
+        assert prefetch_a.error is None and prefetch_a.buckets is not None
+        assert prefetch_b.error is None and prefetch_b.buckets is not None
+
+        # Bucket counts match the seeded data: 3 logs for service_a, 2 for service_b.
+        assert sum(b.count for b in prefetch_a.buckets) == 3
+        assert sum(b.count for b in prefetch_b.buckets) == 2
+
+        # Per-alert query duration is captured (not the batched duration, which never
+        # ran). Should be a non-negative integer for each.
+        assert prefetch_a.query_duration_ms is not None and prefetch_a.query_duration_ms >= 0
+        assert prefetch_b.query_duration_ms is not None and prefetch_b.query_duration_ms >= 0
+
+    @freeze_time("2026-01-01T10:05:00Z")
+    @patch("products.logs.backend.temporal.activities.classify_alert_error")
+    @patch("products.logs.backend.temporal.activities.increment_cohort_query_fallback")
+    @patch("products.logs.backend.temporal.activities._run_batched_query")
+    def test_fallback_isolates_one_alerts_per_alert_failure(self, mock_batched, _mock_counter, mock_classify):
+        # Force batched to fail with a non-transient classification (so fallback
+        # runs); force ONE alert's per-alert query to also fail. Verify the other
+        # alert still evaluates correctly against real CH and the bad alert's
+        # error is captured per-alert (not propagated to the cohort).
+        from products.logs.backend.temporal.activities import _AlertCohort, _run_cohort_query
+
+        mock_batched.side_effect = RuntimeError("batched query timed out")
+        mock_classify.return_value = MagicMock(is_transient=False, code="query_performance")
+
+        good_alert = self._make_alert(name="good", service="fallback_service_a")
+        bad_alert = self._make_alert(name="bad", service="fallback_service_b")
+        cohort = _AlertCohort(
+            alerts=(good_alert, bad_alert),
+            date_to=datetime(2026, 1, 1, 10, 5, 0, tzinfo=UTC),
+            projection_eligible=True,
+        )
+
+        # Selectively fail the per-alert query for bad_alert; let good_alert hit real CH.
+        original_execute_bucketed = AlertCheckQuery.execute_bucketed
+
+        def maybe_fail(self, *args, **kwargs):
+            if self.alert.id == bad_alert.id:
+                raise RuntimeError("simulated per-alert query failure")
+            return original_execute_bucketed(self, *args, **kwargs)
+
+        with patch.object(AlertCheckQuery, "execute_bucketed", maybe_fail):
+            result = _run_cohort_query(cohort)
+
+        # Good alert: real buckets, no error.
+        good_prefetch = result.per_alert[str(good_alert.id)]
+        assert good_prefetch.error is None
+        assert good_prefetch.buckets is not None
+        assert sum(b.count for b in good_prefetch.buckets) == 3
+
+        # Bad alert: error captured per-alert, no buckets.
+        bad_prefetch = result.per_alert[str(bad_alert.id)]
+        assert bad_prefetch.buckets is None
+        assert bad_prefetch.error is not None
+        assert "simulated per-alert query failure" in str(bad_prefetch.error)
+        assert bad_prefetch.query_duration_ms is not None and bad_prefetch.query_duration_ms >= 0
 
 
 class TestEvaluateSingleAlert(APIBaseTest):
