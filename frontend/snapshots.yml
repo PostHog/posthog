@@ -4578,6 +4578,18 @@ snapshots:
         hash: v1.k794b7964.8ac25ec65efac59dc2aab2ea703fe00e8ddc78dcaf5bab53fd8daa0caebed92b.IDDbWQcNJsSDGIRlCPFu-4l1w0lFc8SB_xVPVYGS00c
     scenes-app-llm-analytics-sentiment--tag-positive--light:
         hash: v1.k794b7964.815de3d9207328cf5219021229f699cbcc1953137668b1896f387e7f862a2ee2.wQsMZxFINw08NQmkJwSv0pTi4l069nAOznu1A_6LXHM
+    scenes-app-llm-analytics-skills--skill-detail-side-by-side-above-2-xl-breakpoint--superwide--dark:
+        hash: v1.k794b7964.50c277b4d14db73ecd72f2cb7154d82a9b494a2c653042f03ed602d3def55a7b.ZkfOkwlYKTIBUlVuYxw4z7m8Ftk9EmazC-r98Ud5k6g
+    scenes-app-llm-analytics-skills--skill-detail-side-by-side-above-2-xl-breakpoint--superwide--light:
+        hash: v1.k794b7964.e48122cd455f5b0e8ebecfc2b3e291eb5564571a880c486ff7d5b6633f819640.TVcFcFI1_d2qNOI0v1SH4IRObZ4yz-uAeH8rZqjsbE0
+    scenes-app-llm-analytics-skills--skill-detail-stacked-below-2-xl-breakpoint--medium--dark:
+        hash: v1.k794b7964.8601461f92d7f15e50469008a30a3c19de5b3ba21dd0f9d68fe815b23fb9b40f.jwLeYmySDnScqpJ9YFo1G1RCbIonmH31FcbxQlCMvyY
+    scenes-app-llm-analytics-skills--skill-detail-stacked-below-2-xl-breakpoint--medium--light:
+        hash: v1.k794b7964.c4e8581f03a2eda95ec7ed501ee5be8a48d76a24b2531c45b16a48dfd395dd9e.lw8ZBZRsght9abvSfXcXJBwyBI4waZypIp4NN67V4-o
+    scenes-app-llm-analytics-skills--skill-detail-stacked-below-2-xl-breakpoint--wide--dark:
+        hash: v1.k794b7964.4e364a5792571c3f8bc0e31af8692daed48530719acfddca05f57fb9cd5eba97.5gNOyBfrfFZBXFVrOHLhJ1Q08CkgzZVaq2Mn2ZtBNJw
+    scenes-app-llm-analytics-skills--skill-detail-stacked-below-2-xl-breakpoint--wide--light:
+        hash: v1.k794b7964.a04c84511a1ce95496bac3b1468aea996ebdd625a80001bfaa0148f16711b29d.oCnR9fWON27pxDi3xIjaZ60YJ10pdvfExoCHYYw5zdc
     scenes-app-llm-analytics-trace--full--dark:
         hash: v1.k794b7964.839b3d2c72d2011e65d0ae53a828cabf3e247692340a46ffea3dce908e73aff0.CH8Zwck_XL3ZTZ5-bHOZjt4BunIB51v5jiEopCLQSkY
     scenes-app-llm-analytics-trace--full--light:
