@@ -7,20 +7,24 @@ publish = false
 [dependencies]
 anyhow = { workspace = true }
 axum = { workspace = true }
+bytes = { workspace = true }
 common-alloc = { path = "../common/alloc" }
 common-kafka = { path = "../common/kafka" }
 envconfig = { workspace = true }
 lifecycle = { path = "../common/lifecycle" }
+reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true, features = ["raw_value"] }
 serve-metrics = { path = "../common/serve_metrics" }
 thiserror = { workspace = true }
 tokio = { workspace = true }
+tokio-util = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]
+httpmock = { workspace = true }
 jsonschema = "0.18"
 tower = { workspace = true }
 

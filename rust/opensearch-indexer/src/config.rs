@@ -29,6 +29,14 @@ pub struct Config {
     #[envconfig(default = "opensearch_indexer_dlq")]
     pub opensearch_dlq_topic: String,
 
+    // Bulk batching: size in bytes and max age in ms. OS recommends ~5-15MB per request;
+    // we default to 5MB to keep latency tight and stay well under typical proxy buffers.
+    #[envconfig(default = "5242880")]
+    pub bulk_max_batch_bytes: usize,
+
+    #[envconfig(default = "1000")]
+    pub bulk_max_age_ms: u64,
+
     // Cardinality cap for per-team metric labels. Teams outside the top-N by event volume
     // are folded into a single `team_id="other"` bucket.
     #[envconfig(default = "50")]

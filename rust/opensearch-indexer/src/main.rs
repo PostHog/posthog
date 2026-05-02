@@ -4,17 +4,42 @@ use common_kafka::kafka_consumer::SingleTopicConsumer;
 use lifecycle::{ComponentOptions, Manager};
 use opensearch_indexer::{
     api::root_router,
+    bulk::BulkWriter,
     config::Config,
-    work_loop::{run_consumer, run_sink},
+    readiness::wait_for_alias,
+    work_loop::{run_consumer, run_sink, SinkConfig},
 };
 use serve_metrics::setup_metrics_routes;
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
 use tracing::level_filters::LevelFilter;
 use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
 
 common_alloc::used!();
+
+/// Install a SIGTERM/SIGINT listener that cancels `token` on receipt. Runs
+/// before the lifecycle Manager's own signal handler is up so the readiness
+/// gate window is shutdown-aware. Multiple Tokio signal listeners coexist
+/// fine; the lifecycle Manager will install its own copy when monitor_background
+/// runs and will see the token already cancelled if shutdown happened earlier.
+fn spawn_early_signal_listener(token: CancellationToken) {
+    tokio::spawn(async move {
+        let mut sigterm = match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::warn!(error = %e, "failed to install SIGTERM handler for readiness gate");
+                return;
+            }
+        };
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => info!("readiness gate received SIGINT"),
+            _ = sigterm.recv() => info!("readiness gate received SIGTERM"),
+        }
+        token.cancel();
+    });
+}
 
 fn setup_tracing() {
     let log_layer = tracing_subscriber::fmt::layer().with_filter(
@@ -33,8 +58,29 @@ async fn main() -> anyhow::Result<()> {
     let config = Config::init_with_defaults()?;
     let bind = format!("{}:{}", config.host, config.port);
 
+    // Shared shutdown token: wired into both the readiness gate (so SIGTERM
+    // during alias-poll exits promptly) and the lifecycle Manager (so the
+    // gate's cancellation flows into the rest of the shutdown sequence).
+    let shutdown_token = CancellationToken::new();
+    spawn_early_signal_listener(shutdown_token.clone());
+
+    // Readiness gate: refuse to start if the alias is missing. Decision #7 in plan.
+    // Runs before binding HTTP / spawning workers so K8s sees the pod as not-ready
+    // (no listener) until the dependency is verified.
+    let probe_client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(5))
+        .build()?;
+    wait_for_alias(
+        &probe_client,
+        &config.opensearch_url,
+        &config.opensearch_index_alias,
+        shutdown_token.clone(),
+    )
+    .await?;
+
     let mut manager = Manager::builder("opensearch-indexer")
         .with_global_shutdown_timeout(Duration::from_secs(60))
+        .with_shutdown_token(shutdown_token)
         .build();
 
     let consumer_handle = manager.register(
@@ -66,12 +112,18 @@ async fn main() -> anyhow::Result<()> {
         config.consumer.kafka_consumer_topic
     );
 
+    let writer = BulkWriter::new(&config.opensearch_url, &config.opensearch_index_alias)?;
+    let sink_config = SinkConfig {
+        max_batch_bytes: config.bulk_max_batch_bytes,
+        max_batch_age: Duration::from_millis(config.bulk_max_age_ms),
+    };
+
     let (tx, rx) = mpsc::channel(1000);
 
     let guard = manager.monitor_background();
 
     tokio::spawn(run_consumer(consumer, tx, consumer_handle));
-    tokio::spawn(run_sink(rx, sink_handle));
+    tokio::spawn(run_sink(rx, sink_handle, writer, sink_config));
 
     let app = root_router(readiness, liveness);
     let app = setup_metrics_routes(app);
