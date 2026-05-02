@@ -1703,20 +1703,18 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         }
     }),
     beforeUnmount(({ values, cache }) => {
-        // The logic mounts in many contexts where the picker isn't visibly opened — e.g. inside a
-        // popover whose contents render before the popover is shown, or as part of a side panel
-        // whose lifecycle is tied to the surrounding scene rather than to user intent. Without a
-        // gate, every involuntary mount/unmount fires `taxonomic filter closed` with
-        // hadSelection=false, inflating the abandonment metric well beyond actual user behaviour
-        // (top sessions hit 100+ closes, far more than any human would generate).
-        if (!cache.hadInteraction && !cache.hadSelection) {
-            return
+        // Only capture when there's evidence the user actually engaged with the picker. The logic
+        // mounts in many places where the picker isn't visibly opened (popover contents rendered
+        // before the popover shows, side panels tied to scene lifecycle, route transitions), so
+        // without this gate every involuntary mount/unmount fires a close with hadSelection=false
+        // and inflates the abandonment metric (top sessions hit 100+ closes pre-gate).
+        if (cache.hadInteraction || cache.hadSelection) {
+            posthog.capture('taxonomic filter closed', {
+                dwellMs: Date.now() - (cache.openedAt ?? Date.now()),
+                hadSelection: !!cache.hadSelection,
+                groupType: values.activeTab,
+            })
         }
-        posthog.capture('taxonomic filter closed', {
-            dwellMs: Date.now() - (cache.openedAt ?? Date.now()),
-            hadSelection: !!cache.hadSelection,
-            groupType: values.activeTab,
-        })
     }),
     propsChanged(({ actions, props }, oldProps) => {
         // When the in-context events change (e.g. an insight series swaps event), ask the model
