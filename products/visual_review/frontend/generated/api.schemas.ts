@@ -386,6 +386,32 @@ export type VisualReviewReposQuarantineListParams = {
 
 export type VisualReviewReposRunsListParams = {
     /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Filter by review state
+     */
+    review_state?: string
+}
+
+export type VisualReviewReposSnapshotsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type VisualReviewRunsListParams = {
+    /**
      * Filter by branch name
      */
     branch?: string
@@ -411,7 +437,11 @@ export type VisualReviewReposRunsListParams = {
     review_state?: string
 }
 
-export type VisualReviewReposSnapshotsListParams = {
+export type VisualReviewRunsSnapshotHistoryListParams = {
+    /**
+     * Snapshot identifier
+     */
+    identifier: string
     /**
      * Number of results to return per page.
      */

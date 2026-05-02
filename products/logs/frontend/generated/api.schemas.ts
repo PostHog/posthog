@@ -830,8 +830,8 @@ export interface _LogsQueryResponseApi {
 }
 
 /**
- * * `severity_sampling` - Severity sampling
- * `path_drop` - Path drop
+ * * `severity_sampling` - Severity-based reduction
+ * `path_drop` - Path exclusion
  * `rate_limit` - Rate limit
  */
 export type RuleTypeEnumApi = (typeof RuleTypeEnumApi)[keyof typeof RuleTypeEnumApi]
@@ -841,6 +841,8 @@ export const RuleTypeEnumApi = {
     PathDrop: 'path_drop',
     RateLimit: 'rate_limit',
 } as const
+
+export type LogsSamplingRuleApiScopeAttributeFiltersItem = { [key: string]: unknown }
 
 export interface LogsSamplingRuleApi {
     /** Unique identifier for this sampling rule. */
@@ -860,8 +862,8 @@ export interface LogsSamplingRuleApi {
     priority?: number | null
     /** Rule kind: severity_sampling, path_drop, or rate_limit (rate_limit reserved for a future release).
 
-* `severity_sampling` - Severity sampling
-* `path_drop` - Path drop
+* `severity_sampling` - Severity-based reduction
+* `path_drop` - Path exclusion
 * `rate_limit` - Rate limit */
     rule_type: RuleTypeEnumApi
     /**
@@ -877,8 +879,8 @@ export interface LogsSamplingRuleApi {
      */
     scope_path_pattern?: string | null
     /** Optional list of predicates over string attributes, e.g. [{"key":"http.route","op":"eq","value":"/api"}]. */
-    scope_attribute_filters?: unknown
-    /** Type-specific JSON (severity actions, path_drop patterns, or future rate_limit settings). */
+    scope_attribute_filters?: LogsSamplingRuleApiScopeAttributeFiltersItem[]
+    /** Type-specific JSON. For path_drop: object with required `patterns` (list of regex strings) and optional `match_attribute_key` (string). When `match_attribute_key` is omitted or empty, patterns match the same virtual path string as ingestion (url.path, http.path, http.route, path). When set, each pattern is tested only against that string attribute on the log record. For severity_sampling: object with `actions` per severity level and optional `always_keep`. rate_limit is reserved. */
     config: unknown
     /** Incremented on each update for worker cache coherency. */
     readonly version: number
@@ -896,6 +898,8 @@ export interface PaginatedLogsSamplingRuleListApi {
     previous?: string | null
     results: LogsSamplingRuleApi[]
 }
+
+export type PatchedLogsSamplingRuleApiScopeAttributeFiltersItem = { [key: string]: unknown }
 
 export interface PatchedLogsSamplingRuleApi {
     /** Unique identifier for this sampling rule. */
@@ -915,8 +919,8 @@ export interface PatchedLogsSamplingRuleApi {
     priority?: number | null
     /** Rule kind: severity_sampling, path_drop, or rate_limit (rate_limit reserved for a future release).
 
-* `severity_sampling` - Severity sampling
-* `path_drop` - Path drop
+* `severity_sampling` - Severity-based reduction
+* `path_drop` - Path exclusion
 * `rate_limit` - Rate limit */
     rule_type?: RuleTypeEnumApi
     /**
@@ -932,8 +936,8 @@ export interface PatchedLogsSamplingRuleApi {
      */
     scope_path_pattern?: string | null
     /** Optional list of predicates over string attributes, e.g. [{"key":"http.route","op":"eq","value":"/api"}]. */
-    scope_attribute_filters?: unknown
-    /** Type-specific JSON (severity actions, path_drop patterns, or future rate_limit settings). */
+    scope_attribute_filters?: PatchedLogsSamplingRuleApiScopeAttributeFiltersItem[]
+    /** Type-specific JSON. For path_drop: object with required `patterns` (list of regex strings) and optional `match_attribute_key` (string). When `match_attribute_key` is omitted or empty, patterns match the same virtual path string as ingestion (url.path, http.path, http.route, path). When set, each pattern is tested only against that string attribute on the log record. For severity_sampling: object with `actions` per severity level and optional `always_keep`. rate_limit is reserved. */
     config?: unknown
     /** Incremented on each update for worker cache coherency. */
     readonly version?: number

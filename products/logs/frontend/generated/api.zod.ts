@@ -658,9 +658,11 @@ export const LogsSamplingRulesCreateBody = /* @__PURE__ */ zod.object({
         ),
     rule_type: zod
         .enum(['severity_sampling', 'path_drop', 'rate_limit'])
-        .describe('* `severity_sampling` - Severity sampling\n* `path_drop` - Path drop\n* `rate_limit` - Rate limit')
         .describe(
-            'Rule kind: severity_sampling, path_drop, or rate_limit (rate_limit reserved for a future release).\n\n* `severity_sampling` - Severity sampling\n* `path_drop` - Path drop\n* `rate_limit` - Rate limit'
+            '* `severity_sampling` - Severity-based reduction\n* `path_drop` - Path exclusion\n* `rate_limit` - Rate limit'
+        )
+        .describe(
+            'Rule kind: severity_sampling, path_drop, or rate_limit (rate_limit reserved for a future release).\n\n* `severity_sampling` - Severity-based reduction\n* `path_drop` - Path exclusion\n* `rate_limit` - Rate limit'
         ),
     scope_service: zod
         .string()
@@ -673,14 +675,16 @@ export const LogsSamplingRulesCreateBody = /* @__PURE__ */ zod.object({
         .nullish()
         .describe('Optional regex matched against a path-like log attribute when present.'),
     scope_attribute_filters: zod
-        .unknown()
+        .array(zod.record(zod.string(), zod.unknown()))
         .optional()
         .describe(
             'Optional list of predicates over string attributes, e.g. [{\"key\":\"http.route\",\"op\":\"eq\",\"value\":\"/api\"}].'
         ),
     config: zod
         .unknown()
-        .describe('Type-specific JSON (severity actions, path_drop patterns, or future rate_limit settings).'),
+        .describe(
+            'Type-specific JSON. For path_drop: object with required `patterns` (list of regex strings) and optional `match_attribute_key` (string). When `match_attribute_key` is omitted or empty, patterns match the same virtual path string as ingestion (url.path, http.path, http.route, path). When set, each pattern is tested only against that string attribute on the log record. For severity_sampling: object with `actions` per severity level and optional `always_keep`. rate_limit is reserved.'
+        ),
 })
 
 export const logsSamplingRulesUpdateBodyNameMax = 255
@@ -707,9 +711,11 @@ export const LogsSamplingRulesUpdateBody = /* @__PURE__ */ zod.object({
         ),
     rule_type: zod
         .enum(['severity_sampling', 'path_drop', 'rate_limit'])
-        .describe('* `severity_sampling` - Severity sampling\n* `path_drop` - Path drop\n* `rate_limit` - Rate limit')
         .describe(
-            'Rule kind: severity_sampling, path_drop, or rate_limit (rate_limit reserved for a future release).\n\n* `severity_sampling` - Severity sampling\n* `path_drop` - Path drop\n* `rate_limit` - Rate limit'
+            '* `severity_sampling` - Severity-based reduction\n* `path_drop` - Path exclusion\n* `rate_limit` - Rate limit'
+        )
+        .describe(
+            'Rule kind: severity_sampling, path_drop, or rate_limit (rate_limit reserved for a future release).\n\n* `severity_sampling` - Severity-based reduction\n* `path_drop` - Path exclusion\n* `rate_limit` - Rate limit'
         ),
     scope_service: zod
         .string()
@@ -722,14 +728,16 @@ export const LogsSamplingRulesUpdateBody = /* @__PURE__ */ zod.object({
         .nullish()
         .describe('Optional regex matched against a path-like log attribute when present.'),
     scope_attribute_filters: zod
-        .unknown()
+        .array(zod.record(zod.string(), zod.unknown()))
         .optional()
         .describe(
             'Optional list of predicates over string attributes, e.g. [{\"key\":\"http.route\",\"op\":\"eq\",\"value\":\"/api\"}].'
         ),
     config: zod
         .unknown()
-        .describe('Type-specific JSON (severity actions, path_drop patterns, or future rate_limit settings).'),
+        .describe(
+            'Type-specific JSON. For path_drop: object with required `patterns` (list of regex strings) and optional `match_attribute_key` (string). When `match_attribute_key` is omitted or empty, patterns match the same virtual path string as ingestion (url.path, http.path, http.route, path). When set, each pattern is tested only against that string attribute on the log record. For severity_sampling: object with `actions` per severity level and optional `always_keep`. rate_limit is reserved.'
+        ),
 })
 
 export const logsSamplingRulesPartialUpdateBodyNameMax = 255
@@ -760,10 +768,12 @@ export const LogsSamplingRulesPartialUpdateBody = /* @__PURE__ */ zod.object({
         ),
     rule_type: zod
         .enum(['severity_sampling', 'path_drop', 'rate_limit'])
-        .describe('* `severity_sampling` - Severity sampling\n* `path_drop` - Path drop\n* `rate_limit` - Rate limit')
+        .describe(
+            '* `severity_sampling` - Severity-based reduction\n* `path_drop` - Path exclusion\n* `rate_limit` - Rate limit'
+        )
         .optional()
         .describe(
-            'Rule kind: severity_sampling, path_drop, or rate_limit (rate_limit reserved for a future release).\n\n* `severity_sampling` - Severity sampling\n* `path_drop` - Path drop\n* `rate_limit` - Rate limit'
+            'Rule kind: severity_sampling, path_drop, or rate_limit (rate_limit reserved for a future release).\n\n* `severity_sampling` - Severity-based reduction\n* `path_drop` - Path exclusion\n* `rate_limit` - Rate limit'
         ),
     scope_service: zod
         .string()
@@ -776,7 +786,7 @@ export const LogsSamplingRulesPartialUpdateBody = /* @__PURE__ */ zod.object({
         .nullish()
         .describe('Optional regex matched against a path-like log attribute when present.'),
     scope_attribute_filters: zod
-        .unknown()
+        .array(zod.record(zod.string(), zod.unknown()))
         .optional()
         .describe(
             'Optional list of predicates over string attributes, e.g. [{\"key\":\"http.route\",\"op\":\"eq\",\"value\":\"/api\"}].'
@@ -784,7 +794,9 @@ export const LogsSamplingRulesPartialUpdateBody = /* @__PURE__ */ zod.object({
     config: zod
         .unknown()
         .optional()
-        .describe('Type-specific JSON (severity actions, path_drop patterns, or future rate_limit settings).'),
+        .describe(
+            'Type-specific JSON. For path_drop: object with required `patterns` (list of regex strings) and optional `match_attribute_key` (string). When `match_attribute_key` is omitted or empty, patterns match the same virtual path string as ingestion (url.path, http.path, http.route, path). When set, each pattern is tested only against that string attribute on the log record. For severity_sampling: object with `actions` per severity level and optional `always_keep`. rate_limit is reserved.'
+        ),
 })
 
 /**
