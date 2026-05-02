@@ -32,7 +32,7 @@ import subprocess
 import urllib.parse
 from pathlib import Path
 
-from ._runtime import AUTORESEARCH_DIR, CampaignError, atomic_write, log, run
+from .runtime import AUTORESEARCH_DIR, CampaignError, atomic_write, log, run
 
 # Bumping these requires a fresh smoke run — `_patch_pi_ai_anthropic_baseurl`
 # is sensitive to pi-ai's bundle shape at this exact version.

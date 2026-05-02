@@ -26,7 +26,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-from ._runtime import SCRIPTS_DIR, CampaignError, log, run
+from .runtime import SCRIPTS_DIR, CampaignError, log, run
 from .sandboxing import LockdownFailed, install_pi_toolchain, lockdown_network, prepare_pi_runtime
 
 DEFAULT_WORKSPACE = Path("/tmp/autoresearch-campaign")
