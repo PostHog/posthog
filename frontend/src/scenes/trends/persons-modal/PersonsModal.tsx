@@ -4,7 +4,7 @@ import { useActions, useValues } from 'kea'
 import React, { useCallback, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 
-import { IconCollapse, IconExpand } from '@posthog/icons'
+import { IconCollapse, IconCopy, IconExpand } from '@posthog/icons'
 import {
     LemonBadge,
     LemonBanner,
@@ -30,6 +30,7 @@ import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { capitalizeFirstLetter, isGroupType, isSessionType, midEllipsis, pluralize } from 'lib/utils'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { InsightErrorState, InsightValidationError } from 'scenes/insights/EmptyStates'
 import { isOtherBreakdown } from 'scenes/insights/utils'
 import { GroupActorDisplay, groupDisplayId } from 'scenes/persons/GroupActorDisplay'
@@ -416,7 +417,20 @@ export function ActorRow({ actor, propertiesTimelineFilter }: ActorRowProps): JS
                         <SessionActorDisplay actor={actor} />
                     ) : (
                         <>
-                            <div className="font-bold flex items-start">
+                            <div className="font-bold flex items-center gap-1">
+                                <Tooltip title={`Copy ${asDisplay(actor)}`}>
+                                    <IconCopy
+                                        className="text-base cursor-pointer shrink-0"
+                                        role="button"
+                                        aria-label={`Copy ${asDisplay(actor)}`}
+                                        data-attr="persons-modal-copy-display-name"
+                                        onClick={(e) => {
+                                            e.preventDefault()
+                                            e.stopPropagation()
+                                            void copyToClipboard(asDisplay(actor, Infinity), 'email address')
+                                        }}
+                                    />
+                                </Tooltip>
                                 <PersonDisplay person={actor} withIcon={false} />
                             </div>
                             {actor.distinct_ids?.[0] && (
