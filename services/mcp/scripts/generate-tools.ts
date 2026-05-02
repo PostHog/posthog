@@ -102,6 +102,14 @@ interface ResolvedOperation {
 }
 
 // ------------------------------------------------------------------
+// General helpers
+// ------------------------------------------------------------------
+
+function sortKeys<T extends Record<string, unknown>>(obj: T): T {
+    return Object.fromEntries(Object.entries(obj).sort(([a], [b]) => a.localeCompare(b))) as T
+}
+
+// ------------------------------------------------------------------
 // OpenAPI helpers
 // ------------------------------------------------------------------
 
@@ -110,7 +118,40 @@ function loadOpenApi(): OpenApiSpec {
         console.error(`OpenAPI schema not found at ${OPENAPI_PATH}. Run \`hogli build:openapi-schema\` first.`)
         process.exit(1)
     }
-    return JSON.parse(fs.readFileSync(OPENAPI_PATH, 'utf-8')) as OpenApiSpec
+    const spec = JSON.parse(fs.readFileSync(OPENAPI_PATH, 'utf-8')) as OpenApiSpec
+    inlineParameterRefs(spec)
+    return spec
+}
+
+/**
+ * Replace ``{$ref: '#/components/parameters/...'}`` entries in operation parameters with the
+ * fully resolved parameter object. The rest of this script reads ``parameter.in`` /
+ * ``parameter.name`` directly, which would silently return ``undefined`` for ref-only entries
+ * and cause downstream tools to mis-handle path/query params (e.g. dropping the
+ * ``project_id`` / ``organization_id`` auto-resolved omit).
+ */
+function inlineParameterRefs(spec: OpenApiSpec): void {
+    const parameterComponents = (spec.components as { parameters?: Record<string, unknown> } | undefined)?.parameters
+    if (!parameterComponents) {
+        return
+    }
+    for (const methods of Object.values(spec.paths ?? {})) {
+        for (const op of Object.values(methods ?? {}) as Array<{ parameters?: unknown[] }>) {
+            if (!op?.parameters || !Array.isArray(op.parameters)) {
+                continue
+            }
+            op.parameters = op.parameters.map((param) => {
+                if (param && typeof param === 'object' && '$ref' in param && typeof param.$ref === 'string') {
+                    const name = param.$ref.replace('#/components/parameters/', '')
+                    const resolved = parameterComponents[name]
+                    if (resolved) {
+                        return resolved
+                    }
+                }
+                return param
+            })
+        }
+    }
 }
 
 /**
@@ -702,7 +743,10 @@ function generateToolCode(
 
     const softDeleteField = typeof config.soft_delete === 'string' ? config.soft_delete : 'deleted'
 
-    const hasBody = !isSoftDelete && composition.bodyFieldNames.length > 0
+    const injectBody = config.inject_body ?? {}
+    const injectBodyEntries = Object.entries(injectBody)
+    const hasInjectBody = !isSoftDelete && injectBodyEntries.length > 0
+    const hasBody = !isSoftDelete && (composition.bodyFieldNames.length > 0 || hasInjectBody)
     const hasQuery = composition.queryParamNames.length > 0
 
     if (hasBody) {
@@ -711,7 +755,12 @@ function generateToolCode(
             // If the field was renamed, bf is the alias (used for params access)
             // and bodyKey is the original name (used as the HTTP body key).
             const bodyKey = composition.renamedFields[bf] ?? bf
-            handlerBody += `        if (params.${bf} !== undefined) body['${bodyKey}'] = params.${bf}\n`
+            handlerBody += `        if (params.${bf} !== undefined) body[${JSON.stringify(bodyKey)}] = params.${bf}\n`
+        }
+        // inject_body: hardcoded values that always override caller-supplied params.
+        // Emitted last so they overwrite anything set above.
+        for (const [key, value] of injectBodyEntries) {
+            handlerBody += `        body[${JSON.stringify(key)}] = ${JSON.stringify(value)}\n`
         }
     }
 
@@ -774,7 +823,10 @@ function generateToolCode(
     const appKey = config.ui_app ?? null
 
     const enrichUsesParams = !!config.enrich_url && parseEnrichUrl(config.enrich_url).source === 'params'
-    const paramsUsed = hasBody || hasQuery || composition.pathParamNames.length > 0 || enrichUsesParams
+    // `params` is only referenced when a dynamic body/query/path param reads from it; inject_body
+    // alone doesn't touch params, so don't count it here.
+    const paramsUsed =
+        composition.bodyFieldNames.length > 0 || hasQuery || composition.pathParamNames.length > 0 || enrichUsesParams
     const unusedParamsComment = paramsUsed ? '' : '// eslint-disable-next-line no-unused-vars\n'
 
     const mcpVersionLine = config.mcp_version !== undefined ? `\n    mcpVersion: ${config.mcp_version},` : ''
@@ -1211,7 +1263,10 @@ function generateDefinitionsJson(
                 },
                 ...(toolConfig.requires_ai_consent ? { requires_ai_consent: true } : {}),
                 ...(toolConfig.feature_flag ? { feature_flag: toolConfig.feature_flag } : {}),
-                ...(toolConfig.feature_flag_behavior ? { feature_flag_behavior: toolConfig.feature_flag_behavior } : {}),
+                ...(toolConfig.feature_flag_behavior
+                    ? { feature_flag_behavior: toolConfig.feature_flag_behavior }
+                    : {}),
+                ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
             }
         }
         // Include query wrappers defined in the same category file
@@ -1231,7 +1286,10 @@ function generateDefinitionsJson(
                     readOnlyHint: wrapperConfig.annotations.readOnly,
                 },
                 ...(wrapperConfig.feature_flag ? { feature_flag: wrapperConfig.feature_flag } : {}),
-                ...(wrapperConfig.feature_flag_behavior ? { feature_flag_behavior: wrapperConfig.feature_flag_behavior } : {}),
+                ...(wrapperConfig.feature_flag_behavior
+                    ? { feature_flag_behavior: wrapperConfig.feature_flag_behavior }
+                    : {}),
+                ...(wrapperConfig.system_prompt_hint ? { system_prompt_hint: wrapperConfig.system_prompt_hint } : {}),
             }
         }
     }
@@ -1302,7 +1360,8 @@ function generateQueryWrapperFile(
     const perToolSchemaNames = new Map<string, string>()
     for (const [name, toolConfig] of enabledWrappers) {
         const hasDefaults = toolConfig.property_defaults && Object.keys(toolConfig.property_defaults).length > 0
-        if (!hasDefaults) {
+        const useOptimizedOutput = !!toolConfig.use_optimized_output
+        if (!hasDefaults && !useOptimizedOutput) {
             continue
         }
         const baseVarName = getEntryVarName(toolConfig.schema_ref)
@@ -1311,6 +1370,16 @@ function generateQueryWrapperFile(
         for (const [prop, defaultValue] of Object.entries(toolConfig.property_defaults ?? {})) {
             overrides.push(
                 `    ${prop}: ${baseVarName}.shape.${prop}.default(${JSON.stringify(defaultValue)}).optional(),`
+            )
+        }
+        if (useOptimizedOutput) {
+            // When the wrapper has a server-side formatter, expose an `output_format` per-call input
+            // so the agent can override the default (`optimized`) and request raw JSON. The factory
+            // strips this field before building the query body so it never leaks to the backend.
+            const outputFormatDescription =
+                'Output format. "optimized" returns a human-readable summary from server-side formatters (recommended for analysis). "json" returns the raw query results as JSON.'
+            overrides.push(
+                `    output_format: z.enum(['optimized', 'json']).default('optimized').optional().describe(${JSON.stringify(outputFormatDescription)}),`
             )
         }
         const extendExpr = `.extend({\n${overrides.join('\n')}\n})`
@@ -1329,9 +1398,10 @@ function generateQueryWrapperFile(
             if (toolConfig.ui_resource_uri) {
                 configParts.push(`uiResourceUri: '${toolConfig.ui_resource_uri}'`)
             }
-            if (toolConfig.response_format) {
-                configParts.push(`responseFormat: '${toolConfig.response_format}'`)
-            }
+            // The factory's `outputFormat` drives both the default text encoding and whether the
+            // wrapper surfaces `formatted_results`. `use_optimized_output` in YAML maps to `'optimized'`;
+            // everything else falls back to raw JSON.
+            configParts.push(`outputFormat: '${toolConfig.use_optimized_output ? 'optimized' : 'json'}'`)
 
             if (toolConfig.url_prefix) {
                 configParts.push(`urlPrefix: '${toolConfig.url_prefix}'`)
@@ -1396,6 +1466,7 @@ function generateQueryWrapperDefinitionsJson(
             },
             ...(toolConfig.feature_flag ? { feature_flag: toolConfig.feature_flag } : {}),
             ...(toolConfig.feature_flag_behavior ? { feature_flag_behavior: toolConfig.feature_flag_behavior } : {}),
+            ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
         }
     }
     return definitions
@@ -1515,13 +1586,14 @@ ${spreads}
     fs.writeFileSync(path.join(GENERATED_DIR, 'index.ts'), barrelCode)
 
     // Tool definitions JSON (merge OpenAPI-based + query wrapper definitions)
-    const definitions = { ...generateDefinitionsJson(allCategories), ...queryWrapperDefinitions }
+    // Sort keys so output is stable regardless of upstream OpenAPI iteration order.
+    const definitions = sortKeys({ ...generateDefinitionsJson(allCategories), ...queryWrapperDefinitions })
     fs.writeFileSync(DEFINITIONS_JSON_PATH, JSON.stringify(definitions, null, 4) + '\n')
 
     // Combined tool definitions for external consumers (docs site)
     const v1Definitions = JSON.parse(fs.readFileSync(TOOL_DEFINITIONS_V1_PATH, 'utf-8'))
     const v2Definitions = JSON.parse(fs.readFileSync(TOOL_DEFINITIONS_V2_PATH, 'utf-8'))
-    const allDefinitions = { ...v1Definitions, ...v2Definitions, ...definitions }
+    const allDefinitions = sortKeys({ ...v1Definitions, ...v2Definitions, ...definitions })
     fs.writeFileSync(ALL_DEFINITIONS_JSON_PATH, JSON.stringify(allDefinitions, null, 4) + '\n')
 
     const totalTools = allCategories.reduce((sum, c) => sum + c.enabledTools.length, 0)
@@ -1551,6 +1623,8 @@ export {
     extractPathParams,
     generateCategoryFile,
     generateCustomSchemaToolCode,
+    generateDefinitionsJson,
+    generateQueryWrapperDefinitionsJson,
     generateQueryWrapperFile,
     generateToolCode,
 }

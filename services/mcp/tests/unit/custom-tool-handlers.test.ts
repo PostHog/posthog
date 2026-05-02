@@ -11,6 +11,7 @@ function createMockContext(requestMock: ReturnType<typeof vi.fn>): Context {
         env: {} as any,
         sessionManager: {} as any,
         cache: {} as any,
+        getDistinctId: async () => 'test-distinct-id',
     }
 }
 

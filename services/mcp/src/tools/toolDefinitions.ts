@@ -17,6 +17,8 @@ export const ToolDefinitionSchema = z.object({
     feature_flag: z.string().optional(),
     /** How the flag gates the tool: 'enable' (default) or 'disable'. */
     feature_flag_behavior: z.enum(['enable', 'disable']).optional(),
+    /** One-line selection hint surfaced in the system prompt's query tool catalog. */
+    system_prompt_hint: z.string().optional(),
     annotations: z.object({
         destructiveHint: z.boolean(),
         idempotentHint: z.boolean(),

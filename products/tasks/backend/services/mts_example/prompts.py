@@ -15,7 +15,7 @@ Your job is to discover a small set of genuinely cursed items, then research eac
 
 You have two investigation tools:
 1. **The codebase** — the full PostHog/posthog repository is cloned on disk. Use file search, grep, code reading, `git log`, and `git blame`.
-2. **PostHog MCP** — query PostHog product data via tools such as `execute-sql`, `list-event-definitions`, `list-property-definitions`, `list-feature-flags`, `insights-get-all`, `experiment-get-all`, `dashboards-get-all`. Use these to check whether the cursedness has also leaked into user-facing telemetry."""
+2. **PostHog MCP** — query PostHog product data via tools such as `execute-sql`, `list-event-definitions`, `list-property-definitions`, `list-feature-flags`, `insights-get-all`, `experiment-list`, `dashboards-get-all`. Use these to check whether the cursedness has also leaked into user-facing telemetry."""
 
 
 def build_discovery_prompt(max_items: int) -> str:

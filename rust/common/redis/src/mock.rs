@@ -176,7 +176,6 @@ pub enum MockRedisValue {
     String(String),
     StringWithTTL(String, u64),
     VecString(Vec<String>),
-    I32(i32),
     I64(i64),
     MinMax(String, String),
     StringWithFormat(String, RedisValueFormat),
@@ -228,16 +227,13 @@ impl Client for MockRedisClient {
         &self,
         key: String,
         field: String,
-        count: Option<i32>,
+        count: i64,
     ) -> Result<(), CustomRedisError> {
         let mut calls = self.lock_calls();
         calls.push(MockRedisCall {
             op: "hincrby".to_string(),
             key: format!("{key}:{field}"),
-            value: match count {
-                None => MockRedisValue::None,
-                Some(v) => MockRedisValue::I32(v),
-            },
+            value: MockRedisValue::I64(count),
         });
 
         match self.hincrby_ret.get(&key) {
@@ -653,7 +649,7 @@ impl MockRedisClient {
                 self.record_call(
                     "pipeline_hincrby",
                     format!("{key}:{field}"),
-                    MockRedisValue::I32(count),
+                    MockRedisValue::I64(count),
                 );
                 Self::lookup_or_ok(&self.hincrby_ret, &key).map(|_| PipelineResult::Ok)
             }

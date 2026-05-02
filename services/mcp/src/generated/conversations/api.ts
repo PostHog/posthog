@@ -27,11 +27,19 @@ export const ConversationsTicketsListQueryParams = /* @__PURE__ */ zod.object({
             'Filter by assignee. Use `unassigned` for tickets with no assignee, `user:<user_id>` for a specific user, or `role:<role_uuid>` for a role.'
         ),
     channel_detail: zod
-        .enum(['slack_bot_mention', 'slack_channel_message', 'slack_emoji_reaction', 'widget_api', 'widget_embedded'])
+        .enum([
+            'slack_bot_mention',
+            'slack_channel_message',
+            'slack_emoji_reaction',
+            'teams_bot_mention',
+            'teams_channel_message',
+            'widget_api',
+            'widget_embedded',
+        ])
         .optional()
         .describe('Filter by the channel sub-type (e.g. `widget_embedded`, `slack_bot_mention`).'),
     channel_source: zod
-        .enum(['email', 'slack', 'widget'])
+        .enum(['email', 'slack', 'teams', 'widget'])
         .optional()
         .describe('Filter by the channel the ticket originated from.'),
     date_from: zod

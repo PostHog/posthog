@@ -1,0 +1,48 @@
+name: Monitor GitHub Rate Limit
+
+# Polls /rate_limit and emits one PostHog event per resource, so the per-repo
+# GITHUB_TOKEN bucket is observable as a time series — that bucket is the slice
+# of GitHub API usage that the org-level API Insights dashboard does not cover.
+#
+# Trigger strategy: ride real PR/master events for density (synchronize fires
+# on every PR push and is the dominant signal source on this repo), with a
+# 30-minute schedule as a quiet-time floor. A delayed scheduled tick is fine
+# here — events fill the gap.
+#
+# Alerting belongs downstream in PostHog (windowed thresholds, attribution by
+# repo) — not in the workflow itself. Keep this file focused on emission.
+
+on:
+    pull_request:
+        types: [opened, synchronize]
+    push:
+        branches: [master]
+    schedule:
+        - cron: '*/30 * * * *'
+    workflow_dispatch:
+
+permissions:
+    contents: read
+
+jobs:
+    poll:
+        runs-on: ubuntu-latest
+        timeout-minutes: 3
+        # Forks don't get secret access on pull_request, so the capture would
+        # no-op anyway — skip the run entirely to avoid noise.
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+              with:
+                  sparse-checkout: |
+                      .github/scripts/monitor-github-rate-limit.js
+                  sparse-checkout-cone-mode: false
+
+            - name: Poll /rate_limit and emit to PostHog
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+              env:
+                  POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+              with:
+                  script: |
+                      const script = require('./.github/scripts/monitor-github-rate-limit.js')
+                      await script({ github, context, core })

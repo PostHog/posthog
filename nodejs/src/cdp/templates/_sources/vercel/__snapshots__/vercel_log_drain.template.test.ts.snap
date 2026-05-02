@@ -22,6 +22,8 @@ exports[`vercel log drain template should capture all Vercel log properties with
       "environment": "production",
       "execution_region": "sfo1",
       "host": "my-app-abc123.vercel.app",
+      "instance_id": "1GQNa0uAPkg0",
+      "invocation_id": "01KPVBPVC87N00DCM26QSNN140",
       "ja3_digest": null,
       "ja4_digest": null,
       "level": "info",

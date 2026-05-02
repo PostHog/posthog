@@ -13,7 +13,13 @@ import posthoganalytics
 from dateutil import parser as dateutil_parser
 from redis import Redis
 from temporalio.client import WorkflowExecutionStatus, WorkflowHandle
-from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
+from temporalio.common import (
+    RetryPolicy,
+    SearchAttributePair,
+    TypedSearchAttributes,
+    WorkflowIDConflictPolicy,
+    WorkflowIDReusePolicy,
+)
 from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 
 from posthog.schema import ReplayInactivityPeriod
@@ -25,6 +31,7 @@ from posthog.redis import get_client
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import async_connect
+from posthog.temporal.common.search_attributes import POSTHOG_SESSION_RECORDING_ID_KEY, POSTHOG_TEAM_ID_KEY
 from posthog.temporal.session_replay.rasterize_recording.types import RasterizeRecordingInputs
 from posthog.temporal.session_replay.session_summary.activities import (
     CaptureTimingInputs,
@@ -54,6 +61,7 @@ from posthog.temporal.session_replay.session_summary.types.video import (
     VideoSegmentOutput,
     VideoSegmentSpec,
     VideoSummarySingleSessionInputs,
+    collect_session_problems,
 )
 
 from ee.hogai.session_summaries.constants import DEFAULT_VIDEO_UNDERSTANDING_MODEL, SESSION_SUMMARIES_MODEL
@@ -529,6 +537,7 @@ async def ensure_llm_single_session_summary(
         redis_key_base=inputs.redis_key_base,
         model_to_use=DEFAULT_VIDEO_UNDERSTANDING_MODEL,
         extra_summary_context=inputs.extra_summary_context,
+        product_context=inputs.product_context,
     )
 
     # Activity 1: Prepare video export (find or create ExportedAsset)
@@ -560,6 +569,12 @@ async def ensure_llm_single_session_summary(
             retry_policy=RetryPolicy(maximum_attempts=int(settings.TEMPORAL_WORKFLOW_MAX_ATTEMPTS)),
             id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
             execution_timeout=timedelta(minutes=30),
+            search_attributes=TypedSearchAttributes(
+                search_attributes=[
+                    SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=video_inputs.team_id),
+                    SearchAttributePair(key=POSTHOG_SESSION_RECORDING_ID_KEY, value=video_inputs.session_id),
+                ]
+            ),
         )
 
     # Activity 2: Upload full video to Gemini (single upload)
@@ -645,36 +660,63 @@ async def ensure_llm_single_session_summary(
             retry_policy=retry_policy,
         )
 
-        # Activities 6a + 6b run in parallel:
-        # - 6a: Emit signals for issue-indicating segments
-        # - 6b: Store video-based summary in database
+        # Activities 6a + 6b run in parallel when some segment would emit a problem signal;
+        # otherwise skip 6a entirely.
         _set_phase(progress, "saving_summary")
-        emit_result, store_result = await asyncio.gather(
-            temporalio.workflow.execute_activity(
-                emit_session_problem_signals_activity,
-                args=(video_inputs, consolidated_analysis),
-                start_to_close_timeout=timedelta(minutes=5),
-                retry_policy=retry_policy,
-            ),
-            temporalio.workflow.execute_activity(
-                store_video_session_summary_activity,
-                args=(video_inputs, consolidated_analysis),
-                start_to_close_timeout=timedelta(minutes=5),
-                retry_policy=retry_policy,
-            ),
-            return_exceptions=True,
+        problems = collect_session_problems(consolidated_analysis.segments)
+        logger.info(
+            "session problem signals pre-emission",
+            team_id=inputs.team_id,
+            session_id=inputs.session_id,
+            workflow_id=trace_id,
+            total_consolidated_segments=len(consolidated_analysis.segments),
+            problem_segment_count=len(problems),
+            problems=[p.model_dump(include={"problem_type", "start_time", "end_time"}) for p in problems[:30]],
+            will_run_emit_activity=bool(problems),
+            signals_type="session-summaries",
         )
-        if isinstance(emit_result, Exception):
-            posthoganalytics.capture_exception(
-                emit_result,
-                distinct_id=inputs.user_distinct_id_to_log,
+        if problems:
+            emit_result, store_result = await asyncio.gather(
+                temporalio.workflow.execute_activity(
+                    emit_session_problem_signals_activity,
+                    args=(video_inputs, problems),
+                    start_to_close_timeout=timedelta(minutes=5),
+                    retry_policy=retry_policy,
+                ),
+                temporalio.workflow.execute_activity(
+                    store_video_session_summary_activity,
+                    args=(video_inputs, consolidated_analysis, export_result.team_api_token),
+                    start_to_close_timeout=timedelta(minutes=5),
+                    retry_policy=retry_policy,
+                ),
+                return_exceptions=True,
             )
-            logger.exception(
-                f"Error emitting session problem signals for session {inputs.session_id}: {emit_result}",
+            if isinstance(emit_result, Exception):
+                posthoganalytics.capture_exception(
+                    emit_result,
+                    distinct_id=inputs.user_distinct_id_to_log,
+                )
+                logger.exception(
+                    f"Error emitting session problem signals for session {inputs.session_id}: {emit_result}",
+                    signals_type="session-summaries",
+                )
+            if isinstance(store_result, BaseException):
+                raise store_result
+        else:
+            logger.info(
+                "Skipping session problem signals emission activity (no problems found)",
+                team_id=inputs.team_id,
+                session_id=inputs.session_id,
+                workflow_id=trace_id,
+                total_consolidated_segments=len(consolidated_analysis.segments),
                 signals_type="session-summaries",
             )
-        if isinstance(store_result, BaseException):
-            raise store_result
+            await temporalio.workflow.execute_activity(
+                store_video_session_summary_activity,
+                args=(video_inputs, consolidated_analysis, export_result.team_api_token),
+                start_to_close_timeout=timedelta(minutes=5),
+                retry_policy=retry_policy,
+            )
 
         # Activity 7: Write tags and highlight flag to ClickHouse via Kafka
         _set_phase(progress, "tagging")
@@ -695,36 +737,74 @@ async def ensure_llm_single_session_summary(
         )
 
 
-async def _start_video_summary_workflow(inputs: SingleSessionSummaryInputs, workflow_id: str) -> WorkflowHandle:
+async def _start_video_summary_workflow(
+    inputs: SingleSessionSummaryInputs,
+    workflow_id: str,
+    force_restart: bool = False,
+) -> WorkflowHandle:
     """Start the video-based single-session summary workflow and return its handle.
 
     Non-blocking alternative to ``_execute_single_session_summary_workflow`` so
     the API layer can poll the ``get_progress`` query while the workflow runs.
+
+    Conflict policy is intent-driven:
+    - ``force_restart=False`` (default): ``USE_EXISTING`` so a duplicate click
+      while a workflow is already running attaches to it instead of killing
+      it — preserves the per-(team, session) dedup that lets multiple watchers
+      share one rasterizer/LLM run.
+    - ``force_restart=True``: ``TERMINATE_EXISTING`` so a user-driven retry
+      after cancel cleanly preempts any leftover run. Required because
+      ``handle.cancel()`` is asynchronous on the Temporal side; the previous
+      workflow may still be in the brief CANCEL_REQUESTED → CANCELLED window
+      when the retry click arrives.
+
+    ``ALLOW_DUPLICATE`` reuse policy is used in both cases so a fresh start is
+    permitted once a previous run has reached any terminal state (CANCELLED,
+    FAILED, TERMINATED, COMPLETED).
     """
     client = await async_connect()
     retry_policy = RetryPolicy(maximum_attempts=int(settings.TEMPORAL_WORKFLOW_MAX_ATTEMPTS))
+    conflict_policy = (
+        WorkflowIDConflictPolicy.TERMINATE_EXISTING if force_restart else WorkflowIDConflictPolicy.USE_EXISTING
+    )
     handle = await client.start_workflow(
         "summarize-session",
         inputs,
         id=workflow_id,
-        id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+        id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+        id_conflict_policy=conflict_policy,
         task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
         retry_policy=retry_policy,
+        search_attributes=TypedSearchAttributes(
+            search_attributes=[SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=inputs.team_id)]
+        ),
     )
     return handle
 
 
 async def _execute_single_session_summary_workflow(inputs: SingleSessionSummaryInputs, workflow_id: str) -> None:
-    """Execute the single-session summary workflow."""
+    """Execute the single-session summary workflow.
+
+    Uses ``ALLOW_DUPLICATE`` + ``USE_EXISTING`` so this path is compatible with
+    workflow ids that may have just been cancelled by the UI cancel endpoint:
+    - If the workflow is currently running, ``USE_EXISTING`` attaches to it
+      and ``execute_workflow`` awaits its result instead of raising.
+    - If the previous run is in any terminal state (including CANCELLED),
+      ``ALLOW_DUPLICATE`` lets a fresh run start under the same id.
+    """
     client = await async_connect()
     retry_policy = RetryPolicy(maximum_attempts=int(settings.TEMPORAL_WORKFLOW_MAX_ATTEMPTS))
     await client.execute_workflow(
         "summarize-session",
         inputs,
         id=workflow_id,
-        id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+        id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+        id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
         task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
         retry_policy=retry_policy,
+        search_attributes=TypedSearchAttributes(
+            search_attributes=[SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=inputs.team_id)]
+        ),
     )
 
 
@@ -747,6 +827,7 @@ def _prepare_execution(
     team: Team,
     model_to_use: str,
     extra_summary_context: ExtraSummaryContext | None = None,
+    product_context: str | None = None,
     local_reads_prod: bool = False,
     video_based: bool = False,
     trigger_session_id: str | None = None,
@@ -777,6 +858,7 @@ def _prepare_execution(
         user_distinct_id_to_log=user.distinct_id,
         team_id=team.id,
         extra_summary_context=extra_summary_context,
+        product_context=product_context,
         local_reads_prod=local_reads_prod,
         redis_key_base=redis_key_base,
         model_to_use=model_to_use,
@@ -793,6 +875,7 @@ async def execute_summarize_session(
     team: Team,
     model_to_use: str | None = None,
     extra_summary_context: ExtraSummaryContext | None = None,
+    product_context: str | None = None,
     local_reads_prod: bool = False,
     video_based: bool = False,
     trigger_session_id: str | None = None,
@@ -817,6 +900,7 @@ async def execute_summarize_session(
         team=team,
         model_to_use=model_to_use,
         extra_summary_context=extra_summary_context,
+        product_context=product_context,
         local_reads_prod=local_reads_prod,
         video_based=video_based,
         trigger_session_id=trigger_session_id,
@@ -888,7 +972,9 @@ async def execute_summarize_session_video_stream(
     user: User,
     team: Team,
     extra_summary_context: ExtraSummaryContext | None = None,
+    product_context: str | None = None,
     local_reads_prod: bool = False,
+    force_restart: bool = False,
 ) -> AsyncGenerator[str, None]:
     """Start the video-based summarization workflow and stream progress events.
 
@@ -912,7 +998,7 @@ async def execute_summarize_session_video_stream(
         )
         yield serialize_to_sse_event(
             event_label="session-summary-stream",
-            event_data=json.dumps(existing_summary.summary),
+            event_data=json.dumps({"id": str(existing_summary.id), "summary": existing_summary.summary}),
         )
         return
 
@@ -922,13 +1008,16 @@ async def execute_summarize_session_video_stream(
         team=team,
         model_to_use=DEFAULT_VIDEO_UNDERSTANDING_MODEL,
         extra_summary_context=extra_summary_context,
+        product_context=product_context,
         local_reads_prod=local_reads_prod,
         video_based=True,
     )
 
     client = await async_connect()
     try:
-        handle = await _start_video_summary_workflow(inputs=session_input, workflow_id=workflow_id)
+        handle = await _start_video_summary_workflow(
+            inputs=session_input, workflow_id=workflow_id, force_restart=force_restart
+        )
     except WorkflowAlreadyStartedError:
         handle = client.get_workflow_handle(workflow_id)
 
@@ -961,7 +1050,7 @@ async def execute_summarize_session_video_stream(
                     return
                 yield serialize_to_sse_event(
                     event_label="session-summary-stream",
-                    event_data=json.dumps(summary_row.summary),
+                    event_data=json.dumps({"id": str(summary_row.id), "summary": summary_row.summary}),
                 )
                 return
 

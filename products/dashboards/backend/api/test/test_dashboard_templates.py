@@ -1,9 +1,10 @@
+import uuid
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from typing import Any, Optional
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.db.models import Q
 
@@ -1101,3 +1102,385 @@ class TestCustomerDashboardTemplateAuthoring(APIBaseTest):
             {**variable_template, "template_name": "Analytics emit global scoped", "scope": "global"},
         )
         mock_report.assert_not_called()
+
+
+class TestDashboardTemplateCopyBetweenProjects(APIBaseTest):
+    """POST .../dashboard_templates/copy_between_projects/ — same-org, team source only."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.user.is_staff = True
+        self.user.save()
+        ensure_baseline_global_dashboard_templates()
+        self.team_b = Team.objects.create(organization=self.organization, name="Second project copy target")
+        self.team_c = Team.objects.create(organization=self.organization, name="Third project copy source")
+
+    def _copy_url(self, team_pk: int) -> str:
+        return f"/api/projects/{team_pk}/dashboard_templates/copy_between_projects/"
+
+    def test_copy_happy_path_creates_row_on_target_team(self) -> None:
+        src = self.client.post(
+            f"/api/projects/{self.team.pk}/dashboard_templates",
+            {**variable_template, "template_name": "Copy me inter-project", "scope": "team"},
+        )
+        assert src.status_code == status.HTTP_201_CREATED, src.content
+        src_id = src.json()["id"]
+
+        resp = self.client.post(self._copy_url(self.team_b.pk), {"source_template_id": src_id}, format="json")
+        assert resp.status_code == status.HTTP_201_CREATED, resp.content
+        data = resp.json()
+        assert data["template_name"] == "Copy me inter-project"
+        assert data["team_id"] == self.team_b.pk
+        assert data["scope"] == "team"
+        assert data["is_featured"] is False
+        assert data["image_url"] in (None, "")
+        assert len(data["tiles"]) == len(variable_template["tiles"])
+
+    @patch("products.dashboards.backend.api.dashboard_templates.report_user_action")
+    def test_copy_emits_distinct_analytics_event(self, mock_report: Any) -> None:
+        src = self.client.post(
+            f"/api/projects/{self.team.pk}/dashboard_templates",
+            {**variable_template, "template_name": "Analytics copy between", "scope": "team"},
+        )
+        src_id = src.json()["id"]
+        mock_report.reset_mock()
+
+        resp = self.client.post(self._copy_url(self.team_b.pk), {"source_template_id": src_id}, format="json")
+        assert resp.status_code == status.HTTP_201_CREATED, resp.content
+        new_id = resp.json()["id"]
+        mock_report.assert_called_once()
+        assert mock_report.call_args.args[1] == "dashboard project template copied between projects"
+        props = mock_report.call_args.kwargs["properties"]
+        assert props["source_template_id"] == src_id
+        assert props["new_template_id"] == new_id
+        assert props["source_team_id"] == self.team.pk
+        assert props["target_team_id"] == self.team_b.pk
+        assert props["organization_id"] == str(self.organization.id)
+        assert props["template_name"] == "Analytics copy between"
+        assert props["source_team_id"] != props["target_team_id"]
+
+    def test_copy_same_source_and_target_team_400(self) -> None:
+        src = self.client.post(
+            f"/api/projects/{self.team.pk}/dashboard_templates",
+            {**variable_template, "template_name": "Same team copy", "scope": "team"},
+        )
+        src_id = src.json()["id"]
+        resp = self.client.post(self._copy_url(self.team.pk), {"source_template_id": src_id}, format="json")
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+
+    @parameterized.expand(
+        [
+            ("global",),
+            ("feature_flag",),
+        ]
+    )
+    def test_copy_non_team_source_400(self, source_kind: str) -> None:
+        if source_kind == "global":
+            global_tpl = DashboardTemplate.objects.filter(
+                scope=DashboardTemplate.Scope.GLOBAL, team_id__isnull=True
+            ).first()
+            assert global_tpl is not None
+            source_id = str(global_tpl.id)
+        else:
+            ff_tpl = DashboardTemplate.objects.create(
+                team_id=self.team.pk,
+                scope=DashboardTemplate.Scope.FEATURE_FLAG,
+                template_name="ff copy source",
+                dashboard_description="",
+                dashboard_filters={},
+                tiles=variable_template["tiles"],
+                variables=[],
+                tags=[],
+            )
+            source_id = str(ff_tpl.id)
+        resp = self.client.post(self._copy_url(self.team_b.pk), {"source_template_id": source_id}, format="json")
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_copy_cross_organization_404(self) -> None:
+        other_org = Organization.objects.create(name="Other org copy")
+        other_team = Team.objects.create(organization=other_org, name="Other team copy")
+        other_tpl = DashboardTemplate.objects.create(
+            team_id=other_team.pk,
+            scope=DashboardTemplate.Scope.ONLY_TEAM,
+            template_name="other org tpl",
+            dashboard_description="",
+            dashboard_filters={},
+            tiles=variable_template["tiles"],
+            variables=[],
+            tags=[],
+        )
+        resp = self.client.post(
+            self._copy_url(self.team_b.pk), {"source_template_id": str(other_tpl.id)}, format="json"
+        )
+        assert resp.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_copy_source_team_row_missing_404(self) -> None:
+        """Stale `team_id` on the template (no matching Team row) must be 404, not 500."""
+        src = self.client.post(
+            f"/api/projects/{self.team.pk}/dashboard_templates",
+            {**variable_template, "template_name": "Source team row missing", "scope": "team"},
+        )
+        assert src.status_code == status.HTTP_201_CREATED, src.content
+        src_id = src.json()["id"]
+
+        real_filter = Team.objects.filter
+
+        def filter_impl(*args, **kwargs):
+            if kwargs == {"pk": self.team.pk}:
+                qs = MagicMock()
+                qs.first.return_value = None
+                return qs
+            return real_filter(*args, **kwargs)
+
+        with patch.object(Team.objects, "filter", side_effect=filter_impl):
+            resp = self.client.post(self._copy_url(self.team_b.pk), {"source_template_id": src_id}, format="json")
+
+        assert resp.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_copy_soft_deleted_source_404(self) -> None:
+        src = self.client.post(
+            f"/api/projects/{self.team.pk}/dashboard_templates",
+            {**variable_template, "template_name": "Deleted source", "scope": "team"},
+        )
+        src_id = src.json()["id"]
+        assert (
+            self.client.patch(
+                f"/api/projects/{self.team.pk}/dashboard_templates/{src_id}",
+                {"deleted": True},
+            ).status_code
+            == status.HTTP_200_OK
+        )
+        resp = self.client.post(self._copy_url(self.team_b.pk), {"source_template_id": src_id}, format="json")
+        assert resp.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_copy_unknown_uuid_404(self) -> None:
+        resp = self.client.post(
+            self._copy_url(self.team_b.pk), {"source_template_id": str(uuid.uuid4())}, format="json"
+        )
+        assert resp.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_copy_disambiguates_template_name_on_target(self) -> None:
+        first = self.client.post(
+            f"/api/projects/{self.team_b.pk}/dashboard_templates",
+            {**variable_template, "template_name": "Shared name", "scope": "team"},
+        )
+        assert first.status_code == status.HTTP_201_CREATED, first.content
+
+        src = self.client.post(
+            f"/api/projects/{self.team.pk}/dashboard_templates",
+            {**variable_template, "template_name": "Shared name", "scope": "team"},
+        )
+        src_id = src.json()["id"]
+
+        resp = self.client.post(self._copy_url(self.team_b.pk), {"source_template_id": src_id}, format="json")
+        assert resp.status_code == status.HTTP_201_CREATED, resp.content
+        assert resp.json()["template_name"] == "Shared name (copy)"
+
+        src2 = self.client.post(
+            f"/api/projects/{self.team_c.pk}/dashboard_templates",
+            {**variable_template, "template_name": "Shared name", "scope": "team"},
+        )
+        assert src2.status_code == status.HTTP_201_CREATED, src2.content
+        src2_id = src2.json()["id"]
+        resp2 = self.client.post(self._copy_url(self.team_b.pk), {"source_template_id": src2_id}, format="json")
+        assert resp2.status_code == status.HTTP_201_CREATED, resp2.content
+        assert resp2.json()["template_name"] == "Shared name (copy 2)"
+
+    def test_copy_rejects_when_organization_at_template_cap(self) -> None:
+        seed_tiles = variable_template["tiles"]
+        DashboardTemplate.objects.bulk_create(
+            [
+                DashboardTemplate(
+                    team_id=self.team.pk,
+                    template_name=f"copy-cap-fill-{i}",
+                    scope=DashboardTemplate.Scope.ONLY_TEAM,
+                    dashboard_description="",
+                    dashboard_filters={},
+                    tiles=seed_tiles,
+                    variables=[],
+                    tags=[],
+                )
+                for i in range(MAX_DASHBOARD_TEMPLATES_PER_ORGANIZATION - 1)
+            ]
+        )
+        src = self.client.post(
+            f"/api/projects/{self.team.pk}/dashboard_templates",
+            {**variable_template, "template_name": "Copy cap source", "scope": "team"},
+        )
+        assert src.status_code == status.HTTP_201_CREATED, src.content
+        src_id = src.json()["id"]
+
+        resp = self.client.post(self._copy_url(self.team_b.pk), {"source_template_id": src_id}, format="json")
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST, resp.content
+        assert resp.json()["detail"] == organization_dashboard_template_limit_detail()
+
+
+class TestCustomerDashboardTemplateCopyBetweenProjects(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.user.is_staff = False
+        self.user.save()
+        ensure_baseline_global_dashboard_templates()
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.ADVANCED_PERMISSIONS, "key": AvailableFeature.ADVANCED_PERMISSIONS},
+        ]
+        self.organization.save()
+        self.team_b = Team.objects.create(organization=self.organization, name="Customer copy target")
+
+    def _copy_url(self, team_pk: int) -> str:
+        return f"/api/projects/{team_pk}/dashboard_templates/copy_between_projects/"
+
+    def test_non_staff_copy_requires_authoring_flag_and_editor_on_target(self) -> None:
+        AccessControl.objects.create(
+            team=self.team,
+            resource="dashboard_template",
+            resource_id=None,
+            organization_member=self.organization_membership,
+            role=None,
+            access_level="editor",
+        )
+        AccessControl.objects.create(
+            team=self.team_b,
+            resource="dashboard_template",
+            resource_id=None,
+            organization_member=self.organization_membership,
+            role=None,
+            access_level="editor",
+        )
+        with _customer_dashboard_template_authoring_flag_on():
+            src = self.client.post(
+                f"/api/projects/{self.team.pk}/dashboard_templates",
+                {**variable_template, "template_name": "Customer inter-project", "scope": "team"},
+            )
+        assert src.status_code == status.HTTP_201_CREATED, src.content
+        src_id = src.json()["id"]
+
+        with _customer_dashboard_template_authoring_flag_on():
+            resp = self.client.post(self._copy_url(self.team_b.pk), {"source_template_id": src_id}, format="json")
+        assert resp.status_code == status.HTTP_201_CREATED, resp.content
+        assert resp.json()["team_id"] == self.team_b.pk
+
+    def test_non_staff_copy_global_source_400(self) -> None:
+        """Official (global) templates cannot be inter-project copied; validation is not gated on staff."""
+        AccessControl.objects.create(
+            team=self.team,
+            resource="dashboard_template",
+            resource_id=None,
+            organization_member=self.organization_membership,
+            role=None,
+            access_level="editor",
+        )
+        AccessControl.objects.create(
+            team=self.team_b,
+            resource="dashboard_template",
+            resource_id=None,
+            organization_member=self.organization_membership,
+            role=None,
+            access_level="editor",
+        )
+        global_tpl = DashboardTemplate.objects.filter(
+            scope=DashboardTemplate.Scope.GLOBAL, team_id__isnull=True
+        ).first()
+        assert global_tpl is not None
+
+        with _customer_dashboard_template_authoring_flag_on():
+            resp = self.client.post(
+                self._copy_url(self.team_b.pk), {"source_template_id": str(global_tpl.id)}, format="json"
+            )
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST, resp.content
+        data = resp.json()
+        assert data["type"] == "validation_error"
+        assert data["attr"] == "source_template_id"
+        assert data["detail"] == "Only project-scoped templates can be copied to another project."
+
+    def test_non_staff_copy_forbidden_without_authoring_flag(self) -> None:
+        AccessControl.objects.create(
+            team=self.team,
+            resource="dashboard_template",
+            resource_id=None,
+            organization_member=self.organization_membership,
+            role=None,
+            access_level="editor",
+        )
+        AccessControl.objects.create(
+            team=self.team_b,
+            resource="dashboard_template",
+            resource_id=None,
+            organization_member=self.organization_membership,
+            role=None,
+            access_level="editor",
+        )
+        self.user.is_staff = True
+        self.user.save()
+        src = self.client.post(
+            f"/api/projects/{self.team.pk}/dashboard_templates",
+            {**variable_template, "template_name": "No flag copy", "scope": "team"},
+        )
+        src_id = src.json()["id"]
+        self.user.is_staff = False
+        self.user.save()
+
+        resp = self.client.post(self._copy_url(self.team_b.pk), {"source_template_id": src_id}, format="json")
+        assert resp.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_non_staff_copy_403_when_only_viewer_on_target(self) -> None:
+        # `dashboard_template` inherits access from `dashboard`, so ACs must target the parent resource
+        AccessControl.objects.create(
+            team=self.team,
+            resource="dashboard",
+            resource_id=None,
+            organization_member=self.organization_membership,
+            role=None,
+            access_level="editor",
+        )
+        AccessControl.objects.create(
+            team=self.team_b,
+            resource="dashboard",
+            resource_id=None,
+            organization_member=self.organization_membership,
+            role=None,
+            access_level="viewer",
+        )
+        with _customer_dashboard_template_authoring_flag_on():
+            src = self.client.post(
+                f"/api/projects/{self.team.pk}/dashboard_templates",
+                {**variable_template, "template_name": "Viewer on target", "scope": "team"},
+            )
+        src_id = src.json()["id"]
+
+        with _customer_dashboard_template_authoring_flag_on():
+            resp = self.client.post(self._copy_url(self.team_b.pk), {"source_template_id": src_id}, format="json")
+        assert resp.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_non_staff_copy_404_when_no_dashboard_template_access_on_source_project(self) -> None:
+        DashboardTemplate.objects.create(
+            team_id=self.team.pk,
+            scope=DashboardTemplate.Scope.ONLY_TEAM,
+            template_name="source without template rbac",
+            dashboard_description="",
+            dashboard_filters={},
+            tiles=variable_template["tiles"],
+            variables=[],
+            tags=[],
+        )
+        tpl = DashboardTemplate.objects.get(template_name="source without template rbac")
+        # Explicitly revoke the user's dashboard access on the source project (dashboard_template inherits from dashboard)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="dashboard",
+            resource_id=None,
+            organization_member=self.organization_membership,
+            role=None,
+            access_level="none",
+        )
+        AccessControl.objects.create(
+            team=self.team_b,
+            resource="dashboard",
+            resource_id=None,
+            organization_member=self.organization_membership,
+            role=None,
+            access_level="editor",
+        )
+        with _customer_dashboard_template_authoring_flag_on():
+            resp = self.client.post(self._copy_url(self.team_b.pk), {"source_template_id": str(tpl.id)}, format="json")
+        assert resp.status_code == status.HTTP_404_NOT_FOUND

@@ -13,7 +13,7 @@ class TicketAssignment(UUIDTModel):
         db_table = "posthog_conversations_ticket_assignment"
         constraints = [
             models.CheckConstraint(
-                check=(
+                condition=(
                     models.Q(user__isnull=False, role__isnull=True) | models.Q(user__isnull=True, role__isnull=False)
                 ),
                 name="exactly_one_assignee_type",

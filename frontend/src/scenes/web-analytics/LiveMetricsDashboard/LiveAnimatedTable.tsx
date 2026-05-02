@@ -113,18 +113,18 @@ export function LiveAnimatedTable<T>({
     }, [items, keyExtractor])
 
     return (
-        <div className={clsx('bg-bg-light rounded-lg border p-4', className)}>
+        <div className={clsx('bg-bg-light rounded-lg border p-4 h-full min-h-[340px] flex flex-col', className)}>
             <h3 className="text-sm font-semibold mb-4">{title}</h3>
             {isLoading ? (
-                <div className="space-y-2">
+                <div className="flex-1 flex flex-col justify-center space-y-2">
                     {Array.from({ length: 5 }).map((_, i) => (
                         <LemonSkeleton key={i} className="h-8" />
                     ))}
                 </div>
             ) : items.length === 0 ? (
-                <div className="text-center py-6 text-muted">{emptyMessage}</div>
+                <div className="flex-1 flex items-center justify-center text-muted text-sm">{emptyMessage}</div>
             ) : (
-                <>
+                <div className="flex-1 flex flex-col">
                     <div className="flex items-center px-3 py-2 border-b text-xs font-semibold text-muted uppercase">
                         <span className="flex-1">{columnLabel}</span>
                         <span className="w-28 text-center">Views</span>
@@ -148,7 +148,7 @@ export function LiveAnimatedTable<T>({
                             )
                         })}
                     </div>
-                </>
+                </div>
             )}
         </div>
     )

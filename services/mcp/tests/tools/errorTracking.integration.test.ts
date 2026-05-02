@@ -280,7 +280,12 @@ describe('Error Tracking', { concurrent: false }, () => {
                 },
                 assignee: { type: 'user', id: currentUserId },
                 description: 'Group TypeErrors from MCP integration test',
-            })) as { id: string; filters: unknown; assignee: { type: string; id: number | string } | null; description?: string | null }
+            })) as {
+                id: string
+                filters: unknown
+                assignee: { type: string; id: number | string } | null
+                description?: string | null
+            }
 
             createdGroupingRuleIds.push(result.id)
 

@@ -82,7 +82,6 @@ from posthog.models.feature_flag.version_history import (
     VersionNotFound,
     reconstruct_flag_at_version,
 )
-from posthog.models.group.group import Group
 from posthog.models.property import Property
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.permissions import ProjectSecretAPITokenPermission
@@ -870,11 +869,12 @@ class FeatureFlagSerializer(
             assert isinstance(self.instance, FeatureFlag)
             return self.instance.filters
 
+        filters.setdefault("groups", [])
+
         # Only validate empty groups for new flag creation (POST), not updates (PUT/PATCH)
         # Existing flags may legitimately have empty groups temporarily during scheduled changes
         if self.context["request"].method == "POST":
-            groups = filters.get("groups", [])
-            if not groups:
+            if not filters["groups"]:
                 raise serializers.ValidationError("Feature flags must have at least one condition set (group).")
 
         flag_level_aggregation = filters.get("aggregation_group_type_index", None)
@@ -1552,6 +1552,23 @@ class FeatureFlagSerializer(
             validated_data["version"] = locked_version + 1
             old_key = instance.key
 
+            # If the key is changing, free it up by hard-deleting any soft-deleted
+            # flag that still holds the target key — the DB unique constraint on
+            # (team, key) spans soft-deleted rows, so without this the update
+            # would fail with an IntegrityError. Mirrors the behavior in create().
+            new_key = validated_data.get("key")
+            if new_key and new_key != old_key and validated_data.get("deleted", instance.deleted) is False:
+                try:
+                    FeatureFlag.objects_including_soft_deleted.filter(
+                        key=new_key,
+                        team__project_id=self.context["project_id"],
+                        deleted=True,
+                    ).exclude(pk=instance.pk).delete()
+                except deletion.RestrictedError:
+                    raise exceptions.ValidationError(
+                        "Feature flag with this key already exists and is used in an experiment. Please delete the experiment before renaming the flag."
+                    )
+
             with ImpersonatedContext(request):
                 instance = super().update(instance, validated_data)
 
@@ -1739,12 +1756,10 @@ class FeatureFlagSerializer(
                         group_keys.add(str(prop_value))
 
                 if group_keys:
+                    from posthog.models.group.util import get_groups_by_type_indices
+
                     group_names: dict[str, str] = {}
-                    for group in Group.objects.filter(
-                        team_id=instance.team_id,
-                        group_type_index__in=group_type_indices,
-                        group_key__in=group_keys,
-                    ).only("group_key", "group_properties"):
+                    for group in get_groups_by_type_indices(instance.team_id, group_type_indices, group_keys):
                         name = group.group_properties.get("name")
                         group_names[group.group_key] = str(name) if name else group.group_key
 
@@ -2963,8 +2978,8 @@ class FeatureFlagViewSet(
         query_serializer=LocalEvaluationQuerySerializer,
         responses={
             200: OpenApiResponse(response=LocalEvaluationResponseSerializer()),
-            402: OpenApiResponse(response=serializers.DictField()),
-            500: OpenApiResponse(response=serializers.DictField()),
+            402: OpenApiResponse(description="Payment required"),
+            500: OpenApiResponse(description="Internal server error"),
         },
     )
     @action(
@@ -3263,6 +3278,7 @@ class FeatureFlagViewSet(
         cohort_serializer.save()
         return Response({"cohort": cohort_serializer.data}, status=201)
 
+    @extend_schema(operation_id="feature_flags_all_activity_retrieve")
     @validated_request(
         query_serializer=ActivityQuerySerializer,
         responses={

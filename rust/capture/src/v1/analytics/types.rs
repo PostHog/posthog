@@ -59,6 +59,14 @@ pub struct Event {
     pub properties: Box<RawValue>,
 }
 
+impl Event {
+    /// Trimmed accessor for the raw UUID string. Prefer this over direct
+    /// field access so callers are insulated from client-submitted whitespace.
+    pub fn uuid(&self) -> &str {
+        self.uuid.trim()
+    }
+}
+
 #[derive(Debug)]
 pub struct WrappedEvent {
     pub event: Event,

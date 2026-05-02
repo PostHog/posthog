@@ -35,6 +35,8 @@ from ee.hogai.eval.base import MaxPublicEval
 from ee.hogai.utils.types import AssistantNodeName, AssistantState
 from ee.models.assistant import Conversation
 
+_SUMMARY_PROMPT = "Summarize experiment {experiment_id}. What do the results show?"
+
 
 class EvalInput(TypedDict):
     input: str
@@ -333,12 +335,50 @@ MOCK_FREQUENTIST_SIGNIFICANT = MaxExperimentSummaryContext(
 )
 
 
+# Frequentist non-significant: both variants have high p-values and
+# confidence intervals crossing zero. Test slightly leads on delta but
+# p=0.35 is far from significant. Checks that Claude doesn't misread
+# a moderate p-value as "trending toward significance" or pick a winner.
+MOCK_FREQUENTIST_NON_SIGNIFICANT = MaxExperimentSummaryContext(
+    experiment_id=0,  # replaced at runtime
+    experiment_name="Email Subject Line Test",
+    description="Testing whether a personalized email subject line improves open rate",
+    variants=["control", "test"],
+    exposures={"control": 3150.0, "test": 3120.0},
+    primary_metrics_results=[
+        MaxExperimentMetricResult(
+            name="1. Email open rate",
+            goal=Goal.INCREASE,
+            variant_results=[
+                MaxExperimentVariantResultFrequentist(
+                    key="control",
+                    p_value=0.58,
+                    confidence_interval=[-0.022, 0.015],
+                    delta=-0.0035,
+                    significant=False,
+                ),
+                MaxExperimentVariantResultFrequentist(
+                    key="test",
+                    p_value=0.35,
+                    confidence_interval=[-0.009, 0.027],
+                    delta=0.009,
+                    significant=False,
+                ),
+            ],
+        ),
+    ],
+    secondary_metrics_results=[],
+    stats_method=ExperimentStatsMethod.FREQUENTIST,
+)
+
+
 MOCK_CONTEXTS: dict[str, MaxExperimentSummaryContext] = {
     "bayesian_significant": MOCK_BAYESIAN_SIGNIFICANT,
     "bayesian_non_significant": MOCK_BAYESIAN_NON_SIGNIFICANT,
     "bayesian_goal_decrease": MOCK_BAYESIAN_GOAL_DECREASE,
     "bayesian_mixed_metrics": MOCK_BAYESIAN_MIXED_METRICS,
     "frequentist_significant": MOCK_FREQUENTIST_SIGNIFICANT,
+    "frequentist_non_significant": MOCK_FREQUENTIST_NON_SIGNIFICANT,
 }
 
 
@@ -457,38 +497,45 @@ async def eval_experiment_summary(call_agent_for_summary, pytestconfig):
         data=[
             EvalCase(
                 input=EvalInput(
-                    input="Summarize experiment {experiment_id}. What do the results show?",
+                    input=_SUMMARY_PROMPT,
                     mock_key="bayesian_significant",
                 ),
                 metadata={"test_type": "bayesian_significant"},
             ),
             EvalCase(
                 input=EvalInput(
-                    input="Summarize experiment {experiment_id}. What do the results show?",
+                    input=_SUMMARY_PROMPT,
                     mock_key="bayesian_non_significant",
                 ),
                 metadata={"test_type": "bayesian_non_significant"},
             ),
             EvalCase(
                 input=EvalInput(
-                    input="Summarize experiment {experiment_id}. What do the results show?",
+                    input=_SUMMARY_PROMPT,
                     mock_key="bayesian_goal_decrease",
                 ),
                 metadata={"test_type": "bayesian_goal_decrease"},
             ),
             EvalCase(
                 input=EvalInput(
-                    input="Summarize experiment {experiment_id}. What do the results show?",
+                    input=_SUMMARY_PROMPT,
                     mock_key="bayesian_mixed_metrics",
                 ),
                 metadata={"test_type": "bayesian_mixed_metrics"},
             ),
             EvalCase(
                 input=EvalInput(
-                    input="Summarize experiment {experiment_id}. What do the results show?",
+                    input=_SUMMARY_PROMPT,
                     mock_key="frequentist_significant",
                 ),
                 metadata={"test_type": "frequentist_significant"},
+            ),
+            EvalCase(
+                input=EvalInput(
+                    input=_SUMMARY_PROMPT,
+                    mock_key="frequentist_non_significant",
+                ),
+                metadata={"test_type": "frequentist_non_significant"},
             ),
         ],
         pytestconfig=pytestconfig,

@@ -28,7 +28,7 @@ class TeamExperimentsConfig(models.Model):
 
     default_experiment_stats_method = models.CharField(
         max_length=20,
-        choices=Organization.DefaultExperimentStatsMethod.choices,
+        choices=Organization.DefaultExperimentStatsMethod,
         default=Organization.DefaultExperimentStatsMethod.BAYESIAN,
         null=True,
         blank=True,
@@ -43,6 +43,14 @@ class TeamExperimentsConfig(models.Model):
     default_only_count_matured_users = models.BooleanField(
         default=False,
         help_text="Default value for 'only count matured users' on new experiments in this environment.",
+    )
+
+    funnel_steps_data_disabled = models.BooleanField(
+        default=False,
+        help_text=(
+            "Default for disabling per-step session/event sample data on funnel experiment metrics. "
+            "Overridden by the experiment-level `funnel_steps_data_disabled` parameter when set."
+        ),
     )
 
 

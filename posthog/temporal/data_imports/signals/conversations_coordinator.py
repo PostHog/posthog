@@ -142,14 +142,17 @@ class ConversationsSignalsCoordinatorWorkflow(PostHogWorkflow):
                 ),
             )
         if not remaining:
-            workflow.logger.debug("No teams with conversations signals enabled")
+            logger.debug("No teams with conversations signals enabled")
             return {
                 "teams_processed": teams_succeeded + teams_failed,
                 "teams_succeeded": teams_succeeded,
                 "teams_failed": teams_failed,
                 "total_signals_emitted": total_signals_emitted,
             }
-        workflow.logger.debug(f"Processing {len(remaining)} teams with conversations signals enabled")
+        logger.debug(
+            "Processing teams with conversations signals enabled",
+            team_count=len(remaining),
+        )
         # Process teams in batches to avoid overwhelming Temporal with too many concurrent child workflows
         while remaining:
             batch = remaining[:DEFAULT_MAX_CONCURRENT_TEAMS]
@@ -174,7 +177,10 @@ class ConversationsSignalsCoordinatorWorkflow(PostHogWorkflow):
                 except temporalio.exceptions.WorkflowAlreadyStartedError:
                     continue
                 except Exception:
-                    workflow.logger.exception(f"Failed to start conversations signal emission for team {team_id}")
+                    logger.exception(
+                        "Failed to start conversations signal emission for team",
+                        team_id=team_id,
+                    )
                     teams_failed += 1
             for team_id, handle in workflow_handles.items():
                 try:
@@ -183,7 +189,10 @@ class ConversationsSignalsCoordinatorWorkflow(PostHogWorkflow):
                         total_signals_emitted += result.get("signals_emitted", 0)
                     teams_succeeded += 1
                 except Exception:
-                    workflow.logger.exception(f"Conversations signal emission errored for team {team_id}")
+                    logger.exception(
+                        "Conversations signal emission errored for team",
+                        team_id=team_id,
+                    )
                     teams_failed += 1
             # Avoid exceeding Temporal history limits on large rollouts
             if remaining and workflow.info().is_continue_as_new_suggested():

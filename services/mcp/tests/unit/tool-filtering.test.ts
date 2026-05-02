@@ -63,7 +63,7 @@ describe('Tool Filtering - Features', () => {
         {
             features: ['experiments'],
             description: 'experiment tools',
-            expectedTools: ['experiment-get-all'],
+            expectedTools: ['experiment-list'],
         },
         {
             features: ['llm_analytics'],
@@ -207,6 +207,7 @@ const createMockContext = (scopes: string[]): Context => ({
         getAiConsentGiven: async () => undefined,
     } as any,
     sessionManager: new SessionManager({} as any),
+    getDistinctId: async () => 'test-distinct-id',
 })
 
 describe('Tool Filtering - API Scopes', () => {
@@ -419,6 +420,7 @@ describe('Tool Filtering - AI Consent', () => {
                 getAiConsentGiven: async () => false,
             } as any,
             sessionManager: new SessionManager({} as any),
+            getDistinctId: async () => 'test-distinct-id',
         }
         const tools = await getToolsFromContext(context)
         const toolNames = tools.map((t) => t.name)
@@ -444,6 +446,7 @@ describe('Tool Filtering - AI Consent', () => {
                 getAiConsentGiven: async () => true,
             } as any,
             sessionManager: new SessionManager({} as any),
+            getDistinctId: async () => 'test-distinct-id',
         }
         const tools = await getToolsFromContext(context)
         const toolNames = tools.map((t) => t.name)
@@ -564,7 +567,10 @@ describe('Tool Filtering - Feature Flags', () => {
 
     it('getRequiredFeatureFlags should return flags used by current definitions', () => {
         const flags = getRequiredFeatureFlags()
-        expect(flags).toEqual(['logs-alerting'])
+        expect(flags).toEqual(
+            expect.arrayContaining(['logs-alerting', 'replay-video-based-summarization', 'visual-review'])
+        )
+        expect(flags).toHaveLength(3)
     })
 
     // Test the filtering logic with a direct unit test approach using

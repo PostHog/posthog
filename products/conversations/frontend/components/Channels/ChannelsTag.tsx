@@ -1,13 +1,14 @@
 import { IconComment, IconLetter } from '@posthog/icons'
 import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
-import { IconSlack } from 'lib/lemon-ui/icons'
+import { IconMicrosoftTeams, IconSlack } from 'lib/lemon-ui/icons'
 
 import type { TicketChannel, TicketChannelDetail } from '../../types'
 
 const channelIcon: Record<TicketChannel, JSX.Element> = {
     widget: <IconComment />,
     slack: <IconSlack />,
+    teams: <IconMicrosoftTeams />,
     email: <IconLetter />,
 }
 
@@ -15,6 +16,8 @@ const channelDetailLabel: Record<TicketChannelDetail, string> = {
     slack_channel_message: 'Channel message',
     slack_bot_mention: 'Bot mention',
     slack_emoji_reaction: 'Emoji reaction',
+    teams_channel_message: 'Teams channel message',
+    teams_bot_mention: 'Teams bot mention',
     widget_embedded: 'Widget',
     widget_api: 'API',
 }

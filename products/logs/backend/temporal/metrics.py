@@ -35,6 +35,11 @@ LOGS_ALERTING_LATENCY_HISTOGRAM_METRICS = (
     "logs_alerting_cycle_duration_ms",
     "logs_alerting_scheduler_lag_ms",
     "logs_alerting_schedule_to_start_ms",
+    "logs_alerting_clickhouse_duration_ms",
+    "logs_alerting_semaphore_wait_ms",
+    "logs_alerting_alert_save_ms",
+    "logs_alerting_alert_event_create_ms",
+    "logs_alerting_alert_update_ms",
 )
 
 LOGS_ALERTING_LATENCY_HISTOGRAM_BUCKETS = [
@@ -47,6 +52,8 @@ LOGS_ALERTING_LATENCY_HISTOGRAM_BUCKETS = [
     60_000.0,
     120_000.0,
     300_000.0,
+    600_000.0,
+    1_800_000.0,
 ]
 
 
@@ -118,23 +125,119 @@ def record_alerts_active(count: int) -> None:
     gauge.set(count)
 
 
-def record_checkpoint_lag(now: dt.datetime, checkpoint: dt.datetime | None) -> None:
-    # Emits -1 when checkpoint is None — dashboards/alerts must treat negative as
-    # "unavailable", not a real lag value.
+def record_pending_alerts(count: int) -> None:
+    meter = get_metric_meter()
+    gauge = meter.create_gauge(
+        "logs_alerting_pending_alerts",
+        "Number of due alerts still waiting to be evaluated at end of cycle (backlog)",
+    )
+    gauge.set(count)
+
+
+def record_checkpoint_lag(now: dt.datetime, checkpoint: dt.datetime) -> None:
     meter = get_metric_meter()
     gauge = meter.create_gauge(
         "logs_alerting_ingestion_checkpoint_lag_seconds",
         "Wall-clock age of the logs-ingestion checkpoint used to anchor alert windows",
     )
-    if checkpoint is None:
-        gauge.set(-1)
-        return
     lag_seconds = max(0, int((now - checkpoint).total_seconds()))
     gauge.set(lag_seconds)
 
 
+def increment_checkpoint_unavailable() -> None:
+    meter = get_metric_meter()
+    counter = meter.create_counter(
+        "logs_alerting_checkpoint_unavailable_total",
+        "Cycles where the logs-ingestion checkpoint could not be resolved (no alerts due, or fetch failure)",
+    )
+    counter.add(1)
+
+
 def record_check_duration(duration_ms: int) -> None:
-    _record_histogram("logs_alerting_check_duration_ms", "Per-alert evaluation duration", duration_ms)
+    _record_histogram(
+        "logs_alerting_check_duration_ms",
+        "Per-alert end-to-end duration (eval + dispatch); cohort bulk save excluded — see logs_alerting_cohort_save_ms",
+        duration_ms,
+    )
+
+
+def record_clickhouse_duration(duration_ms: int) -> None:
+    _record_histogram(
+        "logs_alerting_clickhouse_duration_ms",
+        "ClickHouse query wall time for a single alert evaluation",
+        duration_ms,
+    )
+
+
+def record_semaphore_wait(wait_ms: int) -> None:
+    _record_histogram(
+        "logs_alerting_semaphore_wait_ms",
+        "Time an alert spent waiting on the per-cycle concurrency semaphore",
+        wait_ms,
+    )
+
+
+def record_cohort_save_duration(duration_ms: int) -> None:
+    _record_histogram(
+        "logs_alerting_cohort_save_ms",
+        "Postgres write time for the per-cohort bulk save (full transaction: bulk_create + bulk_update)",
+        duration_ms,
+    )
+
+
+def record_cohort_event_insert_duration(duration_ms: int) -> None:
+    _record_histogram(
+        "logs_alerting_cohort_event_insert_ms",
+        "Postgres bulk_create time for LogsAlertEvent rows in a cohort (only on state changes or errors)",
+        duration_ms,
+    )
+
+
+def record_cohort_update_duration(duration_ms: int) -> None:
+    _record_histogram(
+        "logs_alerting_cohort_update_ms",
+        "Postgres bulk_update time for LogsAlertConfiguration rows in a cohort",
+        duration_ms,
+    )
+
+
+def record_cohort_size(size: int) -> None:
+    _record_histogram(
+        "logs_alerting_cohort_size",
+        "Number of alerts in a cohort sharing one batched ClickHouse query and one bulk Postgres save",
+        size,
+    )
+
+
+CohortSaveFallbackReason = typing.Literal["integrity_error"]
+CohortQueryFallbackReason = typing.Literal["batched_failure", "transient_no_fallback"]
+
+
+def increment_cohort_save_fallback(reason: CohortSaveFallbackReason) -> None:
+    """Counts cohort bulk-save failures that triggered the per-alert fallback path."""
+    meter = get_metric_meter({"reason": reason})
+    counter = meter.create_counter(
+        "logs_alerting_cohort_save_fallback_total",
+        "Cohort bulk-save fell back to per-alert UPDATEs (e.g. IntegrityError)",
+    )
+    counter.add(1)
+
+
+def increment_cohort_query_fallback(reason: CohortQueryFallbackReason) -> None:
+    """Counts batched CH query failures that triggered the per-alert query fallback path.
+
+    Sustained > 0 = at least one team has an alert whose predicate is taking down
+    its cohort's batched query. The fallback isolates the bad alert (its
+    consecutive_failures advances independently) so good alerts in the cohort
+    keep evaluating. If this fires regularly, investigate the team's alert
+    configs.
+    """
+    meter = get_metric_meter({"reason": reason})
+    counter = meter.create_counter(
+        "logs_alerting_cohort_query_fallback_total",
+        "Batched CH cohort query failed and fell back to per-alert queries",
+    )
+    counter.add(1)
 
 
 def record_scheduler_lag(lag_ms: int) -> None:

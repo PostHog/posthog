@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 import { P, match } from 'ts-pattern'
 
-import { IconCheckCircle, IconSort, IconTrash, IconWarning } from '@posthog/icons'
+import { IconCheckCircle, IconDownload, IconSort, IconTrash, IconWarning } from '@posthog/icons'
 import {
     LemonButton,
     LemonCheckbox,
@@ -117,8 +117,14 @@ const SymbolSetTable = (): JSX.Element => {
         shiftKeyHeld,
         previouslyCheckedIndex,
     } = useValues(symbolSetLogic)
-    const { deleteSymbolSet, setSymbolSetOrder, setSelectedSymbolSetIds, setPreviouslyCheckedIndex, setPage } =
-        useActions(symbolSetLogic)
+    const {
+        deleteSymbolSet,
+        downloadSymbolSet,
+        setSymbolSetOrder,
+        setSelectedSymbolSetIds,
+        setPreviouslyCheckedIndex,
+        setPage,
+    } = useActions(symbolSetLogic)
 
     const symbolSets = symbolSetResponse?.results || []
     const pagination = {
@@ -232,9 +238,18 @@ const SymbolSetTable = (): JSX.Element => {
             dataIndex: 'id',
             align: 'right',
 
-            render: (_, { id }) => {
+            render: (_, { id, storage_ptr }) => {
                 return (
                     <div className="flex justify-end items-center gap-1">
+                        {storage_ptr && (
+                            <LemonButton
+                                type="tertiary"
+                                size="xsmall"
+                                tooltip="Download source map"
+                                icon={<IconDownload />}
+                                onClick={() => downloadSymbolSet(id)}
+                            />
+                        )}
                         <LemonButton
                             type="tertiary"
                             size="xsmall"

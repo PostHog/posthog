@@ -3,12 +3,14 @@ Activity 6b of the video-based summarization workflow:
 Saving the single session summary.
 """
 
+import asyncio
 from typing import Any
 
 import structlog
 import temporalio
 
 from posthog.sync import database_sync_to_async
+from posthog.temporal.session_replay.session_summary.events import capture_session_summary_ready
 from posthog.temporal.session_replay.session_summary.state import (
     StateActivitiesEnum,
     get_data_class_from_redis,
@@ -37,6 +39,7 @@ logger = structlog.get_logger(__name__)
 async def store_video_session_summary_activity(
     inputs: VideoSummarySingleSessionInputs,
     analysis: ConsolidatedVideoAnalysis,
+    team_api_token: str,
 ) -> None:
     """Convert video segments to session summary format and store in database
 
@@ -62,7 +65,7 @@ async def store_video_session_summary_activity(
             extra_summary_context=inputs.extra_summary_context,
         )
         if summary_exists.get(inputs.session_id):
-            logger.exception(
+            logger.warning(
                 f"Video-based summary already exists for session {inputs.session_id}, duplicate write detected, skipping storage",
                 session_id=inputs.session_id,
                 signals_type="session-summaries",
@@ -115,7 +118,7 @@ async def store_video_session_summary_activity(
         user = await User.objects.aget(id=inputs.user_id)
 
         # Store the summary in the database
-        await database_sync_to_async(SingleSessionSummary.objects.add_summary, thread_sensitive=False)(
+        stored_summary = await database_sync_to_async(SingleSessionSummary.objects.add_summary, thread_sensitive=False)(
             session_id=inputs.session_id,
             team_id=inputs.team_id,
             summary=session_summary,
@@ -129,6 +132,11 @@ async def store_video_session_summary_activity(
             session_duration=session_duration,
             distinct_id=distinct_id,
             created_by=user,
+        )
+        await asyncio.to_thread(
+            capture_session_summary_ready,
+            stored_summary,
+            team_api_token=team_api_token,
         )
         logger.debug(
             f"Successfully stored video-based summary for session {inputs.session_id}",

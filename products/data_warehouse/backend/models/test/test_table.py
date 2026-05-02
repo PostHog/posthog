@@ -649,6 +649,37 @@ class TestTable(BaseTest):
             with pytest.raises(Exception, match="CSV parsing failed"):
                 table._validate_csv_double_quotes_setting()
 
+    @parameterized.expand(
+        [
+            ("empty_folder_code_636_silent", 636, False),
+            ("other_server_error_captured", 499, True),
+        ]
+    )
+    def test_get_max_value_for_column_handles_clickhouse_errors(
+        self, _name: str, error_code: int, should_capture: bool
+    ):
+        credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
+        table = DataWarehouseTable.objects.create(
+            name="test_parquet",
+            url_pattern="https://example.com/test.parquet",
+            credential=credential,
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            columns={"id": {"clickhouse": "Int64", "hogql": "IntegerDatabaseField"}},
+        )
+
+        with (
+            patch(
+                "products.data_warehouse.backend.models.table.sync_execute",
+                side_effect=ServerException("boom", code=error_code),
+            ),
+            patch("products.data_warehouse.backend.models.table.capture_exception") as mock_capture,
+        ):
+            result = table.get_max_value_for_column("id")
+
+        assert result is None
+        assert mock_capture.called is should_capture
+
     def test_is_csv_format_for_non_csv(self):
         credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
         table = DataWarehouseTable.objects.create(

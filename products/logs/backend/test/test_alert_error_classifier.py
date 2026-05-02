@@ -7,7 +7,7 @@ from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.errors import ExposedCHQueryError, InternalCHQueryError, QueryErrorCategory
 
-from products.logs.backend.alert_error_classifier import classify
+from products.logs.backend.alert_error_classifier import TRANSIENT_ERROR_CODES, classify
 
 
 def _with_category(category: QueryErrorCategory):
@@ -78,3 +78,32 @@ class TestClassifyAlertError(TestCase):
             result = classify(RuntimeError("something unexpected"))
 
         assert "PostHog" in result.user_message
+
+
+class TestIsTransient(TestCase):
+    @parameterized.expand(
+        [
+            (QueryErrorCategory.RATE_LIMITED, True),
+            (QueryErrorCategory.CANCELLED, True),
+            (QueryErrorCategory.ERROR, True),
+            (QueryErrorCategory.QUERY_PERFORMANCE_ERROR, False),
+        ]
+    )
+    def test_is_transient_matches_transient_error_codes(self, category: QueryErrorCategory, expected: bool) -> None:
+        with _with_category(category):
+            result = classify(Exception("whatever"))
+        assert result.is_transient is expected
+
+    def test_is_transient_false_for_invalid_query(self) -> None:
+        exc = ExposedCHQueryError("Unknown identifier", code=47)
+        with _with_category(QueryErrorCategory.USER_ERROR):
+            result = classify(exc)
+        assert result.code == "invalid_query"
+        assert result.is_transient is False
+
+    def test_transient_error_codes_covers_all_transient_categories(self) -> None:
+        transient_categories = {QueryErrorCategory.RATE_LIMITED, QueryErrorCategory.CANCELLED, QueryErrorCategory.ERROR}
+        for category in transient_categories:
+            with _with_category(category):
+                result = classify(Exception("x"))
+            assert result.code in TRANSIENT_ERROR_CODES, f"{category} should map to a transient code"

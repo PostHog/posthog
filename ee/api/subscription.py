@@ -25,7 +25,7 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.constants import AvailableFeature
+from posthog.constants import SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE_FEATURE_FLAG_KEY, AvailableFeature
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Insight
@@ -33,7 +33,10 @@ from posthog.models.integration import Integration
 from posthog.models.subscription import Subscription, SubscriptionDelivery, unsubscribe_using_token
 from posthog.permissions import PremiumFeaturePermission
 from posthog.rate_limit import SubscriptionTestDeliveryThrottle
+from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.security.url_validation import is_url_allowed
+from posthog.slo.context import SloSpec, slo_operation
+from posthog.slo.types import SloArea, SloOperation
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.subscriptions.types import ProcessSubscriptionWorkflowInputs, SubscriptionTriggerType
 from posthog.utils import str_to_bool
@@ -187,9 +190,15 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             if not allowed:
                 raise ValidationError({"target_value": [f"Invalid webhook URL: {error}"]})
 
+        # Only gate non-empty writes to `summary_prompt_guide`. Clearing (empty string)
+        # and field-absent PATCHes always pass through so users aren't stuck with a value
+        # they can no longer edit if the flag flips off after they set one.
         prompt_guide = attrs.get("summary_prompt_guide")
-        if prompt_guide and len(prompt_guide) > 500:
-            raise ValidationError({"summary_prompt_guide": ["AI summary context must be 500 characters or fewer."]})
+        if prompt_guide:
+            if len(prompt_guide) > 500:
+                raise ValidationError({"summary_prompt_guide": ["AI summary context must be 500 characters or fewer."]})
+            if not self._prompt_guide_feature_enabled():
+                raise exceptions.PermissionDenied("Setting AI summary context is not enabled for this organization.")
 
         if attrs.get("summary_enabled"):
             organization = self.context["get_organization"]()
@@ -199,6 +208,28 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                 )
 
         return attrs
+
+    def _prompt_guide_feature_enabled(self) -> bool:
+        """Evaluate the prompt-guide feature flag for the caller's organization.
+
+        Scoped by organization (not user) so the gate is stable across a team's
+        members. `only_evaluate_locally=False` so we respect server-side cohort
+        / property conditions — this isn't on a hot path.
+        """
+        request = self.context.get("request")
+        if not request or not getattr(request, "user", None) or not getattr(request.user, "distinct_id", None):
+            return False
+        organization = self.context["get_organization"]()
+        org_id = str(organization.id) if organization else ""
+        return bool(
+            posthoganalytics.feature_enabled(
+                SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE_FEATURE_FLAG_KEY,
+                str(request.user.distinct_id),
+                groups={"organization": org_id},
+                group_properties={"organization": {"id": org_id}},
+                only_evaluate_locally=False,
+            )
+        )
 
     def _validate_dashboard_export_subscription(self, attrs):
         dashboard = attrs.get("dashboard") or (self.instance.dashboard if self.instance else None)
@@ -257,6 +288,14 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         request = self.context["request"]
         validated_data["team_id"] = self.context["team_id"]
         validated_data["created_by"] = request.user
+        team = self.context["get_team"]()
+        current_count = Subscription.objects.filter(team_id=team.id, deleted=False).count()
+        check_count_limit(
+            team=team,
+            key=LimitKey.MAX_SUBSCRIPTIONS_PER_TEAM,
+            current_count=current_count,
+            user=request.user,
+        )
 
         invite_message = validated_data.pop("invite_message", "")
         dashboard_export_insight_ids = validated_data.pop("dashboard_export_insights", [])
@@ -265,30 +304,82 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         if dashboard_export_insight_ids:
             instance.dashboard_export_insights.set(dashboard_export_insight_ids)
 
-        temporal = sync_connect()
-        workflow_id = f"handle-subscription-value-change-{instance.id}-{uuid.uuid4()}"
-        asyncio.run(
-            temporal.start_workflow(
-                "handle-subscription-value-change",
-                ProcessSubscriptionWorkflowInputs(
-                    subscription_id=instance.id,
-                    team_id=instance.team_id,
-                    distinct_id=str(instance.created_by.distinct_id) if instance.created_by else str(instance.team_id),
-                    previous_value="",
-                    invite_message=invite_message,
-                    trigger_type=SubscriptionTriggerType.TARGET_CHANGE,
-                ),
-                id=workflow_id,
-                task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
+        with slo_operation(
+            spec=SloSpec(
+                distinct_id=str(request.user.distinct_id),
+                area=SloArea.ANALYTIC_PLATFORM,
+                operation=SloOperation.SUBSCRIPTION_CREATE,
+                team_id=instance.team_id,
+                resource_id=str(instance.id),
+            ),
+            properties={
+                "subscription_id": instance.id,
+                "target_type": instance.target_type,
+                "frequency": instance.frequency,
+                "interval": instance.interval,
+                "byweekday": instance.byweekday,
+                "bysetpos": instance.bysetpos,
+                "count": instance.count,
+                "resource_type": "dashboard" if instance.dashboard_id else "insight" if instance.insight_id else None,
+                "dashboard_export_insights_count": len(dashboard_export_insight_ids),
+                "summary_enabled": instance.summary_enabled,
+                "has_summary_prompt_guide": bool(instance.summary_prompt_guide),
+                "has_until_date": instance.until_date is not None,
+                "has_invite_message": bool(invite_message),
+            },
+        ):
+            temporal = sync_connect()
+            workflow_id = f"handle-subscription-value-change-{instance.id}-{uuid.uuid4()}"
+            asyncio.run(
+                temporal.start_workflow(
+                    "handle-subscription-value-change",
+                    ProcessSubscriptionWorkflowInputs(
+                        subscription_id=instance.id,
+                        team_id=instance.team_id,
+                        distinct_id=str(instance.created_by.distinct_id)
+                        if instance.created_by
+                        else str(instance.team_id),
+                        previous_value="",
+                        invite_message=invite_message,
+                        trigger_type=SubscriptionTriggerType.TARGET_CHANGE,
+                    ),
+                    id=workflow_id,
+                    task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
+                )
             )
-        )
 
         return instance
 
     def update(self, instance: Subscription, validated_data: dict, *args, **kwargs) -> Subscription:
+        request = self.context["request"]
         previous_value = instance.target_value
+        is_delete = not instance.deleted and validated_data.get("deleted") is True
         invite_message = validated_data.pop("invite_message", "")
         dashboard_export_insight_ids = validated_data.pop("dashboard_export_insights", [])
+
+        if is_delete:
+            with slo_operation(
+                spec=SloSpec(
+                    distinct_id=str(request.user.distinct_id),
+                    area=SloArea.ANALYTIC_PLATFORM,
+                    operation=SloOperation.SUBSCRIPTION_DELETE,
+                    team_id=instance.team_id,
+                    resource_id=str(instance.id),
+                ),
+                properties={
+                    "subscription_id": instance.id,
+                    "target_type": instance.target_type,
+                    "frequency": instance.frequency,
+                    "resource_type": "dashboard"
+                    if instance.dashboard_id
+                    else "insight"
+                    if instance.insight_id
+                    else None,
+                },
+            ):
+                instance = super().update(instance, validated_data)
+            return instance
+
         instance = super().update(instance, validated_data)
 
         if dashboard_export_insight_ids:
@@ -513,6 +604,7 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
             "created_at",
             "last_updated_at",
             "finished_at",
+            "change_summary",
         ]
         read_only_fields = fields
         extra_kwargs = {
@@ -539,6 +631,7 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
             "created_at": {"help_text": "When the delivery row was created."},
             "last_updated_at": {"help_text": "Last ORM update to this row."},
             "finished_at": {"help_text": "When the run finished, if applicable."},
+            "change_summary": {"help_text": "AI-generated summary included in this delivery, when one was produced."},
         }
 
 

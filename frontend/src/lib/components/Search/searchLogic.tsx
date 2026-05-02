@@ -10,6 +10,7 @@ import { toSentenceCase } from 'lib/utils'
 import { GroupQueryResult, mapGroupQueryResponse } from 'lib/utils/groups'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { getDefaultTreePersons } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
@@ -75,6 +76,8 @@ export const searchLogic = kea<searchLogicType>([
             ['featureFlags'],
             preflightLogic,
             ['isDev'],
+            userLogic,
+            ['user'],
             recentItemsModel,
             ['recents as cachedRecents', 'recentsHasLoaded', 'sceneLogViewsByRef', 'sceneLogViewsHasLoaded'],
             projectTreeDataLogic,
@@ -286,14 +289,14 @@ export const searchLogic = kea<searchLogicType>([
             },
         ],
         appsItems: [
-            (s) => [s.featureFlags, s.isDev, s.sceneLogViewsByRef],
-            (featureFlags, isDev, sceneLogViewsByRef): SearchItem[] => {
+            (s) => [s.featureFlags, s.isDev, s.user, s.sceneLogViewsByRef],
+            (featureFlags, isDev, user, sceneLogViewsByRef): SearchItem[] => {
                 const allProducts = getTreeItemsProducts()
                 const filteredProducts = allProducts.filter((product) => {
                     if (!product.href) {
                         return false
                     }
-                    if (!isDev && product.category === 'Unreleased') {
+                    if (!isDev && !user?.is_staff && product.category === 'Unreleased') {
                         return false
                     }
                     if (product.flag && !(featureFlags as Record<string, boolean>)[product.flag]) {
@@ -352,11 +355,11 @@ export const searchLogic = kea<searchLogicType>([
             },
         ],
         dataManagementItems: [
-            (s) => [s.featureFlags, s.isDev, s.sceneLogViewsByRef],
-            (featureFlags, isDev, sceneLogViewsByRef): SearchItem[] => {
+            (s) => [s.featureFlags, s.isDev, s.user, s.sceneLogViewsByRef],
+            (featureFlags, isDev, user, sceneLogViewsByRef): SearchItem[] => {
                 const allMetadata = getTreeItemsMetadata()
                 const filteredMetadata = allMetadata.filter((item) => {
-                    if (!isDev && item.category === 'Unreleased') {
+                    if (!isDev && !user?.is_staff && item.category === 'Unreleased') {
                         return false
                     }
                     if (item.flag && !(featureFlags as Record<string, boolean>)[item.flag]) {
@@ -403,11 +406,11 @@ export const searchLogic = kea<searchLogicType>([
             },
         ],
         newItems: [
-            (s) => [s.featureFlags, s.isDev],
-            (featureFlags, isDev): SearchItem[] => {
+            (s) => [s.featureFlags, s.isDev, s.user],
+            (featureFlags, isDev, user): SearchItem[] => {
                 const allNewItems = getTreeItemsNew()
                 const filteredItems = allNewItems.filter((item) => {
-                    if (!isDev && item.category === 'Unreleased') {
+                    if (!isDev && !user?.is_staff && item.category === 'Unreleased') {
                         return false
                     }
                     if (item.flag && !(featureFlags as Record<string, boolean>)[item.flag]) {

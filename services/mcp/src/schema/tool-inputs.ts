@@ -1,38 +1,6 @@
 import { z } from 'zod'
 
-import { InsightQuerySchema, PropertyFilter } from './query'
-
-export const ExternalDataSchemaSyncTypeSchema = z
-    .enum(['incremental', 'full_refresh', 'append', 'cdc'])
-    .describe(
-        'Sync strategy: incremental (only new/changed rows), full_refresh (re-import all), append (add-only), or cdc (change data capture).'
-    )
-
-export const ExternalDataSchemaSyncFrequencySchema = z
-    .enum(['30min', '1hour', '6hour', '12hour', '24hour'])
-    .describe('How often to sync this table.')
-
-export const ExternalDataSchemaSyncTimeOfDaySchema = z
-    .string()
-    .nullable()
-    .describe('Time of day to sync in HH:MM:SS format (e.g. "02:00:00"). Set to null to clear.')
-
-export const ExternalDataSchemaIncrementalFieldSchema = z
-    .string()
-    .describe('Column name used to track sync progress for incremental syncs (e.g. "updated_at", "id").')
-
-export const ExternalDataSchemaIncrementalFieldTypeSchema = z
-    .enum(['integer', 'datetime', 'timestamp', 'date'])
-    .describe('Data type of the incremental field.')
-
-export const ExternalDataSchemaPrimaryKeyColumnsSchema = z
-    .array(z.string())
-    .nullable()
-    .describe('Column names that form the primary key for deduplication. Set to null to use auto-detected PKs.')
-
-export const ExternalDataSchemaCdcTableModeSchema = z
-    .enum(['consolidated', 'cdc_only', 'both'])
-    .describe('For CDC syncs: consolidated (merge changes into one table), cdc_only (only change log), or both.')
+import { DataVisualizationNodeSchema, HogQLQuerySchema, InsightVizNodeSchema, PropertyFilter } from './query'
 
 export const ExternalDataJobsAfterSchema = z
     .string()
@@ -58,6 +26,50 @@ export const ExternalDataSourceTypeSchema = z
         'The source type name (e.g. "Postgres", "MySQL", "Stripe"). Use external-data-sources-wizard to see available types and their required fields.'
     )
 
+const UsageMetricEventsFilterEntrySchema = z.object({
+    id: z.string().describe('Event name (e.g. "$pageview").'),
+    name: z.string().optional(),
+    type: z.literal('events').optional(),
+    order: z.number().int().optional(),
+    properties: z.array(z.unknown()).optional(),
+})
+
+const UsageMetricEventsFiltersSchema = z
+    .object({
+        events: z.array(UsageMetricEventsFilterEntrySchema).describe('Events to count or sum over.'),
+        actions: z.array(z.unknown()).optional(),
+        properties: z.array(z.unknown()).optional(),
+        filter_test_accounts: z.boolean().optional(),
+    })
+    .describe('Events-source filter shape (default).')
+
+const UsageMetricDataWarehouseFiltersSchema = z
+    .object({
+        source: z.literal('data_warehouse'),
+        table_name: z
+            .string()
+            .describe(
+                'Name of a synced data warehouse table. Use `external-data-schemas-list` to discover available tables.'
+            ),
+        timestamp_field: z
+            .string()
+            .describe(
+                'Timestamp column or HogQL expression on the row (e.g. "created" or "toDateTime(created_at)"). Use `execute-sql` (`SELECT * FROM <table> LIMIT 1`) to inspect available columns.'
+            ),
+        key_field: z
+            .string()
+            .describe(
+                'Column on the row whose value matches the entity key. v1 supports group profiles only — the column value is compared to the group_key.'
+            ),
+    })
+    .describe('Data-warehouse-source filter shape.')
+
+export const UsageMetricFiltersSchema = z
+    .union([UsageMetricDataWarehouseFiltersSchema, UsageMetricEventsFiltersSchema])
+    .describe(
+        'Filter definition. Pick exactly one branch: `data_warehouse` (set `source: "data_warehouse"` plus `table_name`/`timestamp_field`/`key_field`) or `events` (HogFunction filter shape with an `events` array).'
+    )
+
 export const PromptListInputSchema = z.object({
     search: z.string().optional().describe('Optional substring filter applied to prompt names and prompt content.'),
     content: z
@@ -73,12 +85,12 @@ export const DocumentationSearchSchema = z.object({
 })
 
 export const ExperimentResultsGetSchema = z.object({
-    experimentId: z.number().describe('The ID of the experiment to get comprehensive results for'),
-    refresh: z.boolean().describe('Force refresh of results instead of using cached values'),
-})
-
-export const ExperimentDeleteSchema = z.object({
-    experimentId: z.number().describe('The ID of the experiment to delete'),
+    id: z.number().describe('The ID of the experiment to get comprehensive results for'),
+    refresh: z
+        .boolean()
+        .optional()
+        .default(false)
+        .describe('Force refresh of results instead of using cached values. Defaults to false.'),
 })
 
 /**
@@ -378,8 +390,44 @@ export const ProjectSetActiveSchema = z.object({
 
 export const SurveyResponseCountsSchema = z.object({})
 
+const QueryRunQuerySchema = z.discriminatedUnion('kind', [
+    InsightVizNodeSchema,
+    DataVisualizationNodeSchema,
+    HogQLQuerySchema,
+])
+
 export const QueryRunInputSchema = z.object({
-    query: InsightQuerySchema,
+    query: QueryRunQuerySchema,
+})
+
+export const HogQLSchemaInputSchema = z.object({
+    connectionId: z
+        .string()
+        .optional()
+        .describe(
+            'Optional id of an external data source (e.g. a Postgres or DuckDB direct-query connection). When set, returns the schema of that source instead of the ClickHouse catalog. Use external-data-sources-list to discover available connection ids.'
+        ),
+})
+
+export const QueryValidateInputSchema = z.object({
+    query: z
+        .string()
+        .min(1)
+        .describe(
+            'The HogQL (ClickHouse-flavored SQL) query to validate. Parsed and type-checked without executing, so there is no ClickHouse cost.'
+        ),
+    language: z
+        .enum(['hogQL', 'hogQLExpr', 'hog', 'hogTemplate'])
+        .default('hogQL')
+        .describe(
+            "Language to validate. Defaults to 'hogQL' (full SELECT statements). Use 'hogQLExpr' for a bare expression, 'hog' or 'hogTemplate' for Hog source."
+        ),
+    connectionId: z
+        .string()
+        .optional()
+        .describe(
+            'Optional id of an external data source (e.g. a Postgres or DuckDB direct-query connection). When set, validates against that source instead of the ClickHouse catalog. Use external-data-sources-list to discover available connection ids.'
+        ),
 })
 
 // Entity Search

@@ -1,7 +1,18 @@
 import { describe, expect, it } from 'vitest'
 
 import type { GroupType } from '@/api/client'
-import { buildGroupTypesBlock, buildInstructionsV2 } from '@/lib/instructions'
+import {
+    buildDefinedGroupsBlock,
+    buildInstructionsV2,
+    buildQueryToolsBlock,
+    buildQueryToolsCompact,
+    buildToolDomainsBlock,
+    buildToolDomainsCompact,
+    QueryToolCatalog,
+    type QueryToolInfo,
+} from '@/lib/instructions'
+import CLI_PROXY_COMMAND from '@/templates/cli-proxy-command.md'
+import SINGLE_EXEC_INSTRUCTIONS from '@/templates/single-exec-instructions.md'
 
 const MOCK_TEMPLATE = `{metadata}
 
@@ -10,60 +21,284 @@ Some instructions here.
 
 {guidelines}
 
+{tool_domains}
+
+### Query tools
+
+{query_tools}
+
 ### Examples
 Some examples here.
 
-{group_types}`
+Defined group types: {defined_groups}`
 
-describe('buildGroupTypesBlock', () => {
-    it('should format group types with singular and plural names', () => {
+describe('buildDefinedGroupsBlock', () => {
+    it('should format group types as a comma-separated list of group_type names', () => {
         const groupTypes: GroupType[] = [
-            { group_type: 'company', group_type_index: 0, name_singular: 'Company', name_plural: 'Companies' },
-            { group_type: 'project', group_type_index: 1, name_singular: 'Project', name_plural: 'Projects' },
+            {
+                group_type: 'organization',
+                group_type_index: 0,
+                name_singular: 'Organization',
+                name_plural: 'Organizations',
+            },
+            { group_type: 'instance', group_type_index: 1, name_singular: 'Instance', name_plural: 'Instances' },
+            { group_type: 'business', group_type_index: 2, name_singular: null, name_plural: null },
         ]
-        const result = buildGroupTypesBlock(groupTypes)
-        expect(result).toContain('### Group type mapping')
-        expect(result).toContain('- Index 0: "company" (Company / Companies)')
-        expect(result).toContain('- Index 1: "project" (Project / Projects)')
+        expect(buildDefinedGroupsBlock(groupTypes)).toBe('Defined group types: organization, instance, business')
     })
 
-    it('should omit singular name when null', () => {
+    it('should ignore singular/plural names and only use group_type', () => {
         const groupTypes: GroupType[] = [
-            { group_type: 'workspace', group_type_index: 0, name_singular: null, name_plural: null },
+            { group_type: 'workspace', group_type_index: 0, name_singular: 'Workspace', name_plural: 'Workspaces' },
         ]
-        const result = buildGroupTypesBlock(groupTypes)
-        expect(result).toContain('- Index 0: "workspace"')
-        expect(result).not.toContain('(null)')
-        expect(result).not.toContain('()')
+        expect(buildDefinedGroupsBlock(groupTypes)).toBe('Defined group types: workspace')
     })
 
     it('should return empty string for undefined', () => {
-        expect(buildGroupTypesBlock(undefined)).toBe('')
+        expect(buildDefinedGroupsBlock(undefined)).toBe('')
     })
 
     it('should return empty string for empty array', () => {
-        expect(buildGroupTypesBlock([])).toBe('')
+        expect(buildDefinedGroupsBlock([])).toBe('')
+    })
+})
+
+describe('buildToolDomainsBlock', () => {
+    it('should extract CRUD domains from tool names grouped by category', () => {
+        const tools = [
+            { name: 'experiment-create', category: 'Experiments' },
+            { name: 'experiment-get', category: 'Experiments' },
+            { name: 'experiment-delete', category: 'Experiments' },
+            { name: 'survey-create', category: 'Surveys' },
+            { name: 'survey-get', category: 'Surveys' },
+        ]
+        const result = buildToolDomainsBlock(tools)
+        expect(result).toContain('- experiment')
+        expect(result).toContain('- survey')
+    })
+
+    it('should list standalone tools as-is', () => {
+        const tools = [
+            { name: 'execute-sql', category: 'SQL' },
+            { name: 'read-data-schema', category: 'Data schema' },
+            { name: 'read-data-warehouse-schema', category: 'Data schema' },
+        ]
+        const result = buildToolDomainsBlock(tools)
+        expect(result).toContain('- execute-sql')
+        expect(result).toContain('- read-data-schema')
+        expect(result).toContain('- read-data-warehouse-schema')
+    })
+
+    it('should skip query-* tools', () => {
+        const tools = [
+            { name: 'query-trends', category: 'Query wrappers' },
+            { name: 'query-funnel', category: 'Query wrappers' },
+            { name: 'experiment-create', category: 'Experiments' },
+        ]
+        const result = buildToolDomainsBlock(tools)
+        expect(result).not.toContain('query')
+        expect(result).toContain('- experiment')
+    })
+
+    it('should collapse plural/singular duplicates', () => {
+        const tools = [
+            { name: 'evaluation-create', category: 'LLM analytics' },
+            { name: 'evaluations-get', category: 'LLM analytics' },
+            { name: 'evaluation-delete', category: 'LLM analytics' },
+        ]
+        const result = buildToolDomainsBlock(tools)
+        expect(result).toContain('- evaluation')
+        expect(result).not.toContain('- evaluations')
+    })
+
+    it('should collapse sub-domains under their parent', () => {
+        const tools = [
+            { name: 'feature-flag-get-all', category: 'Feature flags' },
+            { name: 'create-feature-flag', category: 'Feature flags' },
+            { name: 'feature-flags-activity-retrieve', category: 'Feature flags' },
+            { name: 'feature-flags-status-retrieve', category: 'Feature flags' },
+        ]
+        const result = buildToolDomainsBlock(tools)
+        expect(result).toContain('- feature-flag')
+        expect(result).not.toContain('- feature-flags-activity')
+        expect(result).not.toContain('- feature-flags-status')
+    })
+
+    it('should handle prefix-action tools (create-X, delete-X)', () => {
+        const tools = [
+            { name: 'create-feature-flag', category: 'Feature flags' },
+            { name: 'update-feature-flag', category: 'Feature flags' },
+            { name: 'delete-feature-flag', category: 'Feature flags' },
+        ]
+        const result = buildToolDomainsBlock(tools)
+        expect(result).toContain('- feature-flag')
+    })
+
+    it('should return empty string for empty array', () => {
+        expect(buildToolDomainsBlock([])).toBe('')
+    })
+})
+
+describe('buildToolDomainsCompact', () => {
+    it('renders domains as a single pipe-separated line', () => {
+        const tools = [
+            { name: 'experiment-create', category: 'Experiments' },
+            { name: 'experiment-get', category: 'Experiments' },
+            { name: 'survey-create', category: 'Surveys' },
+            { name: 'survey-get', category: 'Surveys' },
+            { name: 'execute-sql', category: 'SQL' },
+        ]
+        expect(buildToolDomainsCompact(tools)).toBe('execute-sql|experiment|survey')
+    })
+
+    it('returns an empty string for an empty array', () => {
+        expect(buildToolDomainsCompact([])).toBe('')
+    })
+})
+
+describe('QueryToolCatalog', () => {
+    it('filters to query-* tools only', () => {
+        const tools: QueryToolInfo[] = [
+            { name: 'query-trends', title: 'Trends', systemPromptHint: 'time series' },
+            { name: 'dashboard-create', title: 'Create dashboard', systemPromptHint: 'not a query' },
+            { name: 'query-funnel', title: 'Funnel', systemPromptHint: 'conversion rate' },
+        ]
+        const result = new QueryToolCatalog(tools).toMarkdown()
+        expect(result).toContain('`query-trends`')
+        expect(result).toContain('`query-funnel`')
+        expect(result).not.toContain('dashboard-create')
+    })
+
+    it('sorts tools alphabetically', () => {
+        const tools: QueryToolInfo[] = [
+            { name: 'query-trends', title: 'Trends', systemPromptHint: 'time series' },
+            { name: 'query-funnel', title: 'Funnel', systemPromptHint: 'conversion rate' },
+            { name: 'query-lifecycle', title: 'Lifecycle', systemPromptHint: 'user composition' },
+        ]
+        const result = new QueryToolCatalog(tools).toMarkdown()
+        const lines = result.split('\n')
+        expect(lines).toEqual([
+            '- `query-funnel` — conversion rate',
+            '- `query-lifecycle` — user composition',
+            '- `query-trends` — time series',
+        ])
+    })
+
+    it('prefers systemPromptHint over title', () => {
+        const tools: QueryToolInfo[] = [
+            { name: 'query-trends', title: 'Run a trends query', systemPromptHint: 'time series' },
+        ]
+        const result = new QueryToolCatalog(tools).toMarkdown()
+        expect(result).toBe('- `query-trends` — time series')
+    })
+
+    it('falls back to title when systemPromptHint is missing', () => {
+        const tools: QueryToolInfo[] = [{ name: 'query-trends', title: 'Run a trends query' }]
+        const result = new QueryToolCatalog(tools).toMarkdown()
+        expect(result).toBe('- `query-trends` — Run a trends query')
+    })
+
+    it('returns empty string for empty input', () => {
+        expect(new QueryToolCatalog([]).toMarkdown()).toBe('')
+    })
+
+    it('returns empty string when no tools match query-*', () => {
+        const tools: QueryToolInfo[] = [{ name: 'dashboard-create', title: 'Create dashboard' }]
+        expect(new QueryToolCatalog(tools).toMarkdown()).toBe('')
+    })
+
+    it('buildQueryToolsBlock delegates to QueryToolCatalog.toMarkdown', () => {
+        const tools: QueryToolInfo[] = [{ name: 'query-trends', title: 'Trends', systemPromptHint: 'time series' }]
+        expect(buildQueryToolsBlock(tools)).toBe('- `query-trends` — time series')
+    })
+
+    describe('toCompact', () => {
+        it('renders names pipe-separated and strips the query- prefix', () => {
+            const tools: QueryToolInfo[] = [
+                { name: 'query-trends', title: 'Trends', systemPromptHint: 'time series' },
+                { name: 'query-funnel', title: 'Funnel', systemPromptHint: 'conversion' },
+                { name: 'query-lifecycle', title: 'Lifecycle' },
+            ]
+            expect(new QueryToolCatalog(tools).toCompact()).toBe('funnel|lifecycle|trends')
+        })
+
+        it('ignores non-query tools', () => {
+            const tools: QueryToolInfo[] = [
+                { name: 'query-trends', title: 'Trends' },
+                { name: 'dashboard-create', title: 'Create dashboard' },
+            ]
+            expect(new QueryToolCatalog(tools).toCompact()).toBe('trends')
+        })
+
+        it('returns empty string for empty input', () => {
+            expect(new QueryToolCatalog([]).toCompact()).toBe('')
+        })
+
+        it('buildQueryToolsCompact delegates to QueryToolCatalog.toCompact', () => {
+            const tools: QueryToolInfo[] = [{ name: 'query-trends', title: 'Trends' }]
+            expect(buildQueryToolsCompact(tools)).toBe('trends')
+        })
     })
 })
 
 describe('buildInstructionsV2', () => {
-    it('should replace guidelines and group_types placeholders', () => {
+    it('should replace all placeholders', () => {
         const groupTypes: GroupType[] = [
-            { group_type: 'company', group_type_index: 0, name_singular: 'Company', name_plural: 'Companies' },
+            {
+                group_type: 'organization',
+                group_type_index: 0,
+                name_singular: 'Organization',
+                name_plural: 'Organizations',
+            },
+            { group_type: 'instance', group_type_index: 1, name_singular: null, name_plural: null },
         ]
-        const result = buildInstructionsV2(MOCK_TEMPLATE, '  some guidelines  ', groupTypes)
+        const tools = [
+            { name: 'dashboard-create', category: 'Dashboards' },
+            { name: 'dashboard-get', category: 'Dashboards' },
+            { name: 'action-create', category: 'Actions' },
+            { name: 'action-get', category: 'Actions' },
+        ]
+        const queryTools: QueryToolInfo[] = [{ name: 'query-trends', title: 'Trends', systemPromptHint: 'time series' }]
+        const result = buildInstructionsV2(
+            MOCK_TEMPLATE,
+            '  some guidelines  ',
+            groupTypes,
+            undefined,
+            tools,
+            queryTools
+        )
         expect(result).toContain('some guidelines')
-        expect(result).toContain('### Group type mapping')
-        expect(result).toContain('- Index 0: "company" (Company / Companies)')
+        expect(result).toContain('Defined group types: organization, instance')
+        expect(result).toContain('- action\n- dashboard')
+        expect(result).toContain('- `query-trends` — time series')
         expect(result).not.toContain('{guidelines}')
-        expect(result).not.toContain('{group_types}')
+        expect(result).not.toContain('{defined_groups}')
+        expect(result).not.toContain('{tool_domains}')
+        expect(result).not.toContain('{query_tools}')
     })
 
-    it('should leave no placeholders when no group types', () => {
+    it('should substitute {query_tools} while leaving other placeholders intact', () => {
+        const template = 'Domains: {tool_domains}\nQuery tools:\n{query_tools}\nGuidelines: {guidelines}'
+        const queryTools: QueryToolInfo[] = [{ name: 'query-funnel', title: 'Funnel', systemPromptHint: 'conversion' }]
+        const result = buildInstructionsV2(template, 'rules', undefined, undefined, [], queryTools)
+        expect(result).toContain('Query tools:\n- `query-funnel` — conversion')
+        expect(result).toContain('Guidelines: rules')
+    })
+
+    it('should leave {query_tools} placeholder blank when queryTools is undefined', () => {
+        const template = 'before\n{query_tools}\nafter'
+        const result = buildInstructionsV2(template, 'rules')
+        expect(result).not.toContain('{query_tools}')
+        expect(result).toContain('before')
+        expect(result).toContain('after')
+    })
+
+    it('should leave no placeholders when no group types or tools', () => {
         const result = buildInstructionsV2(MOCK_TEMPLATE, 'guidelines', undefined)
         expect(result).not.toContain('{guidelines}')
-        expect(result).not.toContain('{group_types}')
-        expect(result).not.toContain('### Group type mapping')
+        expect(result).not.toContain('{defined_groups}')
+        expect(result).not.toContain('{tool_domains}')
+        expect(result).not.toContain('{query_tools}')
     })
 
     it('should trim guidelines whitespace', () => {
@@ -73,7 +308,8 @@ describe('buildInstructionsV2', () => {
     })
 
     it('should inject metadata into the template', () => {
-        const metadata = 'You are currently in project "My App" (organization: "Acme Corp").\nThe user\'s name is Jane Doe (jane@acme.com).\nProject timezone: America/New_York.'
+        const metadata =
+            'You are currently in project "My App" (organization: "Acme Corp").\nThe user\'s name is Jane Doe (jane@acme.com).\nProject timezone: America/New_York.'
         const result = buildInstructionsV2(MOCK_TEMPLATE, 'guidelines', undefined, metadata)
         expect(result).toContain('You are currently in project "My App" (organization: "Acme Corp").')
         expect(result).toContain("The user's name is Jane Doe (jane@acme.com).")
@@ -98,5 +334,131 @@ describe('buildInstructionsV2', () => {
         const result = buildInstructionsV2(MOCK_TEMPLATE, 'guidelines', undefined, '  padded metadata  ')
         expect(result).toContain('padded metadata')
         expect(result).not.toContain('  padded metadata  ')
+    })
+})
+
+// Mirrors the single-exec wiring in `src/mcp.ts`. When the client honors the MCP
+// `instructions` field, four pieces move out of the `command` description and into
+// `instructions`: exec-tool blurb, tool domains, available query tools, user preferences
+// (timezone/name via `{metadata}`), and defined group types. Codex (no `instructions`
+// support) keeps today's behavior: empty `instructions`, everything inlined.
+describe('single-exec templates', () => {
+    const realisticGroupTypes: GroupType[] = [
+        { group_type: 'organization', group_type_index: 0, name_singular: null, name_plural: null },
+    ]
+    const realisticTools = [
+        { name: 'dashboard-create', category: 'Dashboards' },
+        { name: 'dashboard-get', category: 'Dashboards' },
+        { name: 'feature-flag-create', category: 'Feature flags' },
+        { name: 'feature-flag-get-all', category: 'Feature flags' },
+        { name: 'execute-sql', category: 'SQL' },
+    ]
+    const realisticQueryTools: QueryToolInfo[] = [
+        { name: 'query-trends', title: 'Trends', systemPromptHint: 'time series' },
+        { name: 'query-funnel', title: 'Funnel', systemPromptHint: 'conversion rate' },
+    ]
+    const realisticMetadata =
+        'You are currently in project "My App" (id: 1) within organization "Acme" (id: org_1).\n' +
+        'Project timezone: America/New_York.\n' +
+        "The user's name is Jane Doe (jane@acme.com)."
+
+    it('single-exec instructions template resolves every placeholder when fully populated', () => {
+        const rendered = buildInstructionsV2(
+            SINGLE_EXEC_INSTRUCTIONS,
+            'some guidelines',
+            realisticGroupTypes,
+            realisticMetadata,
+            realisticTools,
+            realisticQueryTools,
+            { compact: true }
+        )
+
+        expect(rendered).toContain('dashboard|execute-sql|feature-flag')
+        expect(rendered).toContain('funnel|trends')
+        expect(rendered).toContain('Defined group types: organization')
+        expect(rendered).toContain("The user's name is Jane Doe (jane@acme.com).")
+        expect(rendered).toContain('Project timezone: America/New_York.')
+        expect(rendered).not.toMatch(/\{tool_domains\}|\{query_tools\}|\{metadata\}|\{defined_groups\}|\{guidelines\}/)
+    })
+
+    // Claude Code caps MCP `instructions` at 2048 chars — stay under the budget with
+    // a realistic-ish tool count so this asserts something meaningful. 60 domains +
+    // 12 query tools ≈ today's v2 deployment.
+    it('rendered single-exec instructions stay under the 2048-character budget', () => {
+        const manyTools = Array.from({ length: 60 }, (_, i) => ({
+            name: `domain-${i}-get`,
+            category: `Category ${i % 6}`,
+        }))
+        const manyQueryTools: QueryToolInfo[] = Array.from({ length: 12 }, (_, i) => ({
+            name: `query-tool-${i}`,
+            title: `Query tool ${i}`,
+            systemPromptHint: `short hint for query tool ${i}`,
+        }))
+        const rendered = buildInstructionsV2(
+            SINGLE_EXEC_INSTRUCTIONS,
+            'guidelines',
+            realisticGroupTypes,
+            realisticMetadata,
+            manyTools,
+            manyQueryTools,
+            { compact: true }
+        )
+        expect(rendered.length).toBeLessThanOrEqual(2048)
+    })
+
+    // Parameterized over the `supportsInstructions` capability (the sole client-detection
+    // signal that drives this split), asserting the exec-tool content distribution invariant
+    // across both paths.
+    it.each([
+        { name: 'supportsInstructions=true (Claude Code etc.)', supportsInstructions: true },
+        { name: 'supportsInstructions=false (Codex)', supportsInstructions: false },
+    ])('$name: splits product context between `instructions` and `commandReference`', ({ supportsInstructions }) => {
+        const instructions = supportsInstructions
+            ? buildInstructionsV2(
+                  SINGLE_EXEC_INSTRUCTIONS,
+                  'guidelines',
+                  realisticGroupTypes,
+                  realisticMetadata,
+                  realisticTools,
+                  realisticQueryTools,
+                  { compact: true }
+              )
+            : ''
+        const commandReference = buildInstructionsV2(
+            CLI_PROXY_COMMAND,
+            'guidelines',
+            supportsInstructions ? undefined : realisticGroupTypes,
+            supportsInstructions ? undefined : realisticMetadata,
+            supportsInstructions ? undefined : realisticTools,
+            supportsInstructions ? undefined : realisticQueryTools
+        )
+
+        // The command reference always carries the mechanics (examples, drill-down
+        // rule, error handling) regardless of mode.
+        expect(commandReference).toContain('SCHEMA DRILL-DOWN RULE')
+        expect(commandReference).toContain('### Basic functionality')
+
+        if (supportsInstructions) {
+            // Dynamic content lives in `instructions` (compact, pipe-separated)…
+            expect(instructions).toContain('funnel|trends')
+            expect(instructions).toContain("The user's name is Jane Doe")
+            expect(instructions).toContain('dashboard|execute-sql|feature-flag')
+            expect(instructions).toContain('Defined group types: organization')
+            // …and is stripped from the `command` parameter description.
+            expect(commandReference).not.toContain("The user's name is Jane Doe")
+            expect(commandReference).not.toContain('Defined group types: organization')
+            expect(commandReference).not.toContain('- `query-trends` — time series')
+            // The domain bullet for feature-flag would clash with the in-prose phrase,
+            // so pin on the list prefix with newline to avoid false positives.
+            expect(commandReference).not.toContain('\n- dashboard\n')
+        } else {
+            // Codex path: instructions empty, everything still inlined in `commandReference`
+            // using the markdown bullet rendering (cli-proxy-command.md keeps the verbose form).
+            expect(instructions).toBe('')
+            expect(commandReference).toContain('- `query-trends` — time series')
+            expect(commandReference).toContain("The user's name is Jane Doe")
+            expect(commandReference).toContain('- dashboard')
+            expect(commandReference).toContain('Defined group types: organization')
+        }
     })
 })

@@ -240,14 +240,8 @@ impl Client for RedisClient {
         Ok(())
     }
 
-    async fn hincrby(
-        &self,
-        k: String,
-        v: String,
-        count: Option<i32>,
-    ) -> Result<(), CustomRedisError> {
+    async fn hincrby(&self, k: String, v: String, count: i64) -> Result<(), CustomRedisError> {
         let mut conn = self.connection.clone();
-        let count = count.unwrap_or(1);
         conn.hincr::<_, _, _, ()>(k, v, count).await?;
         Ok(())
     }

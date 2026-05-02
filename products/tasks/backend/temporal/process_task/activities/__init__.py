@@ -1,5 +1,6 @@
 from .cleanup_sandbox import CleanupSandboxInput, cleanup_sandbox
 from .create_resume_snapshot import CreateResumeSnapshotInput, CreateResumeSnapshotOutput, create_resume_snapshot
+from .emit_progress_activity import EmitProgressInput, emit_progress_activity
 from .execute_task_in_sandbox import ExecuteTaskInput, ExecuteTaskOutput, execute_task_in_sandbox
 from .forward_pending_message import forward_pending_user_message
 from .get_sandbox_for_repository import (
@@ -34,6 +35,7 @@ __all__ = [
     "CleanupSandboxInput",
     "CreateResumeSnapshotInput",
     "CreateResumeSnapshotOutput",
+    "EmitProgressInput",
     "ExecuteTaskInput",
     "ExecuteTaskOutput",
     "GetSandboxForRepositoryInput",
@@ -57,6 +59,7 @@ __all__ = [
     "cleanup_sandbox",
     "create_resume_snapshot",
     "create_sandbox_for_repository",
+    "emit_progress_activity",
     "execute_task_in_sandbox",
     "forward_pending_user_message",
     "relay_sandbox_events",

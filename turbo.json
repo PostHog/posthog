@@ -1,6 +1,8 @@
 {
     "$schema": "https://turbo.build/schema.json",
-    "extends": ["//"],
+    "futureFlags": {
+        "affectedUsingTaskInputs": true
+    },
     "tasks": {
         "backend:test": {
             "inputs": [

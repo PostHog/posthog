@@ -1,6 +1,7 @@
 import {
     BreakdownType,
     ChartDisplayType,
+    FilterLogicalOperator,
     FunnelMathType,
     IntervalType,
     LifecycleToggle,
@@ -369,6 +370,35 @@ export interface AssistantTrendsActionsNode extends Omit<
     math_hogql?: string
 }
 
+/**
+ * Defines a series that combines multiple events or actions with OR (e.g. "Pageview OR Pageleave"
+ * as one line). Aggregation (`math*`) is read from the group, not the inner nodes — set it here.
+ * Inner-node `event` / `id` / `properties` / `name` are respected normally; per-node `properties`
+ * apply only to that node, so each event can carry its own filter.
+ */
+export interface AssistantTrendsGroupNode {
+    kind: NodeKind.GroupNode
+    /** Only `OR` is supported. */
+    operator: FilterLogicalOperator.Or
+    /**
+     * Events and actions combined into the series. Mirror the group's `math*` on each node for
+     * UI round-trip; they're ignored at execution time.
+     * @minItems 2
+     */
+    nodes: (AssistantTrendsEventsNode | AssistantTrendsActionsNode)[]
+    /** Display name for the combined series. */
+    name?: string
+    custom_name?: string
+    /** Math aggregation for the combined series. The engine reads aggregation from here, not from inner nodes. */
+    math?: AssistantTrendsEventsNode['math']
+    math_property?: AssistantTrendsEventsNode['math_property']
+    math_property_type?: AssistantTrendsEventsNode['math_property_type']
+    math_multiplier?: AssistantTrendsEventsNode['math_multiplier']
+    math_group_type_index?: AssistantTrendsEventsNode['math_group_type_index']
+    /** Custom HogQL aggregation. When set, `math` must be `hogql`. */
+    math_hogql?: string
+}
+
 export interface AssistantBaseMultipleBreakdownFilter {
     /**
      * Property name from the plan to break down by.
@@ -528,9 +558,16 @@ export interface AssistantTrendsQuery extends AssistantInsightsQueryBase {
     interval?: IntervalType
 
     /**
-     * Events or actions to include. Prioritize the more popular and fresh events and actions.
+     * Events, actions, or groups of events/actions to include. Prioritize the more popular and
+     * fresh events and actions.
+     *
+     * Use a top-level `EventsNode` or `ActionsNode` entry for each independent series (one line
+     * per entry on the chart). Use an `AssistantTrendsGroupNode` to combine multiple events or
+     * actions into a single series joined by `OR` — for example, treating
+     * "Pageview OR Pageleave" as one line. Only `OR` grouping is supported; pick groups only
+     * when the user wants the events counted together, otherwise prefer separate series.
      */
-    series: (AssistantTrendsEventsNode | AssistantTrendsActionsNode)[]
+    series: (AssistantTrendsEventsNode | AssistantTrendsActionsNode | AssistantTrendsGroupNode)[]
 
     /**
      * Properties specific to the trends insight
@@ -1157,21 +1194,20 @@ export interface AssistantLifecycleQuery extends AssistantInsightsQueryBase {
 }
 
 /**
- * Drills into an insight to list the persons behind a specific data point. Returned rows are
- * trimmed to `distinct_id`, `name`, `email`, and an optional per-actor `count`.
+ * Drills into a trends insight to list the persons behind a specific data point. Returned rows
+ * are `distinct_id`, `name`, `email`, `event_count`, and optionally matched session recordings.
  *
- * Currently supports trends as the source; other insight kinds will be added incrementally.
  * Use the selector fields (`day`, `series`, `breakdown`, `compare`) to identify the specific
- * cell in the source insight. Omit them to get all actors for the query.
+ * cell in the source insight.
  */
-export interface AssistantInsightActorsQuery {
+export interface AssistantTrendsActorsQuery {
     kind: NodeKind.InsightActorsQuery
 
     /** The source insight query whose data point we are drilling into. */
     source: AssistantTrendsQuery
 
-    /** Bucket date for the data point. Accepts ISO date or integer offset. */
-    day?: string | integer
+    /** Bucket date for the data point. Must be an ISO date string (YYYY-MM-DD), e.g. '2024-01-15'. */
+    day: string
 
     /** Series index (0-based) when the source has multiple series. */
     series?: integer
@@ -1184,6 +1220,12 @@ export interface AssistantInsightActorsQuery {
 
     /** Whether to pull from the previous period when `compare` is enabled in the source. */
     compare?: 'current' | 'previous'
+
+    /**
+     * Whether to include matched session recordings for each actor.
+     * @default true
+     */
+    includeRecordings?: boolean
 }
 
 /**
@@ -1336,6 +1378,7 @@ export interface AssistantRecordingsQuery {
      * - `session`: Filter by session properties (e.g. $session_duration, $channel_type, $entry_current_url).
      * - `event`: Filter by properties of events in the session (e.g. $current_url, $browser).
      * - `recording`: Filter by recording metrics (e.g. console_error_count, click_count, activity_score).
+     * - `cohort`: Filter recordings to persons belonging to a cohort. Example: `{ type: "cohort", key: "id", value: 42, operator: "in" }`.
      */
     properties?: AssistantRecordingsQueryPropertyFilter[]
     /** Exclude internal and test users. Default: false. */
@@ -1350,6 +1393,8 @@ export interface AssistantRecordingsQuery {
     after?: string
     /** Filter recordings to a specific person by their UUID. */
     person_uuid?: string
+    /** Filter to specific session recording IDs. Use this when you have known session IDs (e.g., from $session_id on events) to fetch multiple recordings in a single call. */
+    session_ids?: string[]
 }
 
 export interface AssistantInsightVizNode {

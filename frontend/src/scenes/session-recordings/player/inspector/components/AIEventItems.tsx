@@ -13,10 +13,13 @@ import { LLMInputOutput } from 'products/llm_analytics/frontend/LLMInputOutput'
 import { normalizeMessages } from 'products/llm_analytics/frontend/utils'
 
 export function AIEventExpanded({ event }: { event: Record<string, any> }): JSX.Element {
-    const { input, output, isLoading } = useAIData({
+    const { input, output, tools, isLoading } = useAIData({
         uuid: event.uuid,
         input: event.properties?.$ai_input,
         output: event.properties?.$ai_output_choices,
+        tools: event.properties?.$ai_tools,
+        traceId: event.properties?.$ai_trace_id,
+        timestamp: event.timestamp,
     })
 
     const isGeneration = event.event === '$ai_generation'
@@ -30,7 +33,7 @@ export function AIEventExpanded({ event }: { event: Record<string, any> }): JSX.
         <div>
             {isGeneration ? (
                 <ConversationMessagesDisplay
-                    inputNormalized={normalizeMessages(input, 'user', event.properties.$ai_tools)}
+                    inputNormalized={normalizeMessages(input, 'user', tools)}
                     outputNormalized={normalizeMessages(output, 'assistant')}
                     errorData={event.properties.$ai_error}
                     httpStatus={event.properties.$ai_http_status}

@@ -112,7 +112,7 @@ export interface TablePayload extends BasePayload {
 // ============================================================================
 
 export interface TrendsVisualizerProps {
-    query: TrendsQuery
+    query: TrendsQuery | undefined
     results: TrendsResult
 }
 

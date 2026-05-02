@@ -398,6 +398,7 @@ export function ActionFilterGroup({
                             value={null}
                             icon={<IconPlusSmall />}
                             sideIcon={null}
+                            enableKeywordShortcuts
                             onChange={(value, groupType, item) => {
                                 if (isQuickFilterItem(item)) {
                                     if (item.eventName) {

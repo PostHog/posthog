@@ -81,21 +81,6 @@ class TestNodeViewSet(APIBaseTest):
         self.assertEqual(response.json()["upstream_count"], 0)
         self.assertEqual(response.json()["downstream_count"], 0)
 
-    def test_list_excludes_conflict_dag_nodes(self):
-        conflict_dag = DAG.objects.create(team=self.team, name="conflict_abc_posthog_1")
-        Node.objects.create(
-            team=self.team,
-            dag=conflict_dag,
-            name="conflict_node",
-            type=NodeType.TABLE,
-        )
-
-        response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/")
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        names = {node["name"] for node in response.json()["results"]}
-        self.assertNotIn("conflict_node", names)
-
     def test_list_nodes_with_dag_filter(self):
         another_dag = DAG.objects.create(team=self.team, name="another_dag")
         Node.objects.create(
@@ -145,15 +130,6 @@ class TestNodeViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         dag_names = {d["name"] for d in response.json()["dag_ids"]}
         self.assertEqual(dag_names, {"another_dag", self.dag_id})
-
-    def test_dag_ids_action_excludes_conflict_dags(self):
-        DAG.objects.create(team=self.team, name="conflict_abc_posthog_1")
-
-        response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/dag_ids/")
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        dag_names = {d["name"] for d in response.json()["dag_ids"]}
-        self.assertNotIn("conflict_abc_posthog_1", dag_names)
 
     def test_run_requires_direction(self):
         response = self.client.post(
@@ -425,32 +401,6 @@ class TestEdgeViewSet(APIBaseTest):
         self.assertEqual(edge["source_id"], str(self.source_node.id))
         self.assertEqual(edge["target_id"], str(self.target_node.id))
         self.assertEqual(edge["dag"], str(self.dag.id))
-
-    def test_list_edges_excludes_conflict_dags(self):
-        conflict_dag = DAG.objects.create(team=self.team, name="conflict_abc_posthog_1")
-        conflict_source = Node.objects.create(
-            team=self.team,
-            dag=conflict_dag,
-            name="conflict_source",
-            type=NodeType.TABLE,
-        )
-        conflict_target = Node.objects.create(
-            team=self.team,
-            dag=conflict_dag,
-            name="conflict_target",
-            type=NodeType.TABLE,
-        )
-        Edge.objects.create(
-            team=self.team,
-            dag=conflict_dag,
-            source=conflict_source,
-            target=conflict_target,
-        )
-
-        response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_edges/")
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 1)
 
     def test_list_edges_with_dag_filter(self):
         another_dag = DAG.objects.create(team=self.team, name="another_dag")

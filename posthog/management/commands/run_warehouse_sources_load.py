@@ -63,10 +63,10 @@ class Command(BaseCommand):
         parser.add_argument(
             "--max-poll-interval-ms",
             type=int,
-            default=900_000,
+            default=1_080_000,
             help=(
                 "Maximum time between consume() calls before librdkafka evicts this consumer "
-                "from the group (default: 900000 = 15 min). Post-load processing on final "
+                "from the group (default: 1080000 = 18 min). Post-load processing on final "
                 "batches can exceed the librdkafka default of 5 min."
             ),
         )

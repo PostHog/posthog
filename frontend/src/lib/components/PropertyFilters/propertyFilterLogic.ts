@@ -1,5 +1,5 @@
+import equal from 'fast-deep-equal'
 import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import isEqual from 'lodash.isequal'
 
 import { PropertyFilterLogicProps } from 'lib/components/PropertyFilters/types'
 import {
@@ -86,7 +86,7 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>([
                 },
                 setFilters: (state: FiltersState, { filters }: { filters: AnyPropertyFilter[] }) => {
                     const currentFilters = state.items.map((i) => i.filter)
-                    if (isEqual(currentFilters, filters)) {
+                    if (equal(currentFilters, filters)) {
                         return state
                     }
                     let nextId = state.nextId

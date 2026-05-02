@@ -46,11 +46,11 @@ import {
 } from './WebPropertyFilters'
 
 const BotTrafficToggle = (): JSX.Element | null => {
-    const { botTrafficFilter } = useValues(webAnalyticsLogic)
+    const { botTrafficFilter, productTab } = useValues(webAnalyticsLogic)
     const { setBotTrafficFilter } = useActions(webAnalyticsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS]) {
+    if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS] || productTab === ProductTab.BOT_ANALYTICS) {
         return null
     }
 

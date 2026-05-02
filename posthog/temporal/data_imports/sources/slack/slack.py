@@ -1,20 +1,35 @@
 import datetime
-from collections.abc import Callable, Iterable, Iterator
+import dataclasses
+from collections.abc import AsyncIterable, Callable, Iterable, Iterator
 from typing import Any, Optional
 
+import orjson
+import pyarrow as pa
 import requests
 import structlog
+from asgiref.sync import async_to_sync
 from requests import Request, Response
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SortMode, SourceResponse
+from posthog.temporal.data_imports.pipelines.pipeline.utils import table_from_py_list
+from posthog.temporal.data_imports.sources.common.http import make_tracked_session
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resource
 from posthog.temporal.data_imports.sources.common.rest_source.auth import BearerTokenAuth
 from posthog.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
 from posthog.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from posthog.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from posthog.temporal.data_imports.sources.slack.settings import ENDPOINTS, messages_endpoint_config
 
 logger = structlog.get_logger(__name__)
+
+
+@dataclasses.dataclass
+class SlackResumeConfig:
+    channel_id: str
+    next_cursor: str
+    oldest_ts: str | None = None
 
 
 class SlackRetryableError(Exception):
@@ -39,7 +54,7 @@ def _wait_with_retry_after(retry_state: RetryCallState) -> float:
     reraise=True,
 )
 def _slack_get(url: str, **kwargs: Any) -> requests.Response:
-    response = requests.get(url, **kwargs)
+    response = make_tracked_session().get(url, **kwargs)
     if response.status_code == 429:
         retry_after = int(response.headers.get("Retry-After", 1))
         logger.warning("Slack API rate limited", url=url, retry_after=retry_after)
@@ -108,73 +123,106 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
     raise ValueError(f"Unknown Slack resource: {name}")
 
 
-def _fetch_all_channels(access_token: str) -> list[dict[str, Any]]:
-    channels: list[dict[str, Any]] = []
-    has_more = True
-    cursor: str | None = None
-    url = "https://slack.com/api/conversations.list"
-    headers = {"Authorization": f"Bearer {access_token}"}
+_CHANNELS_PAGE_SIZE = 200
+_CHANNELS_MAX_PAGES = 50
 
-    while has_more:
+
+def _fetch_channels_page(
+    url: str, access_token: str, params: dict[str, Any]
+) -> tuple[list[dict[str, Any]], str | None]:
+    headers = {"Authorization": f"Bearer {access_token}"}
+    response = _slack_get(url, headers=headers, params=params, timeout=10)
+    response.raise_for_status()
+    data = response.json()
+
+    if not data.get("ok"):
+        error = data.get("error", "unknown_error")
+        raise Exception(f"Slack API error fetching channels: {error}")
+
+    next_cursor = data.get("response_metadata", {}).get("next_cursor", "") or None
+    return data.get("channels", []), next_cursor
+
+
+def _fetch_channels_by_type(
+    access_token: str, channel_type: str, authed_user: str | None = None
+) -> list[dict[str, Any]]:
+    # For private channels, use users.conversations scoped to the installer so we only
+    # surface channels the installer is in.
+    use_users_conversations = channel_type == "private_channel"
+    url = (
+        "https://slack.com/api/users.conversations"
+        if use_users_conversations
+        else "https://slack.com/api/conversations.list"
+    )
+    channels: list[dict[str, Any]] = []
+    cursor: str | None = None
+
+    for _ in range(_CHANNELS_MAX_PAGES):
         params: dict[str, Any] = {
-            "types": "public_channel,private_channel",
-            "limit": 999,
+            "types": channel_type,
+            "limit": _CHANNELS_PAGE_SIZE,
             "exclude_archived": "false",
         }
+        if use_users_conversations and authed_user:
+            params["user"] = authed_user
         if cursor:
             params["cursor"] = cursor
 
-        response = _slack_get(url, headers=headers, params=params, timeout=10)
-        response.raise_for_status()
-        data = response.json()
-
-        if not data.get("ok"):
-            error = data.get("error", "unknown_error")
-            raise Exception(f"Slack API error fetching channels: {error}")
-
-        channels.extend(data.get("channels", []))
-
-        cursor = data.get("response_metadata", {}).get("next_cursor", "") or None
-        has_more = cursor is not None
+        page, cursor = _fetch_channels_page(url, access_token, params)
+        channels.extend(page)
+        if cursor is None:
+            break
+    else:
+        logger.warning(
+            "Slack channel page cap reached; some channels may be missing",
+            channel_type=channel_type,
+            max_pages=_CHANNELS_MAX_PAGES,
+        )
 
     return channels
 
 
-def _fetch_messages_for_channel(
+def _fetch_all_channels(access_token: str, authed_user: str | None = None) -> list[dict[str, Any]]:
+    # Fetch public and private separately — Slack's conversations.list pagination is buggy
+    # when public and private types are requested in a single call.
+    public = _fetch_channels_by_type(access_token, "public_channel")
+    private = _fetch_channels_by_type(access_token, "private_channel", authed_user)
+    return public + private
+
+
+def _fetch_messages_page(
     access_token: str,
     channel_id: str,
-    oldest_ts: str | None = None,
-) -> Iterator[dict[str, Any]]:
-    has_more = True
-    cursor: str | None = None
+    oldest_ts: str | None,
+    cursor: str | None,
+) -> tuple[list[dict[str, Any]], str | None]:
+    """Fetch a single page of messages for a channel. Returns (messages, next_cursor)."""
     url = "https://slack.com/api/conversations.history"
     headers = {"Authorization": f"Bearer {access_token}"}
 
-    while has_more:
-        params: dict[str, Any] = {
-            "channel": channel_id,
-            "limit": 999,
-        }
-        if oldest_ts:
-            params["oldest"] = oldest_ts
-        if cursor:
-            params["cursor"] = cursor
+    params: dict[str, Any] = {
+        "channel": channel_id,
+        "limit": 999,
+    }
+    if oldest_ts:
+        params["oldest"] = oldest_ts
+    if cursor:
+        params["cursor"] = cursor
 
-        response = _slack_get(url, headers=headers, params=params, timeout=10)
-        response.raise_for_status()
-        data = response.json()
+    response = _slack_get(url, headers=headers, params=params, timeout=10)
+    response.raise_for_status()
+    data = response.json()
 
-        if not data.get("ok"):
-            error = data.get("error", "unknown_error")
-            raise Exception(f"Slack API error fetching messages for channel {channel_id}: {error}")
+    if not data.get("ok"):
+        error = data.get("error", "unknown_error")
+        raise Exception(f"Slack API error fetching messages for channel {channel_id}: {error}")
 
-        messages = data.get("messages", [])
-        for msg in messages:
-            msg["channel_id"] = channel_id
-            yield msg
+    messages = data.get("messages", [])
+    for msg in messages:
+        msg["channel_id"] = channel_id
 
-        cursor = data.get("response_metadata", {}).get("next_cursor", "") or None
-        has_more = cursor is not None
+    next_cursor = data.get("response_metadata", {}).get("next_cursor", "") or None
+    return messages, next_cursor
 
 
 def _fetch_thread_replies(
@@ -209,7 +257,7 @@ def _fetch_thread_replies(
             raise Exception(f"Slack API error fetching thread replies for {channel_id}/{thread_ts}: {error}")
 
         for msg in data.get("messages", []):
-            # conversations.replies includes the parent message — skip it since it was already yielded by _fetch_messages_for_channel
+            # conversations.replies includes the parent message — skip it since it was already yielded by the channel messages page
             if msg.get("ts") == thread_ts and msg.get("thread_ts") == thread_ts:
                 continue
             msg["channel_id"] = channel_id
@@ -219,9 +267,9 @@ def _fetch_thread_replies(
         has_more = cursor is not None
 
 
-def get_channels(access_token: str) -> list[dict[str, str]]:
+def get_channels(access_token: str, authed_user: str | None = None) -> list[dict[str, str]]:
     """Return channel id + name pairs for all accessible channels."""
-    return [{"id": ch["id"], "name": ch["name"]} for ch in _fetch_all_channels(access_token)]
+    return [{"id": ch["id"], "name": ch["name"]} for ch in _fetch_all_channels(access_token, authed_user)]
 
 
 def _add_timestamp(msg: dict[str, Any]) -> dict[str, Any]:
@@ -234,13 +282,74 @@ def _add_timestamp(msg: dict[str, Any]) -> dict[str, Any]:
 def _channel_messages_generator(
     access_token: str,
     channel_id: str,
+    resumable_source_manager: ResumableSourceManager[SlackResumeConfig],
     oldest_ts: str | None = None,
 ) -> Iterator[dict[str, Any]]:
-    for msg in _fetch_messages_for_channel(access_token, channel_id, oldest_ts=oldest_ts):
-        yield _add_timestamp(msg)
-        if msg.get("reply_count", 0) > 0:
-            for reply in _fetch_thread_replies(access_token, channel_id, msg["ts"]):
-                yield _add_timestamp(reply)
+    cursor: str | None = None
+    effective_oldest_ts = oldest_ts
+
+    # Only honor state scoped to this channel — guards against reuse of a job_id across schemas.
+    resume_config = resumable_source_manager.load_state()
+    if resume_config is not None and resume_config.channel_id == channel_id:
+        cursor = resume_config.next_cursor
+        effective_oldest_ts = resume_config.oldest_ts
+
+    has_more = True
+    while has_more:
+        messages, next_cursor = _fetch_messages_page(
+            access_token, channel_id, oldest_ts=effective_oldest_ts, cursor=cursor
+        )
+
+        for msg in messages:
+            yield _add_timestamp(msg)
+            if msg.get("reply_count", 0) > 0:
+                for reply in _fetch_thread_replies(access_token, channel_id, msg["ts"]):
+                    yield _add_timestamp(reply)
+
+        cursor = next_cursor
+        has_more = cursor is not None
+
+        if cursor is not None:
+            # Checkpoint: all messages on this page and their thread replies have been yielded.
+            # On resume we start from next_cursor, so no duplication of parent messages.
+            resumable_source_manager.save_state(
+                SlackResumeConfig(
+                    channel_id=channel_id,
+                    next_cursor=cursor,
+                    oldest_ts=effective_oldest_ts,
+                )
+            )
+
+
+def _webhook_table_transformer(table: pa.Table) -> pa.Table:
+    if "event" not in table.column_names:
+        return table_from_py_list([])
+    event_col = table.column("event").to_pylist()
+
+    # Deduplicate by (ts, channel) — Slack retries delivery on timeout, so the same
+    # message event can arrive more than once within a single sync batch.
+    seen: set[tuple[str, str]] = set()
+    rows = []
+    for event_data in event_col:
+        if event_data is None:
+            continue
+        event: dict[str, Any] = orjson.loads(event_data) if isinstance(event_data, (str, bytes)) else dict(event_data)
+        channel = event.get("channel", "")
+        ts = event.get("ts")
+        # The warehouse partitions on `timestamp`, so a row without `ts` is unusable.
+        # Slack guarantees every `message.channels` / `message.groups` event carries one,
+        # so a missing value indicates a malformed payload or upstream change — surface
+        # it loudly rather than write rows that can never be queried correctly.
+        if not ts:
+            raise ValueError(f"Slack webhook event for channel {channel!r} is missing required `ts`")
+        key = (ts, channel)
+        if key in seen:
+            continue
+        seen.add(key)
+        event["channel_id"] = channel
+        event["timestamp"] = datetime.datetime.fromtimestamp(float(ts), tz=datetime.UTC).isoformat()
+        rows.append(event)
+    return table_from_py_list(rows)
 
 
 def slack_source(
@@ -248,16 +357,18 @@ def slack_source(
     endpoint: str,
     team_id: int,
     job_id: str,
+    webhook_source_manager: WebhookSourceManager,
+    resumable_source_manager: ResumableSourceManager[SlackResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
     incremental_field: str | None = None,
     channel_id: str | None = None,
 ) -> SourceResponse:
-    items: Callable[[], Iterable[Any]]
+    items: Callable[[], Iterable[Any] | AsyncIterable[Any]]
     sort_mode: SortMode = "asc"
 
     if endpoint in ENDPOINTS:
-        # Metadata endpoints ($channels, $users) — served via REST
+        # Metadata endpoints ($channels, $users) — served via REST, no webhook support
         endpoint_config = ENDPOINTS[endpoint]
         config: RESTAPIConfig = {
             "client": {
@@ -281,6 +392,8 @@ def slack_source(
         if channel_id is None:
             raise Exception(f"channel_not_found: {endpoint}")
 
+        webhook_enabled = async_to_sync(webhook_source_manager.webhook_enabled)()
+
         oldest_ts: str | None = None
         if should_use_incremental_field and db_incremental_field_last_value is not None:
             # Known limitation: incremental polling only fetches thread replies for parent messages
@@ -291,7 +404,15 @@ def slack_source(
 
         resolved_id = channel_id
         resolved_oldest_ts = oldest_ts
-        items = lambda: _channel_messages_generator(access_token, resolved_id, oldest_ts=resolved_oldest_ts)
+
+        def channel_items() -> Iterable[Any] | AsyncIterable[Any]:
+            if webhook_enabled:
+                return webhook_source_manager.get_items(table_transformer=_webhook_table_transformer)
+            return _channel_messages_generator(
+                access_token, resolved_id, resumable_source_manager, oldest_ts=resolved_oldest_ts
+            )
+
+        items = channel_items
 
     return SourceResponse(
         name=endpoint,

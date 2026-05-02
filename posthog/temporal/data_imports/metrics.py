@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 from temporalio import workflow
 from temporalio.common import MetricCounter
 
-from posthog.kafka_client.client import KafkaProducer
+from posthog.kafka_client.routing import get_producer
 from posthog.kafka_client.topics import KAFKA_APP_METRICS2
 from posthog.models.event.util import format_clickhouse_timestamp
 
@@ -82,7 +82,7 @@ def emit_data_import_app_metrics(job: "ExternalDataJob") -> None:
         )
 
     try:
-        producer = KafkaProducer()
+        producer = get_producer(topic=KAFKA_APP_METRICS2)
         for payload in payloads:
             producer.produce(topic=KAFKA_APP_METRICS2, data=payload)
     except Exception:

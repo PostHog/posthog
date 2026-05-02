@@ -147,6 +147,11 @@ async def SandboxedEval(
     # Filter cases by --eval flag if provided
     case_filter = pytestconfig.option.eval if hasattr(pytestconfig.option, "eval") else None
 
+    # Closure-scoped lookup so callable hooks on SandboxedEvalCase (e.g. `setup`)
+    # can be re-bound inside `task()` — they don't survive Braintrust's JSON
+    # round-trip, but the original case objects do.
+    cases_by_name: dict[str, SandboxedEvalCase] = {c.name: c for c in cases}
+
     eval_cases: list[EvalCase] = []
     for case in cases:
         if case_filter and case_filter not in case.name:
@@ -165,12 +170,22 @@ async def SandboxedEval(
             prompt=input["prompt"],
             repo_fixture=input.get("repo_fixture", ""),
         )
+        original_case = cases_by_name.get(input["name"])
 
         try:
             # The factory does Django ORM work (fresh org/team/user, ClickHouse
             # copy SQL, PSQL person sync). Django's async-safety guard rejects
             # sync ORM calls from async contexts, so run it in a worker thread.
             sandbox_context = await asyncio.to_thread(sandboxed_demo_data.make_context, eval_case.name)
+
+            seed_result: dict[str, Any] = {}
+            if original_case is not None and original_case.setup is not None:
+                try:
+                    seed_result = await asyncio.to_thread(original_case.setup, sandbox_context)
+                except Exception:
+                    logger.exception("Setup hook failed for '%s'", eval_case.name)
+                    raise
+
             result = await run_eval_case(eval_case, sandbox_context)
 
             # Store trace_id in metadata so evaluation events can link to the trace
@@ -229,6 +244,7 @@ async def SandboxedEval(
                 "last_message": last_message,
                 "messages": messages,
                 "raw_log": result.raw_log,
+                "seed": seed_result,
             }
         except Exception as e:
             logger.exception("Eval task failed for '%s'", input.get("name", "?"))

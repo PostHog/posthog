@@ -7,7 +7,7 @@ import tiktoken
 from posthog.models.utils import UUIDModel
 
 if TYPE_CHECKING:
-    from kafka.producer.kafka import FutureRecordMetadata
+    from posthog.kafka_client.client import ProduceResult
 
 EMBEDDING_MODEL_TOKEN_LIMIT = 8192
 
@@ -35,7 +35,7 @@ class AgentMemory(UUIDModel):
             models.Index(fields=["team", "id"]),
         ]
 
-    def embed(self, model_name: str) -> "FutureRecordMetadata":
+    def embed(self, model_name: str) -> "ProduceResult":
         enc = tiktoken.get_encoding("cl100k_base")
         token_count = len(enc.encode(self.contents))
         if token_count > EMBEDDING_MODEL_TOKEN_LIMIT:

@@ -5,12 +5,11 @@ export class TracesIngestionConsumer extends LogsIngestionConsumer {
     protected override name = 'TracesIngestionConsumer'
 
     constructor(config: LogsIngestionConsumerConfig & TracesIngestionConsumerConfig, deps: LogsIngestionConsumerDeps) {
+        // Topics are wired into `deps.outputs` by the server, so the only consumer-level
+        // overrides left are the consume topic / group / Redis / rate-limiter settings.
         super(config, deps, {
             LOGS_INGESTION_CONSUMER_GROUP_ID: config.TRACES_INGESTION_CONSUMER_GROUP_ID,
             LOGS_INGESTION_CONSUMER_CONSUME_TOPIC: config.TRACES_INGESTION_CONSUMER_CONSUME_TOPIC,
-            LOGS_INGESTION_CONSUMER_OVERFLOW_TOPIC: config.TRACES_INGESTION_CONSUMER_OVERFLOW_TOPIC,
-            LOGS_INGESTION_CONSUMER_DLQ_TOPIC: config.TRACES_INGESTION_CONSUMER_DLQ_TOPIC,
-            LOGS_INGESTION_CONSUMER_CLICKHOUSE_TOPIC: config.TRACES_INGESTION_CONSUMER_CLICKHOUSE_TOPIC,
             LOGS_REDIS_HOST: config.TRACES_REDIS_HOST,
             LOGS_REDIS_PORT: config.TRACES_REDIS_PORT,
             LOGS_REDIS_PASSWORD: config.TRACES_REDIS_PASSWORD,

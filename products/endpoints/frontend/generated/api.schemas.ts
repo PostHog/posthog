@@ -89,10 +89,10 @@ export interface EndpointMaterializationApi {
     /** Last materialization error message, if any. */
     error?: string
     /**
-     * How often the materialization refreshes (e.g. 'every_hour').
+     * UUID of the underlying saved query backing this materialization. Only populated when the version is materialized.
      * @nullable
      */
-    sync_frequency?: string | null
+    saved_query_id?: string | null
 }
 
 /**
@@ -128,11 +128,8 @@ export interface EndpointResponseApi {
     query: unknown
     /** Whether the endpoint can be executed via the API. */
     is_active: boolean
-    /**
-     * Cache TTL in seconds, or null for default interval-based caching.
-     * @nullable
-     */
-    cache_age_seconds: number | null
+    /** How fresh the data is, in seconds. One of: 900, 1800, 3600, 21600, 43200, 86400, 604800. */
+    data_freshness_seconds: number
     /** Relative API path to execute this endpoint (e.g. /api/environments/{team_id}/endpoints/{name}/run). */
     endpoint_path: string
     /**
@@ -155,6 +152,11 @@ export interface EndpointResponseApi {
     is_materialized: boolean
     /** Latest version number. */
     current_version: number
+    /**
+     * UUID of the current EndpointVersion row.
+     * @nullable
+     */
+    current_version_id?: string | null
     /** Total number of versions for this endpoint. */
     versions_count: number
     /**
@@ -210,10 +212,10 @@ export interface EndpointRequestApi {
      */
     description?: string | null
     /**
-     * Cache TTL in seconds (60–86400).
+     * How fresh the data should be, in seconds. Must be one of: 900 (15 min), 1800 (30 min), 3600 (1 h), 21600 (6 h), 43200 (12 h), 86400 (24 h, default), 604800 (7 d). Controls cache TTL and materialization sync frequency.
      * @nullable
      */
-    cache_age_seconds?: number | null
+    data_freshness_seconds?: number | null
     /**
      * Whether this endpoint is available for execution via the API.
      * @nullable
@@ -224,11 +226,6 @@ export interface EndpointRequestApi {
      * @nullable
      */
     is_materialized?: boolean | null
-    /**
-     * Materialization refresh frequency (e.g. 'every_hour', 'every_day').
-     * @nullable
-     */
-    sync_frequency?: string | null
     /**
      * Short ID of the insight this endpoint was derived from.
      * @nullable
@@ -274,11 +271,8 @@ export interface EndpointVersionResponseApi {
     query: unknown
     /** Whether the endpoint can be executed via the API. */
     is_active: boolean
-    /**
-     * Cache TTL in seconds, or null for default interval-based caching.
-     * @nullable
-     */
-    cache_age_seconds: number | null
+    /** How fresh the data is, in seconds. One of: 900, 1800, 3600, 21600, 43200, 86400, 604800. */
+    data_freshness_seconds: number
     /** Relative API path to execute this endpoint (e.g. /api/environments/{team_id}/endpoints/{name}/run). */
     endpoint_path: string
     /**
@@ -301,6 +295,11 @@ export interface EndpointVersionResponseApi {
     is_materialized: boolean
     /** Latest version number. */
     current_version: number
+    /**
+     * UUID of the current EndpointVersion row.
+     * @nullable
+     */
+    current_version_id?: string | null
     /** Total number of versions for this endpoint. */
     versions_count: number
     /**
@@ -362,10 +361,10 @@ export interface PatchedEndpointRequestApi {
      */
     description?: string | null
     /**
-     * Cache TTL in seconds (60–86400).
+     * How fresh the data should be, in seconds. Must be one of: 900 (15 min), 1800 (30 min), 3600 (1 h), 21600 (6 h), 43200 (12 h), 86400 (24 h, default), 604800 (7 d). Controls cache TTL and materialization sync frequency.
      * @nullable
      */
-    cache_age_seconds?: number | null
+    data_freshness_seconds?: number | null
     /**
      * Whether this endpoint is available for execution via the API.
      * @nullable
@@ -376,11 +375,6 @@ export interface PatchedEndpointRequestApi {
      * @nullable
      */
     is_materialized?: boolean | null
-    /**
-     * Materialization refresh frequency (e.g. 'every_hour', 'every_day').
-     * @nullable
-     */
-    sync_frequency?: string | null
     /**
      * Short ID of the insight this endpoint was derived from.
      * @nullable
@@ -466,15 +460,16 @@ export const BreakdownTypeApi = {
 export type MultipleBreakdownTypeApi = (typeof MultipleBreakdownTypeApi)[keyof typeof MultipleBreakdownTypeApi]
 
 export const MultipleBreakdownTypeApi = {
-    Cohort: 'cohort',
     Person: 'person',
     Event: 'event',
     EventMetadata: 'event_metadata',
     Group: 'group',
     Session: 'session',
     Hogql: 'hogql',
-    DataWarehousePersonProperty: 'data_warehouse_person_property',
+    Cohort: 'cohort',
     RevenueAnalytics: 'revenue_analytics',
+    DataWarehouse: 'data_warehouse',
+    DataWarehousePersonProperty: 'data_warehouse_person_property',
 } as const
 
 export interface BreakdownApi {

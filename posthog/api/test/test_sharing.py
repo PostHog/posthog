@@ -1209,3 +1209,103 @@ class TestExportCacheKeyFlow(APIBaseTest):
         # fetch_cached_response_by_key should not be called since cache_keys parsing failed
         mock_fetch_cached.assert_not_called()
         mock_calculate.assert_called_once()
+
+
+class TestSharedCohortInlining(APIBaseTest):
+    @mock_exporter_template
+    def test_shared_insight_inlines_referenced_cohort_names(self):
+        from posthog.models.cohort import Cohort
+
+        cohort = Cohort.objects.create(team=self.team, name="Power users")
+        other_cohort = Cohort.objects.create(team=self.team, name="Churned users")  # not referenced
+
+        insight = Insight.objects.create(
+            team=self.team,
+            name="Trend by cohort",
+            query={
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                    "breakdownFilter": {"breakdown_type": "cohort", "breakdown": [cohort.id]},
+                },
+            },
+        )
+        config = SharingConfiguration.objects.create(team=self.team, insight=insight, enabled=True)
+
+        response = self.client.get(f"/shared/{config.access_token}")
+        assert response.status_code == 200
+
+        exported_cohorts = self._parse_exported_cohorts(response.content.decode())
+        assert exported_cohorts == [{"id": cohort.id, "name": "Power users"}]
+        assert other_cohort.id not in {c["id"] for c in exported_cohorts}
+
+    @mock_exporter_template
+    def test_shared_insight_without_cohort_references_returns_empty_list(self):
+        insight = Insight.objects.create(
+            team=self.team,
+            name="No cohorts",
+            query={
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                },
+            },
+        )
+        config = SharingConfiguration.objects.create(team=self.team, insight=insight, enabled=True)
+
+        response = self.client.get(f"/shared/{config.access_token}")
+        assert response.status_code == 200
+        assert self._parse_exported_cohorts(response.content.decode()) == []
+
+    @mock_exporter_template
+    def test_shared_dashboard_collects_cohorts_across_tiles(self):
+        from posthog.models.cohort import Cohort
+
+        from products.dashboards.backend.models.dashboard_tile import DashboardTile
+
+        cohort_a = Cohort.objects.create(team=self.team, name="Cohort A")
+        cohort_b = Cohort.objects.create(team=self.team, name="Cohort B")
+
+        dashboard = Dashboard.objects.create(team=self.team, name="dash", created_by=self.user)
+        insight_a = Insight.objects.create(
+            team=self.team,
+            query={
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                    "breakdownFilter": {"breakdown_type": "cohort", "breakdown": [cohort_a.id]},
+                },
+            },
+        )
+        insight_b = Insight.objects.create(
+            team=self.team,
+            filters={
+                "events": [{"id": "$pageview"}],
+                "properties": [{"key": "id", "value": cohort_b.id, "type": "cohort"}],
+            },
+        )
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight_a)
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight_b)
+
+        config = SharingConfiguration.objects.create(team=self.team, dashboard=dashboard, enabled=True)
+        response = self.client.get(f"/shared/{config.access_token}")
+        assert response.status_code == 200
+
+        exported_cohorts = self._parse_exported_cohorts(response.content.decode())
+        assert sorted(exported_cohorts, key=lambda c: c["id"]) == sorted(
+            [{"id": cohort_a.id, "name": "Cohort A"}, {"id": cohort_b.id, "name": "Cohort B"}],
+            key=lambda c: c["id"],
+        )
+
+    @staticmethod
+    def _parse_exported_cohorts(html: str) -> list[dict]:
+        # mock_exporter_template embeds the exported_data JSON inside this <script> tag.
+        start_marker = '<script id="posthog-exported-data" type="application/json">'
+        start = html.index(start_marker) + len(start_marker)
+        end = html.index("</script>", start)
+        outer = json.loads(html[start:end])
+        inner = json.loads(outer) if isinstance(outer, str) else outer
+        return inner.get("cohorts", [])
