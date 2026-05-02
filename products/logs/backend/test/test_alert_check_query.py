@@ -16,6 +16,8 @@ from products.logs.backend.alert_check_query import (
     CHECKPOINT_MAX_STALENESS,
     AlertCheckCountResult,
     AlertCheckQuery,
+    BatchedAlertCheckQuery,
+    BatchedBucketedResult,
     BucketedCount,
     fetch_live_logs_checkpoint,
     is_projection_eligible,
@@ -622,6 +624,495 @@ class TestAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
         ):
             with self.assertRaisesRegex(Exception, "ClickHouse timeout"):
                 query.execute()
+
+
+class TestBatchedAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
+    """Per-team batching: run N alerts in one CH query via `countIf(<predicate>)`.
+
+    Equivalence assertion is the heart of the test surface — for every alert in
+    a batch, the per-alert column from the batched query must match what the
+    single-alert `AlertCheckQuery.execute_bucketed` returns against the same
+    window. Anything else and we silently break alert correctness.
+    """
+
+    CLASS_DATA_LEVEL_SETUP = True
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        with open(os.path.join(os.path.dirname(__file__), "test_logs.jsonnd")) as f:
+            rows = ""
+            for line in f:
+                log_item = json.loads(line)
+                log_item["team_id"] = cls.team.id
+                rows += json.dumps(log_item) + "\n"
+            sync_execute("INSERT INTO logs FORMAT JSONEachRow\n" + rows)
+
+    def _make_alert(self, **kwargs) -> LogsAlertConfiguration:
+        defaults = {
+            "team": self.team,
+            "name": "Test Alert",
+            "threshold_count": 10,
+            "threshold_operator": "above",
+            "window_minutes": 5,
+            "filters": {},
+        }
+        defaults.update(kwargs)
+        return LogsAlertConfiguration.objects.create(**defaults)
+
+    def _date_range(self) -> tuple[datetime, datetime]:
+        return datetime(2025, 12, 16, 9, 0, 0, tzinfo=UTC), datetime(2025, 12, 16, 10, 33, 0, tzinfo=UTC)
+
+    @freeze_time("2025-12-16T10:33:00Z")
+    def test_returns_per_alert_buckets(self):
+        alert_a = self._make_alert(name="A", filters={"serviceNames": ["argo-rollouts"]})
+        alert_b = self._make_alert(name="B", filters={"serviceNames": ["billing"]})
+        date_from, date_to = self._date_range()
+
+        result = BatchedAlertCheckQuery(
+            team=self.team, alerts=[alert_a, alert_b], date_from=date_from, date_to=date_to
+        ).execute_bucketed(interval_minutes=5)
+
+        assert isinstance(result, BatchedBucketedResult)
+        assert set(result.per_alert.keys()) == {str(alert_a.id), str(alert_b.id)}
+        assert result.query_duration_ms >= 0
+
+    @freeze_time("2025-12-16T10:33:00Z")
+    def test_per_alert_counts_match_single_alert_query(self):
+        # Equivalence guarantee: every per-alert bucket column from the batched
+        # query must match what a single-alert AlertCheckQuery returns. If they
+        # diverge, alert correctness silently breaks for every batched alert.
+        alert_a = self._make_alert(name="A", filters={"serviceNames": ["argo-rollouts"]})
+        alert_b = self._make_alert(name="B", filters={"serviceNames": ["billing"], "severityLevels": ["info"]})
+        date_from, date_to = self._date_range()
+
+        batched = BatchedAlertCheckQuery(
+            team=self.team, alerts=[alert_a, alert_b], date_from=date_from, date_to=date_to
+        ).execute_bucketed(interval_minutes=5)
+
+        for alert in (alert_a, alert_b):
+            single = AlertCheckQuery(
+                team=self.team, alert=alert, date_from=date_from, date_to=date_to
+            ).execute_bucketed(interval_minutes=5)
+            batched_for_alert = batched.per_alert[str(alert.id)]
+
+            # Batched returns a row per cohort bucket (every bucket the team has data
+            # in), with count=0 entries for buckets where this alert's predicate
+            # didn't match. Single-alert only emits buckets where the alert matched.
+            # So filter the batched view to the same set before comparing.
+            non_zero_batched = [b for b in batched_for_alert if b.count > 0]
+            assert non_zero_batched == single, f"alert={alert.name}"
+
+    @freeze_time("2025-12-16T10:33:00Z")
+    def test_single_alert_cohort_is_supported(self):
+        # The activity sends every cohort through the batched path even when
+        # there's only one alert in it. Verify N=1 behaves correctly.
+        alert = self._make_alert(filters={"serviceNames": ["argo-rollouts"]})
+        date_from, date_to = self._date_range()
+
+        result = BatchedAlertCheckQuery(
+            team=self.team, alerts=[alert], date_from=date_from, date_to=date_to
+        ).execute_bucketed(interval_minutes=5)
+
+        assert list(result.per_alert.keys()) == [str(alert.id)]
+        non_zero = [b for b in result.per_alert[str(alert.id)] if b.count > 0]
+        assert len(non_zero) > 0
+
+    @freeze_time("2025-12-16T10:33:00Z")
+    def test_empty_alerts_raises(self):
+        date_from, date_to = self._date_range()
+        with self.assertRaisesRegex(ValueError, "at least one alert"):
+            BatchedAlertCheckQuery(team=self.team, alerts=[], date_from=date_from, date_to=date_to)
+
+    def test_team_mismatch_raises(self):
+        from posthog.models import Organization, Team
+
+        other_org = Organization.objects.create(name="Other Org")
+        other_team = Team.objects.create(organization=other_org, name="Other Team")
+        alert = self._make_alert()
+
+        with self.assertRaisesRegex(ValueError, "All alerts in a batch must belong to the same team"):
+            BatchedAlertCheckQuery(
+                team=other_team,
+                alerts=[alert],
+                date_from=datetime(2025, 12, 16, 9, 0, 0, tzinfo=UTC),
+                date_to=datetime(2025, 12, 16, 10, 33, 0, tzinfo=UTC),
+            )
+
+    @freeze_time("2025-12-16T10:33:00Z")
+    def test_mixed_projection_eligibility_drops_to_raw_scan(self):
+        # If any alert in the batch has a body filter, the cohort drops projection
+        # eligibility — entire batch falls back to raw scan. Both columns still
+        # produce correct counts; this test just verifies the query runs.
+        alert_proj = self._make_alert(name="P", filters={"serviceNames": ["argo-rollouts"]})
+        alert_body = self._make_alert(
+            name="B",
+            filters={
+                "serviceNames": ["argo-rollouts"],
+                "filterGroup": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "message",
+                                    "value": "Argo Rollouts Dashboard",
+                                    "operator": "icontains",
+                                    "type": "log",
+                                }
+                            ],
+                        }
+                    ],
+                },
+            },
+        )
+        date_from, date_to = self._date_range()
+
+        result = BatchedAlertCheckQuery(
+            team=self.team, alerts=[alert_proj, alert_body], date_from=date_from, date_to=date_to
+        ).execute_bucketed(interval_minutes=5)
+
+        assert set(result.per_alert.keys()) == {str(alert_proj.id), str(alert_body.id)}
+
+    @freeze_time("2025-12-16T10:33:00Z")
+    def test_no_matching_logs_returns_zero_counts(self):
+        alert_a = self._make_alert(name="A", filters={"serviceNames": ["nonexistent-a"]})
+        alert_b = self._make_alert(name="B", filters={"serviceNames": ["nonexistent-b"]})
+        date_from, date_to = self._date_range()
+
+        result = BatchedAlertCheckQuery(
+            team=self.team, alerts=[alert_a, alert_b], date_from=date_from, date_to=date_to
+        ).execute_bucketed(interval_minutes=5)
+
+        # When no alert has matching logs, the team scan still emits buckets for
+        # rows that exist in the window — but all per-alert columns are 0. If the
+        # team has no logs at all in the window, we get an empty per_alert list.
+        for alert in (alert_a, alert_b):
+            buckets = result.per_alert[str(alert.id)]
+            assert all(b.count == 0 for b in buckets)
+
+    @freeze_time("2025-12-16T10:33:00Z")
+    def test_buckets_in_ascending_order(self):
+        alert_a = self._make_alert(name="A", filters={"serviceNames": ["argo-rollouts"]})
+        alert_b = self._make_alert(name="B", filters={"serviceNames": ["billing"]})
+        date_from, date_to = self._date_range()
+
+        result = BatchedAlertCheckQuery(
+            team=self.team, alerts=[alert_a, alert_b], date_from=date_from, date_to=date_to
+        ).execute_bucketed(interval_minutes=5)
+
+        for alert in (alert_a, alert_b):
+            timestamps = [b.timestamp for b in result.per_alert[str(alert.id)]]
+            assert timestamps == sorted(timestamps), f"alert={alert.name}"
+
+    @freeze_time("2025-12-16T10:33:00Z")
+    def test_query_failure_propagates(self):
+        alert = self._make_alert()
+        date_from, date_to = self._date_range()
+        query = BatchedAlertCheckQuery(team=self.team, alerts=[alert], date_from=date_from, date_to=date_to)
+        with patch(
+            "products.logs.backend.alert_check_query.execute_hogql_query",
+            side_effect=Exception("ClickHouse timeout"),
+        ):
+            with self.assertRaisesRegex(Exception, "ClickHouse timeout"):
+                query.execute_bucketed(interval_minutes=5)
+
+    @freeze_time("2025-12-16T11:00:00Z")
+    def test_per_alert_results_match_single_query_across_random_inputs(self):
+        # Generative property test: the batched query must produce the same
+        # per-alert bucket counts as running each alert through `AlertCheckQuery`
+        # individually. We seed several services worth of logs at random
+        # timestamps, build one alert per service, run them as a batched cohort,
+        # and assert each alert's per_alert slice matches the single-alert result.
+        # Sparse buckets (count=0 in batched, absent in single) are reconciled by
+        # filtering count>0 before comparison — same convention as the single
+        # query test suite.
+        import random as _random
+
+        rng = _random.Random(7)
+        base = datetime(2025, 12, 16, 9, 0, 0, tzinfo=UTC)
+        range_seconds = 2 * 3600
+
+        # Build N services, each with a random log distribution.
+        n_services = 6
+        all_rows: list[dict] = []
+        services: list[str] = []
+        for trial in range(n_services):
+            service_name = f"batched_equiv_test_{trial}"
+            services.append(service_name)
+            n_logs = rng.randint(0, 150)  # include 0 so we exercise sparse alerts
+            for i in range(n_logs):
+                off = rng.randint(0, range_seconds - 1)
+                all_rows.append(
+                    {
+                        "uuid": f"batched-equiv-{trial}-{i}",
+                        "team_id": self.team.id,
+                        "timestamp": (base + dt.timedelta(seconds=off)).strftime("%Y-%m-%d %H:%M:%S.%f"),
+                        "body": "",
+                        "severity_text": "info",
+                        "severity_number": 9,
+                        "service_name": service_name,
+                        "resource_attributes": {},
+                        "attributes_map_str": {},
+                    }
+                )
+        if all_rows:
+            sync_execute("INSERT INTO logs FORMAT JSONEachRow\n" + "\n".join(json.dumps(r) for r in all_rows))
+
+        alerts = [self._make_alert(name=svc, filters={"serviceNames": [svc]}) for svc in services]
+        date_from = base
+        date_to = base + dt.timedelta(seconds=range_seconds)
+
+        for bucket_minutes in (1, 5, 15, 30):
+            batched = BatchedAlertCheckQuery(
+                team=self.team, alerts=alerts, date_from=date_from, date_to=date_to
+            ).execute_bucketed(interval_minutes=bucket_minutes, limit=10_000)
+
+            for alert in alerts:
+                single = AlertCheckQuery(
+                    team=self.team, alert=alert, date_from=date_from, date_to=date_to
+                ).execute_bucketed(interval_minutes=bucket_minutes, limit=10_000)
+                batched_for_alert = batched.per_alert[str(alert.id)]
+                non_zero_batched = [b for b in batched_for_alert if b.count > 0]
+                assert non_zero_batched == single, (
+                    f"alert={alert.name} bucket_minutes={bucket_minutes}\n"
+                    f"batched (non-zero): {non_zero_batched}\n"
+                    f"single:             {single}"
+                )
+
+    @freeze_time("2025-12-16T11:00:00Z")
+    def test_sparse_alert_in_busy_cohort_returns_zero_counts(self):
+        # Multi-alert cohort where one alert has matches and one is sparse:
+        # confirm the sparse alert's per_alert slice contains only zeros (the
+        # busy alert's slice is non-empty). Verifies the cohort scan emits a
+        # bucket per data-bearing timestamp and the zero-matching alert reports
+        # a 0 for every such bucket.
+        rows = [
+            {
+                "uuid": f"busy-{i}",
+                "team_id": self.team.id,
+                "timestamp": ts,
+                "body": "",
+                "severity_text": "info",
+                "severity_number": 9,
+                "service_name": "batched_busy",
+                "resource_attributes": {},
+                "attributes_map_str": {},
+            }
+            for i, ts in enumerate(
+                [
+                    "2025-12-16 10:00:30",
+                    "2025-12-16 10:01:00",
+                    "2025-12-16 10:05:30",
+                ]
+            )
+        ]
+        sync_execute("INSERT INTO logs FORMAT JSONEachRow\n" + "\n".join(json.dumps(r) for r in rows))
+
+        busy = self._make_alert(name="busy", filters={"serviceNames": ["batched_busy"]})
+        sparse = self._make_alert(name="sparse", filters={"serviceNames": ["batched_sparse_no_data"]})
+        result = BatchedAlertCheckQuery(
+            team=self.team,
+            alerts=[busy, sparse],
+            date_from=datetime(2025, 12, 16, 10, 0, 0, tzinfo=UTC),
+            date_to=datetime(2025, 12, 16, 10, 10, 0, tzinfo=UTC),
+        ).execute_bucketed(interval_minutes=5)
+
+        busy_buckets = result.per_alert[str(busy.id)]
+        sparse_buckets = result.per_alert[str(sparse.id)]
+
+        # Cohort scan emitted buckets for the data-bearing timestamps; busy's
+        # counts sum to the inserted log count, sparse's are all zero.
+        assert sum(b.count for b in busy_buckets) == len(rows)
+        assert sparse_buckets, "expected the cohort scan to emit buckets covering busy's data"
+        assert all(b.count == 0 for b in sparse_buckets)
+        assert [b.timestamp for b in busy_buckets] == [b.timestamp for b in sparse_buckets]
+
+    @freeze_time("2025-12-16T10:33:00Z")
+    def test_excludes_log_at_exact_date_to(self):
+        # Half-open [date_from, date_to). A log timestamped exactly at date_to
+        # must be excluded for every alert in the cohort.
+        rows = [
+            {
+                "uuid": f"bnd-{i}",
+                "team_id": self.team.id,
+                "timestamp": ts,
+                "body": "",
+                "severity_text": "info",
+                "severity_number": 9,
+                "service_name": "batched_boundary",
+                "resource_attributes": {},
+                "attributes_map_str": {},
+            }
+            for i, ts in enumerate(
+                [
+                    "2025-12-16 10:09:59.999999",  # included
+                    "2025-12-16 10:10:00.000000",  # exactly date_to → excluded
+                ]
+            )
+        ]
+        sync_execute("INSERT INTO logs FORMAT JSONEachRow\n" + "\n".join(json.dumps(r) for r in rows))
+
+        alert = self._make_alert(filters={"serviceNames": ["batched_boundary"]})
+        result = BatchedAlertCheckQuery(
+            team=self.team,
+            alerts=[alert],
+            date_from=datetime(2025, 12, 16, 10, 0, 0, tzinfo=UTC),
+            date_to=datetime(2025, 12, 16, 10, 10, 0, tzinfo=UTC),
+        ).execute_bucketed(interval_minutes=5)
+
+        non_zero = {
+            (b.timestamp.replace(tzinfo=UTC) if b.timestamp.tzinfo is None else b.timestamp): b.count
+            for b in result.per_alert[str(alert.id)]
+            if b.count > 0
+        }
+        # Only the .999999 log is counted; the .000000 log at date_to is excluded.
+        assert non_zero == {datetime(2025, 12, 16, 10, 5, 0, tzinfo=UTC): 1}
+
+    @freeze_time("2025-12-17T01:00:00Z")
+    def test_buckets_correct_across_midnight_boundary(self):
+        # Cadence-grid bucketing anchors at midnight UTC — buckets that span
+        # the day rollover must land in the right slot in the batched path too.
+        rows = [
+            {
+                "uuid": f"mid-{i}",
+                "team_id": self.team.id,
+                "timestamp": ts,
+                "body": "",
+                "severity_text": "info",
+                "severity_number": 9,
+                "service_name": "batched_midnight",
+                "resource_attributes": {},
+                "attributes_map_str": {},
+            }
+            for i, ts in enumerate(
+                [
+                    "2025-12-16 23:55:00.000000",  # bucket [23:55, 24:00)
+                    "2025-12-16 23:59:59.999999",  # bucket [23:55, 24:00)
+                    "2025-12-17 00:00:00.000000",  # bucket [00:00, 00:05)
+                    "2025-12-17 00:04:59.999999",  # bucket [00:00, 00:05)
+                    "2025-12-17 00:05:00.000000",  # bucket [00:05, 00:10)
+                ]
+            )
+        ]
+        sync_execute("INSERT INTO logs FORMAT JSONEachRow\n" + "\n".join(json.dumps(r) for r in rows))
+
+        alert = self._make_alert(filters={"serviceNames": ["batched_midnight"]})
+        result = BatchedAlertCheckQuery(
+            team=self.team,
+            alerts=[alert],
+            date_from=datetime(2025, 12, 16, 23, 50, 0, tzinfo=UTC),
+            date_to=datetime(2025, 12, 17, 0, 10, 0, tzinfo=UTC),
+        ).execute_bucketed(interval_minutes=5)
+
+        actual = {
+            (b.timestamp.replace(tzinfo=UTC) if b.timestamp.tzinfo is None else b.timestamp): b.count
+            for b in result.per_alert[str(alert.id)]
+            if b.count > 0
+        }
+        expected = {
+            datetime(2025, 12, 16, 23, 55, 0, tzinfo=UTC): 2,
+            datetime(2025, 12, 17, 0, 0, 0, tzinfo=UTC): 2,
+            datetime(2025, 12, 17, 0, 5, 0, tzinfo=UTC): 1,
+        }
+        assert actual == expected
+
+    @freeze_time("2025-12-16T10:33:00Z")
+    def test_subsecond_precision_at_boundaries(self):
+        # DateTime64(6) precision: a log at :04:59.999999 belongs in [10:00, 10:05);
+        # one at :05:00.000000 belongs in [10:05, 10:10). Ensure batched bucket
+        # alignment respects that.
+        rows = [
+            {
+                "uuid": f"sub-{i}",
+                "team_id": self.team.id,
+                "timestamp": ts,
+                "body": "",
+                "severity_text": "info",
+                "severity_number": 9,
+                "service_name": "batched_subsecond",
+                "resource_attributes": {},
+                "attributes_map_str": {},
+            }
+            for i, ts in enumerate(
+                [
+                    "2025-12-16 10:04:59.999999",  # bucket [10:00, 10:05)
+                    "2025-12-16 10:05:00.000000",  # bucket [10:05, 10:10)
+                    "2025-12-16 10:05:00.000001",  # bucket [10:05, 10:10)
+                ]
+            )
+        ]
+        sync_execute("INSERT INTO logs FORMAT JSONEachRow\n" + "\n".join(json.dumps(r) for r in rows))
+
+        alert = self._make_alert(filters={"serviceNames": ["batched_subsecond"]})
+        result = BatchedAlertCheckQuery(
+            team=self.team,
+            alerts=[alert],
+            date_from=datetime(2025, 12, 16, 10, 0, 0, tzinfo=UTC),
+            date_to=datetime(2025, 12, 16, 10, 10, 0, tzinfo=UTC),
+        ).execute_bucketed(interval_minutes=5)
+
+        actual = {
+            (b.timestamp.replace(tzinfo=UTC) if b.timestamp.tzinfo is None else b.timestamp): b.count
+            for b in result.per_alert[str(alert.id)]
+            if b.count > 0
+        }
+        assert actual == {
+            datetime(2025, 12, 16, 10, 0, 0, tzinfo=UTC): 1,
+            datetime(2025, 12, 16, 10, 5, 0, tzinfo=UTC): 2,
+        }
+
+    @freeze_time("2025-12-16T10:33:00Z")
+    def test_bucket_placement_matches_single_query(self):
+        # Targeted equivalence test: seed five logs at known timestamps that
+        # split across two 5-minute buckets, run batched with two alerts (one
+        # service-only, one service+severity), assert per-alert results match
+        # the single-alert path bucket-for-bucket.
+        rows = [
+            {
+                "uuid": f"placement-{i}",
+                "team_id": self.team.id,
+                "timestamp": ts,
+                "body": "",
+                "severity_text": severity,
+                "severity_number": 9,
+                "service_name": "batched_placement",
+                "resource_attributes": {},
+                "attributes_map_str": {},
+            }
+            for i, (ts, severity) in enumerate(
+                [
+                    ("2025-12-16 10:00:30", "info"),
+                    ("2025-12-16 10:01:00", "warn"),
+                    ("2025-12-16 10:04:59", "info"),
+                    ("2025-12-16 10:05:00", "info"),
+                    ("2025-12-16 10:09:59", "warn"),
+                ]
+            )
+        ]
+        sync_execute("INSERT INTO logs FORMAT JSONEachRow\n" + "\n".join(json.dumps(r) for r in rows))
+
+        all_alert = self._make_alert(name="all", filters={"serviceNames": ["batched_placement"]})
+        info_alert = self._make_alert(
+            name="info_only",
+            filters={"serviceNames": ["batched_placement"], "severityLevels": ["info"]},
+        )
+        date_from = datetime(2025, 12, 16, 10, 0, 0, tzinfo=UTC)
+        date_to = datetime(2025, 12, 16, 10, 10, 0, tzinfo=UTC)
+
+        batched = BatchedAlertCheckQuery(
+            team=self.team, alerts=[all_alert, info_alert], date_from=date_from, date_to=date_to
+        ).execute_bucketed(interval_minutes=5)
+
+        for alert in (all_alert, info_alert):
+            single = AlertCheckQuery(
+                team=self.team, alert=alert, date_from=date_from, date_to=date_to
+            ).execute_bucketed(interval_minutes=5)
+            non_zero_batched = [b for b in batched.per_alert[str(alert.id)] if b.count > 0]
+            assert non_zero_batched == single, (
+                f"alert={alert.name}\nbatched (non-zero): {non_zero_batched}\nsingle:             {single}"
+            )
 
 
 class TestFetchLiveLogsCheckpoint(APIBaseTest):
