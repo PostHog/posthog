@@ -21,7 +21,6 @@ Or just stand the server up for manual experimentation:
 from __future__ import annotations
 
 import os
-import re
 import sys
 import json
 import time
@@ -30,6 +29,7 @@ import shlex
 import shutil
 import signal
 import argparse
+import platform
 import threading
 import subprocess
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -63,28 +63,26 @@ def _log(msg: str) -> None:
     sys.stdout.flush()
 
 
-# Word-bounded so we replace the bare `events` identifier (`FROM events`,
-# `events.foo`, `events AS e`, `JOIN events ON`) without touching column
-# names that contain the substring (`events_count`, `is_initial_query`).
-_EVENTS_TABLE_RE = re.compile(r"\bevents\b")
+# We sandbox via Docker Desktop's `host.docker.internal` magic DNS name, which
+# only resolves to the host loopback on macOS / Windows. On Linux, the daemon
+# requires `--add-host=host.docker.internal:host-gateway` to point at the
+# docker0 bridge IP — and even then, a `127.0.0.1`-bound coordinator is
+# unreachable from the container. None of us run Linux dev boxes, so just bail.
+def _require_supported_platform() -> None:
+    system = platform.system()
+    if system != "Darwin":
+        raise SystemExit(
+            f"this coordinator is macOS-only (detected {system}). "
+            "It assumes Docker Desktop's `host.docker.internal` resolves to host loopback, "
+            "which only holds on macOS/Windows. Run on a Mac or extend the binding logic."
+        )
 
 
-def _rewrite_events_to_sharded(sql: str) -> str:
-    return _EVENTS_TABLE_RE.sub("sharded_events", sql)
-
-
-def _maybe_rewrite_events(query: SlowQuery, *, rewrite_events_to_sharded: bool) -> SlowQuery:
-    if not rewrite_events_to_sharded:
-        return query
-    return SlowQuery(
-        query_id=query.query_id,
-        team_id=query.team_id,
-        clickhouse_query=_rewrite_events_to_sharded(query.clickhouse_query),
-        hogql_query=query.hogql_query,
-        query_duration_ms=query.query_duration_ms,
-        read_bytes=query.read_bytes,
-        event_time=query.event_time,
-    )
+def _positive_int(value: str) -> int:
+    n = int(value)
+    if n <= 0:
+        raise argparse.ArgumentTypeError(f"must be a positive integer, got {value!r}")
+    return n
 
 
 def _load_repo_dotenv() -> None:
@@ -108,10 +106,13 @@ def _build_backend(args: argparse.Namespace) -> ExecutionBackend:
         if not args.metabase_region or not args.test_cluster_database_id:
             raise SystemExit(
                 "--target test_cluster requires --metabase-region and --test-cluster-database-id "
-                "(point the latter at the metabase database that runs candidate SQL on the test cluster, "
-                "currently the team-1 cluster)"
+                "(point the latter at the metabase database that runs candidate SQL on the test cluster)"
             )
-        return MetabaseBackend(region=args.metabase_region, database_id=args.test_cluster_database_id)
+        return MetabaseBackend(
+            region=args.metabase_region,
+            database_id=args.test_cluster_database_id,
+            team_id=args.team_id,
+        )
     if args.target == "local":
         return LocalClickhouseBackend(team_id=args.local_team_id)
     raise SystemExit(f"unknown --target: {args.target!r}")
@@ -226,7 +227,10 @@ def _spawn_one_sandbox(
         # source as a grounding context for hypotheses, and the toolchain
         # being pre-installed saves ~30-90s of npm + git per sandbox boot.
         template=SandboxTemplate.PI_BASE,
-        default_execution_timeout_seconds=45 * 60,
+        # Campaigns can run for hours: the agent iterates many candidates,
+        # each with a baseline + replay + correctness check. 8h is the
+        # outer wall-clock; the per-call CH timeout is the inner cap.
+        default_execution_timeout_seconds=8 * 60 * 60,
         # Most of pi-coding-agent's work is LLM round-trips and ClickHouse
         # queries that go through the host's `/v1/run` — the in-sandbox process
         # set is small. 2 GiB is enough for git, node, and the campaign
@@ -306,7 +310,7 @@ def _spawn_one_sandbox(
         )
 
         _log(f"[{query.query_id}] running run_campaign.py inside sandbox {sandbox.id}")
-        stream = sandbox.execute_stream(command, timeout_seconds=45 * 60)
+        stream = sandbox.execute_stream(command, timeout_seconds=8 * 60 * 60)
         log_path = output_dir / "campaign.log"
         with log_path.open("w") as log_file:
             for line in stream.iter_stdout():
@@ -372,7 +376,7 @@ def _install_signal_handlers() -> None:
     """SIGINT/SIGTERM → destroy live sandboxes, then exit non-zero.
 
     Without this, Ctrl-C leaves Docker containers running (each one happily
-    burning RAM until its 45-minute timeout) and a future run sees orphans
+    burning RAM until its 8-hour timeout) and a future run sees orphans
     on `docker ps`.
     """
 
@@ -468,8 +472,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
             "to this value before capturing the baseline. (default: 1, matching `bin/start`'s seed)"
         ),
     )
-    parser.add_argument("--lookback-hours", type=int, default=24)
-    parser.add_argument("--max-queries", type=int, default=5)
+    parser.add_argument("--lookback-hours", type=_positive_int, default=24)
+    parser.add_argument("--max-queries", type=_positive_int, default=5)
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--bind-host", default="127.0.0.1", help="Host to bind the coordinator HTTP server to")
     parser.add_argument(
@@ -484,15 +488,6 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
             "Fetch the slow queries that would be analyzed, print a summary to stdout, then exit. "
             "Skips the HTTP server, the sandbox provisioning, and the ANTHROPIC_API_KEY check. "
             "Useful for dry-running the column filter and inspecting candidate SQL before burning tokens."
-        ),
-    )
-    parser.add_argument(
-        "--rewrite-events-to-sharded",
-        action="store_true",
-        help=(
-            "Rewrite every standalone `events` table reference in the slow query SQL to `sharded_events` "
-            "before handing it to the agent. Workaround for test clusters whose `events` Distributed wrapper "
-            "is leaner than `sharded_events`."
         ),
     )
     parser.add_argument(
@@ -545,7 +540,6 @@ def _print_only(args: argparse.Namespace) -> int:
 
     print()  # noqa: T201 — print-only mode emits structured output to stdout
     for i, q in enumerate(queries, start=1):
-        q = _maybe_rewrite_events(q, rewrite_events_to_sharded=args.rewrite_events_to_sharded)
         print(f"[{i}/{len(queries)}] query_id={q.query_id}")  # noqa: T201
         print(f"        team_id={q.team_id} duration={q.query_duration_ms}ms read_bytes={q.read_bytes}")  # noqa: T201
         print(f"        event_time={q.event_time}")  # noqa: T201
@@ -615,6 +609,7 @@ def _fetch_filtered_queries(args: argparse.Namespace) -> list[SlowQuery]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    _require_supported_platform()
     args = parse_args(argv if argv is not None else sys.argv[1:])
 
     _load_repo_dotenv()
@@ -646,7 +641,6 @@ def main(argv: list[str] | None = None) -> int:
     serve_forever_in_thread(server)
     actual_port = server.server_address[1]
     _log(f"HTTP server listening on http://{args.bind_host}:{actual_port} (backend={backend.name})")
-    _log(f"coordinator token: {token}")
 
     if args.no_spawn:
         _log("--no-spawn: server will run until Ctrl-C")
@@ -682,10 +676,7 @@ def main(argv: list[str] | None = None) -> int:
             f"({args.metabase_region} query-log-db={args.query_log_database_id} team={args.team_id} "
             f"lookback={args.lookback_hours}h)"
         )
-    queries = [
-        _maybe_rewrite_events(q, rewrite_events_to_sharded=args.rewrite_events_to_sharded)
-        for q in _fetch_filtered_queries(args)
-    ]
+    queries = _fetch_filtered_queries(args)
     if not queries:
         _log("no eligible slow queries found (ai_data_processing_approved=true). Nothing to do.")
         return 0

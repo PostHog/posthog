@@ -101,6 +101,12 @@ class LocalClickhouseBackend(ExecutionBackend):
             # and a faster-but-wrong candidate kills the dev CH.
             "max_memory_usage": 4 * 1024 * 1024 * 1024,  # 4 GiB
             "max_bytes_to_read": 50 * 1024 * 1024 * 1024,  # 50 GiB
+            # `readonly=2` blocks DDL / DML / mutations (DROP, TRUNCATE,
+            # INSERT, ALTER, OPTIMIZE) but still allows per-query SET, so
+            # the other settings above keep working. The agent is an LLM
+            # writing SQL; this guard means a bad rewrite can't wipe the
+            # dev DB.
+            "readonly": 2,
             "log_comment": log_comment,
         }
 

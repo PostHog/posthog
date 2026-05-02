@@ -14,18 +14,18 @@ import subprocess
 
 from .base import BackendError, ExecutionBackend, ExecutionResult
 
-_TEAM_TWO_PROMPT = (
+LOCAL_DEV_DB_PROMPT = (
     "## Coordinator routing — TEST CLUSTER MODE\n"
     "\n"
     "The coordinator is forwarding your SQL to a Metabase database that contains "
-    "data for **team 2 only**. The slow query you're optimizing was originally "
+    "data for **team {team_id} only**. The slow query you're optimizing was originally "
     "tagged with a different team_id; before you can capture a meaningful baseline, "
-    "you MUST rewrite every team_id predicate to filter by team 2.\n"
+    "you MUST rewrite every team_id predicate to filter by team {team_id}.\n"
     "\n"
     "Concretely, before running the first baseline:\n"
     "1. Read `query/original.sql`.\n"
     "2. Replace every `team_id = <n>`, `team_id IN (<n>, ...)`, or any equivalent "
-    "team-scoping predicate with `team_id = 2`. Do this for every CTE/subquery — a "
+    "team-scoping predicate with `team_id = {team_id}`. Do this for every CTE/subquery — a "
     "missed predicate will return zero rows and silently invalidate the baseline.\n"
     "3. Save the rewritten SQL back to `query/original.sql`, `query/current.sql`, "
     "and `query/best.sql`. Then run `ch_capture_baseline.py` yourself.\n"
@@ -36,21 +36,22 @@ _TEAM_TWO_PROMPT = (
 
 
 class MetabaseBackend(ExecutionBackend):
-    def __init__(self, *, region: str, database_id: int, target_label: str = "test_cluster"):
+    def __init__(self, *, region: str, database_id: int, team_id: int, target_label: str = "test_cluster"):
         self._region = region
         self._database_id = int(database_id)
+        self._team_id = int(team_id)
         self._target_label = target_label
 
     @property
     def name(self) -> str:
-        return f"metabase[{self._region}:{self._database_id}]"
+        return f"metabase[{self._region}:{self._database_id}:team={self._team_id}]"
 
     @property
     def target(self) -> str:
         return self._target_label
 
     def prompt_addendum(self) -> str:
-        return _TEAM_TWO_PROMPT
+        return LOCAL_DEV_DB_PROMPT.format(team_id=self._team_id)
 
     def run(self, sql: str, *, timeout_s: int) -> ExecutionResult:
         cmd = [
