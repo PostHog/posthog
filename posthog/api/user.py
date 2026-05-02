@@ -32,6 +32,7 @@ from django_otp.plugins.otp_totp.models import TOTPDevice
 from django_otp.util import random_hex
 from drf_spectacular.utils import extend_schema, extend_schema_field, extend_schema_view
 from loginas.utils import is_impersonated_session
+from opentelemetry import trace
 from prometheus_client import Counter
 from rest_framework import exceptions, mixins, serializers, viewsets
 from rest_framework.exceptions import NotFound
@@ -113,6 +114,7 @@ REDIRECT_TO_SITE_FAILED_COUNTER = Counter("posthog_redirect_to_site_failed", "Re
 NUM_2FA_BACKUP_CODES = 10
 
 logger = structlog.get_logger(__name__)
+tracer = trace.get_tracer(__name__)
 
 
 class ScenePersonalisationBasicSerializer(serializers.ModelSerializer):
@@ -335,12 +337,15 @@ class UserSerializer(serializers.ModelSerializer):
 
         return session_expiry_time.replace(tzinfo=UTC).isoformat()
 
+    @tracer.start_as_current_span("user_serializer.has_social_auth")
     def get_has_social_auth(self, instance: User) -> bool:
         return instance.social_auth.exists()
 
+    @tracer.start_as_current_span("user_serializer.is_2fa_enabled")
     def get_is_2fa_enabled(self, instance: User) -> bool:
         return default_device(instance) is not None
 
+    @tracer.start_as_current_span("user_serializer.has_sso_enforcement")
     def get_has_sso_enforcement(self, instance: User) -> bool:
         organization = instance.current_organization
         if not organization:
@@ -350,6 +355,7 @@ class UserSerializer(serializers.ModelSerializer):
             OrganizationDomain.objects.get_sso_enforcement_for_email_address(instance.email, organization=organization)
         )
 
+    @tracer.start_as_current_span("user_serializer.is_organization_first_user")
     def get_is_organization_first_user(self, instance: User) -> bool | None:
         # Only compute when the serialized user is the requesting user. Avoids paying an
         # extra membership query on every /api/users/@me/ hit for admin/staff flows that
@@ -375,6 +381,7 @@ class UserSerializer(serializers.ModelSerializer):
         return membership.invited_by_id is None
 
     @extend_schema_field(PendingInviteSerializer(many=True))
+    @tracer.start_as_current_span("user_serializer.pending_invites")
     def get_pending_invites(self, instance: User) -> list[dict]:
         """Non-expired organization invites matching the user's email for orgs they aren't already in.
 
@@ -607,7 +614,8 @@ class UserSerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance: Any) -> Any:
         user_identify.identify_task.delay(user_id=instance.id)
-        data = super().to_representation(instance)
+        with tracer.start_as_current_span("user_serializer.default_fields"):
+            data = super().to_representation(instance)
 
         # Backfill shortcut_position default for frontend if null
         if data.get("shortcut_position") is None:
