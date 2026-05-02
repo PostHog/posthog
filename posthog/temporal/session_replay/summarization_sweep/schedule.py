@@ -72,10 +72,8 @@ async def a_upsert_team_schedule(team_id: int) -> None:
     client = await async_connect()
     schedule = _build_schedule(team_id)
     schedule_id = team_schedule_id(team_id)
-    # Fingerprint covers everything that determines the schedule's shape: the team's
-    # SignalSourceConfig dict (so a UI edit triggers a reconciler rewrite) and a
-    # code-side format version. Stored on the schedule as a search attribute so the
-    # reconciler can detect drift via list_schedules without a separate describe.
+    # Stamp the config-derived fingerprint as a search attribute so the reconciler
+    # can spot drift via list_schedules — no separate describe needed.
     config = await database_sync_to_async(_load_team_config)(team_id)
     fingerprint = compute_schedule_fingerprint(config)
     search_attributes = TypedSearchAttributes(

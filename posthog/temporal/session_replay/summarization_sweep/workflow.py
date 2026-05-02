@@ -58,9 +58,7 @@ class SummarizeTeamSessionsWorkflow(PostHogWorkflow):
                 "workflows_skipped_already_running": 0,
             }
 
-        # Batched fan-out so that even at high sample rates / large candidate sets we don't blow
-        # past the workflow execution timeout with thousands of concurrent `start_child_workflow`
-        # calls in flight. Each batch awaits before starting the next.
+        # Batches keep the dispatch loop within WORKFLOW_EXECUTION_TIMEOUT.
         started = 0
         skipped = 0
         failed = 0
@@ -135,6 +133,5 @@ class SummarizeTeamSessionsWorkflow(PostHogWorkflow):
             )
             return True
         except WorkflowAlreadyStartedError:
-            # `summaries_exist()` only catches completed summaries — in-progress
-            # and between-retry cases surface here.
+            # In-progress / between-retry cases — `summaries_exist()` only catches completed runs.
             return False

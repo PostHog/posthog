@@ -137,8 +137,6 @@ async def test_intermediate_failure_does_not_bump():
 
 @pytest.mark.asyncio
 async def test_bump_failure_does_not_break_workflow_failure():
-    """If the bump activity itself fails, the original workflow exception still propagates."""
-
     @activity.defn(name="build_rasterization_input")
     async def build_failing(_exported_asset_id: int) -> BuildRasterizationResult:
         raise RuntimeError("synthetic prep failure")

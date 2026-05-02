@@ -1,12 +1,8 @@
 """Syncs per-team schedules with SignalSourceConfig on every tick.
 
-Each schedule is tagged with a PostHogScheduleFingerprint search attribute — a
-hash of the SignalSourceConfig dict that produced it plus a code-side format
-version. The reconciler computes the freshly-derived fingerprint from the DB
-for every enabled team and compares against the schedule's stored tag; mismatches
-get rewritten so UI config edits propagate within RECONCILER_INTERVAL. Drift
-detection uses search attributes returned by list_schedules — no extra Temporal
-RPCs in steady state.
+Each schedule carries a config-fingerprint search attribute; mismatches with the
+freshly-computed fingerprint trigger a rewrite, so UI edits propagate within one
+RECONCILER_INTERVAL.
 """
 
 import asyncio
@@ -46,8 +42,7 @@ class ReconcileSummarizationSchedulesWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: ReconcileSchedulesInputs) -> dict[str, Any]:
-        # A team enabled between the two listings may get deleted this tick and
-        # recreated next tick — worst case ~one RECONCILER_INTERVAL of missed summaries.
+        # A team toggled between the two listings recovers on the next tick.
         enabled_fingerprints, existing_fingerprints = await asyncio.gather(
             workflow.execute_activity(
                 list_enabled_teams_activity,
@@ -62,10 +57,7 @@ class ReconcileSummarizationSchedulesWorkflow(PostHogWorkflow):
         )
         enabled = set(enabled_fingerprints)
         existing = set(existing_fingerprints)
-        # Drift: schedules whose stored fingerprint differs from what the team's current
-        # SignalSourceConfig would produce (UI edit, or code-side format bump). Untagged
-        # legacy schedules surface as None vs. a real hash, also drift. Only consider
-        # still-enabled teams — disabled ones are deleted below.
+        # Untagged legacy schedules surface as None and naturally drift on first tick.
         drifted = {tid for tid in (enabled & existing) if existing_fingerprints[tid] != enabled_fingerprints[tid]}
         to_upsert = sorted((enabled - existing) | drifted)
         to_delete = sorted(existing - enabled)

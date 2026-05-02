@@ -78,9 +78,7 @@ SESSION_VIDEO_CHUNK_DURATION_S = 60
 # How large should the active period be, so we still analyze it (or skip it, if it's smaller)
 MIN_SESSION_PERIOD_DURATION_S = 1
 
-# Phase order for the video-based single-session flow. Drives the step
-# counter in the get_progress workflow query so the frontend can render
-# "Step N of M" along with a named phase label.
+# Drives the step counter in the get_progress query so the frontend can render "Step N of M".
 VIDEO_PHASE_ORDER: tuple[str, ...] = (
     "fetching_data",
     "preparing_video",
@@ -96,10 +94,7 @@ VIDEO_TOTAL_STEPS: int = len(VIDEO_PHASE_ORDER)
 
 
 def _set_phase(progress: SingleSessionProgress | None, phase: str) -> None:
-    """Update the workflow's progress dict in place if present.
-
-    A no-op for the event-based flow and the group flow, which pass ``None``.
-    """
+    """No-op for the event-based and group flows, which pass None."""
     if progress is None:
         return
     progress["phase"] = phase
@@ -128,12 +123,6 @@ class SummarizeSingleSessionWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.query
     def get_progress(self) -> SingleSessionProgress:
-        """Snapshot of the current summarization progress.
-
-        Read by the backend polling loop that proxies phase transitions back
-        to the browser over SSE. Only the video flow populates meaningful
-        values — the event-based flow keeps the defaults.
-        """
         # Copy so Temporal can serialize the snapshot without races.
         return cast(SingleSessionProgress, dict(self._progress))
 
@@ -407,8 +396,7 @@ async def ensure_llm_single_session_summary(
         inactivity_periods=inactivity_periods,
     )
 
-    # Cleanup must run even on failure of the slice/analyze/consolidate/store flow.
-    # Slice runs inside the guard so a slice failure still triggers Gemini file cleanup.
+    # Slice runs inside the guard so a failure still triggers Gemini file cleanup.
     try:
         await temporalio.workflow.execute_activity(
             slice_session_data_for_segments_activity,
@@ -463,8 +451,7 @@ async def ensure_llm_single_session_summary(
         consolidated_analysis = consolidation_output["consolidated_analysis"]
         tagging = consolidation_output["tagging"]
 
-        # Fan out post-consolidation work. Storage is the canonical record (fatal on failure);
-        # embed/emit/tag are best-effort Kafka side effects.
+        # Storage is the canonical record (fatal on failure); embed/emit/tag are best-effort.
         _set_phase(progress, "saving_summary")
         problems = collect_session_problems(consolidated_analysis.segments)
         logger.info(
@@ -858,9 +845,7 @@ async def execute_summarize_session_video_stream(
                 continue
 
             if status == WorkflowExecutionStatus.COMPLETED:
-                # The workflow writes the summary to Postgres rather than
-                # returning it, so load it from the DB the same way
-                # execute_summarize_session does.
+                # Workflow writes the summary to Postgres, doesn't return it.
                 summary_row = await database_sync_to_async(
                     SingleSessionSummary.objects.get_summary, thread_sensitive=False
                 )(team_id=team.id, session_id=session_id, extra_summary_context=extra_summary_context)

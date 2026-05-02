@@ -1,11 +1,3 @@
-"""Unit tests for the per-session fan-out and failure-ratio guards in SummarizeSessionGroupWorkflow.
-
-These exercise _run_summary and _run_summaries directly by instantiating the workflow class
-and patching the workflow-context-bound symbols (temporalio.workflow.logger and the
-ensure_llm_single_session_summary helper that would otherwise call execute_activity).
-The full WorkflowEnvironment-based path is covered by test_workflow.py.
-"""
-
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -121,8 +113,6 @@ async def test_run_summaries_raises_on_empty_input():
 
 @pytest.mark.asyncio
 async def test_run_patterns_extraction_chunk_returns_exception_on_failure():
-    # The chunk wrapper must isolate exceptions so the parent fan-out can apply its
-    # ratio threshold to the full chunk set rather than aborting on first failure.
     workflow = SummarizeSessionGroupWorkflow()
     workflow._total_sessions = 3
 
@@ -134,7 +124,6 @@ async def test_run_patterns_extraction_chunk_returns_exception_on_failure():
         result = await workflow._run_patterns_extraction_chunk(chunk_inputs)
 
     assert result is err
-    # The success-side counter should not advance on failure.
     assert workflow._processed_patterns_extraction == 0
 
 

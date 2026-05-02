@@ -23,8 +23,6 @@ def _inputs() -> VideoSummarySingleSessionInputs:
 
 @pytest.mark.asyncio
 async def test_returns_none_when_summary_already_exists():
-    # The activity guards against re-running when a summary lands between the
-    # workflow-entry check and this point.
     with patch(f"{ACTIVITY_MODULE}.SingleSessionSummary.objects.get_summary", return_value=MagicMock()):
         result = await ActivityEnvironment().run(prep_session_video_asset_activity, _inputs())
     assert result is None

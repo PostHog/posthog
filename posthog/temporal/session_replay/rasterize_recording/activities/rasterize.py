@@ -35,14 +35,12 @@ def build_rasterization_input(exported_asset_id: int) -> BuildRasterizationResul
     if not session_id:
         raise ValueError(f"ExportedAsset {exported_asset_id} has no session_recording_id in export_context")
 
-    # Map export_format to output_format
     format_map = {"video/webm": "webm", "video/mp4": "mp4", "image/gif": "gif"}
     output_format = format_map.get(asset.export_format, "mp4")
 
     s3_key_prefix = f"{settings.OBJECT_STORAGE_EXPORTS_FOLDER}/{output_format}/team-{asset.team_id}/task-{asset.id}"
 
-    # Map offset fields: callers may pass "timestamp" (offset from start) + "duration"
-    # or the native "start_offset_s" / "end_offset_s" directly.
+    # Callers may pass `timestamp`+`duration` or the native `start_offset_s`/`end_offset_s`.
     start_offset_s = ctx.get("start_offset_s") if ctx.get("start_offset_s") is not None else ctx.get("timestamp")
     duration = ctx.get("duration")
     end_offset_s = ctx.get("end_offset_s")
@@ -56,8 +54,7 @@ def build_rasterization_input(exported_asset_id: int) -> BuildRasterizationResul
     if viewport_height is not None:
         viewport_height = max(300, min(2160, int(viewport_height)))
 
-    # Short clips (≤5s) render at 1x so the output plays at real time.
-    # Full session exports (no duration) render at 4x to keep file size down.
+    # 1x for short clips so output plays in real time; 4x for full sessions to cap file size.
     default_speed = 1 if (duration is not None and duration <= 5) else 4
     playback_speed = ctx.get("playback_speed", default_speed)
 

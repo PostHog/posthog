@@ -14,11 +14,8 @@ POSTHOG_DAG_ID_KEY = SearchAttributeKey.for_keyword("PostHogDagId")
 # Tags a Temporal schedule so a namespace-wide reconciler can find its own schedules
 # without scanning every schedule in the namespace.
 POSTHOG_SCHEDULE_TYPE_KEY = SearchAttributeKey.for_keyword("PostHogScheduleType")
-# Hash of the inputs that determined the schedule's shape — currently the team's
-# SignalSourceConfig dict (recording_filters, sample_rate, etc.) plus a code-side
-# format version. Reconcilers compare this tag on each existing schedule against
-# the freshly-computed hash from the DB; mismatched schedules get rewritten so
-# config edits in the UI propagate to running schedules.
+# Hash of the SignalSourceConfig dict that produced the schedule. Reconcilers
+# compare to the freshly-computed hash to detect drift after UI config edits.
 POSTHOG_SCHEDULE_FINGERPRINT_KEY = SearchAttributeKey.for_keyword("PostHogScheduleFingerprint")
 POSTHOG_SESSION_RECORDING_ID_KEY = SearchAttributeKey.for_keyword("PostHogSessionRecordingId")
 

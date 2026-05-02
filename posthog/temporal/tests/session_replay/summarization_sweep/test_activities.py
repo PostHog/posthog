@@ -87,7 +87,6 @@ async def test_find_sessions_filters_summarized(activity_environment, organizati
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_find_sessions_dispatches_all_unsummarized_candidates(activity_environment, organization, team):
-    """Sampling replaces the per-tick cap — every unsummarized candidate is dispatched."""
     from posthog.models.user import User
 
     await sync_to_async(enable_signal_source)(team)
@@ -118,7 +117,6 @@ async def test_find_sessions_dispatches_all_unsummarized_candidates(activity_env
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_find_sessions_passes_sample_rate_to_fetch(activity_environment, organization, team):
-    """`sample_rate` from `SignalSourceConfig.config` is forwarded to `fetch_recent_session_ids`."""
     from posthog.models.user import User
 
     await sync_to_async(enable_signal_source)(team)
@@ -154,7 +152,6 @@ async def test_find_sessions_passes_sample_rate_to_fetch(activity_environment, o
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_find_sessions_returns_empty_when_team_has_no_user(activity_environment):
-    """A team with no member users can't run summarization — we treat that as no-op, not an error."""
     lonely_org = await sync_to_async(Organization.objects.create)(name="lonely-org")
     lonely_team = await sync_to_async(Team.objects.create)(organization=lonely_org, name="lonely")
     await sync_to_async(enable_signal_source)(lonely_team)
@@ -177,10 +174,8 @@ async def test_find_sessions_returns_empty_when_team_has_no_user(activity_enviro
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_find_sessions_handles_config_disabled_between_check_and_ch_query(activity_environment, team):
-    """Race: _is_team_enabled returns True, then the config is disabled before
-    _load_team_user_and_sessions hits ClickHouse. The helper should return an
-    empty `FindSessionsResult`, which the workflow treats as a no-op cycle.
-    """
+    # Race: _is_team_enabled returns True, then the config is disabled before
+    # _load_team_user_and_sessions hits ClickHouse. Returns an empty FindSessionsResult.
     await sync_to_async(enable_signal_source)(team, enabled=False)
     team.organization.is_ai_data_processing_approved = True
     await sync_to_async(team.organization.save)(update_fields=["is_ai_data_processing_approved"])

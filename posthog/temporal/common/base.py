@@ -5,9 +5,7 @@ import typing
 class PostHogWorkflow:
     """Base class for Temporal Workflows that can be executed in PostHog."""
 
-    # Subclasses can declare these to inherit a default parse_inputs that
-    # JSON-decodes inputs[0] into inputs_cls. Set inputs_optional=True if
-    # the workflow may run with no CLI inputs (returns inputs_cls()).
+    # Set on subclasses to enable the default JSON-decoding parse_inputs.
     inputs_cls: typing.ClassVar[type | None] = None
     inputs_optional: typing.ClassVar[bool] = False
 
@@ -29,10 +27,7 @@ class PostHogWorkflow:
 
     @classmethod
     def parse_inputs(cls, inputs: list[str]) -> typing.Any:
-        """Parse inputs from the management command CLI.
-
-        Default implementation uses `cls.inputs_cls`. Override for custom logic.
-        """
+        """Default parse_inputs uses `cls.inputs_cls`; override for custom logic."""
         if cls.inputs_cls is None:
             return None
         if not inputs:

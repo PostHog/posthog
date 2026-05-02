@@ -62,8 +62,7 @@ async def slice_session_data_for_segments_activity(
     except ValueError:
         window_id_index = None
 
-    # Inclusive-on-both-ends bound matches the prior _find_events_in_time_range —
-    # boundary events appear in both adjacent segments and are deduped at consolidation.
+    # Inclusive bounds — boundary events appear in both segments and are deduped at consolidation.
     indexed_segments = sorted(segment_specs, key=lambda s: s.start_time)
     buckets: dict[int, list[tuple[str, list[Any], int]]] = {s.segment_index: [] for s in indexed_segments}
 

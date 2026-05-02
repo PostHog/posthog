@@ -1,5 +1,3 @@
-"""Unit tests for slice_session_data_for_segments_activity."""
-
 import json
 
 import pytest
@@ -21,7 +19,6 @@ from ee.hogai.session_summaries.session.summarize_session import SingleSessionSu
 
 
 def _make_llm_input() -> SingleSessionSummaryLlmInputs:
-    """LlmInput with a small set of events with known timestamps and URL/window keys."""
     return SingleSessionSummaryLlmInputs(
         session_id="sess-1",
         user_id=1,
@@ -183,7 +180,6 @@ async def test_slice_reduces_url_and_window_maps_to_keys_present_in_slice():
 
 @pytest.mark.asyncio
 async def test_slice_round_trips_through_pydantic():
-    """Verify the json-dump-via-model_dump shape can be loaded back into the model."""
     seg = SegmentLlmContext(
         events=[],
         simplified_events_columns=["a", "b"],

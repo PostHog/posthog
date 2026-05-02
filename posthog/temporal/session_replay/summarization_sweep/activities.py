@@ -100,8 +100,7 @@ async def _stuck_session_ids(team_id: int, session_ids: list[str]) -> set[str]:
 
 @activity.defn
 async def find_sessions_for_team_activity(inputs: FindSessionsInput) -> FindSessionsResult:
-    # If the team got disabled between schedule creation and now, return no sessions
-    # and let the reconciler tear down the schedule on its next tick (≤RECONCILER_INTERVAL).
+    # No-op when disabled; the reconciler will tear down the schedule on its next tick.
     enabled = await database_sync_to_async(_is_team_summarization_allowed)(inputs.team_id)
     if not enabled:
         return FindSessionsResult(team_id=inputs.team_id)
@@ -141,18 +140,12 @@ async def delete_team_schedule_activity(inputs: DeleteTeamScheduleInput) -> None
 
 
 def compute_schedule_fingerprint(config: Mapping[str, Any] | None) -> str:
-    """Stable hash of the team's SignalSourceConfig dict (sample_rate,
-    recording_filters, future per-team overrides). The reconciler stores this on
-    each schedule's PostHogScheduleFingerprint search attribute and rewrites
-    schedules whose stored value drifts from the freshly-computed one — so a UI
-    edit propagates within RECONCILER_INTERVAL.
-    """
+    """Stable hash of the SignalSourceConfig dict — used to detect drift after UI edits."""
     canonical = json.dumps(config or {}, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode()).hexdigest()[:16]
 
 
 def _list_allowed_team_fingerprints() -> dict[int, str]:
-    """Return {team_id: schedule_fingerprint} for every enabled, AI-approved team."""
     rows = SignalSourceConfig.objects.filter(
         source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
         source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
@@ -189,7 +182,6 @@ def _schedule_workflow_type(listing: object) -> str | None:
 
 
 def _schedule_fingerprint(listing: object) -> str | None:
-    """Read PostHogScheduleFingerprint from a ScheduleListDescription, or None if absent."""
     try:
         attrs = listing.typed_search_attributes  # type: ignore[attr-defined]
     except AttributeError:
@@ -202,24 +194,16 @@ def _schedule_fingerprint(listing: object) -> str | None:
 
 @activity.defn
 async def list_summarization_schedule_team_ids_activity() -> dict[int, str | None]:
-    """Return {team_id: stored_fingerprint} for each existing per-team schedule.
-
-    The fingerprint is None for legacy schedules created before this tag was introduced.
-    The reconciler treats None or any mismatch against the freshly-computed fingerprint
-    as drift and rewrites the schedule.
-    """
+    """{team_id: stored_fingerprint} for existing schedules; None for untagged legacy ones."""
     from posthog.temporal.common.client import async_connect
 
     client = await async_connect()
-    # The `PostHogScheduleType` attribute is set only by this module's schedules, so
-    # one visibility query returns exactly our schedules — no namespace-wide scan.
     query = f'PostHogScheduleType = "{SCHEDULE_TYPE}"'
     prefix = f"{SCHEDULE_ID_PREFIX}-"
     out: dict[int, str | None] = {}
     async for listing in await client.list_schedules(query=query):
         if not listing.id.startswith(prefix):
             continue
-        # Belt-and-suspenders: the attribute query should already be exact.
         if _schedule_workflow_type(listing) != WORKFLOW_NAME:
             continue
         suffix = listing.id[len(prefix) :]

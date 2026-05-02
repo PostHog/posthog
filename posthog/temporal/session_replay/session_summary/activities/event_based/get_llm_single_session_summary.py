@@ -59,9 +59,7 @@ async def get_llm_single_session_summary_activity(
     inputs: SingleSessionSummaryInputs,
 ) -> None:
     """Summarize a single session via LLM. Caches inputs/outputs in Redis to avoid Temporal payload limits."""
-    # Re-check at the LLM-call boundary: the group-summary path uses a different
-    # workflow id namespace from SummarizeSingleSessionWorkflow, so summaries can
-    # land between the workflow-entry guard and this activity.
+    # Re-check the summary guard: the group-summary path skips the workflow-entry guard.
     summary_exists = await database_sync_to_async(SingleSessionSummary.objects.summaries_exist)(
         team_id=inputs.team_id,
         session_ids=[inputs.session_id],

@@ -288,18 +288,13 @@ async def test_reconcile_workflow_isolates_per_team_failures():
 
 @pytest.mark.asyncio
 async def test_reconcile_workflow_rewrites_drifted_schedules():
-    """Schedules whose stored fingerprint doesn't match the freshly-computed one (e.g.
-    after a UI config edit) get rewritten on the next tick. Untagged legacy schedules
-    surface as None vs. a real hash and are also treated as drift. New teams get
-    new schedules. Aligned teams are left alone."""
     upserted_ids: list[int] = []
     deleted_ids: list[int] = []
     current_fp = compute_schedule_fingerprint({"sample_rate": 0.5})
-    stale_fp = compute_schedule_fingerprint({"sample_rate": 0.1})  # what a previous config produced
+    stale_fp = compute_schedule_fingerprint({"sample_rate": 0.1})
 
     @activity.defn(name="list_enabled_teams_activity")
     async def list_enabled_mocked() -> dict[int, str]:
-        # All four teams are currently enabled, all on the same current config.
         return {1: current_fp, 2: current_fp, 3: current_fp, 4: current_fp}
 
     @activity.defn(name="list_summarization_schedule_team_ids_activity")

@@ -124,9 +124,6 @@ async def test_returns_empty_when_response_has_no_bullets():
 
 @pytest.mark.asyncio
 async def test_passes_cached_events_into_prompt_when_redis_hit():
-    # When the slice activity has pre-populated the per-segment Redis key, the activity
-    # should embed those events into the LLM prompt's events_section rather than using
-    # the empty/no-events fallback.
     cached_context = SegmentLlmContext(
         events=[
             SegmentEventEntry(event_id="evt-1", data=["evt-1", "click", "/login"]),
@@ -141,7 +138,6 @@ async def test_passes_cached_events_into_prompt_when_redis_hit():
     captured_prompt: list[str] = []
 
     async def _capture_generate(**kwargs):
-        # The text prompt is the second item in `contents` (first is the FileData part).
         for item in kwargs.get("contents", []):
             if isinstance(item, str):
                 captured_prompt.append(item)
@@ -162,7 +158,6 @@ async def test_passes_cached_events_into_prompt_when_redis_hit():
     assert len(result) == 1
     assert captured_prompt, "Prompt should have been captured"
     prompt_text = captured_prompt[0]
-    # Cached events should land in the events section of the prompt
     assert "<tracked_events>" in prompt_text
     assert "evt-1" in prompt_text
     assert "evt-2" in prompt_text
@@ -170,8 +165,6 @@ async def test_passes_cached_events_into_prompt_when_redis_hit():
 
 @pytest.mark.asyncio
 async def test_omits_events_section_when_redis_returns_empty_events():
-    # Cached context with no events should fall through to the no-events prompt branch
-    # (events_section stays empty rather than being filled with "No tracked events…").
     cached_context = SegmentLlmContext(
         events=[],
         simplified_events_columns=["event_id"],

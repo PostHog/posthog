@@ -39,7 +39,6 @@ def _make_asset(
 
 
 def _patches(asset: MagicMock, head_object_return: dict | None = None):
-    """Standard patches for build_rasterization_input / finalize_rasterization."""
     mock_qs = MagicMock()
     mock_qs.select_related.return_value.get.return_value = asset
     mock_qs.get.return_value = asset
@@ -256,8 +255,6 @@ class TestBuildRasterizationInput:
 
 
 class TestBuildRasterizationCache:
-    """Cache hit/miss behavior for build_rasterization_input."""
-
     def _ctx_with_render(self, fingerprint: str, **overrides) -> dict:
         ctx = {
             "session_recording_id": "s1",
@@ -274,7 +271,6 @@ class TestBuildRasterizationCache:
         return ctx
 
     def _fingerprint_for(self, asset: MagicMock) -> str:
-        """Run build with a HEAD-miss to get the fingerprint without taking the cache path."""
         patches, _ = _patches(asset, head_object_return=None)
         with patches[0], patches[1], patches[2], patches[3], patches[4]:
             result = build_rasterization_input(asset.pk)
@@ -479,9 +475,7 @@ class TestFinalizeRasterization:
         asset.save.assert_called_once()
 
     def test_inactivity_periods_round_trip(self):
-        """Ensure InactivityPeriod model_dump/validate works for cache synthesis."""
         period = InactivityPeriod(ts_from_s=1.0, ts_to_s=2.0, active=True)
-        # Simulate: finalize stores it as dict, build re-validates it.
         as_dict = period.model_dump()
         rebuilt = InactivityPeriod.model_validate(as_dict)
         assert rebuilt == period

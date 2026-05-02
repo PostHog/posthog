@@ -46,8 +46,7 @@ def _refresh_asset_input_params_locked(asset_id: int, session_id: str) -> None:
 async def prep_session_video_asset_activity(
     inputs: VideoSummarySingleSessionInputs,
 ) -> PrepSessionVideoAssetResult | None:
-    # Re-check at the video boundary: bail before rasterize/upload/fan-out if the
-    # summary landed since the workflow-entry guard.
+    # Re-check the summary guard before kicking off rasterize/upload/fan-out.
     existing_summary = await database_sync_to_async(SingleSessionSummary.objects.get_summary, thread_sensitive=False)(
         team_id=inputs.team_id,
         session_id=inputs.session_id,
@@ -81,8 +80,7 @@ async def prep_session_video_asset_activity(
     ).afirst()
 
     if existing_asset:
-        # Refresh input params under a row lock so a constants change triggers
-        # a re-render via fingerprint mismatch without racing finalize_rasterization.
+        # Row-locked refresh so the fingerprint update doesn't race finalize_rasterization.
         await database_sync_to_async(_refresh_asset_input_params_locked, thread_sensitive=False)(
             existing_asset.id, inputs.session_id
         )
