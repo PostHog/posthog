@@ -213,6 +213,23 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert result_ids[:2] == [name_match_id, description_match_id]
         assert all(d["name"] != "Unrelated" for d in response["results"])
 
+    def test_list_filter_by_search_handles_null_name_with_description_match(self):
+        # Dashboard.name is nullable. Without coalescing the trigram annotations to 0.0
+        # the unnamed row's `_search_score` would be NULL, and Postgres orders NULLS FIRST
+        # in DESC — so an unnamed row matched on description alone would wrongly outrank
+        # a row matched on name.
+        named_match_id, _ = self.dashboard_api.create_dashboard({"name": "Marketing funnel"})
+        unnamed_match = Dashboard.objects.create(team=self.team, name=None, description="A marketing-focused overview")
+
+        response = self.dashboard_api.list_dashboards(query_params={"search": "marketing"})
+        result_ids = [d["id"] for d in response["results"]]
+
+        assert named_match_id in result_ids
+        assert unnamed_match.id in result_ids
+        assert result_ids.index(named_match_id) < result_ids.index(unnamed_match.id), (
+            f"named match should rank above unnamed description match, got {result_ids}"
+        )
+
     def test_list_filter_by_search_is_team_scoped(self):
         other_team = Team.objects.create(organization=self.organization)
         Dashboard.objects.create(team=other_team, name="Sales Funnel")

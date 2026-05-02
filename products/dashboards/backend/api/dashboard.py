@@ -12,7 +12,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import URLValidator
 from django.db import IntegrityError, transaction
 from django.db.models import CharField, Count, DateTimeField, F, FilteredRelation, Prefetch, Q, QuerySet, Value
-from django.db.models.functions import Cast
+from django.db.models.functions import Cast, Coalesce
 from django.http import StreamingHttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
@@ -1112,9 +1112,13 @@ class DashboardsViewSet(
         # Word similarity (`<%`) drives match/no-match — it's index-accelerated and handles
         # prefix-as-you-type and substring matches. Full-string similarity is added as a
         # tiebreak so an exact name match outranks rows that merely *contain* the search word.
-        name_word = TrigramWordSimilarity(search, "name")
-        name_full = TrigramSimilarity("name", search)
-        description_word = TrigramWordSimilarity(search, "description")
+        # `Dashboard.name` is nullable; coalesce each component to 0.0 so a NULL-name row
+        # matched only on description doesn't end up with a NULL `_search_score` (which
+        # Postgres orders NULLS FIRST in DESC, putting unnamed rows wrongly at the top).
+        zero = Value(0.0)
+        name_word = Coalesce(TrigramWordSimilarity(search, "name"), zero)
+        name_full = Coalesce(TrigramSimilarity("name", search), zero)
+        description_word = Coalesce(TrigramWordSimilarity(search, "description"), zero)
 
         return (
             queryset.annotate(_name_word=name_word, _name_full=name_full, _description_word=description_word)
