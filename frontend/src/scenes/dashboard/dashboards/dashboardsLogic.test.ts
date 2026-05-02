@@ -168,9 +168,9 @@ describe('dashboardsLogic', () => {
     })
 
     it('uses server-side search results when a search term is set', async () => {
-        // Search is now executed server-side (Postgres FTS + trigram similarity); the logic
-        // delegates ranking to the API and uses the returned list as-is. Here we mock the
-        // search endpoint and assert the selector swaps the in-memory list for the response.
+        // Search is executed server-side (Postgres trigram word similarity); the logic
+        // delegates ranking to the API and uses the returned list as-is. We mock the search
+        // endpoint and assert the selector swaps the in-memory list for the response.
         const needleDashboard = allDashboards.find((d) => d.name === 'needle')!
         useMocks({
             get: {
@@ -184,11 +184,29 @@ describe('dashboardsLogic', () => {
         })
 
         await expectLogic(logic, () => {
-            logic.actions.setFilters({ search: 'needl' })
+            logic.actions.setSearch('needl')
         }).toDispatchActions(['loadSearchedDashboardsSuccess'])
 
         expect(logic.values.dashboards).toHaveLength(1)
         expect(logic.values.dashboards[0].name).toBe('needle')
+    })
+
+    it('does not refetch when only non-search filters change', async () => {
+        // Tag/pinned/shared toggles are applied client-side over `searchedDashboards`;
+        // they must not fire a new request — only `setSearch` triggers the loader.
+        useMocks({
+            get: {
+                '/api/environments/:team_id/dashboards/': () => {
+                    return [200, { count: 0, next: null, previous: null, results: [] }]
+                },
+            },
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.setFilters({ tags: ['foo'] })
+            logic.actions.setFilters({ pinned: true })
+            logic.actions.setFilters({ shared: true })
+        }).toNotHaveDispatchedActions(['loadSearchedDashboards'])
     })
 
     it('syncs search to URL when setSearch is called', async () => {

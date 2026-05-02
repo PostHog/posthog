@@ -16,8 +16,7 @@ import { userLogic } from 'scenes/userLogic'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { tagsModel } from '~/models/tagsModel'
-import { getQueryBasedDashboard } from '~/queries/nodes/InsightViz/utils'
-import { ActivityScope, Breadcrumb, DashboardBasicType, DashboardType } from '~/types'
+import { ActivityScope, Breadcrumb, DashboardBasicType } from '~/types'
 
 import type { dashboardsLogicType } from './dashboardsLogicType'
 
@@ -93,6 +92,7 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                         ...state,
                         ...filters,
                     }),
+                setSearch: (state, { search }) => ({ ...state, search }),
             },
         ],
         tagSearch: [
@@ -115,11 +115,15 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
             null as DashboardBasicType[] | null,
             {
                 /**
-                 * Server-side fuzzy full-text search via the dashboards list endpoint.
-                 * Returns null when there's no active search term, in which case the
-                 * dashboards selector falls back to the in-memory `dashboardsModel` list.
+                 * Server-side fuzzy search via the dashboards list endpoint. Returns null when
+                 * there's no active search term, in which case the dashboards selector falls
+                 * back to the in-memory `dashboardsModel` list.
+                 *
+                 * The 250ms `breakpoint` runs before the empty-term short-circuit so a stale
+                 * in-flight request can't clobber a freshly cleared search.
                  */
                 loadSearchedDashboards: async ({ search }: { search: string }, breakpoint) => {
+                    await breakpoint(250)
                     const term = search.trim()
                     if (!term) {
                         return null
@@ -128,20 +132,16 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                     if (teamId == null) {
                         return null
                     }
-                    // 250ms debounce so we don't fire a request on every keystroke.
-                    await breakpoint(250)
                     const params = new URLSearchParams({
                         search: term,
                         limit: '200',
                         exclude_generated: 'true',
                     })
-                    const response: PaginatedResponse<DashboardType> = await api.get(
+                    const response: PaginatedResponse<DashboardBasicType> = await api.get(
                         `api/environments/${teamId}/dashboards/?${params.toString()}`
                     )
                     breakpoint()
-                    return (response.results ?? []).map(
-                        (dashboard) => getQueryBasedDashboard(dashboard) as DashboardBasicType
-                    )
+                    return response.results ?? []
                 },
             },
         ],
@@ -257,19 +257,15 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
             actions.setCurrentTab(tab)
 
             const search = urlSearchParamToString(searchParams['search'])
-            actions.setFilters({ search })
+            actions.setSearch(search)
         },
     })),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions }) => ({
         bulkUpdateTagsSuccess: () => {
             dashboardsModel.actions.loadDashboards()
         },
-        setFilters: ({ filters }) => {
-            // Only refetch when the search term itself changes; other filter changes are applied
-            // client-side on top of the existing search results (or the in-memory list).
-            if ('search' in filters) {
-                actions.loadSearchedDashboards({ search: values.filters.search })
-            }
+        setSearch: ({ search }) => {
+            actions.loadSearchedDashboards({ search })
         },
     })),
 ])
