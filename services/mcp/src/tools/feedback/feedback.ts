@@ -18,12 +18,11 @@ export const feedbackHandler: ToolBase<typeof schema, Result>['handler'] = async
         const analyticsContext = await context.stateManager.getAnalyticsContext().catch(() => ({}))
 
         const client = getPostHogClient()
+        const groups = buildMCPAnalyticsGroups(analyticsContext)
         client.capture({
             distinctId,
             event: AnalyticsEvent.MCP_FEEDBACK_SUBMITTED,
-            ...(Object.keys(buildMCPAnalyticsGroups(analyticsContext)).length > 0
-                ? { groups: buildMCPAnalyticsGroups(analyticsContext) }
-                : {}),
+            ...(Object.keys(groups).length > 0 ? { groups } : {}),
             properties: {
                 feedback,
                 ...(source ? { source } : {}),
