@@ -628,8 +628,44 @@ if (zodJobs.length > 0) {
 }
 console.log('')
 
+// Snapshot expected output mtimes so we can detect "fulfilled but didn't
+// write" — orval prints "🛑 Validation failed" then resolves cleanly, so a
+// silent no-op looks identical to success without this check. Any job whose
+// output file isn't newer after the run is reclassified as a failure.
+const expectedOutputs = allJobs.map((job) => {
+    const outputPath = job.kind === 'zod' ? path.join(job.outputDir, 'api.zod.ts') : path.join(job.outputDir, 'api.ts')
+    return {
+        path: outputPath,
+        preMtime: fs.existsSync(outputPath) ? fs.statSync(outputPath).mtimeMs : 0,
+    }
+})
+
 // Run all orval generations in parallel (in-process, no subprocess overhead)
 const results = await runOrvalParallel(allJobs.map((j) => ({ config: j.config, label: `${j.label}:${j.kind}` })))
+
+// Reclassify silent-no-op fulfilments as failures. CI's `git diff --exit-code`
+// gate in ci-backend.yml can't catch this on its own — when orval skips a
+// write, the disk matches HEAD and the diff comes back clean for the wrong
+// reason. Catching it here makes `hogli build:openapi` itself exit non-zero
+// before we ever reach the diff check.
+for (let i = 0; i < results.length; i++) {
+    if (results[i].status !== 'fulfilled') {
+        continue
+    }
+    const expected = expectedOutputs[i]
+    const exists = fs.existsSync(expected.path)
+    const mtime = exists ? fs.statSync(expected.path).mtimeMs : 0
+    if (!exists || mtime <= expected.preMtime) {
+        results[i] = {
+            status: 'rejected',
+            label: results[i].label,
+            reason: new Error(
+                `orval reported success but did not write ${path.relative(repoRoot, expected.path)} ` +
+                    `— check stderr above for "🛑 Validation failed" or other orval errors`
+            ),
+        }
+    }
+}
 
 // Report results and collect output dirs for formatting
 const outputDirs = []
@@ -688,4 +724,11 @@ if (generateAll) {
     console.log('')
     console.log('💡 Now run: node frontend/bin/find-type-overlaps.mjs')
     console.log('   to see which manual types overlap with generated types.')
+}
+
+// Exit non-zero on any failure so the wrapping `hogli build:openapi` gates
+// fail loudly. Without this, `git diff --exit-code` is the only signal
+// downstream — and it can't see silent no-op writes (see above).
+if (failed > 0) {
+    process.exit(1)
 }
