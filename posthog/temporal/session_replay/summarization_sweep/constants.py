@@ -16,6 +16,11 @@ SESSION_LOOKBACK_MINUTES = 30
 SAMPLE_RATE_PRECISION = 10_000
 DEFAULT_SAMPLE_RATE = 1.0
 
+# Cap on concurrent `start_child_workflow` calls per tick. Bounds the parent's
+# task-queue pressure and the elapsed time of the dispatch loop within the
+# WORKFLOW_EXECUTION_TIMEOUT budget. Higher = more in-flight starts per batch.
+CHILD_DISPATCH_BATCH_SIZE = 100
+
 # Stops the redispatch loop on recordings the rasterizer can't process.
 STUCK_RASTERIZE_THRESHOLD = 3
 STUCK_RASTERIZE_LOOKBACK = timedelta(hours=2)

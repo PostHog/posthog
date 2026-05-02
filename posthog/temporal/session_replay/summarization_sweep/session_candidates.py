@@ -62,7 +62,8 @@ def _build_user_defined_query(recording_filters: dict | None) -> RecordingsQuery
 
 
 def coerce_sample_rate(value: object) -> float:
-    if value is None:
+    # `isinstance(True, int)` is True — reject bools so `float(True)` doesn't slip through as 1.0.
+    if value is None or isinstance(value, bool):
         return DEFAULT_SAMPLE_RATE
     try:
         rate = float(value)  # type: ignore[arg-type]

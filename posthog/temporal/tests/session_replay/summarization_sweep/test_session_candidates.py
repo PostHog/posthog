@@ -30,6 +30,8 @@ from products.signals.backend.models import SignalSourceConfig
         ("nope", DEFAULT_SAMPLE_RATE),
         (float("nan"), DEFAULT_SAMPLE_RATE),
         ([], DEFAULT_SAMPLE_RATE),
+        (True, DEFAULT_SAMPLE_RATE),  # bool subclasses int; `float(True) == 1.0` would slip through.
+        (False, DEFAULT_SAMPLE_RATE),
     ],
 )
 def test_coerce_sample_rate(raw, expected):

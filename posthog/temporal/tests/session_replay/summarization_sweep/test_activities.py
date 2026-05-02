@@ -395,9 +395,11 @@ async def test_stuck_session_ids_thresholds_failures():
 @pytest.mark.asyncio
 async def test_stuck_session_ids_filters_by_team_and_close_time():
     """The visibility query must scope to the calling team and a bounded `CloseTime` window."""
+    from freezegun import freeze_time
     from unittest.mock import AsyncMock, MagicMock
 
     from posthog.temporal.session_replay.summarization_sweep.activities import _stuck_session_ids
+    from posthog.temporal.session_replay.summarization_sweep.constants import STUCK_RASTERIZE_LOOKBACK
 
     client = MagicMock()
     captured: list[str] = []
@@ -407,9 +409,15 @@ async def test_stuck_session_ids_filters_by_team_and_close_time():
         return _AsyncIter([])
 
     client.list_workflows = _list_workflows
-    with patch(
-        "posthog.temporal.session_replay.summarization_sweep.activities.async_connect",
-        AsyncMock(return_value=client),
+    frozen = "2026-05-02T12:00:00"
+    expected_cutoff = '"2026-05-02T10:00:00.000Z"'  # frozen - STUCK_RASTERIZE_LOOKBACK
+    assert STUCK_RASTERIZE_LOOKBACK.total_seconds() == 2 * 3600  # guard against constant drift
+    with (
+        freeze_time(frozen),
+        patch(
+            "posthog.temporal.session_replay.summarization_sweep.activities.async_connect",
+            AsyncMock(return_value=client),
+        ),
     ):
         await _stuck_session_ids(team_id=4242, session_ids=["s1", "s2"])
     assert len(captured) == 1
@@ -417,7 +425,7 @@ async def test_stuck_session_ids_filters_by_team_and_close_time():
     assert 'WorkflowType = "rasterize-recording"' in q
     assert 'ExecutionStatus IN ("Failed", "TimedOut")' in q
     assert "PostHogTeamId = 4242" in q
-    assert "CloseTime >" in q
+    assert f"CloseTime > {expected_cutoff}" in q
     # No candidate IDs are interpolated — that's the whole point of the inversion.
     assert "s1" not in q
     assert "s2" not in q
