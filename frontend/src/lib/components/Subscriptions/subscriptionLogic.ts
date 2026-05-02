@@ -92,6 +92,12 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 return { ...NEW_SUBSCRIPTION }
             },
         },
+        summaryQuota: {
+            __default: null as { active_count: number; limit: number | null; at_limit: boolean } | null,
+            loadSummaryQuota: async () => {
+                return await api.subscriptions.summaryQuota()
+            },
+        },
     })),
 
     forms(({ props, actions }) => ({
@@ -161,6 +167,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 // this change is propagated to `subscriptions` there
                 subscriptionsLogic.findMounted(props)?.actions.loadSubscriptions()
                 actions.loadSubscriptionSuccess(updatedSub)
+                actions.loadSummaryQuota()
                 lemonToast.success(`Subscription saved.`)
 
                 return updatedSub
@@ -288,12 +295,14 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
     urlToAction(({ actions }) => ({
         '/*/*/subscriptions/new': (_, searchParams) => {
             actions.loadSubscriptionSuccess({ ...NEW_SUBSCRIPTION })
+            actions.loadSummaryQuota()
             if (searchParams.target_type) {
                 actions.setSubscriptionValue('target_type', searchParams.target_type)
             }
         },
         '/*/*/subscriptions/:id': () => {
             actions.loadSubscription()
+            actions.loadSummaryQuota()
         },
     })),
 ])

@@ -72,7 +72,8 @@ export function EditSubscription({
     })
 
     const { meFirstMembers, membersLoading } = useValues(membersLogic)
-    const { subscription, subscriptionLoading, isSubscriptionSubmitting, subscriptionChanged } = useValues(logic)
+    const { subscription, subscriptionLoading, isSubscriptionSubmitting, subscriptionChanged, summaryQuota } =
+        useValues(logic)
     const { previewLoading, previewError, previewImageUrl } = useValues(logic)
     const { resetSubscription, generatePreview } = useActions(logic)
     const { preflight, siteUrlMisconfigured } = useValues(preflightLogic)
@@ -441,12 +442,28 @@ export function EditSubscription({
                                             disabledReason={
                                                 !dataProcessingAccepted && !value
                                                     ? 'Your organization needs to approve AI data processing before enabling AI summaries'
-                                                    : undefined
+                                                    : summaryQuota?.at_limit && !value
+                                                      ? `You've reached your plan's limit of ${summaryQuota.limit} active AI summaries. Disable an existing summary or upgrade your plan to add more.`
+                                                      : undefined
                                             }
                                         />
                                     </AIConsentPopoverWrapper>
                                 )}
                             </LemonField>
+
+                            {summaryQuota?.at_limit && !subscription.summary_enabled && (
+                                <LemonBanner type="warning">
+                                    <p className="mb-1">
+                                        <b>You've reached your plan's AI summary limit.</b> Your plan includes{' '}
+                                        {summaryQuota.limit} active AI summaries (you currently have{' '}
+                                        {summaryQuota.active_count}).
+                                    </p>
+                                    <p className="mb-0">
+                                        Disable an existing summary or{' '}
+                                        <Link to="/organization/billing">upgrade your plan</Link> to add more.
+                                    </p>
+                                </LemonBanner>
+                            )}
 
                             {subscription.summary_enabled && (
                                 <FlaggedFeature flag={FEATURE_FLAGS.SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE}>

@@ -33,7 +33,7 @@ from posthog.models.integration import Integration
 from posthog.models.subscription import Subscription, SubscriptionDelivery, unsubscribe_using_token
 from posthog.permissions import PremiumFeaturePermission
 from posthog.rate_limit import SubscriptionTestDeliveryThrottle
-from posthog.resource_limits import LimitKey, check_count_limit
+from posthog.resource_limits import LimitKey, check_count_limit, get_organization_limit
 from posthog.security.url_validation import is_url_allowed
 from posthog.slo.context import SloSpec, slo_operation
 from posthog.slo.types import SloArea, SloOperation
@@ -206,8 +206,37 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                 raise exceptions.PermissionDenied(
                     "AI data processing must be approved by your organization before enabling AI summaries"
                 )
+            self._validate_summary_enabled_org_limit(organization)
 
         return attrs
+
+    def _validate_summary_enabled_org_limit(self, organization) -> None:
+        # Only enforce on transition False -> True (or new with True). Already-on
+        # subscriptions stay on for grandfathered orgs already over the cap, and
+        # PATCHes that re-send summary_enabled=True without changing it don't
+        # re-trigger validation — otherwise grandfathered orgs would be locked
+        # out of editing other fields on their existing on-state rows.
+        is_transition_to_enabled = self.instance is None or not self.instance.summary_enabled
+        if not is_transition_to_enabled:
+            return
+
+        limit = get_organization_limit(
+            organization=organization,
+            key=LimitKey.MAX_ACTIVE_AI_SUMMARIES_PER_ORG,
+        )
+        if limit is None:
+            return
+
+        current_active = Subscription.objects.filter(
+            team__organization_id=organization.id,
+            summary_enabled=True,
+            deleted=False,
+        ).count()
+        if current_active >= limit:
+            raise exceptions.PermissionDenied(
+                f"Your plan allows up to {limit} active AI summaries. "
+                "Disable an existing summary or upgrade your plan to add more."
+            )
 
     def _prompt_guide_feature_enabled(self) -> bool:
         """Evaluate the prompt-guide feature flag for the caller's organization.
@@ -518,6 +547,51 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
                 queryset = queryset.filter(deleted=str_to_bool(request_params["deleted"]))
 
         return queryset
+
+    @extend_schema(
+        request=None,
+        responses={
+            200: OpenApiResponse(
+                description=(
+                    "Org-wide AI summary quota: count of currently-active summaries and the limit "
+                    "for the org's plan tier. `limit` is null when no cap is configured."
+                ),
+                response={
+                    "type": "object",
+                    "properties": {
+                        "active_count": {"type": "integer"},
+                        "limit": {"type": "integer", "nullable": True},
+                        "at_limit": {"type": "boolean"},
+                    },
+                    "required": ["active_count", "limit", "at_limit"],
+                },
+            )
+        },
+    )
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path="summary_quota",
+        required_scopes=["subscription:read"],
+    )
+    def summary_quota(self, request, **kwargs):
+        organization = self.organization
+        active_count = Subscription.objects.filter(
+            team__organization_id=organization.id,
+            summary_enabled=True,
+            deleted=False,
+        ).count()
+        limit = get_organization_limit(
+            organization=organization,
+            key=LimitKey.MAX_ACTIVE_AI_SUMMARIES_PER_ORG,
+        )
+        return Response(
+            {
+                "active_count": active_count,
+                "limit": limit,
+                "at_limit": limit is not None and active_count >= limit,
+            }
+        )
 
     @extend_schema(
         request=None,

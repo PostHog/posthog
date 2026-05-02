@@ -543,6 +543,134 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert "AI summary context" in response.json()["detail"]
 
+    def _seed_active_summary_subscriptions(self, count: int) -> list[Subscription]:
+        # Build raw rows so we can place an org over its tier cap to exercise
+        # grandfathering paths without going through the enforced API.
+        return [
+            Subscription.objects.create(
+                team=self.team,
+                insight=self.insight,
+                target_type="email",
+                target_value=f"existing-{i}@posthog.com",
+                frequency="weekly",
+                interval=1,
+                start_date=datetime(2022, 1, 1, tzinfo=UTC),
+                title=f"existing {i}",
+                created_by=self.user,
+                summary_enabled=True,
+            )
+            for i in range(count)
+        ]
+
+    @parameterized.expand(
+        [
+            ("create_under_limit", 5, 4, status.HTTP_201_CREATED),
+            ("create_at_limit", 5, 5, status.HTTP_403_FORBIDDEN),
+            ("create_over_limit_grandfathered", 5, 7, status.HTTP_403_FORBIDDEN),
+            ("create_no_limit_configured", None, 1000, status.HTTP_201_CREATED),
+        ]
+    )
+    def test_create_summary_enabled_respects_org_limit(
+        self,
+        _name: str,
+        limit: int | None,
+        existing_active: int,
+        expected_status: int,
+    ) -> None:
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        self._seed_active_summary_subscriptions(existing_active)
+
+        with patch("ee.api.subscription.get_organization_limit", return_value=limit):
+            response = self._create_subscription(summary_enabled=True)
+
+        assert response.status_code == expected_status, response.content
+        if expected_status == status.HTTP_403_FORBIDDEN:
+            assert "active AI summaries" in response.json()["detail"]
+
+    def test_patch_transition_to_summary_enabled_blocked_at_limit(self) -> None:
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        self._seed_active_summary_subscriptions(5)
+        # The subscription being patched is currently OFF, so flipping it ON
+        # would push the org from 5 -> 6.
+        create_response = self._create_subscription(summary_enabled=False)
+        sub_id = create_response.json()["id"]
+
+        with patch("ee.api.subscription.get_organization_limit", return_value=5):
+            patch_response = self.client.patch(
+                f"/api/projects/{self.team.id}/subscriptions/{sub_id}",
+                {"summary_enabled": True},
+            )
+
+        assert patch_response.status_code == status.HTTP_403_FORBIDDEN
+        assert "active AI summaries" in patch_response.json()["detail"]
+
+    def test_patch_unrelated_field_on_already_enabled_summary_when_org_over_limit(self) -> None:
+        # Grandfathered org with 7 active when the limit is 5 must still be
+        # able to edit other fields on those rows. PATCHes that don't change
+        # summary_enabled don't re-trigger the cap check.
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        existing = self._seed_active_summary_subscriptions(7)
+
+        with patch("ee.api.subscription.get_organization_limit", return_value=5):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/subscriptions/{existing[0].id}",
+                {"title": "renamed while over the cap"},
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["title"] == "renamed while over the cap"
+        assert response.json()["summary_enabled"] is True
+
+    def test_summary_quota_endpoint_reports_active_count_and_limit(self) -> None:
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        self._seed_active_summary_subscriptions(3)
+
+        with patch("ee.api.subscription.get_organization_limit", return_value=10):
+            response = self.client.get(f"/api/projects/{self.team.id}/subscriptions/summary_quota")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        payload = response.json()
+        assert payload["active_count"] == 3
+        assert payload["limit"] == 10
+        assert payload["at_limit"] is False
+
+    def test_summary_quota_endpoint_at_limit(self) -> None:
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        self._seed_active_summary_subscriptions(5)
+
+        with patch("ee.api.subscription.get_organization_limit", return_value=5):
+            response = self.client.get(f"/api/projects/{self.team.id}/subscriptions/summary_quota")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["at_limit"] is True
+
+    def test_grandfathered_toggle_off_succeeds_but_back_on_blocked(self) -> None:
+        # Toggling off frees a slot; toggling back on while still at/over the
+        # cap is rejected. Together this enforces "you can't grow past the cap".
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        existing = self._seed_active_summary_subscriptions(7)
+
+        with patch("ee.api.subscription.get_organization_limit", return_value=5):
+            off_response = self.client.patch(
+                f"/api/projects/{self.team.id}/subscriptions/{existing[0].id}",
+                {"summary_enabled": False},
+            )
+            on_response = self.client.patch(
+                f"/api/projects/{self.team.id}/subscriptions/{existing[0].id}",
+                {"summary_enabled": True},
+            )
+
+        assert off_response.status_code == status.HTTP_200_OK
+        assert off_response.json()["summary_enabled"] is False
+        assert on_response.status_code == status.HTTP_403_FORBIDDEN
+        assert "active AI summaries" in on_response.json()["detail"]
+
     def test_deliver_subscription(self):
         mock_client = MagicMock()
         mock_client.start_workflow = AsyncMock()
