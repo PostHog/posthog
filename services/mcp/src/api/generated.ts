@@ -6156,6 +6156,35 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `BASE TABLE` - BASE TABLE
+    * `VIEW` - VIEW
+     */
+    export type TableTypeEnum = typeof TableTypeEnum[keyof typeof TableTypeEnum];
+
+
+    export const TableTypeEnum = {
+      BaseTable: 'BASE TABLE',
+      View: 'VIEW',
+    } as const;
+
+    /**
+     * A table in the customer's DuckLake catalog that could be promoted.
+     */
+    export interface AvailableSourceTable {
+      /** Schema name in the customer's DuckLake catalog. */
+      schema: string;
+      /** Table or view name in the customer's DuckLake catalog. */
+      name: string;
+      /** Whether this is a base table or a view.
+
+    * `BASE TABLE` - BASE TABLE
+    * `VIEW` - VIEW */
+      table_type: TableTypeEnum;
+      /** True if this schema/name pair already has an active promotion for this team. */
+      already_promoted: boolean;
+    }
+
+    /**
      * * `AED` - AED
     * `AFN` - AFN
     * `ALL` - ALL
@@ -13486,6 +13515,26 @@ export namespace Schemas {
       type?: DatabaseSchemaManagedViewTableType;
     }
 
+    export type DatabaseSchemaManagedWarehousePromotedTableFields = {[key: string]: DatabaseSchemaField};
+
+    export type DatabaseSchemaManagedWarehousePromotedTableType = typeof DatabaseSchemaManagedWarehousePromotedTableType[keyof typeof DatabaseSchemaManagedWarehousePromotedTableType];
+
+
+    export const DatabaseSchemaManagedWarehousePromotedTableType = {
+      ManagedWarehouse: 'managed_warehouse',
+    } as const;
+
+    export interface DatabaseSchemaManagedWarehousePromotedTable {
+      fields: DatabaseSchemaManagedWarehousePromotedTableFields;
+      id: string;
+      name: string;
+      /** @nullable */
+      row_count?: number | null;
+      source_schema_name: string;
+      source_table_name: string;
+      type?: DatabaseSchemaManagedWarehousePromotedTableType;
+    }
+
     export type DatabaseSchemaMaterializedViewTableFields = {[key: string]: DatabaseSchemaField};
 
     export type DatabaseSchemaMaterializedViewTableType = typeof DatabaseSchemaMaterializedViewTableType[keyof typeof DatabaseSchemaMaterializedViewTableType];
@@ -13571,7 +13620,7 @@ export namespace Schemas {
       type?: DatabaseSchemaViewTableType;
     }
 
-    export type DatabaseSchemaQueryResponseTables = {[key: string]: DatabaseSchemaPostHogTable | DatabaseSchemaSystemTable | DatabaseSchemaDataWarehouseTable | DatabaseSchemaViewTable | DatabaseSchemaManagedViewTable | DatabaseSchemaBatchExportTable | DatabaseSchemaMaterializedViewTable | DatabaseSchemaEndpointTable};
+    export type DatabaseSchemaQueryResponseTables = {[key: string]: DatabaseSchemaPostHogTable | DatabaseSchemaSystemTable | DatabaseSchemaDataWarehouseTable | DatabaseSchemaManagedWarehousePromotedTable | DatabaseSchemaViewTable | DatabaseSchemaManagedViewTable | DatabaseSchemaBatchExportTable | DatabaseSchemaMaterializedViewTable | DatabaseSchemaEndpointTable};
 
     export interface DatabaseSchemaQueryResponse {
       joins: DataWarehouseViewLink[];
@@ -21910,6 +21959,37 @@ export namespace Schemas {
       category?: MCPServerTemplateCategoryEnum;
     }
 
+    /**
+     * Mixin for serializers to add user access control fields
+     */
+    export interface ManagedWarehousePromotedTable {
+      readonly id: string;
+      readonly created_at: string;
+      readonly created_by: UserBasic;
+      /** @nullable */
+      readonly updated_at: string | null;
+      /**
+       * Schema name of the source table in the customer's DuckLake catalog.
+       * @maxLength 255
+       */
+      source_schema_name: string;
+      /**
+       * Table name of the source table in the customer's DuckLake catalog.
+       * @maxLength 255
+       */
+      source_table_name: string;
+      /**
+       * ID of the DataWarehouseTable that exposes the promoted table to HogQL queries.
+       * @nullable
+       */
+      readonly data_warehouse_table_id: string | null;
+      /**
+       * Display name of the linked DataWarehouseTable.
+       * @nullable
+       */
+      readonly data_warehouse_table_name: string | null;
+    }
+
     export interface MarkToleratedInput {
       snapshot_id: string;
     }
@@ -22742,6 +22822,15 @@ export namespace Schemas {
       results?: AsyncDeletionStatus[];
     }
 
+    export interface PaginatedAvailableSourceTableList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: AvailableSourceTable[];
+    }
+
     export interface PaginatedBatchExportBackfillList {
       /** @nullable */
       next?: string | null;
@@ -23470,6 +23559,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: MCPServerTemplate[];
+    }
+
+    export interface PaginatedManagedWarehousePromotedTableList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ManagedWarehousePromotedTable[];
     }
 
     export interface PaginatedMaterializedColumnSlotList {
@@ -25042,6 +25140,7 @@ export namespace Schemas {
     * `JSONEachRow` - JSON
     * `Delta` - Delta
     * `DeltaS3Wrapper` - DeltaS3Wrapper
+    * `ManagedWarehouse` - ManagedWarehouse
      */
     export type TableFormatEnum = typeof TableFormatEnum[keyof typeof TableFormatEnum];
 
@@ -25053,6 +25152,7 @@ export namespace Schemas {
       JSONEachRow: 'JSONEachRow',
       Delta: 'Delta',
       DeltaS3Wrapper: 'DeltaS3Wrapper',
+      ManagedWarehouse: 'ManagedWarehouse',
     } as const;
 
     export interface SimpleExternalDataSourceSerializers {
@@ -28440,6 +28540,37 @@ export namespace Schemas {
       display_name?: string;
       description?: string;
       is_enabled?: boolean;
+    }
+
+    /**
+     * Mixin for serializers to add user access control fields
+     */
+    export interface PatchedManagedWarehousePromotedTable {
+      readonly id?: string;
+      readonly created_at?: string;
+      readonly created_by?: UserBasic;
+      /** @nullable */
+      readonly updated_at?: string | null;
+      /**
+       * Schema name of the source table in the customer's DuckLake catalog.
+       * @maxLength 255
+       */
+      source_schema_name?: string;
+      /**
+       * Table name of the source table in the customer's DuckLake catalog.
+       * @maxLength 255
+       */
+      source_table_name?: string;
+      /**
+       * ID of the DataWarehouseTable that exposes the promoted table to HogQL queries.
+       * @nullable
+       */
+      readonly data_warehouse_table_id?: string | null;
+      /**
+       * Display name of the linked DataWarehouseTable.
+       * @nullable
+       */
+      readonly data_warehouse_table_name?: string | null;
     }
 
     export interface PatchedMaterializedColumnSlot {
@@ -34907,7 +35038,7 @@ export namespace Schemas {
       types?: unknown[] | null;
     }
 
-    export type QueryResponseAlternative73Tables = {[key: string]: DatabaseSchemaPostHogTable | DatabaseSchemaSystemTable | DatabaseSchemaDataWarehouseTable | DatabaseSchemaViewTable | DatabaseSchemaManagedViewTable | DatabaseSchemaBatchExportTable | DatabaseSchemaMaterializedViewTable | DatabaseSchemaEndpointTable};
+    export type QueryResponseAlternative73Tables = {[key: string]: DatabaseSchemaPostHogTable | DatabaseSchemaSystemTable | DatabaseSchemaDataWarehouseTable | DatabaseSchemaManagedWarehousePromotedTable | DatabaseSchemaViewTable | DatabaseSchemaManagedViewTable | DatabaseSchemaBatchExportTable | DatabaseSchemaMaterializedViewTable | DatabaseSchemaEndpointTable};
 
     export interface QueryResponseAlternative73 {
       joins: DataWarehouseViewLink[];
@@ -39653,6 +39784,17 @@ export namespace Schemas {
       Resource: 'resource',
     } as const;
 
+    export type EnvironmentsManagedWarehousePromotedTablesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type EnvironmentsPersistedFolderListParams = {
     /**
      * Number of results to return per page.
@@ -44173,6 +44315,17 @@ export namespace Schemas {
       Paused: 'paused',
       Running: 'running',
     } as const;
+
+    export type ManagedWarehousePromotedTablesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
 
     export type NotebooksListParams = {
     /**

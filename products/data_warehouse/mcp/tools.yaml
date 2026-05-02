@@ -466,6 +466,15 @@ tools:
     managed-viewsets-update:
         operation: managed_viewsets_update
         enabled: false
+    managed-warehouse-promoted-tables-available-source-tables-retrieve:
+        operation: managed_warehouse_promoted_tables_available_source_tables_retrieve
+        enabled: false
+    managed-warehouse-promoted-tables-create:
+        operation: managed_warehouse_promoted_tables_create
+        enabled: false
+    managed-warehouse-promoted-tables-list:
+        operation: managed_warehouse_promoted_tables_list
+        enabled: false
     query-tab-state-create:
         operation: query_tab_state_create
         enabled: false

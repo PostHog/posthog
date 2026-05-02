@@ -1347,37 +1347,6 @@ export interface PatchedInsightVariableApi {
     values?: unknown | null
 }
 
-export interface QueryTabStateApi {
-    readonly id: string
-    /**
-            Dict of query tab state for a user. Keys are editorModelsStateKey, activeModelStateKey, activeModelVariablesStateKey
-            and values are the state for that key. EditorModelsStateKey is a list of all the editor models for a user.
-            ActiveModelStateKey is the active model for a user. ActiveModelVariablesStateKey is the active model variables
-            for a user.
-             */
-    state?: unknown | null
-}
-
-export interface PaginatedQueryTabStateListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: QueryTabStateApi[]
-}
-
-export interface PatchedQueryTabStateApi {
-    readonly id?: string
-    /**
-            Dict of query tab state for a user. Keys are editorModelsStateKey, activeModelStateKey, activeModelVariablesStateKey
-            and values are the state for that key. EditorModelsStateKey is a list of all the editor models for a user.
-            ActiveModelStateKey is the active model for a user. ActiveModelVariablesStateKey is the active model variables
-            for a user.
-             */
-    state?: unknown | null
-}
-
 /**
  * * `engineering` - Engineering
  * `data` - Data
@@ -1431,6 +1400,114 @@ export interface UserBasicApi {
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+}
+
+/**
+ * Mixin for serializers to add user access control fields
+ */
+export interface ManagedWarehousePromotedTableApi {
+    readonly id: string
+    readonly created_at: string
+    readonly created_by: UserBasicApi
+    /** @nullable */
+    readonly updated_at: string | null
+    /**
+     * Schema name of the source table in the customer's DuckLake catalog.
+     * @maxLength 255
+     */
+    source_schema_name: string
+    /**
+     * Table name of the source table in the customer's DuckLake catalog.
+     * @maxLength 255
+     */
+    source_table_name: string
+    /**
+     * ID of the DataWarehouseTable that exposes the promoted table to HogQL queries.
+     * @nullable
+     */
+    readonly data_warehouse_table_id: string | null
+    /**
+     * Display name of the linked DataWarehouseTable.
+     * @nullable
+     */
+    readonly data_warehouse_table_name: string | null
+}
+
+export interface PaginatedManagedWarehousePromotedTableListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ManagedWarehousePromotedTableApi[]
+}
+
+/**
+ * * `BASE TABLE` - BASE TABLE
+ * `VIEW` - VIEW
+ */
+export type TableTypeEnumApi = (typeof TableTypeEnumApi)[keyof typeof TableTypeEnumApi]
+
+export const TableTypeEnumApi = {
+    BaseTable: 'BASE TABLE',
+    View: 'VIEW',
+} as const
+
+/**
+ * A table in the customer's DuckLake catalog that could be promoted.
+ */
+export interface AvailableSourceTableApi {
+    /** Schema name in the customer's DuckLake catalog. */
+    schema: string
+    /** Table or view name in the customer's DuckLake catalog. */
+    name: string
+    /** Whether this is a base table or a view.
+
+* `BASE TABLE` - BASE TABLE
+* `VIEW` - VIEW */
+    table_type: TableTypeEnumApi
+    /** True if this schema/name pair already has an active promotion for this team. */
+    already_promoted: boolean
+}
+
+export interface PaginatedAvailableSourceTableListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: AvailableSourceTableApi[]
+}
+
+export interface QueryTabStateApi {
+    readonly id: string
+    /**
+            Dict of query tab state for a user. Keys are editorModelsStateKey, activeModelStateKey, activeModelVariablesStateKey
+            and values are the state for that key. EditorModelsStateKey is a list of all the editor models for a user.
+            ActiveModelStateKey is the active model for a user. ActiveModelVariablesStateKey is the active model variables
+            for a user.
+             */
+    state?: unknown | null
+}
+
+export interface PaginatedQueryTabStateListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: QueryTabStateApi[]
+}
+
+export interface PatchedQueryTabStateApi {
+    readonly id?: string
+    /**
+            Dict of query tab state for a user. Keys are editorModelsStateKey, activeModelStateKey, activeModelVariablesStateKey
+            and values are the state for that key. EditorModelsStateKey is a list of all the editor models for a user.
+            ActiveModelStateKey is the active model for a user. ActiveModelVariablesStateKey is the active model variables
+            for a user.
+             */
+    state?: unknown | null
 }
 
 export interface DataWarehouseModelPathApi {
@@ -1769,6 +1846,7 @@ export interface PatchedDataWarehouseSavedQueryFolderApi {
  * `JSONEachRow` - JSON
  * `Delta` - Delta
  * `DeltaS3Wrapper` - DeltaS3Wrapper
+ * `ManagedWarehouse` - ManagedWarehouse
  */
 export type TableFormatEnumApi = (typeof TableFormatEnumApi)[keyof typeof TableFormatEnumApi]
 
@@ -1779,6 +1857,7 @@ export const TableFormatEnumApi = {
     JSONEachRow: 'JSONEachRow',
     Delta: 'Delta',
     DeltaS3Wrapper: 'DeltaS3Wrapper',
+    ManagedWarehouse: 'ManagedWarehouse',
 } as const
 
 export interface CredentialApi {
@@ -1996,6 +2075,17 @@ export type InsightVariablesListParams = {
      * A page number within the paginated result set.
      */
     page?: number
+}
+
+export type ManagedWarehousePromotedTablesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type QueryTabStateListParams = {

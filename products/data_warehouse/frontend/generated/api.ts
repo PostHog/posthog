@@ -29,6 +29,9 @@ import type {
     FixHogqlListParams,
     InsightVariableApi,
     InsightVariablesListParams,
+    ManagedWarehousePromotedTableApi,
+    ManagedWarehousePromotedTablesListParams,
+    PaginatedAvailableSourceTableListApi,
     PaginatedDataModelingJobListApi,
     PaginatedDataWarehouseModelPathListApi,
     PaginatedDataWarehouseSavedQueryDraftListApi,
@@ -37,6 +40,7 @@ import type {
     PaginatedExternalDataSourceConnectionOptionListApi,
     PaginatedExternalDataSourceSerializersListApi,
     PaginatedInsightVariableListApi,
+    PaginatedManagedWarehousePromotedTableListApi,
     PaginatedQueryTabStateListApi,
     PaginatedTableListApi,
     PaginatedViewLinkListApi,
@@ -1328,6 +1332,82 @@ export const insightVariablesDestroy = async (projectId: string, id: string, opt
         ...options,
         method: 'DELETE',
     })
+}
+
+/**
+ * Manage tables promoted from a customer's managed DuckLake warehouse to PostHog.
+ */
+export const getManagedWarehousePromotedTablesListUrl = (
+    projectId: string,
+    params?: ManagedWarehousePromotedTablesListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/managed_warehouse_promoted_tables/?${stringifiedParams}`
+        : `/api/projects/${projectId}/managed_warehouse_promoted_tables/`
+}
+
+export const managedWarehousePromotedTablesList = async (
+    projectId: string,
+    params?: ManagedWarehousePromotedTablesListParams,
+    options?: RequestInit
+): Promise<PaginatedManagedWarehousePromotedTableListApi> => {
+    return apiMutator<PaginatedManagedWarehousePromotedTableListApi>(
+        getManagedWarehousePromotedTablesListUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+/**
+ * Manage tables promoted from a customer's managed DuckLake warehouse to PostHog.
+ */
+export const getManagedWarehousePromotedTablesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/managed_warehouse_promoted_tables/`
+}
+
+export const managedWarehousePromotedTablesCreate = async (
+    projectId: string,
+    managedWarehousePromotedTableApi: NonReadonly<ManagedWarehousePromotedTableApi>,
+    options?: RequestInit
+): Promise<ManagedWarehousePromotedTableApi> => {
+    return apiMutator<ManagedWarehousePromotedTableApi>(getManagedWarehousePromotedTablesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(managedWarehousePromotedTableApi),
+    })
+}
+
+/**
+ * List tables and views in the customer's managed DuckLake catalog that are eligible to promote, with a flag indicating whether each one is already promoted for this team.
+ */
+export const getManagedWarehousePromotedTablesAvailableSourceTablesRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/managed_warehouse_promoted_tables/available_source_tables/`
+}
+
+export const managedWarehousePromotedTablesAvailableSourceTablesRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<PaginatedAvailableSourceTableListApi> => {
+    return apiMutator<PaginatedAvailableSourceTableListApi>(
+        getManagedWarehousePromotedTablesAvailableSourceTablesRetrieveUrl(projectId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 /**
