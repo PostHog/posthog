@@ -444,8 +444,8 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         with tracer.start_as_current_span("team_serializer.default_fields"):
             representation = super().to_representation(instance)
         # fallback to the default posthog data theme id, if the color feature isn't available e.g. after a downgrade
-        with tracer.start_as_current_span("team_serializer.default_data_theme_fallback"):
-            if not instance.organization.is_feature_available(AvailableFeature.DATA_COLOR_THEMES):
+        if not instance.organization.is_feature_available(AvailableFeature.DATA_COLOR_THEMES):
+            with tracer.start_as_current_span("team_serializer.default_data_theme_fallback"):
                 representation["default_data_theme"] = (
                     DataColorTheme.objects.filter(team_id__isnull=True).values_list("id", flat=True).first()
                 )
@@ -503,8 +503,8 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     @extend_schema_field(
         serializers.ListField(child=serializers.ChoiceField(choices=[(e.value, e.value) for e in SetupTaskId]))
     )
-    @tracer.start_as_current_span("team_serializer.available_setup_task_ids")
     def get_available_setup_task_ids(self, obj) -> list[str]:
+        # Pure-compute - no span (matches the policy in the PR description).
         return [e.value for e in SetupTaskId]
 
     @staticmethod
