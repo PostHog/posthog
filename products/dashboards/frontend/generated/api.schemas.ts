@@ -577,7 +577,7 @@ export type DashboardsListParams = {
      */
     offset?: number
     /**
-     * Optional. Fuzzy full-text search across `name` and `description`. Combines weighted Postgres full-text search (name weight A, description weight C, with prefix-as-you-type matching on the last token) with trigram similarity on `name` (handles typos and transpositions). Results are ordered by relevance score, then pinned status, then name. When omitted, dashboards are ordered by pinned status then alphabetical name.
+     * Optional. Fuzzy match against dashboard `name` and `description` using Postgres trigram word similarity (handles typos, transpositions, and prefix-as-you-type). `name` matches rank above `description` matches. Results are ordered by relevance, then pinned status, then name. When omitted, dashboards are ordered by pinned status then alphabetical name.
      */
     search?: string
 }
