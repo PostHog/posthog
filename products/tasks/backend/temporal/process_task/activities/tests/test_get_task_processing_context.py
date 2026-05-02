@@ -93,6 +93,48 @@ class TestGetTaskProcessingContextActivity:
         assert result.create_pr is False
 
     @pytest.mark.django_db
+    def test_get_task_processing_context_propagates_run_initiator(
+        self, activity_environment, team, user, github_integration
+    ):
+        # The context's run_initiator_id is what every per-run identity
+        # decision keys off (effective_initiator_id falls back to the task
+        # creator only when the run has no recorded initiator).
+        initiator = User.objects.create_user(email=f"initiator-{User.objects.count()}@example.com", password="x")
+        team.organization.members.add(initiator)
+        task = self._create_task_with_repo(team, user, github_integration, "posthog/posthog-js")
+        task_run = task.create_run(created_by_id=initiator.id)
+        try:
+            result = async_to_sync(activity_environment.run)(
+                get_task_processing_context,
+                GetTaskProcessingContextInput(run_id=str(task_run.id)),
+            )
+            assert result.run_initiator_id == initiator.id
+            assert result.task_created_by_id == user.id
+            assert result.effective_initiator_id == initiator.id
+        finally:
+            self._cleanup_task(task)
+
+    @pytest.mark.django_db
+    def test_get_task_processing_context_falls_back_to_task_creator_for_legacy_runs(
+        self, activity_environment, team, user, github_integration
+    ):
+        # Runs created before the run_initiator_id column landed have
+        # task_run.created_by_id NULL — effective_initiator_id should still
+        # resolve to the task creator so legacy runs keep working.
+        task = self._create_task_with_repo(team, user, github_integration, "posthog/posthog-js")
+        task_run = task.create_run()  # no created_by_id
+        try:
+            result = async_to_sync(activity_environment.run)(
+                get_task_processing_context,
+                GetTaskProcessingContextInput(run_id=str(task_run.id)),
+            )
+            assert result.run_initiator_id is None
+            assert result.task_created_by_id == user.id
+            assert result.effective_initiator_id == user.id
+        finally:
+            self._cleanup_task(task)
+
+    @pytest.mark.django_db
     def test_get_task_processing_context_resolves_user_github_integration_without_repository(
         self, activity_environment, team, user
     ):

@@ -572,6 +572,70 @@ class TestTaskAPI(BaseTaskAPITest):
         mock_workflow.assert_called_once()
 
     @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_sets_run_created_by_to_request_user(self, mock_workflow):
+        # Even when another team member created the underlying task, a run
+        # triggered by self.user must be initiated by self.user. Run-scoped
+        # identity (OAuth, MCP, private envs) keys off task_run.created_by.
+        other_user = self.create_organization_user("task-author")
+        task = self.create_task(created_by=other_user)
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        run = TaskRun.objects.get(id=response.json()["latest_run"]["id"])
+        self.assertEqual(run.created_by_id, self.user.id)
+        self.assertNotEqual(run.created_by_id, task.created_by_id)
+        mock_workflow.assert_called_once()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_runs_create_endpoint_sets_run_created_by_to_request_user(self, mock_workflow):
+        other_user = self.create_organization_user("task-author")
+        task = self.create_task(created_by=other_user)
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/",
+            {"environment": "cloud"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        run = TaskRun.objects.get(id=response.json()["id"])
+        self.assertEqual(run.created_by_id, self.user.id)
+        self.assertNotEqual(run.created_by_id, task.created_by_id)
+        mock_workflow.assert_not_called()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_rejects_request_users_inaccessible_private_environment(self, mock_workflow):
+        # The /run endpoint must scope the sandbox-environment access check to
+        # the request user, not the task creator. A task created by a user
+        # whose private env exists must not let a different team member borrow
+        # that env when triggering a run.
+        task_author = self.create_organization_user("task-author")
+        task = self.create_task(created_by=task_author)
+        sandbox_environment = SandboxEnvironment.objects.create(
+            team=self.team,
+            created_by=task_author,
+            name="Author's private env",
+            private=True,
+            environment_variables={"SECRET_KEY": "secret_value"},
+        )
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"sandbox_environment_id": str(sandbox_environment.id)},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["detail"], "Invalid sandbox_environment_id")
+        self.assertFalse(TaskRun.objects.filter(task=task).exists())
+        mock_workflow.assert_not_called()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
     def test_run_endpoint_persists_pending_user_message(self, mock_workflow):
         task = self.create_task()
 
@@ -842,6 +906,56 @@ class TestTaskAPI(BaseTaskAPITest):
             team_id=task.team.id,
             user_id=self.user.id,
         )
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_start_run_endpoint_repins_created_by_to_caller(self, mock_workflow):
+        # A queued run created by user A but actually started by user B must
+        # execute under user B's identity. /start re-pins task_run.created_by
+        # to the request user, so OAuth tokens, MCP installs, and private
+        # sandbox envs follow the user that triggered the workflow.
+        original_creator = self.create_organization_user("original-creator")
+        task = self.create_task(created_by=original_creator)
+        task_run = task.create_run(
+            environment=TaskRun.Environment.CLOUD,
+            created_by_id=original_creator.id,
+        )
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{task_run.id}/start/",
+            {},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        task_run.refresh_from_db()
+        self.assertEqual(task_run.created_by_id, self.user.id)
+        self.assertNotEqual(task_run.created_by_id, original_creator.id)
+        mock_workflow.assert_called_once()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_start_run_endpoint_rolls_back_created_by_when_workflow_trigger_fails(self, mock_workflow):
+        # If /start re-pins created_by and then the workflow trigger fails,
+        # the rollback must restore the prior initiator so a retry can be
+        # diagnosed against an unchanged row.
+        mock_workflow.side_effect = RuntimeError("workflow start failed")
+        original_creator = self.create_organization_user("original-creator")
+        task = self.create_task(created_by=original_creator)
+        task_run = task.create_run(
+            environment=TaskRun.Environment.CLOUD,
+            created_by_id=original_creator.id,
+        )
+
+        self.client.raise_request_exception = False
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{task_run.id}/start/",
+            {},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        task_run.refresh_from_db()
+        self.assertEqual(task_run.created_by_id, original_creator.id)
+        mock_workflow.assert_called_once()
 
     @patch("products.tasks.backend.api.execute_task_processing_workflow")
     def test_start_run_endpoint_rejects_missing_run_artifacts(self, mock_workflow):
