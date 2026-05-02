@@ -10,7 +10,7 @@ from celery import Task, shared_task
 from prometheus_client import Gauge
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models.feature_flag.feature_flag import FeatureFlag, FeatureFlagHashKeyOverride
+from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.feature_flag.flags_cache import (
     cleanup_stale_expiry_tracking,
     get_cache_stats,
@@ -21,6 +21,13 @@ from posthog.models.feature_flag.local_evaluation import (
     FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG,
     FLAG_DEFINITIONS_NO_COHORTS_HYPERCACHE_MANAGEMENT_CONFIG,
     update_flag_caches,
+)
+from posthog.models.person.util import (
+    count_hash_key_overrides_above_threshold,
+    delete_hash_key_overrides_by_ids,
+    get_colliding_hash_key_override_ids,
+    get_hash_key_override_ids,
+    rename_hash_key_overrides_by_ids,
 )
 from posthog.models.team import Team
 from posthog.person_db_router import PERSONS_DB_FOR_WRITE
@@ -424,14 +431,7 @@ def _exceeds_large_team_threshold(team_id: int, feature_flag_key: str) -> bool:
     rows than ``HASH_KEY_OVERRIDE_LARGE_TEAM_THRESHOLD``. Stops scanning once
     the threshold is exceeded, so this stays cheap even on the heaviest teams.
     """
-    probe_qs = FeatureFlagHashKeyOverride.objects.using(PERSONS_DB_FOR_WRITE).filter(
-        team_id=team_id, feature_flag_key=feature_flag_key
-    )
-    # ``[:N+1]`` lets Postgres stop after threshold+1 matches; ``len()`` of a
-    # sliced queryset materialises only those ids.
-    return len(list(probe_qs.values_list("id", flat=True)[: HASH_KEY_OVERRIDE_LARGE_TEAM_THRESHOLD + 1])) > (
-        HASH_KEY_OVERRIDE_LARGE_TEAM_THRESHOLD
-    )
+    return count_hash_key_overrides_above_threshold(team_id, feature_flag_key, HASH_KEY_OVERRIDE_LARGE_TEAM_THRESHOLD)
 
 
 def _capture_if_final_attempt(celery_task: Task, exc: Exception, **context: object) -> None:
@@ -495,41 +495,21 @@ def rewrite_hash_key_overrides_for_flag(self: Task, team_id: int, old_key: str, 
         # ``new_key`` row, in batches so we don't hold locks on the full set.
         while True:
             with transaction.atomic(using=PERSONS_DB_FOR_WRITE):
-                colliding_ids = list(
-                    FeatureFlagHashKeyOverride.objects.using(PERSONS_DB_FOR_WRITE)
-                    .filter(
-                        team_id=team_id,
-                        feature_flag_key=old_key,
-                        person_id__in=FeatureFlagHashKeyOverride.objects.using(PERSONS_DB_FOR_WRITE)
-                        .filter(team_id=team_id, feature_flag_key=new_key)
-                        .values("person_id"),
-                    )
-                    .values_list("id", flat=True)[:HASH_KEY_OVERRIDE_BATCH_SIZE]
+                colliding_ids = get_colliding_hash_key_override_ids(
+                    team_id, old_key, new_key, limit=HASH_KEY_OVERRIDE_BATCH_SIZE
                 )
                 if not colliding_ids:
                     break
-                deleted, _ = (
-                    FeatureFlagHashKeyOverride.objects.using(PERSONS_DB_FOR_WRITE).filter(id__in=colliding_ids).delete()
-                )
-                total_pre_deleted += deleted
+                total_pre_deleted += delete_hash_key_overrides_by_ids(colliding_ids)
 
         # Step 2 — rename the surviving ``old_key`` rows in batches. With the
         # collisions cleared above, each batched UPDATE is collision-free.
         while True:
             with transaction.atomic(using=PERSONS_DB_FOR_WRITE):
-                ids = list(
-                    FeatureFlagHashKeyOverride.objects.using(PERSONS_DB_FOR_WRITE)
-                    .filter(team_id=team_id, feature_flag_key=old_key)
-                    .values_list("id", flat=True)[:HASH_KEY_OVERRIDE_BATCH_SIZE]
-                )
+                ids = get_hash_key_override_ids(team_id, old_key, limit=HASH_KEY_OVERRIDE_BATCH_SIZE)
                 if not ids:
                     break
-                rows_updated = (
-                    FeatureFlagHashKeyOverride.objects.using(PERSONS_DB_FOR_WRITE)
-                    .filter(id__in=ids)
-                    .update(feature_flag_key=new_key)
-                )
-                total_updated += rows_updated
+                total_updated += rename_hash_key_overrides_by_ids(ids, new_key=new_key)
 
         logger.info(
             "rewrite_hash_key_overrides_for_flag",
@@ -577,15 +557,10 @@ def delete_hash_key_overrides_for_flag(self: Task, team_id: int, key: str) -> No
         total_deleted = 0
         while True:
             with transaction.atomic(using=PERSONS_DB_FOR_WRITE):
-                ids = list(
-                    FeatureFlagHashKeyOverride.objects.using(PERSONS_DB_FOR_WRITE)
-                    .filter(team_id=team_id, feature_flag_key=key)
-                    .values_list("id", flat=True)[:HASH_KEY_OVERRIDE_BATCH_SIZE]
-                )
+                ids = get_hash_key_override_ids(team_id, key, limit=HASH_KEY_OVERRIDE_BATCH_SIZE)
                 if not ids:
                     break
-                deleted, _ = FeatureFlagHashKeyOverride.objects.using(PERSONS_DB_FOR_WRITE).filter(id__in=ids).delete()
-                total_deleted += deleted
+                total_deleted += delete_hash_key_overrides_by_ids(ids)
 
         logger.info(
             "delete_hash_key_overrides_for_flag",

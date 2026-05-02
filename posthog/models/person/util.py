@@ -28,6 +28,7 @@ from posthog.models.person.sql import (
 from posthog.models.signals import mutable_receiver
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
+from posthog.person_db_router import PERSONS_DB_FOR_WRITE
 from posthog.personhog_client.converters import proto_person_to_model
 from posthog.personhog_client.metrics import (
     PERSONHOG_ROUTING_ERRORS_TOTAL,
@@ -798,4 +799,87 @@ def _delete_ch_distinct_id(team_id: int, uuid: UUID, distinct_id: str, version: 
         person_id=str(uuid),
         version=version + 100,
         is_deleted=True,
+    )
+
+
+# ---------------------------------------------------------------------------
+# FeatureFlagHashKeyOverride helpers
+#
+# Plain ORM helpers (no ``_personhog_routed``) — the personhog gRPC interface
+# does not expose batched UPDATE/DELETE primitives for the override table, so
+# there is no ``personhog_fn`` to route through. They live in this module
+# because the ``no-direct-persons-db-orm`` semgrep rule excludes
+# ``posthog/models/person/util.py``. If personhog later gains an override
+# cleanup RPC, swap each function over to ``_personhog_routed``.
+#
+# ``FeatureFlagHashKeyOverride`` is imported lazily inside each helper because
+# ``posthog.models.feature_flag.feature_flag`` transitively imports back into
+# ``posthog.models.person`` via the cohort module — a top-level import would
+# create a circular import at app load time.
+# ---------------------------------------------------------------------------
+
+
+def count_hash_key_overrides_above_threshold(team_id: int, feature_flag_key: str, threshold: int) -> bool:
+    """Return True iff ``(team_id, feature_flag_key)`` holds more than ``threshold``
+    override rows. Bounded — stops scanning at ``threshold + 1``."""
+    from posthog.models.feature_flag.feature_flag import FeatureFlagHashKeyOverride
+
+    probe_qs = FeatureFlagHashKeyOverride.objects.using(PERSONS_DB_FOR_WRITE).filter(
+        team_id=team_id, feature_flag_key=feature_flag_key
+    )
+    return len(list(probe_qs.values_list("id", flat=True)[: threshold + 1])) > threshold
+
+
+def get_hash_key_override_ids(team_id: int, feature_flag_key: str, *, limit: int) -> list[int]:
+    """Return up to ``limit`` row ids for ``(team_id, feature_flag_key)``."""
+    from posthog.models.feature_flag.feature_flag import FeatureFlagHashKeyOverride
+
+    return list(
+        FeatureFlagHashKeyOverride.objects.using(PERSONS_DB_FOR_WRITE)
+        .filter(team_id=team_id, feature_flag_key=feature_flag_key)
+        .values_list("id", flat=True)[:limit]
+    )
+
+
+def get_colliding_hash_key_override_ids(team_id: int, old_key: str, new_key: str, *, limit: int) -> list[int]:
+    """Return up to ``limit`` row ids for ``(team_id, old_key)`` belonging to
+    persons who already have a ``(team_id, new_key)`` row. These rows would
+    collide with the unique constraint if renamed and must be pre-deleted."""
+    from posthog.models.feature_flag.feature_flag import FeatureFlagHashKeyOverride
+
+    return list(
+        FeatureFlagHashKeyOverride.objects.using(PERSONS_DB_FOR_WRITE)
+        .filter(
+            team_id=team_id,
+            feature_flag_key=old_key,
+            person_id__in=FeatureFlagHashKeyOverride.objects.using(PERSONS_DB_FOR_WRITE)
+            .filter(team_id=team_id, feature_flag_key=new_key)
+            .values("person_id"),
+        )
+        .values_list("id", flat=True)[:limit]
+    )
+
+
+def delete_hash_key_overrides_by_ids(ids: list[int]) -> int:
+    """Delete the given rows. Returns the number deleted."""
+    if not ids:
+        return 0
+    from posthog.models.feature_flag.feature_flag import FeatureFlagHashKeyOverride
+
+    deleted, _ = FeatureFlagHashKeyOverride.objects.using(PERSONS_DB_FOR_WRITE).filter(id__in=ids).delete()
+    return deleted
+
+
+def rename_hash_key_overrides_by_ids(ids: list[int], *, new_key: str) -> int:
+    """Set ``feature_flag_key = new_key`` for the given rows. Returns rows updated.
+    Caller is responsible for clearing collisions first via
+    ``get_colliding_hash_key_override_ids`` + ``delete_hash_key_overrides_by_ids``."""
+    if not ids:
+        return 0
+    from posthog.models.feature_flag.feature_flag import FeatureFlagHashKeyOverride
+
+    return (
+        FeatureFlagHashKeyOverride.objects.using(PERSONS_DB_FOR_WRITE)
+        .filter(id__in=ids)
+        .update(feature_flag_key=new_key)
     )
