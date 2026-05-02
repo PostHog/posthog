@@ -7,12 +7,14 @@
             "type": "string"
         },
         "feedback": {
-            "description": "The feedback message to share with PostHog. For user-initiated feedback, capture the user's words faithfully. For agent-observed friction, only call this tool after the user has explicitly agreed. Never include the user's data, query results, credentials, or anything sensitive — summarize instead.",
+            "description": "The feedback message to share with PostHog (max 5000 chars). For user-initiated feedback, capture the user's words faithfully. For agent-observed friction, only call this tool after the user has explicitly agreed. Never include the user's data, query results, credentials, or anything sensitive — summarize instead.",
+            "maxLength": 5000,
             "minLength": 1,
             "type": "string"
         },
         "posthog_area": {
             "description": "Free-text area of PostHog the feedback is about, e.g. \"session replay\", \"feature flags\", \"insights\", \"dashboards\", \"data warehouse\", \"MCP\", \"MCP skills\", \"billing\", \"docs\". Omit if not applicable.",
+            "maxLength": 200,
             "type": "string"
         },
         "severity": {
@@ -22,6 +24,7 @@
         },
         "skill_name": {
             "description": "The PostHog skill the feedback is about, if any (e.g. \"querying-posthog-data\"). Omit if not about a skill.",
+            "maxLength": 200,
             "type": "string"
         },
         "source": {
@@ -31,6 +34,7 @@
         },
         "tool_name": {
             "description": "The MCP tool the feedback is about, if any (e.g. \"query-run\"). Omit if the feedback is not MCP-tool-specific.",
+            "maxLength": 200,
             "type": "string"
         }
     },

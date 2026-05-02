@@ -830,7 +830,8 @@
                 "feedback": {
                     "type": "string",
                     "minLength": 1,
-                    "description": "The feedback message to share with PostHog. For user-initiated feedback, capture the user's words faithfully. For agent-observed friction, only call this tool after the user has explicitly agreed. Never include the user's data, query results, credentials, or anything sensitive — summarize instead."
+                    "maxLength": 5000,
+                    "description": "The feedback message to share with PostHog (max 5000 chars). For user-initiated feedback, capture the user's words faithfully. For agent-observed friction, only call this tool after the user has explicitly agreed. Never include the user's data, query results, credentials, or anything sensitive — summarize instead."
                 },
                 "source": {
                     "description": "How the feedback originated. \"user_initiated\" = the user asked you to send feedback (any topic). \"agent_observed\" = you noticed friction while working and the user agreed to share it.",
@@ -839,7 +840,8 @@
                 },
                 "posthog_area": {
                     "description": "Free-text area of PostHog the feedback is about, e.g. \"session replay\", \"feature flags\", \"insights\", \"dashboards\", \"data warehouse\", \"MCP\", \"MCP skills\", \"billing\", \"docs\". Omit if not applicable.",
-                    "type": "string"
+                    "type": "string",
+                    "maxLength": 200
                 },
                 "category": {
                     "description": "Optional category. Use \"bug\" for incorrect behavior, \"usability\" for confusing UX, \"missing_feature\" for capabilities the user wished existed, \"documentation\" for unclear docs, \"performance\" for slow responses, \"praise\" for positive feedback, or \"other\".",
@@ -853,11 +855,13 @@
                 },
                 "tool_name": {
                     "description": "The MCP tool the feedback is about, if any (e.g. \"query-run\"). Omit if the feedback is not MCP-tool-specific.",
-                    "type": "string"
+                    "type": "string",
+                    "maxLength": 200
                 },
                 "skill_name": {
                     "description": "The PostHog skill the feedback is about, if any (e.g. \"querying-posthog-data\"). Omit if not about a skill.",
-                    "type": "string"
+                    "type": "string",
+                    "maxLength": 200
                 }
             },
             "required": ["feedback"]

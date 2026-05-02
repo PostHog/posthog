@@ -130,4 +130,14 @@ describe('feedback tool', () => {
 
         expect(result.content[0]!.text).toContain('Thanks')
     })
+
+    it.each([
+        { field: 'feedback', max: 5000, params: { feedback: 'x'.repeat(5001) } },
+        { field: 'posthog_area', max: 200, params: { feedback: 'ok', posthog_area: 'x'.repeat(201) } },
+        { field: 'tool_name', max: 200, params: { feedback: 'ok', tool_name: 'x'.repeat(201) } },
+        { field: 'skill_name', max: 200, params: { feedback: 'ok', skill_name: 'x'.repeat(201) } },
+    ])('rejects $field above the $max char cap', ({ params }) => {
+        const tool = feedback()
+        expect(tool.schema.safeParse(params).success).toBe(false)
+    })
 })

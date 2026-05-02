@@ -463,8 +463,9 @@ export const FeedbackSchema = z.object({
     feedback: z
         .string()
         .min(1)
+        .max(5000)
         .describe(
-            "The feedback message to share with PostHog. For user-initiated feedback, capture the user's words faithfully. For agent-observed friction, only call this tool after the user has explicitly agreed. Never include the user's data, query results, credentials, or anything sensitive — summarize instead."
+            "The feedback message to share with PostHog (max 5000 chars). For user-initiated feedback, capture the user's words faithfully. For agent-observed friction, only call this tool after the user has explicitly agreed. Never include the user's data, query results, credentials, or anything sensitive — summarize instead."
         ),
     source: z
         .enum(['user_initiated', 'agent_observed'])
@@ -474,6 +475,7 @@ export const FeedbackSchema = z.object({
         ),
     posthog_area: z
         .string()
+        .max(200)
         .optional()
         .describe(
             'Free-text area of PostHog the feedback is about, e.g. "session replay", "feature flags", "insights", "dashboards", "data warehouse", "MCP", "MCP skills", "billing", "docs". Omit if not applicable.'
@@ -492,12 +494,14 @@ export const FeedbackSchema = z.object({
         ),
     tool_name: z
         .string()
+        .max(200)
         .optional()
         .describe(
             'The MCP tool the feedback is about, if any (e.g. "query-run"). Omit if the feedback is not MCP-tool-specific.'
         ),
     skill_name: z
         .string()
+        .max(200)
         .optional()
         .describe(
             'The PostHog skill the feedback is about, if any (e.g. "querying-posthog-data"). Omit if not about a skill.'
