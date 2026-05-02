@@ -122,7 +122,7 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                  * The 250ms `breakpoint` runs before the empty-term short-circuit so a stale
                  * in-flight request can't clobber a freshly cleared search.
                  */
-                loadSearchedDashboards: async ({ search }: { search: string }, breakpoint) => {
+                loadSearchedDashboards: async ({ search, tags }: { search: string; tags: string[] }, breakpoint) => {
                     await breakpoint(250)
                     const term = search.trim()
                     if (!term) {
@@ -137,6 +137,12 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                         limit: '200',
                         exclude_generated: 'true',
                     })
+                    // Push tag filtering to the server so MCP and API clients see the same
+                    // result shape as the UI (and so the limit:200 cap operates on the right
+                    // population — pre-tag-filtered, not post).
+                    for (const tag of tags) {
+                        params.append('tags', tag)
+                    }
                     const response: PaginatedResponse<DashboardBasicType> = await api.get(
                         `api/environments/${teamId}/dashboards/?${params.toString()}`
                     )
@@ -260,12 +266,23 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
             actions.setSearch(search)
         },
     })),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         bulkUpdateTagsSuccess: () => {
             dashboardsModel.actions.loadDashboards()
         },
         setSearch: ({ search }) => {
-            actions.loadSearchedDashboards({ search })
+            actions.loadSearchedDashboards({ search, tags: values.filters.tags ?? [] })
+        },
+        setFilters: ({ filters }) => {
+            // Tag changes refetch when a search is active so server-side filtering stays
+            // accurate. Other filter keys (pinned/shared/createdBy/currentTab) are still
+            // applied client-side over the in-memory list so they don't refetch.
+            if ('tags' in filters && values.filters.search) {
+                actions.loadSearchedDashboards({
+                    search: values.filters.search,
+                    tags: values.filters.tags ?? [],
+                })
+            }
         },
     })),
 ])
