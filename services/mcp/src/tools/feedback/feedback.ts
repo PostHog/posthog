@@ -41,7 +41,7 @@ export const feedbackHandler: ToolBase<typeof schema, Result>['handler'] = async
         content: [
             {
                 type: 'text',
-                text: 'Thanks — your feedback was sent to the PostHog MCP team. We use this to make the MCP and PostHog skills better, so please keep it coming whenever something is confusing, broken, or missing.',
+                text: 'Thanks — your feedback was shared with the PostHog MCP team and will help us improve the experience.',
             },
         ],
     }

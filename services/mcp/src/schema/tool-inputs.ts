@@ -464,32 +464,30 @@ export const FeedbackSchema = z.object({
         .string()
         .min(1)
         .describe(
-            'The feedback message. Describe the problem, struggle, idea, or suggestion in detail — the more specific, the more useful. Quote any tool names, error messages, or skill names that are relevant.'
+            "The feedback message to share with PostHog. Only call this tool after the user has explicitly agreed to share. Be specific about what got in the way (tool name, error message, skill name, what they were trying to do) but do not include the user's data, query results, or anything sensitive."
         ),
     category: z
         .enum(['bug', 'usability', 'missing_feature', 'documentation', 'performance', 'skill', 'other'])
         .optional()
         .describe(
-            'Category of the feedback. Use "bug" for incorrect behavior, "usability" for confusing or hard-to-use tools, "missing_feature" for capabilities you wish existed, "documentation" for unclear descriptions or missing examples, "performance" for slow responses, "skill" for issues with PostHog skills, or "other" when nothing else fits.'
+            'Optional category. Use "bug" for incorrect behavior, "usability" for confusing or hard-to-use tools, "missing_feature" for capabilities the user wished existed, "documentation" for unclear descriptions, "performance" for slow responses, "skill" for issues with a PostHog skill, or "other".'
         ),
     severity: z
         .enum(['low', 'medium', 'high'])
         .optional()
         .describe(
-            'How disruptive the issue is. "high" = blocks the task completely, "medium" = workaround exists but painful, "low" = minor friction or polish.'
+            'Optional severity. "high" = blocked the task, "medium" = painful workaround, "low" = minor polish. Omit if unclear.'
         ),
     tool_name: z
         .string()
         .optional()
         .describe(
-            'The name of the specific MCP tool the feedback is about (e.g. "query-run", "insight-create"). Omit if the feedback is general or applies to multiple tools.'
+            'The MCP tool the feedback is about (e.g. "query-run"). Omit if the feedback is general or applies to multiple tools.'
         ),
     skill_name: z
         .string()
         .optional()
-        .describe(
-            'The name of the specific PostHog skill the feedback is about (e.g. "querying-posthog-data"). Omit if the feedback is not about a skill.'
-        ),
+        .describe('The PostHog skill the feedback is about (e.g. "querying-posthog-data"). Omit if not about a skill.'),
 })
 
 // PostHog AI tools

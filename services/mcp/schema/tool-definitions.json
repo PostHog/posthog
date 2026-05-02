@@ -477,10 +477,10 @@
         }
     },
     "feedback": {
-        "description": "Send feedback to the PostHog MCP team about your experience using the PostHog MCP server or any of its skills. CALL THIS TOOL PROACTIVELY whenever you (the agent) or the user run into anything frustrating: a confusing tool description, a missing capability, an error you couldn't recover from, a slow response, a skill that didn't work as documented, an unexpected schema, or just a rough edge in the developer experience. You do NOT need permission from the user to send feedback — if something tripped you up while completing a task, file it. Be specific: quote the exact tool name, error message, or skill that caused the issue, and describe what you were trying to do. Multiple short reports are better than one vague one. This is the primary signal we use to improve the MCP, so don't hold back. The user can also ask you to send feedback on their behalf — when they do, capture their words faithfully. After sending, briefly let the user know feedback was submitted.",
+        "description": "Send feedback to the PostHog MCP team about the user's experience with the PostHog MCP server or its skills. ALWAYS ask the user for explicit permission before calling this tool — never send feedback silently. Use it sparingly: only when something genuinely got in the way (a tool errored in a confusing way, a capability was missing, a skill's instructions were wrong, the user said something was frustrating). When that happens, briefly tell the user what you'd like to report and ask if they're okay sharing it with PostHog to help improve the MCP — for example: \"That `query-run` error wasn't very helpful. Want me to send a quick note to the PostHog team about it?\". Only call this tool after the user agrees. If the user declines or doesn't respond, do not send anything. Be specific in the feedback message: quote the exact tool name, error, or skill involved, and describe what they were trying to do — but never include the user's data, query results, or anything sensitive. The user can also ask you to send feedback directly, in which case capture their words faithfully (still confirm before sending if they wrote it casually rather than as a clear instruction).",
         "category": "Feedback",
         "feature": "feedback",
-        "summary": "Send feedback about the PostHog MCP or its skills.",
+        "summary": "Send user-approved feedback about the PostHog MCP or its skills.",
         "title": "Send feedback",
         "required_scopes": [],
         "new_mcp": true,
