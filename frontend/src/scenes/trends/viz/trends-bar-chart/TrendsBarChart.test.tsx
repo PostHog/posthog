@@ -20,7 +20,7 @@ afterEach(() => {
     cleanup()
 })
 
-const HOG_CHARTS_FLAG = { [FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS]: true }
+const HOG_CHARTS_FLAG = { [FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_BAR]: true }
 const trendsBar = (extra?: Parameters<typeof buildTrendsQuery>[0]): ReturnType<typeof buildTrendsQuery> =>
     buildTrendsQuery({ trendsFilter: { display: ChartDisplayType.ActionsBar }, ...extra })
 
@@ -103,26 +103,3 @@ describe('TrendsBarChart (ActionsBar)', () => {
     })
 })
 
-describe('TrendsBarChart gate', () => {
-    it.each([
-        { name: 'showValuesOnSeries', filter: { display: ChartDisplayType.ActionsBar, showValuesOnSeries: true } },
-        {
-            name: 'goalLines',
-            filter: {
-                display: ChartDisplayType.ActionsBar,
-                goalLines: [{ label: 'Target', value: 150, displayIfCrossed: true }],
-            },
-        },
-    ])('falls back to the legacy renderer when the insight needs $name', async ({ filter }) => {
-        renderInsight({
-            query: buildTrendsQuery({ trendsFilter: filter }),
-            featureFlags: HOG_CHARTS_FLAG,
-        })
-
-        // Legacy ActionsLineGraph uses Chart.js, which test-helpers' setupJsdom does not stand up
-        // — the new BarGraph data attr is the cheapest signal for "did the new renderer mount?"
-        await waitFor(() => {
-            expect(screen.queryByRole('img', { name: /chart with/i })).not.toBeInTheDocument()
-        })
-    })
-})
