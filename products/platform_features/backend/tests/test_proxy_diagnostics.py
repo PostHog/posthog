@@ -16,8 +16,13 @@ from products.platform_features.backend.proxy.cloudflare import (
 )
 
 
-def _record(domain: str = "e.example.com", target: str = "abc.cf-prod-eu-proxy.europehog.com"):
-    """Build a minimal ProxyRecord-like stub. Avoids hitting the DB."""
+def _record(domain: str = "e.example.com", target: str = "abc.cf-prod-eu-proxy.europehog.com."):
+    """Build a minimal ProxyRecord-like stub. Avoids hitting the DB.
+
+    `target` includes the trailing FQDN dot to match the production data shape:
+    `generate_target_cname` produces `{digest}.{CLOUDFLARE_PROXY_BASE_CNAME}` where the
+    env var ends with a dot.
+    """
     rec = MagicMock()
     rec.id = "00000000-0000-0000-0000-000000000001"
     rec.organization_id = "00000000-0000-0000-0000-000000000002"

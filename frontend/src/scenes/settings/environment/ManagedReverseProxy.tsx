@@ -1,6 +1,7 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import { useMemo } from 'react'
 
 import { IconCheckCircle, IconEllipsis, IconInfo, IconWarning, IconX } from '@posthog/icons'
 import {
@@ -25,6 +26,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Link } from 'lib/lemon-ui/Link'
 import { isKeyOf } from 'lib/utils'
+import { useMaxTool } from 'scenes/max/useMaxTool'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { DiagnosticCheckResult, DiagnosticCheckStatus, DiagnosticReport, ProxyRecord, proxyLogic } from './proxyLogic'
@@ -60,6 +62,31 @@ export function ManagedReverseProxy(): JSX.Element {
 
     const recordsWithMessages = proxyRecords.filter((record) => !!record.message)
     const validProxyRecords = proxyRecords.filter((record) => record.status === 'valid')
+
+    // Surface the diagnose_proxy MaxTool while this scene is mounted, with the visible
+    // records as context so Max can resolve "diagnose e.foo.com" to a record id.
+    useMaxTool({
+        identifier: 'diagnose_proxy',
+        active: proxyRecords.length > 0 && !restrictionReason,
+        context: useMemo(
+            () => ({
+                proxy_records: proxyRecords.map((r) => ({
+                    id: r.id,
+                    domain: r.domain,
+                    status: r.status,
+                    message: r.message,
+                })),
+            }),
+            [proxyRecords]
+        ),
+        suggestions: useMemo(() => {
+            const erroring = proxyRecords.find((r) => r.status === 'erroring' || r.status === 'timed_out')
+            if (erroring) {
+                return [`Why is ${erroring.domain} erroring?`]
+            }
+            return proxyRecords.length > 0 ? [`Diagnose ${proxyRecords[0].domain}`] : []
+        }, [proxyRecords]),
+    })
 
     const columns: LemonTableColumns<ProxyRecord> = [
         {

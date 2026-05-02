@@ -162,13 +162,12 @@ def _build_summary(checks: list[CheckResult]) -> ReportSummary:
 
 
 def _check_cname(record: ProxyRecord) -> CheckResult:
-    expected = record.target_cname.rstrip(".")
     try:
         resolver = dns.resolver.Resolver()
         resolver.lifetime = DNS_QUERY_TIMEOUT_S
         cnames = resolver.resolve(record.domain, "CNAME")
-        actual = cnames[0].target.to_text(omit_final_dot=False).rstrip(".")
-        if actual.lower() == expected.lower():
+        actual = cnames[0].target.to_text(omit_final_dot=False)
+        if actual.lower() == record.target_cname.lower():
             return CheckResult(
                 id="cname",
                 name="DNS CNAME",
@@ -183,7 +182,7 @@ def _check_cname(record: ProxyRecord) -> CheckResult:
             remediation=Remediation(
                 type="dns",
                 summary=f"Update the CNAME record for `{record.domain}` to the value below.",
-                records=[DnsRecord(name=record.domain, type="CNAME", value=expected)],
+                records=[DnsRecord(name=record.domain, type="CNAME", value=record.target_cname)],
             ),
         )
     except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer):
@@ -195,7 +194,7 @@ def _check_cname(record: ProxyRecord) -> CheckResult:
             remediation=Remediation(
                 type="dns",
                 summary=f"Add the CNAME record below for `{record.domain}`.",
-                records=[DnsRecord(name=record.domain, type="CNAME", value=expected)],
+                records=[DnsRecord(name=record.domain, type="CNAME", value=record.target_cname)],
             ),
         )
     except dns.exception.DNSException as e:
