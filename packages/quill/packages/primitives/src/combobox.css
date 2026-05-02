@@ -35,6 +35,39 @@
         box-shadow: none;
     }
 
+    /*
+     * When the combobox is rendered as a floating-UI popover (any
+     * `[data-quill-portal]` ancestor) — give the search input a divider
+     * and breathing room before the list. Inline comboboxes (no portal
+     * ancestor) keep the flush layout above. Detection is purely CSS so
+     * consumers don't need to pass a prop down.
+     */
+
+    /*
+     * Separator inside the input wrapper is rendered unconditionally by
+     * ComboboxInput. Hide it by default; only show it when the combobox
+     * is rendered as a floating-UI popover (any `[data-quill-portal]`
+     * ancestor). The wrapper padding + separator inset margin also only
+     * apply in that mode — inline comboboxes keep their flush layout.
+     */
+    [data-slot='combobox-popover-separator'] {
+        display: none;
+    }
+
+    [data-quill-portal] .quill-combobox__content > [data-slot='combobox-input-group-wrapper'] {
+        padding: var(--spacing);
+        border-bottom: 1px solid var(--border);
+    }
+
+    [data-quill-portal]
+        .quill-combobox__content
+        > [data-slot='combobox-input-group-wrapper']
+        > [data-slot='combobox-popover-separator'] {
+        display: block;
+        width: calc(100% + var(--spacing));
+        margin: var(--spacing) calc(var(--spacing) * -1) 0;
+    }
+
     .quill-combobox__list {
         min-height: 0;
         max-height: min(
@@ -142,6 +175,7 @@
         margin-inline: -0.25rem;
         margin-top: 0.25rem;
         background-color: var(--card);
+        border-top: 1px solid var(--border);
     }
 
     .quill-combobox__trigger svg:not([class*='size-']) {

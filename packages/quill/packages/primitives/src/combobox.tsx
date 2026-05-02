@@ -72,22 +72,24 @@ function ComboboxInput({
 }): React.ReactElement {
     const anchorRef = React.useContext(ComboboxAnchorContext)
     return (
-        <InputGroup ref={anchorRef} className={cn('w-auto', className)}>
-            <ComboboxPrimitive.Input render={<InputGroupInput disabled={disabled} />} {...props} />
-            <InputGroupAddon align="inline-end">
-                {showTrigger && (
-                    <InputGroupButton
-                        size="icon-xs"
-                        render={<ComboboxTrigger />}
-                        data-slot="input-group-button"
-                        className="group-has-data-[slot=combobox-clear]/input-group:hidden data-pressed:bg-transparent rounded-xs"
-                        disabled={disabled}
-                    />
-                )}
-                {showClear && <ComboboxClear disabled={disabled} />}
-            </InputGroupAddon>
-            {children}
-        </InputGroup>
+        <div data-slot="combobox-input-group-wrapper">
+            <InputGroup ref={anchorRef} className={cn('w-auto', className)}>
+                <ComboboxPrimitive.Input render={<InputGroupInput disabled={disabled} />} {...props} />
+                <InputGroupAddon align="inline-end">
+                    {showTrigger && (
+                        <InputGroupButton
+                            size="icon-xs"
+                            render={<ComboboxTrigger />}
+                            data-slot="input-group-button"
+                            className="group-has-data-[slot=combobox-clear]/input-group:hidden data-pressed:bg-transparent rounded-xs"
+                            disabled={disabled}
+                        />
+                    )}
+                    {showClear && <ComboboxClear disabled={disabled} />}
+                </InputGroupAddon>
+                {children}
+            </InputGroup>
+        </div>
     )
 }
 
@@ -245,7 +247,6 @@ function ComboboxChipsInput({ className, ...props }: ComboboxPrimitive.Input.Pro
 function ComboboxListFooter({ className, ...props }: React.ComponentProps<'div'>): React.ReactElement {
     return (
         <div data-slot="combobox-list-footer" className={cn('quill-combobox__list-footer', className)}>
-            <Separator orientation="horizontal" className="w-[calc(100%+var(--spacing)*4)]" />
             <div className="p-1" {...props} />
         </div>
     )
