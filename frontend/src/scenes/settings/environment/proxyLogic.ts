@@ -124,6 +124,8 @@ export const proxyLogic = kea<proxyLogicType>([
         diagnoseSuccess: (id: ProxyRecord['id'], report: DiagnosticReport) => ({ id, report }),
         diagnoseFailure: (id: ProxyRecord['id'], error: string) => ({ id, error }),
         clearDiagnosticReport: (id: ProxyRecord['id']) => ({ id }),
+        setRecordExpanded: (id: ProxyRecord['id'], expanded: boolean) => ({ id, expanded }),
+        setRecordActiveTab: (id: ProxyRecord['id'], tab: string) => ({ id, tab }),
     })),
     reducers(() => ({
         formState: ['collapsed' as FormState, { showForm: () => 'active', collapseForm: () => 'collapsed' }],
@@ -163,6 +165,28 @@ export const proxyLogic = kea<proxyLogicType>([
                 diagnose: (state, { id }) => (state.includes(id) ? state : [...state, id]),
                 diagnoseSuccess: (state, { id }) => state.filter((existingId) => existingId !== id),
                 diagnoseFailure: (state, { id }) => state.filter((existingId) => existingId !== id),
+            },
+        ],
+        expandedRecordIds: [
+            [] as string[],
+            {
+                setRecordExpanded: (state, { id, expanded }) => {
+                    if (expanded) {
+                        return state.includes(id) ? state : [...state, id]
+                    }
+                    return state.filter((existingId) => existingId !== id)
+                },
+                clearDiagnosticReport: (state, { id }) => state.filter((existingId) => existingId !== id),
+            },
+        ],
+        recordActiveTabs: [
+            {} as Record<string, string>,
+            {
+                setRecordActiveTab: (state, { id, tab }) => ({ ...state, [id]: tab }),
+                clearDiagnosticReport: (state, { id }) => {
+                    const { [id]: _removed, ...rest } = state
+                    return rest
+                },
             },
         ],
     })),
@@ -236,6 +260,11 @@ export const proxyLogic = kea<proxyLogicType>([
                 actions.diagnoseFailure(id, message)
                 lemonToast.error(`Diagnose failed: ${message}`)
             }
+        },
+        diagnoseSuccess: ({ id }) => {
+            // Auto-expand the row and switch to the Diagnosis tab so the user sees the report immediately.
+            actions.setRecordExpanded(id, true)
+            actions.setRecordActiveTab(id, 'diagnosis')
         },
     })),
     forms(({ actions, values }) => ({

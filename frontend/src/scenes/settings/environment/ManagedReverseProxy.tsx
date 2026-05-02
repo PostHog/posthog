@@ -42,10 +42,10 @@ export function ManagedReverseProxy(): JSX.Element {
         proxyRecords,
         proxyRecordsLoading,
         maxProxyRecords,
-        diagnosticReports,
         diagnoseLoadingIds,
+        expandedRecordIds,
     } = useValues(proxyLogic)
-    const { acknowledgeCloudflareOptIn, deleteRecord, retryRecord, diagnose, clearDiagnosticReport, showForm } =
+    const { acknowledgeCloudflareOptIn, deleteRecord, retryRecord, diagnose, setRecordExpanded, showForm } =
         useActions(proxyLogic)
     const { preflight } = useValues(preflightLogic)
 
@@ -155,8 +155,6 @@ export function ManagedReverseProxy(): JSX.Element {
         },
     ]
 
-    const reportEntries = Object.entries(diagnosticReports)
-
     // Show opt-in banner if Cloudflare proxy is enabled but not yet acknowledged
     if (cloudflareProxyEnabled && !cloudflareOptInAcknowledged) {
         return (
@@ -171,26 +169,15 @@ export function ManagedReverseProxy(): JSX.Element {
                     <LemonMarkdown>{`**${r.domain}**\n ${r.message}`}</LemonMarkdown>
                 </LemonBanner>
             ))}
-            {reportEntries.map(([recordId, report]) => {
-                const record = proxyRecords.find((r) => r.id === recordId)
-                if (!record) {
-                    return null
-                }
-                return (
-                    <DiagnosticReportPanel
-                        key={recordId}
-                        record={record}
-                        report={report}
-                        onDismiss={() => clearDiagnosticReport(recordId)}
-                    />
-                )
-            })}
             <LemonTable
                 loading={proxyRecords.length === 0 && proxyRecordsLoading}
                 columns={columns}
                 dataSource={proxyRecords}
                 expandable={{
                     expandedRowRender: (record) => <ExpandedRow record={record} />,
+                    isRowExpanded: (record) => (expandedRecordIds.includes(record.id) ? true : -1),
+                    onRowExpand: (record) => setRecordExpanded(record.id, true),
+                    onRowCollapse: (record) => setRecordExpanded(record.id, false),
                 }}
             />
 
@@ -294,22 +281,40 @@ function CloudflareOptInBanner({
 }
 
 const ExpandedRow = ({ record }: { record: ProxyRecord }): JSX.Element => {
+    const { diagnosticReports, recordActiveTabs } = useValues(proxyLogic)
+    const { setRecordActiveTab } = useActions(proxyLogic)
+
+    const report = diagnosticReports[record.id]
+    const activeKey = recordActiveTabs[record.id] ?? 'cname'
+
+    const tabs = [
+        {
+            label: 'CNAME',
+            key: 'cname',
+            content: (
+                <CodeSnippet key={record.id} language={Language.HTTP}>
+                    {record.target_cname}
+                </CodeSnippet>
+            ),
+        },
+        ...(report
+            ? [
+                  {
+                      label: 'Diagnosis',
+                      key: 'diagnosis',
+                      content: <DiagnosticReportContent report={report} />,
+                  },
+              ]
+            : []),
+    ]
+
     return (
         <div className="pb-4 pr-4 space-y-2">
             <LemonTabs
                 size="small"
-                activeKey="cname"
-                tabs={[
-                    {
-                        label: 'CNAME',
-                        key: 'cname',
-                        content: (
-                            <CodeSnippet key={record.id} language={Language.HTTP}>
-                                {record.target_cname}
-                            </CodeSnippet>
-                        ),
-                    },
-                ]}
+                activeKey={activeKey}
+                onChange={(key) => setRecordActiveTab(record.id, key)}
+                tabs={tabs}
             />
             {record.status === 'waiting' && (
                 <DomainConnectBanner
@@ -448,26 +453,10 @@ const summaryBannerType = (status: DiagnosticReport['summary']['status']): 'succ
     return 'error'
 }
 
-function DiagnosticReportPanel({
-    record,
-    report,
-    onDismiss,
-}: {
-    record: ProxyRecord
-    report: DiagnosticReport
-    onDismiss: () => void
-}): JSX.Element {
+function DiagnosticReportContent({ report }: { report: DiagnosticReport }): JSX.Element {
     return (
-        <div className="bg-surface-primary rounded border px-5 py-4 flex flex-col gap-3">
-            <div className="flex items-start justify-between gap-2">
-                <div>
-                    <div className="text-base font-semibold">Diagnostic report — {record.domain}</div>
-                    <div className="text-xs text-secondary">Ran {new Date(report.ran_at).toLocaleString()}</div>
-                </div>
-                <LemonButton size="xsmall" type="tertiary" onClick={onDismiss}>
-                    Dismiss
-                </LemonButton>
-            </div>
+        <div className="flex flex-col gap-3">
+            <div className="text-xs text-secondary">Ran {new Date(report.ran_at).toLocaleString()}</div>
             <LemonBanner type={summaryBannerType(report.summary.status)}>
                 <div className="font-semibold capitalize">{report.summary.status}</div>
                 {report.summary.next_action && <div>{report.summary.next_action}</div>}
