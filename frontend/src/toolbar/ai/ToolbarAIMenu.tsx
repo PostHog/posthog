@@ -229,15 +229,14 @@ function PlanningRow({ item }: { item: PlanningMessage & { status: string } }): 
     const steps = item.steps ?? []
     const total = steps.length
     const done = steps.filter((s) => s.status === PlanningStepStatus.Completed).length
-    const anyInProgress = steps.some((s) => s.status === PlanningStepStatus.InProgress)
     const allDone = total > 0 && done === total
-    const planStatus: ToolCallStatus = allDone ? 'completed' : anyInProgress ? 'in_progress' : 'pending'
+    const planStatus: ToolCallStatus = allDone ? 'completed' : 'in_progress'
     return (
         <ActionRow
             icon={<IconBrain />}
             label="Planning"
             subtitle={total > 0 ? `(${done}/${total})` : null}
-            status={planStatus === 'pending' ? 'in_progress' : planStatus}
+            status={planStatus}
             expandable={total > 0}
         >
             <ul className="ToolbarAIMenu__plan">

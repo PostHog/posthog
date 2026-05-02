@@ -358,6 +358,7 @@ class TestToolbarOAuthScopesConfig(APIBaseTest):
         "element:read",
         "uploaded_media:write",
         "user:read",
+        "conversation:read",
         "conversation:write",
     ]
 

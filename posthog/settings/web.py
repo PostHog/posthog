@@ -728,6 +728,7 @@ TOOLBAR_OAUTH_SCOPES = [
     "uploaded_media:write",
     "survey:read",
     # Allows the toolbar to chat with Max AI from inside the customer's site.
+    "conversation:read",
     "conversation:write",
 ]
 
