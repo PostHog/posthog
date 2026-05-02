@@ -20,6 +20,9 @@ from .report_generation.resolve_reviewers import enrich_reviewer_dicts_with_org_
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_SESSION_ANALYSIS_SAMPLE_RATE = 0.1
+
+
 # Maps (source_product, source_type) → (ExternalDataSourceType value, schema name)
 _DATA_IMPORT_SOURCE_MAP: dict[tuple[str, str], tuple[str, str]] = {
     (SignalSourceConfig.SourceProduct.GITHUB, SignalSourceConfig.SourceType.ISSUE): ("Github", "issues"),
@@ -125,6 +128,16 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
                     }
                 )
         return attrs
+
+    def create(self, validated_data: dict) -> SignalSourceConfig:
+        if (
+            validated_data.get("source_product") == SignalSourceConfig.SourceProduct.SESSION_REPLAY
+            and validated_data.get("source_type") == SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER
+        ):
+            config = dict(validated_data.get("config") or {})
+            config.setdefault("sample_rate", DEFAULT_SESSION_ANALYSIS_SAMPLE_RATE)
+            validated_data["config"] = config
+        return super().create(validated_data)
 
 
 class SignalTeamConfigSerializer(serializers.ModelSerializer):
