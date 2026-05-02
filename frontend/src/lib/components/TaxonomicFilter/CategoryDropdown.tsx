@@ -63,15 +63,20 @@ export function CategoryDropdown({
     const activeItemIndex = taxonomicGroupTypes.findIndex((g) => g === openTab)
 
     return (
-        <LemonMenu
-            items={items}
-            onVisibilityChange={onVisibilityChange}
-            activeItemIndex={activeItemIndex >= 0 ? activeItemIndex : undefined}
-            placement="bottom-start"
-            className="click-outside-block"
-        >
-            {renderTrigger(variant, activeLabel)}
-        </LemonMenu>
+        // Stop propagation so the click doesn't reach the surrounding LemonInput wrapper
+        // and focus its input — that would open a sibling popover that ends up rendered
+        // on top of this dropdown (see issue with session replay add-filter input).
+        <span onClick={(e) => e.stopPropagation()}>
+            <LemonMenu
+                items={items}
+                onVisibilityChange={onVisibilityChange}
+                activeItemIndex={activeItemIndex >= 0 ? activeItemIndex : undefined}
+                placement="bottom-start"
+                className="click-outside-block"
+            >
+                {renderTrigger(variant, activeLabel)}
+            </LemonMenu>
+        </span>
     )
 }
 
