@@ -1326,11 +1326,16 @@ class TestTaskRunGetSandboxEnvironment(TestCase):
             repository="org/repo",
         )
 
-    def _create_run(self, sandbox_environment_id=None):
+    def _create_run(self, sandbox_environment_id=None, created_by=None):
         state = {}
         if sandbox_environment_id:
             state["sandbox_environment_id"] = str(sandbox_environment_id)
-        return TaskRun.objects.create(task=self.task, team=self.team, state=state)
+        return TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            created_by=created_by if created_by is not None else self.user,
+            state=state,
+        )
 
     def test_returns_none_when_no_environment_id(self):
         run = self._create_run()
@@ -1350,10 +1355,18 @@ class TestTaskRunGetSandboxEnvironment(TestCase):
         run = self._create_run(env.id)
         self.assertIsNone(run.get_sandbox_environment())
 
-    def test_returns_private_environment_when_creator_matches(self):
+    def test_returns_private_environment_when_initiator_matches(self):
         env = SandboxEnvironment.objects.create(team=self.team, name="My Private", private=True, created_by=self.user)
         run = self._create_run(env.id)
         self.assertEqual(run.get_sandbox_environment(), env)
+
+    def test_returns_none_for_private_environment_when_initiator_differs(self):
+        # Even when the task creator owns the env, a different run initiator
+        # (e.g. another team member triggering the run) must not be granted
+        # access to the private sandbox environment — see VERIA-293.
+        env = SandboxEnvironment.objects.create(team=self.team, name="My Private", private=True, created_by=self.user)
+        run = self._create_run(env.id, created_by=self.other_user)
+        self.assertIsNone(run.get_sandbox_environment())
 
     def test_returns_none_for_private_environment_when_creator_differs(self):
         env = SandboxEnvironment.objects.create(
@@ -1362,11 +1375,15 @@ class TestTaskRunGetSandboxEnvironment(TestCase):
         run = self._create_run(env.id)
         self.assertIsNone(run.get_sandbox_environment())
 
-    def test_returns_none_for_private_environment_when_task_creator_is_null(self):
+    def test_returns_none_for_private_environment_when_run_initiator_is_null(self):
+        env = SandboxEnvironment.objects.create(team=self.team, name="Private", private=True, created_by=self.user)
+        # Legacy run with no recorded initiator and no task creator either —
+        # private envs must not be accessible without a known identity.
         self.task.created_by = None
         self.task.save()
-        env = SandboxEnvironment.objects.create(team=self.team, name="Private", private=True, created_by=self.user)
-        run = self._create_run(env.id)
+        run = TaskRun.objects.create(
+            task=self.task, team=self.team, created_by=None, state={"sandbox_environment_id": str(env.id)}
+        )
         self.assertIsNone(run.get_sandbox_environment())
 
     def test_returns_none_for_private_environment_when_env_creator_is_null(self):

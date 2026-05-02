@@ -4,7 +4,7 @@ from temporalio import activity
 
 from posthog.temporal.common.utils import asyncify
 
-from products.tasks.backend.models import SandboxSnapshot, Task
+from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
 from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
 from products.tasks.backend.temporal.exceptions import (
     GitHubAuthenticationError,
@@ -13,7 +13,7 @@ from products.tasks.backend.temporal.exceptions import (
     SnapshotNotReadyError,
     TaskNotFoundError,
 )
-from products.tasks.backend.temporal.oauth import create_oauth_access_token
+from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_run
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
 from products.tasks.backend.temporal.process_task.utils import (
     build_sandbox_environment_variables,
@@ -97,7 +97,12 @@ def create_sandbox_from_snapshot(input: CreateSandboxFromSnapshotInput) -> Creat
                 )
 
         try:
-            access_token = create_oauth_access_token(task)
+            task_run = TaskRun.objects.select_related("created_by").get(id=ctx.run_id)
+        except TaskRun.DoesNotExist as e:
+            raise TaskNotFoundError(f"TaskRun {ctx.run_id} not found", {"run_id": ctx.run_id}, cause=e)
+
+        try:
+            access_token = create_oauth_access_token_for_run(task_run, task=task)
         except Exception as e:
             raise OAuthTokenError(
                 f"Failed to create OAuth access token for task {ctx.task_id}",

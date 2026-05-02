@@ -30,6 +30,7 @@ class TestGetSandboxForRepositoryActivity:
             repository=test_task.repository,
             distinct_id=test_task.created_by.distinct_id or "test-user-id",
             task_created_by_id=test_task.created_by_id,
+            run_initiator_id=test_task_run.created_by_id,
         )
 
     @pytest.mark.django_db

@@ -14,7 +14,7 @@ from products.tasks.backend.services.connection_token import get_sandbox_jwt_pub
 from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
 from products.tasks.backend.temporal.exceptions import GitHubAuthenticationError, OAuthTokenError, TaskNotFoundError
 from products.tasks.backend.temporal.metrics import StepTimer, increment_snapshot_usage
-from products.tasks.backend.temporal.oauth import create_oauth_access_token
+from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_run
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
 from products.tasks.backend.temporal.process_task.utils import (
     get_git_identity_env_vars,
@@ -108,6 +108,13 @@ def _load_task(ctx: TaskProcessingContext) -> Task:
         )
     except Task.DoesNotExist as e:
         raise TaskNotFoundError(f"Task {ctx.task_id} not found", {"task_id": ctx.task_id}, cause=e)
+
+
+def _load_task_run(ctx: TaskProcessingContext) -> TaskRun:
+    try:
+        return TaskRun.objects.select_related("created_by").get(id=ctx.run_id)
+    except TaskRun.DoesNotExist as e:
+        raise TaskNotFoundError(f"TaskRun {ctx.run_id} not found", {"run_id": ctx.run_id}, cause=e)
 
 
 def _get_image_source_label(
@@ -253,8 +260,9 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
                     cause=e,
                 )
 
+        task_run = _load_task_run(ctx)
         try:
-            access_token = create_oauth_access_token(task)
+            access_token = create_oauth_access_token_for_run(task_run, task=task)
         except Exception as e:
             raise OAuthTokenError(
                 f"Failed to create OAuth access token for task {ctx.task_id}",
@@ -492,8 +500,9 @@ def inject_fresh_tokens_on_resume(input: InjectFreshTokensOnResumeInput) -> None
                     cause=e,
                 )
 
+        task_run = _load_task_run(ctx)
         try:
-            access_token = create_oauth_access_token(task)
+            access_token = create_oauth_access_token_for_run(task_run, task=task)
         except Exception as e:
             raise OAuthTokenError(
                 f"Failed to refresh OAuth access token for task {ctx.task_id}",

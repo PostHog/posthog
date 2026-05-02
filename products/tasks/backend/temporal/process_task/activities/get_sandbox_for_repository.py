@@ -18,7 +18,7 @@ from products.tasks.backend.services.sandbox import (
 )
 from products.tasks.backend.temporal.exceptions import GitHubAuthenticationError, OAuthTokenError, TaskNotFoundError
 from products.tasks.backend.temporal.metrics import StepTimer, increment_snapshot_usage
-from products.tasks.backend.temporal.oauth import create_oauth_access_token
+from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_run
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
 from products.tasks.backend.temporal.process_task.utils import (
     get_git_identity_env_vars,
@@ -163,7 +163,12 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
                 )
 
         try:
-            access_token = create_oauth_access_token(task)
+            task_run = TaskRun.objects.select_related("created_by").get(id=ctx.run_id)
+        except TaskRun.DoesNotExist as e:
+            raise TaskNotFoundError(f"TaskRun {ctx.run_id} not found", {"run_id": ctx.run_id}, cause=e)
+
+        try:
+            access_token = create_oauth_access_token_for_run(task_run, task=task)
         except Exception as e:
             raise OAuthTokenError(
                 f"Failed to create OAuth access token for task {ctx.task_id}",

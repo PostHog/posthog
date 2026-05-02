@@ -132,6 +132,7 @@ def test_task_run(test_task):
     task_run = TaskRun.objects.create(
         task=test_task,
         team=test_task.team,
+        created_by=test_task.created_by,
         status=TaskRun.Status.QUEUED,
     )
 
@@ -153,6 +154,7 @@ def task_context(test_task, test_task_run) -> TaskProcessingContext:
         repository=test_task.repository,
         distinct_id=test_task.created_by.distinct_id or "test-distinct-id",
         task_created_by_id=test_task.created_by_id,
+        run_initiator_id=test_task_run.created_by_id,
     )
 
 

@@ -219,6 +219,7 @@ class Task(DeletedMetaFields, models.Model):
         mode: str = "background",
         extra_state: dict | None = None,
         branch: str | None = None,
+        created_by_id: int | None = None,
     ) -> "TaskRun":
         state: dict = {"mode": mode}
         if extra_state:
@@ -230,6 +231,7 @@ class Task(DeletedMetaFields, models.Model):
         task_run = TaskRun.objects.create(
             task=self,
             team=self.team,
+            created_by_id=created_by_id,
             status=TaskRun.Status.QUEUED,
             **({"environment": environment} if environment else {}),
             state=state,
@@ -328,10 +330,10 @@ class Task(DeletedMetaFields, models.Model):
 
         sandbox_env = None
         if sandbox_environment_id is not None:
-            sandbox_env = SandboxEnvironment.get_accessible_for_task(
+            sandbox_env = SandboxEnvironment.get_accessible_for_run(
                 environment_id=sandbox_environment_id,
                 team_id=team.id,
-                task_created_by_id=user_id,
+                run_initiator_id=user_id,
             )
             if sandbox_env is None:
                 raise ValueError(f"Invalid sandbox_environment_id: {sandbox_environment_id}")
@@ -374,7 +376,7 @@ class Task(DeletedMetaFields, models.Model):
         if initial_permission_mode:
             extra_state["initial_permission_mode"] = initial_permission_mode
 
-        task_run = task.create_run(mode=mode, extra_state=extra_state or None, branch=branch)
+        task_run = task.create_run(mode=mode, extra_state=extra_state or None, branch=branch, created_by_id=user_id)
 
         if start_workflow:
             execute_task_processing_workflow(
@@ -517,6 +519,18 @@ class TaskRun(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="runs")
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    # The user who initiated this run. Distinct from `task.created_by` so that
+    # team members triggering an existing task can't escalate to the original
+    # creator's identity (OAuth tokens, MCP installations, private sandbox envs).
+    created_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_index=False,
+        related_name="initiated_task_runs",
+        help_text="The user who initiated this run.",
+    )
 
     branch = models.CharField(max_length=255, blank=True, null=True, help_text="Branch name for the run")
 
@@ -579,17 +593,19 @@ class TaskRun(models.Model):
     def get_sandbox_environment(self) -> Optional["SandboxEnvironment"]:
         """Resolve the SandboxEnvironment for this run, scoped to team and respecting privacy.
 
-        Private environments are only accessible if the task creator matches the
-        environment creator. If either created_by is null, private environments
-        are not accessible.
+        Private environments are only accessible if the run initiator matches the
+        environment creator. Falling back to a different identity (e.g. the task
+        creator) here would let any team member who triggers a run inherit the
+        creator's private environments — see the `is_accessible_for_run_initiator`
+        check on `SandboxEnvironment` for the reasoning.
         """
         env_id = (self.state or {}).get("sandbox_environment_id")
         if not env_id:
             return None
-        return SandboxEnvironment.get_accessible_for_task(
+        return SandboxEnvironment.get_accessible_for_run(
             environment_id=env_id,
             team_id=self.team_id,
-            task_created_by_id=self.task.created_by_id,
+            run_initiator_id=self.created_by_id,
         )
 
     def prepare_for_cloud_handoff(self) -> None:
@@ -1162,26 +1178,35 @@ class SandboxEnvironment(UUIDModel):
             models.Index(fields=["team", "created_by"]),
         ]
 
-    def is_accessible_for_task_creator(self, task_created_by_id: int | None) -> bool:
+    def is_accessible_for_run_initiator(self, run_initiator_id: int | None) -> bool:
         if not self.private:
             return True
-        return task_created_by_id is not None and self.created_by_id == task_created_by_id
+        return run_initiator_id is not None and self.created_by_id == run_initiator_id
 
     @classmethod
-    def get_accessible_for_task(
+    def get_accessible_for_run(
         cls,
         *,
         environment_id: str | uuid.UUID,
         team_id: int,
-        task_created_by_id: int | None,
+        run_initiator_id: int | None,
     ) -> Optional["SandboxEnvironment"]:
+        """Return the sandbox environment iff the run initiator may use it.
+
+        Private sandbox environments contain encrypted environment variables
+        (third-party API keys, etc.) belonging to the user who created them.
+        Allowing access based on the task creator instead of the user who
+        triggered the run lets a lower-privileged team member harvest a
+        higher-privileged user's secrets simply by clicking "Run" — see the
+        VERIA-293 finding.
+        """
         try:
             environment = cls.objects.filter(id=environment_id, team_id=team_id).first()
         except (ValidationError, ValueError):
             return None
         if environment is None:
             return None
-        if not environment.is_accessible_for_task_creator(task_created_by_id):
+        if not environment.is_accessible_for_run_initiator(run_initiator_id):
             return None
         return environment
 

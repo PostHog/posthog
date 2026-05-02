@@ -38,7 +38,7 @@ class TestInjectFreshTokensOnResumeActivity:
                 return_value="ghs_new",
             ),
             patch(
-                "products.tasks.backend.temporal.process_task.activities.provision_sandbox.create_oauth_access_token",
+                "products.tasks.backend.temporal.process_task.activities.provision_sandbox.create_oauth_access_token_for_run",
                 return_value="oauth_new",
             ),
         ):
@@ -85,7 +85,7 @@ class TestInjectFreshTokensOnResumeActivity:
                 return_value=sandbox,
             ),
             patch(
-                "products.tasks.backend.temporal.process_task.activities.provision_sandbox.create_oauth_access_token",
+                "products.tasks.backend.temporal.process_task.activities.provision_sandbox.create_oauth_access_token_for_run",
                 return_value="oauth_new",
             ),
         ):
@@ -119,7 +119,7 @@ class TestInjectFreshTokensOnResumeActivity:
                 return_value="ghs_new",
             ),
             patch(
-                "products.tasks.backend.temporal.process_task.activities.provision_sandbox.create_oauth_access_token",
+                "products.tasks.backend.temporal.process_task.activities.provision_sandbox.create_oauth_access_token_for_run",
                 return_value="oauth_new",
             ),
         ):
@@ -146,7 +146,10 @@ class TestInjectFreshTokensOnResumeActivity:
             description="Clone later from chat",
             origin_product=Task.OriginProduct.SLACK,
         )
-        task_run = task.create_run(extra_state={"interaction_origin": "slack", "pr_authorship_mode": "user"})
+        task_run = task.create_run(
+            extra_state={"interaction_origin": "slack", "pr_authorship_mode": "user"},
+            created_by_id=user.id,
+        )
         context = TaskProcessingContext(
             task_id=str(task.id),
             run_id=str(task_run.id),
@@ -158,6 +161,7 @@ class TestInjectFreshTokensOnResumeActivity:
             repository=None,
             distinct_id=user.distinct_id or "test-distinct-id",
             task_created_by_id=user.id,
+            run_initiator_id=user.id,
             state=task_run.state,
         )
 
@@ -167,7 +171,7 @@ class TestInjectFreshTokensOnResumeActivity:
                 return_value="gho_user",
             ) as get_sandbox_github_token_mock,
             patch(
-                "products.tasks.backend.temporal.process_task.activities.provision_sandbox.create_oauth_access_token",
+                "products.tasks.backend.temporal.process_task.activities.provision_sandbox.create_oauth_access_token_for_run",
                 return_value="oauth_new",
             ),
         ):
@@ -197,7 +201,10 @@ class TestInjectFreshTokensOnResumeActivity:
             origin_product=Task.OriginProduct.SLACK,
             github_integration=github_integration,
         )
-        task_run = task.create_run(extra_state={"interaction_origin": "slack", "pr_authorship_mode": "bot"})
+        task_run = task.create_run(
+            extra_state={"interaction_origin": "slack", "pr_authorship_mode": "bot"},
+            created_by_id=user.id,
+        )
         context = TaskProcessingContext(
             task_id=str(task.id),
             run_id=str(task_run.id),
@@ -209,6 +216,7 @@ class TestInjectFreshTokensOnResumeActivity:
             repository=None,
             distinct_id=user.distinct_id or "test-distinct-id",
             task_created_by_id=user.id,
+            run_initiator_id=user.id,
             state=task_run.state,
         )
 
@@ -218,7 +226,7 @@ class TestInjectFreshTokensOnResumeActivity:
                 return_value="ghs_team",
             ) as get_sandbox_github_token_mock,
             patch(
-                "products.tasks.backend.temporal.process_task.activities.provision_sandbox.create_oauth_access_token",
+                "products.tasks.backend.temporal.process_task.activities.provision_sandbox.create_oauth_access_token_for_run",
                 return_value="oauth_new",
             ),
         ):

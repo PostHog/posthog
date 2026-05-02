@@ -44,6 +44,12 @@ class TaskProcessingContext:
     environment: str | None = None
     github_user_integration_id: str | None = None
     task_created_by_id: int | None = None
+    # The user who triggered this run (may differ from task_created_by_id when
+    # a different team member starts a run for an existing task). Used to
+    # scope OAuth tokens, MCP installations, and private sandbox environments
+    # to the run initiator. Falls back to task_created_by_id for legacy runs
+    # created before this field was tracked.
+    run_initiator_id: int | None = None
     create_pr: bool = True
     pr_loop_enabled: bool = False
     state: dict | None = None
@@ -98,15 +104,24 @@ class TaskProcessingContext:
         value = (self.state or {}).get("run_source")
         return value if isinstance(value, str) else None
 
+    @property
+    def effective_initiator_id(self) -> int | None:
+        """Return the user ID whose identity should authorize private resources.
+
+        Prefers the run initiator; falls back to the task creator for legacy
+        runs created before run_initiator_id was tracked.
+        """
+        return self.run_initiator_id if self.run_initiator_id is not None else self.task_created_by_id
+
     def get_sandbox_environment(self):
         """Resolve the SandboxEnvironment, team-scoped and respecting privacy."""
         sandbox_environment_id = self.sandbox_environment_id
         if not sandbox_environment_id:
             return None
-        return SandboxEnvironment.get_accessible_for_task(
+        return SandboxEnvironment.get_accessible_for_run(
             environment_id=sandbox_environment_id,
             team_id=self.team_id,
-            task_created_by_id=self.task_created_by_id,
+            run_initiator_id=self.effective_initiator_id,
         )
 
     @property
@@ -151,6 +166,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
             "task__team",
             "task__github_integration",
             "task__github_user_integration",
+            "created_by",
         ).get(id=run_id)
     except ObjectDoesNotExist as e:
         raise TaskNotFoundError(f"TaskRun {run_id} not found", {"run_id": run_id}, cause=e)
@@ -169,7 +185,11 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
 
     assert task.created_by is not None
 
-    distinct_id = task.created_by.distinct_id or "process_task_workflow"
+    # Initiator drives execution identity (OAuth, MCP, private envs). Fall back
+    # to the task creator for legacy runs predating run_initiator tracking, and
+    # for analytics distinct_id (which has always followed the task creator).
+    run_initiator = task_run.created_by or task.created_by
+    distinct_id = run_initiator.distinct_id or task.created_by.distinct_id or "process_task_workflow"
     state = task_run.state or {}
     sandbox_environment_id = state.get("sandbox_environment_id")
     sandbox_environment_name: str | None = None
@@ -237,6 +257,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         run_id=run_id,
         team_id=task.team_id,
         team_uuid=str(task.team.uuid),
+        run_initiator_id=task_run.created_by_id,
         organization_id=str(task.team.organization_id),
         github_integration_id=task.github_integration_id,
         github_user_integration_id=user_github_integration_id,

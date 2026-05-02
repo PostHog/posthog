@@ -55,7 +55,7 @@ def forward_pending_user_message(run_id: str) -> None:
     from products.tasks.backend.services.staged_artifacts import get_task_run_artifacts_by_id
 
     try:
-        task_run = TaskRun.objects.select_related("task__created_by").get(id=run_id)
+        task_run = TaskRun.objects.select_related("task__created_by", "created_by").get(id=run_id)
     except TaskRun.DoesNotExist:
         logger.warning("forward_pending_message_run_not_found", run_id=run_id)
         return
@@ -91,10 +91,10 @@ def forward_pending_user_message(run_id: str) -> None:
                 raise RuntimeError(f"Pending task artifacts not found on this run: {missing_ids}")
 
         auth_token = None
-        created_by = task_run.task.created_by
-        if created_by and created_by.id:
-            distinct_id = created_by.distinct_id or f"user_{created_by.id}"
-            auth_token = create_sandbox_connection_token(task_run, user_id=created_by.id, distinct_id=distinct_id)
+        initiator = task_run.created_by or task_run.task.created_by
+        if initiator and initiator.id:
+            distinct_id = initiator.distinct_id or f"user_{initiator.id}"
+            auth_token = create_sandbox_connection_token(task_run, user_id=initiator.id, distinct_id=distinct_id)
 
         result = send_user_message(
             task_run,

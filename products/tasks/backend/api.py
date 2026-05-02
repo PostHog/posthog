@@ -755,10 +755,10 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
         if sandbox_environment_id is not None:
-            sandbox_environment = SandboxEnvironment.get_accessible_for_task(
+            sandbox_environment = SandboxEnvironment.get_accessible_for_run(
                 environment_id=sandbox_environment_id,
                 team_id=task.team_id,
-                task_created_by_id=task.created_by_id,
+                run_initiator_id=getattr(request.user, "id", None),
             )
             if sandbox_environment is None:
                 if sandbox_environment_id_supplied_by_user:
@@ -791,7 +791,12 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         logger.info(f"Creating task run for task {task.id} with mode={mode}, branch={branch}")
 
-        task_run = task.create_run(mode=mode, branch=branch, extra_state=extra_state)
+        task_run = task.create_run(
+            mode=mode,
+            branch=branch,
+            extra_state=extra_state,
+            created_by_id=getattr(request.user, "id", None),
+        )
 
         if pending_user_artifact_ids:
             run_artifacts: list[dict] = []
@@ -980,10 +985,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
         if sandbox_environment_id is not None:
-            sandbox_environment = SandboxEnvironment.get_accessible_for_task(
+            sandbox_environment = SandboxEnvironment.get_accessible_for_run(
                 environment_id=sandbox_environment_id,
                 team_id=task.team_id,
-                task_created_by_id=task.created_by_id,
+                run_initiator_id=getattr(request.user, "id", None),
             )
             if sandbox_environment is None:
                 return Response({"detail": "Invalid sandbox_environment_id"}, status=status.HTTP_400_BAD_REQUEST)
@@ -1013,6 +1018,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             mode=mode,
             branch=branch,
             extra_state=extra_state,
+            created_by_id=getattr(request.user, "id", None),
         )
 
         if github_user_token and pr_authorship_mode == PrAuthorshipMode.USER:
@@ -1072,14 +1078,27 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             state_updates["pending_user_artifact_ids"] = pending_user_artifact_ids
 
         previous_state = dict(task_run.state or {})
+        previous_created_by_id = task_run.created_by_id
         try:
             if state_updates:
                 TaskRun.update_state_atomic(task_run.id, updates=state_updates)
                 task_run.refresh_from_db()
 
+            # The execution identity (OAuth token, MCP installs, private sandbox
+            # envs) is resolved from `task_run.created_by`. Pin it to whoever
+            # actually started the workflow so a different team member starting
+            # someone else's queued run can't run under that user's identity.
+            initiator_id = getattr(request.user, "id", None)
+            if initiator_id is not None and previous_created_by_id != initiator_id:
+                TaskRun.objects.filter(id=task_run.id).update(created_by_id=initiator_id)
+                task_run.created_by_id = initiator_id
+
             logger.info("Triggering workflow for task %s, existing run %s", task.id, task_run.id)
             self._trigger_workflow(task, task_run, raise_on_error=True)
         except Exception:
+            if previous_created_by_id != task_run.created_by_id:
+                TaskRun.objects.filter(id=task_run.id).update(created_by_id=previous_created_by_id)
+                task_run.created_by_id = previous_created_by_id
             if state_updates:
                 rollback_updates = {
                     key: previous_state[key] for key in state_updates.keys() if key in previous_state

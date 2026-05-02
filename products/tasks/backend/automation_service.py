@@ -65,6 +65,10 @@ def run_task_automation(automation_id: str, trigger_workflow_id: str | None = No
         automation = TaskAutomation.objects.select_for_update(of=("self",)).select_related("task").get(id=automation_id)
         task = automation.task
 
+        # Automations are initiated on behalf of the task creator — there's no
+        # separate human who triggered them, so the creator is the right
+        # execution identity for OAuth tokens, MCP installs, and private envs.
+        initiator_id = task.created_by_id
         if trigger_workflow_id:
             existing_task_run_query = TaskRun.objects.select_related("task").filter(
                 task__team_id=task.team_id,
@@ -79,9 +83,13 @@ def run_task_automation(automation_id: str, trigger_workflow_id: str | None = No
                 extra_state = {"automation_id": automation_id}
                 if trigger_workflow_id:
                     extra_state["automation_trigger_workflow_id"] = trigger_workflow_id
-                task_run = task.create_run(mode="background", extra_state=extra_state)
+                task_run = task.create_run(mode="background", extra_state=extra_state, created_by_id=initiator_id)
         else:
-            task_run = task.create_run(mode="background", extra_state={"automation_id": automation_id})
+            task_run = task.create_run(
+                mode="background",
+                extra_state={"automation_id": automation_id},
+                created_by_id=initiator_id,
+            )
 
         team_id = task.team_id
         user_id = task.created_by_id

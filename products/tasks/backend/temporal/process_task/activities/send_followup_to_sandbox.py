@@ -20,7 +20,7 @@ from products.tasks.backend.services.connection_token import create_sandbox_conn
 from products.tasks.backend.services.sandbox import SANDBOX_TTL_SECONDS
 from products.tasks.backend.services.staged_artifacts import get_task_run_artifacts_by_id
 from products.tasks.backend.stream.redis_stream import get_task_run_stream_key
-from products.tasks.backend.temporal.oauth import create_oauth_access_token
+from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_run, resolve_run_initiator
 from products.tasks.backend.temporal.process_task.utils import (
     get_sandbox_ph_mcp_configs,
     get_user_mcp_server_configs,
@@ -52,7 +52,7 @@ def send_followup_to_sandbox(input: SendFollowupToSandboxInput) -> None:
     SSE stream terminates cleanly.
     """
     try:
-        task_run = TaskRun.objects.select_related("task__created_by").get(id=input.run_id)
+        task_run = TaskRun.objects.select_related("task__created_by", "created_by").get(id=input.run_id)
     except TaskRun.DoesNotExist:
         error_msg = "Task run not found"
         logger.warning("send_followup_run_not_found", run_id=input.run_id)
@@ -62,10 +62,10 @@ def send_followup_to_sandbox(input: SendFollowupToSandboxInput) -> None:
         raise RuntimeError(f"send_followup failed: {error_msg}")
 
     auth_token = None
-    created_by = task_run.task.created_by
-    if created_by and created_by.id:
-        distinct_id = created_by.distinct_id or f"user_{created_by.id}"
-        auth_token = create_sandbox_connection_token(task_run, user_id=created_by.id, distinct_id=distinct_id)
+    initiator = task_run.created_by or task_run.task.created_by
+    if initiator and initiator.id:
+        distinct_id = initiator.distinct_id or f"user_{initiator.id}"
+        auth_token = create_sandbox_connection_token(task_run, user_id=initiator.id, distinct_id=distinct_id)
 
     # Push a fresh MCP config before the turn so the agent-server rebinds its
     # ACP session to a non-stale OAuth token. Non-fatal: if refresh fails we
@@ -130,7 +130,7 @@ def _refresh_sandbox_mcp(
 
     task = task_run.task
     try:
-        access_token = create_oauth_access_token(task, scopes=scopes)
+        access_token = create_oauth_access_token_for_run(task_run, task=task, scopes=scopes)
     except Exception as e:
         logger.warning("refresh_mcp_token_mint_failed", run_id=run_id, error=str(e))
         return
@@ -141,11 +141,15 @@ def _refresh_sandbox_mcp(
         scopes=scopes,
         interaction_origin=(task_run.state or {}).get("interaction_origin"),
     )
-    if task.created_by_id:
+    try:
+        initiator_id = resolve_run_initiator(task_run, task=task).id
+    except Exception:
+        initiator_id = None
+    if initiator_id:
         user_mcp_configs = get_user_mcp_server_configs(
             token=access_token,
             team_id=task_run.team_id,
-            user_id=task.created_by_id,
+            user_id=initiator_id,
         )
         if user_mcp_configs:
             mcp_configs = mcp_configs + user_mcp_configs

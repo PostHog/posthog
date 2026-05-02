@@ -7,11 +7,11 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import asyncify
 from posthog.temporal.oauth import PosthogMcpScopes
 
-from products.tasks.backend.models import Task
+from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.services.agentsh import ENV_FILE, ENV_WRAPPER_SCRIPT, build_exec_prefix
 from products.tasks.backend.services.sandbox import Sandbox, SandboxBase
 from products.tasks.backend.temporal.exceptions import OAuthTokenError, SandboxExecutionError
-from products.tasks.backend.temporal.oauth import create_oauth_access_token
+from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_run
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
 from products.tasks.backend.temporal.process_task.utils import (
     format_allowed_domains_for_log,
@@ -129,7 +129,8 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
 
         try:
             task = Task.objects.select_related("created_by").get(id=ctx.task_id)
-            access_token = create_oauth_access_token(task, scopes=scopes)
+            task_run = TaskRun.objects.select_related("created_by").get(id=ctx.run_id)
+            access_token = create_oauth_access_token_for_run(task_run, task=task, scopes=scopes)
         except OAuthTokenError:
             raise
         except Exception as e:
@@ -145,11 +146,16 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
             scopes=scopes,
             interaction_origin=ctx.interaction_origin,
         )
-        if task.created_by_id:
+        # MCP installations are user-scoped: granting an attacker access to a
+        # different team member's installations would let them act as that
+        # user against integrated third-party services. Load configs for the
+        # run initiator only.
+        initiator_id = ctx.effective_initiator_id
+        if initiator_id:
             user_mcp_configs = get_user_mcp_server_configs(
                 token=access_token,
                 team_id=ctx.team_id,
-                user_id=task.created_by_id,
+                user_id=initiator_id,
             )
             if user_mcp_configs:
                 mcp_configs = mcp_configs + user_mcp_configs
