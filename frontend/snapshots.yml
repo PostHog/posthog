@@ -520,6 +520,10 @@ snapshots:
         hash: v1.k794b7964.529535e435c93c8f004cdba8f2ba29681dd679eb9bfbaff745a5f00c3b424ffd.2Kq3-2B9F2VNlkrFY-dge3vntnfrudonJ-Lle1s8m5E
     components-hogcharts-timeserieslinechart--basic--light:
         hash: v1.k794b7964.3a097fd7390b5a54fcf6e20a1769cc9058b66f4d040ed58748d0d4dc55c8788b.zqLqP936uYDq025ot6wQL3TxRVnq4UzQAtiS92DFZp8
+    components-hogcharts-timeserieslinechart--date-axis--dark:
+        hash: v1.k794b7964.5805c3a1a9848b678164dcb7f71f6e6df63feb0528585a035d46ca9494080129.e7jpy3cDRnVfLZFjsQcScQdz8mwwULxW5TsnWUE_Rq4
+    components-hogcharts-timeserieslinechart--date-axis--light:
+        hash: v1.k794b7964.7a2951f2481faf207966615e374818fb43d30ae3f16aeb2af836bc6955d80d77.WNimlXEb2nRgkA5J86byjnuJ3WUmvR_vb9glEJzoQJw
     components-hogcharts-valuelabels--cross-series-overlap-removal--dark:
         hash: v1.k794b7964.b766f038277710789aefeabc721df0c662a10aa672b24e14f7e68349f88f396a.Jef_dCFf6j8X_7hXhsuDQa6KMpkq-BS1akkcNUH46MU
     components-hogcharts-valuelabels--cross-series-overlap-removal--light:
