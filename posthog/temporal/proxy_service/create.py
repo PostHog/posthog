@@ -420,6 +420,33 @@ async def schedule_monitor_job(inputs: ScheduleMonitorJobInputs):
         # This is not an error - the schedule already exists
 
 
+# ProxyRecord.message is max_length=1024 — keep persisted failure descriptions well under that.
+_MAX_FAILURE_MESSAGE_LEN = 800
+
+
+def _truncate(message: str) -> str:
+    if len(message) <= _MAX_FAILURE_MESSAGE_LEN:
+        return message
+    return message[: _MAX_FAILURE_MESSAGE_LEN - 1] + "…"
+
+
+def _describe_activity_failure(error: ActivityError) -> str:
+    """Build a short, human-readable failure summary for ProxyRecord.message from a Temporal ActivityError.
+
+    Without this, create-time failures persist status=erroring with message=NULL, which forces
+    debugging through Temporal UI / worker logs even when the underlying cause is obvious.
+    """
+    activity_type = getattr(getattr(error, "activity_type", None), "name", None) or "activity"
+    cause = getattr(error, "cause", None)
+    cause_message = getattr(cause, "message", None) or str(cause) if cause else str(error)
+    return _truncate(f"{activity_type}: {cause_message}")
+
+
+def _describe_workflow_failure(error: BaseException) -> str:
+    """Build a short, human-readable failure summary for non-ActivityError exceptions in the workflow."""
+    return _truncate(f"{error.__class__.__name__}: {error}")
+
+
 @workflow.defn(name="create-proxy")
 class CreateManagedProxyWorkflow(PostHogWorkflow):
     """A Temporal Workflow to create a Managed reverse Proxy."""
@@ -636,6 +663,7 @@ class CreateManagedProxyWorkflow(PostHogWorkflow):
                         organization_id=inputs.organization_id,
                         proxy_record_id=inputs.proxy_record_id,
                         status=ProxyRecord.Status.ERRORING.value,
+                        message=_describe_activity_failure(e),
                     ),
                     start_to_close_timeout=dt.timedelta(seconds=60),
                     retry_policy=temporalio.common.RetryPolicy(
@@ -677,6 +705,7 @@ class CreateManagedProxyWorkflow(PostHogWorkflow):
                     organization_id=inputs.organization_id,
                     proxy_record_id=inputs.proxy_record_id,
                     status=ProxyRecord.Status.ERRORING.value,
+                    message=_describe_workflow_failure(e),
                 ),
                 start_to_close_timeout=dt.timedelta(seconds=60),
                 retry_policy=temporalio.common.RetryPolicy(
