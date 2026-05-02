@@ -146,6 +146,10 @@ tracer = trace.get_tracer(__name__)
 # posthog/api/test/dashboards/test_dashboard.py — tighten it and the typo cases stop
 # matching, loosen it and unrelated rows leak in.
 MIN_TRIGRAM_SIMILARITY = 0.3
+# Hard cap on the `?search=` query parameter — protects against pathological inputs
+# burning CPU on trigram comparisons against a long string (and against operational
+# `dashboard.name` is bounded at 400 chars so 200 covers any realistic prefix-as-you-type).
+MAX_SEARCH_LENGTH = 200
 
 
 def serialize_tile_with_context(tile, order: int, context: dict) -> tuple[int, dict]:
@@ -1047,7 +1051,8 @@ class DashboardSerializer(DashboardMetadataSerializer):
                     "Optional. Fuzzy match against dashboard `name` and `description` using Postgres trigram "
                     "word similarity (handles typos, transpositions, and prefix-as-you-type). `name` matches "
                     "rank above `description` matches. Results are ordered by relevance, then pinned status, "
-                    "then name. When omitted, dashboards are ordered by pinned status then alphabetical name."
+                    "then name. When omitted, dashboards are ordered by pinned status then alphabetical name. "
+                    "Capped at 200 characters; longer queries return a 400 error."
                 ),
             ),
         ],
@@ -1083,6 +1088,10 @@ class DashboardsViewSet(
 
         search = self.request.query_params.get("search")
         if search:
+            if len(search) > MAX_SEARCH_LENGTH:
+                raise serializers.ValidationError(
+                    {"search": f"Search query must be {MAX_SEARCH_LENGTH} characters or fewer."}
+                )
             queryset = self._apply_search(queryset, search)
 
         tags = self.request.query_params.getlist("tags")

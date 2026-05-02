@@ -252,7 +252,6 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         [
             ("plain symbols", "&|!"),
             ("sql-injection-shaped", "'; DROP TABLE--"),
-            ("very long", "a" * 512),
         ]
     )
     def test_list_filter_by_search_pathological_input_does_not_500(self, _name, search):
@@ -267,6 +266,27 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
 
         assert response["results"] == []
+
+    @parameterized.expand(
+        [
+            ("at cap (200)", 200, status.HTTP_200_OK),
+            ("just over cap (201)", 201, status.HTTP_400_BAD_REQUEST),
+            ("very long (10k)", 10_000, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_list_filter_by_search_enforces_length_cap(self, _name, length, expected_status):
+        self.dashboard_api.create_dashboard({"name": "Dashboard overview"})
+
+        response = self.dashboard_api.list_dashboards(
+            query_params={"search": "a" * length},
+            expected_status=expected_status,
+        )
+
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            assert response["attr"] == "search", f"expected error scoped to 'search', got {response}"
+            assert "200 characters" in response["detail"], (
+                f"expected error detail to mention the cap, got {response['detail']}"
+            )
 
     def test_list_includes_last_viewed_at_from_filesystem_logs(self):
         dashboard_recent_id, _ = self.dashboard_api.create_dashboard({"name": "Recently viewed"})
