@@ -59,6 +59,28 @@ def _build_logs_query(alert: LogsAlertConfiguration, date_range: DateRange) -> L
     )
 
 
+def _period_ranges(
+    date_from: dt.datetime, period_minutes: int, period_count: int
+) -> list[tuple[dt.datetime, dt.datetime]]:
+    return [
+        (
+            date_from + dt.timedelta(minutes=i * period_minutes),
+            date_from + dt.timedelta(minutes=(i + 1) * period_minutes),
+        )
+        for i in range(period_count)
+    ]
+
+
+def _timestamp_in_range(start: dt.datetime, end: dt.datetime) -> ast.Expr:
+    # Compare raw `timestamp`, not `toStartOfMinute(timestamp)`: `date_from` can carry
+    # sub-minute fractions from a DateTime64(6) checkpoint, and a minute-floor wrap
+    # would drop up to 60s of data at the lower boundary.
+    return parse_expr(
+        "timestamp >= {start} AND timestamp < {end}",
+        placeholders={"start": ast.Constant(value=start), "end": ast.Constant(value=end)},
+    )
+
+
 def _tag_alert_query(*, team: Team, alert_config_id: str, source: str) -> None:
     tag_queries(
         product=Product.LOGS,
@@ -140,6 +162,8 @@ class AlertCheckQuery:
             raise ValueError(f"Alert {alert.id} belongs to team {alert.team_id}, not {team.id}")
         self.team = team
         self.alert = alert
+        self.date_from = date_from
+        self.date_to = date_to
         self.date_range = DateRange(date_from=date_from.isoformat(), date_to=date_to.isoformat())
         self.where_expr = build_alert_where_expr(team=team, alert=alert, date_from=date_from, date_to=date_to)
 
@@ -209,6 +233,28 @@ class AlertCheckQuery:
         response = self._run_query(query)
         return [BucketedCount(timestamp=row[0], count=row[1]) for row in response.results]
 
+    def execute_periods(self, period_minutes: int, period_count: int) -> list[BucketedCount]:
+        """Per-period counts anchored to `date_from`, oldest-first."""
+        self._tag()
+
+        ranges = _period_ranges(self.date_from, period_minutes, period_count)
+        select_columns: list[ast.Expr] = [
+            ast.Alias(
+                alias=f"period_{i}",
+                expr=ast.Call(name="countIf", args=[_timestamp_in_range(start, end)]),
+            )
+            for i, (start, end) in enumerate(ranges)
+        ]
+
+        query = ast.SelectQuery(
+            select=select_columns,
+            select_from=ast.JoinExpr(table=ast.Field(chain=["logs"])),
+            where=self.where_expr,
+        )
+        response = self._run_query(query)
+        row = response.results[0] if response.results else [0] * period_count
+        return [BucketedCount(timestamp=start, count=count) for (start, _), count in zip(ranges, row)]
+
     def _run_query(self, query: ast.SelectQuery | ast.SelectSetQuery) -> HogQLQueryResponse:
         if not isinstance(query, ast.SelectQuery):
             raise ValueError("Failed to build alert check query")
@@ -267,6 +313,8 @@ class BatchedAlertCheckQuery:
             raise ValueError("All alerts in a batch must belong to the same team")
         self.team = team
         self.alerts = list(alerts)
+        self.date_from = date_from
+        self.date_to = date_to
         self._alert_where_exprs: list[ast.Expr] = [
             build_alert_where_expr(team=team, alert=alert, date_from=date_from, date_to=date_to)
             for alert in self.alerts
@@ -344,6 +392,45 @@ class BatchedAlertCheckQuery:
             bucket_ts = row[0]
             for i, alert in enumerate(self.alerts):
                 per_alert[str(alert.id)].append(BucketedCount(timestamp=bucket_ts, count=row[i + 1]))
+        return BatchedBucketedResult(per_alert=per_alert, query_duration_ms=duration_ms)
+
+    def execute_periods(self, period_minutes: int, period_count: int) -> BatchedBucketedResult:
+        """Per-alert per-period counts anchored to `date_from` (cohort version of `AlertCheckQuery.execute_periods`)."""
+        self._tag()
+
+        ranges = _period_ranges(self.date_from, period_minutes, period_count)
+        select_columns: list[ast.Expr] = [
+            ast.Alias(
+                alias=f"alert_{alert_i}_period_{period_i}",
+                expr=ast.Call(
+                    name="countIf",
+                    args=[ast.And(exprs=[alert_expr, _timestamp_in_range(start, end)])],
+                ),
+            )
+            for alert_i, alert_expr in enumerate(self._alert_where_exprs)
+            for period_i, (start, end) in enumerate(ranges)
+        ]
+
+        query = ast.SelectQuery(
+            select=select_columns,
+            select_from=ast.JoinExpr(table=ast.Field(chain=["logs"])),
+            where=self._outer_where,
+        )
+
+        start_ms = time.monotonic_ns() // 1_000_000
+        response = self._run_query(query)
+        duration_ms = time.monotonic_ns() // 1_000_000 - start_ms
+
+        # Cells are laid out alert-major: row[0..M-1] = alert 0's M periods,
+        # row[M..2M-1] = alert 1's, etc. Empty result = all zeros.
+        row = response.results[0] if response.results else [0] * (len(self.alerts) * len(ranges))
+        per_alert: dict[str, list[BucketedCount]] = {}
+        for alert_i, alert in enumerate(self.alerts):
+            offset = alert_i * len(ranges)
+            per_alert[str(alert.id)] = [
+                BucketedCount(timestamp=start, count=row[offset + period_i])
+                for period_i, (start, _) in enumerate(ranges)
+            ]
         return BatchedBucketedResult(per_alert=per_alert, query_duration_ms=duration_ms)
 
     def _run_query(self, query: ast.SelectQuery) -> HogQLQueryResponse:

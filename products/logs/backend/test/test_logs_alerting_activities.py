@@ -75,13 +75,13 @@ def _bucket_counts_for(counts: list[int]) -> list[BucketedCount]:
 
 
 def _mock_buckets(mock_query_cls: MagicMock, counts: list[int]) -> None:
-    """Set AlertCheckQuery().execute_bucketed to return `counts` (oldest-first).
+    """Set AlertCheckQuery().execute_periods to return `counts` (oldest-first).
 
     Used for tests that call `_evaluate_single_alert` directly without prefetched
-    buckets — the per-alert path still goes through `AlertCheckQuery`. For the
-    cohort/sync path see `_mock_batched_buckets`.
+    buckets — the per-alert path goes through `AlertCheckQuery.execute_periods`.
+    For the cohort/sync path see `_mock_batched_buckets`.
     """
-    mock_query_cls.return_value.execute_bucketed.return_value = _bucket_counts_for(counts)
+    mock_query_cls.return_value.execute_periods.return_value = _bucket_counts_for(counts)
 
 
 def _mock_batched_buckets(mock_run_batched: MagicMock, counts: list[int]) -> None:
@@ -588,9 +588,9 @@ class TestRunCohortQueryFallback(unittest.TestCase):
         def make_query_instance(*, team, alert, **_kwargs):
             instance = MagicMock()
             if alert.id == "alert-1":
-                instance.execute_bucketed.side_effect = RuntimeError("alert-1 also bad")
+                instance.execute_periods.side_effect = RuntimeError("alert-1 also bad")
             else:
-                instance.execute_bucketed.return_value = [
+                instance.execute_periods.return_value = [
                     BucketedCount(timestamp=datetime(2025, 1, 1, 0, 0, tzinfo=UTC), count=42)
                 ]
             return instance
@@ -777,14 +777,14 @@ class TestRunCohortQueryFallbackEndToEnd(ClickhouseTestMixin, APIBaseTest):
         )
 
         # Selectively fail the per-alert query for bad_alert; let good_alert hit real CH.
-        original_execute_bucketed = AlertCheckQuery.execute_bucketed
+        original_execute_periods = AlertCheckQuery.execute_periods
 
         def maybe_fail(self, *args, **kwargs):
             if self.alert.id == bad_alert.id:
                 raise RuntimeError("simulated per-alert query failure")
-            return original_execute_bucketed(self, *args, **kwargs)
+            return original_execute_periods(self, *args, **kwargs)
 
-        with patch.object(AlertCheckQuery, "execute_bucketed", maybe_fail):
+        with patch.object(AlertCheckQuery, "execute_periods", maybe_fail):
             result = _run_cohort_query(cohort)
 
         # Good alert: real buckets, no error.
@@ -926,7 +926,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
         # Force the classifier to treat this as a performance error so the assertion
         # doesn't depend on whether the raw message hits one of the shared classifier's
         # recognized shapes.
-        mock_query_cls.return_value.execute_bucketed.side_effect = Exception(
+        mock_query_cls.return_value.execute_periods.side_effect = Exception(
             "Code: 160. DB::Exception: Estimated query execution time is too long"
         )
         alert = self._make_alert()
@@ -1199,7 +1199,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
             consecutive_failures=initial_failures,
             state=initial_state,
         )
-        mock_query_cls.return_value.execute_bucketed.side_effect = Exception(
+        mock_query_cls.return_value.execute_periods.side_effect = Exception(
             "Code: 160. DB::Exception: Estimated query execution time is too long"
         )
 
@@ -1315,7 +1315,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
         mock_query_cls,
         mock_check_errors,
     ):
-        mock_query_cls.return_value.execute_bucketed.side_effect = Exception("boom")
+        mock_query_cls.return_value.execute_periods.side_effect = Exception("boom")
         self._make_alert()
 
         with patch(
@@ -1438,7 +1438,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
     @patch("products.logs.backend.temporal.activities.produce_internal_event")
     def test_errored_notification_emitted_on_first_error(self, mock_produce, mock_query_cls):
-        mock_query_cls.return_value.execute_bucketed.side_effect = Exception(
+        mock_query_cls.return_value.execute_periods.side_effect = Exception(
             "Code: 160. DB::Exception: Estimated query execution time is too long"
         )
         alert = self._make_alert()
@@ -1463,7 +1463,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
     @patch("products.logs.backend.temporal.activities.capture_exception")
     def test_errored_notification_retried_after_kafka_failure(self, _mock_capture, mock_query_cls):
-        mock_query_cls.return_value.execute_bucketed.side_effect = RuntimeError("CH down")
+        mock_query_cls.return_value.execute_periods.side_effect = RuntimeError("CH down")
         alert = self._make_alert()
         now1 = datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC)
         now2 = datetime(2025, 1, 1, 0, 6, 0, tzinfo=UTC)
@@ -1487,7 +1487,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
     @patch("products.logs.backend.temporal.activities.capture_exception")
     def test_broken_notification_retried_after_kafka_failure(self, _mock_capture, mock_query_cls):
-        mock_query_cls.return_value.execute_bucketed.side_effect = Exception(
+        mock_query_cls.return_value.execute_periods.side_effect = Exception(
             "Code: 160. DB::Exception: Estimated query execution time is too long"
         )
         # 4 prior failures — one more pushes consecutive_failures to MAX (5) → BROKEN.
@@ -1538,7 +1538,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
         mock_query_cls,
         mock_notif_failures,
     ):
-        mock_query_cls.return_value.execute_bucketed.side_effect = Exception(
+        mock_query_cls.return_value.execute_periods.side_effect = Exception(
             "Code: 160. DB::Exception: Estimated query execution time is too long"
         )
         self._make_alert(state=initial_state, consecutive_failures=initial_failures)
@@ -1661,11 +1661,11 @@ class TestDeriveBreachesProperties(unittest.TestCase):
 class TestEvaluateSingleAlertEndToEnd(ClickhouseTestMixin, APIBaseTest):
     """End-to-end coverage of `_evaluate_single_alert` against real ClickHouse.
 
-    Sibling tests above mock `execute_bucketed` and verify the activity's logic
-    in isolation. This class drives the full hot path — bucketed CH query →
-    activity reverses → state machine → PG state update — against seeded log
-    data, catching seam bugs (ASC/DESC handling, BucketedCount tzinfo, threshold
-    sign) that mocked-bucket tests can't see.
+    Sibling tests above mock `execute_periods` and verify the activity's logic
+    in isolation. This class drives the full hot path — periods CH query →
+    state machine → PG state update — against seeded log data, catching seam
+    bugs (BucketedCount tzinfo, threshold sign) that mocked-bucket tests can't
+    see.
     """
 
     @freeze_time("2025-12-16T10:33:00Z")
@@ -1824,13 +1824,11 @@ class TestEvaluateSingleAlertEndToEnd(ClickhouseTestMixin, APIBaseTest):
     @freeze_time("2025-12-16T10:33:00Z")
     @patch("products.logs.backend.temporal.activities.produce_internal_event")
     def test_below_operator_fires_on_truly_silent_service(self, _mock_produce):
-        # Pre-PR behavior: `execute()` always runs, returns count=0 for a silent
-        # service, so `0 < threshold` evaluates True → breach → fires.
-        # Post-PR risk: `execute_bucketed()` returns NO buckets for a silent
-        # service (CH GROUP BY only emits buckets with data). If the activity
-        # treats absent buckets as "no breach", `below` alerts on truly silent
-        # services would silently never fire — exactly the case the [TEST] Web
-        # Service Silent prod alert is built to catch.
+        # `execute_periods` always returns exactly `period_count` entries (zero
+        # counts for silent services, since each period is a fixed-width
+        # `countIf` column rather than a `GROUP BY` over data), so
+        # `0 < threshold` evaluates True → breach → fires. Regression guard
+        # for the [TEST] Web Service Silent prod alert.
         alert = self._make_alert(
             filters={"serviceNames": ["truly_silent_service_no_logs"]},
             threshold_count=1,
