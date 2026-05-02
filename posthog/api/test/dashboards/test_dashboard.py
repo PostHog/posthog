@@ -148,46 +148,61 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         dashboard_names = {dashboard["name"] for dashboard in response["results"]}
         assert dashboard_names == {"tagged", "also tagged"}
 
-    def test_list_filter_by_search_returns_exact_match_first(self):
-        # Names chosen so an alphabetical sort would push the exact match below other matches.
-        self.dashboard_api.create_dashboard({"name": "Ad Sales"})
-        self.dashboard_api.create_dashboard({"name": "Email Sales"})
-        sales_id, _ = self.dashboard_api.create_dashboard({"name": "Sales"})
-        self.dashboard_api.create_dashboard({"name": "Sales Funnel"})
-        self.dashboard_api.create_dashboard({"name": "Salesforce sync"})
-        self.dashboard_api.create_dashboard({"name": "Weekly Sales"})
-        self.dashboard_api.create_dashboard({"name": "Unrelated"})
+    @parameterized.expand(
+        [
+            (
+                "exact match wins over partial matches",
+                ["Ad Sales", "Email Sales", "Sales", "Sales Funnel", "Salesforce sync", "Weekly Sales", "Unrelated"],
+                "Sales",
+                "Sales",
+                ["Unrelated"],
+            ),
+            (
+                "typo / transposition still matches via trigram",
+                ["Dashboard overview", "Unrelated"],
+                "dahsboard",
+                "Dashboard overview",
+                ["Unrelated"],
+            ),
+            (
+                "prefix-as-you-type",
+                ["Marketing funnel", "Engineering metrics"],
+                "Marke",
+                "Marketing funnel",
+                ["Engineering metrics"],
+            ),
+            (
+                "case-insensitive: lower",
+                ["VMS Feature - History Browser - Nova", "Engineering metrics"],
+                "nova",
+                "VMS Feature - History Browser - Nova",
+                ["Engineering metrics"],
+            ),
+            (
+                "case-insensitive: upper",
+                ["VMS Feature - History Browser - Nova", "Engineering metrics"],
+                "NOVA",
+                "VMS Feature - History Browser - Nova",
+                ["Engineering metrics"],
+            ),
+        ]
+    )
+    def test_list_filter_by_search_relevance(self, _name, dashboard_names, search, expected_first, excluded):
+        for name in dashboard_names:
+            self.dashboard_api.create_dashboard({"name": name})
 
-        response = self.dashboard_api.list_dashboards(query_params={"search": "Sales"})
+        response = self.dashboard_api.list_dashboards(query_params={"search": search})
         result_names = [d["name"] for d in response["results"]]
 
-        assert result_names[0] == "Sales", f"expected exact match first, got {result_names}"
-        # Unrelated must be filtered out entirely.
-        assert "Unrelated" not in result_names
+        assert result_names, f"expected at least one match for {search!r}, got nothing"
+        assert result_names[0] == expected_first, f"expected {expected_first!r} first, got {result_names}"
+        for name in excluded:
+            assert name not in result_names, f"expected {name!r} excluded, got {result_names}"
 
-    def test_list_filter_by_search_handles_typos(self):
-        # Trigram similarity should catch the transposition.
-        target_id, _ = self.dashboard_api.create_dashboard({"name": "Dashboard overview"})
-        self.dashboard_api.create_dashboard({"name": "Unrelated"})
-
-        response = self.dashboard_api.list_dashboards(query_params={"search": "dahsboard"})
-        result_ids = [d["id"] for d in response["results"]]
-
-        assert target_id in result_ids
-        assert all(d["name"] != "Unrelated" for d in response["results"])
-
-    def test_list_filter_by_search_supports_prefix_as_you_type(self):
-        target_id, _ = self.dashboard_api.create_dashboard({"name": "Marketing funnel"})
-        self.dashboard_api.create_dashboard({"name": "Engineering metrics"})
-
-        response = self.dashboard_api.list_dashboards(query_params={"search": "Marke"})
-        result_ids = [d["id"] for d in response["results"]]
-
-        assert target_id in result_ids
-        assert all(d["name"] != "Engineering metrics" for d in response["results"])
-
-    def test_list_filter_by_search_matches_description(self):
-        target_id, _ = self.dashboard_api.create_dashboard(
+    def test_list_filter_by_search_matches_description_with_lower_rank_than_name(self):
+        # Description matches are kept but rank below name matches — `name_score * 2 + description_score`.
+        name_match_id, _ = self.dashboard_api.create_dashboard({"name": "revenue"})
+        description_match_id, _ = self.dashboard_api.create_dashboard(
             {"name": "Q4 review", "description": "Quarterly revenue dashboard"}
         )
         self.dashboard_api.create_dashboard({"name": "Unrelated", "description": "nothing here"})
@@ -195,7 +210,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         response = self.dashboard_api.list_dashboards(query_params={"search": "revenue"})
         result_ids = [d["id"] for d in response["results"]]
 
-        assert target_id in result_ids
+        assert result_ids[:2] == [name_match_id, description_match_id]
+        assert all(d["name"] != "Unrelated" for d in response["results"])
 
     def test_list_filter_by_search_is_team_scoped(self):
         other_team = Team.objects.create(organization=self.organization)
@@ -217,17 +233,40 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         assert result_ids == [target_id]
 
-    def test_list_filter_by_search_only_unsafe_chars_does_not_500(self):
-        # `process_query` strips unsafe tsquery characters; the trigram path must still work.
+    @parameterized.expand(
+        [
+            ("whitespace-only", "   "),
+            ("empty", ""),
+        ]
+    )
+    def test_list_filter_by_search_blank_returns_all(self, _name, search):
+        a_id, _ = self.dashboard_api.create_dashboard({"name": "Alpha"})
+        b_id, _ = self.dashboard_api.create_dashboard({"name": "Beta"})
+
+        response = self.dashboard_api.list_dashboards(query_params={"search": search})
+        result_ids = {d["id"] for d in response["results"]}
+
+        assert {a_id, b_id}.issubset(result_ids)
+
+    @parameterized.expand(
+        [
+            ("plain symbols", "&|!"),
+            ("sql-injection-shaped", "'; DROP TABLE--"),
+            ("very long", "a" * 512),
+        ]
+    )
+    def test_list_filter_by_search_pathological_input_does_not_500(self, _name, search):
+        # No `to_tsquery` to trip on unsafe characters; trigram tolerates anything
+        # the URL layer admits. We pin the contract that pathological inputs return
+        # an empty result set rather than raising.
         self.dashboard_api.create_dashboard({"name": "Dashboard overview"})
 
         response = self.dashboard_api.list_dashboards(
-            query_params={"search": "&|!"},
+            query_params={"search": search},
             expected_status=status.HTTP_200_OK,
         )
 
-        # Trigram similarity is conservative — we only assert the request doesn't error and returns a list.
-        assert isinstance(response["results"], list)
+        assert response["results"] == []
 
     def test_list_includes_last_viewed_at_from_filesystem_logs(self):
         dashboard_recent_id, _ = self.dashboard_api.create_dashboard({"name": "Recently viewed"})

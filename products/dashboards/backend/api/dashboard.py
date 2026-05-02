@@ -6,24 +6,12 @@ from contextlib import nullcontext
 from typing import Any, Optional, cast
 
 from django.conf import settings
-from django.contrib.postgres.search import TrigramSimilarity
+from django.contrib.postgres.search import TrigramSimilarity, TrigramWordSimilarity
 from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import URLValidator
 from django.db import IntegrityError, transaction
-from django.db.models import (
-    CharField,
-    Count,
-    DateTimeField,
-    ExpressionWrapper,
-    F,
-    FilteredRelation,
-    FloatField,
-    Prefetch,
-    Q,
-    QuerySet,
-    Value,
-)
+from django.db.models import CharField, Count, DateTimeField, F, FilteredRelation, Prefetch, Q, QuerySet, Value
 from django.db.models.functions import Cast
 from django.http import StreamingHttpResponse
 from django.shortcuts import get_object_or_404
@@ -60,7 +48,6 @@ from posthog.constants import GENERATED_DASHBOARD_PREFIX
 from posthog.event_usage import get_request_analytics_properties, report_user_action
 from posthog.helpers import create_dashboard_from_template
 from posthog.helpers.dashboard_templates import create_from_template, dashboard_template_from_creation_payload
-from posthog.helpers.full_text_search import build_rank
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Insight
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
@@ -153,6 +140,12 @@ FILTERS_OVERRIDE_PARAM = OpenApiParameter(
 
 
 tracer = trace.get_tracer(__name__)
+
+# Minimum trigram word similarity score for a dashboard `name` or `description` to be
+# considered a search match. Calibrated against the `_apply_search_*` tests in
+# posthog/api/test/dashboards/test_dashboard.py — tighten it and the typo cases stop
+# matching, loosen it and unrelated rows leak in.
+MIN_TRIGRAM_SIMILARITY = 0.3
 
 
 def serialize_tile_with_context(tile, order: int, context: dict) -> tuple[int, dict]:
@@ -1051,12 +1044,10 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
                 description=(
-                    "Optional. Fuzzy full-text search across `name` and `description`. "
-                    "Combines weighted Postgres full-text search (name weight A, description weight C, "
-                    "with prefix-as-you-type matching on the last token) with trigram similarity on `name` "
-                    "(handles typos and transpositions). Results are ordered by relevance score, then "
-                    "pinned status, then name. When omitted, dashboards are ordered by pinned status then "
-                    "alphabetical name."
+                    "Optional. Fuzzy match against dashboard `name` and `description` using Postgres trigram "
+                    "word similarity (handles typos, transpositions, and prefix-as-you-type). `name` matches "
+                    "rank above `description` matches. Results are ordered by relevance, then pinned status, "
+                    "then name. When omitted, dashboards are ordered by pinned status then alphabetical name."
                 ),
             ),
         ],
@@ -1101,44 +1092,26 @@ class DashboardsViewSet(
         return queryset
 
     @staticmethod
+    @tracer.start_as_current_span("DashboardViewSet._apply_search")
     def _apply_search(queryset: QuerySet, search: str) -> QuerySet:
-        """
-        Fuzzy full-text search ranking.
-
-        Combines Postgres weighted FTS (`build_rank`) with trigram similarity on `name`.
-        FTS handles tokens, prefix-as-you-type and weights name above description; trigram
-        catches typos/transpositions that FTS misses (e.g. "dahsboard" -> "dashboard"). A row
-        is kept if either signal matches; rows are ordered by the combined score, then pinned,
-        then name.
-        """
         search = search.strip()
+        span = trace.get_current_span()
+        span.set_attribute("dashboard.search.length", len(search))
         if not search:
             return queryset
 
-        rank = build_rank({"name": "A", "description": "C"}, search, config="simple")
-        name_similarity = TrigramSimilarity("name", search)
-
-        queryset = queryset.annotate(_dashboard_name_similarity=name_similarity)
-
-        if rank is None:
-            # `process_query` stripped the term to nothing (e.g. only unsafe characters)
-            # so we can only rely on trigram matching.
-            return queryset.filter(_dashboard_name_similarity__gt=0.2).order_by(
-                "-_dashboard_name_similarity",
-                "-pinned",
-                "name",
-            )
+        # Word similarity (`<%`) drives match/no-match — it's index-accelerated and handles
+        # prefix-as-you-type and substring matches. Full-string similarity is added as a
+        # tiebreak so an exact name match outranks rows that merely *contain* the search word.
+        name_word = TrigramWordSimilarity(search, "name")
+        name_full = TrigramSimilarity("name", search)
+        description_word = TrigramWordSimilarity(search, "description")
 
         return (
-            queryset.annotate(_dashboard_search_rank=rank)
-            .filter(Q(_dashboard_search_rank__gt=0.05) | Q(_dashboard_name_similarity__gt=0.2))
-            .annotate(
-                _dashboard_search_score=ExpressionWrapper(
-                    F("_dashboard_search_rank") + F("_dashboard_name_similarity"),
-                    output_field=FloatField(),
-                )
-            )
-            .order_by("-_dashboard_search_score", "-pinned", "name")
+            queryset.annotate(_name_word=name_word, _name_full=name_full, _description_word=description_word)
+            .filter(Q(_name_word__gt=MIN_TRIGRAM_SIMILARITY) | Q(_description_word__gt=MIN_TRIGRAM_SIMILARITY))
+            .annotate(_search_score=F("_name_word") + F("_name_full") + F("_description_word") * 0.5)
+            .order_by("-_search_score", "-pinned", "name")
         )
 
     @tracer.start_as_current_span("DashboardViewSet.dangerously_get_queryset")
