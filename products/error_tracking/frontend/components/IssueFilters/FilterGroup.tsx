@@ -13,7 +13,7 @@ import { universalFiltersLogic } from 'lib/components/UniversalFilters/universal
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
-import { FilterLogicalOperator, PropertyFilterType, UniversalFiltersGroup } from '~/types'
+import { FilterLogicalOperator, PropertyFilterType, UniversalFiltersGroup, UniversalFiltersGroupValue } from '~/types'
 
 import { TAXONOMIC_FILTER_LOGIC_KEY, TAXONOMIC_GROUP_TYPES } from './consts'
 import { issueFiltersLogic } from './issueFiltersLogic'
@@ -166,7 +166,7 @@ const UniversalFilterGroup = ({
 
     return (
         <>
-            {filterGroup.values.map((filterOrGroup, index) => {
+            {filterGroup.values.map((filterOrGroup: UniversalFiltersGroupValue, index: number) => {
                 return isUniversalGroupFilterLike(filterOrGroup) ? (
                     <UniversalFilters.Group index={index} key={index} group={filterOrGroup}>
                         <UniversalSearch taxonomicGroupTypes={taxonomicGroupTypes} />

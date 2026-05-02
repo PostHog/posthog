@@ -226,7 +226,7 @@ class TestErrorTrackingQueryRunnerV3(
             date_to=datetime(2022, 1, 10, tzinfo=UTC),
         )
         user_filter_expr = builder._user_filter_expr()
-        self.assertIsNotNone(user_filter_expr)
+        assert user_filter_expr is not None
         user_filter_hogql = user_filter_expr.to_hogql()
         self.assertIn("e.issue_name", user_filter_hogql)
         self.assertNotIn("properties.name", user_filter_hogql)

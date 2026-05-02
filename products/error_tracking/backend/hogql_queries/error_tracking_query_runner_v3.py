@@ -1,4 +1,5 @@
 import datetime
+from typing import Any, cast
 
 from django.core.exceptions import ValidationError
 
@@ -377,7 +378,7 @@ class ErrorTrackingQueryV3Builder:
                 return ast.Or(exprs=sub_exprs)
             return ast.And(exprs=sub_exprs)
 
-        return property_to_expr(value, self.team, scope="event")
+        return property_to_expr(cast(Any, value), self.team, scope="event")
 
     def _issue_property_to_ast(self, prop: ErrorTrackingIssueFilter) -> ast.Expr | None:
         key = "description" if prop.key == "issue_description" else prop.key
