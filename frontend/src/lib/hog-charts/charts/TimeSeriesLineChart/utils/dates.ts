@@ -1,9 +1,11 @@
 import { dayjs, Dayjs } from 'lib/dayjs'
 
-import { IntervalType } from '~/types'
+/** Bucket size for a date-based X axis. Mirrors `IntervalType` from product code without
+ * coupling hog-charts to it. */
+export type TimeInterval = 'second' | 'minute' | 'hour' | 'day' | 'week' | 'month'
 
 interface CreateXAxisTickCallbackArgs {
-    interval?: IntervalType
+    interval?: TimeInterval
     allDays: (string | number)[]
     timezone: string
     numericTickPrefix?: string
@@ -71,7 +73,7 @@ export function parseDateForAxis(dateStr: string, timezone: string): Dayjs {
     }
 }
 
-function pickMode(interval: IntervalType, parsedDates: Dayjs[], first: Dayjs, last: Dayjs): TickMode {
+function pickMode(interval: TimeInterval, parsedDates: Dayjs[], first: Dayjs, last: Dayjs): TickMode {
     const spanMonths = (last.year() - first.year()) * 12 + last.month() - first.month()
     const spanDays = last.diff(first, 'day')
 
@@ -128,7 +130,7 @@ function formatMonthLabel(date: Dayjs): string {
     return date.format('MMMM')
 }
 
-function inferInterval(parsedDates: Dayjs[]): IntervalType {
+function inferInterval(parsedDates: Dayjs[]): TimeInterval {
     if (parsedDates.length < 2) {
         return 'day'
     }

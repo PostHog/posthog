@@ -43,7 +43,11 @@ tools:
             passed as the `id` parameter to this tool. Note: a `$session_id` on an event does not guarantee a recording
             exists — session replay may not be enabled for that project or session. A 404 means no recording was
             captured. If the user wants to understand what happened without watching the recording, offer to use
-            `session-recording-summarize` (note: very slow, ~5 minutes on average).
+            `session-recording-summarize` (note: very slow, ~5 minutes on average). If a recording is missing (404) or
+            the user asks why recordings aren't being captured, diagnose with `execute-sql`: query `$recording_status`,
+            `$session_recording_start_reason`, `$replay_sample_rate`, and `$sdk_debug_recording_script_not_loaded` from
+            the events table (filter by `$session_id` for a specific session, or sample recent events for project-wide
+            issues).
         ui_app: session-recording
     session-recording-playlist-create:
         operation: session_recording_playlists_create

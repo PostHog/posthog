@@ -19,6 +19,10 @@ const LABELS = ['Mon', 'Tue', 'Wed']
 const SERIES: Series[] = [{ key: 'a', label: 'A', data: [1, 2, 3] }]
 
 describe('TimeSeriesLineChart', () => {
+    beforeEach(() => {
+        lineChartSpy.mockClear()
+    })
+
     it('translates config.xAxis and config.yAxis fields onto LineChartConfig', () => {
         const xTickFormatter = (v: string): string => `x:${v}`
         const yTickFormatter = (v: number): string => `y:${v}`
@@ -41,5 +45,61 @@ describe('TimeSeriesLineChart', () => {
         expect(props.config?.hideXAxis).toBe(true)
         expect(props.config?.hideYAxis).toBe(true)
         expect(props.config?.showGrid).toBe(true)
+    })
+
+    it('builds an x-axis tick formatter from xAxis.timezone + xAxis.interval', () => {
+        const allDays = ['2025-04-01 14:00:00', '2025-04-01 15:00:00', '2025-04-01 16:00:00']
+        render(
+            <TimeSeriesLineChart
+                series={[{ key: 'a', label: 'A', data: [1, 2, 3] }]}
+                labels={['14:00', '15:00', '16:00']}
+                theme={THEME}
+                config={{
+                    xAxis: { timezone: 'UTC', interval: 'hour', allDays },
+                }}
+            />
+        )
+        const props = lineChartSpy.mock.calls[0][0] as LineChartProps
+        const formatter = props.config?.xTickFormatter
+        expect(formatter).not.toBeUndefined()
+        expect(formatter?.('ignored', 0)).toBe('14:00')
+        expect(formatter?.('ignored', 1)).toBe('15:00')
+        expect(formatter?.('ignored', 2)).toBe('16:00')
+    })
+
+    it('explicit tickFormatter wins over xAxis.timezone + xAxis.interval', () => {
+        const explicit = (_v: string, i: number): string => `tick-${i}`
+        render(
+            <TimeSeriesLineChart
+                series={[{ key: 'a', label: 'A', data: [1, 2, 3] }]}
+                labels={['14:00', '15:00', '16:00']}
+                theme={THEME}
+                config={{
+                    xAxis: {
+                        tickFormatter: explicit,
+                        timezone: 'UTC',
+                        interval: 'hour',
+                        allDays: ['2025-04-01 14:00:00', '2025-04-01 15:00:00', '2025-04-01 16:00:00'],
+                    },
+                }}
+            />
+        )
+        const props = lineChartSpy.mock.calls[0][0] as LineChartProps
+        expect(props.config?.xTickFormatter).toBe(explicit)
+    })
+
+    it('does not auto-format when only one of timezone or interval is provided', () => {
+        render(
+            <TimeSeriesLineChart
+                series={[{ key: 'a', label: 'A', data: [1, 2, 3] }]}
+                labels={LABELS}
+                theme={THEME}
+                config={{
+                    xAxis: { timezone: 'UTC' },
+                }}
+            />
+        )
+        const props = lineChartSpy.mock.calls[0][0] as LineChartProps
+        expect(props.config?.xTickFormatter).toBeUndefined()
     })
 })

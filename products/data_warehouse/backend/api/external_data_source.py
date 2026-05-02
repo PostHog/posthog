@@ -1920,6 +1920,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
     def update_webhook_inputs(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance: ExternalDataSource = self.get_object()
 
+        if not instance.job_inputs:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Source has no configuration"},
+            )
+
         source_type = ExternalDataSourceType(instance.source_type)
         source = SourceRegistry.get_source(source_type)
 
@@ -1985,12 +1991,33 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 data={"message": "No webhook function found for this source. Create a webhook first."},
             )
 
+        try:
+            config = source.parse_config(instance.job_inputs)
+        except ValidationError as e:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Invalid source configuration", "details": getattr(e, "detail", str(e))},
+            )
+        except Exception as e:
+            capture_exception(e)
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Failed to load source configuration"},
+            )
+
         assert hog_function.inputs is not None
         hog_function.inputs = {
             **hog_function.inputs,
             **{key: {"value": value} for key, value in inputs.items()},
         }
         hog_function.save(update_fields=["inputs", "encrypted_inputs"])
+
+        success, error = source.webhook_inputs_updated(config, get_webhook_url(hog_function.id), self.team.pk, inputs)
+        if not success:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"success": False, "error": error or "Failed to update webhook on the external source."},
+            )
 
         return Response(status=status.HTTP_200_OK, data={"success": True})
 

@@ -439,6 +439,62 @@ describe('TaxonomicFilter', () => {
         })
     })
 
+    describe('`taxonomic filter closed` capture', () => {
+        // The TaxonomicFilter logic mounts in many contexts where the picker isn't visibly opened
+        // (popovers that render before the popover opens, side panels tied to scene lifecycle...).
+        // Without gating, every involuntary mount/unmount fires the close event with
+        // hadSelection=false and inflates the abandonment metric. These tests pin the gate.
+        it('does not fire when the logic mounts and unmounts with no user interaction', async () => {
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            const { unmount } = renderFilter()
+
+            await waitFor(() => {
+                expect(screen.getByTestId('prop-filter-events-0')).toBeInTheDocument()
+            })
+
+            unmount()
+
+            const closedCalls = captureSpy.mock.calls.filter((c) => c[0] === 'taxonomic filter closed')
+            expect(closedCalls).toHaveLength(0)
+        })
+
+        it.each([
+            {
+                name: 'fires when the user typed in the search input before closing',
+                interact: async () => {
+                    await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), 'event')
+                },
+                expected: { hadSelection: false },
+            },
+            {
+                name: 'fires when the user selected an item before closing',
+                interact: async () => {
+                    await userEvent.click(screen.getByTestId('prop-filter-events-0'))
+                },
+                expected: { hadSelection: true },
+            },
+        ])('$name', async ({ interact, expected }) => {
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            const { unmount } = renderFilter()
+
+            await waitFor(() => {
+                expect(screen.getByTestId('prop-filter-events-0')).toBeInTheDocument()
+            })
+
+            await interact()
+
+            unmount()
+
+            const closedCall = captureSpy.mock.calls.find((c) => c[0] === 'taxonomic filter closed')
+            expect(closedCall).not.toBeUndefined()
+            expect(closedCall?.[1]).toMatchObject({
+                ...expected,
+                dwellMs: expect.any(Number),
+                groupType: expect.any(String),
+            })
+        })
+    })
+
     describe('keyboard navigation', () => {
         it('search narrows results and arrow down + enter selects from filtered list', async () => {
             renderFilter()

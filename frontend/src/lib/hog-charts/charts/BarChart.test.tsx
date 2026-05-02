@@ -3,7 +3,7 @@ import { cleanup, render } from '@testing-library/react'
 import { drawBars } from '../core/canvas-renderer'
 import type { BarRect } from '../core/canvas-renderer'
 import type { ChartTheme, ResolvedSeries, Series } from '../core/types'
-import { setupJsdom } from '../test-helpers'
+import { renderHogChart, setupJsdom, setupSyncRaf } from '../testing'
 import { BarChart } from './BarChart'
 
 jest.mock('../core/canvas-renderer', () => {
@@ -31,26 +31,19 @@ type Layout = 'stacked' | 'grouped' | 'percent'
 type Orientation = 'vertical' | 'horizontal'
 
 describe('BarChart', () => {
-    let teardown: () => void
+    let teardownJsdom: () => void
+    let teardownRaf: () => void
 
-    let originalRaf: typeof global.requestAnimationFrame | undefined
     beforeEach(() => {
-        teardown = setupJsdom()
+        teardownJsdom = setupJsdom()
+        teardownRaf = setupSyncRaf()
         mockedDrawBars.mockClear()
-        originalRaf = global.requestAnimationFrame
-        // Run draw effects synchronously so the static-layer RAF fires before the test reads the spy.
-        global.requestAnimationFrame = ((cb: FrameRequestCallback) => {
-            cb(0)
-            return 0
-        }) as typeof global.requestAnimationFrame
     })
 
     afterEach(() => {
-        teardown()
+        teardownRaf()
+        teardownJsdom()
         cleanup()
-        if (originalRaf) {
-            global.requestAnimationFrame = originalRaf
-        }
     })
 
     describe.each<[Layout, Orientation]>([
@@ -77,8 +70,8 @@ describe('BarChart', () => {
     })
 
     it('renders empty state without crashing', () => {
-        const { container } = render(<BarChart series={[]} labels={[]} theme={THEME} />)
-        expect(container.querySelector('canvas')).not.toBeNull()
+        const { chart } = renderHogChart(<BarChart series={[]} labels={[]} theme={THEME} />)
+        expect(chart.seriesCount).toBe(0)
     })
 
     it('skips excluded series in stacked layout', () => {
@@ -87,10 +80,10 @@ describe('BarChart', () => {
             { key: 'b', label: 'B', data: [5, 15, 25], visibility: { excluded: true } },
             { key: 'c', label: 'C', data: [3, 6, 9] },
         ]
-        const { container } = render(
+        const { chart } = renderHogChart(
             <BarChart series={series} labels={LABELS} theme={THEME} config={{ barLayout: 'stacked' }} />
         )
-        expect(container.querySelector('canvas')).not.toBeNull()
+        expect(chart.seriesCount).toBe(2)
     })
 
     it('renders custom percent formatter when consumer supplies one', () => {
@@ -109,12 +102,10 @@ describe('BarChart', () => {
     })
 
     it('applies a default percent formatter when consumer omits one', () => {
-        const { container } = render(
+        const { chart } = renderHogChart(
             <BarChart series={SERIES} labels={LABELS} theme={THEME} config={{ barLayout: 'percent' }} />
         )
-        // AxisLabels renders tick text into divs; default percent formatter emits values like "50%".
-        const text = container.textContent ?? ''
-        expect(text).toMatch(/\d+%/)
+        expect(chart.yTicks().some((t) => /\d+%/.test(t))).toBe(true)
     })
 
     it('tolerates NaN data values without throwing', () => {
