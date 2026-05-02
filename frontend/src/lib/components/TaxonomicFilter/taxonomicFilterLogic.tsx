@@ -410,6 +410,22 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 enableMouseInteractions: () => true,
             },
         ],
+        hadInteraction: [
+            // Any genuine user-driven action flips this. Read in `beforeUnmount` to gate the
+            // `taxonomic filter closed` capture so involuntary mounts (popovers/side panels
+            // rendered before the picker is shown, route transitions) don't fire phantom closes.
+            // New interaction sources should be added here, not by mutating cache from listeners.
+            false,
+            {
+                moveUp: () => true,
+                moveDown: () => true,
+                tabLeft: () => true,
+                tabRight: () => true,
+                setActiveTab: () => true,
+                selectItem: () => true,
+                markUserInteraction: () => true,
+            },
+        ],
         topMatchItems: [
             [] as (TaxonomicDefinitionTypes & { group: TaxonomicFilterGroupType })[],
             {
@@ -1696,7 +1712,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
     afterMount(({ actions, props, cache }) => {
         cache.openedAt = Date.now()
         cache.hadSelection = false
-        cache.hadInteraction = false
         // Initial fire — the model dedupes against taxonomy defaults and already-loaded names.
         if (props.eventNames?.length) {
             actions.ensureLoadedForEvents(props.eventNames)
@@ -1708,7 +1723,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         // before the popover shows, side panels tied to scene lifecycle, route transitions), so
         // without this gate every involuntary mount/unmount fires a close with hadSelection=false
         // and inflates the abandonment metric (top sessions hit 100+ closes pre-gate).
-        if (cache.hadInteraction || cache.hadSelection) {
+        if (values.hadInteraction) {
             posthog.capture('taxonomic filter closed', {
                 dwellMs: Date.now() - (cache.openedAt ?? Date.now()),
                 hadSelection: !!cache.hadSelection,
@@ -1798,7 +1813,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         },
 
         moveUp: async (_, breakpoint) => {
-            cache.hadInteraction = true
             if (values.activeTab) {
                 infiniteListLogic({
                     ...props,
@@ -1810,7 +1824,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         },
 
         moveDown: async (_, breakpoint) => {
-            cache.hadInteraction = true
             if (values.activeTab) {
                 infiniteListLogic({
                     ...props,
@@ -1833,7 +1846,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         },
 
         tabLeft: () => {
-            cache.hadInteraction = true
             const { currentTabIndex, taxonomicGroupTypes, infiniteListCounts } = values
             for (let i = 1; i < taxonomicGroupTypes.length; i++) {
                 const newIndex = (currentTabIndex - i + taxonomicGroupTypes.length) % taxonomicGroupTypes.length
@@ -1845,7 +1857,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         },
 
         tabRight: () => {
-            cache.hadInteraction = true
             const { currentTabIndex, taxonomicGroupTypes, infiniteListCounts } = values
             for (let i = 1; i < taxonomicGroupTypes.length; i++) {
                 const newIndex = (currentTabIndex + i) % taxonomicGroupTypes.length
@@ -1854,14 +1865,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     return
                 }
             }
-        },
-
-        setActiveTab: () => {
-            cache.hadInteraction = true
-        },
-
-        markUserInteraction: () => {
-            cache.hadInteraction = true
         },
 
         recordPaste: ({ pastedLength }) => {

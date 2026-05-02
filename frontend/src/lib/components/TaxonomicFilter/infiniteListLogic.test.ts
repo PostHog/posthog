@@ -851,6 +851,11 @@ describe('infiniteListLogic', () => {
             const listLogic = infiniteListLogic({ ...props, listGroupType })
             listLogic.mount()
 
+            // Tripwire: the gate reads `isActiveTab` from the parent. If anyone refactors
+            // `isActiveTab` to be self-contained, this assertion catches it before the
+            // empty-result expectations silently start passing for the wrong reason.
+            expect(listLogic.values.isActiveTab).toBe(activeTab === listGroupType)
+
             await expectLogic(listLogic, () => listLogic.actions.setSearchQuery('mcp tool call'))
                 .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
                 .toFinishAllListeners()

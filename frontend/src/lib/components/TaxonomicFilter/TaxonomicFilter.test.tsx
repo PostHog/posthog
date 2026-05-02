@@ -487,7 +487,11 @@ describe('TaxonomicFilter', () => {
 
             const closedCall = captureSpy.mock.calls.find((c) => c[0] === 'taxonomic filter closed')
             expect(closedCall).not.toBeUndefined()
-            expect(closedCall?.[1]).toMatchObject(expected)
+            expect(closedCall?.[1]).toMatchObject({
+                ...expected,
+                dwellMs: expect.any(Number),
+                groupType: expect.any(String),
+            })
         })
     })
 
