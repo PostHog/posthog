@@ -1102,6 +1102,7 @@ class DashboardsViewSet(
 
         return queryset
 
+    @tracer.start_as_current_span("DashboardViewSet.list")
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         response = super().list(request, *args, **kwargs)
         # Record search-result cardinality so we can tune MIN_*_TRIGRAM_SIMILARITY from prod
