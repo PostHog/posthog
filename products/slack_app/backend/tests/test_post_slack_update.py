@@ -169,7 +169,14 @@ class TestPostSlackUpdate(TestCase):
         mock_update_reaction.assert_called_once_with("hedgehog")
         mock_delete_progress.assert_called_once()
         mock_post_progress.assert_not_called()
-        mock_run.save.assert_called_once()
+        mock_task_run_class.update_state_atomic.assert_called_once_with(
+            "run-1",
+            updates={
+                "slack_pr_opened_notified": True,
+                "slack_notified_pr_url": "https://github.com/org/repo/pull/1",
+            },
+        )
+        mock_run.save.assert_not_called()
 
     @patch.object(SlackThreadHandler, "post_completion")
     @patch.object(SlackThreadHandler, "delete_progress")

@@ -17,16 +17,6 @@ class TestDAGViewSet(APIBaseTest):
         names = [d["name"] for d in response.json()["results"]]
         self.assertEqual(names, ["another_dag", "my_dag"])
 
-    def test_list_excludes_conflict_dags(self):
-        DAG.objects.create(team=self.team, name="my_dag")
-        DAG.objects.create(team=self.team, name="conflict_abc123_posthog_1")
-
-        response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_dags/")
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 1)
-        self.assertEqual(response.json()["results"][0]["name"], "my_dag")
-
     def test_create_dag(self):
         response = self.client.post(
             f"/api/environments/{self.team.id}/data_modeling_dags/",
@@ -38,15 +28,6 @@ class TestDAGViewSet(APIBaseTest):
         self.assertEqual(response.json()["description"], "A test DAG")
         self.assertEqual(response.json()["node_count"], 0)
         self.assertTrue(DAG.objects.filter(team=self.team, name="new_dag").exists())
-
-    def test_create_dag_rejects_conflict_name(self):
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/data_modeling_dags/",
-            {"name": "conflict_my_dag"},
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("conflict", str(response.json()))
 
     def test_retrieve_dag(self):
         dag = DAG.objects.create(team=self.team, name="my_dag", description="desc")

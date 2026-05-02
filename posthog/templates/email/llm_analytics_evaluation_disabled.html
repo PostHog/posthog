@@ -1,0 +1,34 @@
+{% extends "email/base.html" %} {% load posthog_assets %} {% load posthog_filters %}
+{% block preheader %}Your evaluation "{{ evaluation_name }}" has been disabled{% endblock %}
+{% block heading %}Your evaluation has been disabled{% endblock %}
+{% block section %}
+<p>
+    Your evaluation <strong>{{ evaluation_name }}</strong> has been automatically disabled:
+</p>
+<p style="padding: 12px; background-color: #f8f8f8; border-left: 4px solid #e5484d; border-radius: 4px;">
+    {{ disabled_reason }}
+</p>
+<p>
+    To resume the evaluation, open it in <a href="{% absolute_uri evaluation_url %}">LLM analytics</a> and update its
+    configuration (for example, choose a supported model or add a provider API key in
+    <a href="{% absolute_uri settings_url %}">settings</a>). Once fixed, re-enable the evaluation to start it again.
+</p>
+<div class="mb mt text-center">
+    <a class="button" href="{% absolute_uri evaluation_url %}">View evaluation</a>
+</div>
+<div class="mt">
+    <p>
+        If the button above doesn't work, paste this link into your browser:<br />
+        <a href="{% absolute_uri evaluation_url %}">{% absolute_uri evaluation_url %}</a>
+    </p>
+</div>
+{% endblock %}
+
+{% block footer %}
+Need help?
+<a href="https://posthog.com/questions?{{ utm_tags }}"
+    target="_blank"><b>Visit support</b></a>
+or
+<a href="https://posthog.com/docs/ai-engineering?{{ utm_tags }}"
+    target="_blank"><b>read our documentation</b></a>.
+{% endblock %}

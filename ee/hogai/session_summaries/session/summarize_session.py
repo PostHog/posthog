@@ -74,6 +74,7 @@ class SingleSessionSummaryLlmInputs:
     session_duration: int
     distinct_id: str | None
     model_to_use: str
+    trigger_session_id: str | None = None
 
 
 async def get_session_data_from_db(session_id: str, team_id: int, local_reads_prod: bool) -> SessionSummaryDBData:
@@ -221,6 +222,7 @@ def prepare_single_session_summary_input(
     model_to_use: str,
     *,
     user_distinct_id_to_log: str | None = None,
+    trigger_session_id: str | None = None,
 ) -> SingleSessionSummaryLlmInputs:
     # Checking here instead of in the preparation function to keep mypy happy
     if summary_data.prompt_data is None:
@@ -255,5 +257,6 @@ def prepare_single_session_summary_input(
         session_duration=summary_data.prompt_data.prompt_data.metadata.duration,
         distinct_id=summary_data.prompt_data.prompt_data.metadata.distinct_id,
         model_to_use=model_to_use,
+        trigger_session_id=trigger_session_id,
     )
     return input_data

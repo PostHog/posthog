@@ -4,7 +4,7 @@ import MonacoEditor, { type EditorProps, Monaco, DiffEditor as MonacoDiffEditor,
 import { BuiltLogic, useActions, useMountedLogic, useValues } from 'kea'
 import * as monacoModule from 'monaco-editor'
 import { IDisposable, editor, editor as importedEditor } from 'monaco-editor'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import 'lib/monaco/monacoEnvironment'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
@@ -18,6 +18,7 @@ import { initHogJsonLanguage } from 'lib/monaco/languages/hogJson'
 import { initHogQLLanguage } from 'lib/monaco/languages/hogQL'
 import { initHogTemplateLanguage } from 'lib/monaco/languages/hogTemplate'
 import { initLiquidLanguage } from 'lib/monaco/languages/liquid'
+import { sharedMonacoOverflowRoot } from 'lib/monaco/sharedMonacoOverflowRoot'
 import { inStorybookTestRunner } from 'lib/utils'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
@@ -31,6 +32,8 @@ export interface CodeEditorProps extends Omit<EditorProps, 'loading' | 'theme'> 
     queryKey?: string
     autocompleteContext?: string
     onPressCmdEnter?: (value: string, selectionType: 'selection' | 'full') => void
+    /** Run the innermost subquery at cursor (Cmd+Shift+Enter) */
+    onPressCmdShiftEnter?: () => void
     /** Pressed up in an empty code editor, likely to edit the previous message in a list */
     onPressUpNoValue?: () => void
     autoFocus?: boolean
@@ -41,6 +44,10 @@ export interface CodeEditorProps extends Omit<EditorProps, 'loading' | 'theme'> 
     onMetadataLoading?: (loading: boolean) => void
     onFixWithAI?: (prompt: string) => void
     onError?: (error: string | null) => void
+    /** Override the query sent for metadata validation (e.g. active query in multi-query mode) */
+    metadataQuery?: string
+    /** Character offset of metadataQuery within the full editor text, for correct marker positioning */
+    metadataQueryOffset?: number
     /** The original value to compare against - renders it in diff mode */
     originalValue?: string
     /** Enable vim keybindings */
@@ -50,6 +57,10 @@ let codeEditorIndex = 0
 
 export function initModel(model: editor.ITextModel, builtCodeEditorLogic: BuiltLogic<codeEditorLogicType>): void {
     ;(model as any).codeEditorLogic = builtCodeEditorLogic
+}
+
+export function clearLogicReference(model: editor.ITextModel): void {
+    ;(model as any).codeEditorLogic = undefined
 }
 
 function initEditor(
@@ -128,6 +139,7 @@ export function CodeEditor({
     onMount,
     value,
     onPressCmdEnter,
+    onPressCmdShiftEnter,
     autoFocus,
     globals,
     sourceQuery,
@@ -136,6 +148,8 @@ export function CodeEditor({
     onMetadata,
     onMetadataLoading,
     onFixWithAI,
+    metadataQuery,
+    metadataQueryOffset,
     originalValue,
     enableVimMode,
     ...editorProps
@@ -149,6 +163,10 @@ export function CodeEditor({
 
     // Keep a ref to the editor for cleanup - ensures we can dispose it even if state is stale
     const editorRef = useRef<importedEditor.IStandaloneCodeEditor | null>(null)
+    // In diff mode editorRef holds the inner modified sub-editor; this
+    // ref holds the parent diff editor so cleanup can dispose the whole
+    // diff (original editor, diff widget, decorations, view zones).
+    const diffEditorRef = useRef<importedEditor.IStandaloneDiffEditor | null>(null)
 
     const vimModeRef = useRef<{ dispose: () => void } | null>(null)
     const vimStatusBarRef = useRef<HTMLDivElement | null>(null)
@@ -157,6 +175,8 @@ export function CodeEditor({
     const builtCodeEditorLogic = codeEditorLogic({
         key: queryKey ?? `new/${realKey}`,
         query: value ?? '',
+        metadataQuery: metadataQuery,
+        metadataQueryOffset: metadataQueryOffset,
         language: editorProps.language ?? 'text',
         globals,
         sourceQuery,
@@ -175,46 +195,124 @@ export function CodeEditor({
 
     const { isVisible } = usePageVisibility()
 
-    // Create DIV with .monaco-editor inside <body> for monaco's popups.
-    // Without this monaco's tooltips will be mispositioned if inside another modal or popup.
-    const monacoRoot = useMemo(() => {
-        const body = (typeof document !== 'undefined' && document.getElementsByTagName('body')[0]) || null
-        const monacoRoot = document.createElement('div')
-        monacoRoot.classList.add('monaco-editor')
-        monacoRoot.style.zIndex = 'var(--z-tooltip)'
-        body?.appendChild(monacoRoot)
-        return monacoRoot
-    }, [])
+    const monacoRoot = sharedMonacoOverflowRoot()
 
     // Using useRef, not useState, as we don't want to reload the component when this changes.
     const monacoDisposables = useRef([] as IDisposable[])
     const mutationObserver = useRef<MutationObserver | null>(null)
+    // Track every model this editor instance has been attached to, so we can
+    // dispose them on unmount. Monaco models live in a global registry until
+    // explicitly disposed; without this, models accumulate forever and retain
+    // their attached `codeEditorLogic` BuiltLogic via `(model as any).codeEditorLogic`.
+    const editorModelsRef = useRef<Set<editor.ITextModel>>(new Set())
+    // Live ref to the Monaco API so the cleanup closure (captured by
+    // `useOnMountEffect`'s [] dep) can read the *current* value rather than
+    // the `null` it had at mount time. Without this the `stillInUse` guard
+    // in `disposeTrackedModels` is dead code: `monaco.editor.getEditors()`
+    // returns `[]` and every tracked model is unconditionally disposed.
+    const monacoApiRef = useRef<Monaco | null>(null)
 
-    // Consolidated cleanup: dispose editor and its resources BEFORE removing monacoRoot from DOM.
-    // This prevents Monaco's internal services (hoverService, contextViewService) from holding
-    // references to detached DOM nodes.
+    const disposeMonacoDisposables = (): void => {
+        monacoDisposables.current.forEach((d) => d?.dispose())
+        monacoDisposables.current = []
+    }
+
+    const disconnectMutationObserver = (): void => {
+        mutationObserver.current?.disconnect()
+        mutationObserver.current = null
+    }
+
+    const disposeTrackedModels = (): void => {
+        const models = editorModelsRef.current
+        if (models.size === 0) {
+            return
+        }
+        const monacoApi = monacoApiRef.current
+        // Skip a model if any OTHER live editor still holds it as its current
+        // model — disposing would break that editor, and nulling its
+        // `codeEditorLogic` would silently break HogQL autocomplete /
+        // metadata providers in the surviving editor.
+        const otherEditors = (monacoApi?.editor.getEditors?.() ?? []).filter((e) => e !== editorRef.current)
+        for (const model of models) {
+            if (model.isDisposed()) {
+                continue
+            }
+            const stillInUse = otherEditors.some((e) => e.getModel() === model)
+            if (stillInUse) {
+                continue
+            }
+            // Null the back-reference only on models we're actually about to
+            // dispose. Doing it for shared models would break consumers
+            // (e.g. hogQLAutocompleteProvider, hogQLMetadataProvider) that
+            // read `model.codeEditorLogic` to look up logic state.
+            clearLogicReference(model)
+            try {
+                model.dispose()
+            } catch {
+                // already disposed or in invalid state
+            }
+        }
+        models.clear()
+    }
+
+    const trackEditorModels = (editorInstance: importedEditor.IStandaloneCodeEditor, monacoApi: Monaco): void => {
+        monacoApiRef.current = monacoApi
+        const initial = editorInstance.getModel()
+        if (initial) {
+            editorModelsRef.current.add(initial)
+        }
+        const disposable = editorInstance.onDidChangeModel((e) => {
+            if (!e.newModelUrl) {
+                return
+            }
+            const next = monacoApi.editor.getModel(e.newModelUrl)
+            if (next) {
+                editorModelsRef.current.add(next)
+            }
+        })
+        monacoDisposables.current.push(disposable)
+    }
+
+    const disposeEditor = (): void => {
+        try {
+            if (diffEditorRef.current) {
+                diffEditorRef.current.dispose()
+            } else {
+                editorRef.current?.dispose()
+            }
+        } catch {
+            // already disposed
+        }
+        editorRef.current = null
+        diffEditorRef.current = null
+    }
+
     useOnMountEffect(() => {
         return () => {
-            // 1. Dispose all custom disposables (actions, observers, etc.)
-            monacoDisposables.current.forEach((d) => d?.dispose())
-            monacoDisposables.current = []
+            disposeMonacoDisposables()
+            disconnectMutationObserver()
 
-            // 2. Disconnect and clear mutation observer to fully release DOM references
-            mutationObserver.current?.disconnect()
-            mutationObserver.current = null
+            // Dispose the editor BEFORE @monaco-editor/react's own cleanup
+            // runs: Monaco's services (HoverService, ContextView,
+            // DomListener) keep refs to the editor's container DOM that
+            // survive the library's dispose. Disposing while we still hold
+            // a strong reference lets Monaco tear down its services in an
+            // order that releases those DOM refs.
+            disposeEditor()
 
-            // 3. Clear codeEditorLogic reference from model to break kea reference chain
-            const model = editorRef.current?.getModel()
-            if (model) {
-                ;(model as any).codeEditorLogic = undefined
-            }
+            // Now that our editor is disposed, dispose every model this
+            // editor used and was uniquely owned by us. `disposeTrackedModels`
+            // also nulls the `codeEditorLogic` back-reference on each
+            // disposed model. Models still held by another live editor are
+            // skipped on both counts, so HogQL autocomplete/metadata
+            // providers (which read `model.codeEditorLogic`) keep working
+            // for the surviving editor.
+            disposeTrackedModels()
 
-            // 4. Clear state to release React's reference to the editor
             setMonacoAndEditor(null)
 
-            // 5. Now safe to remove monacoRoot - editor disposal happens via @monaco-editor/react
-            // but our cleanup ran first, breaking the reference chains
-            monacoRoot?.remove()
+            // Do NOT remove monacoRoot — it's a shared singleton that
+            // Monaco's global services have permanent DomListeners on.
         }
     })
 
@@ -308,6 +406,7 @@ export function CodeEditor({
 
     const editorOnMount = (editor: importedEditor.IStandaloneCodeEditor, monaco: Monaco): void => {
         editorRef.current = editor
+        trackEditorModels(editor, monaco)
         setMonacoAndEditor([monaco, editor])
         initEditor(monaco, editor, editorProps, options ?? {}, builtCodeEditorLogic)
 
@@ -374,6 +473,18 @@ export function CodeEditor({
                 })
             )
         }
+        if (onPressCmdShiftEnter) {
+            monacoDisposables.current.push(
+                editor.addAction({
+                    id: 'runSubqueryPostHog',
+                    label: 'Run subquery at cursor',
+                    keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.Enter],
+                    run: () => {
+                        onPressCmdShiftEnter()
+                    },
+                })
+            )
+        }
         if (autoFocus) {
             editor.focus()
             const model = editor.getModel()
@@ -405,6 +516,12 @@ export function CodeEditor({
         const diffEditorOnMount = (diff: importedEditor.IStandaloneDiffEditor, monaco: Monaco): void => {
             const modifiedEditor = diff.getModifiedEditor()
             editorRef.current = modifiedEditor
+            diffEditorRef.current = diff
+            trackEditorModels(modifiedEditor, monaco)
+            const original = diff.getOriginalEditor().getModel()
+            if (original) {
+                editorModelsRef.current.add(original)
+            }
             setMonacoAndEditor([monaco, modifiedEditor])
 
             if (editorProps.onChange) {

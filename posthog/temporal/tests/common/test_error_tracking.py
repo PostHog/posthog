@@ -99,7 +99,9 @@ async def test_exception_capture(fail: bool, capture_additional_properties: bool
 
     if capture_additional_properties:
         workflow_name = "OptionallyFailingWorkflowWithPropertiesToLog"
-        workflow_inputs = OptionallyFailingInputsWithPropertiesToLog(fail=fail)
+        workflow_inputs: OptionallyFailingInputs | OptionallyFailingInputsWithPropertiesToLog = (
+            OptionallyFailingInputsWithPropertiesToLog(fail=fail)
+        )
     else:
         workflow_name = "OptionallyFailingWorkflow"
         workflow_inputs = OptionallyFailingInputs(fail=fail)

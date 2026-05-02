@@ -34,11 +34,11 @@
         "format": "oxlint --fix --fix-suggestions --fix-dangerously --quiet && oxfmt \"./**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\""
     },
     "dependencies": {
-        "@modelcontextprotocol/ext-apps": "^1.0.1",
-        "@modelcontextprotocol/sdk": "^1.26.0",
+        "@modelcontextprotocol/ext-apps": "^1.5.0",
+        "@modelcontextprotocol/sdk": "^1.29.0",
         "@posthog/mosaic": "workspace:*",
         "@toon-format/toon": "^2.1.0",
-        "agents": "^0.3.6",
+        "agents": "0.10.2",
         "ai": "^6.0.0",
         "fflate": "^0.8.2",
         "mcpcat": "0.1.15",
@@ -48,6 +48,7 @@
         "zod": "^4.3.6"
     },
     "devDependencies": {
+        "@cloudflare/vitest-pool-workers": "^0.12.21",
         "@cloudflare/workers-types": "^4.20260120.0",
         "@posthog/openapi-codegen": "workspace:*",
         "@tailwindcss/postcss": "^4.1.10",
@@ -60,6 +61,7 @@
         "ajv-formats": "^3.0.1",
         "chokidar": "^3.6.0",
         "dotenv": "^16.4.7",
+        "msw": "^2.12.14",
         "oxfmt": "^0.33.0",
         "oxlint": "^1.8.0",
         "react": "^18.2.0",

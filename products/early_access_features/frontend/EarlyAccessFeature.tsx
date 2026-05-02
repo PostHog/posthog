@@ -136,7 +136,6 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
         originalEarlyAccessFeatureStage,
     } = useValues(earlyAccessFeatureLogic)
     const {
-        submitEarlyAccessFeatureRequest,
         loadEarlyAccessFeature,
         editFeature,
         updateStage,
@@ -145,6 +144,7 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
         showGAPromotionConfirmation,
         saveEarlyAccessFeature,
         setEarlyAccessFeatureValue,
+        submitEarlyAccessFeature,
     } = useActions(earlyAccessFeatureLogic)
     const { currentTeamId } = useValues(teamLogic)
     const { canCopyToProject } = useValues(interProjectCopyLogic)
@@ -234,27 +234,9 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                                         </LemonButton>
                                         <LemonButton
                                             type="primary"
-                                            htmlType="submit"
+                                            onClick={submitEarlyAccessFeature}
                                             data-attr="save-feature"
-                                            onClick={() => {
-                                                // Check if user is promoting to General Availability
-                                                const isPromotingToGA =
-                                                    earlyAccessFeature.stage ===
-                                                    EarlyAccessFeatureStage.GeneralAvailability
-
-                                                if (isPromotingToGA) {
-                                                    showGAPromotionConfirmation((rolloutToAll: boolean) =>
-                                                        submitEarlyAccessFeatureRequest({
-                                                            ...earlyAccessFeature,
-                                                            ...(rolloutToAll ? { rollout_to_all: true } : {}),
-                                                        })
-                                                    )
-                                                } else {
-                                                    submitEarlyAccessFeatureRequest(earlyAccessFeature)
-                                                }
-                                            }}
                                             loading={isEarlyAccessFeatureSubmitting}
-                                            form="early-access-feature"
                                             size="small"
                                         >
                                             {isNewEarlyAccessFeature ? 'Save as draft' : 'Save'}

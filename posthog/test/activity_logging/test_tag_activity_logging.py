@@ -12,6 +12,7 @@ class TestTagActivityLogging(ActivityLogTestHelper):
         log = ActivityLog.objects.filter(scope="Tag", activity="created").first()
         self.assertIsNotNone(log)
         assert log is not None
+        assert log.detail is not None
         self.assertEqual(log.detail["name"], "test-tag")
 
     def test_tag_creation_via_dashboard_tagging(self):
@@ -21,6 +22,7 @@ class TestTagActivityLogging(ActivityLogTestHelper):
         log = ActivityLog.objects.filter(scope="Tag", activity="created").first()
         self.assertIsNotNone(log)
         assert log is not None
+        assert log.detail is not None
         self.assertEqual(log.detail["name"], "test-tag")
 
     def test_tag_creation_via_action_tagging(self):
@@ -30,6 +32,7 @@ class TestTagActivityLogging(ActivityLogTestHelper):
         log = ActivityLog.objects.filter(scope="Tag", activity="created").first()
         self.assertIsNotNone(log)
         assert log is not None
+        assert log.detail is not None
         self.assertEqual(log.detail["name"], "test-tag")
 
 
@@ -41,6 +44,7 @@ class TestTaggedItemActivityLogging(ActivityLogTestHelper):
         log = ActivityLog.objects.filter(scope="TaggedItem", activity="created").first()
         self.assertIsNotNone(log)
         assert log is not None
+        assert log.detail is not None
         self.assertEqual(log.detail["name"], "test-tag")
         self.assertEqual(log.detail["context"]["related_object_type"], "dashboard")
 
@@ -51,6 +55,7 @@ class TestTaggedItemActivityLogging(ActivityLogTestHelper):
         log = ActivityLog.objects.filter(scope="TaggedItem", activity="created").first()
         self.assertIsNotNone(log)
         assert log is not None
+        assert log.detail is not None
         self.assertEqual(log.detail["name"], "test-tag")
         self.assertEqual(log.detail["context"]["related_object_type"], "insight")
 
@@ -61,6 +66,7 @@ class TestTaggedItemActivityLogging(ActivityLogTestHelper):
         log = ActivityLog.objects.filter(scope="TaggedItem", activity="created").first()
         self.assertIsNotNone(log)
         assert log is not None
+        assert log.detail is not None
         self.assertEqual(log.detail["name"], "test-tag")
         self.assertEqual(log.detail["context"]["related_object_type"], "action")
 
@@ -85,6 +91,7 @@ class TestTaggedItemActivityLogging(ActivityLogTestHelper):
         log = ActivityLog.objects.filter(scope="TaggedItem", activity="deleted").first()
         self.assertIsNotNone(log)
         assert log is not None
+        assert log.detail is not None
         self.assertEqual(log.detail["name"], "tag-to-delete")
 
     def test_bulk_tagging_and_untagging(self):
@@ -99,7 +106,7 @@ class TestTaggedItemActivityLogging(ActivityLogTestHelper):
 
         deletion_logs = ActivityLog.objects.filter(scope="TaggedItem", activity="deleted")
         self.assertEqual(deletion_logs.count(), 2)
-        deleted_tags = {log.detail["name"] for log in deletion_logs}
+        deleted_tags = {log.detail["name"] for log in deletion_logs if log.detail is not None}
         self.assertEqual(deleted_tags, {"tag2", "tag3"})
 
     def test_mixed_object_types_with_same_tag(self):
@@ -114,10 +121,10 @@ class TestTaggedItemActivityLogging(ActivityLogTestHelper):
         logs = ActivityLog.objects.filter(scope="TaggedItem", activity="created")
         self.assertEqual(logs.count(), 3)
 
-        tag_names = {log.detail["name"] for log in logs}
+        tag_names = {log.detail["name"] for log in logs if log.detail is not None}
         self.assertEqual(tag_names, {"shared-tag"})
 
-        object_types = {log.detail["context"]["related_object_type"] for log in logs}
+        object_types = {log.detail["context"]["related_object_type"] for log in logs if log.detail is not None}
         self.assertEqual(object_types, {"dashboard", "insight", "action"})
 
     def test_tagged_item_context_fields(self):
@@ -127,6 +134,7 @@ class TestTaggedItemActivityLogging(ActivityLogTestHelper):
         log = ActivityLog.objects.filter(scope="TaggedItem", activity="created").first()
         self.assertIsNotNone(log)
         assert log is not None
+        assert log.detail is not None
 
         context = log.detail["context"]
         self.assertEqual(context["tag_name"], "context-test-tag")
@@ -149,10 +157,10 @@ class TestTaggedItemActivityLogging(ActivityLogTestHelper):
         logs = ActivityLog.objects.filter(scope="TaggedItem", activity="created")
         self.assertEqual(logs.count(), 8)
 
-        bulk_tag_logs = [log for log in logs if log.detail["name"] == "bulk-tag"]
+        bulk_tag_logs = [log for log in logs if log.detail is not None and log.detail["name"] == "bulk-tag"]
         self.assertEqual(len(bulk_tag_logs), 3)
 
-        shared_tag_logs = [log for log in logs if log.detail["name"] == "shared-tag"]
+        shared_tag_logs = [log for log in logs if log.detail is not None and log.detail["name"] == "shared-tag"]
         self.assertEqual(len(shared_tag_logs), 2)
 
     def test_bulk_tag_removal_and_replacement(self):
@@ -167,11 +175,11 @@ class TestTaggedItemActivityLogging(ActivityLogTestHelper):
         self.update_insight(insight["id"], {"tags": ["insight-specific", "another-new-tag"]})
 
         deletion_logs = ActivityLog.objects.filter(scope="TaggedItem", activity="deleted")
-        deleted_tag_names = {log.detail["name"] for log in deletion_logs}
+        deleted_tag_names = {log.detail["name"] for log in deletion_logs if log.detail is not None}
         self.assertIn("old-tag", deleted_tag_names)
 
         creation_logs = ActivityLog.objects.filter(scope="TaggedItem", activity="created")
-        created_tag_names = {log.detail["name"] for log in creation_logs}
+        created_tag_names = {log.detail["name"] for log in creation_logs if log.detail is not None}
         self.assertIn("new-tag", created_tag_names)
         self.assertIn("another-new-tag", created_tag_names)
 
@@ -187,6 +195,7 @@ class TestTaggedItemActivityLogging(ActivityLogTestHelper):
         self.assertEqual(creation_logs.count(), 1)
         created_log = creation_logs.first()
         assert created_log is not None
+        assert created_log.detail is not None
         self.assertEqual(created_log.detail["name"], "updated-tag")
 
         # Should delete old TaggedItem for "original-tag"
@@ -194,6 +203,7 @@ class TestTaggedItemActivityLogging(ActivityLogTestHelper):
         self.assertEqual(deletion_logs.count(), 1)
         deleted_log = deletion_logs.first()
         assert deleted_log is not None
+        assert deleted_log.detail is not None
         self.assertEqual(deleted_log.detail["name"], "original-tag")
 
         # May also create new Tag if "updated-tag" didn't exist before
@@ -201,4 +211,5 @@ class TestTaggedItemActivityLogging(ActivityLogTestHelper):
         if tag_creation_logs.exists():
             tag_log = tag_creation_logs.first()
             assert tag_log is not None
+            assert tag_log.detail is not None
             self.assertEqual(tag_log.detail["name"], "updated-tag")

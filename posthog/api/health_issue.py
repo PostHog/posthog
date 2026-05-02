@@ -12,6 +12,8 @@ from rest_framework.viewsets import GenericViewSet
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.health_issue import HealthIssue
 
+from products.growth.backend.sdk_health import sdks_within_freshness_grace_period
+
 
 class HealthIssueSerializer(serializers.ModelSerializer):
     class Meta:
@@ -72,6 +74,9 @@ class HealthIssueViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelMi
             .order_by("severity_order", "-created_at")
         )
 
+        if fresh_sdks := sdks_within_freshness_grace_period():
+            queryset = queryset.exclude(kind="sdk_outdated", payload__sdk_name__in=fresh_sdks)
+
         if status_filter := self.request.query_params.get("status"):
             if status_filter not in VALID_STATUSES:
                 raise serializers.ValidationError({"status": f"Invalid status: {status_filter}"})
@@ -100,7 +105,7 @@ class HealthIssueViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelMi
             return Response({"detail": "Could not resolve health issue."}, status=HTTP_400_BAD_REQUEST)
         return Response(HealthIssueSerializer(issue).data)
 
-    @action(methods=["GET"], detail=False)
+    @action(methods=["GET"], detail=False, required_scopes=["health_issue:read"])
     def summary(self, request: Request, **kwargs) -> Response:
         active_issues = self.get_queryset().filter(status=HealthIssue.Status.ACTIVE, dismissed=False)
 

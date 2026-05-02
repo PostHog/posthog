@@ -33,7 +33,7 @@
         "jest-image-snapshot": "^6.4.0",
         "storybook": "^7.6.4",
         "storybook-addon-pseudo-states": "2.1.2",
-        "typescript": "~5.9.3",
+        "typescript": "catalog:",
         "vite": "^5.4.21"
     }
 }

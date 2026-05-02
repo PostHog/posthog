@@ -6,6 +6,7 @@ import collections.abc
 
 from psycopg import sql
 
+from posthog.models import Integration
 from posthog.temporal.common.clickhouse import ClickHouseClient
 
 from products.batch_exports.backend.service import BackfillDetails, BatchExportModel, BatchExportSchema
@@ -212,3 +213,26 @@ async def assert_clickhouse_records_in_postgres(
     assert len(inserted_records) == len(expected_records)
     assert inserted_records[0] == expected_records[0]
     assert inserted_records == expected_records
+
+
+async def make_integration(team_id, postgres_config) -> Integration:
+    """Make an integration model for testing."""
+    host = postgres_config["host"]
+    port = postgres_config["port"]
+    user = postgres_config["user"]
+
+    integration = await Integration.objects.acreate(
+        team_id=team_id,
+        kind=Integration.IntegrationKind.POSTGRESQL,
+        integration_id=f"{team_id}-{host}-{port}-{user}",
+        config={
+            "host": host,
+            "port": port,
+            "user": user,
+            "ssl_mode": "prefer",
+        },
+        sensitive_config={
+            "password": postgres_config["password"],
+        },
+    )
+    return integration

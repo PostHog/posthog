@@ -5,7 +5,7 @@ from django.core.management.base import BaseCommand
 import structlog
 
 from posthog.clickhouse.client.execute import sync_execute
-from posthog.kafka_client.client import KafkaProducer
+from posthog.kafka_client.routing import flush_all_producers
 
 from products.error_tracking.backend.models import (
     ErrorTrackingIssueFingerprintV2,
@@ -112,4 +112,4 @@ class Command(BaseCommand):
 
         logger.info(f"fingerprint overriden {found_issues_count}")
         logger.info(f"fingerprints not found {not_found_fingerprints}")
-        KafkaProducer().flush(5 * 60)
+        flush_all_producers(5 * 60)

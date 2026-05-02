@@ -3,7 +3,7 @@ import { combineUrl } from 'kea-router'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
-import { ProductKey } from '~/queries/schema/schema-general'
+import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 import { ProductManifest } from '~/types'
 
 export const manifest: ProductManifest = {
@@ -11,7 +11,6 @@ export const manifest: ProductManifest = {
     scenes: {
         CustomerAnalytics: {
             import: () => import('./frontend/CustomerAnalyticsScene'),
-            defaultDocsPath: '/docs/customer-analytics',
             projectBased: true,
             name: 'Customer analytics',
             description: 'Understand how your customers interact with your product ',
@@ -20,7 +19,6 @@ export const manifest: ProductManifest = {
         CustomerAnalyticsConfiguration: {
             import: () =>
                 import('./frontend/scenes/CustomerAnalyticsConfigurationScene/CustomerAnalyticsConfigurationScene'),
-            defaultDocsPath: '/docs/customer-analytics/configure-your-dashboard',
             projectBased: true,
             name: 'Customer analytics configuration',
         },
@@ -60,7 +58,7 @@ export const manifest: ProductManifest = {
         {
             path: 'Customer analytics',
             intents: [ProductKey.CUSTOMER_ANALYTICS],
-            category: 'Analytics',
+            category: ProductItemCategory.ANALYTICS,
             iconType: 'cohort',
             href: urls.customerAnalytics(),
             tags: ['beta'],

@@ -73,7 +73,11 @@ describe('bot-detection.template', () => {
 
             expect(response.finished).toBeTruthy()
             expect(response.error).toBeFalsy()
-            shouldKeepEvent ? expect(response.execResult).toBeTruthy() : expect(response.execResult).toBeFalsy()
+            if (shouldKeepEvent) {
+                expect(response.execResult).toBeTruthy()
+            } else {
+                expect(response.execResult).toBeFalsy()
+            }
         }
     )
 

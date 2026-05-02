@@ -10,14 +10,17 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     ActivityLogPaginatedResponseApi,
+    BulkUpdateTagsRequestApi,
+    BulkUpdateTagsResponseApi,
     CopyFlagsRequestApi,
     CopyFlagsResponseApi,
     DependentFlagApi,
     FeatureFlagApi,
     FeatureFlagCreateRequestSchemaApi,
     FeatureFlagStatusResponseApi,
-    FeatureFlagsActivityRetrieve2Params,
+    FeatureFlagVersionResponseApi,
     FeatureFlagsActivityRetrieveParams,
+    FeatureFlagsAllActivityRetrieveParams,
     FeatureFlagsEvaluationReasonsRetrieveParams,
     FeatureFlagsListParams,
     FeatureFlagsLocalEvaluationRetrieveParams,
@@ -51,16 +54,16 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
-export const getFeatureFlagsRetrieveUrl = (organizationId: string, featureFlagKey: string) => {
+export const getOrgFeatureFlagsRetrieveUrl = (organizationId: string, featureFlagKey: string) => {
     return `/api/organizations/${organizationId}/feature_flags/${featureFlagKey}/`
 }
 
-export const featureFlagsRetrieve = async (
+export const orgFeatureFlagsRetrieve = async (
     organizationId: string,
     featureFlagKey: string,
     options?: RequestInit
 ): Promise<void> => {
-    return apiMutator<void>(getFeatureFlagsRetrieveUrl(organizationId, featureFlagKey), {
+    return apiMutator<void>(getOrgFeatureFlagsRetrieveUrl(organizationId, featureFlagKey), {
         ...options,
         method: 'GET',
     })
@@ -142,16 +145,16 @@ export const featureFlagsCreate = async (
 
 If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
-export const getFeatureFlagsRetrieve2Url = (projectId: string, id: number) => {
+export const getFeatureFlagsRetrieveUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/feature_flags/${id}/`
 }
 
-export const featureFlagsRetrieve2 = async (
+export const featureFlagsRetrieve = async (
     projectId: string,
     id: number,
     options?: RequestInit
 ): Promise<FeatureFlagApi> => {
-    return apiMutator<FeatureFlagApi>(getFeatureFlagsRetrieve2Url(projectId, id), {
+    return apiMutator<FeatureFlagApi>(getFeatureFlagsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
@@ -222,10 +225,10 @@ export const featureFlagsDestroy = async (projectId: string, id: number, options
 
 If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
-export const getFeatureFlagsActivityRetrieve2Url = (
+export const getFeatureFlagsActivityRetrieveUrl = (
     projectId: string,
     id: number,
-    params?: FeatureFlagsActivityRetrieve2Params
+    params?: FeatureFlagsActivityRetrieveParams
 ) => {
     const normalizedParams = new URLSearchParams()
 
@@ -242,13 +245,13 @@ export const getFeatureFlagsActivityRetrieve2Url = (
         : `/api/projects/${projectId}/feature_flags/${id}/activity/`
 }
 
-export const featureFlagsActivityRetrieve2 = async (
+export const featureFlagsActivityRetrieve = async (
     projectId: string,
     id: number,
-    params?: FeatureFlagsActivityRetrieve2Params,
+    params?: FeatureFlagsActivityRetrieveParams,
     options?: RequestInit
 ): Promise<ActivityLogPaginatedResponseApi> => {
-    return apiMutator<ActivityLogPaginatedResponseApi>(getFeatureFlagsActivityRetrieve2Url(projectId, id, params), {
+    return apiMutator<ActivityLogPaginatedResponseApi>(getFeatureFlagsActivityRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })
@@ -386,7 +389,31 @@ export const featureFlagsStatusRetrieve = async (
 
 If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
-export const getFeatureFlagsActivityRetrieveUrl = (projectId: string, params?: FeatureFlagsActivityRetrieveParams) => {
+export const getFeatureFlagsVersionsRetrieveUrl = (projectId: string, id: number, versionNumber: number) => {
+    return `/api/projects/${projectId}/feature_flags/${id}/versions/${versionNumber}/`
+}
+
+export const featureFlagsVersionsRetrieve = async (
+    projectId: string,
+    id: number,
+    versionNumber: number,
+    options?: RequestInit
+): Promise<FeatureFlagVersionResponseApi> => {
+    return apiMutator<FeatureFlagVersionResponseApi>(getFeatureFlagsVersionsRetrieveUrl(projectId, id, versionNumber), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
+
+If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
+ */
+export const getFeatureFlagsAllActivityRetrieveUrl = (
+    projectId: string,
+    params?: FeatureFlagsAllActivityRetrieveParams
+) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -402,12 +429,12 @@ export const getFeatureFlagsActivityRetrieveUrl = (projectId: string, params?: F
         : `/api/projects/${projectId}/feature_flags/activity/`
 }
 
-export const featureFlagsActivityRetrieve = async (
+export const featureFlagsAllActivityRetrieve = async (
     projectId: string,
-    params?: FeatureFlagsActivityRetrieveParams,
+    params?: FeatureFlagsAllActivityRetrieveParams,
     options?: RequestInit
 ): Promise<ActivityLogPaginatedResponseApi> => {
-    return apiMutator<ActivityLogPaginatedResponseApi>(getFeatureFlagsActivityRetrieveUrl(projectId, params), {
+    return apiMutator<ActivityLogPaginatedResponseApi>(getFeatureFlagsAllActivityRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -460,6 +487,34 @@ export const featureFlagsBulkKeysCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(featureFlagApi),
+    })
+}
+
+/**
+ * Bulk update tags on multiple objects.
+
+Accepts:
+- {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
+
+Actions:
+- "add": Add tags to existing tags on each object
+- "remove": Remove specific tags from each object
+- "set": Replace all tags on each object with the provided list
+ */
+export const getFeatureFlagsBulkUpdateTagsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/feature_flags/bulk_update_tags/`
+}
+
+export const featureFlagsBulkUpdateTagsCreate = async (
+    projectId: string,
+    bulkUpdateTagsRequestApi: BulkUpdateTagsRequestApi,
+    options?: RequestInit
+): Promise<BulkUpdateTagsResponseApi> => {
+    return apiMutator<BulkUpdateTagsResponseApi>(getFeatureFlagsBulkUpdateTagsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(bulkUpdateTagsRequestApi),
     })
 }
 

@@ -127,12 +127,22 @@ class Artifact:
 
 
 @dataclass(frozen=True)
+class UserBasicInfo:
+    """Lightweight user info for display purposes."""
+
+    id: int
+    first_name: str
+    email: str
+
+
+@dataclass(frozen=True)
 class Snapshot:
     """A snapshot with its comparison results."""
 
     id: UUID
     identifier: str
     result: str
+    classification_reason: str  # exact, tolerated_hash, below_threshold, or ""
     current_artifact: Artifact | None
     baseline_artifact: Artifact | None
     diff_artifact: Artifact | None
@@ -142,6 +152,9 @@ class Snapshot:
     review_state: str  # pending, approved, (future: rejected)
     reviewed_at: datetime | None
     approved_hash: str
+    tolerated_hash_id: UUID | None = None
+    is_quarantined: bool = False
+    reviewed_by: UserBasicInfo | None = None
     # Flexible metadata (browser, viewport, is_critical, is_flaky, page_group, etc.)
     metadata: dict = field(default_factory=dict)
 
@@ -155,6 +168,8 @@ class RunSummary:
     new: int
     removed: int
     unchanged: int
+    unresolved: int = 0
+    tolerated_matched: int = 0
 
 
 @dataclass(frozen=True)
@@ -175,6 +190,8 @@ class Run:
     created_at: datetime
     completed_at: datetime | None
     is_stale: bool = False
+    superseded_by_id: UUID | None = None
+    approved_by: UserBasicInfo | None = None
     # Flexible metadata (pr_title, ci_job_url, base_branch, etc.)
     metadata: dict = field(default_factory=dict)
 
@@ -185,6 +202,53 @@ class AutoApproveResult:
 
     run: Run
     baseline_content: str
+
+
+@dataclass(frozen=True)
+class RecomputeResult:
+    """Result of re-evaluating quarantine/counts and optionally retriggering CI."""
+
+    run: Run
+    counts_changed: bool
+    unresolved: int
+    ci_rerun_triggered: bool
+    ci_rerun_error: str | None = None
+
+
+@dataclass(frozen=True)
+class ToleratedHashEntry:
+    """A known tolerated alternate hash for a snapshot identifier."""
+
+    id: UUID
+    alternate_hash: str
+    baseline_hash: str
+    reason: str
+    diff_percentage: float | None
+    created_at: datetime
+    source_run_id: UUID | None
+
+
+@dataclass(frozen=True)
+class QuarantinedIdentifierEntry:
+    """A quarantined snapshot identifier."""
+
+    id: UUID
+    identifier: str
+    run_type: str
+    reason: str
+    expires_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+    created_by: UserBasicInfo | None = None
+
+
+@dataclass(frozen=True)
+class QuarantineInput:
+    """Input for quarantining an identifier. run_type comes from URL path."""
+
+    identifier: str
+    reason: str
+    expires_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -209,10 +273,15 @@ class SnapshotHistoryEntry:
     """A single entry in a snapshot's change history across runs."""
 
     run_id: UUID
+    snapshot_id: UUID
     result: str
     branch: str
     commit_sha: str
     created_at: datetime
+    pr_number: int | None = None
+    diff_percentage: float | None = None
+    review_state: str = ""
+    current_artifact: Artifact | None = None
 
 
 @dataclass(frozen=True)
@@ -226,3 +295,75 @@ class Repo:
     baseline_file_paths: dict[str, str]
     enable_pr_comments: bool
     created_at: datetime
+
+
+# Hard cap on entries returned by the baselines overview endpoint. Above this,
+# truncate (newest by run completion) and surface `truncated: True` so the UI
+# can flag it. The whole flow is sized for this — the FE filters/sorts client-
+# side and ships ~600 KB gzipped at the cap.
+BASELINE_OVERVIEW_MAX_ENTRIES = 5000
+
+# How many historical days of per-day result counts feed the overview sparkline.
+BASELINE_SPARKLINE_DAYS = 30
+
+
+@dataclass(frozen=True)
+class BaselineSparklineDay:
+    """One day's bucketed run-result counts for an identifier."""
+
+    clean: int
+    tolerated: int
+    changed: int
+    quarantined: int
+
+
+@dataclass(frozen=True)
+class BaselineEntry:
+    """The current baseline state of a single snapshot identifier in a repo.
+
+    Anchored on the latest non-superseded run on the default branch (master/main)
+    for each `run_type` — i.e. "what is the baseline image we'd compare against
+    right now". One row per `(run_type, identifier)`.
+    """
+
+    identifier: str
+    run_type: str
+    browser: str | None
+    thumbnail_hash: str | None
+    width: int | None
+    height: int | None
+    tolerate_count_30d: int
+    tolerate_count_90d: int
+    is_quarantined: bool
+    last_run_at: datetime
+    # Average diff_percentage across runs in the last 30 days that produced
+    # a non-zero diff. Drives the severity sort on the Tolerated and
+    # Quarantined slices. None when there's no signal yet.
+    recent_diff_avg: float | None
+    sparkline: list[BaselineSparklineDay]
+
+
+@dataclass(frozen=True)
+class BaselineTotals:
+    """Aggregate counts across the **full** baseline universe.
+
+    Computed independently of pagination so the stat row stays correct when
+    `entries` is truncated. The FE uses these for unfiltered counts and falls
+    back to recomputing over `entries` once a filter is active.
+    """
+
+    all_snapshots: int
+    recently_tolerated: int
+    frequently_tolerated: int
+    currently_quarantined: int
+    by_run_type: dict[str, int]
+
+
+@dataclass(frozen=True)
+class BaselineOverview:
+    """Result of the baselines overview endpoint."""
+
+    entries: list[BaselineEntry]
+    totals: BaselineTotals
+    truncated: bool
+    generated_at: datetime

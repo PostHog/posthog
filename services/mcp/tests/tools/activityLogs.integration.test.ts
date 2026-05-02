@@ -9,7 +9,7 @@ import {
     setActiveProjectAndOrg,
     validateEnvironmentVariables,
 } from '@/shared/test-utils'
-import { GENERATED_TOOLS } from '@/tools/generated/activity_logs'
+import { GENERATED_TOOLS } from '@/tools/generated/platform_features'
 import type { Context } from '@/tools/types'
 
 describe('Activity Logs', { concurrent: false }, () => {
@@ -22,8 +22,8 @@ describe('Activity Logs', { concurrent: false }, () => {
         await setActiveProjectAndOrg(context, TEST_PROJECT_ID!, TEST_ORG_ID!)
     })
 
-    describe('activity-logs-list tool', () => {
-        const listTool = GENERATED_TOOLS['activity-logs-list']!()
+    describe('activity-log-list tool', () => {
+        const listTool = GENERATED_TOOLS['activity-log-list']!()
 
         it('should list activity logs with default parameters', async () => {
             const result = await listTool.handler(context, {})

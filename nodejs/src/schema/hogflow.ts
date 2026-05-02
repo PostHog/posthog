@@ -40,19 +40,19 @@ const HogFlowTriggerSchema = z.discriminatedUnion('type', [
     }),
     z.object({
         type: z.literal('webhook'),
-        template_uuid: z.string().uuid().optional(), // May be used later to specify a specific template version
+        template_uuid: z.string().optional(), // May be used later to specify a specific template version
         template_id: z.string(),
         inputs: z.record(z.string(), CyclotronInputSchema),
     }),
     z.object({
         type: z.literal('manual'),
-        template_uuid: z.string().uuid().optional(), // May be used later to specify a specific template version
+        template_uuid: z.string().optional(), // May be used later to specify a specific template version
         template_id: z.string(),
         inputs: z.record(z.string(), CyclotronInputSchema),
     }),
     z.object({
         type: z.literal('tracking_pixel'),
-        template_uuid: z.string().uuid().optional(), // May be used later to specify a specific template version
+        template_uuid: z.string().optional(), // May be used later to specify a specific template version
         template_id: z.string(),
         inputs: z.record(z.string(), CyclotronInputSchema),
     }),
@@ -151,7 +151,7 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
         ..._commonActionFields,
         type: z.literal('function_email'),
         config: z.object({
-            message_category_id: z.string().uuid().optional(),
+            message_category_id: z.string().optional(),
             message_category_type: z.enum(['marketing', 'transactional']).optional(),
             template_uuid: z.string().optional(), // May be used later to specify a specific template version
             template_id: z.literal('template-email'),
@@ -165,7 +165,7 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
         ..._commonActionFields,
         type: z.literal('function'),
         config: z.object({
-            template_uuid: z.string().uuid().optional(), // May be used later to specify a specific template version
+            template_uuid: z.string().optional(), // May be used later to specify a specific template version
             template_id: z.string(),
             inputs: z.record(z.string(), CyclotronInputSchema),
             mappings: z.array(CyclotronInputMappingSchema).optional(),
@@ -175,9 +175,9 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
         ..._commonActionFields,
         type: z.literal('function_sms'),
         config: z.object({
-            message_category_id: z.string().uuid().optional(),
+            message_category_id: z.string().optional(),
             message_category_type: z.enum(['marketing', 'transactional']).optional(),
-            template_uuid: z.string().uuid().optional(),
+            template_uuid: z.string().optional(),
             template_id: z.literal('template-twilio'),
             inputs: z.record(z.string(), CyclotronInputSchema),
             mappings: z.array(CyclotronInputMappingSchema).optional(),

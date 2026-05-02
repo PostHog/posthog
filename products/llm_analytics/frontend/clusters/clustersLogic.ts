@@ -16,7 +16,12 @@ import { Breadcrumb } from '~/types'
 import { loadClusterMetrics } from './clusterMetricsLoader'
 import type { clustersLogicType } from './clustersLogicType'
 import { MAX_CLUSTERING_RUNS, NOISE_CLUSTER_ID, OUTLIER_COLOR } from './constants'
-import { loadTraceSummaries } from './traceSummaryLoader'
+import {
+    EvaluationItemAttributes,
+    EvaluationVerdict,
+    loadEvaluationItemAttributes,
+    loadTraceSummaries,
+} from './traceSummaryLoader'
 import {
     Cluster,
     ClusterMetrics,
@@ -27,7 +32,21 @@ import {
     TraceSummary,
     getLevelFromRunId,
     getTimestampBoundsFromRunId,
+    parseClusterMetrics,
 } from './types'
+
+/** Map a clustering level to the ClickHouse event name its runs are emitted under. */
+function eventNameForLevel(
+    level: ClusteringLevel
+): '$ai_trace_clusters' | '$ai_generation_clusters' | '$ai_evaluation_clusters' {
+    if (level === 'generation') {
+        return '$ai_generation_clusters'
+    }
+    if (level === 'evaluation') {
+        return '$ai_evaluation_clusters'
+    }
+    return '$ai_trace_clusters'
+}
 
 export interface ScatterDataset {
     label: string
@@ -78,6 +97,11 @@ export const clustersLogic = kea<clustersLogicType>([
         setClusterMetrics: (metrics: Record<number, ClusterMetrics>) => ({ metrics }),
         setClusterMetricsLoading: (loading: boolean) => ({ loading }),
         loadClusterMetricsForRun: (run: ClusteringRun) => ({ run }),
+        setEvaluationItemAttributes: (attributes: Record<string, EvaluationItemAttributes>) => ({ attributes }),
+        loadEvaluationAttributesForRun: (run: ClusteringRun) => ({ run }),
+        setEvalEvaluatorNamesFilter: (names: string[]) => ({ names }),
+        setEvalVerdictsFilter: (verdicts: EvaluationVerdict[]) => ({ verdicts }),
+        clearEvalFilters: true,
     }),
 
     reducers({
@@ -143,6 +167,38 @@ export const clustersLogic = kea<clustersLogicType>([
                 setClusterMetricsLoading: (_, { loading }) => loading,
             },
         ],
+        evaluationItemAttributes: [
+            {} as Record<string, EvaluationItemAttributes>,
+            {
+                setEvaluationItemAttributes: (_, { attributes }) => attributes,
+                // Wipe on level switches so a stale lookup doesn't leak across levels.
+                // Wipe on loadClusteringRun (rather than setSelectedRunId) so a run switch
+                // doesn't briefly show the previous run's counts in the filter bar before
+                // the new attributes load. Using setSelectedRunId would also wipe on the
+                // nav-back URL handler that fires setSelectedRunId(null) without reloading,
+                // which would leave the filter bar empty and un-refillable.
+                setClusteringLevel: () => ({}),
+                loadClusteringRun: () => ({}),
+            },
+        ],
+        evalFilterEvaluatorNames: [
+            [] as string[],
+            {
+                setEvalEvaluatorNamesFilter: (_, { names }) => names,
+                clearEvalFilters: () => [],
+                setClusteringLevel: () => [],
+                setSelectedRunId: () => [],
+            },
+        ],
+        evalFilterVerdicts: [
+            [] as EvaluationVerdict[],
+            {
+                setEvalVerdictsFilter: (_, { verdicts }) => verdicts,
+                clearEvalFilters: () => [],
+                setClusteringLevel: () => [],
+                setSelectedRunId: () => [],
+            },
+        ],
     }),
 
     loaders(({ values }) => ({
@@ -150,8 +206,7 @@ export const clustersLogic = kea<clustersLogicType>([
             [] as ClusteringRunOption[],
             {
                 loadClusteringRuns: async () => {
-                    const eventName =
-                        values.clusteringLevel === 'generation' ? '$ai_generation_clusters' : '$ai_trace_clusters'
+                    const eventName = eventNameForLevel(values.clusteringLevel)
 
                     const response = await api.queryHogQL(
                         hogql`
@@ -189,7 +244,7 @@ export const clustersLogic = kea<clustersLogicType>([
                     const { dayStart, dayEnd } = getTimestampBoundsFromRunId(runId)
                     // Derive level from runId to ensure correct event is queried even on direct URL navigation
                     const level = getLevelFromRunId(runId)
-                    const eventName = level === 'generation' ? '$ai_generation_clusters' : '$ai_trace_clusters'
+                    const eventName = eventNameForLevel(level)
 
                     const response = await api.queryHogQL(
                         hogql`
@@ -222,7 +277,22 @@ export const clustersLogic = kea<clustersLogicType>([
 
                     let clustersData: Cluster[] = []
                     try {
-                        clustersData = JSON.parse((row[4] as string) || '[]')
+                        const rawClusters: Array<Record<string, unknown>> = JSON.parse((row[4] as string) || '[]')
+                        // The backend emits per-cluster aggregate metrics with snake_case
+                        // field names (dataclasses.asdict on ClusterAggregateMetrics);
+                        // normalize to the frontend's camelCase ClusterMetrics shape here
+                        // so consumers don't need to know both conventions.
+                        clustersData = rawClusters.map((raw) => {
+                            const { metrics: rawMetrics, ...rest } = raw as { metrics?: unknown } & Record<
+                                string,
+                                unknown
+                            >
+                            const parsed = parseClusterMetrics(rawMetrics)
+                            return {
+                                ...(rest as unknown as Cluster),
+                                ...(parsed ? { metrics: parsed } : {}),
+                            }
+                        })
                     } catch {
                         console.error('Failed to parse clusters data')
                         return null
@@ -286,6 +356,102 @@ export const clustersLogic = kea<clustersLogicType>([
             },
         ],
 
+        evalFiltersActive: [
+            (s) => [s.clusteringLevel, s.evalFilterEvaluatorNames, s.evalFilterVerdicts],
+            (level: ClusteringLevel, names: string[], verdicts: EvaluationVerdict[]): boolean =>
+                level === 'evaluation' && (names.length > 0 || verdicts.length > 0),
+        ],
+
+        availableEvaluatorNames: [
+            (s) => [s.evaluationItemAttributes],
+            (attrs: Record<string, EvaluationItemAttributes>): { name: string; count: number }[] => {
+                const counts = new Map<string, number>()
+                for (const a of Object.values(attrs)) {
+                    counts.set(a.evaluatorName, (counts.get(a.evaluatorName) || 0) + 1)
+                }
+                return Array.from(counts.entries())
+                    .map(([name, count]) => ({ name, count }))
+                    .sort((a, b) => b.count - a.count)
+            },
+        ],
+
+        availableVerdictCounts: [
+            (s) => [s.evaluationItemAttributes],
+            (attrs: Record<string, EvaluationItemAttributes>): Record<EvaluationVerdict, number> => {
+                const counts: Record<EvaluationVerdict, number> = { pass: 0, fail: 0, 'n/a': 0, unknown: 0 }
+                for (const a of Object.values(attrs)) {
+                    counts[a.verdict] = (counts[a.verdict] || 0) + 1
+                }
+                return counts
+            },
+        ],
+
+        // Single predicate keeps the filtering rule in one place; consumers (scatter, cards,
+        // distribution bar) all derive from this so any divergence is impossible.
+        evalFilterPredicate: [
+            (s) => [s.clusteringLevel, s.evaluationItemAttributes, s.evalFilterEvaluatorNames, s.evalFilterVerdicts],
+            (
+                level: ClusteringLevel,
+                attrs: Record<string, EvaluationItemAttributes>,
+                names: string[],
+                verdicts: EvaluationVerdict[]
+            ): ((evalId: string) => boolean) => {
+                if (level !== 'evaluation' || (names.length === 0 && verdicts.length === 0)) {
+                    return () => true
+                }
+                // Attributes haven't loaded yet — show everything to avoid an empty flash.
+                if (Object.keys(attrs).length === 0) {
+                    return () => true
+                }
+                const nameSet = new Set(names)
+                const verdictSet = new Set(verdicts)
+                return (evalId: string) => {
+                    const a = attrs[evalId]
+                    if (!a) {
+                        return false
+                    }
+                    if (nameSet.size > 0 && !nameSet.has(a.evaluatorName)) {
+                        return false
+                    }
+                    if (verdictSet.size > 0 && !verdictSet.has(a.verdict)) {
+                        return false
+                    }
+                    return true
+                }
+            },
+        ],
+
+        filteredSortedClusters: [
+            (s) => [s.sortedClusters, s.evalFilterPredicate, s.evalFiltersActive],
+            (clusters: Cluster[], predicate: (id: string) => boolean, active: boolean): Cluster[] => {
+                if (!active) {
+                    return clusters
+                }
+                return clusters
+                    .map((cluster) => {
+                        const filteredTraces = Object.fromEntries(
+                            Object.entries(cluster.traces).filter(([id]) => predicate(id))
+                        )
+                        return {
+                            ...cluster,
+                            traces: filteredTraces,
+                            size: Object.keys(filteredTraces).length,
+                        }
+                    })
+                    .filter((c) => c.size > 0)
+            },
+        ],
+
+        filteredItemCount: [
+            (s) => [s.filteredSortedClusters],
+            (clusters: Cluster[]): number => clusters.reduce((sum, c) => sum + c.size, 0),
+        ],
+
+        totalItemCount: [
+            (s) => [s.sortedClusters],
+            (clusters: Cluster[]): number => clusters.reduce((sum, c) => sum + c.size, 0),
+        ],
+
         isClusterExpanded: [
             (s) => [s.expandedClusterIds],
             (expandedIds: Set<number>) =>
@@ -308,7 +474,7 @@ export const clustersLogic = kea<clustersLogicType>([
         ],
 
         scatterPlotDatasets: [
-            (s) => [s.sortedClusters],
+            (s) => [s.filteredSortedClusters],
             (clusters: Cluster[]): ScatterDataset[] => {
                 const itemDatasets: ScatterDataset[] = []
                 const centroidDatasets: ScatterDataset[] = []
@@ -369,20 +535,59 @@ export const clustersLogic = kea<clustersLogicType>([
                 return
             }
 
+            const level = run.level || values.clusteringLevel
+
+            // Evaluation clusters ship with metrics baked into the event by the backend
+            // (ClusterAggregateMetrics → dataclasses.asdict → $ai_clusters[i].metrics).
+            // Use those directly instead of a second HogQL round-trip that tries to
+            // recompute from the events table — the backend already joined eval →
+            // generation and computed both operational + eval-specific metrics.
+            if (level === 'evaluation') {
+                const baked: Record<number, ClusterMetrics> = {}
+                for (const cluster of run.clusters) {
+                    if (cluster.metrics) {
+                        baked[cluster.cluster_id] = cluster.metrics
+                    }
+                }
+                actions.setClusterMetrics(baked)
+                return
+            }
+
             actions.setClusterMetricsLoading(true)
 
             try {
-                const metrics = await loadClusterMetrics(
-                    run.clusters,
-                    run.windowStart,
-                    run.windowEnd,
-                    run.level || values.clusteringLevel
-                )
+                const metrics = await loadClusterMetrics(run.clusters, run.windowStart, run.windowEnd, level)
                 actions.setClusterMetrics(metrics)
             } catch (error) {
                 console.error('Failed to load cluster metrics:', error)
             } finally {
                 actions.setClusterMetricsLoading(false)
+            }
+        },
+
+        loadEvaluationAttributesForRun: async ({ run }) => {
+            if (run.level !== 'evaluation') {
+                return
+            }
+            const allItemIds: string[] = []
+            for (const cluster of run.clusters) {
+                allItemIds.push(...Object.keys(cluster.traces))
+            }
+            if (allItemIds.length === 0) {
+                return
+            }
+            try {
+                const attrs = await loadEvaluationItemAttributes(allItemIds, run.windowStart, run.windowEnd)
+                // Guard against a slow response for a prior run overwriting attributes
+                // after the user has switched to a different run. If currentRun has
+                // advanced past the one we were loading for, drop the response on the
+                // floor — the new run's load will have already fired.
+                if (values.currentRun?.runId && values.currentRun.runId !== run.runId) {
+                    return
+                }
+                actions.setEvaluationItemAttributes(attrs)
+            } catch (error) {
+                console.error('Failed to load evaluation item attributes:', error)
             }
         },
 
@@ -463,6 +668,9 @@ export const clustersLogic = kea<clustersLogicType>([
                 actions.loadTraceSummariesForRun(currentRun)
                 // Load cluster metrics for displaying averages in cluster cards
                 actions.loadClusterMetricsForRun(currentRun)
+                // For evaluation runs, also load the per-item (evaluator name, verdict) lookup
+                // so the post-hoc filter bar can drive scatter + cluster card filtering.
+                actions.loadEvaluationAttributesForRun(currentRun)
             }
         },
 

@@ -1,0 +1,44 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "created_by": {
+            "description": "Filter by creator user UUID.",
+            "type": "string"
+        },
+        "dashboard": {
+            "description": "Filter by dashboard ID.",
+            "type": "number"
+        },
+        "insight": {
+            "description": "Filter by insight ID.",
+            "type": "number"
+        },
+        "limit": {
+            "description": "Number of results to return per page.",
+            "type": "number"
+        },
+        "offset": {
+            "description": "The initial index from which to return the results.",
+            "type": "number"
+        },
+        "ordering": {
+            "description": "Which field to use when ordering the results.",
+            "type": "string"
+        },
+        "resource_type": {
+            "description": "Filter by subscription resource: insight vs dashboard export.",
+            "enum": ["dashboard", "insight"],
+            "type": "string"
+        },
+        "search": {
+            "description": "A search term.",
+            "type": "string"
+        },
+        "target_type": {
+            "description": "Filter by delivery channel (email, Slack, or webhook).",
+            "enum": ["email", "slack", "webhook"],
+            "type": "string"
+        }
+    },
+    "type": "object"
+}

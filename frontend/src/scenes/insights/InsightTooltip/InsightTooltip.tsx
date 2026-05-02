@@ -8,7 +8,6 @@ import { IconX } from '@posthog/icons'
 
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { dayjs } from 'lib/dayjs'
-import { IconHandClick } from 'lib/lemon-ui/icons'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { shortTimeZone } from 'lib/utils'
 import { formatAggregationValue } from 'scenes/insights/utils'
@@ -42,10 +41,7 @@ export function ClickToInspectActors({
                     <br />
                 </>
             )}
-            <div className="table-subtext-click-to-inspect">
-                <IconHandClick className="mr-1 mb-0.5" />
-                {inspectLabel ?? `Click to view ${groupTypeLabel}`}
-            </div>
+            <div className="table-subtext-click-to-inspect">{inspectLabel ?? `Click to view ${groupTypeLabel}`}</div>
         </div>
     )
 }
@@ -125,6 +121,11 @@ export function InsightTooltip({
     const itemizeEntitiesAsColumns =
         (seriesData?.length ?? 0) > 1 &&
         (seriesData?.[0]?.breakdown_value !== undefined || seriesData?.[0]?.compare_label !== undefined)
+
+    const hasMultipleDatapoints = (seriesData?.length ?? 0) > 1
+    const defaultInspectLabel = hasMultipleDatapoints
+        ? `Click a series above to view ${groupTypeLabel}`
+        : `Click to view ${groupTypeLabel}`
 
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
     const { weekStartDay } = useValues(teamLogic)
@@ -254,7 +255,7 @@ export function InsightTooltip({
                 </div>
                 {!hideInspectActorsSection && (
                     <ClickToInspectActors
-                        inspectLabel={inspectLabel}
+                        inspectLabel={inspectLabel ?? defaultInspectLabel}
                         groupTypeLabel={groupTypeLabel}
                         showShiftKeyHint={showShiftKeyHint}
                     />
@@ -339,7 +340,7 @@ export function InsightTooltip({
             </div>
             {!hideInspectActorsSection && (
                 <ClickToInspectActors
-                    inspectLabel={inspectLabel}
+                    inspectLabel={inspectLabel ?? defaultInspectLabel}
                     groupTypeLabel={groupTypeLabel}
                     showShiftKeyHint={showShiftKeyHint}
                 />

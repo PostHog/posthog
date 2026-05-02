@@ -27,7 +27,8 @@ describe('KafkaProducerRegistryBuilder', () => {
         expect(KafkaProducerWrapper.createWithConfig).toHaveBeenCalledTimes(1)
         expect(KafkaProducerWrapper.createWithConfig).toHaveBeenCalledWith(
             undefined,
-            expect.objectContaining({ 'metadata.broker.list': 'kafka:9092', 'linger.ms': 20 })
+            expect.objectContaining({ 'metadata.broker.list': 'kafka:9092', 'linger.ms': 20 }),
+            'DEFAULT'
         )
         expect(registry.getProducer('DEFAULT')).toBeDefined()
     })
@@ -49,11 +50,13 @@ describe('KafkaProducerRegistryBuilder', () => {
         expect(KafkaProducerWrapper.createWithConfig).toHaveBeenCalledTimes(2)
         expect(KafkaProducerWrapper.createWithConfig).toHaveBeenCalledWith(
             undefined,
-            expect.objectContaining({ 'metadata.broker.list': 'kafka-primary:9092' })
+            expect.objectContaining({ 'metadata.broker.list': 'kafka-primary:9092' }),
+            'PRIMARY'
         )
         expect(KafkaProducerWrapper.createWithConfig).toHaveBeenCalledWith(
             undefined,
-            expect.objectContaining({ 'metadata.broker.list': 'kafka-secondary:9092' })
+            expect.objectContaining({ 'metadata.broker.list': 'kafka-secondary:9092' }),
+            'SECONDARY'
         )
         expect(registry.getProducer('PRIMARY')).toBeDefined()
         expect(registry.getProducer('SECONDARY')).toBeDefined()
@@ -65,7 +68,7 @@ describe('KafkaProducerRegistryBuilder', () => {
 
         await new KafkaProducerRegistryBuilder('us-east-1a').register('DEFAULT', configMap).build(config)
 
-        expect(KafkaProducerWrapper.createWithConfig).toHaveBeenCalledWith('us-east-1a', expect.any(Object))
+        expect(KafkaProducerWrapper.createWithConfig).toHaveBeenCalledWith('us-east-1a', expect.any(Object), 'DEFAULT')
     })
 
     it('skips empty config values and falls back to zod defaults', async () => {
@@ -78,7 +81,8 @@ describe('KafkaProducerRegistryBuilder', () => {
             expect.objectContaining({
                 'metadata.broker.list': 'kafka:9092',
                 'linger.ms': 20,
-            })
+            }),
+            'DEFAULT'
         )
     })
 

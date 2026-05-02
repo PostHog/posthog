@@ -184,6 +184,10 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
                     }
                 }
 
+                if ((experiment.description?.length ?? 0) > 3000) {
+                    errors.about.push('Hypothesis must be 3000 characters or fewer')
+                }
+
                 // Active validation errors — always shown once triggered
                 if (!linkedFeatureFlag && featureFlagKeyValidation?.valid === false && featureFlagKeyValidation.error) {
                     errors.about.push(featureFlagKeyValidation.error)

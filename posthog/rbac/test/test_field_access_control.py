@@ -1,3 +1,5 @@
+from typing import Any, cast
+
 import pytest
 from posthog.test.base import BaseTest
 
@@ -18,7 +20,7 @@ from posthog.rbac.user_access_control import (
 class TestFieldAccessControlDecorator(BaseTest):
     def test_decorator_adds_metadata_to_field(self):
         """Test that the decorator adds access control metadata to fields"""
-        field = Team._meta.get_field("session_recording_opt_in")
+        field = cast(Any, Team)._meta.get_field("session_recording_opt_in")
 
         assert hasattr(field, "_access_control_resource")
         assert hasattr(field, "_access_control_level")
@@ -97,7 +99,7 @@ class TestFieldAccessControlDecorator(BaseTest):
         assert field_map["test_field"] == ("notebook", "viewer")
 
         # Also check that the field has the metadata directly
-        field = TestModel._meta.get_field("test_field")
+        field = cast(Any, TestModel)._meta.get_field("test_field")
         assert hasattr(field, "_access_control_resource")
         assert hasattr(field, "_access_control_level")
         assert field._access_control_resource == "notebook"

@@ -104,7 +104,7 @@ class TestHooksAPI(ClickhouseTestMixin, APILicensedTest):
         hog_functions = []
         for hook_id in [uuid.uuid4(), uuid.uuid4()]:
             hook = Hook.objects.create(
-                id=hook_id,
+                id=str(hook_id),
                 user=self.user,
                 team=self.team,
                 resource_id=self.action.id,

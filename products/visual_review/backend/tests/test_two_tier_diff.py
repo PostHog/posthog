@@ -5,7 +5,7 @@ import io
 import numpy as np
 from PIL import Image, ImageDraw
 
-from products.visual_review.backend.diff import compute_diff
+from products.visual_review.backend.diff import compare_images
 from products.visual_review.backend.diffing import PIXEL_DIFF_THRESHOLD_PERCENT, SSIM_DISSIMILARITY_THRESHOLD
 from products.visual_review.backend.ssim import compute_ssim
 
@@ -51,13 +51,12 @@ def _make_tall_settings_page(width: int = 400, height: int = 3000, extra_element
 
 def _classify(baseline_bytes: bytes, current_bytes: bytes) -> str:
     """Run the same two-tier classification logic as _diff_snapshot."""
-    result = compute_diff(baseline_bytes, current_bytes)
+    result = compare_images(baseline_bytes, current_bytes, with_thumbnail=False)
 
     if result.diff_percentage >= PIXEL_DIFF_THRESHOLD_PERCENT:
         return "changed_by_pixelmatch"
 
-    ssim_score = compute_ssim(baseline_bytes, current_bytes)
-    ssim_dissimilarity = 1.0 - ssim_score
+    ssim_dissimilarity = 1.0 - result.ssim_score
 
     if ssim_dissimilarity >= SSIM_DISSIMILARITY_THRESHOLD:
         return "changed_by_ssim"
@@ -111,10 +110,10 @@ class TestTwoTierClassification:
         baseline = _make_tall_settings_page(extra_element=False)
         current = _make_tall_settings_page(extra_element=True)
 
-        result = compute_diff(baseline, current)
+        result = compare_images(baseline, current, with_thumbnail=False)
         assert result.diff_percentage < PIXEL_DIFF_THRESHOLD_PERCENT
 
-        ssim_dissimilarity = 1.0 - compute_ssim(baseline, current)
+        ssim_dissimilarity = 1.0 - result.ssim_score
         assert ssim_dissimilarity > SSIM_DISSIMILARITY_THRESHOLD
 
         assert _classify(baseline, current) == "changed_by_ssim"

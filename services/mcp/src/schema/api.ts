@@ -5,13 +5,19 @@ export type ApiEventDefinition = Schemas.EnterpriseEventDefinition
 
 export interface ApiUser {
     distinct_id: string
-    organizations: Array<{ id: string }>
+    first_name?: string
+    last_name?: string
+    email: string
+    organizations: Array<{ id: string; name: string }>
     team: {
         id: number
+        name: string
+        timezone: string
         organization: string
     }
     organization: {
         id: string
+        name: string
     }
 }
 

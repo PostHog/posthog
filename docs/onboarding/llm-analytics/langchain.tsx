@@ -9,88 +9,57 @@ export const getLangChainSteps = (ctx: OnboardingComponentsContext): StepDefinit
 
     return [
         {
-            title: 'Install the PostHog SDK',
+            title: 'Install dependencies',
             badge: 'required',
             content: (
                 <>
-                    <Markdown>
-                        Setting up analytics starts with installing the PostHog SDK for your language. LLM analytics
-                        works best with our Python and Node SDKs.
-                    </Markdown>
-
-                    <CodeBlock
-                        blocks={[
-                            {
-                                language: 'bash',
-                                file: 'Python',
-                                code: dedent`
-                                    pip install posthog
-                                `,
-                            },
-                            {
-                                language: 'bash',
-                                file: 'Node',
-                                code: dedent`
-                                    npm install @posthog/ai posthog-node
-                                `,
-                            },
-                        ]}
-                    />
-                </>
-            ),
-        },
-        {
-            title: 'Install LangChain and OpenAI SDKs',
-            badge: 'required',
-            content: (
-                <>
-                    <Markdown>
-                        Install LangChain. The PostHog SDK instruments your LLM calls by wrapping LangChain. The PostHog
-                        SDK **does not** proxy your calls.
-                    </Markdown>
-
-                    <CodeBlock
-                        blocks={[
-                            {
-                                language: 'bash',
-                                file: 'Python',
-                                code: dedent`
-                                    pip install langchain openai langchain-openai
-                                `,
-                            },
-                            {
-                                language: 'bash',
-                                file: 'Node',
-                                code: dedent`
-                                    npm install langchain @langchain/core @langchain/openai @posthog/ai
-                                `,
-                            },
-                        ]}
-                    />
-
-                    <CalloutBox type="fyi" icon="IconInfo" title="Proxy note">
+                    <CalloutBox type="info" icon="IconInfo" title="Full working examples">
                         <Markdown>
-                            These SDKs **do not** proxy your calls. They only fire off an async call to PostHog in the
-                            background to send the data. You can also use LLM analytics with other SDKs or our API, but
-                            you will need to capture the data in the right format. See the schema in the [manual capture
-                            section](https://posthog.com/docs/llm-analytics/installation/manual-capture) for more
-                            details.
+                            See the complete
+                            [Node.js](https://github.com/PostHog/posthog-js/tree/main/examples/example-ai-langchain) and
+                            [Python](https://github.com/PostHog/posthog-python/tree/master/examples/example-ai-langchain)
+                            examples on GitHub. If you're using the PostHog SDK wrapper instead of OpenTelemetry, see
+                            the [Node.js
+                            wrapper](https://github.com/PostHog/posthog-js/tree/e08ff1be/examples/example-ai-langchain)
+                            and [Python
+                            wrapper](https://github.com/PostHog/posthog-python/tree/7223c52/examples/example-ai-langchain)
+                            examples.
                         </Markdown>
                     </CalloutBox>
+
+                    <Markdown>
+                        Install the OpenTelemetry SDK, the LangChain instrumentation, and LangChain with OpenAI.
+                    </Markdown>
+
+                    <CodeBlock
+                        blocks={[
+                            {
+                                language: 'bash',
+                                file: 'Python',
+                                code: dedent`
+                                    pip install langchain langchain-core langchain-openai opentelemetry-sdk posthog[otel] opentelemetry-instrumentation-langchain
+                                `,
+                            },
+                            {
+                                language: 'bash',
+                                file: 'Node',
+                                code: dedent`
+                                    npm install langchain @langchain/core @langchain/openai @posthog/ai @opentelemetry/sdk-node @opentelemetry/resources @traceloop/instrumentation-langchain
+                                `,
+                            },
+                        ]}
+                    />
                 </>
             ),
         },
         {
-            title: 'Initialize PostHog and LangChain',
+            title: 'Set up OpenTelemetry tracing',
             badge: 'required',
             content: (
                 <>
                     <Markdown>
-                        Initialize PostHog with your project token and host from [your project
-                        settings](https://app.posthog.com/settings/project), then pass it to the LangChain
-                        `CallbackHandler` wrapper. Optionally, you can provide a user distinct ID, trace ID, PostHog
-                        properties, [groups](https://posthog.com/docs/product-analytics/group-analytics), and privacy
-                        mode.
+                        Configure OpenTelemetry to auto-instrument LangChain calls and export traces to PostHog. PostHog
+                        converts `gen_ai.*` spans into `$ai_generation` events automatically.
                     </Markdown>
 
                     <CodeBlock
@@ -99,61 +68,58 @@ export const getLangChainSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                 language: 'python',
                                 file: 'Python',
                                 code: dedent`
-                                    from posthog.ai.langchain import CallbackHandler
-                                    from langchain_openai import ChatOpenAI
-                                    from langchain_core.prompts import ChatPromptTemplate
-                                    from posthog import Posthog
+                                    from opentelemetry import trace
+                                    from opentelemetry.sdk.trace import TracerProvider
+                                    from opentelemetry.sdk.resources import Resource, SERVICE_NAME
+                                    from posthog.ai.otel import PostHogSpanProcessor
+                                    from opentelemetry.instrumentation.langchain import LangchainInstrumentor
 
-                                    posthog = Posthog(
-                                        "<ph_project_token>",
-                                        host="<ph_client_api_host>"
-                                    )
+                                    resource = Resource(attributes={
+                                        SERVICE_NAME: "my-app",
+                                        "posthog.distinct_id": "user_123", # optional: identifies the user in PostHog
+                                        "foo": "bar", # custom properties are passed through
+                                    })
 
-                                    callback_handler = CallbackHandler(
-                                        client=posthog, # This is an optional parameter. If it is not provided, a default client will be used.
-                                        distinct_id="user_123", # optional
-                                        trace_id="trace_456", # optional
-                                        properties={"conversation_id": "abc123"}, # optional
-                                        groups={"company": "company_id_in_your_db"}, # optional
-                                        privacy_mode=False # optional
+                                    provider = TracerProvider(resource=resource)
+                                    provider.add_span_processor(
+                                        PostHogSpanProcessor(
+                                            api_key="<ph_project_token>",
+                                            host="<ph_client_api_host>",
+                                        )
                                     )
+                                    trace.set_tracer_provider(provider)
+
+                                    LangchainInstrumentor().instrument()
                                 `,
                             },
                             {
                                 language: 'typescript',
                                 file: 'Node',
                                 code: dedent`
-                                    import { PostHog } from 'posthog-node';
-                                    import { LangChainCallbackHandler } from '@posthog/ai';
-                                    import { ChatOpenAI } from '@langchain/openai';
-                                    import { ChatPromptTemplate } from '@langchain/core/prompts';
+                                    import { NodeSDK } from '@opentelemetry/sdk-node'
+                                    import { resourceFromAttributes } from '@opentelemetry/resources'
+                                    import { PostHogSpanProcessor } from '@posthog/ai/otel'
+                                    import { LangChainInstrumentation } from '@traceloop/instrumentation-langchain'
 
-                                    const phClient = new PostHog(
-                                      '<ph_project_token>',
-                                      { host: '<ph_client_api_host>' }
-                                    );
-
-                                    const callbackHandler = new LangChainCallbackHandler({
-                                      client: phClient,
-                                      distinctId: 'user_123', // optional
-                                      traceId: 'trace_456', // optional
-                                      properties: { conversationId: 'abc123' }, // optional
-                                      groups: { company: 'company_id_in_your_db' }, // optional
-                                      privacyMode: false, // optional
-                                      debug: false // optional - when true, logs all events to console
-                                    });
+                                    const sdk = new NodeSDK({
+                                      resource: resourceFromAttributes({
+                                        'service.name': 'my-app',
+                                        'posthog.distinct_id': 'user_123', // optional: identifies the user in PostHog
+                                        foo: 'bar', // custom properties are passed through
+                                      }),
+                                      spanProcessors: [
+                                        new PostHogSpanProcessor({
+                                          apiKey: '<ph_project_token>',
+                                          host: '<ph_client_api_host>',
+                                        }),
+                                      ],
+                                      instrumentations: [new LangChainInstrumentation()],
+                                    })
+                                    sdk.start()
                                 `,
                             },
                         ]}
                     />
-
-                    <Blockquote>
-                        <Markdown>
-                            **Note:** If you want to capture LLM events anonymously, **don't** pass a distinct ID to the
-                            `CallbackHandler`. See our docs on [anonymous vs identified
-                            events](https://posthog.com/docs/data/anonymous-vs-identified-events) to learn more.
-                        </Markdown>
-                    </Blockquote>
                 </>
             ),
         },
@@ -163,8 +129,8 @@ export const getLangChainSteps = (ctx: OnboardingComponentsContext): StepDefinit
             content: (
                 <>
                     <Markdown>
-                        When you invoke your chain, pass the `callback_handler` in the `config` as part of your
-                        `callbacks`:
+                        Use LangChain as normal. The OpenTelemetry instrumentation automatically captures
+                        `$ai_generation` events for each LLM call — no callback handlers needed.
                     </Markdown>
 
                     <CodeBlock
@@ -173,6 +139,9 @@ export const getLangChainSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                 language: 'python',
                                 file: 'Python',
                                 code: dedent`
+                                    from langchain_openai import ChatOpenAI
+                                    from langchain_core.prompts import ChatPromptTemplate
+
                                     prompt = ChatPromptTemplate.from_messages([
                                         ("system", "You are a helpful assistant."),
                                         ("user", "{input}")
@@ -181,11 +150,7 @@ export const getLangChainSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                     model = ChatOpenAI(openai_api_key="your_openai_api_key")
                                     chain = prompt | model
 
-                                    # Execute the chain with the callback handler
-                                    response = chain.invoke(
-                                        {"input": "Tell me a joke about programming"},
-                                        config={"callbacks": [callback_handler]}
-                                    )
+                                    response = chain.invoke({"input": "Tell me a joke about programming"})
 
                                     print(response.content)
                                 `,
@@ -194,29 +159,32 @@ export const getLangChainSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                 language: 'typescript',
                                 file: 'Node',
                                 code: dedent`
+                                    import { ChatOpenAI } from '@langchain/openai'
+                                    import { ChatPromptTemplate } from '@langchain/core/prompts'
+
                                     const prompt = ChatPromptTemplate.fromMessages([
                                       ["system", "You are a helpful assistant."],
                                       ["user", "{input}"]
-                                    ]);
+                                    ])
 
-                                    const model = new ChatOpenAI({
-                                      apiKey: "your_openai_api_key"
-                                    });
+                                    const model = new ChatOpenAI({ apiKey: "your_openai_api_key" })
+                                    const chain = prompt.pipe(model)
 
-                                    const chain = prompt.pipe(model);
+                                    const response = await chain.invoke({ input: "Tell me a joke about programming" })
 
-                                    // Execute the chain with the callback handler
-                                    const response = await chain.invoke(
-                                      { input: "Tell me a joke about programming" },
-                                      { callbacks: [callbackHandler] }
-                                    );
-
-                                    console.log(response.content);
-                                    phClient.shutdown();
+                                    console.log(response.content)
                                 `,
                             },
                         ]}
                     />
+
+                    <Blockquote>
+                        <Markdown>
+                            **Note:** If you want to capture LLM events anonymously, omit the `posthog.distinct_id`
+                            resource attribute. See our docs on [anonymous vs identified
+                            events](https://posthog.com/docs/data/anonymous-vs-identified-events) to learn more.
+                        </Markdown>
+                    </Blockquote>
 
                     <Markdown>
                         PostHog automatically captures an `$ai_generation` event along with these properties:

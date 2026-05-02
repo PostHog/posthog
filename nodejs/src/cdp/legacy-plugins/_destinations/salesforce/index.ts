@@ -25,7 +25,7 @@ export const parseEventSinkConfig = (config: SalesforcePluginConfig): EventToSin
     if (config.eventEndpointMapping?.length > 0) {
         try {
             eventMapping = parseJSON(config.eventEndpointMapping) as EventToSinkMapping
-        } catch (e) {
+        } catch {
             throw new Error('eventEndpointMapping must be an empty string or contain valid JSON!')
         }
     }
@@ -91,7 +91,7 @@ export function verifyConfig({ config }: SalesforceMeta): void {
 
     try {
         new URL(config.salesforceHost)
-    } catch (error) {
+    } catch {
         throw new Error('host not a valid URL!')
     }
 
@@ -244,10 +244,8 @@ export async function setupPlugin(meta: SalesforceMeta): Promise<void> {
 function configToMatchingEvents(config: SalesforcePluginConfig): string[] {
     if (config.eventsToInclude) {
         return config.eventsToInclude.split(',').map((e: string) => e.trim())
-    } else {
-        return Object.keys(parseJSON(config.eventEndpointMapping)).map((e: string) => e.trim())
     }
-    return []
+    return Object.keys(parseJSON(config.eventEndpointMapping)).map((e: string) => e.trim())
 }
 
 export function shouldSendEvent(event: ProcessedPluginEvent, meta: SalesforceMeta): boolean {

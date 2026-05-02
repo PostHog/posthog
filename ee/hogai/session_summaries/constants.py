@@ -1,11 +1,6 @@
 # LLM models
-SESSION_SUMMARIES_STREAMING_MODEL = "gpt-4.1"  # Model to use when streaming (usually, single session summaries)
-SESSION_SUMMARIES_SUPPORTED_STREAMING_MODELS = {SESSION_SUMMARIES_STREAMING_MODEL}
-# Model to use for sync calls (usually, reasoning, like pattern extraction for session group summaries)
-SESSION_SUMMARIES_SYNC_MODEL = "o3"
+SESSION_SUMMARIES_MODEL = "o3"
 SESSION_SUMMARIES_REASONING_EFFORT = "medium"
-SESSION_SUMMARIES_SUPPORTED_REASONING_MODELS = {SESSION_SUMMARIES_SYNC_MODEL}
-SESSION_SUMMARIES_TEMPERATURE = 0.1  # Reduce hallucinations, but >0 to allow for some creativity
 
 # Ensure to cut LLM response if longer than expected to avoid hanging connections
 BASE_LLM_CALL_TIMEOUT_S = 600.0
@@ -22,7 +17,10 @@ SESSION_EVENTS_REPLAY_CUTOFF_MS = 5000
 MIN_SESSION_DURATION_FOR_SUMMARY_MS = 2 * SESSION_EVENTS_REPLAY_CUTOFF_MS + 1
 # Minimum session duration for video-based summarization, where we don't need (or want) to cut off anything
 MIN_SESSION_DURATION_FOR_VIDEO_SUMMARY_S = 15
-MIN_ACTIVE_SECONDS_FOR_VIDEO_SUMMARY_S = 5  # Sessions below this activity threshold don't show much
+MIN_ACTIVE_SECONDS_FOR_VIDEO_SUMMARY_S = 10  # Sessions below this activity threshold don't show much
+MAX_ACTIVE_SECONDS_FOR_VIDEO_SUMMARY_S = (
+    3600  # Sessions above 1 hour of activity are too long to summarize quickly/well
+)
 
 # Temporal
 SESSION_SUMMARIES_DB_DATA_REDIS_TTL = 60 * 60 * 24  # How long to store the DB data in Redis within Temporal jobs

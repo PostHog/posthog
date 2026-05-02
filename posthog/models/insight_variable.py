@@ -14,7 +14,7 @@ class InsightVariable(UUIDTModel, RootTeamMixin, CreatedMetaFields, UpdatedMetaF
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     name = models.CharField(max_length=400)
     code_name = models.CharField(max_length=400, null=True, blank=True)
-    type = models.CharField(max_length=128, choices=Type.choices)
+    type = models.CharField(max_length=128, choices=Type)
     default_value = models.JSONField(null=True, blank=True)
     values = models.JSONField(null=True, blank=True)
 

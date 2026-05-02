@@ -94,6 +94,7 @@ This document grounds QA review agents with real-world failure modes.
 - Background tasks loading entire datasets into memory without batching or streaming
 - Pod CPU saturation from undersized nodes
 - Connection pool exhaustion from expensive TLS handshakes during pool initialization
+- Django admin inline or `ModelAdmin` gaining a new `ForeignKey` without a matching `autocomplete_fields`, `raw_id_fields`, or `readonly_fields` entry — every change-page render fires a default `<select>` populated from the entire target table, per row
 
 **Review signals:**
 
@@ -103,6 +104,7 @@ This document grounds QA review agents with real-world failure modes.
 - Missing pagination/streaming in data processing
 - Resource request/limit changes in Kubernetes manifests
 - New materialized views or insert-time transformations
+- New `ForeignKey`/`OneToOneField` added to a model whose existing `admin.StackedInline` / `admin.TabularInline` / `ModelAdmin` classes don't list the field in `autocomplete_fields`, `raw_id_fields`, or `readonly_fields` — review every inline variant of the same model across parent admins, not just the one mentioned in the PR description
 
 ## Pattern 6: Data Correctness & Silent Failures
 

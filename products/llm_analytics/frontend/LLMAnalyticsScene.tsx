@@ -2,7 +2,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import React, { useMemo } from 'react'
 
-import { LemonBanner, LemonButton, LemonTab, LemonTabs, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTab, LemonTabs, Link, Spinner } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
@@ -42,7 +42,11 @@ import { LLMAnalyticsErrors } from './LLMAnalyticsErrors'
 import { LLMAnalyticsReloadAction } from './LLMAnalyticsReloadAction'
 import { LLMAnalyticsSessionsScene } from './LLMAnalyticsSessionsScene'
 import { LLMAnalyticsSetupPrompt } from './LLMAnalyticsSetupPrompt'
-import { LLM_ANALYTICS_DATA_COLLECTION_NODE_ID, llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
+import {
+    buildApplyUrlStatePayload,
+    LLM_ANALYTICS_DATA_COLLECTION_NODE_ID,
+    llmAnalyticsSharedLogic,
+} from './llmAnalyticsSharedLogic'
 import { LLMAnalyticsTools } from './LLMAnalyticsTools'
 import { LLMAnalyticsTraces } from './LLMAnalyticsTracesScene'
 import { LLMAnalyticsUsers } from './LLMAnalyticsUsers'
@@ -174,8 +178,8 @@ function LLMAnalyticsDashboard(): JSX.Element {
 }
 
 function LLMAnalyticsGenerations(): JSX.Element {
-    const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(llmAnalyticsSharedLogic)
-    const { propertyFilters: currentPropertyFilters } = useValues(llmAnalyticsSharedLogic)
+    const { applyUrlState } = useActions(llmAnalyticsSharedLogic)
+    const { dateFilter, propertyFilters: currentPropertyFilters } = useValues(llmAnalyticsSharedLogic)
     const { searchParams } = useValues(router)
     const { setGenerationsColumns, toggleGenerationExpanded, setGenerationsSort } =
         useActions(llmAnalyticsGenerationsLogic)
@@ -194,7 +198,6 @@ function LLMAnalyticsGenerations(): JSX.Element {
         const columns =
             generationsQuery.source.select ||
             getDefaultGenerationsColumns(
-                !!featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT],
                 !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT],
                 !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TOOLS_TAB]
             )
@@ -229,7 +232,6 @@ function LLMAnalyticsGenerations(): JSX.Element {
                 ...generationsQuery,
                 showSavedFilters: true,
                 defaultColumns: getDefaultGenerationsColumns(
-                    !!featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT],
                     !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT],
                     !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TOOLS_TAB]
                 ),
@@ -238,13 +240,16 @@ function LLMAnalyticsGenerations(): JSX.Element {
                 if (!isEventsQuery(query.source)) {
                     throw new Error('Invalid query')
                 }
-                setDates(query.source.after || null, query.source.before || null)
-                setShouldFilterTestAccounts(query.source.filterTestAccounts || false)
-
-                const newPropertyFilters = query.source.properties || []
-                if (!objectsEqual(newPropertyFilters, currentPropertyFilters)) {
-                    setPropertyFilters(newPropertyFilters)
-                }
+                applyUrlState(
+                    buildApplyUrlStatePayload({
+                        dateFrom: query.source.after || null,
+                        dateTo: query.source.before || null,
+                        shouldFilterTestAccounts: query.source.filterTestAccounts || false,
+                        propertyFilters: query.source.properties || [],
+                        currentDateFilter: dateFilter,
+                        currentPropertyFilters,
+                    })
+                )
 
                 if (query.source.select) {
                     setGenerationsColumns(query.source.select)
@@ -587,6 +592,7 @@ function LLMAnalyticsSceneContent(): JSX.Element {
 
     const isEarlyAdopter = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
     const isPromptManagementEnabled = !!featureFlags[FEATURE_FLAGS.PROMPT_MANAGEMENT] || isEarlyAdopter
+    const isSkillsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SKILLS]
 
     if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TOOLS_TAB]) {
         tabs.push({
@@ -605,14 +611,7 @@ function LLMAnalyticsSceneContent(): JSX.Element {
     if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT_TAB]) {
         tabs.push({
             key: 'sentiment',
-            label: (
-                <>
-                    Sentiment
-                    <LemonTag type="warning" className="ml-1.5 uppercase">
-                        Beta
-                    </LemonTag>
-                </>
-            ),
+            label: 'Sentiment',
             content: (
                 <LLMAnalyticsSetupPrompt>
                     <Filters />
@@ -682,8 +681,17 @@ function LLMAnalyticsSceneContent(): JSX.Element {
                     prompts
                 </Link>
             ) : null,
+            isSkillsEnabled ? (
+                <Link
+                    key="skills"
+                    to={combineUrl(urls.llmAnalyticsSkills(), searchParams).url}
+                    onClick={() => toggleProduct('Skills', true)}
+                >
+                    skills
+                </Link>
+            ) : null,
         ].filter(Boolean) as JSX.Element[]
-    }, [featureFlags, isPromptManagementEnabled, searchParams, toggleProduct])
+    }, [featureFlags, isPromptManagementEnabled, isSkillsEnabled, searchParams, toggleProduct])
 
     if (activeTab === 'reviews' && !isTraceReviewEnabled) {
         return <NotFound object="page" />

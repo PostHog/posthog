@@ -39,6 +39,7 @@ import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 
 import { ActionsToolbarMenu } from '~/toolbar/actions/ActionsToolbarMenu'
 import { ToolbarAIMenu } from '~/toolbar/ai/ToolbarAIMenu'
+import { AuthConfirmModal } from '~/toolbar/bar/AuthConfirmModal'
 import { PII_MASKING_PRESET_COLORS } from '~/toolbar/bar/piiMaskingStyles'
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
 import { UiHostConfigModal } from '~/toolbar/bar/UiHostConfigModal'
@@ -393,8 +394,10 @@ export function Toolbar(): JSX.Element | null {
         useValues(toolbarLogic)
     const { setVisibleMenu, toggleMinimized, onMouseOrTouchDown, setElement, setIsBlurred, completeGracefulExit } =
         useActions(toolbarLogic)
-    const { isAuthenticated, userIntent, authStatus, uiHostConfigModalVisible } = useValues(toolbarConfigLogic)
-    const { authenticate, openUiHostConfigModal, closeUiHostConfigModal } = useActions(toolbarConfigLogic)
+    const { isAuthenticated, userIntent, authStatus, uiHostConfigModalVisible, authConfirmModalVisible } =
+        useValues(toolbarConfigLogic)
+    const { authenticate, openUiHostConfigModal, closeUiHostConfigModal, closeAuthConfirmModal } =
+        useActions(toolbarConfigLogic)
     const { selectedTourId, isPreviewing } = useValues(productToursLogic)
 
     const showExperimentsFlag = useToolbarFeatureFlag('web-experiments')
@@ -565,6 +568,7 @@ export function Toolbar(): JSX.Element | null {
                     </ToolbarButton>
                 )}
                 <UiHostConfigModal visible={uiHostConfigModalVisible} onClose={closeUiHostConfigModal} />
+                <AuthConfirmModal visible={authConfirmModalVisible} onClose={closeAuthConfirmModal} />
 
                 <MoreMenu />
             </div>

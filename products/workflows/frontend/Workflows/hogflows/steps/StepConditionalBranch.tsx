@@ -13,7 +13,7 @@ import { HogFlowPropertyFilters } from '../filters/HogFlowFilters'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlow, HogFlowAction } from '../types'
 import { StepSchemaErrors } from './components/StepSchemaErrors'
-import { useDebouncedNameInputs } from './utils'
+import { getBranchRemovalDisabledReason, removeBranchEdge, useDebouncedNameInputs } from './utils'
 
 export function StepConditionalBranchConfiguration({
     node,
@@ -76,12 +76,9 @@ export function StepConditionalBranchConfiguration({
     }
 
     const removeCondition = (index: number): void => {
-        // Branch edges are pre-sorted
-        // We just need to remove the edge and re-assign the indexes
-        const newBranchEdges = branchEdges.filter((_, i) => i !== index).map((edge, i) => ({ ...edge, index: i }))
         setConditions(conditions.filter((_, i) => i !== index))
         // Branch edges come first as they are sorted to show on the left
-        setWorkflowActionEdges(action.id, [...newBranchEdges, ...nonBranchEdges])
+        setWorkflowActionEdges(action.id, [...removeBranchEdge(branchEdges, index), ...nonBranchEdges])
     }
 
     return (
@@ -95,11 +92,7 @@ export function StepConditionalBranchConfiguration({
                             size="xsmall"
                             icon={<IconX />}
                             onClick={() => removeCondition(index)}
-                            disabledReason={
-                                branchEdges[index]?.to === continueEdge?.to
-                                    ? undefined
-                                    : 'Clean up branching steps first'
-                            }
+                            disabledReason={getBranchRemovalDisabledReason(branchEdges, index, edgesByActionId)}
                         />
                     </div>
 

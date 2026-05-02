@@ -4,8 +4,9 @@ import { useValues } from 'kea'
 import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { EXPERIMENT_VARIANT_MULTIPLE } from 'scenes/experiments/constants'
-import { experimentLogic } from 'scenes/experiments/experimentLogic'
 import { getVariantColor } from 'scenes/experiments/utils'
+
+import { legacyExperimentLogic } from '~/scenes/experiments/legacy'
 
 /**
  * @deprecated
@@ -21,7 +22,7 @@ export function LegacyVariantTag({
     fontSize?: number
     className?: string
 }): JSX.Element {
-    const { experiment, legacyPrimaryMetricsResults } = useValues(experimentLogic)
+    const { experiment, legacyPrimaryMetricsResults } = useValues(legacyExperimentLogic)
 
     if (variantKey === EXPERIMENT_VARIANT_MULTIPLE) {
         return (

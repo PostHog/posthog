@@ -17,10 +17,15 @@ export function AuthorizedDomains(): JSX.Element {
         <div className="flex flex-col gap-2">
             {conversationsDomains.length === 0 && !isAddingDomain && (
                 <div className="border rounded p-4 text-secondary">
-                    <p className="mb-0">
+                    <p className="mb-2">
                         <span className="font-bold">No domains configured.</span>
                         <br />
-                        The widget will show on all domains. Add domains to limit where it appears.
+                        The widget and API will be accessible on all domains. Add domains to limit where they appear.
+                    </p>
+                    <p className="mb-0">
+                        <span className="font-bold">Ticket recovery is disabled until a domain is added.</span>{' '}
+                        Recovering tickets by email requires at least one authorized domain so the recovery link can
+                        only point to a site you control.
                     </p>
                 </div>
             )}

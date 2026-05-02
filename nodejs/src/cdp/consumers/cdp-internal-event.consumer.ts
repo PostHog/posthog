@@ -14,8 +14,8 @@ import { CdpEventsConsumer } from './cdp-events.consumer'
 import { counterParseError } from './metrics'
 
 export class CdpInternalEventsConsumer extends CdpEventsConsumer {
-    protected name = 'CdpInternalEventsConsumer'
-    protected hogTypes: HogFunctionTypeType[] = ['internal_destination']
+    protected override name = 'CdpInternalEventsConsumer'
+    protected override hogTypes: HogFunctionTypeType[] = ['internal_destination']
 
     constructor(config: PluginsServerConfig, deps: CdpConsumerBaseDeps) {
         super(config, deps, KAFKA_CDP_INTERNAL_EVENTS, 'cdp-internal-events-consumer')
@@ -23,7 +23,7 @@ export class CdpInternalEventsConsumer extends CdpEventsConsumer {
 
     // This consumer always parses from kafka
     @instrumented('cdpConsumer.handleEachBatch.parseKafkaMessages')
-    public async _parseKafkaBatch(messages: Message[]): Promise<HogFunctionInvocationGlobals[]> {
+    public override async _parseKafkaBatch(messages: Message[]): Promise<HogFunctionInvocationGlobals[]> {
         return await this.runWithHeartbeat(async () => {
             const events: HogFunctionInvocationGlobals[] = []
             await Promise.all(

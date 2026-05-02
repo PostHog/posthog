@@ -9,7 +9,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.db import transaction
 from django.db.models import Min
-from django.http import HttpResponse, JsonResponse
+from django.http import HttpRequest, HttpResponse
 from django.shortcuts import render
 from django.utils.text import slugify
 from django.views.decorators.csrf import csrf_exempt
@@ -31,7 +31,6 @@ from drf_spectacular.utils import (
 from loginas.utils import is_impersonated_session
 from nanoid import generate
 from posthoganalytics import capture_exception
-from prometheus_client import Counter
 from rest_framework import exceptions, filters, request, serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -47,13 +46,12 @@ from posthog.api.feature_flag import (
 )
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.api.utils import action, get_token
+from posthog.api.utils import action
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.constants import SURVEY_TARGETING_FLAG_PREFIX, AvailableFeature
 from posthog.event_usage import report_user_action
-from posthog.exceptions import generate_exception_response
 from posthog.models import Action
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
@@ -65,18 +63,15 @@ from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.utils_cors import cors_response
 
-from products.surveys.backend.models import (
-    MAX_ITERATION_COUNT,
-    Survey,
-    SurveyResponseArchive,
-    ensure_question_ids,
-    surveys_hypercache,
-)
+from products.surveys.backend.models import MAX_ITERATION_COUNT, Survey, SurveyResponseArchive, ensure_question_ids
 from products.surveys.backend.summarization import fetch_responses, format_as_markdown, summarize_responses
+from products.surveys.backend.translation import generate_survey_translation
 from products.surveys.backend.util import (
     SurveyEventName,
     SurveyEventProperties,
     get_archived_response_uuids,
+    get_survey_property_bool_expr,
+    get_survey_property_string_expr,
     get_unique_survey_event_uuids_sql_subquery,
 )
 
@@ -85,13 +80,145 @@ from ee.surveys.summaries.headline_summary import generate_survey_headline
 # Constants for better maintainability
 logger = structlog.get_logger(__name__)
 CACHE_TIMEOUT_SECONDS = 300
+DISPLAY_LANGUAGE_QUERY_PARAM = "display_language"
+DISPLAY_LANGUAGE_RE = re.compile(r"^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8}){0,3}$")
 
 ALLOWED_LINK_URL_SCHEMES = ["https", "mailto"]
 EMAIL_REGEX = r"^mailto:[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
+# Keep this in sync with SurveyAPISerializer's public runtime contract.
+# Root survey description is intentionally excluded because customers have used it for internal notes.
+SURVEY_API_TRANSLATION_FIELDS = frozenset(
+    [
+        "name",
+        "thankYouMessageHeader",
+        "thankYouMessageDescription",
+        "thankYouMessageCloseButtonText",
+    ]
+)
 FIELDS_NOT_APPLICABLE_TO_EXTERNAL_SURVEYS = [
     "linked_flag_id",
     "targeting_flag_filters",
 ]
+SURVEY_TRANSLATION_DRAFT_FIELDS = ("name", "description", "type", "appearance", "questions", "translations")
+SURVEY_TRANSLATION_DRAFT_APPEARANCE_FIELDS = (
+    "thankYouMessageHeader",
+    "thankYouMessageDescription",
+    "thankYouMessageCloseButtonText",
+)
+SURVEY_TRANSLATION_DRAFT_QUESTION_FIELDS = (
+    "id",
+    "type",
+    "question",
+    "description",
+    "buttonText",
+    "choices",
+    "lowerBoundLabel",
+    "upperBoundLabel",
+    "link",
+    "translations",
+)
+
+
+class GenerateSurveyTranslationsRequestSerializer(serializers.Serializer):
+    target_language = serializers.CharField(help_text="Language code to generate translations for, for example pt-BR.")
+    source_language = serializers.CharField(
+        required=False, default="en", help_text="Source language code for the existing survey copy."
+    )
+    overwrite = serializers.BooleanField(
+        required=False, default=False, help_text="Whether to overwrite existing translations for this language."
+    )
+    survey = serializers.DictField(
+        child=serializers.JSONField(allow_null=True, help_text="Draft survey field value."),
+        required=False,
+        help_text="Optional translation-only draft survey payload to translate instead of the last saved survey.",
+    )
+
+    def validate_survey(self, survey: dict[str, Any]) -> dict[str, Any]:
+        draft = {field: survey[field] for field in SURVEY_TRANSLATION_DRAFT_FIELDS if field in survey}
+
+        appearance = draft.get("appearance")
+        if isinstance(appearance, dict):
+            draft["appearance"] = {
+                field: appearance[field] for field in SURVEY_TRANSLATION_DRAFT_APPEARANCE_FIELDS if field in appearance
+            }
+
+        questions = draft.get("questions")
+        if isinstance(questions, list):
+            draft["questions"] = [
+                {field: question[field] for field in SURVEY_TRANSLATION_DRAFT_QUESTION_FIELDS if field in question}
+                for question in questions
+                if isinstance(question, dict)
+            ]
+
+        return draft
+
+
+class GeneratedSurveyRootTranslationSerializer(serializers.Serializer):
+    name = serializers.CharField(required=False, allow_blank=True, help_text="Translated survey name.")
+    thankYouMessageHeader = serializers.CharField(
+        required=False, allow_blank=True, help_text="Translated thank-you header."
+    )
+    thankYouMessageDescription = serializers.CharField(
+        required=False, allow_blank=True, help_text="Translated thank-you description."
+    )
+    thankYouMessageCloseButtonText = serializers.CharField(
+        required=False, allow_blank=True, help_text="Translated thank-you close button text."
+    )
+
+
+class GeneratedSurveyQuestionTranslationSerializer(serializers.Serializer):
+    question = serializers.CharField(required=False, allow_blank=True, help_text="Translated question text.")
+    description = serializers.CharField(required=False, allow_blank=True, help_text="Translated question description.")
+    buttonText = serializers.CharField(required=False, allow_blank=True, help_text="Translated submit button text.")
+    choices = serializers.ListField(
+        child=serializers.CharField(allow_blank=True),
+        required=False,
+        help_text="Translated choices in the same order as the source choices.",
+    )
+    lowerBoundLabel = serializers.CharField(
+        required=False, allow_blank=True, help_text="Translated lower rating bound label."
+    )
+    upperBoundLabel = serializers.CharField(
+        required=False, allow_blank=True, help_text="Translated upper rating bound label."
+    )
+    link = serializers.CharField(required=False, allow_blank=True, help_text="Translated link text or localized URL.")
+
+
+class GeneratedSurveyQuestionTranslationPatchSerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="Survey question id this patch applies to.")
+    translations = serializers.DictField(
+        child=GeneratedSurveyQuestionTranslationSerializer(),
+        help_text="Question translation patch keyed by target language.",
+    )
+
+
+class GenerateSurveyTranslationsResponseSerializer(serializers.Serializer):
+    translations = serializers.DictField(
+        child=GeneratedSurveyRootTranslationSerializer(),
+        help_text="Survey-level translation patch keyed by language.",
+    )
+    questions = serializers.ListField(
+        child=GeneratedSurveyQuestionTranslationPatchSerializer(),
+        help_text="Question-level translation patches keyed by question id and language.",
+    )
+    generated_field_paths = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Editor field paths generated by AI and safe to highlight as draft content.",
+    )
+    trace_id = serializers.CharField(help_text="LLM trace id for debugging and feedback.")
+
+
+def get_hosted_survey_display_language(request: HttpRequest) -> str | None:
+    display_language = request.GET.get(DISPLAY_LANGUAGE_QUERY_PARAM)
+    if not display_language:
+        return None
+
+    display_language = display_language.strip()
+    if not display_language or len(display_language) > 35 or not DISPLAY_LANGUAGE_RE.fullmatch(display_language):
+        return None
+
+    return display_language
+
 
 # Does not include actions or events, as those are objects and thus are evaluated differently
 CONDITION_FIELDS_NOT_APPLICABLE_TO_EXTERNAL_SURVEYS = [
@@ -109,19 +236,6 @@ if "replica" in settings.DATABASES:
     READ_DB_FOR_SURVEYS = "replica"
 else:
     READ_DB_FOR_SURVEYS = "default"
-
-
-COUNTER_SURVEYS_API_USE_REMOTE_CONFIG = Counter(
-    "posthog_surveys_api_use_remote_config",
-    "Number of times the surveys API has been used with remote config",
-    labelnames=["result"],
-)
-
-COUNTER_SURVEYS_API_REMOTE_CONFIG_COMPARISON = Counter(
-    "posthog_surveys_api_remote_config_comparison",
-    "Comparison of surveys response equality",
-    labelnames=["result"],
-)
 
 
 class EventStats(TypedDict):
@@ -1598,6 +1712,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
             return Response({})
 
         params = {"team_id": self.team_id, "timestamp": earliest_survey_start_date}
+        survey_id_expr = get_survey_property_string_expr(SurveyEventProperties.SURVEY_ID)
 
         partial_responses_filter = self._get_partial_responses_filter(
             base_conditions_sql=[
@@ -1617,14 +1732,12 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         if survey_ids_param:
             survey_ids = [sid.strip() for sid in survey_ids_param.split(",") if sid.strip()]
             if survey_ids:
-                survey_ids_filter = (
-                    f"AND JSONExtractString(properties, '{SurveyEventProperties.SURVEY_ID}') IN %(survey_ids)s"
-                )
+                survey_ids_filter = f"AND {survey_id_expr} IN %(survey_ids)s"
                 params["survey_ids"] = survey_ids
 
         query = f"""
             SELECT
-                JSONExtractString(properties, '{SurveyEventProperties.SURVEY_ID}') as survey_id,
+                {survey_id_expr} as survey_id,
                 count()
             FROM events
             WHERE
@@ -1794,13 +1907,36 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         # Build query parameters
         params: dict[str, Any] = {"team_id": str(self.team_id)}
         date_filter = ""
+        survey_id_expr = get_survey_property_string_expr(SurveyEventProperties.SURVEY_ID)
+        survey_partially_completed_expr = get_survey_property_bool_expr(
+            SurveyEventProperties.SURVEY_PARTIALLY_COMPLETED
+        )
+        effective_from = parsed_from
+        effective_to = parsed_to
 
-        if parsed_from:
+        if survey_id:
+            survey_dates = (
+                Survey.objects.filter(team_id=self.team_id, id=survey_id)
+                .values("start_date", "created_at", "end_date")
+                .first()
+            )
+
+            if survey_dates:
+                survey_start = survey_dates["start_date"] or survey_dates["created_at"]
+                survey_end = survey_dates["end_date"]
+
+                if survey_start:
+                    effective_from = max(filter(None, [parsed_from, survey_start]), default=survey_start)
+
+                if survey_end:
+                    effective_to = min(filter(None, [parsed_to, survey_end]), default=survey_end)
+
+        if effective_from:
             date_filter += " AND timestamp >= %(date_from)s"
-            params["date_from"] = parsed_from
-        if parsed_to:
+            params["date_from"] = effective_from
+        if effective_to:
             date_filter += " AND timestamp <= %(date_to)s"
-            params["date_to"] = parsed_to
+            params["date_to"] = effective_to
 
         # Add archive filter if needed
         archive_filter = ""
@@ -1813,7 +1949,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         # Add survey filter if specific survey
         survey_filter = ""
         if survey_id:
-            survey_filter = f"AND JSONExtractString(properties, '{SurveyEventProperties.SURVEY_ID}') = %(survey_id)s"
+            survey_filter = f"AND {survey_id_expr} = %(survey_id)s"
             params["survey_id"] = str(survey_id)
         else:
             # For global stats, only include non-archived surveys
@@ -1830,13 +1966,17 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
                         "unique_users_dismissal_rate": 0.0,
                     },
                 }
-            survey_filter = f"AND JSONExtractString(properties, '{SurveyEventProperties.SURVEY_ID}') IN %(survey_ids)s"
+            survey_filter = f"AND {survey_id_expr} IN %(survey_ids)s"
             params["survey_ids"] = [str(id) for id in active_survey_ids]
 
+        partial_responses_base_conditions = ["team_id = %(team_id)s"]
+        if effective_from:
+            partial_responses_base_conditions.append("timestamp >= %(date_from)s")
+        if effective_to:
+            partial_responses_base_conditions.append("timestamp <= %(date_to)s")
+
         partial_responses_filter = self._get_partial_responses_filter(
-            base_conditions_sql=[
-                "team_id = %(team_id)s",
-            ],
+            base_conditions_sql=partial_responses_base_conditions,
         )
 
         # Query 1: Base Stats (Similar to original query)
@@ -1852,14 +1992,14 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
             AND event IN (%(shown)s, %(dismissed)s, %(sent)s)
             {survey_filter}
             {date_filter}
-            {archive_filter}
-            AND (
-                event != %(dismissed)s
-                OR
-                COALESCE(JSONExtractBool(properties, '{SurveyEventProperties.SURVEY_PARTIALLY_COMPLETED}'), False) = False
-            )
-            AND (
-                event != %(sent)s
+                {archive_filter}
+                AND (
+                    event != %(dismissed)s
+                    OR
+                    COALESCE({survey_partially_completed_expr}, False) = False
+                )
+                AND (
+                    event != %(sent)s
                 OR
                 {partial_responses_filter}
             )
@@ -1888,7 +2028,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
                 AND (
                     event != %(dismissed)s
                     OR
-                    COALESCE(JSONExtractBool(properties, '{SurveyEventProperties.SURVEY_PARTIALLY_COMPLETED}'), False) = False
+                    COALESCE({survey_partially_completed_expr}, False) = False
                 )
                 GROUP BY person_id
                 HAVING sum(if(event = %(dismissed)s, 1, 0)) > 0
@@ -2118,6 +2258,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
             )
         },
     )
+    @extend_schema(operation_id="surveys_global_stats_retrieve")
     @action(methods=["GET"], detail=False, url_path="stats", required_scopes=["survey:read"])
     def global_stats(self, request: request.Request, **kwargs) -> Response:
         """Get aggregated response statistics across all surveys.
@@ -2135,6 +2276,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         response_data = self._get_survey_stats(date_from, date_to)
         return Response(response_data)
 
+    @extend_schema(operation_id="surveys_all_activity_retrieve")
     @action(methods=["GET"], url_path="activity", detail=False, required_scopes=["activity_log:read"])
     def all_activity(self, request: request.Request, **kwargs):
         limit = int(request.query_params.get("limit", "10"))
@@ -2386,6 +2528,72 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
             r.headers["Server-Timing"] = timings_header
         return r
 
+    @extend_schema(
+        request=GenerateSurveyTranslationsRequestSerializer,
+        responses=GenerateSurveyTranslationsResponseSerializer,
+    )
+    @action(methods=["POST"], detail=True, url_path="generate_translations", required_scopes=["survey:write"])
+    def generate_translations(self, request: request.Request, **kwargs):
+        if not request.user.is_authenticated:
+            raise exceptions.NotAuthenticated()
+
+        if not (settings.DEBUG or is_cloud()):
+            raise exceptions.ValidationError(
+                "survey translation generation is only supported in PostHog Cloud or DEBUG mode"
+            )
+
+        if not settings.GEMINI_API_KEY:
+            raise exceptions.ValidationError("GEMINI_API_KEY must be configured to generate translations")
+
+        if not self.team.organization.is_ai_data_processing_approved:
+            return Response(
+                {"error": "AI data processing must be approved to generate translations"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        serializer = GenerateSurveyTranslationsRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        survey = data.get("survey")
+        if survey is None:
+            saved_survey = self.get_object()
+            survey = {
+                "name": saved_survey.name,
+                "description": saved_survey.description,
+                "type": saved_survey.type,
+                "appearance": saved_survey.appearance or {},
+                "questions": saved_survey.questions or [],
+                "translations": saved_survey.translations or {},
+            }
+        user = cast(User, request.user)
+
+        translations, questions, generated_field_paths, trace_id = generate_survey_translation(
+            survey=survey,
+            target_language=data["target_language"],
+            source_language=data["source_language"],
+            overwrite=data["overwrite"],
+            distinct_id=str(user.distinct_id),
+            team_id=self.team.pk,
+        )
+
+        posthoganalytics.capture(
+            event="survey translations generated",
+            distinct_id=str(user.distinct_id),
+            properties={
+                "survey_id": kwargs["pk"],
+                "target_language": data["target_language"],
+                "field_count": len(generated_field_paths),
+            },
+        )
+        return Response(
+            {
+                "translations": translations,
+                "questions": questions,
+                "generated_field_paths": generated_field_paths,
+                "trace_id": trace_id,
+            }
+        )
+
     @action(methods=["POST"], detail=True, required_scopes=["survey:write"])
     def duplicate_to_projects(self, request: request.Request, **kwargs):
         """Duplicate a survey to multiple projects in a single transaction.
@@ -2576,6 +2784,26 @@ class SurveyAPIActionSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+def get_survey_api_translations(translations: Any) -> dict[str, dict[str, str]] | None:
+    if not isinstance(translations, dict):
+        return None
+
+    safe_translations: dict[str, dict[str, str]] = {}
+    for language, translation in translations.items():
+        if not isinstance(language, str) or not isinstance(translation, dict):
+            continue
+
+        safe_translation = {
+            field: value
+            for field, value in translation.items()
+            if field in SURVEY_API_TRANSLATION_FIELDS and isinstance(value, str)
+        }
+        if safe_translation:
+            safe_translations[language] = safe_translation
+
+    return safe_translations or None
+
+
 class SurveyAPISerializer(serializers.ModelSerializer):
     """
     Serializer for the exposed /api/surveys endpoint, to be used in posthog-js and for headless APIs.
@@ -2586,6 +2814,7 @@ class SurveyAPISerializer(serializers.ModelSerializer):
     internal_targeting_flag_key = serializers.CharField(source="internal_targeting_flag.key", read_only=True)
     conditions = serializers.SerializerMethodField(method_name="get_conditions")
     enable_partial_responses = serializers.BooleanField(read_only=True)
+    translations = serializers.SerializerMethodField(method_name="get_translations")
 
     class Meta:
         model = Survey
@@ -2610,12 +2839,25 @@ class SurveyAPISerializer(serializers.ModelSerializer):
             "current_iteration_start_date",
             "schedule",
             "enable_partial_responses",
+            "translations",
         ]
         read_only_fields = fields
 
     @extend_schema_field(serializers.DictField(allow_null=True))
     def get_conditions(self, survey: Survey):
         return get_survey_conditions_with_actions(survey, SurveyAPIActionSerializer)
+
+    @extend_schema_field(
+        serializers.DictField(child=serializers.DictField(child=serializers.CharField()), allow_null=True)
+    )
+    def get_translations(self, survey: Survey) -> dict[str, dict[str, str]] | None:
+        return get_survey_api_translations(survey.translations)
+
+    def to_representation(self, instance: Survey) -> dict[str, Any]:
+        data = super().to_representation(instance)
+        if data.get("translations") is None:
+            data.pop("translations", None)
+        return data
 
 
 def get_surveys_opt_in(team: Team) -> bool:
@@ -2652,81 +2894,6 @@ def get_surveys_response(team: Team):
         "surveys": surveys,
         "survey_config": serialized_survey_config.get("survey_config", None),
     }
-
-
-@csrf_exempt
-def surveys(request: Request):
-    token = get_token(None, request)
-    if request.method == "OPTIONS":
-        return cors_response(request, HttpResponse(""))
-
-    if not token:
-        return cors_response(
-            request,
-            generate_exception_response(
-                "surveys",
-                "Project token not provided. You can find your project token in your PostHog project settings.",
-                type="authentication_error",
-                code="missing_api_key",
-                status_code=status.HTTP_401_UNAUTHORIZED,
-            ),
-        )
-
-    hypercache_response = None
-    response = None
-
-    if settings.SURVEYS_API_USE_HYPERCACHE_TOKENS and (
-        "*" in settings.SURVEYS_API_USE_HYPERCACHE_TOKENS or token in settings.SURVEYS_API_USE_HYPERCACHE_TOKENS
-    ):
-        try:
-            hypercache_response = surveys_hypercache.get_from_cache(token)
-            if not hypercache_response:
-                raise Exception("No hypercache response found")
-
-            COUNTER_SURVEYS_API_USE_REMOTE_CONFIG.labels(result="found").inc()
-            response = hypercache_response
-
-        except Team.DoesNotExist:
-            COUNTER_SURVEYS_API_USE_REMOTE_CONFIG.labels(result="not_found").inc()
-            pass
-        except Exception as e:
-            capture_exception(e)
-            COUNTER_SURVEYS_API_USE_REMOTE_CONFIG.labels(result="error").inc()
-            pass  # For now fallback
-
-    # If we didn't get a hypercache response or we are comparing then load the normal response to compare
-    if not hypercache_response or settings.SURVEYS_API_USE_REMOTE_CONFIG_COMPARE:
-        team = Team.objects.get_team_from_cache_or_token(token)
-        if team is None:
-            return cors_response(
-                request,
-                generate_exception_response(
-                    "surveys",
-                    "Project token invalid. You can find your project token in your PostHog project settings.",
-                    type="authentication_error",
-                    code="invalid_api_key",
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                ),
-            )
-        response = get_surveys_response(team)
-
-        if hypercache_response:
-            # Do the comparison here
-            try:
-                if hypercache_response == response:
-                    COUNTER_SURVEYS_API_REMOTE_CONFIG_COMPARISON.labels(result="same").inc()
-                else:
-                    COUNTER_SURVEYS_API_REMOTE_CONFIG_COMPARISON.labels(result="different").inc()
-                    logger.warning(
-                        "SurveyHypercacheResponseDifferentFromAPIResponse",
-                        hypercache_response=hypercache_response,
-                        response=response,
-                    )
-
-            except Exception as e:
-                capture_exception(e)
-
-    return cors_response(request, JsonResponse(response))
 
 
 @csrf_exempt
@@ -2820,6 +2987,7 @@ def public_survey_page(request, survey_id: str):
         "survey_id": survey_id,
         "survey_data": survey_data,
         "project_config": project_config,
+        "display_language": get_hosted_survey_display_language(request),
         "debug": settings.DEBUG,
         "embed_mode": request.GET.get("embed") == "true",
     }
@@ -2848,13 +3016,15 @@ def create_flag_with_survey_errors():
     except serializers.ValidationError as e:
         # get the full details of the error to figure out if it's a behavioural cohort error
         error_details = e.get_full_details()
+        raw_filters = error_details.get("filters", [{}]) if isinstance(error_details, dict) else [{}]
+        filters = raw_filters if isinstance(raw_filters, list) else [raw_filters]
         matching_errors = [
             detail
-            for detail in error_details.get("filters", [{}])
-            if detail.get("code") == BEHAVIOURAL_COHORT_FOUND_ERROR_CODE
+            for detail in filters
+            if isinstance(detail, dict) and detail.get("code") == BEHAVIOURAL_COHORT_FOUND_ERROR_CODE
         ]
         if matching_errors:
-            original_detail = matching_errors[0].get("message")
+            original_detail = str(matching_errors[0].get("message"))
             raise serializers.ValidationError(
                 detail=original_detail.replace("feature flags", "surveys"),
                 code=BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,

@@ -7,6 +7,7 @@ from django.db.models import QuerySet
 from django.http import HttpRequest, JsonResponse
 
 import jwt
+import posthoganalytics
 from drf_spectacular.utils import (
     OpenApiParameter,
     OpenApiResponse,
@@ -14,22 +15,28 @@ from drf_spectacular.utils import (
     extend_schema_field,
     extend_schema_view,
 )
-from rest_framework import filters, serializers, status, viewsets
+from rest_framework import exceptions, filters, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
+from rest_framework.pagination import CursorPagination
 from rest_framework.response import Response
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.constants import AvailableFeature
+from posthog.constants import SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE_FEATURE_FLAG_KEY, AvailableFeature
+from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Insight
 from posthog.models.integration import Integration
-from posthog.models.subscription import Subscription, unsubscribe_using_token
+from posthog.models.subscription import Subscription, SubscriptionDelivery, unsubscribe_using_token
 from posthog.permissions import PremiumFeaturePermission
+from posthog.rate_limit import SubscriptionTestDeliveryThrottle
+from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.security.url_validation import is_url_allowed
+from posthog.slo.context import SloSpec, slo_operation
+from posthog.slo.types import SloArea, SloOperation
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.subscriptions.types import ProcessSubscriptionWorkflowInputs, SubscriptionTriggerType
 from posthog.utils import str_to_bool
@@ -57,10 +64,22 @@ class SubscriptionSerializer(serializers.ModelSerializer):
     """Standard Subscription serializer."""
 
     created_by = UserBasicSerializer(read_only=True)
-    summary = serializers.CharField(read_only=True)
-    invite_message = serializers.CharField(required=False, allow_blank=True, allow_null=True)
-    integration_id = serializers.IntegerField(required=False, allow_null=True)
-    dashboard_export_insights = DashboardExportInsightsField(required=False)
+    summary = serializers.CharField(read_only=True, help_text="Human-readable schedule summary, e.g. 'sent daily'.")
+    invite_message = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        help_text="Optional message included in the invitation email when adding new recipients.",
+    )
+    integration_id = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="ID of a connected Slack integration. Required when target_type is slack.",
+    )
+    dashboard_export_insights = DashboardExportInsightsField(
+        required=False,
+        help_text="List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 6.",
+    )
     insight_short_id = serializers.SerializerMethodField()
     resource_name = serializers.SerializerMethodField()
 
@@ -90,6 +109,8 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "next_delivery_date",
             "integration_id",
             "invite_message",
+            "summary_enabled",
+            "summary_prompt_guide",
         ]
         read_only_fields = [
             "id",
@@ -100,6 +121,29 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "insight_short_id",
             "resource_name",
         ]
+        extra_kwargs = {
+            "dashboard": {"help_text": "Dashboard ID to subscribe to (mutually exclusive with insight on create)."},
+            "insight": {"help_text": "Insight ID to subscribe to (mutually exclusive with dashboard on create)."},
+            "target_type": {"help_text": "Delivery channel: email, slack, or webhook."},
+            "target_value": {
+                "help_text": "Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or full URL for webhook."
+            },
+            "frequency": {"help_text": "How often to deliver: daily, weekly, monthly, or yearly."},
+            "interval": {
+                "help_text": "Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1."
+            },
+            "byweekday": {
+                "help_text": "Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday."
+            },
+            "bysetpos": {
+                "help_text": "Position within byweekday set for monthly frequency (e.g. 1 for first, -1 for last)."
+            },
+            "count": {"help_text": "Total number of deliveries before the subscription stops. Null for unlimited."},
+            "start_date": {"help_text": "When to start delivering (ISO 8601 datetime)."},
+            "until_date": {"help_text": "When to stop delivering (ISO 8601 datetime). Null for indefinite."},
+            "title": {"help_text": "Human-readable name for this subscription."},
+            "deleted": {"help_text": "Set to true to soft-delete. Subscriptions cannot be hard-deleted."},
+        }
 
     def get_insight_short_id(self, obj: Subscription) -> Optional[str]:
         if obj.insight_id and obj.insight is not None:
@@ -146,7 +190,46 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             if not allowed:
                 raise ValidationError({"target_value": [f"Invalid webhook URL: {error}"]})
 
+        # Only gate non-empty writes to `summary_prompt_guide`. Clearing (empty string)
+        # and field-absent PATCHes always pass through so users aren't stuck with a value
+        # they can no longer edit if the flag flips off after they set one.
+        prompt_guide = attrs.get("summary_prompt_guide")
+        if prompt_guide:
+            if len(prompt_guide) > 500:
+                raise ValidationError({"summary_prompt_guide": ["AI summary context must be 500 characters or fewer."]})
+            if not self._prompt_guide_feature_enabled():
+                raise exceptions.PermissionDenied("Setting AI summary context is not enabled for this organization.")
+
+        if attrs.get("summary_enabled"):
+            organization = self.context["get_organization"]()
+            if not organization.is_ai_data_processing_approved:
+                raise exceptions.PermissionDenied(
+                    "AI data processing must be approved by your organization before enabling AI summaries"
+                )
+
         return attrs
+
+    def _prompt_guide_feature_enabled(self) -> bool:
+        """Evaluate the prompt-guide feature flag for the caller's organization.
+
+        Scoped by organization (not user) so the gate is stable across a team's
+        members. `only_evaluate_locally=False` so we respect server-side cohort
+        / property conditions — this isn't on a hot path.
+        """
+        request = self.context.get("request")
+        if not request or not getattr(request, "user", None) or not getattr(request.user, "distinct_id", None):
+            return False
+        organization = self.context["get_organization"]()
+        org_id = str(organization.id) if organization else ""
+        return bool(
+            posthoganalytics.feature_enabled(
+                SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE_FEATURE_FLAG_KEY,
+                str(request.user.distinct_id),
+                groups={"organization": org_id},
+                group_properties={"organization": {"id": org_id}},
+                only_evaluate_locally=False,
+            )
+        )
 
     def _validate_dashboard_export_subscription(self, attrs):
         dashboard = attrs.get("dashboard") or (self.instance.dashboard if self.instance else None)
@@ -205,6 +288,14 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         request = self.context["request"]
         validated_data["team_id"] = self.context["team_id"]
         validated_data["created_by"] = request.user
+        team = self.context["get_team"]()
+        current_count = Subscription.objects.filter(team_id=team.id, deleted=False).count()
+        check_count_limit(
+            team=team,
+            key=LimitKey.MAX_SUBSCRIPTIONS_PER_TEAM,
+            current_count=current_count,
+            user=request.user,
+        )
 
         invite_message = validated_data.pop("invite_message", "")
         dashboard_export_insight_ids = validated_data.pop("dashboard_export_insights", [])
@@ -213,30 +304,82 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         if dashboard_export_insight_ids:
             instance.dashboard_export_insights.set(dashboard_export_insight_ids)
 
-        temporal = sync_connect()
-        workflow_id = f"handle-subscription-value-change-{instance.id}-{uuid.uuid4()}"
-        asyncio.run(
-            temporal.start_workflow(
-                "handle-subscription-value-change",
-                ProcessSubscriptionWorkflowInputs(
-                    subscription_id=instance.id,
-                    team_id=instance.team_id,
-                    distinct_id=str(instance.created_by.distinct_id) if instance.created_by else str(instance.team_id),
-                    previous_value="",
-                    invite_message=invite_message,
-                    trigger_type=SubscriptionTriggerType.TARGET_CHANGE,
-                ),
-                id=workflow_id,
-                task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
+        with slo_operation(
+            spec=SloSpec(
+                distinct_id=str(request.user.distinct_id),
+                area=SloArea.ANALYTIC_PLATFORM,
+                operation=SloOperation.SUBSCRIPTION_CREATE,
+                team_id=instance.team_id,
+                resource_id=str(instance.id),
+            ),
+            properties={
+                "subscription_id": instance.id,
+                "target_type": instance.target_type,
+                "frequency": instance.frequency,
+                "interval": instance.interval,
+                "byweekday": instance.byweekday,
+                "bysetpos": instance.bysetpos,
+                "count": instance.count,
+                "resource_type": "dashboard" if instance.dashboard_id else "insight" if instance.insight_id else None,
+                "dashboard_export_insights_count": len(dashboard_export_insight_ids),
+                "summary_enabled": instance.summary_enabled,
+                "has_summary_prompt_guide": bool(instance.summary_prompt_guide),
+                "has_until_date": instance.until_date is not None,
+                "has_invite_message": bool(invite_message),
+            },
+        ):
+            temporal = sync_connect()
+            workflow_id = f"handle-subscription-value-change-{instance.id}-{uuid.uuid4()}"
+            asyncio.run(
+                temporal.start_workflow(
+                    "handle-subscription-value-change",
+                    ProcessSubscriptionWorkflowInputs(
+                        subscription_id=instance.id,
+                        team_id=instance.team_id,
+                        distinct_id=str(instance.created_by.distinct_id)
+                        if instance.created_by
+                        else str(instance.team_id),
+                        previous_value="",
+                        invite_message=invite_message,
+                        trigger_type=SubscriptionTriggerType.TARGET_CHANGE,
+                    ),
+                    id=workflow_id,
+                    task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
+                )
             )
-        )
 
         return instance
 
     def update(self, instance: Subscription, validated_data: dict, *args, **kwargs) -> Subscription:
+        request = self.context["request"]
         previous_value = instance.target_value
+        is_delete = not instance.deleted and validated_data.get("deleted") is True
         invite_message = validated_data.pop("invite_message", "")
         dashboard_export_insight_ids = validated_data.pop("dashboard_export_insights", [])
+
+        if is_delete:
+            with slo_operation(
+                spec=SloSpec(
+                    distinct_id=str(request.user.distinct_id),
+                    area=SloArea.ANALYTIC_PLATFORM,
+                    operation=SloOperation.SUBSCRIPTION_DELETE,
+                    team_id=instance.team_id,
+                    resource_id=str(instance.id),
+                ),
+                properties={
+                    "subscription_id": instance.id,
+                    "target_type": instance.target_type,
+                    "frequency": instance.frequency,
+                    "resource_type": "dashboard"
+                    if instance.dashboard_id
+                    else "insight"
+                    if instance.insight_id
+                    else None,
+                },
+            ):
+                instance = super().update(instance, validated_data)
+            return instance
+
         instance = super().update(instance, validated_data)
 
         if dashboard_export_insight_ids:
@@ -288,6 +431,20 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                 location=OpenApiParameter.QUERY,
                 required=False,
                 description="Filter by delivery channel (email, Slack, or webhook).",
+            ),
+            OpenApiParameter(
+                name="insight",
+                type=int,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Filter by insight ID.",
+            ),
+            OpenApiParameter(
+                name="dashboard",
+                type=int,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Filter by dashboard ID.",
             ),
         ],
     ),
@@ -366,7 +523,13 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
         request=None,
         responses={202: OpenApiResponse(description="Test delivery workflow started")},
     )
-    @action(methods=["POST"], detail=True, url_path="test-delivery")
+    @action(
+        methods=["POST"],
+        detail=True,
+        url_path="test-delivery",
+        throttle_classes=[SubscriptionTestDeliveryThrottle],
+        required_scopes=["subscription:write"],
+    )
     def test_delivery(self, request, **kwargs):
         subscription = self.get_object()
         if subscription.deleted:
@@ -404,7 +567,125 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
+        posthoganalytics.capture(
+            distinct_id=str(request.user.distinct_id),
+            event="subscription_test_delivery_scheduled",
+            properties={
+                "subscription_id": subscription.id,
+                "team_id": subscription.team_id,
+                "target_type": subscription.target_type,
+                "insight_id": subscription.insight_id,
+                "dashboard_id": subscription.dashboard_id,
+                "temporal_workflow_id": workflow_id,
+            },
+            groups=groups(None, subscription.team),
+        )
+
         return Response(status=status.HTTP_202_ACCEPTED)
+
+
+class SubscriptionDeliverySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SubscriptionDelivery
+        fields = [
+            "id",
+            "subscription",
+            "temporal_workflow_id",
+            "idempotency_key",
+            "trigger_type",
+            "scheduled_at",
+            "target_type",
+            "target_value",
+            "exported_asset_ids",
+            "content_snapshot",
+            "recipient_results",
+            "status",
+            "error",
+            "created_at",
+            "last_updated_at",
+            "finished_at",
+            "change_summary",
+        ]
+        read_only_fields = fields
+        extra_kwargs = {
+            "id": {"help_text": "Primary key for this delivery row."},
+            "subscription": {"help_text": "Parent subscription id."},
+            "temporal_workflow_id": {"help_text": "Temporal workflow id for this delivery run."},
+            "idempotency_key": {"help_text": "Dedupes activity retries for the same logical run."},
+            "trigger_type": {"help_text": "Why the run started (e.g. scheduled, manual, target_change)."},
+            "scheduled_at": {"help_text": "Planned send time when applicable."},
+            "target_type": {"help_text": "Channel snapshot at send time (email, slack, webhook)."},
+            "target_value": {"help_text": "Destination snapshot at send time (emails, channel id, URL)."},
+            "exported_asset_ids": {"help_text": "ExportedAsset ids generated for this send."},
+            "content_snapshot": {
+                "help_text": (
+                    "Snapshot at send time: dashboard metadata, total_insight_count, and per-exported-insight "
+                    "entries (id, short_id, name, query_hash, cache_key, query_results, optional query_error)."
+                )
+            },
+            "recipient_results": {
+                "help_text": "Per-destination outcomes; items use status success, failed, or partial."
+            },
+            "status": {"help_text": "Overall run status: starting, completed, failed, or skipped."},
+            "error": {"help_text": "Top-level failure payload when status is failed, if any."},
+            "created_at": {"help_text": "When the delivery row was created."},
+            "last_updated_at": {"help_text": "Last ORM update to this row."},
+            "finished_at": {"help_text": "When the run finished, if applicable."},
+            "change_summary": {"help_text": "AI-generated summary included in this delivery, when one was produced."},
+        }
+
+
+class SubscriptionDeliveryCursorPagination(CursorPagination):
+    page_size = 50
+    ordering = "-created_at"
+
+
+@extend_schema_view(
+    list=extend_schema(
+        summary="List subscription deliveries",
+        description="Paginated delivery history for a subscription. Requires premium subscriptions.",
+        parameters=[
+            OpenApiParameter(
+                name="status",
+                type=str,
+                enum=[m.value for m in SubscriptionDelivery.Status],
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Return only deliveries in this run status (starting, completed, failed, or skipped).",
+            ),
+        ],
+        responses={200: OpenApiResponse(response=SubscriptionDeliverySerializer(many=True))},
+    ),
+    retrieve=extend_schema(
+        summary="Retrieve subscription delivery",
+        description="Fetch one delivery row by id.",
+        responses={200: SubscriptionDeliverySerializer},
+    ),
+)
+@extend_schema(tags=["core"])
+class SubscriptionDeliveryViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
+    scope_object = "subscription"
+    queryset = SubscriptionDelivery.objects.all()
+    serializer_class = SubscriptionDeliverySerializer
+    permission_classes = [PremiumFeaturePermission]
+    premium_feature = AvailableFeature.SUBSCRIPTIONS
+    pagination_class = SubscriptionDeliveryCursorPagination
+    ordering = "-created_at"
+
+    def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
+        subscription_id = self.kwargs.get("parent_lookup_subscription_id")
+        if subscription_id:
+            queryset = queryset.filter(subscription_id=subscription_id)
+        if self.action == "list":
+            status_param = self.request.query_params.get("status")
+            if status_param:
+                valid = {c.value for c in SubscriptionDelivery.Status}
+                if status_param not in valid:
+                    raise ValidationError(
+                        {"status": [f"Must be one of: {', '.join(sorted(valid))}."]},
+                    )
+                queryset = queryset.filter(status=status_param)
+        return queryset
 
 
 def unsubscribe(request: HttpRequest):

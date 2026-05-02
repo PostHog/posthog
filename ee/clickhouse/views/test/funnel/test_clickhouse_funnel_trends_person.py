@@ -1,4 +1,5 @@
 import json
+from typing import Any, cast
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
 
@@ -39,11 +40,7 @@ class TestFunnelTrendsPerson(ClickhouseTestMixin, APIBaseTest):
         # 1 user who dropped off starting 2021-06-07
         response_1 = self.client.get(
             "/api/person/funnel/",
-            data={
-                **common_request_data,
-                "entrance_period_start": "2021-06-07",
-                "drop_off": True,
-            },
+            data=cast(Any, {**common_request_data, "entrance_period_start": "2021-06-07", "drop_off": True}),
         )
         response_1_data = response_1.json()
 
@@ -56,11 +53,7 @@ class TestFunnelTrendsPerson(ClickhouseTestMixin, APIBaseTest):
         # No users converted 2021-06-07
         response_2 = self.client.get(
             "/api/person/funnel/",
-            data={
-                **common_request_data,
-                "entrance_period_start": "2021-06-07 00:00",
-                "drop_off": False,
-            },
+            data=cast(Any, {**common_request_data, "entrance_period_start": "2021-06-07 00:00", "drop_off": False}),
         )
         response_2_data = response_2.json()
 
@@ -70,11 +63,7 @@ class TestFunnelTrendsPerson(ClickhouseTestMixin, APIBaseTest):
         # No users dropped off starting 2021-06-08
         response_3 = self.client.get(
             "/api/person/funnel/",
-            data={
-                **common_request_data,
-                "entrance_period_start": "2021-06-08",
-                "drop_off": True,
-            },
+            data=cast(Any, {**common_request_data, "entrance_period_start": "2021-06-08", "drop_off": True}),
         )
         response_3_data = response_3.json()
 
@@ -151,11 +140,7 @@ class TestFunnelTrendsPerson(ClickhouseTestMixin, APIBaseTest):
         # 1 user who dropped off
         response_1 = self.client.get(
             "/api/person/funnel/",
-            data={
-                **common_request_data,
-                "entrance_period_start": "2021-06-07",
-                "drop_off": True,
-            },
+            data=cast(Any, {**common_request_data, "entrance_period_start": "2021-06-07", "drop_off": True}),
         )
         response_1_data = response_1.json()
 
@@ -168,11 +153,7 @@ class TestFunnelTrendsPerson(ClickhouseTestMixin, APIBaseTest):
         # 1 user who successfully converted
         response_1 = self.client.get(
             "/api/person/funnel/",
-            data={
-                **common_request_data,
-                "entrance_period_start": "2021-06-07",
-                "drop_off": False,
-            },
+            data=cast(Any, {**common_request_data, "entrance_period_start": "2021-06-07", "drop_off": False}),
         )
         response_1_data = response_1.json()
 
@@ -240,11 +221,7 @@ class TestFunnelTrendsPerson(ClickhouseTestMixin, APIBaseTest):
         # 1 user who dropped off
         response_1 = self.client.get(
             "/api/person/funnel/",
-            data={
-                **common_request_data,
-                "entrance_period_start": "2021-06-07",
-                "drop_off": True,
-            },
+            data=cast(Any, {**common_request_data, "entrance_period_start": "2021-06-07", "drop_off": True}),
         )
         response_1_data = response_1.json()
 
@@ -257,11 +234,7 @@ class TestFunnelTrendsPerson(ClickhouseTestMixin, APIBaseTest):
         # 1 user who successfully converted
         response_1 = self.client.get(
             "/api/person/funnel/",
-            data={
-                **common_request_data,
-                "entrance_period_start": "2021-06-07",
-                "drop_off": False,
-            },
+            data=cast(Any, {**common_request_data, "entrance_period_start": "2021-06-07", "drop_off": False}),
         )
         response_1_data = response_1.json()
 

@@ -19,29 +19,18 @@ import type { SubscriptionApi } from '~/generated/core/api.schemas'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
-import type { InsightShortId } from '~/types'
 import { AvailableFeature } from '~/types'
 
-import { SubscriptionsFiltersBar } from './SubscriptionsFiltersBar'
-import { SubscriptionsLoadingSkeleton } from './SubscriptionsLoadingSkeleton'
+import { SubscriptionsFiltersBar } from './components/SubscriptionsFiltersBar'
+import { SubscriptionsLoadingSkeleton } from './components/SubscriptionsLoadingSkeleton'
+import { SubscriptionsTable, subscriptionEditHref, subscriptionName } from './components/SubscriptionsTable'
 import { SubscriptionsTab, subscriptionsSceneLogic } from './subscriptionsSceneLogic'
-import { SubscriptionsTable, subscriptionName } from './SubscriptionsTable'
-
-function editHref(sub: SubscriptionApi): string | null {
-    if (sub.insight && sub.insight_short_id) {
-        return urls.insightSubcription(sub.insight_short_id as InsightShortId, String(sub.id))
-    }
-    if (sub.dashboard) {
-        return urls.dashboardSubscription(sub.dashboard, String(sub.id))
-    }
-    return null
-}
 
 function SubscriptionsRowActions({ sub }: { sub: SubscriptionApi }): JSX.Element {
     const { push } = useActions(router)
     const { deleteSubscriptionSuccess, deliverSubscription } = useActions(subscriptionsSceneLogic)
     const { deliveringSubscriptionId } = useValues(subscriptionsSceneLogic)
-    const href = editHref(sub)
+    const href = subscriptionEditHref(sub)
     const isDelivering = deliveringSubscriptionId === sub.id
 
     return (

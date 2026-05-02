@@ -1,3 +1,5 @@
+from typing import Any
+
 from posthog.test.base import APIBaseTest
 
 from rest_framework import status
@@ -59,7 +61,7 @@ class TestHogFlowTemplateAPI(APIBaseTest):
             free=True,
         )
 
-    def _create_hog_flow_data(self, include_metadata=False, custom_inputs=None):
+    def _create_hog_flow_data(self, include_metadata: bool = False, custom_inputs: Any = None) -> dict[str, Any]:
         """Helper to create hog flow data for template creation"""
         trigger_action = {
             "id": "trigger_node",
@@ -88,7 +90,7 @@ class TestHogFlowTemplateAPI(APIBaseTest):
             },
         }
 
-        hog_flow_data = {
+        hog_flow_data: dict[str, Any] = {
             "name": "Test Template Flow",
             "description": "Test description",
             "actions": [trigger_action, function_action],

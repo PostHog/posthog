@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from typing import Any
 
 import pytest
 import unittest
@@ -411,6 +412,75 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             )
 
             res, q, params = execute(filter, self.team)
+
+            assert [p1.uuid] == [r[0] for r in res]
+
+    def test_performed_event_with_explicit_date_range(self):
+        """Upper bound (`explicit_datetime_to`) is inclusive of the full to-date in both engines."""
+        with freeze_time(datetime.now().replace(hour=12, minute=0, second=0, microsecond=0)):
+            # p1 is inside the window: [-14d, -7d inclusive]
+            p1 = _create_person(
+                team_id=self.team.pk,
+                distinct_ids=["p1"],
+                properties={"name": "test", "email": "p1@posthog.com"},
+            )
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                properties={},
+                distinct_id="p1",
+                timestamp=datetime.now() - timedelta(days=10),
+            )
+
+            # p2 is outside the lower bound (too old)
+            _create_person(
+                team_id=self.team.pk,
+                distinct_ids=["p2"],
+                properties={"name": "test", "email": "p2@posthog.com"},
+            )
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                properties={},
+                distinct_id="p2",
+                timestamp=datetime.now() - timedelta(days=20),
+            )
+
+            # p3 is outside the upper bound (too recent)
+            _create_person(
+                team_id=self.team.pk,
+                distinct_ids=["p3"],
+                properties={"name": "test", "email": "p3@posthog.com"},
+            )
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                properties={},
+                distinct_id="p3",
+                timestamp=datetime.now() - timedelta(days=2),
+            )
+
+            flush_persons_and_events()
+
+            filter = Filter(
+                data={
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "$pageview",
+                                "event_type": "events",
+                                "explicit_datetime": "-14d",
+                                "explicit_datetime_to": "-7d",
+                                "value": "performed_event",
+                                "type": "behavioral",
+                            }
+                        ],
+                    }
+                }
+            )
+
+            res, _, _ = execute(filter, self.team)
 
             assert [p1.uuid] == [r[0] for r in res]
 
@@ -1064,7 +1134,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             # Filter for:
             # Regularly completed [$pageview] [at least] [1] times per
             # [3][day] period for at least [3] of the last [3] periods
-            data = {
+            data: dict[str, Any] = {
                 "properties": {
                     "type": "AND",
                     "values": [

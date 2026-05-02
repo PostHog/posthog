@@ -46,7 +46,7 @@ class MatchedRecording(TypedDict):
 
 class CommonActor(TypedDict):
     id: Union[uuid.UUID, str]
-    created_at: Optional[str]
+    created_at: Optional[datetime]
     properties: dict[str, Any]
     matched_recordings: list[MatchedRecording]
     value_at_data_point: Optional[float]
@@ -105,7 +105,7 @@ class ActorBaseQuery:
     def get_actors(
         self,
     ) -> tuple[
-        Union[QuerySet[Person], QuerySet[Group], list[Person]],
+        Union[QuerySet[Person], QuerySet[Group], list[Person], list[Group]],
         Union[list[SerializedGroup], list[SerializedPerson]],
         int,
     ]:
@@ -223,10 +223,10 @@ class ActorBaseQuery:
     def get_actors_from_result(
         self, raw_result
     ) -> tuple[
-        Union[QuerySet[Person], QuerySet[Group], list[Person]],
+        Union[QuerySet[Person], QuerySet[Group], list[Person], list[Group]],
         Union[list[SerializedGroup], list[SerializedPerson]],
     ]:
-        actors: Union[QuerySet[Person], QuerySet[Group], list[Person]]
+        actors: Union[QuerySet[Person], QuerySet[Group], list[Person], list[Group]]
         serialized_actors: Union[list[SerializedGroup], list[SerializedPerson]]
 
         actor_ids = [row[0] for row in raw_result]
@@ -258,11 +258,11 @@ def get_groups(
     group_type_index: int,
     group_ids: list[Any],
     value_per_actor_id: Optional[dict[str, float]] = None,
-) -> tuple[QuerySet[Group], list[SerializedGroup]]:
+) -> tuple[list[Group], list[SerializedGroup]]:
     """Get groups from raw SQL results in data model and dict formats"""
-    groups: QuerySet[Group] = Group.objects.filter(
-        team_id=team_id, group_type_index=group_type_index, group_key__in=group_ids
-    )
+    from posthog.models.group.util import get_groups_by_identifiers
+
+    groups = get_groups_by_identifiers(team_id, group_type_index, [str(gid) for gid in group_ids])
     return groups, serialize_groups(groups, value_per_actor_id)
 
 
@@ -324,18 +324,23 @@ def get_people(
             logger.warning("personhog_get_people_failure", team_id=team.pk, exc_info=True)
 
     distinct_id_subquery = Subquery(
-        PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)
+        PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)  # nosemgrep: no-direct-persons-db-orm
         .filter(team_id=team.pk, person_id=OuterRef("person_id"))
         .values_list("id", flat=True)[:distinct_id_limit]
     )
     persons_qs: QuerySet[Person] = (
-        Person.objects.db_manager(READ_DB_FOR_PERSONS)
+        Person.objects.db_manager(READ_DB_FOR_PERSONS)  # nosemgrep: no-direct-persons-db-orm
         .filter(team_id=team.pk, uuid__in=people_ids)
         .prefetch_related(
             Prefetch(
                 "persondistinctid_set",
                 to_attr="distinct_ids_cache",
-                queryset=PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS).filter(id__in=distinct_id_subquery),
+                # nosemgrep: no-direct-persons-db-orm
+                queryset=PersonDistinctId.objects.db_manager(
+                    READ_DB_FOR_PERSONS
+                ).filter(  # nosemgrep: no-direct-persons-db-orm
+                    id__in=distinct_id_subquery
+                ),  # nosemgrep: no-direct-persons-db-orm
             )
         )
         .order_by("-created_at", "uuid")
@@ -404,7 +409,9 @@ def serialize_people(
     ]
 
 
-def serialize_groups(data: QuerySet[Group], value_per_actor_id: Optional[dict[str, float]]) -> list[SerializedGroup]:
+def serialize_groups(
+    data: QuerySet[Group] | list[Group], value_per_actor_id: Optional[dict[str, float]]
+) -> list[SerializedGroup]:
     return [
         SerializedGroup(
             id=group.group_key,

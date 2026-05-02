@@ -5,7 +5,9 @@ import { router } from 'kea-router'
 import { expectLogic, truth } from 'kea-test-utils'
 
 import api from 'lib/api'
-import { now } from 'lib/dayjs'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs, now } from 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import * as dashboardUtils from 'scenes/dashboard/dashboardUtils'
@@ -307,6 +309,20 @@ describe('dashboardLogic', () => {
         insightsModel.mount()
     })
 
+    describe('key() guard', () => {
+        it.each([
+            ['NaN', NaN],
+            ['undefined', undefined as unknown as number],
+            ['Infinity', Infinity],
+        ])('throws when id is %s', (_label, id) => {
+            expect(() => dashboardLogic({ id })).toThrow(/non-finite id/)
+        })
+
+        it('accepts a finite numeric id', () => {
+            expect(() => dashboardLogic({ id: 42 })).not.toThrow()
+        })
+    })
+
     describe('tile layouts', () => {
         beforeEach(() => {
             logic = dashboardLogic({ id: 5 })
@@ -471,6 +487,113 @@ describe('dashboardLogic', () => {
 
             const restoredTileLayouts = logic.values.dashboard?.tiles.find((t) => t.id === firstTile.id)?.layouts
             expect(restoredTileLayouts).toEqual(originalLayouts)
+        })
+
+        describe('hasUnsavedLayoutChanges selector', () => {
+            const moveFirstTile = (): void => {
+                const firstTile = logic.values.dashboard!.tiles[0]
+                const currentLayouts = logic.values.layouts
+                const modifiedLayouts: any = {
+                    ...currentLayouts,
+                    sm: currentLayouts.sm?.map((layout: any) =>
+                        layout.i === String(firstTile.id) ? { ...layout, x: (layout.x ?? 0) + 1 } : layout
+                    ),
+                }
+                logic.actions.updateLayouts(modifiedLayouts)
+            }
+
+            it('is false when no tile has been moved', async () => {
+                await expectLogic(logic).toFinishAllListeners().toMatchValues({ hasUnsavedLayoutChanges: false })
+            })
+
+            it('is false when filters or theme change but layout has not', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    logic.actions.setDates('-7d', null)
+                    logic.actions.setDataColorThemeId(123)
+                })
+                    .toFinishAllListeners()
+                    .toMatchValues({ hasUnsavedLayoutChanges: false })
+            })
+
+            it('is true after a layout change', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+
+                await expectLogic(logic, moveFirstTile)
+                    .toFinishAllListeners()
+                    .toMatchValues({ hasUnsavedLayoutChanges: true })
+            })
+
+            it('returns to false after discarding changes', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+
+                await expectLogic(logic, moveFirstTile)
+                    .toFinishAllListeners()
+                    .toMatchValues({ hasUnsavedLayoutChanges: true })
+
+                await expectLogic(logic, () => {
+                    logic.actions.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)
+                })
+                    .toFinishAllListeners()
+                    .toMatchValues({ hasUnsavedLayoutChanges: false })
+            })
+        })
+
+        describe('cancelEditMode action', () => {
+            const moveFirstTile = (): void => {
+                const firstTile = logic.values.dashboard!.tiles[0]
+                const currentLayouts = logic.values.layouts
+                const modifiedLayouts: any = {
+                    ...currentLayouts,
+                    sm: currentLayouts.sm?.map((layout: any) =>
+                        layout.i === String(firstTile.id) ? { ...layout, x: (layout.x ?? 0) + 1 } : layout
+                    ),
+                }
+                logic.actions.updateLayouts(modifiedLayouts)
+            }
+
+            const setDiscardPromptFlag = (enabled: boolean): void => {
+                const flagKey = FEATURE_FLAGS.DASHBOARD_LAYOUT_DISCARD_PROMPT
+                featureFlagLogic.actions.setFeatureFlags(enabled ? [flagKey] : [], { [flagKey]: enabled })
+            }
+
+            it('exits edit mode immediately when no tile has been moved', async () => {
+                setDiscardPromptFlag(true)
+                await expectLogic(logic).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    logic.actions.cancelEditMode()
+                }).toDispatchActions([
+                    logic.actionCreators.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges),
+                ])
+            })
+
+            it('does not exit edit mode when a tile has been moved and the prompt flag is on', async () => {
+                setDiscardPromptFlag(true)
+                await expectLogic(logic).toFinishAllListeners()
+
+                await expectLogic(logic, moveFirstTile).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    logic.actions.cancelEditMode()
+                }).toNotHaveDispatchedActions([
+                    logic.actionCreators.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges),
+                ])
+            })
+
+            it('exits edit mode immediately when the prompt flag is off, even with unsaved layout changes', async () => {
+                setDiscardPromptFlag(false)
+                await expectLogic(logic).toFinishAllListeners()
+
+                await expectLogic(logic, moveFirstTile).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    logic.actions.cancelEditMode()
+                }).toDispatchActions([
+                    logic.actionCreators.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges),
+                ])
+            })
         })
     })
 
@@ -641,6 +764,75 @@ describe('dashboardLogic', () => {
                         textTiles: truth((textTiles) => textTiles.length === 1),
                         dashboardFailedToLoad: false,
                     })
+            })
+        })
+
+        describe('last refreshed display', () => {
+            it.each([
+                {
+                    scenario: 'all insight tiles share the same older last_refresh',
+                    staleIso: '2026-01-15T12:00:00.000Z',
+                    mode: 'all-stale' as const,
+                },
+                {
+                    scenario: 'tiles have mixed last_refresh so the banner follows the stalest',
+                    staleIso: '2026-01-15T10:00:00.000Z',
+                    mode: 'mixed' as const,
+                },
+            ])('effectiveLastRefresh stays at the stalest tile — $scenario', async ({ staleIso, mode }) => {
+                await expectLogic(logic).toFinishAllListeners()
+
+                const loaded = logic.values.dashboard!
+                if (mode === 'all-stale') {
+                    expect(loaded.tiles?.length).toBeGreaterThan(0)
+                    for (const tile of loaded.tiles) {
+                        const insight = tile.insight
+                        if (!insight) {
+                            continue
+                        }
+
+                        await expectLogic(logic, () => {
+                            dashboardsModel.actions.updateDashboardInsight(
+                                { ...insight, last_refresh: staleIso, query: insight.query ?? null },
+                                undefined,
+                                5
+                            )
+                        }).toFinishAllListeners()
+                    }
+                } else {
+                    const insightTiles = loaded.tiles.filter((t) => !!t.insight)
+                    expect(insightTiles.length).toBeGreaterThanOrEqual(2)
+                    const freshIso = now().toISOString()
+                    await expectLogic(logic, () => {
+                        dashboardsModel.actions.updateDashboardInsight(
+                            {
+                                ...insightTiles[0].insight!,
+                                last_refresh: staleIso,
+                                query: insightTiles[0].insight!.query ?? null,
+                            },
+                            undefined,
+                            5
+                        )
+                    }).toFinishAllListeners()
+                    await expectLogic(logic, () => {
+                        dashboardsModel.actions.updateDashboardInsight(
+                            {
+                                ...insightTiles[1].insight!,
+                                last_refresh: freshIso,
+                                query: insightTiles[1].insight!.query ?? null,
+                            },
+                            undefined,
+                            5
+                        )
+                    }).toFinishAllListeners()
+                }
+
+                await expectLogic(logic, () => {
+                    logic.actions.updateDashboardLastRefresh(now())
+                }).toFinishAllListeners()
+
+                expect(logic.values.oldestRefreshed?.toISOString()).toEqual(dayjs(staleIso).toISOString())
+                expect(logic.values.effectiveLastRefresh?.toISOString()).toEqual(dayjs(staleIso).toISOString())
             })
         })
 

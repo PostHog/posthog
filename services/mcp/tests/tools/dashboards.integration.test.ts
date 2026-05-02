@@ -194,6 +194,158 @@ describe('Dashboards', { concurrent: false }, () => {
         })
     })
 
+    describe('response excludes insight results', () => {
+        const createTool = getToolByName('dashboard-create')
+        const getOneTool = getToolByName('dashboard-get')
+        const updateTool = getToolByName('dashboard-update')
+
+        const STRIPPED_INSIGHT_FIELDS = [
+            'result',
+            'hasMore',
+            'columns',
+            'hogql',
+            'types',
+            'query_status',
+            'cache_target_age',
+            'next_allowed_client_refresh',
+            'filters_hash',
+            'dashboards',
+            'dashboard_tiles',
+            'effective_restriction_level',
+            'effective_privilege_level',
+            'user_access_level',
+            'filters',
+            'is_sample',
+            'order',
+            'deleted',
+            'alerts',
+            'timezone',
+            'resolved_date_range',
+        ] as const
+
+        async function createDashboardWithInsight(namePrefix: string): Promise<{ dashboardId: number }> {
+            const dashboardResult = await createTool.handler(context, {
+                name: generateUniqueKey(namePrefix),
+                pinned: false,
+            })
+            const dashboard = parseToolResponse(dashboardResult)
+            createdResources.dashboards.push(dashboard.id)
+
+            const projectId = await context.stateManager.getProjectId()
+            const insight = await context.api.request<any>({
+                method: 'POST',
+                path: `/api/projects/${projectId}/insights/`,
+                body: {
+                    name: generateUniqueKey('Stripped Result Insight'),
+                    query: SAMPLE_HOGQL_QUERIES.pageviews,
+                    saved: true,
+                    dashboards: [dashboard.id],
+                },
+            })
+            createdResources.insights.push(insight.id)
+
+            return { dashboardId: dashboard.id }
+        }
+
+        function assertNoInsightResults(dashboard: any): void {
+            expect(dashboard.tiles).toBeTruthy()
+            expect(dashboard.tiles.length).toBeGreaterThan(0)
+
+            const insightTiles = dashboard.tiles.filter((t: any) => t?.insight)
+            expect(insightTiles.length).toBeGreaterThan(0)
+
+            for (const tile of insightTiles) {
+                for (const field of STRIPPED_INSIGHT_FIELDS) {
+                    expect(
+                        tile.insight[field],
+                        `expected tile.insight.${field} to be stripped but was present`
+                    ).toBeUndefined()
+                }
+                // Sanity: identifying metadata should still be present
+                expect(tile.insight.id).toBeTruthy()
+                expect(tile.insight.query).toBeTruthy()
+            }
+        }
+
+        it('dashboard-get strips insight result fields', async () => {
+            const { dashboardId } = await createDashboardWithInsight('Get Strips Results')
+
+            const result = await getOneTool.handler(context, { id: dashboardId })
+            const dashboard = parseToolResponse(result)
+
+            assertNoInsightResults(dashboard)
+        })
+
+        it('dashboard-update strips insight result fields', async () => {
+            const { dashboardId } = await createDashboardWithInsight('Update Strips Results')
+
+            const result = await updateTool.handler(context, {
+                id: dashboardId,
+                description: 'Updated to verify response stripping',
+            })
+            const dashboard = parseToolResponse(result)
+
+            assertNoInsightResults(dashboard)
+        })
+
+        it('dashboard-create response has no tiles (and therefore no insight results)', async () => {
+            // dashboard-create creates an empty dashboard — there are no tiles to strip from.
+            // The exclude list is still declared so the tool stays safe if tiles are ever
+            // returned on create (e.g. duplicated or template-based creation).
+            const result = await createTool.handler(context, {
+                name: generateUniqueKey('Create No Tiles'),
+                pinned: false,
+            })
+            const dashboard = parseToolResponse(result)
+            createdResources.dashboards.push(dashboard.id)
+
+            expect(Array.isArray(dashboard.tiles)).toBe(true)
+            expect(dashboard.tiles.length).toBe(0)
+        })
+    })
+
+    describe('dashboard-insights-run tool', () => {
+        const createTool = getToolByName('dashboard-create')
+        const runInsightsTool = getToolByName('dashboard-insights-run')
+
+        it('returns insight results for tiles (unlike dashboard-get)', async () => {
+            const dashboardResult = await createTool.handler(context, {
+                name: generateUniqueKey('Run Insights Dashboard'),
+                pinned: false,
+            })
+            const dashboard = parseToolResponse(dashboardResult)
+            createdResources.dashboards.push(dashboard.id)
+
+            const projectId = await context.stateManager.getProjectId()
+            const insight = await context.api.request<any>({
+                method: 'POST',
+                path: `/api/projects/${projectId}/insights/`,
+                body: {
+                    name: generateUniqueKey('Run Insights Insight'),
+                    query: SAMPLE_HOGQL_QUERIES.pageviews,
+                    saved: true,
+                    dashboards: [dashboard.id],
+                },
+            })
+            createdResources.insights.push(insight.id)
+
+            const result = await runInsightsTool.handler(context, {
+                id: dashboard.id,
+                refresh: 'blocking',
+            })
+            const response = parseToolResponse(result)
+
+            expect(Array.isArray(response.results)).toBe(true)
+            expect(response.results.length).toBeGreaterThan(0)
+
+            const tile = response.results[0]
+            expect(tile.insight).toBeTruthy()
+            expect(tile.insight.id).toBeTruthy()
+            // The distinguishing property of this endpoint vs dashboard-get: result is present
+            expect(tile.insight).toHaveProperty('result')
+        })
+    })
+
     describe('dashboard-reorder-tiles tool', () => {
         const createDashboard = getToolByName('dashboard-create')
         const reorderTiles = getToolByName('dashboard-reorder-tiles')

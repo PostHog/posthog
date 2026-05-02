@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Any, Optional, cast
 
 import pytest
 from freezegun import freeze_time
@@ -33,8 +33,8 @@ from posthog.tasks.test.utils_email_tests import mock_email_messages
 
 
 @freeze_time("2024-06-02T08:55:00.000Z")
-@patch("posthog.tasks.alerts.checks.send_notifications_for_errors")
-@patch("posthog.tasks.alerts.checks.send_notifications_for_breaches")
+@patch("posthog.tasks.alerts.utils.send_notifications_for_errors", return_value=[])
+@patch("posthog.tasks.alerts.utils.send_notifications_for_breaches", return_value=[])
 class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
     def setUp(self) -> None:
         super().setUp()
@@ -266,7 +266,8 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
                     "created_at"
                 )
 
-                error_message = latest_alert_check.error["message"]
+                error = cast(dict[str, Any], latest_alert_check.error)
+                error_message = error["message"]
                 assert "Some error" in error_message
 
     def test_error_while_calculating_on_alert_in_firing_state(
@@ -296,7 +297,8 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
                 )
                 assert latest_alert_check.state == AlertState.ERRORED
 
-                error_message = latest_alert_check.error["message"]
+                error = cast(dict[str, Any], latest_alert_check.error)
+                error_message = error["message"]
                 assert "Some error" in error_message
 
     def test_error_while_calculating_on_alert_in_not_firing_state(
@@ -325,7 +327,8 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
                     "created_at"
                 )
 
-                error_message = latest_alert_check.error["message"]
+                error = cast(dict[str, Any], latest_alert_check.error)
+                error_message = error["message"]
                 assert "Some error" in error_message
 
     def test_alert_with_insight_with_filter(
@@ -350,7 +353,9 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
     ) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         alert = AlertConfiguration.objects.get(pk=self.alert["id"])
-        send_notifications_for_breaches(alert, ["first anomaly description", "second anomaly description"])
+        send_notifications_for_breaches(
+            alert, ["first anomaly description", "second anomaly description"], idempotency_key="test-send-emails"
+        )
 
         assert len(mocked_email_messages) == 1
         email = mocked_email_messages[0]
@@ -929,7 +934,7 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
             ("relative_on_non_time_series", {"condition": {"type": "relative_increase"}}, "not compatible"),
         ]
     )
-    @patch("posthog.tasks.alerts.checks.send_notifications_for_disabled")
+    @patch("posthog.tasks.alerts.utils.send_notifications_for_disabled")
     def test_invalid_config_auto_disables_alert(
         self,
         _name: str,
@@ -962,7 +967,7 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
         assert alert_check.targets_notified == {"users": ["user1@posthog.com"]}
         assert expected_error_fragment in alert_check.error["message"]
 
-    @patch("posthog.tasks.alerts.checks.send_notifications_for_disabled")
+    @patch("posthog.tasks.alerts.utils.send_notifications_for_disabled")
     def test_auto_disable_with_no_subscribers_sets_targets_notified_to_none(
         self,
         mock_send_disabled: MagicMock,
@@ -1050,7 +1055,7 @@ class TestAlertSubscriptionOrgMembership(APIBaseTest):
 
         OrganizationMembership.objects.filter(user=self.other_user, organization=self.organization).delete()
 
-        send_notifications_for_breaches(alert, ["test breach"])
+        send_notifications_for_breaches(alert, ["test breach"], idempotency_key="test-excludes-removed-members")
 
         assert len(mocked_email_messages) == 1
         email = mocked_email_messages[0]

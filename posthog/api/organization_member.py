@@ -4,7 +4,8 @@ from django.db.models import F, Model, Prefetch, QuerySet
 from django.shortcuts import get_object_or_404
 
 from django_otp.plugins.otp_totp.models import TOTPDevice
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import exceptions, mixins, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import SAFE_METHODS, BasePermission
@@ -19,8 +20,15 @@ from posthog.constants import INTERNAL_BOT_EMAIL_SUFFIX
 from posthog.event_usage import groups
 from posthog.models import OrganizationMembership
 from posthog.models.user import User
+from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.permissions import TimeSensitiveActionPermission, extract_organization
 from posthog.utils import posthoganalytics
+
+# Only index-backed orderings are allowed. `-joined_at` is served by the
+# `(organization, -joined_at)` composite index; other fields would force a
+# full scan + sort and can time out for large organizations.
+ALLOWED_ORDERINGS = frozenset({"joined_at", "-joined_at"})
+DEFAULT_ORDERING = "-joined_at"
 
 
 class OrganizationMemberObjectPermissions(BasePermission):
@@ -64,33 +72,47 @@ class OrganizationMemberSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "joined_at", "updated_at"]
 
     def get_is_2fa_enabled(self, instance: OrganizationMembership) -> bool:
-        # If we add other forms of 2FA we need to use default_device here instead
-        # But not using that here as it increased the number of queries we did by a lot
-        return len(instance.user.totpdevice_set.all()) > 0
+        # Uses prefetched relations to avoid N+1 queries
+        user = instance.user
+        has_totp = len(user.totpdevice_set.all()) > 0  # type: ignore[attr-defined]
+        has_passkeys_for_2fa = bool(user.passkeys_enabled_for_2fa) and len(user.webauthn_credentials.all()) > 0
+        return has_totp or has_passkeys_for_2fa
 
     def get_has_social_auth(self, instance: OrganizationMembership) -> bool:
         return len(instance.user.social_auth.all()) > 0
 
-    def update(self, updated_membership, validated_data, **kwargs):
-        updated_membership = cast(OrganizationMembership, updated_membership)
+    def update(self, instance: OrganizationMembership, validated_data: dict[str, object]) -> OrganizationMembership:
+        updated_membership = instance
         raise_errors_on_nested_writes("update", self, validated_data)
         requesting_membership: OrganizationMembership = OrganizationMembership.objects.get(
             organization=updated_membership.organization,
             user=self.context["request"].user,
         )
-        level_changed = False
         for attr, value in validated_data.items():
             if attr == "level":
-                requesting_membership.validate_update(updated_membership, value)
-                level_changed = True
+                requesting_membership.validate_update(
+                    updated_membership, cast(OrganizationMembership.Level | None, value)
+                )
             setattr(updated_membership, attr, value)
         updated_membership.save()
-        if level_changed:
-            self.context["request"].user.update_billing_organization_users(updated_membership.organization)
         return updated_membership
 
 
 @extend_schema(tags=["core", "platform_features"])
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="order",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                enum=sorted(ALLOWED_ORDERINGS),
+                description=f"Sort order. Defaults to `{DEFAULT_ORDERING}`.",
+            ),
+        ],
+    ),
+)
 class OrganizationMemberViewSet(
     TeamAndOrgViewSetMixin,
     mixins.DestroyModelMixin,
@@ -102,8 +124,7 @@ class OrganizationMemberViewSet(
     serializer_class = OrganizationMemberSerializer
     permission_classes = [OrganizationMemberObjectPermissions, TimeSensitiveActionPermission]
     queryset = (
-        OrganizationMembership.objects.order_by("user__first_name", "-joined_at")
-        .exclude(user__email__endswith=INTERNAL_BOT_EMAIL_SUFFIX)
+        OrganizationMembership.objects.exclude(user__email__endswith=INTERNAL_BOT_EMAIL_SUFFIX)
         .filter(
             user__is_active=True,
         )
@@ -111,9 +132,13 @@ class OrganizationMemberViewSet(
         .prefetch_related(
             Prefetch(
                 "user__totpdevice_set",
-                queryset=TOTPDevice.objects.filter(name="default"),
+                queryset=TOTPDevice.objects.filter(confirmed=True),
             ),
             Prefetch("user__social_auth", queryset=UserSocialAuth.objects.all()),
+            Prefetch(
+                "user__webauthn_credentials",
+                queryset=WebauthnCredential.objects.filter(verified=True),
+            ),
         )
         .annotate(last_login=F("user__last_login"))
     )
@@ -136,11 +161,11 @@ class OrganizationMemberViewSet(
             if "updated_after" in params:
                 queryset = queryset.filter(updated_at__gt=params["updated_after"])
 
-            order = self.request.GET.get("order", None)
-            if order:
+            order = self.request.GET.get("order")
+            if order in ALLOWED_ORDERINGS:
                 queryset = queryset.order_by(order)
             else:
-                queryset = queryset.order_by("-joined_at")
+                queryset = queryset.order_by(DEFAULT_ORDERING)
 
         return queryset
 

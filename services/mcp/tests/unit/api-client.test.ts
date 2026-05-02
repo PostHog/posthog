@@ -71,10 +71,59 @@ describe('ApiClient', () => {
         expect(options.headers).toEqual({
             Authorization: 'Bearer test-token-123',
             'Content-Type': 'application/json',
-            'User-Agent': getUserAgent('posthog/wizard 1.0.0'),
+            'User-Agent': getUserAgent({ clientUserAgent: 'posthog/wizard 1.0.0' }),
             'X-PostHog-Client': 'mcp',
             'x-posthog-mcp-user-agent': 'posthog/wizard 1.0.0',
         })
+
+        vi.unstubAllGlobals()
+    })
+
+    it('forwards mcpConsumer as x-posthog-mcp-consumer without altering User-Agent', async () => {
+        const mockFetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({}), { status: 200 }))
+        vi.stubGlobal('fetch', mockFetch)
+
+        const client = new ApiClient({
+            apiToken: 'test-token-123',
+            baseUrl: 'https://example.com',
+            mcpConsumer: 'plugin',
+            mcpClientName: 'claude-code',
+        })
+
+        await (client as any).fetch('https://example.com/api/test', {
+            method: 'POST',
+            body: JSON.stringify({ key: 'value' }),
+        })
+
+        expect(mockFetch).toHaveBeenCalledOnce()
+        const [, options] = mockFetch.mock.calls[0]!
+        expect(options.headers).toEqual({
+            Authorization: 'Bearer test-token-123',
+            'Content-Type': 'application/json',
+            'User-Agent': USER_AGENT,
+            'X-PostHog-Client': 'mcp',
+            'x-posthog-mcp-client-name': 'claude-code',
+            'x-posthog-mcp-consumer': 'plugin',
+        })
+
+        vi.unstubAllGlobals()
+    })
+
+    it('forwards mcpConsumer alone when mcpClientName is missing', async () => {
+        const mockFetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({}), { status: 200 }))
+        vi.stubGlobal('fetch', mockFetch)
+
+        const client = new ApiClient({
+            apiToken: 'test-token-123',
+            baseUrl: 'https://example.com',
+            mcpConsumer: 'slack',
+        })
+
+        await (client as any).fetch('https://example.com/api/test', { method: 'GET' })
+
+        const [, options] = mockFetch.mock.calls[0]!
+        expect(options.headers['User-Agent']).toBe(USER_AGENT)
+        expect(options.headers['x-posthog-mcp-consumer']).toBe('slack')
 
         vi.unstubAllGlobals()
     })

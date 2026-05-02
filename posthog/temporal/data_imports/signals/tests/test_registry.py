@@ -147,6 +147,7 @@ class TestAutoRegistered:
             ("Zendesk", "tickets"),
             ("Github", "issues"),
             ("Linear", "issues"),
+            ("conversations", "tickets"),
         ],
     )
     def test_registered_on_module_load(self, source_type, schema_name):

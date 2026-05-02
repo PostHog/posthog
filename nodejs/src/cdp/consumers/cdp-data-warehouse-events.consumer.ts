@@ -16,19 +16,19 @@ import { counterParseError } from './metrics'
  * Make it clear that Workflows are not supported / add support (the filter hog function logic is the key part)
  */
 export class CdpDatawarehouseEventsConsumer extends CdpEventsConsumer {
-    protected name = 'CdpDatawarehouseEventsConsumer'
-    protected hogTypes: HogFunctionTypeType[] = ['destination']
+    protected override name = 'CdpDatawarehouseEventsConsumer'
+    protected override hogTypes: HogFunctionTypeType[] = ['destination']
 
     constructor(config: PluginsServerConfig, deps: CdpConsumerBaseDeps) {
         super(config, deps, 'cdp_data_warehouse_source_table', 'cdp-data-warehouse-events-consumer')
     }
 
-    protected filterHogFunction(hogFunction: HogFunctionType): boolean {
+    protected override filterHogFunction(hogFunction: HogFunctionType): boolean {
         return (hogFunction.filters?.source ?? 'events') === 'data-warehouse-table'
     }
 
     @instrumented('cdpConsumer.handleEachBatch.parseKafkaMessages')
-    public async _parseKafkaBatch(messages: Message[]): Promise<HogFunctionInvocationGlobals[]> {
+    public override async _parseKafkaBatch(messages: Message[]): Promise<HogFunctionInvocationGlobals[]> {
         return await this.runWithHeartbeat(async () => {
             const events: HogFunctionInvocationGlobals[] = []
 

@@ -47,11 +47,11 @@ def fetch_responses(
         SELECT getSurveyResponse({question_index}, {question_id})
         FROM events
         WHERE event == 'survey sent'
-            AND properties.$survey_id = {survey_id}
-            AND uniqueSurveySubmissionsFilter({survey_id})
-            AND trim(getSurveyResponse({question_index}, {question_id})) != ''
             AND timestamp >= {start_date}
             AND timestamp <= {end_date}
+            AND properties.`$survey_id` = {survey_id}
+            AND uniqueSurveySubmissionsFilter({survey_id}, {start_date}, {end_date})
+            AND trim(getSurveyResponse({question_index}, {question_id})) != ''
     """
 
     # Add archived response filter if there are UUIDs to exclude

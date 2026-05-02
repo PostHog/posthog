@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconChevronDown, IconRefresh, IconX } from '@posthog/icons'
+import { IconChevronDown, IconClock, IconRefresh, IconX } from '@posthog/icons'
 import {
     LemonBadge,
     LemonButton,
@@ -121,9 +121,18 @@ export const SUPPORT_TICKETS_TABLE_COLUMNS: LemonTableColumns<Ticket> = [
         title: 'Status',
         key: 'status',
         render: (_, ticket) => (
-            <LemonTag type={ticket.status === 'resolved' ? 'success' : ticket.status === 'new' ? 'primary' : 'default'}>
-                {ticket.status === 'on_hold' ? 'On hold' : ticket.status}
-            </LemonTag>
+            <span className="flex items-center gap-1">
+                <LemonTag
+                    type={ticket.status === 'resolved' ? 'success' : ticket.status === 'new' ? 'primary' : 'default'}
+                >
+                    {ticket.status === 'on_hold' ? 'On hold' : ticket.status}
+                </LemonTag>
+                {ticket.snoozed_until && (
+                    <span title={`Snoozed until ${new Date(ticket.snoozed_until).toLocaleString()}`}>
+                        <IconClock className="text-muted-alt text-base" />
+                    </span>
+                )}
+            </span>
         ),
     },
     {

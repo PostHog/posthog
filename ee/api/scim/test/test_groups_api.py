@@ -660,6 +660,71 @@ class TestSCIMGroupsAPI(APILicensedTest):
         assert RoleMembership.objects.filter(role=role, user=user).exists()
         assert RoleMembership.objects.filter(role=role).count() == 1
 
+    def test_put_preserves_member_when_value_is_integer(self):
+        # Some IdPs send `members[].value` as a JSON number rather than a string. The
+        # set-diff in `_update_members` previously compared int IDs against the
+        # always-string `current_user_ids`, so the membership the IdP asked to keep
+        # ended up in `to_remove` and was silently deleted.
+        user = User.objects.create_user(
+            email="intvalue@example.com", password=None, first_name="Int", is_email_verified=True
+        )
+        OrganizationMembership.objects.create(
+            user=user, organization=self.organization, level=OrganizationMembership.Level.MEMBER
+        )
+        role = Role.objects.create(name="IntValueRole", organization=self.organization)
+        membership = RoleMembership.objects.create(role=role, user=user)
+
+        put_data = {
+            "schemas": ["urn:ietf:params:scim:schemas:core:2.0:Group"],
+            "displayName": "IntValueRole",
+            "members": [{"value": user.id}],  # int, not str
+        }
+
+        response = self.client.put(
+            f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=put_data, content_type="application/scim+json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert RoleMembership.objects.filter(pk=membership.pk).exists(), (
+            "RoleMembership for the user the IdP asked to keep was incorrectly deleted"
+        )
+
+    def test_put_with_mixed_int_and_string_member_values(self):
+        # Mixed payload: keep one user (int value), keep another (str value), remove a third.
+        # Verifies the int-value path doesn't bleed into a spurious removal of a string-value member.
+        user_int = User.objects.create_user(
+            email="mixedint@example.com", password=None, first_name="MixedInt", is_email_verified=True
+        )
+        user_str = User.objects.create_user(
+            email="mixedstr@example.com", password=None, first_name="MixedStr", is_email_verified=True
+        )
+        user_removed = User.objects.create_user(
+            email="mixedrm@example.com", password=None, first_name="MixedRm", is_email_verified=True
+        )
+        for u in (user_int, user_str, user_removed):
+            OrganizationMembership.objects.create(
+                user=u, organization=self.organization, level=OrganizationMembership.Level.MEMBER
+            )
+        role = Role.objects.create(name="MixedRole", organization=self.organization)
+        for u in (user_int, user_str, user_removed):
+            RoleMembership.objects.create(role=role, user=u)
+
+        put_data = {
+            "schemas": ["urn:ietf:params:scim:schemas:core:2.0:Group"],
+            "displayName": "MixedRole",
+            "members": [{"value": user_int.id}, {"value": str(user_str.id)}],
+        }
+
+        response = self.client.put(
+            f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=put_data, content_type="application/scim+json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert RoleMembership.objects.filter(role=role, user=user_int).exists()
+        assert RoleMembership.objects.filter(role=role, user=user_str).exists()
+        assert not RoleMembership.objects.filter(role=role, user=user_removed).exists()
+        assert RoleMembership.objects.filter(role=role).count() == 2
+
     # ── Pagination tests ──
 
     def _create_groups(self, count: int) -> list[Role]:

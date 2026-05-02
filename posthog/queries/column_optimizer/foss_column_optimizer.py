@@ -16,7 +16,7 @@ from posthog.models.filters.properties_timeline_filter import PropertiesTimeline
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import GroupTypeIndex
-from posthog.models.property import PropertyIdentifier, PropertyType, TableWithProperties
+from posthog.models.property import PropertyIdentifier, PropertyType, TableColumn, TableWithProperties
 from posthog.models.property.util import box_value, extract_tables_and_properties
 from posthog.queries.property_optimizer import PropertyOptimizer
 
@@ -65,7 +65,7 @@ class FOSSColumnOptimizer:
         self,
         table: TableWithProperties,
         used_properties: set[PropertyIdentifier],
-        table_column: str = "properties",
+        table_column: TableColumn = "properties",
     ) -> set[ColumnName]:
         "Transforms a list of property names to what columns are needed for that query"
         column_names = set()

@@ -34,7 +34,7 @@ SLEEP_TIME_SECONDS = 20 if not TEST else 1
 
 
 def send_analytics_to_posthog(event, data):
-    posthoganalytics.project_api_key = "sTMFPsFhdP1Ssg"
+    posthoganalytics.project_api_key = "sTMFPsFhdP1Ssg"  # ty: ignore[invalid-assignment]
     user = User.objects.filter(is_active=True).first()
     groups = {"instance": settings.SITE_URL}
     if user and user.current_organization:

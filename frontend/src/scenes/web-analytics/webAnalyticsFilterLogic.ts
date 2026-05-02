@@ -215,6 +215,11 @@ export const webAnalyticsFilterLogic = kea<webAnalyticsFilterLogicType>([
                 return null
             },
         ],
+        selectedHost: [
+            (s) => [s.validatedDomainFilter],
+            (domainFilter: string | null): string | null =>
+                domainFilter && domainFilter !== 'all' ? domainFilter.replace(/^https?:\/\//, '') : null,
+        ],
         // Returns the domain to use for URL construction: selected domain, or single authorized domain if only one exists
         effectiveDomain: [
             (s) => [s.domainFilter, s.authorizedDomains],

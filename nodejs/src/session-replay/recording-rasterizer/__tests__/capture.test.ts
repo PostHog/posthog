@@ -19,7 +19,6 @@ jest.mock(
         }
         return {
             __mockRecorder: recorder,
-            PuppeteerCaptureFormat: { MP4: jest.fn().mockReturnValue('mp4-format') },
             capture: jest.fn().mockResolvedValue(recorder),
         }
     },
@@ -45,6 +44,7 @@ function baseCaptureConfig(overrides: Partial<CaptureConfig> = {}): CaptureConfi
         playbackSpeed: 8,
         trimFrameLimit: Infinity,
         maxVirtualTimeMs: Infinity,
+        outputFormat: 'mp4',
         ffmpegOutputOpts: [],
         ffmpegVideoFilters: [],
         screenshotFormat: 'jpeg',

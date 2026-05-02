@@ -23,8 +23,7 @@
         animation: LemonTableLoader__swooping 1.5s linear infinite;
     }
 
-    &.LemonTableLoader--enter-active,
-    &.LemonTableLoader--enter-done {
+    &.LemonTableLoader--active {
         height: 0.125rem;
     }
 }

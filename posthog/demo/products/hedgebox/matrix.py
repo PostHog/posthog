@@ -65,6 +65,7 @@ from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueFingerprintV2,
     ErrorTrackingStackFrame,
+    sync_issues_to_clickhouse,
 )
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.event_definitions.backend.models.property_definition import PropertyType
@@ -1321,6 +1322,7 @@ class HedgeboxMatrix(Matrix):
         # --- Additional experiments for coverage of various states ---
 
         # Pricing page redesign (inconclusive) — uses high-volume pageview→signup funnel
+        pricing_metric_uuids = [str(uuid.uuid4()) for _ in range(2)]
         Experiment.objects.create(
             team=team,
             name="Pricing page redesign",
@@ -1331,7 +1333,7 @@ class HedgeboxMatrix(Matrix):
                 {
                     "kind": "ExperimentMetric",
                     "metric_type": "funnel",
-                    "uuid": str(uuid.uuid4()),
+                    "uuid": pricing_metric_uuids[0],
                     "name": "Pricing page to signup",
                     "series": [
                         {"kind": "EventsNode", "event": "$pageview"},
@@ -1344,13 +1346,14 @@ class HedgeboxMatrix(Matrix):
                 {
                     "kind": "ExperimentMetric",
                     "metric_type": "mean",
-                    "uuid": str(uuid.uuid4()),
+                    "uuid": pricing_metric_uuids[1],
                     "name": "Pageviews per user",
                     "source": {"kind": "EventsNode", "event": "$pageview"},
                     "goal": "increase",
                 },
             ],
             metrics_secondary=[],
+            primary_metrics_ordered_uuids=pricing_metric_uuids,
             parameters={
                 "feature_flag_variants": [
                     {"key": "control", "rollout_percentage": 50},
@@ -1367,6 +1370,7 @@ class HedgeboxMatrix(Matrix):
         )
 
         # File sharing incentive (lost) — uses upload→download funnel and upload mean
+        sharing_metric_uuids = [str(uuid.uuid4()) for _ in range(2)]
         Experiment.objects.create(
             team=team,
             name="File sharing incentive",
@@ -1377,7 +1381,7 @@ class HedgeboxMatrix(Matrix):
                 {
                     "kind": "ExperimentMetric",
                     "metric_type": "mean",
-                    "uuid": str(uuid.uuid4()),
+                    "uuid": sharing_metric_uuids[0],
                     "name": "Uploads per user",
                     "source": {"kind": "EventsNode", "event": EVENT_UPLOADED_FILE},
                     "goal": "increase",
@@ -1385,7 +1389,7 @@ class HedgeboxMatrix(Matrix):
                 {
                     "kind": "ExperimentMetric",
                     "metric_type": "funnel",
-                    "uuid": str(uuid.uuid4()),
+                    "uuid": sharing_metric_uuids[1],
                     "name": "Upload to download",
                     "series": [
                         {"kind": "EventsNode", "event": EVENT_UPLOADED_FILE},
@@ -1397,6 +1401,7 @@ class HedgeboxMatrix(Matrix):
                 },
             ],
             metrics_secondary=[],
+            primary_metrics_ordered_uuids=sharing_metric_uuids,
             parameters={
                 "feature_flag_variants": [
                     {"key": "control", "rollout_percentage": 50},
@@ -1413,6 +1418,7 @@ class HedgeboxMatrix(Matrix):
         )
 
         # Upgrade prompt experiment (running, recently started) — uses high-volume events
+        upgrade_metric_uuids = [str(uuid.uuid4()) for _ in range(2)]
         Experiment.objects.create(
             team=team,
             name="Upgrade prompt experiment",
@@ -1423,7 +1429,7 @@ class HedgeboxMatrix(Matrix):
                 {
                     "kind": "ExperimentMetric",
                     "metric_type": "funnel",
-                    "uuid": str(uuid.uuid4()),
+                    "uuid": upgrade_metric_uuids[0],
                     "name": "Login to upload",
                     "series": [
                         {"kind": "EventsNode", "event": EVENT_LOGGED_IN},
@@ -1436,13 +1442,14 @@ class HedgeboxMatrix(Matrix):
                 {
                     "kind": "ExperimentMetric",
                     "metric_type": "mean",
-                    "uuid": str(uuid.uuid4()),
+                    "uuid": upgrade_metric_uuids[1],
                     "name": "Downloads per user",
                     "source": {"kind": "EventsNode", "event": EVENT_DOWNLOADED_FILE},
                     "goal": "increase",
                 },
             ],
             metrics_secondary=[],
+            primary_metrics_ordered_uuids=upgrade_metric_uuids,
             parameters={
                 "feature_flag_variants": [
                     {"key": "control", "rollout_percentage": 34},
@@ -1458,6 +1465,7 @@ class HedgeboxMatrix(Matrix):
         )
 
         # Retention nudge (draft - not yet started)
+        retention_metric_uuids = [str(uuid.uuid4()) for _ in range(2)]
         Experiment.objects.create(
             team=team,
             name="Retention nudge",
@@ -1468,7 +1476,7 @@ class HedgeboxMatrix(Matrix):
                 {
                     "kind": "ExperimentMetric",
                     "metric_type": "retention",
-                    "uuid": str(uuid.uuid4()),
+                    "uuid": retention_metric_uuids[0],
                     "name": "7-day login retention",
                     "goal": "increase",
                     "start_event": {"kind": "EventsNode", "event": EVENT_LOGGED_IN},
@@ -1481,13 +1489,14 @@ class HedgeboxMatrix(Matrix):
                 {
                     "kind": "ExperimentMetric",
                     "metric_type": "mean",
-                    "uuid": str(uuid.uuid4()),
+                    "uuid": retention_metric_uuids[1],
                     "name": "Downloads per user",
                     "source": {"kind": "EventsNode", "event": EVENT_DOWNLOADED_FILE},
                     "goal": "increase",
                 },
             ],
             metrics_secondary=[],
+            primary_metrics_ordered_uuids=retention_metric_uuids,
             parameters={
                 "feature_flag_variants": [
                     {"key": "control", "rollout_percentage": 50},
@@ -1502,6 +1511,7 @@ class HedgeboxMatrix(Matrix):
         )
 
         # Team collaboration boost (stopped early) — uses high-volume events
+        team_collab_metric_uuids = [str(uuid.uuid4()) for _ in range(2)]
         Experiment.objects.create(
             team=team,
             name="Team collaboration boost",
@@ -1512,7 +1522,7 @@ class HedgeboxMatrix(Matrix):
                 {
                     "kind": "ExperimentMetric",
                     "metric_type": "mean",
-                    "uuid": str(uuid.uuid4()),
+                    "uuid": team_collab_metric_uuids[0],
                     "name": "Files uploaded per user",
                     "source": {"kind": "EventsNode", "event": EVENT_UPLOADED_FILE},
                     "goal": "increase",
@@ -1520,7 +1530,7 @@ class HedgeboxMatrix(Matrix):
                 {
                     "kind": "ExperimentMetric",
                     "metric_type": "funnel",
-                    "uuid": str(uuid.uuid4()),
+                    "uuid": team_collab_metric_uuids[1],
                     "name": "Signup to upload",
                     "series": [
                         {"kind": "EventsNode", "event": EVENT_SIGNED_UP},
@@ -1532,6 +1542,7 @@ class HedgeboxMatrix(Matrix):
                 },
             ],
             metrics_secondary=[],
+            primary_metrics_ordered_uuids=team_collab_metric_uuids,
             parameters={
                 "feature_flag_variants": [
                     {"key": "control", "rollout_percentage": 50},
@@ -1891,6 +1902,7 @@ class HedgeboxMatrix(Matrix):
         selected_people = sorted(people, key=lambda person: person.in_product_id)[:6]
         self._upsert_error_tracking_stack_frames(team, issue_specs)
 
+        created_issue_ids: list = []
         for issue_spec in issue_specs:
             if ErrorTrackingIssueFingerprintV2.objects.filter(
                 team=team, fingerprint=issue_spec["fingerprint"]
@@ -1907,6 +1919,7 @@ class HedgeboxMatrix(Matrix):
                 issue=issue,
                 fingerprint=issue_spec["fingerprint"],
             )
+            created_issue_ids.append(issue.id)
 
             for index, days_ago in enumerate(issue_spec["days_ago"]):
                 person = selected_people[index % len(selected_people)]
@@ -1969,6 +1982,9 @@ class HedgeboxMatrix(Matrix):
                     person_properties=person.properties_at_now,
                     person_created_at=person.first_seen_at or timestamp,
                 )
+
+        if created_issue_ids:
+            sync_issues_to_clickhouse(issue_ids=created_issue_ids, team_id=team.pk)
 
     def _upsert_error_tracking_stack_frames(self, team: "Team", issue_specs: list[ErrorTrackingDemoIssueSpec]) -> None:
         for issue_spec in issue_specs:

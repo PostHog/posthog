@@ -1,3 +1,4 @@
+import copy
 import uuid
 from datetime import datetime, timedelta
 from enum import StrEnum
@@ -47,6 +48,7 @@ from posthog.models.cohort.sql import (
 )
 from posthog.models.person.sql import (
     DELETE_PERSON_FROM_STATIC_COHORT,
+    INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID,
     INSERT_PERSON_STATIC_COHORT,
     PERSON_STATIC_COHORT_TABLE,
 )
@@ -294,15 +296,42 @@ def format_person_query(cohort: Cohort, index: int, hogql_context: HogQLContext)
     return query, params
 
 
+def _sanitize_query_for_cohort(query_dict: dict) -> dict:
+    """Strip fields unnecessary for cohort population.
+
+    Cohort population only needs person IDs, so we remove recordings data
+    (which can use complex UDFs like aggregate_funnel_array that may not
+    be available or are needlessly expensive) and search terms (the cohort
+    should include all matching persons, not just those matching a search).
+    """
+    query_dict = copy.deepcopy(query_dict)
+
+    if query_dict.get("kind") == "ActorsQuery":
+        select = query_dict.get("select", [])
+        query_dict["select"] = [s for s in select if s != "matched_recordings"]
+        if not query_dict["select"]:
+            query_dict["select"] = ["actor"]
+
+        # Intentionally strip search: the cohort should capture all persons matching
+        # the query, not just those matching an ad-hoc search in the persons modal.
+        query_dict.pop("search", None)
+
+        source = query_dict.get("source", {})
+        if isinstance(source, dict) and source.get("includeRecordings"):
+            source["includeRecordings"] = False
+
+    return query_dict
+
+
 def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, team: Team) -> str:
     from posthog.hogql_queries.query_runner import get_query_runner
 
     if not cohort.query:
         raise ValueError("Cohort has no query")
 
-    query = get_query_runner(
-        cast(dict, cohort.query), team=team, limit_context=LimitContext.COHORT_CALCULATION
-    ).to_query()
+    query_dict = _sanitize_query_for_cohort(cast(dict, cohort.query))
+
+    query = get_query_runner(query_dict, team=team, limit_context=LimitContext.COHORT_CALCULATION).to_query()
 
     uses_distinct_id = False
     uses_actor_id = False
@@ -607,7 +636,9 @@ def remove_person_from_static_cohort(person_uuid: uuid.UUID, cohort_id: int, *, 
 
 
 def get_static_cohort_size(*, cohort_id: int, team_id: int, using_database: str | None = None) -> int:
-    qs = CohortPeople.objects.filter(cohort_id=cohort_id, person__team_id=team_id)
+    qs = CohortPeople.objects.filter(  # nosemgrep: no-direct-persons-db-orm
+        cohort_id=cohort_id, person__team_id=team_id
+    )  # nosemgrep: no-direct-persons-db-orm
     if using_database:
         qs = qs.using(using_database)
     return qs.count()
@@ -993,3 +1024,92 @@ def sort_cohorts_topologically(cohort_ids: set[int], seen_cohorts_cache: dict[in
             dfs(cohort_id, seen, sorted_cohort_ids)
 
     return sorted_cohort_ids
+
+
+def cohort_filters_have_values(filters_dict: dict | None) -> bool:
+    """Check whether a cohort filters dict contains at least one filter criterion."""
+    properties = filters_dict.get("properties") if isinstance(filters_dict, dict) else None
+    values = properties.get("values") if isinstance(properties, dict) else None
+    return isinstance(values, list) and len(values) > 0
+
+
+def insert_actors_into_cohort_by_query(
+    cohort: "Cohort",
+    query: str,
+    params: dict[str, Any],
+    context: HogQLContext,
+    *,
+    team_id: int,
+):
+    tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
+    sync_execute(
+        INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID.format(cohort_table=PERSON_STATIC_COHORT_TABLE, query=query),
+        {
+            "cohort_id": cohort.pk,
+            "_timestamp": datetime.now(),
+            "team_id": team_id,
+            **context.values,
+            **params,
+        },
+    )
+
+
+def insert_cohort_query_actors_into_ch(cohort: "Cohort", *, team: "Team"):
+    context = HogQLContext(enable_select_queries=True, team_id=team.id)
+    query = print_cohort_hogql_query(cohort, context, team=team)
+    insert_actors_into_cohort_by_query(cohort, query, {}, context, team_id=team.id)
+
+
+def build_static_cohort_filters_query(cohort: "Cohort", *, team: "Team") -> tuple[str, dict[str, Any], HogQLContext]:
+    from posthog.queries.cohort_query import CohortQuery
+
+    context = HogQLContext(enable_select_queries=True, team_id=team.id)
+    query_builder = CohortQuery(
+        Filter(
+            data={"properties": cohort.properties},
+            team=team,
+            hogql_context=context,
+        ),
+        team,
+        cohort_pk=cohort.pk,
+        persons_on_events_mode=team.person_on_events_mode,
+    )
+    base_query, params = query_builder.get_query()
+    return f"SELECT id AS actor_id FROM ({base_query})", params, context
+
+
+def insert_cohort_filter_actors_into_ch(cohort: "Cohort", *, team: "Team"):
+    query, params, context = build_static_cohort_filters_query(cohort, team=team)
+    insert_actors_into_cohort_by_query(cohort, query, params, context, team_id=team.id)
+
+
+def insert_cohort_people_into_pg(cohort: "Cohort", *, team_id: int):
+    from posthog.helpers.batch_iterators import CursorBatchIterator
+
+    tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
+
+    CH_PAGE_SIZE = 10_000
+
+    # Use cursor-based pagination to stream from ClickHouse in pages instead of
+    # loading all rows into memory at once. Cursor-based avoids the O(n²) cost
+    # of LIMIT/OFFSET where later pages must scan and discard all preceding rows.
+    def fetch_batch(cursor: str, batch_size: int) -> tuple[list[str], str]:
+        # nosemgrep: clickhouse-fstring-param-audit - table name from constant, values parameterized
+        rows = sync_execute(
+            f"SELECT person_id FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND person_id > %(cursor)s ORDER BY person_id LIMIT %(limit)s",
+            {
+                "cohort_id": cohort.pk,
+                "team_id": team_id,
+                "cursor": cursor,
+                "limit": batch_size,
+            },
+        )
+        if not rows:
+            return [], cursor
+        items = [str(r[0]) for r in rows]
+        return items, items[-1]
+
+    batch_iterator = CursorBatchIterator(
+        fetch_batch, CH_PAGE_SIZE, initial_cursor="00000000-0000-0000-0000-000000000000"
+    )
+    cohort._insert_users_list_with_batching(batch_iterator, insert_in_clickhouse=False, team_id=team_id)

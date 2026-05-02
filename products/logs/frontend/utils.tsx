@@ -102,19 +102,32 @@ export function isSessionIdKey(key: string): boolean {
     return matchesKey(key, SESSION_ID_KEYS)
 }
 
-export function getSessionIdFromLogAttributes(
+export interface SessionIdMatch {
+    key: string
+    value: string
+    source: 'attribute' | 'resource_attribute'
+}
+
+export function getSessionIdWithKey(
     attributes: Record<string, unknown> | undefined,
     resourceAttributes: Record<string, unknown> | undefined
-): string | null {
+): SessionIdMatch | null {
     for (const [key, value] of Object.entries(attributes || {})) {
         if (isSessionIdKey(key) && value) {
-            return String(value)
+            return { key, value: String(value), source: 'attribute' }
         }
     }
     for (const [key, value] of Object.entries(resourceAttributes || {})) {
         if (isSessionIdKey(key) && value) {
-            return String(value)
+            return { key, value: String(value), source: 'resource_attribute' }
         }
     }
     return null
+}
+
+export function getSessionIdFromLogAttributes(
+    attributes: Record<string, unknown> | undefined,
+    resourceAttributes: Record<string, unknown> | undefined
+): string | null {
+    return getSessionIdWithKey(attributes, resourceAttributes)?.value ?? null
 }

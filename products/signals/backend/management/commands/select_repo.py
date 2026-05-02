@@ -19,7 +19,7 @@ from products.signals.backend.report_generation.select_repo import (
     select_repository_for_report,
 )
 from products.signals.backend.temporal.types import SignalData
-from products.tasks.backend.services.custom_prompt_runner import resolve_sandbox_context_for_local_dev
+from products.tasks.backend.services.dev_sandbox_context import resolve_sandbox_context_for_local_dev
 
 # Synthetic signals that span multiple product areas so the agent has to reason about repo relevance.
 TEST_SIGNALS = [

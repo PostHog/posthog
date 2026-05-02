@@ -4,7 +4,7 @@ use axum::{
     body::Body, extract::MatchedPath, http::Request, middleware::Next, response::IntoResponse,
     routing::get, Router,
 };
-use metrics_exporter_prometheus::{PrometheusBuilder, PrometheusHandle};
+use metrics_exporter_prometheus::PrometheusBuilder;
 use std::sync::OnceLock;
 
 type LabelFilterFn =
@@ -33,8 +33,27 @@ pub async fn serve(router: Router, bind: &str) -> Result<(), std::io::Error> {
 }
 
 /// Add the prometheus endpoint and middleware to a router, should be called last.
+/// Use [`setup_metrics_routes_for_product`] when you want a `product` global
+/// label for cost attribution.
 pub fn setup_metrics_routes(router: Router) -> Router {
-    let recorder_handle = setup_metrics_recorder();
+    install_metrics_routes(router, None)
+}
+
+/// Like [`setup_metrics_routes`], but emits a static `product="<value>"` global
+/// label on every metric for per-product cost attribution (see
+/// <https://posthog.com/handbook/product/per-product-cost-margin-analysis>),
+/// so metrics can be grouped across services without depending on metric-name
+/// prefixes or K8s topology labels. Use a snake_case product slug matching
+/// the Python `posthog.clickhouse.query_tagging.Product` enum values — e.g.
+/// `feature_flags`, `experiments`, `product_analytics`.
+pub fn setup_metrics_routes_for_product(router: Router, product: impl Into<String>) -> Router {
+    install_metrics_routes(router, Some(product.into()))
+}
+
+fn install_metrics_routes(router: Router, product: Option<String>) -> Router {
+    let recorder_handle = build_prometheus_builder(product)
+        .install_recorder()
+        .unwrap();
 
     router
         .route(
@@ -44,16 +63,16 @@ pub fn setup_metrics_routes(router: Router) -> Router {
         .layer(axum::middleware::from_fn(track_metrics))
 }
 
-pub fn setup_metrics_recorder() -> PrometheusHandle {
+fn build_prometheus_builder(product: Option<String>) -> PrometheusBuilder {
     const BUCKETS: &[f64] = &[
         1.0, 5.0, 10.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2000.0, 5000.0, 10000.0,
     ];
 
-    PrometheusBuilder::new()
-        .set_buckets(BUCKETS)
-        .unwrap()
-        .install_recorder()
-        .unwrap()
+    let mut builder = PrometheusBuilder::new().set_buckets(BUCKETS).unwrap();
+    if let Some(product) = product {
+        builder = builder.add_global_label("product", product);
+    }
+    builder
 }
 
 /// Normalize an unmatched path to its first segment to avoid high-cardinality
@@ -214,7 +233,37 @@ impl<'a> TimingGuardLabels<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::normalize_unmatched_path;
+    use super::{build_prometheus_builder, normalize_unmatched_path};
+
+    #[test]
+    fn test_product_global_label_emission() {
+        let cases: &[(&'static str, Option<&'static str>)] = &[
+            ("test_counter_with_product", Some("feature_flags")),
+            ("test_counter_without_product", None),
+        ];
+        for &(counter_name, product) in cases {
+            let recorder = build_prometheus_builder(product.map(str::to_string)).build_recorder();
+            let handle = recorder.handle();
+            metrics::with_local_recorder(&recorder, || {
+                metrics::counter!(counter_name).increment(1);
+            });
+            let rendered = handle.render();
+            assert!(
+                rendered.contains(counter_name),
+                "missing counter {counter_name}:\n{rendered}"
+            );
+            match product {
+                Some(p) => assert!(
+                    rendered.contains(&format!("product=\"{p}\"")),
+                    "missing product label {p}:\n{rendered}"
+                ),
+                None => assert!(
+                    !rendered.contains("product=\""),
+                    "unexpected product label:\n{rendered}"
+                ),
+            }
+        }
+    }
 
     #[test]
     fn test_normalize_unmatched_path() {

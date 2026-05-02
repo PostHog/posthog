@@ -66,8 +66,10 @@ class Command(BaseCommand):
         seed = options.get("seed") or secrets.token_hex(16)
         now = options.get("now") or dt.datetime.now(dt.UTC)
 
-        admin = KafkaAdminClient(bootstrap_servers=settings.KAFKA_HOSTS)
-        consumer = KafkaConsumer(KAFKA_EVENTS_PLUGIN_INGESTION, bootstrap_servers=settings.KAFKA_HOSTS)
+        admin = KafkaAdminClient(bootstrap_servers=settings.KAFKA_PROFILES["default"].hosts)
+        consumer = KafkaConsumer(
+            KAFKA_EVENTS_PLUGIN_INGESTION, bootstrap_servers=settings.KAFKA_PROFILES["default"].hosts
+        )
         team = Team.objects.filter(id=int(options["team_id"])).first()
         if not team:
             logger.critical("Cannot find team with id: " + options["team_id"])

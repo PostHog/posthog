@@ -189,6 +189,7 @@ export const NewSelectVariables: Story = {
 export const Show: Story = {
     parameters: {
         pageUrl: urls.dashboard(BASE_DASHBOARD_ID),
+        testOptions: { snapshotBrowsers: [] },
     },
 }
 

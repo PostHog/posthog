@@ -5,12 +5,33 @@ use crate::{
         flag_models::FeatureFlagList,
         flag_request::FlagRequestType,
     },
+    metrics::consts::FLAG_BILLING_INCREMENT_TIME,
 };
-use common_metrics::inc;
+use common_metrics::{histogram, inc};
+use common_redis::CustomRedisError;
 use limiters::redis::ServiceName;
 use std::collections::HashMap;
+use std::time::Instant;
 
+use super::canonical_log::with_canonical_log;
 use super::types::{Library, RequestContext};
+
+/// Emit the `flags_billing_increment_time_ms` histogram for a completed
+/// `increment_request_count` call, bucketing the Redis result into
+/// `outcome="ok" | "timeout" | "error"` to isolate the happy path from
+/// Redis timeouts.
+pub fn record_billing_increment_timing(result: &Result<(), CustomRedisError>, elapsed_ms: u64) {
+    let outcome = match result {
+        Ok(()) => "ok",
+        Err(CustomRedisError::Timeout) => "timeout",
+        Err(_) => "error",
+    };
+    histogram(
+        FLAG_BILLING_INCREMENT_TIME,
+        &[("outcome".to_string(), outcome.to_string())],
+        elapsed_ms as f64,
+    );
+}
 
 pub async fn check_limits(
     context: &RequestContext,
@@ -53,15 +74,21 @@ pub async fn record_usage(
     let has_billable_flags = contains_billable_flags(filtered_flags);
 
     if has_billable_flags {
-        if let Err(e) = increment_request_count(
+        let start = Instant::now();
+        let result = increment_request_count(
             context.state.redis_client.clone(),
             team_id,
             1,
             FlagRequestType::Decide,
             Some(library),
         )
-        .await
-        {
+        .await;
+        let elapsed_ms = start.elapsed().as_millis() as u64;
+
+        record_billing_increment_timing(&result, elapsed_ms);
+        with_canonical_log(|log| log.billing_duration_ms = Some(elapsed_ms));
+
+        if let Err(e) = result {
             inc(
                 "flag_request_redis_error",
                 &[("error".to_string(), e.to_string())],
@@ -91,6 +118,7 @@ pub fn should_record_usage(filtered_flags: &FeatureFlagList) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::flags::feature_flag_list::PreparedFlags;
     use crate::flags::flag_analytics::{
         PRODUCT_TOUR_TARGETING_FLAG_PREFIX, SURVEY_TARGETING_FLAG_PREFIX,
     };
@@ -164,7 +192,7 @@ mod tests {
         let disabled_flag = mock!(FeatureFlag, id: 1, key: "regular_flag".mock_into());
 
         let flag_list = mock!(FeatureFlagList,
-            flags: vec![disabled_flag.clone()],
+            flags: PreparedFlags::seal(vec![disabled_flag.clone()]),
             filtered_out_flag_ids: HashSet::from([disabled_flag.id])
         );
 
@@ -178,7 +206,7 @@ mod tests {
         let active_flag = mock!(FeatureFlag, id: 2, key: "active_flag".mock_into());
 
         let flag_list = mock!(FeatureFlagList,
-            flags: vec![disabled_flag.clone(), active_flag],
+            flags: PreparedFlags::seal(vec![disabled_flag.clone(), active_flag]),
             filtered_out_flag_ids: HashSet::from([disabled_flag.id])
         );
 
@@ -192,7 +220,7 @@ mod tests {
             mock!(FeatureFlag, id: 1, key: format!("{SURVEY_TARGETING_FLAG_PREFIX}survey1"));
 
         let flag_list = mock!(FeatureFlagList,
-            flags: vec![disabled_survey_flag.clone()],
+            flags: PreparedFlags::seal(vec![disabled_survey_flag.clone()]),
             filtered_out_flag_ids: HashSet::from([disabled_survey_flag.id])
         );
 
@@ -207,7 +235,7 @@ mod tests {
             mock!(FeatureFlag, id: 2, key: format!("{SURVEY_TARGETING_FLAG_PREFIX}survey1"));
 
         let flag_list = mock!(FeatureFlagList,
-            flags: vec![disabled_flag.clone(), survey_flag],
+            flags: PreparedFlags::seal(vec![disabled_flag.clone(), survey_flag]),
             filtered_out_flag_ids: HashSet::from([disabled_flag.id])
         );
 
@@ -245,7 +273,7 @@ mod tests {
             mock!(FeatureFlag, id: 1, key: format!("{PRODUCT_TOUR_TARGETING_FLAG_PREFIX}tour1"));
 
         let flag_list = mock!(FeatureFlagList,
-            flags: vec![disabled_tour_flag.clone()],
+            flags: PreparedFlags::seal(vec![disabled_tour_flag.clone()]),
             filtered_out_flag_ids: HashSet::from([disabled_tour_flag.id])
         );
 

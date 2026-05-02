@@ -9,7 +9,7 @@ from posthog.schema import CacheMissResponse, DashboardFilter
 from posthog.hogql.constants import LimitContext
 
 from posthog.api.services.query import ExecutionMode, process_query_dict
-from posthog.clickhouse.query_tagging import tag_queries
+from posthog.clickhouse.query_tagging import get_team_query_tags, tag_queries
 from posthog.event_usage import AnalyticsProps
 from posthog.hogql_queries.query_runner import get_query_runner_or_none
 from posthog.models import Insight, Team, User
@@ -62,7 +62,7 @@ def calculate_for_query_based_insight(
     from posthog.caching.fetch_from_cache import InsightResult, NothingInCacheResult
     from posthog.caching.insight_cache import update_cached_state
 
-    tag_queries(team_id=team.id, insight_id=insight.pk)
+    tag_queries(**get_team_query_tags(team), insight_id=insight.pk)
     if dashboard:
         tag_queries(dashboard_id=dashboard.pk)
 

@@ -1,5 +1,7 @@
 """Serializers for Conversations API."""
 
+from urllib.parse import urlparse
+
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
@@ -194,27 +196,64 @@ def validate_origin(request, team: Team) -> bool:
 def validate_url_domain(url: str, team: Team) -> bool:
     """
     Validate that a URL's domain is in the team's widget_domains allowlist.
-    Returns True if no allowlist configured (empty = allow all) or domain matches.
-    """
-    from urllib.parse import urlparse
 
+    Fails closed: if no allowlist is configured, returns False. This prevents an
+    attacker with the public widget token from injecting an attacker-controlled
+    request_url in the restore flow and having the live token emailed to it.
+    """
     settings = team.conversations_settings or {}
     domains = settings.get("widget_domains") or []
 
     if not domains:
-        return True
+        return False
 
     parsed = urlparse(url)
-    url_host = parsed.netloc.lower()
+    url_host = (parsed.hostname or parsed.netloc).lower()
+    if not url_host:
+        return False
 
     for domain in domains:
         domain = domain.lower().strip()
+        # Accept either bare hostnames ("example.com") or full URLs
+        # ("https://example.com") for consistency with validate_origin.
+        if "://" in domain:
+            domain = urlparse(domain).hostname or ""
         if domain.startswith("*."):
             # Wildcard: *.example.com matches sub.example.com and example.com
             base = domain[2:]
             if url_host == base or url_host.endswith("." + base):
                 return True
-        elif url_host == domain:
+        elif domain and url_host == domain:
             return True
 
     return False
+
+
+def validate_url_matches_request_origin(request, url: str) -> bool:
+    """
+    Require `url`'s host to equal the request's Origin (or Referer) host.
+
+    The Origin/Referer header is browser-attested and cannot be forged cross-site,
+    so this binds caller-supplied URLs (e.g. the restore request_url) to the page
+    that actually issued the request. Defense-in-depth on top of widget_domains:
+    even if the allowlist is permissive, an attacker embedding the widget on their
+    own page can't smuggle another allowed domain into request_url.
+
+    Compares hostnames (not netlocs) so port and userinfo segments don't matter
+    and can't be used to smuggle a different destination via
+    `https://victim.com@attacker.example`-style URLs.
+    """
+
+    origin = request.headers.get("Origin") or request.headers.get("Referer") or ""
+    parsed_url = urlparse(url)
+
+    # Restrict request_url scheme — exotic schemes (javascript:, data:, file:) have
+    # no business in an emailed restore link.
+    if parsed_url.scheme not in ("http", "https"):
+        return False
+
+    origin_host = (urlparse(origin).hostname or "").lower()
+    url_host = (parsed_url.hostname or "").lower()
+    if not origin_host or not url_host:
+        return False
+    return origin_host == url_host

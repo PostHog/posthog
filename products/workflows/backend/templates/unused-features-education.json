@@ -17,28 +17,7 @@
     },
     "updated_at": "2026-03-10T09:32:45.013243Z",
     "trigger": {
-        "type": "schedule",
-        "inputs": {
-            "event": {
-                "value": "$workflow_triggered",
-                "templating": "hog",
-                "bytecode": ["_H", 1, 32, "$workflow_triggered"],
-                "order": 0
-            },
-            "distinct_id": {
-                "value": "{request.body.user_id}",
-                "templating": "hog",
-                "bytecode": ["_H", 1, 32, "user_id", 32, "body", 32, "request", 1, 3],
-                "order": 1
-            },
-            "method": {
-                "value": "POST",
-                "templating": "hog",
-                "order": 2
-            }
-        },
-        "template_id": "template-source-webhook",
-        "scheduled_at": "2026-03-18T15:04:00.000Z"
+        "type": "schedule"
     },
     "trigger_masking": null,
     "conversion": {
@@ -107,28 +86,7 @@
             "filters": null,
             "type": "trigger",
             "config": {
-                "type": "schedule",
-                "inputs": {
-                    "event": {
-                        "value": "$workflow_triggered",
-                        "templating": "hog",
-                        "bytecode": ["_H", 1, 32, "$workflow_triggered"],
-                        "order": 0
-                    },
-                    "distinct_id": {
-                        "value": "{request.body.user_id}",
-                        "templating": "hog",
-                        "bytecode": ["_H", 1, 32, "user_id", 32, "body", 32, "request", 1, 3],
-                        "order": 1
-                    },
-                    "method": {
-                        "value": "POST",
-                        "templating": "hog",
-                        "order": 2
-                    }
-                },
-                "template_id": "template-source-webhook",
-                "scheduled_at": "2026-03-18T15:04:00.000Z"
+                "type": "schedule"
             },
             "output_variable": null
         },

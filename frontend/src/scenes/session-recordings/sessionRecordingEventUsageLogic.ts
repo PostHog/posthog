@@ -72,7 +72,7 @@ export const sessionRecordingEventUsageLogic = kea<sessionRecordingEventUsageLog
         reportRecordingPinnedToList: (pinned: boolean) => ({ pinned }),
         reportRecordingPlaylistCreated: (source: 'filters' | 'new' | 'pin' | 'duplicate') => ({ source }),
         reportRecordingOpenedFromRecentRecordingList: true,
-        reportAISessionSummaryViewed: (recording_id: string, source: 'tab') => ({ recording_id, source }),
+        reportAISessionSummaryViewed: (recording_id: string, source: 'dock') => ({ recording_id, source }),
     }),
     listeners(() => ({
         reportRecordingLoaded: ({ playerData, metadata }) => {

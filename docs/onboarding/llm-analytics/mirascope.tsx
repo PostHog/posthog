@@ -3,112 +3,108 @@ import { OnboardingComponentsContext, createInstallation } from 'scenes/onboardi
 import { StepDefinition } from '../steps'
 
 export const getMirascopeSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
-    const { CodeBlock, CalloutBox, Markdown, dedent, snippets } = ctx
+    const { CodeBlock, CalloutBox, Markdown, Blockquote, dedent, snippets } = ctx
 
     const NotableGenerationProperties = snippets?.NotableGenerationProperties
 
     return [
         {
-            title: 'Install the PostHog SDK',
+            title: 'Install dependencies',
             badge: 'required',
             content: (
                 <>
-                    <Markdown>
-                        Setting up analytics starts with installing the PostHog SDK. The Mirascope integration uses
-                        PostHog's OpenAI wrapper since Mirascope supports passing a custom OpenAI client.
-                    </Markdown>
-
-                    <CodeBlock
-                        language="bash"
-                        code={dedent`
-                            pip install posthog
-                        `}
-                    />
-                </>
-            ),
-        },
-        {
-            title: 'Install Mirascope',
-            badge: 'required',
-            content: (
-                <>
-                    <Markdown>
-                        Install Mirascope with OpenAI support. PostHog instruments your LLM calls by wrapping the OpenAI
-                        client that Mirascope uses under the hood.
-                    </Markdown>
-
-                    <CodeBlock
-                        language="bash"
-                        code={dedent`
-                            pip install mirascope openai
-                        `}
-                    />
-                </>
-            ),
-        },
-        {
-            title: 'Initialize PostHog and Mirascope',
-            badge: 'required',
-            content: (
-                <>
-                    <Markdown>
-                        Initialize PostHog with your project token and host from [your project
-                        settings](https://app.posthog.com/settings/project), then create a PostHog OpenAI wrapper and
-                        pass it to Mirascope's `@call` decorator via the `client` parameter.
-                    </Markdown>
-
-                    <CodeBlock
-                        language="python"
-                        code={dedent`
-                            from mirascope.llm import call
-                            from posthog.ai.openai import OpenAI
-                            from posthog import Posthog
-
-                            posthog = Posthog(
-                                "<ph_project_token>",
-                                host="<ph_client_api_host>"
-                            )
-
-                            openai_client = OpenAI(
-                                api_key="your_openai_api_key",
-                                posthog_client=posthog
-                            )
-                        `}
-                    />
-
-                    <CalloutBox type="fyi" icon="IconInfo" title="How this works">
+                    <CalloutBox type="info" icon="IconInfo" title="Full working examples">
                         <Markdown>
-                            Mirascope's `@call` decorator accepts a `client` parameter for passing a custom OpenAI
-                            client. PostHog's `OpenAI` wrapper is a proper subclass of `openai.OpenAI`, so it works
-                            directly. PostHog captures `$ai_generation` events automatically without proxying your
-                            calls.
+                            See the complete [Python
+                            example](https://github.com/PostHog/posthog-python/tree/master/examples/example-ai-mirascope)
+                            on GitHub. If you're using the PostHog SDK wrapper instead of OpenTelemetry, see the [Python
+                            wrapper
+                            example](https://github.com/PostHog/posthog-python/tree/7223c52/examples/example-ai-mirascope).
                         </Markdown>
                     </CalloutBox>
+
+                    <Markdown>Install the OpenTelemetry SDK, the OpenAI instrumentation, and Mirascope.</Markdown>
+
+                    <CodeBlock
+                        language="bash"
+                        code={dedent`
+                            pip install "mirascope[openai]" opentelemetry-sdk posthog[otel] opentelemetry-instrumentation-openai-v2
+                        `}
+                    />
                 </>
             ),
         },
         {
-            title: 'Make your first call',
+            title: 'Set up OpenTelemetry tracing',
             badge: 'required',
             content: (
                 <>
                     <Markdown>
-                        Use Mirascope as normal, passing the wrapped client to the call decorator. PostHog automatically
-                        captures an `$ai_generation` event for each LLM call.
+                        Configure OpenTelemetry to auto-instrument OpenAI SDK calls and export traces to PostHog.
+                        PostHog converts `gen_ai.*` spans into `$ai_generation` events automatically.
                     </Markdown>
 
                     <CodeBlock
                         language="python"
                         code={dedent`
-                            @call(model="openai/gpt-5-mini", client=openai_client)
-                            def recommend_book(genre: str):
-                                return f"Recommend a {genre} book."
+                            from opentelemetry import trace
+                            from opentelemetry.sdk.trace import TracerProvider
+                            from opentelemetry.sdk.resources import Resource, SERVICE_NAME
+                            from posthog.ai.otel import PostHogSpanProcessor
+                            from opentelemetry.instrumentation.openai_v2 import OpenAIInstrumentor
 
-                            response = recommend_book("fantasy")
+                            resource = Resource(attributes={
+                                SERVICE_NAME: "my-app",
+                                "posthog.distinct_id": "user_123", # optional: identifies the user in PostHog
+                                "foo": "bar", # custom properties are passed through
+                            })
 
+                            provider = TracerProvider(resource=resource)
+                            provider.add_span_processor(
+                                PostHogSpanProcessor(
+                                    api_key="<ph_project_token>",
+                                    host="<ph_client_api_host>",
+                                )
+                            )
+                            trace.set_tracer_provider(provider)
+
+                            OpenAIInstrumentor().instrument()
+                        `}
+                    />
+                </>
+            ),
+        },
+        {
+            title: 'Call your LLMs',
+            badge: 'required',
+            content: (
+                <>
+                    <Markdown>
+                        Use Mirascope as normal. PostHog automatically captures an `$ai_generation` event for each LLM
+                        call made through the OpenAI SDK that Mirascope uses internally.
+                    </Markdown>
+
+                    <CodeBlock
+                        language="python"
+                        code={dedent`
+                            from mirascope.core import openai, prompt_template
+
+                            @openai.call("gpt-4o-mini")
+                            @prompt_template("Tell me a fun fact about {topic}")
+                            def fun_fact(topic: str): ...
+
+                            response = fun_fact("hedgehogs")
                             print(response.content)
                         `}
                     />
+
+                    <Blockquote>
+                        <Markdown>
+                            **Note:** If you want to capture LLM events anonymously, omit the `posthog.distinct_id`
+                            resource attribute. See our docs on [anonymous vs identified
+                            events](https://posthog.com/docs/data/anonymous-vs-identified-events) to learn more.
+                        </Markdown>
+                    </Blockquote>
 
                     <Markdown>
                         {dedent`

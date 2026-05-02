@@ -2,6 +2,7 @@ from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Organization, Project, Team, User
@@ -717,6 +718,26 @@ class TestDatasetItemsApi(APIBaseTest):
         item = DatasetItem.objects.first()
         assert item is not None
         self.assertEqual(item.created_by, self.user)
+
+    @parameterized.expand([("create",), ("update",)])
+    def test_cannot_bind_dataset_item_to_another_teams_dataset(self, action):
+        another_team = Team.objects.create(name="Another Team", organization=self.organization)
+        foreign_dataset = Dataset.objects.create(name="Foreign", team=another_team, created_by=self.user)
+
+        if action == "create":
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/dataset_items/",
+                {"dataset": str(foreign_dataset.id), "input": {"prompt": "cross-team"}},
+            )
+        else:
+            item = DatasetItem.objects.create(dataset=self.dataset, team=self.team, created_by=self.user)
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/dataset_items/{item.id}/",
+                {"dataset": str(foreign_dataset.id)},
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(DatasetItem.objects.filter(dataset=foreign_dataset).exists())
 
     def test_patch_ignores_created_by_and_team(self):
         item = DatasetItem.objects.create(dataset=self.dataset, team=self.team, created_by=self.user)

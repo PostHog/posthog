@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 6 enabled ops
+ * PostHog API - MCP 7 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -48,10 +48,10 @@ export const DashboardsCreateBody = /* @__PURE__ */ zod
         tags: zod.array(zod.unknown()).optional(),
         restriction_level: zod
             .union([zod.literal(21), zod.literal(37)])
+            .optional()
             .describe(
                 '* `21` - Everyone in the project can edit\n* `37` - Only those invited to this dashboard can edit'
-            )
-            .optional(),
+            ),
         quick_filter_ids: zod
             .array(zod.string())
             .nullish()
@@ -78,7 +78,19 @@ export const DashboardsRetrieveParams = /* @__PURE__ */ zod.object({
 })
 
 export const DashboardsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    filters_override: zod
+        .string()
+        .optional()
+        .describe(
+            'JSON object to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. See the dashboard filters schema for available keys (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a dashboard sharing token.'
+        ),
     format: zod.enum(['json', 'txt']).optional(),
+    variables_override: zod
+        .string()
+        .optional()
+        .describe(
+            'JSON object to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response\'s `variables` field, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a dashboard sharing token.'
+        ),
 })
 
 export const DashboardsPartialUpdateParams = /* @__PURE__ */ zod.object({
@@ -96,8 +108,6 @@ export const DashboardsPartialUpdateQueryParams = /* @__PURE__ */ zod.object({
 
 export const dashboardsPartialUpdateBodyNameMax = 400
 
-export const dashboardsPartialUpdateBodyDeleteInsightsDefault = false
-
 export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
         name: zod.string().max(dashboardsPartialUpdateBodyNameMax).nullish(),
@@ -108,10 +118,10 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
         tags: zod.array(zod.unknown()).optional(),
         restriction_level: zod
             .union([zod.literal(21), zod.literal(37)])
+            .optional()
             .describe(
                 '* `21` - Everyone in the project can edit\n* `37` - Only those invited to this dashboard can edit'
-            )
-            .optional(),
+            ),
         quick_filter_ids: zod
             .array(zod.string())
             .nullish()
@@ -123,7 +133,7 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
         use_dashboard: zod.number().nullish().describe('ID of an existing dashboard to duplicate.'),
         delete_insights: zod
             .boolean()
-            .default(dashboardsPartialUpdateBodyDeleteInsightsDefault)
+            .optional()
             .describe('When deleting, also delete insights that are only on this dashboard.'),
     })
     .describe('Serializer mixin that handles tags for objects.')
@@ -162,4 +172,44 @@ export const DashboardsReorderTilesCreateBody = /* @__PURE__ */ zod.object({
         .array(zod.number())
         .min(1)
         .describe('Array of tile IDs in the desired display order (top to bottom, left to right).'),
+})
+
+/**
+ * Run all insights on a dashboard and return their results.
+ */
+export const DashboardsRunInsightsRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.number().describe('A unique integer value identifying this dashboard.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const DashboardsRunInsightsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    filters_override: zod
+        .string()
+        .optional()
+        .describe(
+            'JSON object to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. See the dashboard filters schema for available keys (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a dashboard sharing token.'
+        ),
+    format: zod.enum(['json', 'txt']).optional(),
+    output_format: zod
+        .enum(['json', 'optimized'])
+        .optional()
+        .describe(
+            "'optimized' (default) returns LLM-friendly formatted text per insight. 'json' returns the raw query result objects."
+        ),
+    refresh: zod
+        .enum(['blocking', 'force_blocking', 'force_cache'])
+        .optional()
+        .describe(
+            "Cache behavior. 'force_cache' (default) serves from cache even if stale. 'blocking' uses cache if fresh, otherwise recalculates. 'force_blocking' always recalculates."
+        ),
+    variables_override: zod
+        .string()
+        .optional()
+        .describe(
+            'JSON object to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response\'s `variables` field, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a dashboard sharing token.'
+        ),
 })

@@ -66,7 +66,6 @@ describe('TeamManager()', () => {
                   "project_id": 2,
                   "secret_api_token": null,
                   "session_recording_opt_in": true,
-                  "slack_incoming_webhook": null,
                   "timezone": "UTC",
                   "uuid": "<REPLACED-UUID-0>",
                 }

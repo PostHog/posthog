@@ -54,6 +54,33 @@ def _get_use_bedrock_fallback_from_headers(request: Request) -> bool:
         raise _invalid_header_exception(str(exc)) from exc
 
 
+def strip_server_side_tools(data: dict[str, Any], *, model: str, product: str) -> None:
+    """Remove Anthropic server-side tools (e.g. web_search) that Bedrock doesn't support.
+
+    Server-side tools have a non-standard type (like web_search_20250305), while regular tools use custom or function (or omit type entirely, defaulting to custom).
+    """
+    if "tools" not in data:
+        return
+
+    supported: list[dict[str, Any]] = []
+    for tool in data["tools"]:
+        if tool.get("type", "custom") in ("custom", "function"):
+            supported.append(tool)
+        else:
+            logger.warning(
+                "Stripping unsupported tool for Bedrock",
+                tool_name=tool.get("name"),
+                tool_type=tool.get("type"),
+                model=model,
+                product=product,
+            )
+
+    if supported:
+        data["tools"] = supported
+    else:
+        del data["tools"]
+
+
 async def _send_bedrock_messages(
     request_data: dict[str, Any],
     user: RateLimitedUser,
@@ -70,6 +97,8 @@ async def _send_bedrock_messages(
     anthropic_beta = request.headers.get("anthropic-beta")
     if anthropic_beta:
         data["anthropic_beta"] = [h.strip() for h in anthropic_beta.split(",") if h.strip()]
+
+    strip_server_side_tools(data, model=data["model"], product=product)
 
     return await handle_llm_request(
         request_data=data,
@@ -268,12 +297,22 @@ async def _bedrock_count_tokens_impl(
         raise
     except Exception as e:
         status_code = "502"
+        error_type_name = type(e).__name__
         logger.exception(
-            "Error proxying bedrock count_tokens request", model=bedrock_model, max_tokens=data.get("max_tokens", 4096)
+            "Error proxying bedrock count_tokens request",
+            model=bedrock_model,
+            max_tokens=data.get("max_tokens", 4096),
+            error_type=error_type_name,
+            error_message=str(e),
         )
         raise HTTPException(
             status_code=502,
-            detail={"error": {"message": "Failed to count tokens via Bedrock", "type": "proxy_error"}},
+            detail={
+                "error": {
+                    "message": f"Failed to count tokens via Bedrock ({error_type_name})",
+                    "type": "proxy_error",
+                }
+            },
         ) from e
     finally:
         REQUEST_COUNT.labels(

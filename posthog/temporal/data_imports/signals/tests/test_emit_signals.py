@@ -534,6 +534,84 @@ class TestEmitSignals:
                 await _emit_signals(team=MagicMock(), outputs=outputs, extra={})
 
 
+class TestPipelineStageTelemetry:
+    @pytest.mark.asyncio
+    async def test_captures_each_stage_per_signal(self):
+        team = MagicMock(id=1)
+        team.uuid = uuid.UUID("00000000-0000-0000-0000-000000000001")
+
+        short_description = "short actionable bug"
+        long_description = "x" * 500
+        non_actionable_description = "billing question, not actionable"
+
+        def emitter(team_id, record):
+            return SignalEmitterOutput(
+                source_product="zendesk",
+                source_type="ticket",
+                source_id=str(record["id"]),
+                description=record["description"],
+                weight=0.5,
+                extra={},
+            )
+
+        config = _make_config(
+            source_product="zendesk",
+            source_type="ticket",
+            emitter=emitter,
+            summarization_prompt="Summarize: {description}",
+            description_summarization_threshold_chars=100,
+            actionability_prompt="Actionable? {description}",
+        )
+
+        records = [
+            {"id": "ticket_short", "description": short_description},
+            {"id": "ticket_long", "description": long_description},
+            {"id": "ticket_filtered", "description": non_actionable_description},
+        ]
+
+        mock_llm_client = MagicMock()
+
+        async def generate_content(*args, **kwargs):
+            contents = kwargs.get("contents") or (args[1] if len(args) > 1 else None)
+            prompt_text = ""
+            if contents:
+                first = contents[0]
+                prompt_text = first.text if hasattr(first, "text") else first
+            if "Summarize" in prompt_text:
+                return _make_llm_response("Summarized ticket body.")
+            if "not actionable" in prompt_text:
+                return _make_llm_response("NOT_ACTIONABLE")
+            return _make_llm_response("ACTIONABLE")
+
+        mock_llm_client.models.generate_content = generate_content
+
+        with (
+            patch(f"{PIPELINE_MODULE_PATH}.genai") as mock_genai,
+            patch(f"{PIPELINE_MODULE_PATH}.activity"),
+            patch(f"{PIPELINE_MODULE_PATH}.emit_signal", new_callable=AsyncMock),
+            patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics.capture") as capture,
+        ):
+            mock_genai.AsyncClient.return_value = mock_llm_client
+            await run_signal_pipeline(team=team, config=config, records=records, extra={})
+
+        events_by_source_id: dict[str, list[str]] = {}
+        for call in capture.call_args_list:
+            kwargs = call.kwargs
+            source_id = kwargs["properties"]["source_id"]
+            events_by_source_id.setdefault(source_id, []).append(kwargs["event"])
+            assert kwargs["distinct_id"] == str(team.uuid)
+            assert kwargs["properties"]["source_product"] == "zendesk"
+            assert kwargs["properties"]["source_type"] == "ticket"
+            assert "project" in kwargs["groups"]
+
+        assert events_by_source_id["ticket_short"] == ["signal_data_source_entered"]
+        assert events_by_source_id["ticket_long"] == ["signal_data_source_entered", "signal_data_source_summarized"]
+        assert events_by_source_id["ticket_filtered"] == [
+            "signal_data_source_entered",
+            "signal_data_source_filtered",
+        ]
+
+
 class TestEmitDataImportSignalsWorkflow:
     def test_parse_inputs(self):
         schema_id = str(uuid.uuid4())

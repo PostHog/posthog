@@ -7,14 +7,15 @@ def reset_team_timezone_to_UTC(apps, _) -> None:
     Team.objects.exclude(timezone="UTC").update(timezone="UTC")
 
 
+def reverse_reset_team_timezone_to_UTC(apps, _) -> None:
+    pass
+
+
 class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "0236_add_instance_setting_model"),
     ]
 
-    def reverse(apps, _) -> None:
-        pass
-
     operations = [
-        migrations.RunPython(reset_team_timezone_to_UTC, reverse, elidable=True),
+        migrations.RunPython(reset_team_timezone_to_UTC, reverse_reset_team_timezone_to_UTC, elidable=True),
     ]

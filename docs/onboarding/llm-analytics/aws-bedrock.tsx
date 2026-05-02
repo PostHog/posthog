@@ -23,7 +23,7 @@ export const getAWSBedrockSteps = (ctx: OnboardingComponentsContext): StepDefini
                                 language: 'bash',
                                 file: 'Python',
                                 code: dedent`
-                                    pip install boto3 opentelemetry-instrumentation-botocore opentelemetry-sdk opentelemetry-exporter-otlp-proto-http
+                                    pip install boto3 opentelemetry-instrumentation-botocore opentelemetry-sdk posthog[otel]
                                 `,
                             },
                             {
@@ -56,22 +56,21 @@ export const getAWSBedrockSteps = (ctx: OnboardingComponentsContext): StepDefini
                                 code: dedent`
                                     from opentelemetry import trace
                                     from opentelemetry.sdk.trace import TracerProvider
-                                    from opentelemetry.sdk.trace.export import BatchSpanProcessor
                                     from opentelemetry.sdk.resources import Resource, SERVICE_NAME
-                                    from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+                                    from posthog.ai.otel import PostHogSpanProcessor
                                     from opentelemetry.instrumentation.botocore import BotocoreInstrumentor
 
                                     resource = Resource(attributes={
                                         SERVICE_NAME: "my-ai-app",
                                     })
 
-                                    exporter = OTLPSpanExporter(
-                                        endpoint="<ph_client_api_host>/i/v0/ai/otel",
-                                        headers={"Authorization": "Bearer <ph_project_token>"},
-                                    )
-
                                     provider = TracerProvider(resource=resource)
-                                    provider.add_span_processor(BatchSpanProcessor(exporter))
+                                    provider.add_span_processor(
+                                        PostHogSpanProcessor(
+                                            api_key="<ph_project_token>",
+                                            host="<ph_client_api_host>",
+                                        )
+                                    )
                                     trace.set_tracer_provider(provider)
 
                                     BotocoreInstrumentor().instrument()
@@ -83,17 +82,19 @@ export const getAWSBedrockSteps = (ctx: OnboardingComponentsContext): StepDefini
                                 code: dedent`
                                     import { NodeSDK } from '@opentelemetry/sdk-node'
                                     import { resourceFromAttributes } from '@opentelemetry/resources'
-                                    import { PostHogTraceExporter } from '@posthog/ai/otel'
+                                    import { PostHogSpanProcessor } from '@posthog/ai/otel'
                                     import { AwsInstrumentation } from '@opentelemetry/instrumentation-aws-sdk'
 
                                     const sdk = new NodeSDK({
                                       resource: resourceFromAttributes({
                                         'service.name': 'my-ai-app',
                                       }),
-                                      traceExporter: new PostHogTraceExporter({
-                                        apiKey: '<ph_project_token>',
-                                        host: '<ph_client_api_host>',
-                                      }),
+                                      spanProcessors: [
+                                        new PostHogSpanProcessor({
+                                          apiKey: '<ph_project_token>',
+                                          host: '<ph_client_api_host>',
+                                        }),
+                                      ],
                                       instrumentations: [new AwsInstrumentation()],
                                     })
                                     sdk.start()

@@ -1,0 +1,16 @@
+{
+  "id": "rFMrXydbnWuJn3oee4C9c6wT9kvU286V975EU3ksBfy7",
+  "label": "mcp-workers-test-fixtures",
+  "value": null,
+  "is_legacy_hashing": false,
+  "mask_value": null,
+  "created_at": "2026-04-23T12:55:07.483666Z",
+  "last_used_at": "2026-04-23T12:55:15.377418Z",
+  "user_id": 1,
+  "scopes": [
+    "*"
+  ],
+  "scoped_teams": null,
+  "scoped_organizations": null,
+  "last_rolled_at": null
+}

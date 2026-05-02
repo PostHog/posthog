@@ -84,7 +84,7 @@ export default {
                     continue
                 }
                 if (route.paths.some((p) => normalizePath(p) === normalized)) {
-                    return route.handler(request, env.AUTH_KV)
+                    return await route.handler(request, env.AUTH_KV)
                 }
             }
 

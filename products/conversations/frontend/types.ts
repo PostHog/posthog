@@ -4,11 +4,13 @@ import type { TicketAssignee } from './components/Assignee'
 
 export type NotificationPermission = 'default' | 'granted' | 'denied'
 export type TicketStatus = 'new' | 'open' | 'pending' | 'on_hold' | 'resolved'
-export type TicketChannel = 'widget' | 'slack' | 'email'
+export type TicketChannel = 'widget' | 'slack' | 'email' | 'teams'
 export type TicketChannelDetail =
     | 'slack_channel_message'
     | 'slack_bot_mention'
     | 'slack_emoji_reaction'
+    | 'teams_channel_message'
+    | 'teams_bot_mention'
     | 'widget_embedded'
     | 'widget_api'
 export type TicketSlaState = 'on-track' | 'at-risk' | 'breached'
@@ -87,6 +89,7 @@ export interface Ticket {
         [key: string]: any
     }
     sla_due_at?: string | null
+    snoozed_until?: string | null
     slack_channel_id?: string | null
     slack_thread_ts?: string | null
     slack_team_id?: string | null
@@ -185,6 +188,7 @@ export const channelOptions: { value: TicketChannel | 'all'; label: string }[] =
     { value: 'all', label: 'All channels' },
     { value: 'widget', label: 'Widget' },
     { value: 'slack', label: 'Slack' },
+    { value: 'teams', label: 'Microsoft Teams' },
     { value: 'email', label: 'Email' },
 ]
 

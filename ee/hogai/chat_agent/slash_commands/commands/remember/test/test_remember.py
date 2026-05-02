@@ -8,7 +8,7 @@ from posthog.schema import AssistantMessage, HumanMessage
 
 from ee.hogai.chat_agent.slash_commands.commands.remember import RememberCommand
 from ee.hogai.utils.types import AssistantState
-from ee.models.assistant import CoreMemory
+from ee.models.assistant import CORE_MEMORY_MAX_CHARACTERS, CoreMemory
 
 
 class TestRememberCommand(BaseTest):
@@ -91,3 +91,22 @@ class TestRememberCommand(BaseTest):
         core_memory = await sync_to_async(CoreMemory.objects.get)(team=self.team)
         self.assertIn("First fact", core_memory.text)
         self.assertIn("Second fact", core_memory.text)
+
+    @pytest.mark.asyncio
+    async def test_execute_returns_error_when_memory_full(self):
+        core_memory = await sync_to_async(CoreMemory.objects.create)(
+            team=self.team, text="x" * CORE_MEMORY_MAX_CHARACTERS
+        )
+        state = AssistantState(messages=[HumanMessage(content="/remember This should not fit")])
+        config = RunnableConfig(configurable={"thread_id": "test-thread"})
+
+        result = await self.command.execute(config, state)
+
+        self.assertEqual(len(result.messages), 1)
+        message = result.messages[0]
+        assert isinstance(message, AssistantMessage)
+        assert isinstance(message.content, str)
+        self.assertIn("full", message.content.lower())
+
+        await sync_to_async(core_memory.refresh_from_db)()
+        self.assertEqual(core_memory.text, "x" * CORE_MEMORY_MAX_CHARACTERS)

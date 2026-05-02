@@ -212,7 +212,7 @@ class GeminiAdapter:
             yield StreamChunk(type="error", data={"error": "Unexpected error"})
 
     @staticmethod
-    def validate_key(api_key: str) -> tuple[str, str | None]:
+    def validate_key(api_key: str, **kwargs: Any) -> tuple[str, str | None]:
         """Validate a Gemini API key."""
         from products.llm_analytics.backend.models.provider_keys import LLMProviderKey
 
@@ -229,7 +229,7 @@ class GeminiAdapter:
         return set(GeminiConfig.SUPPORTED_MODELS)
 
     @staticmethod
-    def list_models(api_key: str | None = None) -> list[str]:
+    def list_models(api_key: str | None = None, **kwargs: Any) -> list[str]:
         """List available Gemini models.
 
         Without a key, returns the curated SUPPORTED_MODELS list.

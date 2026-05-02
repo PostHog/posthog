@@ -14,9 +14,9 @@
  * `desktop_audio` - Desktop audio
  * `slack` - Slack huddle
  */
-export type Platform9aaEnumApi = (typeof Platform9aaEnumApi)[keyof typeof Platform9aaEnumApi]
+export type MeetingPlatformEnumApi = (typeof MeetingPlatformEnumApi)[keyof typeof MeetingPlatformEnumApi]
 
-export const Platform9aaEnumApi = {
+export const MeetingPlatformEnumApi = {
     Zoom: 'zoom',
     Teams: 'teams',
     Meet: 'meet',
@@ -31,9 +31,10 @@ export const Platform9aaEnumApi = {
  * `ready` - Ready
  * `error` - Error
  */
-export type Status292EnumApi = (typeof Status292EnumApi)[keyof typeof Status292EnumApi]
+export type DesktopRecordingStatusEnumApi =
+    (typeof DesktopRecordingStatusEnumApi)[keyof typeof DesktopRecordingStatusEnumApi]
 
-export const Status292EnumApi = {
+export const DesktopRecordingStatusEnumApi = {
     Recording: 'recording',
     Uploading: 'uploading',
     Processing: 'processing',
@@ -68,7 +69,7 @@ export interface TranscriptSegmentApi {
 /**
  * Serializer for extracted tasks
  */
-export interface TaskApi {
+export interface DesktopRecordingTaskApi {
     title: string
     description?: string
     /** @nullable */
@@ -83,7 +84,7 @@ export interface DesktopRecordingApi {
     readonly sdk_upload_id: string
     /** @nullable */
     recall_recording_id?: string | null
-    platform: Platform9aaEnumApi
+    platform: MeetingPlatformEnumApi
     /**
      * @maxLength 255
      * @nullable
@@ -100,7 +101,7 @@ export interface DesktopRecordingApi {
      * @nullable
      */
     duration_seconds?: number | null
-    status?: Status292EnumApi
+    status?: DesktopRecordingStatusEnumApi
     /** @nullable */
     notes?: string | null
     /** @nullable */
@@ -111,8 +112,8 @@ export interface DesktopRecordingApi {
      */
     video_url?: string | null
     /**
-     * @minimum -9223372036854776000
-     * @maximum 9223372036854776000
+     * @minimum -2147483648
+     * @maximum 2147483647
      * @nullable
      */
     video_size_bytes?: number | null
@@ -124,7 +125,7 @@ export interface DesktopRecordingApi {
     /** @nullable */
     summary?: string | null
     /** AI-extracted tasks from transcript */
-    extracted_tasks?: TaskApi[]
+    extracted_tasks?: DesktopRecordingTaskApi[]
     /** @nullable */
     tasks_generated_at?: string | null
     /** @nullable */
@@ -188,7 +189,7 @@ export interface CreateRecordingResponseApi {
     readonly sdk_upload_id: string
     /** @nullable */
     recall_recording_id?: string | null
-    platform: Platform9aaEnumApi
+    platform: MeetingPlatformEnumApi
     /**
      * @maxLength 255
      * @nullable
@@ -205,7 +206,7 @@ export interface CreateRecordingResponseApi {
      * @nullable
      */
     duration_seconds?: number | null
-    status?: Status292EnumApi
+    status?: DesktopRecordingStatusEnumApi
     /** @nullable */
     notes?: string | null
     /** @nullable */
@@ -216,8 +217,8 @@ export interface CreateRecordingResponseApi {
      */
     video_url?: string | null
     /**
-     * @minimum -9223372036854776000
-     * @maximum 9223372036854776000
+     * @minimum -2147483648
+     * @maximum 2147483647
      * @nullable
      */
     video_size_bytes?: number | null
@@ -229,7 +230,7 @@ export interface CreateRecordingResponseApi {
     /** @nullable */
     summary?: string | null
     /** AI-extracted tasks from transcript */
-    extracted_tasks?: TaskApi[]
+    extracted_tasks?: DesktopRecordingTaskApi[]
     /** @nullable */
     tasks_generated_at?: string | null
     /** @nullable */
@@ -251,7 +252,7 @@ export interface PatchedDesktopRecordingApi {
     readonly sdk_upload_id?: string
     /** @nullable */
     recall_recording_id?: string | null
-    platform?: Platform9aaEnumApi
+    platform?: MeetingPlatformEnumApi
     /**
      * @maxLength 255
      * @nullable
@@ -268,7 +269,7 @@ export interface PatchedDesktopRecordingApi {
      * @nullable
      */
     duration_seconds?: number | null
-    status?: Status292EnumApi
+    status?: DesktopRecordingStatusEnumApi
     /** @nullable */
     notes?: string | null
     /** @nullable */
@@ -279,8 +280,8 @@ export interface PatchedDesktopRecordingApi {
      */
     video_url?: string | null
     /**
-     * @minimum -9223372036854776000
-     * @maximum 9223372036854776000
+     * @minimum -2147483648
+     * @maximum 2147483647
      * @nullable
      */
     video_size_bytes?: number | null
@@ -292,7 +293,7 @@ export interface PatchedDesktopRecordingApi {
     /** @nullable */
     summary?: string | null
     /** AI-extracted tasks from transcript */
-    extracted_tasks?: TaskApi[]
+    extracted_tasks?: DesktopRecordingTaskApi[]
     /** @nullable */
     tasks_generated_at?: string | null
     /** @nullable */

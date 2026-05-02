@@ -12,19 +12,24 @@ from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.models.utils import UUIDT
 
 from products.surveys.backend.models import Survey
+from products.surveys.backend.util import SurveyEventProperties, get_survey_property_string_expr
 
 
 def _get_surveys_response_counts(
     surveys_ids: list[UUIDT], team_id: int, earliest_survey_creation_date: datetime
 ) -> dict[str, int]:
+    survey_id_expr = get_survey_property_string_expr(SurveyEventProperties.SURVEY_ID)
+    submission_id_expr = get_survey_property_string_expr(SurveyEventProperties.SURVEY_SUBMISSION_ID)
+
     tag_queries(product=ProductKey.SURVEYS, feature=Feature.QUERY)
+    # nosemgrep: clickhouse-fstring-param-audit - survey property expressions come from internal helper output
     data = sync_execute(
-        """
+        f"""
         SELECT
-            JSONExtractString(properties, '$survey_id') as survey_id,
+            {survey_id_expr} as survey_id,
             count(DISTINCT
-                if(JSONHas(properties, '$survey_submission_id'),
-                   JSONExtractString(properties, '$survey_submission_id'),
+                if(coalesce({submission_id_expr}, '') != '',
+                   {submission_id_expr},
                    toString(uuid))
             ) as unique_responses
         FROM events

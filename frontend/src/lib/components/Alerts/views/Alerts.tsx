@@ -6,9 +6,11 @@ import { LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import { DetectiveHog } from 'lib/components/hedgehogs'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -30,7 +32,9 @@ export function Alerts({ alertId }: AlertsProps): JSX.Element {
     const { loadAlerts } = useActions(logic)
     const { alertsSortedByState, alertsLoading } = useValues(logic)
 
-    const { alert } = useValues(alertLogic({ alertId }))
+    const { featureFlags } = useValues(featureFlagLogic)
+    const alertsHistoryChartEnabled = !!featureFlags[FEATURE_FLAGS.ALERTS_HISTORY_CHART]
+    const { alert } = useValues(alertLogic({ alertId, historyChartEnabled: alertsHistoryChartEnabled }))
 
     const columns: LemonTableColumns<AlertType> = [
         {
@@ -69,8 +73,16 @@ export function Alerts({ alertId }: AlertsProps): JSX.Element {
             sorter: true,
             defaultSortOrder: -1,
             dataIndex: 'last_checked_at',
-            render: function renderLastChecked(last_checked_at: any) {
-                return <div className="whitespace-nowrap">{last_checked_at && <TZLabel time={last_checked_at} />}</div>
+            render: function renderLastChecked(_, alert: AlertType) {
+                return (
+                    <div className="whitespace-nowrap">
+                        {alert.last_checked_at ? (
+                            <TZLabel time={alert.last_checked_at} />
+                        ) : (
+                            <span className="text-muted">N/A</span>
+                        )}
+                    </div>
+                )
             },
         },
         {
@@ -78,9 +90,15 @@ export function Alerts({ alertId }: AlertsProps): JSX.Element {
             sorter: true,
             defaultSortOrder: -1,
             dataIndex: 'last_notified_at',
-            render: function renderLastModified(last_notified_at: any) {
+            render: function renderLastModified(_, alert: AlertType) {
                 return (
-                    <div className="whitespace-nowrap">{last_notified_at && <TZLabel time={last_notified_at} />}</div>
+                    <div className="whitespace-nowrap">
+                        {alert.last_notified_at ? (
+                            <TZLabel time={alert.last_notified_at} />
+                        ) : (
+                            <span className="text-muted">N/A</span>
+                        )}
+                    </div>
                 )
             },
         },

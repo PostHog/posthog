@@ -2,9 +2,10 @@ import { IconCheckCircle } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
 
 import { IconCancel, IconExclamation, IconRadioButtonUnchecked, IconSync } from 'lib/lemon-ui/icons'
-import { StatusTagSetting } from 'scenes/data-warehouse/utils'
 
 import { ExternalDataJobStatus } from '~/types'
+
+import { StatusTagSetting } from 'products/data_warehouse/frontend/utils'
 
 export function StatusIcon({ status }: { status?: ExternalDataJobStatus }): JSX.Element {
     if (!status) {

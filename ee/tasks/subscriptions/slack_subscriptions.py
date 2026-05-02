@@ -12,11 +12,28 @@ from posthog.models.exported_asset import ExportedAsset
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.subscription import Subscription
 
-from ee.tasks.subscriptions.subscription_utils import ASSET_GENERATION_FAILED_MESSAGE, _has_asset_failed
+from ee.tasks.subscriptions.subscription_utils import ASSET_GENERATION_FAILED_MESSAGE, UTM_TAGS_BASE, _has_asset_failed
 
 logger = structlog.get_logger(__name__)
 
-UTM_TAGS_BASE = "utm_source=posthog&utm_campaign=subscription_report"
+# Slack API error codes that indicate transient server-side issues — safe to retry.
+# These are 5xx-equivalents in Slack's string-coded error model. Permanent errors
+# (channel_not_found, invalid_auth, etc.) are NOT in this set and should fail fast.
+_RETRYABLE_SLACK_ERRORS = frozenset(
+    {
+        "internal_error",
+        "service_unavailable",
+        "fatal_error",
+        "request_timeout",
+        "ratelimited",
+        "rate_limited",
+    }
+)
+
+
+def _next_delivery_date_display(subscription: Subscription) -> str:
+    next_delivery_date = subscription.next_delivery_date
+    return next_delivery_date.strftime("%A %B %d, %Y") if next_delivery_date is not None else "an upcoming date"
 
 
 @dataclass
@@ -105,6 +122,7 @@ def _prepare_slack_message(
     assets: list[ExportedAsset],
     total_asset_count: int,
     is_new_subscription: bool = False,
+    change_summary: str | None = None,
 ) -> SlackMessageData:
     """Prepare Slack message content. Pure function with no side effects."""
     utm_tags = f"{UTM_TAGS_BASE}&utm_medium=slack"
@@ -123,14 +141,24 @@ def _prepare_slack_message(
 
     if is_new_subscription:
         title = f"This channel has been subscribed to {display_name} on PostHog! 🎉"
-        title += f"\nThis subscription is {subscription.summary}. The next one will be sent on {subscription.next_delivery_date.strftime('%A %B %d, %Y')}"
+        title += (
+            f"\nThis subscription is {subscription.summary}. "
+            f"The next one will be sent on {_next_delivery_date_display(subscription)}"
+        )
     else:
         title = f"Your subscription to {display_name} is ready! 🎉"
 
-    blocks = [
+    blocks: list[dict] = [
         {"type": "section", "text": {"type": "mrkdwn", "text": title}},
-        _block_for_asset(first_asset, resource_url=resource_info.url),
     ]
+
+    if change_summary:
+        summary_text = f"*AI summary:*\n{change_summary}"
+        if len(summary_text) > 3000:
+            summary_text = summary_text[:2997] + "..."
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": summary_text}})
+
+    blocks.append(_block_for_asset(first_asset, resource_url=resource_info.url))
 
     if other_assets:
         blocks.append(
@@ -219,9 +247,12 @@ async def _send_slack_message_with_retry(client, max_retries: int = 3, **kwargs)
         except (TimeoutError, SlackApiError) as e:
             if isinstance(e, SlackApiError):
                 slack_error = e.response.get("error", "")
-                if slack_error != "invalid_blocks":
+                if slack_error == "invalid_blocks":
+                    log_event = "_send_slack_message_with_retry.invalid_blocks_retrying"
+                elif slack_error in _RETRYABLE_SLACK_ERRORS:
+                    log_event = "_send_slack_message_with_retry.transient_error_retrying"
+                else:
                     raise
-                log_event = "_send_slack_message_with_retry.invalid_blocks_retrying"
             else:
                 log_event = "_send_slack_message_with_retry.timeout_retrying"
 
@@ -247,8 +278,11 @@ async def send_slack_message_with_integration_async(
     assets: list[ExportedAsset],
     total_asset_count: int,
     is_new_subscription: bool = False,
+    change_summary: str | None = None,
 ) -> SlackDeliveryResult:
-    message_data = _prepare_slack_message(subscription, assets, total_asset_count, is_new_subscription)
+    message_data = _prepare_slack_message(
+        subscription, assets, total_asset_count, is_new_subscription, change_summary=change_summary
+    )
     slack_integration = SlackIntegration(integration)
 
     async with aiohttp.ClientSession(trust_env=True) as slack_session:

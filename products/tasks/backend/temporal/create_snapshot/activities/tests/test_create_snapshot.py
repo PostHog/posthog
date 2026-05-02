@@ -12,7 +12,17 @@ from products.tasks.backend.temporal.create_snapshot.activities.create_snapshot 
     create_snapshot,
 )
 from products.tasks.backend.temporal.create_snapshot.activities.get_snapshot_context import SnapshotContext
-from products.tasks.backend.temporal.exceptions import SandboxNotFoundError
+from products.tasks.backend.temporal.exceptions import SandboxNotFoundError, SnapshotCreationError
+
+
+def _run_or_skip_on_modal_outage(activity_environment, fn, input_data):
+    # Skip when Modal's snapshot service returns its opaque outage signature.
+    try:
+        return async_to_sync(activity_environment.run)(fn, input_data)
+    except SnapshotCreationError as e:
+        if "Failed to create image" in str(e):
+            pytest.skip(f"Modal snapshot service unavailable: {e}")
+        raise
 
 
 @pytest.mark.skipif(
@@ -42,7 +52,7 @@ class TestCreateSnapshotActivity:
             context = self._create_context(github_integration, "test-owner/test-repo")
             input_data = CreateSnapshotInput(context=context, sandbox_id=sandbox.id)
 
-            result = async_to_sync(activity_environment.run)(create_snapshot, input_data)
+            result = _run_or_skip_on_modal_outage(activity_environment, create_snapshot, input_data)
 
             assert result is not None
             uuid.UUID(result)
@@ -87,7 +97,7 @@ class TestCreateSnapshotActivity:
             context = self._create_context(github_integration, "new-owner/new-repo")
             input_data = CreateSnapshotInput(context=context, sandbox_id=sandbox.id)
 
-            result = async_to_sync(activity_environment.run)(create_snapshot, input_data)
+            result = _run_or_skip_on_modal_outage(activity_environment, create_snapshot, input_data)
 
             created_snapshot = SandboxSnapshot.objects.get(id=result)
             created_snapshot_external_id = created_snapshot.external_id

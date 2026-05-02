@@ -46,7 +46,7 @@ BREAKDOWN_VALUES_LIMIT = 25
 BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES = 300
 BREAKDOWN_VALUE_MAX_LENGTH = 400
 
-type HogQLDialect = Literal["hogql", "clickhouse", "postgres"]
+type HogQLDialect = Literal["hogql", "clickhouse", "postgres", "duckdb"]
 
 type HogQLParserBackend = Literal["python", "cpp-json"]
 

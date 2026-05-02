@@ -1,40 +1,90 @@
 import re
 import hashlib
-from typing import Literal
+from collections.abc import Callable
+from datetime import date, datetime
+from typing import ClassVar
+from uuid import UUID
 
 from posthog.hogql import ast
 from posthog.hogql.ast import AST
-from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.constants import HogQLDialect, HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.models import StructDatabaseField
 from posthog.hogql.errors import ImpossibleASTError, QueryError
 from posthog.hogql.escape_sql import escape_postgres_identifier
-from posthog.hogql.printer.base import HogQLPrinter
+from posthog.hogql.printer.base import BasePrinter
 from posthog.hogql.printer.postgres_functions import (
     POSTGRES_FUNCTION_HANDLERS_LOWER,
     POSTGRES_FUNCTION_RENAMES_LOWER,
     POSTGRES_PASSTHROUGH_FUNCTIONS,
 )
 
+from posthog.models.utils import UUIDT
+
 # Regex for validating function names — only alphanumeric and underscores allowed.
 # Prevents SQL injection via backtick-quoted identifiers in HogQL.
 _SAFE_FUNCTION_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
-class PostgresPrinter(HogQLPrinter):
+class PostgresPrinter(BasePrinter):
+    DIALECT_NAME: ClassVar[HogQLDialect] = "postgres"
+
     def __init__(
         self,
         context: HogQLContext,
-        dialect: Literal["postgres"],
         stack: list[AST] | None = None,
         settings: HogQLGlobalSettings | None = None,
         pretty: bool = False,
     ):
-        super().__init__(context=context, dialect=dialect, stack=stack, settings=settings, pretty=pretty)
+        super().__init__(context=context, stack=stack, settings=settings, pretty=pretty)
         self._truncated_identifiers: dict[str, str] = {}
         self._used_truncated_identifiers: set[str] = set()
         self._connection_supported_functions = self._get_connection_supported_functions()
+
+    def _min_function_name(self) -> str:
+        return "least"
+
+    def _assert_set_operator_supported(self, set_operator: str) -> None:
+        return
+
+    def _assert_recursive_cte_supported(self) -> None:
+        return
+
+    def _assert_qualify_supported(self) -> None:
+        return
+
+    def _assert_with_ties_supported(self) -> None:
+        raise QueryError("WITH TIES is not supported in postgres dialect")
+
+    def _render_column_aliases_inline_suffix(self, column_aliases: list[str]) -> str:
+        col_names = ", ".join(self._print_identifier(c) for c in column_aliases)
+        return f" ({col_names})"
+
+    def _render_column_aliases_appended(self, column_aliases: list[str]) -> str | None:
+        col_aliases = ", ".join(self._print_identifier(ca) for ca in column_aliases)
+        return f"({col_aliases})"
+
+    def _dict_tuple_function_name(self) -> str:
+        return "ROW"
+
+    def _render_column_aliased_field_name(self, type: ast.FieldType, resolved_field) -> str:
+        return self._print_identifier(type.name)
+
+    def _apply_window_function_rewrites(
+        self, identifier: str, exprs: list[str], cloned_node: ast.WindowFunction
+    ) -> str:
+        # Postgres's native lag/lead already has the semantics we want; skip the ClickHouse-style rewrite.
+        return identifier
+
+    def _render_set_query_limit_percent(self, limit: ast.Expr, limit_str: str) -> str:
+        return f"{limit_str} %"
+
+    def _render_select_query_limit_clause(self, limit: ast.Expr, is_percent: bool) -> str:
+        rendered = f"LIMIT {self.visit(limit)}"
+        if is_percent:
+            rendered += " %"
+        return rendered
 
     def visit_field(self, node: ast.Field):
         if node.type is None:
@@ -83,13 +133,17 @@ class PostgresPrinter(HogQLPrinter):
                 f"(floor(extract(minute from {bucket_arg}) / {bucket_size})::int * {bucket_size} * interval '1 minute')"
             )
 
+        function_renames = self._get_function_renames()
+        function_handlers = self._get_function_handlers()
+        passthrough_functions = self._get_passthrough_functions()
+
         if node.order_by:
             # ORDER BY in function calls is only supported for passthrough functions.
             func_name = node.name.lower()
             if (
-                func_name not in POSTGRES_PASSTHROUGH_FUNCTIONS
-                and func_name not in POSTGRES_FUNCTION_HANDLERS_LOWER
-                and func_name not in POSTGRES_FUNCTION_RENAMES_LOWER
+                func_name not in passthrough_functions
+                and func_name not in function_handlers
+                and func_name not in function_renames
             ):
                 raise QueryError(f"Function '{node.name}' does not support ORDER BY in the Postgres dialect.")
 
@@ -103,17 +157,17 @@ class PostgresPrinter(HogQLPrinter):
 
         func_name = node.name.lower()
 
-        handler = POSTGRES_FUNCTION_HANDLERS_LOWER.get(func_name)
+        handler = function_handlers.get(func_name)
         if handler is not None:
             if node.order_by:
                 raise QueryError(f"Function '{node.name}' does not support ORDER BY in the Postgres dialect.")
             return handler(args)
 
-        pg_name = POSTGRES_FUNCTION_RENAMES_LOWER.get(func_name)
-        if pg_name is not None:
-            return f"{pg_name}({', '.join(args)}{order_by_part})"
+        renamed = function_renames.get(func_name)
+        if renamed is not None:
+            return f"{renamed}({', '.join(args)}{order_by_part})"
 
-        if func_name in POSTGRES_PASSTHROUGH_FUNCTIONS:
+        if func_name in passthrough_functions:
             return f"{func_name}({', '.join(args)}{order_by_part})"
 
         if func_name in self._connection_supported_functions:
@@ -122,13 +176,43 @@ class PostgresPrinter(HogQLPrinter):
 
         raise QueryError(f"Function '{node.name}' is not supported in the Postgres dialect.")
 
+    def _get_function_renames(self) -> dict[str, str]:
+        """Lowercased HogQL-name → target-name map for simple function renames. Overridable by subclasses."""
+        return POSTGRES_FUNCTION_RENAMES_LOWER
+
+    def _get_function_handlers(self) -> dict[str, Callable[[list[str]], str]]:
+        """Lowercased HogQL-name → handler-callable map for functions that need custom rendering."""
+        return POSTGRES_FUNCTION_HANDLERS_LOWER
+
+    def _get_passthrough_functions(self) -> frozenset[str]:
+        """Lowercased function names that are emitted verbatim without renaming."""
+        return POSTGRES_PASSTHROUGH_FUNCTIONS
+
     def visit_array_slice(self, node: ast.ArraySlice):
         start = self.visit(node.start_expr) if node.start_expr is not None else ""
         end = self.visit(node.end_expr) if node.end_expr is not None else ""
         return f"{self.visit(node.array)}[{start}:{end}]"
 
     def visit_try_cast(self, node: ast.TryCast):
-        return f"TRY_CAST({self.visit(node.expr)} AS {node.type_name})"
+        return f"TRY_CAST({self.visit(node.expr)} AS {self._print_identifier(node.type_name)})"
+
+    def visit_constant(self, node: ast.Constant):
+        # Parameterize string (and other complex-typed) constants via ``context.add_value`` so
+        # psycopg binds them safely at ``cursor.execute(sql, values)`` time. Inlining them
+        # through the HogQL string escape path would produce ClickHouse-style ``\'`` escape
+        # sequences that Postgres and DuckDB do not recognize (``standard_conforming_strings``
+        # defaults to ``on``), allowing statement-terminator SQL injection.
+        if (
+            node.value is None
+            or isinstance(node.value, bool)
+            or isinstance(node.value, (int, float, UUID, UUIDT, datetime, date))
+        ):
+            value = self._print_escaped_string(node.value)
+            if "%" in value:
+                # ``%`` would be interpreted as the start of a parameter placeholder by psycopg.
+                raise QueryError(f"Invalid character '%' in constant: {value}")
+            return value
+        return self.context.add_value(node.value)
 
     def visit_lambda(self, node: ast.Lambda):
         identifiers = [self._print_identifier(arg) for arg in node.args]
@@ -331,10 +415,7 @@ class PostgresPrinter(HogQLPrinter):
 
     def _print_table(self, table) -> str:
         if isinstance(table, DirectPostgresTable):
-            return (
-                f"{escape_postgres_identifier(table.postgres_schema)}."
-                f"{escape_postgres_identifier(table.postgres_table_name)}"
-            )
+            return table.to_printed_postgres(self.context)
         if hasattr(table, "to_printed_postgres"):
             return table.to_printed_postgres(self.context)
         return table.to_printed_clickhouse(self.context)

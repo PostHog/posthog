@@ -15,6 +15,7 @@ from products.visual_review.backend.facade.contracts import (
     UpdateRepoInput,
 )
 from products.visual_review.backend.facade.enums import RunType, SnapshotResult
+from products.visual_review.backend.models import Run
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
 
 
@@ -144,6 +145,47 @@ class TestRunAPI:
         identifiers = {s.identifier for s in snapshots}
         assert identifiers == {"Button", "Card"}
 
+    @pytest.mark.parametrize(
+        ("filters", "expected_commits"),
+        [
+            ({"pr_number": 42}, {"sha-a"}),
+            ({"commit_sha": "sha-b"}, {"sha-b"}),
+            ({"branch": "feature/x"}, {"sha-a", "sha-c"}),
+            ({"branch": "feature/x", "pr_number": 42}, {"sha-a"}),
+            ({"pr_number": 9999}, set()),
+            ({}, {"sha-a", "sha-b", "sha-c"}),
+        ],
+    )
+    def test_list_runs_applies_filters(self, filters, expected_commits, repo):
+        Run.objects.create(
+            repo_id=repo.id,
+            team_id=repo.team_id,
+            commit_sha="sha-a",
+            branch="feature/x",
+            pr_number=42,
+            run_type=RunType.STORYBOOK,
+        )
+        Run.objects.create(
+            repo_id=repo.id,
+            team_id=repo.team_id,
+            commit_sha="sha-b",
+            branch="main",
+            pr_number=99,
+            run_type=RunType.STORYBOOK,
+        )
+        Run.objects.create(
+            repo_id=repo.id,
+            team_id=repo.team_id,
+            commit_sha="sha-c",
+            branch="feature/x",
+            pr_number=None,
+            run_type=RunType.PLAYWRIGHT,
+        )
+
+        runs = api.list_runs(repo.team_id, **filters)
+
+        assert {r.commit_sha for r in runs} == expected_commits
+
     @patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
     def test_complete_run_no_changes_skips_task(self, mock_delay, repo):
         """Runs with no changes complete immediately without triggering diff task."""
@@ -216,14 +258,15 @@ class TestApproveRunAPI:
         # Classification happens at complete_run time
         with (
             patch(
-                "products.visual_review.backend.logic._resolve_baselines",
-                return_value={"Button": "old_hash"},
+                "products.visual_review.backend.logic._resolve_baselines_with_merge_base",
+                return_value=({"Button": "old_hash"}, 0),
             ),
             patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay"),
         ):
             logic.complete_run(create_result.run_id)
-        logic.mark_run_completed(create_result.run_id)
+        logic.finish_processing(create_result.run_id)
 
+        # Per-snapshot approval is DB only — no run-level finalization
         result = api.approve_run(
             ApproveRunInput(
                 run_id=create_result.run_id,
@@ -232,11 +275,12 @@ class TestApproveRunAPI:
             )
         )
 
-        assert result.approved is True
-        assert result.approved_at is not None
+        assert result.approved is False  # Run not finalized
+        assert result.approved_at is None
 
-        # Check snapshot approval fields were set but result was NOT mutated
+        # Snapshot-level approval fields were set, result preserved
         snapshots = api.get_run_snapshots(create_result.run_id)
         button_snap = next(s for s in snapshots if s.identifier == "Button")
-        assert button_snap.result == SnapshotResult.CHANGED  # Result preserved
-        assert button_snap.approved_hash == "new_hash"  # Approval recorded
+        assert button_snap.result == SnapshotResult.CHANGED
+        assert button_snap.approved_hash == "new_hash"
+        assert button_snap.review_state == "approved"

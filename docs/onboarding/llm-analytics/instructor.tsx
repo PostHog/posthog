@@ -3,20 +3,32 @@ import { OnboardingComponentsContext, createInstallation } from 'scenes/onboardi
 import { StepDefinition } from '../steps'
 
 export const getInstructorSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
-    const { CodeBlock, CalloutBox, Markdown, dedent, snippets } = ctx
+    const { CodeBlock, CalloutBox, Markdown, Blockquote, dedent, snippets } = ctx
 
     const NotableGenerationProperties = snippets?.NotableGenerationProperties
 
     return [
         {
-            title: 'Install the PostHog SDK',
+            title: 'Install dependencies',
             badge: 'required',
             content: (
                 <>
-                    <Markdown>
-                        Setting up analytics starts with installing the PostHog SDK for your language. LLM analytics
-                        works best with our Python and Node SDKs.
-                    </Markdown>
+                    <CalloutBox type="info" icon="IconInfo" title="Full working examples">
+                        <Markdown>
+                            See the complete
+                            [Node.js](https://github.com/PostHog/posthog-js/tree/main/examples/example-ai-instructor)
+                            and
+                            [Python](https://github.com/PostHog/posthog-python/tree/master/examples/example-ai-instructor)
+                            examples on GitHub. If you're using the PostHog SDK wrapper instead of OpenTelemetry, see
+                            the [Node.js
+                            wrapper](https://github.com/PostHog/posthog-js/tree/e08ff1be/examples/example-ai-instructor)
+                            and [Python
+                            wrapper](https://github.com/PostHog/posthog-python/tree/7223c52/examples/example-ai-instructor)
+                            examples.
+                        </Markdown>
+                    </CalloutBox>
+
+                    <Markdown>Install the OpenTelemetry SDK, the OpenAI instrumentation, and Instructor.</Markdown>
 
                     <CodeBlock
                         blocks={[
@@ -24,14 +36,14 @@ export const getInstructorSteps = (ctx: OnboardingComponentsContext): StepDefini
                                 language: 'bash',
                                 file: 'Python',
                                 code: dedent`
-                                    pip install posthog
+                                    pip install instructor openai opentelemetry-sdk posthog[otel] opentelemetry-instrumentation-openai-v2
                                 `,
                             },
                             {
                                 language: 'bash',
                                 file: 'Node',
                                 code: dedent`
-                                    npm install @posthog/ai posthog-node
+                                    npm install @instructor-ai/instructor openai zod @posthog/ai @opentelemetry/sdk-node @opentelemetry/resources @opentelemetry/instrumentation-openai
                                 `,
                             },
                         ]}
@@ -40,29 +52,69 @@ export const getInstructorSteps = (ctx: OnboardingComponentsContext): StepDefini
             ),
         },
         {
-            title: 'Install Instructor and OpenAI SDKs',
+            title: 'Set up OpenTelemetry tracing',
             badge: 'required',
             content: (
                 <>
                     <Markdown>
-                        Install Instructor and the OpenAI SDK. PostHog instruments your LLM calls by wrapping the OpenAI
-                        client, which Instructor uses under the hood.
+                        Configure OpenTelemetry to auto-instrument OpenAI SDK calls and export traces to PostHog.
+                        PostHog converts `gen_ai.*` spans into `$ai_generation` events automatically.
                     </Markdown>
 
                     <CodeBlock
                         blocks={[
                             {
-                                language: 'bash',
+                                language: 'python',
                                 file: 'Python',
                                 code: dedent`
-                                    pip install instructor openai
+                                    from opentelemetry import trace
+                                    from opentelemetry.sdk.trace import TracerProvider
+                                    from opentelemetry.sdk.resources import Resource, SERVICE_NAME
+                                    from posthog.ai.otel import PostHogSpanProcessor
+                                    from opentelemetry.instrumentation.openai_v2 import OpenAIInstrumentor
+
+                                    resource = Resource(attributes={
+                                        SERVICE_NAME: "my-app",
+                                        "posthog.distinct_id": "user_123", # optional: identifies the user in PostHog
+                                        "foo": "bar", # custom properties are passed through
+                                    })
+
+                                    provider = TracerProvider(resource=resource)
+                                    provider.add_span_processor(
+                                        PostHogSpanProcessor(
+                                            api_key="<ph_project_token>",
+                                            host="<ph_client_api_host>",
+                                        )
+                                    )
+                                    trace.set_tracer_provider(provider)
+
+                                    OpenAIInstrumentor().instrument()
                                 `,
                             },
                             {
-                                language: 'bash',
+                                language: 'typescript',
                                 file: 'Node',
                                 code: dedent`
-                                    npm install @instructor-ai/instructor openai zod@3
+                                    import { NodeSDK } from '@opentelemetry/sdk-node'
+                                    import { resourceFromAttributes } from '@opentelemetry/resources'
+                                    import { PostHogSpanProcessor } from '@posthog/ai/otel'
+                                    import { OpenAIInstrumentation } from '@opentelemetry/instrumentation-openai'
+
+                                    const sdk = new NodeSDK({
+                                      resource: resourceFromAttributes({
+                                        'service.name': 'my-app',
+                                        'posthog.distinct_id': 'user_123', // optional: identifies the user in PostHog
+                                        foo: 'bar', // custom properties are passed through
+                                      }),
+                                      spanProcessors: [
+                                        new PostHogSpanProcessor({
+                                          apiKey: '<ph_project_token>',
+                                          host: '<ph_client_api_host>',
+                                        }),
+                                      ],
+                                      instrumentations: [new OpenAIInstrumentation()],
+                                    })
+                                    sdk.start()
                                 `,
                             },
                         ]}
@@ -71,14 +123,13 @@ export const getInstructorSteps = (ctx: OnboardingComponentsContext): StepDefini
             ),
         },
         {
-            title: 'Initialize PostHog and Instructor',
+            title: 'Extract structured data',
             badge: 'required',
             content: (
                 <>
                     <Markdown>
-                        Initialize PostHog with your project token and host from [your project
-                        settings](https://app.posthog.com/settings/project), then create a PostHog OpenAI wrapper and
-                        pass it to Instructor.
+                        Use Instructor to extract structured data from LLM responses. PostHog automatically captures an
+                        `$ai_generation` event for each call made through the OpenAI SDK that Instructor wraps.
                     </Markdown>
 
                     <CodeBlock
@@ -88,119 +139,59 @@ export const getInstructorSteps = (ctx: OnboardingComponentsContext): StepDefini
                                 file: 'Python',
                                 code: dedent`
                                     import instructor
+                                    import openai
                                     from pydantic import BaseModel
-                                    from posthog.ai.openai import OpenAI
-                                    from posthog import Posthog
 
-                                    posthog = Posthog(
-                                        "<ph_project_token>",
-                                        host="<ph_client_api_host>"
-                                    )
-
-                                    openai_client = OpenAI(
-                                        api_key="your_openai_api_key",
-                                        posthog_client=posthog
-                                    )
-
-                                    client = instructor.from_openai(openai_client)
-                                `,
-                            },
-                            {
-                                language: 'typescript',
-                                file: 'Node',
-                                code: dedent`
-                                    import Instructor from '@instructor-ai/instructor'
-                                    import { OpenAI } from '@posthog/ai'
-                                    import { PostHog } from 'posthog-node'
-                                    import { z } from 'zod'
-
-                                    const phClient = new PostHog(
-                                      '<ph_project_token>',
-                                      { host: '<ph_client_api_host>' }
-                                    );
-
-                                    const openai = new OpenAI({
-                                      apiKey: 'your_openai_api_key',
-                                      posthog: phClient,
-                                    });
-
-                                    const client = Instructor({ client: openai, mode: 'TOOLS' })
-                                `,
-                            },
-                        ]}
-                    />
-
-                    <CalloutBox type="fyi" icon="IconInfo" title="How this works">
-                        <Markdown>
-                            PostHog's `OpenAI` wrapper is a proper subclass of `openai.OpenAI`, so it works directly
-                            with `instructor.from_openai()`. PostHog captures `$ai_generation` events automatically
-                            without proxying your calls.
-                        </Markdown>
-                    </CalloutBox>
-                </>
-            ),
-        },
-        {
-            title: 'Use Instructor with structured outputs',
-            badge: 'required',
-            content: (
-                <>
-                    <Markdown>
-                        Now use Instructor to extract structured data from LLM responses. PostHog automatically captures
-                        an `$ai_generation` event for each call.
-                    </Markdown>
-
-                    <CodeBlock
-                        blocks={[
-                            {
-                                language: 'python',
-                                file: 'Python',
-                                code: dedent`
-                                    class UserInfo(BaseModel):
+                                    class User(BaseModel):
                                         name: str
                                         age: int
 
+                                    client = instructor.from_openai(openai.OpenAI(api_key="your_openai_api_key"))
+
                                     user = client.chat.completions.create(
-                                        model="gpt-5-mini",
-                                        response_model=UserInfo,
-                                        messages=[
-                                            {"role": "user", "content": "John Doe is 30 years old."}
-                                        ],
-                                        posthog_distinct_id="user_123",
-                                        posthog_trace_id="trace_123",
-                                        posthog_properties={"conversation_id": "abc123"},
+                                        model="gpt-4o-mini",
+                                        response_model=User,
+                                        messages=[{"role": "user", "content": "Extract: John is 30 years old"}],
                                     )
 
-                                    print(f"{user.name} is {user.age} years old")
+                                    print(user)
                                 `,
                             },
                             {
                                 language: 'typescript',
                                 file: 'Node',
                                 code: dedent`
-                                    const UserInfo = z.object({
+                                    import OpenAI from 'openai'
+                                    import Instructor from '@instructor-ai/instructor'
+                                    import { z } from 'zod'
+
+                                    const oai = new OpenAI({ apiKey: 'your_openai_api_key' })
+                                    const client = Instructor({ client: oai, mode: 'TOOLS' })
+
+                                    const UserSchema = z.object({
                                       name: z.string(),
                                       age: z.number(),
                                     })
 
                                     const user = await client.chat.completions.create({
-                                      model: 'gpt-5-mini',
-                                      response_model: { schema: UserInfo, name: 'UserInfo' },
-                                      messages: [
-                                        { role: 'user', content: 'John Doe is 30 years old.' }
-                                      ],
-                                      posthogDistinctId: 'user_123',
-                                      posthogTraceId: 'trace_123',
-                                      posthogProperties: { conversation_id: 'abc123' },
+                                      model: 'gpt-4o-mini',
+                                      response_model: { schema: UserSchema, name: 'User' },
+                                      messages: [{ role: 'user', content: 'Extract: John is 30 years old' }],
                                     })
 
-                                    console.log(\`\${user.name} is \${user.age} years old\`)
-
-                                    phClient.shutdown()
+                                    console.log(user)
                                 `,
                             },
                         ]}
                     />
+
+                    <Blockquote>
+                        <Markdown>
+                            **Note:** If you want to capture LLM events anonymously, omit the `posthog.distinct_id`
+                            resource attribute. See our docs on [anonymous vs identified
+                            events](https://posthog.com/docs/data/anonymous-vs-identified-events) to learn more.
+                        </Markdown>
+                    </Blockquote>
 
                     <Markdown>
                         {dedent`

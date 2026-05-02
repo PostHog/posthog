@@ -8,6 +8,7 @@ from posthog.schema import (
     MarketingAnalyticsAggregatedQueryResponse,
     MarketingAnalyticsBaseColumns,
     MarketingAnalyticsConstants,
+    MarketingAnalyticsDrillDownLevel,
     MarketingAnalyticsItem,
 )
 
@@ -34,36 +35,29 @@ class MarketingAnalyticsAggregatedQueryRunner(
         conversion_columns_mapping = self._build_select_columns_mapping(conversion_aggregator)
         from_clause = ast.JoinExpr(table=ast.Field(chain=[self.config.campaign_costs_cte_name]))
         if conversion_aggregator:
-            join_type = "LEFT JOIN"
+            join_conditions: list[ast.Expr] = [
+                # Join on match_key - adapters output campaign_name or campaign_id based on team prefs
+                # Conversion goals always use utm_campaign as match_key
+                ast.CompareOperation(
+                    left=ast.Field(chain=self.config.get_campaign_cost_field_chain(self.config.match_key_field)),
+                    op=ast.CompareOperationOp.Eq,
+                    right=ast.Field(chain=self.config.get_unified_conversion_field_chain(self.config.match_key_field)),
+                ),
+            ]
+            if self.config.drill_down_level == MarketingAnalyticsDrillDownLevel.CAMPAIGN:
+                join_conditions.append(
+                    ast.CompareOperation(
+                        left=ast.Field(chain=self.config.get_campaign_cost_field_chain(self.config.source_field)),
+                        op=ast.CompareOperationOp.Eq,
+                        right=ast.Field(chain=self.config.get_unified_conversion_field_chain(self.config.source_field)),
+                    )
+                )
             unified_join = ast.JoinExpr(
-                join_type=join_type,
+                join_type="LEFT JOIN",
                 table=ast.Field(chain=[UNIFIED_CONVERSION_GOALS_CTE_ALIAS]),
                 alias=self.config.unified_conversion_goals_cte_alias,
                 constraint=ast.JoinConstraint(
-                    expr=ast.And(
-                        exprs=[
-                            # Join on match_key - adapters output campaign_name or campaign_id based on team prefs
-                            # Conversion goals always use utm_campaign as match_key
-                            ast.CompareOperation(
-                                left=ast.Field(
-                                    chain=self.config.get_campaign_cost_field_chain(self.config.match_key_field)
-                                ),
-                                op=ast.CompareOperationOp.Eq,
-                                right=ast.Field(
-                                    chain=self.config.get_unified_conversion_field_chain(self.config.match_key_field)
-                                ),
-                            ),
-                            ast.CompareOperation(
-                                left=ast.Field(
-                                    chain=self.config.get_campaign_cost_field_chain(self.config.source_field)
-                                ),
-                                op=ast.CompareOperationOp.Eq,
-                                right=ast.Field(
-                                    chain=self.config.get_unified_conversion_field_chain(self.config.source_field)
-                                ),
-                            ),
-                        ]
-                    ),
+                    expr=ast.And(exprs=join_conditions) if len(join_conditions) > 1 else join_conditions[0],
                     constraint_type="ON",
                 ),
             )

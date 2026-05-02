@@ -41,7 +41,8 @@ async function rasterizeRecordingActivity(
     const activityStart = process.hrtime()
     const id = randomUUID()
     const workDir = process.env.VIDEO_WORK_DIR || os.tmpdir()
-    const outputPath = path.join(workDir, `ph-video-${id}.mp4`)
+    const ext = input.output_format || 'mp4'
+    const outputPath = path.join(workDir, `ph-video-${id}.${ext}`)
 
     const timings: ActivityTimings = { total_s: 0, setup_s: 0, capture_s: 0, upload_s: 0 }
 
@@ -72,7 +73,8 @@ async function rasterizeRecordingActivity(
         progress.phase = 'upload'
         onProgress()
         const uploadStart = process.hrtime()
-        const s3Uri = await uploadToS3(outputPath, input.s3_bucket, input.s3_key_prefix, id, onProgress)
+        const format = input.output_format || 'mp4'
+        const s3Uri = await uploadToS3(outputPath, input.s3_bucket, input.s3_key_prefix, id, format, onProgress)
         timings.upload_s = elapsed(uploadStart)
         RasterizationMetrics.observeUpload('success', timings.upload_s)
 

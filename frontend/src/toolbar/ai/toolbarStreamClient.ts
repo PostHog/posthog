@@ -57,13 +57,13 @@ export function streamConversation(options: ToolbarStreamOptions): AbortControll
 async function runStream(options: ToolbarStreamOptions, controller: AbortController): Promise<void> {
     const logic = toolbarConfigLogic.findMounted()
     const accessToken = logic?.values.accessToken
-    const apiHost = logic?.values.apiHost
+    const uiHost = logic?.values.uiHost
 
-    if (!accessToken || !apiHost) {
+    if (!accessToken || !uiHost) {
         throw new Error('Toolbar not authenticated')
     }
 
-    const url = `${apiHost}${CONVERSATION_PATH}`
+    const url = `${uiHost}${CONVERSATION_PATH}`
     const body = JSON.stringify({
         content: options.content,
         conversation: options.conversationId,

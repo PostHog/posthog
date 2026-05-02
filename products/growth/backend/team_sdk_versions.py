@@ -1,9 +1,9 @@
 import json
 from collections import defaultdict
-from typing import Optional
 
 import redis
 import structlog
+from structlog.stdlib import BoundLogger
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from posthog.schema import HogQLQueryResponse
@@ -18,7 +18,7 @@ from posthog.models import Team
 from products.growth.backend.constants import SDK_CACHE_EXPIRY, SdkVersionEntry, team_sdk_versions_key
 from products.growth.dags.github_sdk_versions import SDK_TYPES
 
-default_logger = structlog.get_logger(__name__)
+default_logger: BoundLogger = structlog.get_logger(__name__)
 
 QUERY = parse_select("""
     SELECT
@@ -56,8 +56,8 @@ def run_query(team: Team) -> HogQLQueryResponse:
 def get_sdk_versions_for_team(
     team_id: int,
     *,
-    logger=default_logger,
-) -> Optional[dict[str, list[SdkVersionEntry]]]:
+    logger: BoundLogger = default_logger,
+) -> dict[str, list[SdkVersionEntry]] | None:
     """
     Query ClickHouse for events in the last 7 days and extract SDK usage.
     Returns dict of SDK versions with minimal data, grouped by lib type.
@@ -91,8 +91,8 @@ def get_and_cache_team_sdk_versions(
     team_id: int,
     redis_client: redis.Redis,
     *,
-    logger=default_logger,
-) -> Optional[dict[str, list[SdkVersionEntry]]]:
+    logger: BoundLogger = default_logger,
+) -> dict[str, list[SdkVersionEntry]] | None:
     """
     Query ClickHouse for team SDK versions and cache the result.
     Used by the SDK Doctor API for on-demand cache-miss fallback.

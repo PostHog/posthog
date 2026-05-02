@@ -1,7 +1,9 @@
+import './LLMAnalyticsTraceScene.scss'
+
 import clsx from 'clsx'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
 import {
@@ -40,7 +42,6 @@ import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRec
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
-import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { IconWithCount } from 'lib/lemon-ui/icons/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
@@ -58,6 +59,8 @@ import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, SidePanelTab } from '~/types'
 
 import { ClustersTabContent } from './components/ClustersTabContent'
+import { CostBreakdownTooltip } from './components/CostBreakdownTooltip'
+import { EvalResultBadges } from './components/EvalResultBadges'
 import { EvalsTabContent } from './components/EvalsTabContent'
 import { EventContentDisplayAsync, EventContentGeneration } from './components/EventContentWithAsyncData'
 import { FeedbackTag } from './components/FeedbackTag'
@@ -72,7 +75,7 @@ import { ParametersHeader } from './ConversationDisplay/ParametersHeader'
 import { SaveToDatasetButton } from './datasets/SaveToDatasetButton'
 import { FeedbackViewDisplay } from './feedback-view/FeedbackViewDisplay'
 import { useAIData } from './hooks/useAIData'
-import { EnrichedTraceTreeNode, llmAnalyticsTraceDataLogic } from './llmAnalyticsTraceDataLogic'
+import { EnrichedTraceTreeNode, findNodeForEvent, llmAnalyticsTraceDataLogic } from './llmAnalyticsTraceDataLogic'
 import { DisplayOption, TraceViewMode, llmAnalyticsTraceLogic } from './llmAnalyticsTraceLogic'
 import { llmGenerationSentimentLazyLoaderLogic } from './llmGenerationSentimentLazyLoaderLogic'
 import { LLMInputOutput } from './LLMInputOutput'
@@ -92,14 +95,17 @@ import { traceReviewsLazyLoaderLogic } from './traceReviews/traceReviewsLazyLoad
 import { getTraceReviewTagItems } from './traceReviews/TraceReviewValue'
 import { usePosthogAIBillingCalculations } from './usePosthogAIBillingCalculations'
 import {
+    CostContext,
+    costContextFromProperties,
+    costContextFromTrace,
     formatLLMCost,
     formatLLMEventTitle,
     formatLLMLatency,
     formatLLMUsage,
     getEventType,
-    getSessionID,
     getSessionStartTimestamp,
     getTraceTimestamp,
+    hasCostBreakdown,
     isLLMEvent,
     normalizeMessages,
     removeMilliseconds,
@@ -486,7 +492,7 @@ function TraceSceneWrapper(): JSX.Element {
             ) : !trace ? (
                 <NotFound object="trace" />
             ) : (
-                <div className="relative flex flex-col gap-3">
+                <div className="LLMAnalyticsTraceScene__wrapper relative flex flex-col gap-3">
                     <div className="flex flex-col gap-4">
                         <SceneTitleSection
                             name={trace.id}
@@ -592,6 +598,45 @@ function UsageChip({ event }: { event: LLMTraceEvent | LLMTrace }): JSX.Element 
             {usage}
         </Chip>
     ) : null
+}
+
+function CostChip({
+    costContext,
+    billedTotalUsd,
+    billedCredits,
+    markupUsd,
+    showBillingInfo,
+}: {
+    costContext: CostContext
+    billedTotalUsd?: number
+    billedCredits?: number
+    markupUsd?: number
+    showBillingInfo?: boolean
+}): JSX.Element {
+    const hasBreakdown = hasCostBreakdown(costContext)
+    const hasBilling = showBillingInfo && typeof billedTotalUsd === 'number' && billedTotalUsd > 0
+
+    const tooltipContent =
+        hasBreakdown || hasBilling ? (
+            <CostBreakdownTooltip costContext={costContext}>
+                {hasBilling && (
+                    <>
+                        <hr className="my-0.5 border-border" />
+                        <div>Billed: {formatLLMCost(billedTotalUsd!)}</div>
+                        {typeof markupUsd === 'number' && markupUsd > 0 && (
+                            <div>Markup (20%): {formatLLMCost(markupUsd)}</div>
+                        )}
+                        {typeof billedCredits === 'number' && <div>Credits: {billedCredits}</div>}
+                    </>
+                )}
+            </CostBreakdownTooltip>
+        ) : undefined
+
+    return (
+        <Chip title="Total cost" tooltipTitle={tooltipContent} icon={<IconReceipt />}>
+            {formatLLMCost(costContext.totalCost)}
+        </Chip>
+    )
 }
 
 function TraceWorkflowPanel({ traceId }: { traceId: string }): JSX.Element {
@@ -807,7 +852,7 @@ function TraceWorkflowPanel({ traceId }: { traceId: string }): JSX.Element {
     }
 
     return (
-        <div className="border border-primary bg-surface-primary rounded overflow-hidden">
+        <div className="border border-primary bg-surface-primary rounded overflow-hidden shrink-0">
             <LemonCollapse
                 embedded
                 size="small"
@@ -936,6 +981,8 @@ function TraceMetadata({
         })
     }
 
+    const traceCostContext = costContextFromTrace(trace)
+
     const cached = personsCache[trace.distinctId]
 
     const personData = cached
@@ -983,35 +1030,14 @@ function TraceMetadata({
                 </Chip>
             )}
             <UsageChip event={trace} />
-            {typeof trace.inputCost === 'number' && (
-                <Chip title="Input cost" icon={<IconArrowUp />}>
-                    {formatLLMCost(trace.inputCost)}
-                </Chip>
-            )}
-            {typeof trace.outputCost === 'number' && (
-                <Chip title="Output cost" icon={<IconArrowDown />}>
-                    {formatLLMCost(trace.outputCost)}
-                </Chip>
-            )}
-            {typeof trace.totalCost === 'number' && (
-                <Chip title="Total cost" icon={<IconReceipt />}>
-                    {formatLLMCost(trace.totalCost)}
-                </Chip>
-            )}
-            {showBillingInfo && typeof billedTotalUsd === 'number' && billedTotalUsd > 0 && (
-                <Chip title="Billed total" icon={<span className="text-base">💰</span>}>
-                    billed: {formatLLMCost(billedTotalUsd)}
-                </Chip>
-            )}
-            {showBillingInfo && typeof markupUsd === 'number' && markupUsd > 0 && (
-                <Chip title="Markup (20%)" icon={<span className="text-base">➕</span>}>
-                    markup: {formatLLMCost(markupUsd)}
-                </Chip>
-            )}
-            {showBillingInfo && typeof billedTotalUsd === 'number' && billedTotalUsd > 0 && (
-                <Chip title="Credits spent" icon={<span className="text-base">💳</span>}>
-                    credits: {billedCredits}
-                </Chip>
+            {traceCostContext && (
+                <CostChip
+                    costContext={traceCostContext}
+                    billedTotalUsd={billedTotalUsd}
+                    billedCredits={billedCredits}
+                    markupUsd={markupUsd}
+                    showBillingInfo={showBillingInfo}
+                />
             )}
             {metricEvents.map((metric) => (
                 <MetricTag key={metric.id} properties={metric.properties} />
@@ -1044,12 +1070,11 @@ function TraceSidebar({
     showBillingInfo?: boolean
 }): JSX.Element {
     const traceLogic = useMountedLogic(llmAnalyticsTraceLogic)
-    const traceDataLogic = useMountedLogic(llmAnalyticsTraceDataLogic)
-    const ref = useRef<HTMLDivElement | null>(null)
+    useMountedLogic(llmAnalyticsTraceDataLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { mostRelevantEvent, searchOccurrences } = useValues(traceDataLogic)
+    const { searchOccurrences } = useValues(llmAnalyticsTraceDataLogic)
     const { searchQuery } = useValues(traceLogic)
-    const { setSearchQuery, setEventId } = useActions(traceLogic)
+    const { setSearchQuery } = useActions(traceLogic)
     const showTraceWorkflow = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TRACE_REVIEW]
 
     const [searchValue, setSearchValue] = useState(searchQuery)
@@ -1067,25 +1092,13 @@ function TraceSidebar({
         debouncedSetSearchQuery(value)
     }
 
-    useEffect(() => {
-        if (eventId && ref.current) {
-            const selectedNode = ref.current.querySelector(`[aria-current=true]`)
-            if (selectedNode) {
-                selectedNode.scrollIntoView({ block: 'center' })
-            }
-        }
-    }, [eventId])
-
-    useEffect(() => {
-        if (mostRelevantEvent && searchQuery.trim()) {
-            setEventId(mostRelevantEvent.id)
-        }
-    }, [mostRelevantEvent, searchQuery, setEventId])
-
     return (
-        <aside className="sticky bottom-[var(--scene-padding)] max-h-fit flex flex-col gap-3 w-full md:w-80" ref={ref}>
+        <aside
+            className="flex flex-col gap-3 w-full md:w-80 md:min-h-0 md:self-start md:max-h-full"
+            id="trace-events-sidebar"
+        >
             {showTraceWorkflow ? <TraceWorkflowPanel traceId={trace.id} /> : null}
-            <div className="border border-primary bg-surface-primary rounded overflow-hidden flex flex-col">
+            <div className="border border-primary bg-surface-primary rounded overflow-hidden flex flex-col flex-1 min-h-0">
                 <h3 className="font-medium text-sm px-2 my-2">Tree</h3>
                 <LemonDivider className="m-0" />
                 <div className="p-2">
@@ -1113,7 +1126,7 @@ function TraceSidebar({
                         <EventTypeFilters />
                     </div>
                 </div>
-                <ul className="overflow-y-auto p-1 *:first:mt-0 overflow-x-hidden">
+                <ul className="flex-1 min-h-0 overflow-y-auto p-1 *:first:mt-0 overflow-x-hidden">
                     <TreeNode
                         topLevelTrace={trace}
                         node={{
@@ -1411,21 +1424,6 @@ function EventContentDisplay({
     )
 }
 
-function findNodeForEvent(tree: EnrichedTraceTreeNode[], eventId: string): EnrichedTraceTreeNode | null {
-    for (const node of tree) {
-        if (node.event.id === eventId) {
-            return node
-        }
-        if (node.children) {
-            const result = findNodeForEvent(node.children, eventId)
-            if (result) {
-                return result
-            }
-        }
-    }
-    return null
-}
-
 const EventContent = React.memo(
     ({
         trace,
@@ -1443,18 +1441,31 @@ const EventContent = React.memo(
         showBillingInfo?: boolean
     }): JSX.Element => {
         const traceLogic = useMountedLogic(llmAnalyticsTraceLogic)
+        const traceDataLogic = useMountedLogic(llmAnalyticsTraceDataLogic)
         const { featureFlags } = useValues(featureFlagLogic)
         const { displayOption, lineNumber, initialTab, viewMode, highlightMessageIndex } = useValues(traceLogic)
+        const { effectiveEventId } = useValues(traceDataLogic)
         const { handleTextViewFallback, copyLinePermalink, setViewMode } = useActions(traceLogic)
+        const { sessionId, selectedNode } = useValues(traceDataLogic)
 
-        const node = event && isLLMEvent(event) ? findNodeForEvent(tree, event.id) : null
-        const aggregation = node?.aggregation || null
+        const aggregation = selectedNode?.aggregation || null
 
-        const childEventsForSessionId: LLMTraceEvent[] | undefined = node?.children?.map((child) => child.event)
-        const sessionId = event ? getSessionID(event, childEventsForSessionId) : null
         const hasSessionRecording = !!sessionId
 
         const isGenerationEvent = event && isLLMEvent(event) && event.event === '$ai_generation'
+
+        // Check if the originally selected event (effectiveEventId) is a generation event
+        // This ensures the Evaluations tab stays visible even when viewing Summary at trace level.
+        // When effectiveEventId is null (e.g. tab=summary suppresses auto-selection), fall back to
+        // the first generation in the tree so the Evals tab remains visible.
+        const firstGenerationNode = tree.find((node) => node.event.event === '$ai_generation') ?? null
+        const effectiveEventNode = effectiveEventId ? findNodeForEvent(tree, effectiveEventId) : firstGenerationNode
+        const isEffectiveEventGeneration = effectiveEventNode?.event.event === '$ai_generation'
+        const effectiveGenerationEvent = isGenerationEvent
+            ? event
+            : isEffectiveEventGeneration
+              ? effectiveEventNode.event
+              : undefined
 
         const promptName = event && isLLMEvent(event) ? event.properties['$ai_prompt_name'] : null
         const promptVersion = event && isLLMEvent(event) ? event.properties['$ai_prompt_version'] : null
@@ -1464,7 +1475,7 @@ const EventContent = React.memo(
 
         const showSaveToDatasetButton = featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DATASETS]
 
-        const showEvalsTab = isGenerationEvent && featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS]
+        const showEvalsTab = effectiveGenerationEvent && !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS]
 
         const showSummaryTab =
             featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SUMMARIZATION] ||
@@ -1495,11 +1506,11 @@ const EventContent = React.memo(
             const provider = event.properties.$ai_provider
             const tools = event.properties.$ai_tools
 
-            openInPlayground({ model, provider, input: loadedInput, tools })
+            openInPlayground({ model, provider, input: loadedInput, output: loadedOutput, tools })
         }
 
         return (
-            <div className="flex-1 bg-surface-primary max-h-fit border rounded flex flex-col border-primary p-4 overflow-y-auto">
+            <div className="flex-1 min-h-0 md:min-w-0 md:self-start md:max-h-full bg-surface-primary border rounded flex flex-col border-primary p-4 overflow-y-auto">
                 {!event ? (
                     <InsightEmptyState heading="Event not found" detail="Check if the event ID is correct." />
                 ) : (
@@ -1526,7 +1537,7 @@ const EventContent = React.memo(
                                     outputTokens={event.properties.$ai_output_tokens}
                                     cacheReadTokens={event.properties.$ai_cache_read_input_tokens}
                                     cacheWriteTokens={event.properties.$ai_cache_creation_input_tokens}
-                                    totalCostUsd={event.properties.$ai_total_cost_usd}
+                                    costContext={costContextFromProperties(event.properties)}
                                     model={event.properties.$ai_model}
                                     latency={event.properties.$ai_latency}
                                     timestamp={event.createdAt}
@@ -1537,29 +1548,36 @@ const EventContent = React.memo(
                                 <MetadataHeader
                                     inputTokens={event.inputTokens}
                                     outputTokens={event.outputTokens}
-                                    totalCostUsd={event.totalCost}
+                                    costContext={costContextFromTrace(event)}
                                     latency={event.totalLatency}
                                     timestamp={event.createdAt}
                                 />
                             )}
                             {isLLMEvent(event) && <ParametersHeader eventProperties={event.properties} />}
-                            {aggregation && (
-                                <div className="flex flex-row flex-wrap items-center gap-2">
-                                    {aggregation.totalCost > 0 && (
-                                        <LemonTag type="muted" size="small">
-                                            Total Cost: {formatLLMCost(aggregation.totalCost)}
-                                        </LemonTag>
+                            {(aggregation || showEvalsTab) && (
+                                <div className="flex flex-col gap-1">
+                                    {aggregation && (
+                                        <div className="flex flex-row flex-wrap items-center gap-2">
+                                            {aggregation.totalCost > 0 && (
+                                                <LemonTag type="muted" size="small">
+                                                    Total Cost: {formatLLMCost(aggregation.totalCost)}
+                                                </LemonTag>
+                                            )}
+                                            {aggregation.totalLatency > 0 && (
+                                                <LemonTag type="muted" size="small">
+                                                    Total Latency: {formatLLMLatency(aggregation.totalLatency)}
+                                                </LemonTag>
+                                            )}
+                                            {(aggregation.inputTokens > 0 || aggregation.outputTokens > 0) && (
+                                                <LemonTag type="muted" size="small">
+                                                    Tokens: {aggregation.inputTokens} → {aggregation.outputTokens} (∑{' '}
+                                                    {aggregation.inputTokens + aggregation.outputTokens})
+                                                </LemonTag>
+                                            )}
+                                        </div>
                                     )}
-                                    {aggregation.totalLatency > 0 && (
-                                        <LemonTag type="muted" size="small">
-                                            Total Latency: {formatLLMLatency(aggregation.totalLatency)}
-                                        </LemonTag>
-                                    )}
-                                    {(aggregation.inputTokens > 0 || aggregation.outputTokens > 0) && (
-                                        <LemonTag type="muted" size="small">
-                                            Tokens: {aggregation.inputTokens} → {aggregation.outputTokens} (∑{' '}
-                                            {aggregation.inputTokens + aggregation.outputTokens})
-                                        </LemonTag>
+                                    {showEvalsTab && (
+                                        <EvalResultBadges generationEventId={effectiveGenerationEvent.id} />
                                     )}
                                 </div>
                             )}
@@ -1617,6 +1635,7 @@ const EventContent = React.memo(
                                             data-attr="llm-analytics"
                                             sessionId={sessionId || undefined}
                                             timestamp={removeMilliseconds(event.createdAt)}
+                                            checkRecordingExists
                                         />
                                     )}
                                 </div>
@@ -1756,9 +1775,9 @@ const EventContent = React.memo(
                                               'data-attr': 'llma-trace-evals-tab',
                                               content: (
                                                   <EvalsTabContent
-                                                      generationEventId={event.id}
-                                                      timestamp={event.createdAt}
-                                                      event={event.event}
+                                                      generationEventId={effectiveGenerationEvent.id}
+                                                      timestamp={effectiveGenerationEvent.createdAt}
+                                                      event={effectiveGenerationEvent.event}
                                                       distinctId={trace.distinctId}
                                                   />
                                               ),
