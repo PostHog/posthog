@@ -107,6 +107,27 @@ describe('handleTrendsBarChartClick', () => {
         }
     )
 
+    it('passes indexedResults[0] (not the clicked dataset) as the second arg to onDataPointClick', () => {
+        // Legacy parity with ActionsLineGraph — the second arg is always the first
+        // result, regardless of which series was clicked. Locking this in so a refactor
+        // doesn't silently switch to passing the clicked dataset.
+        const openPersonsModal = jest.fn()
+        const onDataPointClick = jest.fn()
+        const firstResult = makeTrendResult({ id: 0, label: 'first' })
+        const secondResult = makeTrendResult({ id: 1, label: 'second' })
+        const deps = makeDeps({
+            openPersonsModal,
+            indexedResults: [firstResult, secondResult],
+            context: { onDataPointClick },
+        })
+
+        handleTrendsBarChartClick(keyFor(secondResult), 1, deps)
+
+        expect(onDataPointClick).toHaveBeenCalledTimes(1)
+        expect(onDataPointClick.mock.calls[0][1]).toBe(firstResult)
+        expect(onDataPointClick.mock.calls[0][1]).not.toBe(secondResult)
+    })
+
     it('does nothing when hasPersonsModal is false and no context callback', () => {
         const openPersonsModal = jest.fn()
         const trendResult = makeTrendResult()

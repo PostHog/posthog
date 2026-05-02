@@ -207,7 +207,6 @@ export function TrendsBarChart({ context }: TrendsBarChartProps): JSX.Element | 
             baseCurrency,
             resolvedGroupTypeLabel,
             context?.formatCompareLabel,
-            canHandleClick,
             clickDeps,
         ]
     )
