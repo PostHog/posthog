@@ -57,6 +57,15 @@
     }
 
     /* Vertical, spacing=0 */
+    .quill-toggle-group[data-orientation='vertical'][data-spacing='0'] {
+        box-shadow: var(--shadow-sm);
+    }
+
+    .quill-toggle-group[data-orientation='vertical'][data-spacing='0'] .quill-toggle-group__item {
+        box-shadow: none;
+        translate: 0 0;
+    }
+
     .quill-toggle-group[data-orientation='vertical'][data-spacing='0'] .quill-toggle-group__item:first-child {
         border-start-start-radius: var(--radius-sm);
         border-start-end-radius: var(--radius-sm);
