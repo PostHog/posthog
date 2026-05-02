@@ -100,7 +100,6 @@ class ProductScore:
     display_name: str = ""
     owners: list[str] = field(default_factory=list)
     dimensions: list[DimensionScore] = field(default_factory=list)
-    codegen_raw: dict | None = None  # raw codegen_adoption() metrics for fleet aggregation
 
     @property
     def overall(self) -> int | None:
@@ -518,22 +517,19 @@ def score_codegen(product_dir: Path) -> DimensionScore:
         return DimensionScore("codegen", 0, "no API usage")
 
     score = 0
-    parts = []
+    total_calls = used + manual
 
     if used > 0:
         score += 40
-        parts.append(f"{used} generated endpoints used")
-    else:
-        parts.append("0 generated used")
 
-    total_calls = used + manual
     if total_calls > 0:
         score += round(60 * used / total_calls)
+        call_pct = round(100 * used / total_calls)
+        detail = f"{call_pct}% of calls use generated client ({used} generated, {manual} manual)"
+    else:
+        detail = "0 generated used"
 
-    if manual > 0:
-        parts.append(f"{manual} manual")
-
-    return DimensionScore("codegen", score, ", ".join(parts))
+    return DimensionScore("codegen", score, detail)
 
 
 # ---------------------------------------------------------------------------
@@ -571,9 +567,6 @@ def score_product(
         score_boundaries(name, product_dir, inbound_map),
         score_codegen(product_dir),
     ]
-    frontend_dir = product_dir / "frontend"
-    if frontend_dir.exists():
-        ps.codegen_raw = codegen_adoption(frontend_dir)
     return ps
 
 
@@ -657,21 +650,7 @@ def generate_report(scores: list[ProductScore]) -> str:
         mid = sum(1 for s in applicable if 50 <= (s.overall or 0) < 80)
         low = sum(1 for s in applicable if (s.overall or 0) < 50)
         lines.append(f"{len(applicable)} products, avg {avg}/100  ({high} high, {mid} mid, {low} low)")
-
-    # Fleet codegen summary
-    fleet_available = sum(s.codegen_raw["generated_available"] for s in scores if s.codegen_raw)
-    fleet_used = sum(s.codegen_raw["generated_used"] for s in scores if s.codegen_raw)
-    fleet_manual = sum(s.codegen_raw["manual_calls"] for s in scores if s.codegen_raw)
-    fleet_total = fleet_used + fleet_manual
-    if fleet_available > 0 or fleet_manual > 0:
-        avail_pct = f"{round(100 * fleet_used / fleet_available)}%" if fleet_available > 0 else "n/a"
-        call_pct = f"{round(100 * fleet_used / fleet_total)}%" if fleet_total > 0 else "n/a"
-        lines.append(
-            f"Codegen: {fleet_used}/{fleet_available} generated endpoints adopted ({avail_pct} of available)"
-            f"  |  {fleet_manual} manual calls remaining"
-            f"  |  {call_pct} of all calls use generated client"
-        )
-    lines.append("")
+        lines.append("")
 
     # Find max product name length for alignment
     scored = [ps for ps in scores if ps.overall is not None]
