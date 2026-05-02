@@ -702,6 +702,10 @@ def _default_event_info_ttl(*, has_pageview: bool, has_screen: bool) -> int | No
     return None
 
 
+def invalidate_default_event_info_cache(team_id: int) -> None:
+    safe_cache_delete(_default_event_info_cache_key(team_id))
+
+
 def get_default_event_name(team: "Team") -> str | None:
     return get_default_event_info(team)["default_event_name"]
 

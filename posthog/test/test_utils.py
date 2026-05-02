@@ -407,6 +407,50 @@ class TestDefaultEventName(BaseTest):
         assert args[0] == _default_event_info_cache_key(self.team.id)
         assert kwargs["timeout"] == expected_ttl
 
+    def test_cache_invalidated_when_default_event_definition_deleted(self):
+        ed = EventDefinition.objects.create(name="$pageview", team=self.team)
+        # warm the cache
+        assert get_default_event_info(self.team)["has_pageview"] is True
+        with self.assertNumQueries(0):
+            assert get_default_event_info(self.team)["has_pageview"] is True
+
+        ed.delete()
+        # cache should now be cold and reflect the new ground truth
+        assert get_default_event_info(self.team)["has_pageview"] is False
+
+    def test_cache_invalidated_when_default_event_definition_renamed_away(self):
+        ed = EventDefinition.objects.create(name="$pageview", team=self.team)
+        assert get_default_event_info(self.team)["has_pageview"] is True
+
+        ed.name = "pageview_legacy"
+        ed.save()
+        # rename of the cached default event must bust the cache
+        assert get_default_event_info(self.team)["has_pageview"] is False
+
+    def test_cache_invalidated_when_default_event_definition_renamed_in(self):
+        ed = EventDefinition.objects.create(name="legacy_event", team=self.team)
+        assert get_default_event_info(self.team)["has_pageview"] is False
+
+        ed.name = "$pageview"
+        ed.save()
+        # renaming an event into one of the defaults must bust the cache
+        assert get_default_event_info(self.team)["has_pageview"] is True
+
+    def test_cache_not_invalidated_when_unrelated_event_definition_changed(self):
+        EventDefinition.objects.create(name="$pageview", team=self.team)
+        EventDefinition.objects.create(name="$screen", team=self.team)
+        # warm the both-present cache
+        assert get_default_event_info(self.team) == {
+            "default_event_name": "$pageview",
+            "has_pageview": True,
+            "has_screen": True,
+        }
+
+        # creating an unrelated event definition should NOT bust the cache
+        EventDefinition.objects.create(name="custom_event", team=self.team)
+        with self.assertNumQueries(0):
+            get_default_event_info(self.team)
+
 
 class TestLoadDataFromRequest(TestCase):
     def _create_request_with_headers(self, origin: str, referer: str) -> WSGIRequest:
