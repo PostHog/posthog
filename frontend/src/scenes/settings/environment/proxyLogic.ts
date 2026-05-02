@@ -28,6 +28,42 @@ export type ProxyRecord = {
 
 export type FormState = 'collapsed' | 'active'
 
+export type DiagnosticCheckStatus = 'pass' | 'warn' | 'fail' | 'skip'
+export type DiagnosticSummaryStatus = 'healthy' | 'warn' | 'fail'
+export type DiagnosticRemediationType = 'dns' | 'config' | 'wait' | 'retry'
+
+export type DiagnosticDnsRecord = {
+    name: string
+    type: string
+    value: string
+}
+
+export type DiagnosticRemediation = {
+    type: DiagnosticRemediationType
+    summary: string
+    records: DiagnosticDnsRecord[]
+}
+
+export type DiagnosticCheckResult = {
+    id: string
+    name: string
+    status: DiagnosticCheckStatus
+    detail: string
+    remediation?: DiagnosticRemediation | null
+}
+
+export type DiagnosticReportSummary = {
+    status: DiagnosticSummaryStatus
+    primary_issue: string | null
+    next_action: string | null
+}
+
+export type DiagnosticReport = {
+    ran_at: string
+    summary: DiagnosticReportSummary
+    checks: DiagnosticCheckResult[]
+}
+
 export function domainFor(proxyRecord: ProxyRecord | undefined): string {
     if (!proxyRecord) {
         return apiHostOrigin()
@@ -84,6 +120,10 @@ export const proxyLogic = kea<proxyLogicType>([
         acknowledgeCloudflareOptIn: true,
         setCloudflareOptInChecked: (checked: boolean) => ({ checked }),
         setMaxProxyRecords: (maxProxyRecords: number) => ({ maxProxyRecords }),
+        diagnose: (id: ProxyRecord['id']) => ({ id }),
+        diagnoseSuccess: (id: ProxyRecord['id'], report: DiagnosticReport) => ({ id, report }),
+        diagnoseFailure: (id: ProxyRecord['id'], error: string) => ({ id, error }),
+        clearDiagnosticReport: (id: ProxyRecord['id']) => ({ id }),
     })),
     reducers(() => ({
         formState: ['collapsed' as FormState, { showForm: () => 'active', collapseForm: () => 'collapsed' }],
@@ -105,6 +145,24 @@ export const proxyLogic = kea<proxyLogicType>([
             2 as number, // default matching backend DEFAULT_MAX_PROXY_RECORDS
             {
                 setMaxProxyRecords: (_, { maxProxyRecords }) => maxProxyRecords,
+            },
+        ],
+        diagnosticReports: [
+            {} as Record<string, DiagnosticReport>,
+            {
+                diagnoseSuccess: (state, { id, report }) => ({ ...state, [id]: report }),
+                clearDiagnosticReport: (state, { id }) => {
+                    const { [id]: _removed, ...rest } = state
+                    return rest
+                },
+            },
+        ],
+        diagnoseLoadingIds: [
+            [] as string[],
+            {
+                diagnose: (state, { id }) => (state.includes(id) ? state : [...state, id]),
+                diagnoseSuccess: (state, { id }) => state.filter((existingId) => existingId !== id),
+                diagnoseFailure: (state, { id }) => state.filter((existingId) => existingId !== id),
             },
         ],
     })),
@@ -165,6 +223,18 @@ export const proxyLogic = kea<proxyLogicType>([
         maybeRefreshRecords: () => {
             if (values.shouldRefreshRecords) {
                 actions.loadRecords()
+            }
+        },
+        diagnose: async ({ id }) => {
+            try {
+                const report = (await api.create(
+                    `api/organizations/${values.currentOrganizationId}/proxy_records/${id}/diagnose`
+                )) as DiagnosticReport
+                actions.diagnoseSuccess(id, report)
+            } catch (e) {
+                const message = e instanceof Error ? e.message : String(e)
+                actions.diagnoseFailure(id, message)
+                lemonToast.error(`Diagnose failed: ${message}`)
             }
         },
     })),

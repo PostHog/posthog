@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { IconEllipsis, IconInfo } from '@posthog/icons'
+import { IconCheckCircle, IconEllipsis, IconInfo, IconWarning, IconX } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -27,7 +27,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { isKeyOf } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
-import { ProxyRecord, proxyLogic } from './proxyLogic'
+import { DiagnosticCheckResult, DiagnosticCheckStatus, DiagnosticReport, ProxyRecord, proxyLogic } from './proxyLogic'
 import { ProxySDKSetup } from './ProxySDKSetup'
 
 const statusText = {
@@ -36,9 +36,17 @@ const statusText = {
 }
 
 export function ManagedReverseProxy(): JSX.Element {
-    const { cloudflareOptInAcknowledged, formState, proxyRecords, proxyRecordsLoading, maxProxyRecords } =
-        useValues(proxyLogic)
-    const { acknowledgeCloudflareOptIn, deleteRecord, retryRecord, showForm } = useActions(proxyLogic)
+    const {
+        cloudflareOptInAcknowledged,
+        formState,
+        proxyRecords,
+        proxyRecordsLoading,
+        maxProxyRecords,
+        diagnosticReports,
+        diagnoseLoadingIds,
+    } = useValues(proxyLogic)
+    const { acknowledgeCloudflareOptIn, deleteRecord, retryRecord, diagnose, clearDiagnosticReport, showForm } =
+        useActions(proxyLogic)
     const { preflight } = useValues(preflightLogic)
 
     const cloudflareProxyEnabled = preflight?.instance_preferences?.cloudflare_proxy_enabled
@@ -98,11 +106,17 @@ export function ManagedReverseProxy(): JSX.Element {
             width: 20,
             className: 'flex justify-center',
             render: function Render(_, { id, status }) {
+                const isDiagnosing = diagnoseLoadingIds.includes(id)
                 return (
                     status != 'deleting' &&
                     !restrictionReason && (
                         <LemonMenu
                             items={[
+                                {
+                                    label: isDiagnosing ? 'Running diagnostics…' : 'Diagnose',
+                                    onClick: () => diagnose(id),
+                                    disabledReason: isDiagnosing ? 'A diagnostic is already running' : undefined,
+                                },
                                 ...(status === 'erroring' || status === 'timed_out'
                                     ? [
                                           {
@@ -141,6 +155,8 @@ export function ManagedReverseProxy(): JSX.Element {
         },
     ]
 
+    const reportEntries = Object.entries(diagnosticReports)
+
     // Show opt-in banner if Cloudflare proxy is enabled but not yet acknowledged
     if (cloudflareProxyEnabled && !cloudflareOptInAcknowledged) {
         return (
@@ -155,6 +171,20 @@ export function ManagedReverseProxy(): JSX.Element {
                     <LemonMarkdown>{`**${r.domain}**\n ${r.message}`}</LemonMarkdown>
                 </LemonBanner>
             ))}
+            {reportEntries.map(([recordId, report]) => {
+                const record = proxyRecords.find((r) => r.id === recordId)
+                if (!record) {
+                    return null
+                }
+                return (
+                    <DiagnosticReportPanel
+                        key={recordId}
+                        record={record}
+                        report={report}
+                        onDismiss={() => clearDiagnosticReport(recordId)}
+                    />
+                )
+            })}
             <LemonTable
                 loading={proxyRecords.length === 0 && proxyRecordsLoading}
                 columns={columns}
@@ -391,6 +421,89 @@ const WaitingRecords = (): JSX.Element | null => {
                 (orange cloud), make sure the proxy is <strong>disabled</strong> (gray cloud) for this domain. Enabling
                 the proxy at your DNS provider may interfere with the managed reverse proxy functionality.
             </div>
+        </div>
+    )
+}
+
+const checkStatusIcon = (status: DiagnosticCheckStatus): JSX.Element => {
+    switch (status) {
+        case 'pass':
+            return <IconCheckCircle className="text-success" />
+        case 'warn':
+            return <IconWarning className="text-warning-dark" />
+        case 'fail':
+            return <IconX className="text-danger" />
+        case 'skip':
+            return <IconInfo className="text-secondary" />
+    }
+}
+
+const summaryBannerType = (status: DiagnosticReport['summary']['status']): 'success' | 'warning' | 'error' => {
+    if (status === 'healthy') {
+        return 'success'
+    }
+    if (status === 'warn') {
+        return 'warning'
+    }
+    return 'error'
+}
+
+function DiagnosticReportPanel({
+    record,
+    report,
+    onDismiss,
+}: {
+    record: ProxyRecord
+    report: DiagnosticReport
+    onDismiss: () => void
+}): JSX.Element {
+    return (
+        <div className="bg-surface-primary rounded border px-5 py-4 flex flex-col gap-3">
+            <div className="flex items-start justify-between gap-2">
+                <div>
+                    <div className="text-base font-semibold">Diagnostic report — {record.domain}</div>
+                    <div className="text-xs text-secondary">Ran {new Date(report.ran_at).toLocaleString()}</div>
+                </div>
+                <LemonButton size="xsmall" type="tertiary" onClick={onDismiss}>
+                    Dismiss
+                </LemonButton>
+            </div>
+            <LemonBanner type={summaryBannerType(report.summary.status)}>
+                <div className="font-semibold capitalize">{report.summary.status}</div>
+                {report.summary.next_action && <div>{report.summary.next_action}</div>}
+            </LemonBanner>
+            <div className="flex flex-col gap-2">
+                {report.checks.map((check) => (
+                    <DiagnosticCheckRow key={check.id} check={check} />
+                ))}
+            </div>
+        </div>
+    )
+}
+
+function DiagnosticCheckRow({ check }: { check: DiagnosticCheckResult }): JSX.Element {
+    return (
+        <div className="border rounded p-3 flex flex-col gap-2 bg-surface-secondary">
+            <div className="flex items-center gap-2">
+                {checkStatusIcon(check.status)}
+                <span className="font-semibold">{check.name}</span>
+                <span className="text-xs text-secondary capitalize">({check.status})</span>
+            </div>
+            <div className="text-sm">{check.detail}</div>
+            {check.remediation && (
+                <div className="border-t pt-2 mt-1 flex flex-col gap-2">
+                    <div className="text-sm font-semibold">{check.remediation.summary}</div>
+                    {check.remediation.records.length > 0 && (
+                        <div className="flex flex-col gap-1">
+                            {check.remediation.records.map((dnsRecord, i) => (
+                                <CodeSnippet key={i} language={Language.HTTP}>
+                                    {`${dnsRecord.name}\t${dnsRecord.type}\t${dnsRecord.value}`}
+                                </CodeSnippet>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            )}
         </div>
     )
 }
