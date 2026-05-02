@@ -2130,5 +2130,58 @@ LIMIT 1000000",
       },
     },
   ],
+  [
+    "api/environments/997/query/HogQLQuery",
+    {
+      "client_query_id": undefined,
+      "filters_override": undefined,
+      "query": {
+        "kind": "HogQLQuery",
+        "query": "
+                            SELECT properties, uuid
+                            FROM events
+                            -- the timestamp range here is only to avoid querying too much of the events table
+                            -- we don't really care about the absolute value,
+                            -- but we do care about whether timezones have an odd impact
+                            -- so, we extend the range by a day on each side so that timezones don't cause issues
+                            WHERE timestamp > '2021-12-08 19:35:59'
+                            AND timestamp < '2021-12-10 19:36:59'
+                            AND event in ['$pageview']
+                            AND uuid in ['$pageview1', '$pageview2']",
+        "tags": {
+          "productKey": "session_replay",
+          "scene": "ReplaySingle",
+        },
+      },
+      "refresh": undefined,
+      "variables_override": undefined,
+    },
+    {
+      "data": {
+        "client_query_id": undefined,
+        "filters_override": undefined,
+        "query": {
+          "kind": "HogQLQuery",
+          "query": "
+                            SELECT properties, uuid
+                            FROM events
+                            -- the timestamp range here is only to avoid querying too much of the events table
+                            -- we don't really care about the absolute value,
+                            -- but we do care about whether timezones have an odd impact
+                            -- so, we extend the range by a day on each side so that timezones don't cause issues
+                            WHERE timestamp > '2021-12-08 19:35:59'
+                            AND timestamp < '2021-12-10 19:36:59'
+                            AND event in ['$pageview']
+                            AND uuid in ['$pageview1', '$pageview2']",
+          "tags": {
+            "productKey": "session_replay",
+            "scene": "ReplaySingle",
+          },
+        },
+        "refresh": undefined,
+        "variables_override": undefined,
+      },
+    },
+  ],
 ]
 `;

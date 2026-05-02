@@ -7,7 +7,7 @@ from posthog.schema import HogQLQuery, HogQLQueryModifiers
 
 from posthog.hogql import ast
 from posthog.hogql.functions.aggregations import COMBINATORS
-from posthog.hogql.functions.mapping import HOGQL_AGGREGATIONS, find_hogql_aggregation
+from posthog.hogql.functions.mapping import find_hogql_aggregation
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.timings import HogQLTimings
@@ -177,6 +177,15 @@ def get_reaggregation(func_name: str) -> AggregateReaggregation | None:
     if base is None:
         return None
     return REAGGREGATABLE_BASE_FUNCTIONS.get(base)
+
+
+def _is_aggregate(func_name: str) -> bool:
+    """Whether ``func_name`` resolves to a known aggregate, registered or combinator-derived.
+
+    ``find_hogql_aggregation`` only covers names in the registry; combinator-derived names
+    (``sumIf``, ``maxIf``, ``countArrayIf``, …) live outside it and need ``_strip_combinators``.
+    """
+    return find_hogql_aggregation(func_name) is not None or _strip_combinators(func_name) is not None
 
 
 SUPPORTED_MATERIALIZATION_OPS = frozenset(
@@ -383,21 +392,30 @@ class DownstreamCTEPlan:
 class _CTEReferenceCollector(TraversingVisitor):
     """Collect names of sibling CTEs referenced anywhere in an expression subtree.
 
-    A CTE reference appears as ``JoinExpr(table=Field(chain=["cte_name"]))``.
-    We call ``super().visit_join_expr(node)`` so the default recursion
-    (``posthog/hogql/visitor.py:213``) continues into nested subqueries
-    and the ``next_join`` chain.
+    A nested ``WITH`` defining the same name shadows the outer sibling, so references
+    inside the nested scope are excluded.
     """
 
     def __init__(self, known_ctes: set[str]):
         super().__init__()
-        self.known = known_ctes
+        self._known_stack: list[set[str]] = [known_ctes]
         self.referenced: set[str] = set()
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        shadowed = (set(node.ctes.keys()) & self._known_stack[-1]) if node.ctes else set()
+        if shadowed:
+            self._known_stack.append(self._known_stack[-1] - shadowed)
+            try:
+                super().visit_select_query(node)
+            finally:
+                self._known_stack.pop()
+        else:
+            super().visit_select_query(node)
 
     def visit_join_expr(self, node: ast.JoinExpr):
         if isinstance(node.table, ast.Field) and len(node.table.chain) == 1:
             name = str(node.table.chain[0])
-            if name in self.known:
+            if name in self._known_stack[-1]:
                 self.referenced.add(name)
         super().visit_join_expr(node)
 
@@ -552,6 +570,69 @@ def _select_from_has_nested_reference(
     return False
 
 
+class _NonTopPropagatingReferenceFinder(TraversingVisitor):
+    """Flag a propagating-CTE reference outside the top-level FROM chain.
+
+    Top-level FROM references are valid propagation sources (handled separately).
+    Anywhere else — scalar subquery in WHERE/SELECT, JOIN ON, LIMIT BY — would need
+    a correlated subquery to carry the variable column, which the transformer can't
+    produce, so the caller must reject. Nested ``WITH`` shadowing an outer name is
+    honored.
+    """
+
+    def __init__(self, propagating: set[str], top_chain_join_ids: set[int]) -> None:
+        super().__init__()
+        self._propagating_stack: list[set[str]] = [propagating]
+        self.top_chain_join_ids = top_chain_join_ids
+        self.found = False
+
+    def visit(self, node: ast.AST | None) -> None:
+        if self.found or node is None:
+            return
+        super().visit(node)
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        shadowed = (set(node.ctes.keys()) & self._propagating_stack[-1]) if node.ctes else set()
+        if shadowed:
+            self._propagating_stack.append(self._propagating_stack[-1] - shadowed)
+            try:
+                super().visit_select_query(node)
+            finally:
+                self._propagating_stack.pop()
+        else:
+            super().visit_select_query(node)
+
+    def visit_join_expr(self, n: ast.JoinExpr) -> None:
+        if self.found:
+            return
+        if id(n) not in self.top_chain_join_ids:
+            if (
+                isinstance(n.table, ast.Field)
+                and len(n.table.chain) == 1
+                and str(n.table.chain[0]) in self._propagating_stack[-1]
+            ):
+                self.found = True
+                return
+        super().visit_join_expr(n)
+
+
+def _body_has_non_top_from_propagating_reference(
+    cte: ast.SelectQuery,
+    propagating: set[str],
+) -> bool:
+    """Return True if any part of ``cte`` other than its top-level ``select_from`` chain
+    references a propagating CTE."""
+    top_chain_join_ids: set[int] = set()
+    cur: Optional[ast.JoinExpr] = cte.select_from
+    while cur is not None:
+        top_chain_join_ids.add(id(cur))
+        cur = cur.next_join
+
+    finder = _NonTopPropagatingReferenceFinder(propagating, top_chain_join_ids)
+    finder.visit(cte)
+    return finder.found
+
+
 def _emits_column(select_query: ast.SelectQuery, column_name: str) -> bool:
     for expr in select_query.select or []:
         name = _select_column_name(expr)
@@ -635,6 +716,16 @@ def _classify_downstream_cte(
             reject_reason="CTE variable propagation requires top-level FROM references; nested subquery reference not supported",
         )
 
+    if _body_has_non_top_from_propagating_reference(cte_expr, propagating):
+        return DownstreamCTEPlan(
+            cte_name=cte_name,
+            shape=DownstreamCTEShape.PROJECTION,
+            reject_reason=(
+                "CTE variable propagation requires top-level FROM references; "
+                "scalar subquery reading from a propagating CTE not supported"
+            ),
+        )
+
     if not sources:
         return DownstreamCTEPlan(
             cte_name=cte_name,
@@ -667,15 +758,13 @@ def _classify_downstream_cte(
 
 
 def _select_has_aggregate(node: ast.SelectQuery) -> bool:
-    agg_names = set(HOGQL_AGGREGATIONS.keys())
-
     class _AggFinder(TraversingVisitor):
         def __init__(self) -> None:
             super().__init__()
             self.found = False
 
         def visit_call(self, n: ast.Call) -> None:
-            if n.name in agg_names:
+            if _is_aggregate(n.name):
                 self.found = True
                 return
             super().visit_call(n)
@@ -889,29 +978,22 @@ def _detect_range_variables(
 def _extract_aggregate_name(expr: ast.Expr) -> Optional[str]:
     """Extract the aggregate function name from a SELECT expression, if any.
 
-    Handles two distinct-count syntaxes:
-    - count(DISTINCT x): HogQL parses as Call(name="count", distinct=True) -> returns "countDistinct"
-    - countDistinct(x): HogQL parses as Call(name="countDistinct") -> returns "countDistinct"
-
-    Also recognizes functions with ClickHouse combinators (e.g., sumIf, countArrayIf)
-    by checking if stripping combinators yields a known base aggregate function.
+    Returns lowercased names so downstream lookups (REAGGREGATABLE_BASE_FUNCTIONS,
+    get_reaggregation) match regardless of source casing. Both count(DISTINCT x) and
+    countDistinct(x) (in any case) collapse to the camelCase sentinel "countDistinct"
+    so they stay out of REAGGREGATABLE_BASE_FUNCTIONS — merging distinct counts via
+    sum would double-count across partitions.
     """
     if isinstance(expr, ast.Alias):
         return _extract_aggregate_name(expr.expr)
     if isinstance(expr, ast.Call):
-        # count(DISTINCT x) and countDistinct(x) are both non-reaggregatable
-        if expr.name == "count" and getattr(expr, "distinct", False):
+        name_lower = expr.name.lower()
+        if name_lower == "count" and getattr(expr, "distinct", False):
             return "countDistinct"
-        if expr.name == "countDistinct":
+        if name_lower == "countdistinct":
             return "countDistinct"
-
-        if find_hogql_aggregation(expr.name):
-            return expr.name
-
-        # Recognize aggregate functions with combinators (e.g., sumIf, countArrayIf)
-        # that aren't in the HogQL aggregation registry
-        if _strip_combinators(expr.name) is not None:
-            return expr.name
+        if _is_aggregate(expr.name):
+            return name_lower
     return None
 
 
@@ -1163,7 +1245,6 @@ class MaterializationTransformer(CloningVisitor):
     @staticmethod
     def _has_aggregate_functions(node: ast.SelectQuery) -> bool:
         """Check if any SELECT expression uses an aggregate function (sum, count, avg, etc.)."""
-        agg_names = set(HOGQL_AGGREGATIONS.keys())
 
         class AggFinder(TraversingVisitor):
             def __init__(self):
@@ -1171,7 +1252,7 @@ class MaterializationTransformer(CloningVisitor):
                 self.found = False
 
             def visit_call(self, node: ast.Call):
-                if node.name in agg_names:
+                if _is_aggregate(node.name):
                     self.found = True
                 else:
                     super().visit_call(node)

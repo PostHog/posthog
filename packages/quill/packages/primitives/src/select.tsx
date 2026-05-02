@@ -60,12 +60,13 @@ function SelectContent({
         <SelectPrimitive.Portal>
             <SelectPrimitive.Positioner
                 data-quill
+                data-quill-portal="popover"
                 side={side}
                 sideOffset={sideOffset}
                 align={align}
                 alignOffset={alignOffset}
                 alignItemWithTrigger={alignItemWithTrigger}
-                className="isolate z-50"
+                className="isolate"
             >
                 <SelectPrimitive.Popup
                     data-slot="select-content"

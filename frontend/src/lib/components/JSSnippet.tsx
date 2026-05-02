@@ -88,11 +88,3 @@ export function JSSnippet(): JSX.Element {
 
     return <CodeSnippet language={Language.HTML}>{snippet}</CodeSnippet>
 }
-
-export function JSSnippetV2(): JSX.Element {
-    const { currentTeam } = useValues(teamLogic)
-
-    const snippet = useJsSnippet(0, `/array/${currentTeam?.api_token}/array.js`)
-
-    return <CodeSnippet language={Language.HTML}>{snippet}</CodeSnippet>
-}

@@ -122,6 +122,74 @@ def _build_query(
     }
 
 
+def get_leading_index_columns_for_schemas(
+    host: str,
+    user: str,
+    password: str,
+    database: str,
+    schema: str,
+    port: int,
+    table_names: list[str],
+) -> dict[str, set[str]] | None:
+    """Return the leading column of each index per table.
+
+    `sys.index_columns.key_ordinal = 1` identifies the first key column of an
+    index. `is_included_column = 0` excludes columns that are only payload of
+    a covering index — those don't accelerate `WHERE col >= …` predicates.
+    `i.has_filter = 0` excludes filtered indexes for the same reason Postgres
+    excludes partial indexes: a filtered index only accelerates queries whose
+    predicate the planner can prove implies the index filter, which the
+    incremental sync's `WHERE col >= last_max` generally won't satisfy. Crediting
+    the leading column would suppress a warning the user genuinely needs.
+    `i.is_disabled = 0` excludes disabled indexes (the planner won't use them).
+    Heap tables (no clustered index) and tables with no indexes return an empty
+    set so the UI warning fires for them.
+
+    Returns None when discovery fails.
+    """
+    import pymssql
+
+    if not table_names:
+        return {}
+
+    result: dict[str, set[str]] = {table: set() for table in table_names}
+
+    try:
+        with pymssql.connect(
+            server=host,
+            port=str(port),
+            database=database,
+            user=user,
+            password=password,
+            login_timeout=5,
+        ) as connection:
+            with connection.cursor(as_dict=False) as cursor:
+                cursor.execute(
+                    """
+                    SELECT t.name AS table_name, c.name AS column_name
+                    FROM sys.indexes i
+                    JOIN sys.index_columns ic ON i.object_id = ic.object_id AND i.index_id = ic.index_id
+                    JOIN sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id
+                    JOIN sys.tables t ON i.object_id = t.object_id
+                    JOIN sys.schemas s ON t.schema_id = s.schema_id
+                    WHERE ic.key_ordinal = 1
+                      AND ic.is_included_column = 0
+                      AND i.has_filter = 0
+                      AND i.is_disabled = 0
+                      AND s.name = %(schema)s
+                      AND t.name IN %(names)s
+                    """,
+                    {"schema": schema, "names": tuple(table_names)},
+                )
+                for table_name, column_name in cursor.fetchall() or []:
+                    result.setdefault(table_name, set()).add(column_name)
+    except Exception as e:
+        structlog.get_logger().warning("Failed to detect leading index columns for MSSQL schemas", exc_info=e)
+        return None
+
+    return result
+
+
 def get_primary_keys_for_schemas(
     host: str,
     user: str,

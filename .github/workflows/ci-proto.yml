@@ -6,6 +6,10 @@ on:
     pull_request:
     merge_group:
 
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
     contents: read
     pull-requests: read
@@ -22,10 +26,17 @@ jobs:
             - uses: actions/checkout@v6
               with:
                   clean: false
+            - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              id: app-token
+              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
             - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
               id: filter
               if: github.event_name != 'push'
               with:
+                  token: ${{ steps.app-token.outputs.token || github.token }}
                   filters: |
                       proto:
                         - 'proto/**'
@@ -51,7 +62,7 @@ jobs:
                   clean: false
 
             - name: Install buf
-              uses: bufbuild/buf-action@8f4a1456a0ab6a1eb80ba68e53832e6fcfacc16c # v1.3.0
+              uses: bufbuild/buf-action@fd21066df7214747548607aaa45548ba2b9bc1ff # v1.4.0
               with:
                   setup_only: true
                   version: '1.50.0'
@@ -77,7 +88,7 @@ jobs:
                   clean: false
 
             - name: Install buf
-              uses: bufbuild/buf-action@8f4a1456a0ab6a1eb80ba68e53832e6fcfacc16c # v1.3.0
+              uses: bufbuild/buf-action@fd21066df7214747548607aaa45548ba2b9bc1ff # v1.4.0
               with:
                   setup_only: true
                   version: '1.50.0'
@@ -102,7 +113,7 @@ jobs:
               with:
                   clean: false
 
-            - uses: actions/setup-python@v5
+            - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
                   python-version: '3.12'
 

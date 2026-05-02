@@ -46,6 +46,8 @@ common/replay-headless/dist
 common/storybook/dist
 coverage-*.xml
 debug.log
+docs/internal/logs-sampling-discovery.md
+docs/internal/logs-sampling-runbook.md
 docker-compose.prod.yml
 ee/benchmarks/results
 ee/support_sidebar_max/.env
@@ -61,6 +63,7 @@ playwright/e2e-vrt/**/*-darwin.png
 pnpm-error.log
 pyrightconfig.json
 settings.yml
+scripts/local/
 share/GeoLite2-City.*
 staticfiles
 storybook-static

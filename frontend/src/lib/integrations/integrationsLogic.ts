@@ -185,10 +185,29 @@ export const integrationsLogic = kea<integrationsLogicType>([
             }
         },
         handleGithubCallback: async ({ searchParams }) => {
-            const { state, installation_id, code } = searchParams
-            const { next, token } = fromParamsGivenUrl(state ?? '')
+            const { state, installation_id, code, setup_action } = searchParams
+            const { next, token, source } = fromParamsGivenUrl(state ?? '')
             const stateToken = token || state
+
+            // User-level GitHub flow (personal integrations / UserIntegration): redirect to the
+            // backend endpoint which handles UserIntegration creation server-side.
+            if (source === 'user_integration') {
+                const backendUrl = combineUrl('/complete/github-link/', {
+                    installation_id,
+                    code,
+                    state: stateToken,
+                }).url
+                window.location.href = backendUrl
+                return
+            }
+
             let replaceUrl: string = next || urls.settings('project-integrations')
+
+            // GitHub callback runs on a non-scoped route where currentTeamId may differ from the
+            // team that started the flow; recover it from `next`'s project_id.
+            const nextParams: Record<string, any> = next ? combineUrl(next).searchParams : {}
+            const projectIdFromNext = nextParams.project_id
+            const teamIdForIntegration = projectIdFromNext ? parseInt(projectIdFromNext, 10) : undefined
 
             try {
                 if (installation_id) {
@@ -196,16 +215,49 @@ export const integrationsLogic = kea<integrationsLogicType>([
                         throw new Error('Invalid state token')
                     }
 
-                    const integration = await api.integrations.create({
-                        kind: 'github',
-                        config: { installation_id, state: stateToken, code },
-                    })
+                    // setup_action=update / missing code means the App was already installed on the org;
+                    // try cloning from a sibling team, and fall back to a User OAuth round-trip when the
+                    // server can't auto-link (orphan install, no personal GitHub yet, or stale token).
+                    const isAlreadyInstalled = setup_action === 'update' || !code
+
+                    let integration: IntegrationType | null = null
+                    if (isAlreadyInstalled) {
+                        try {
+                            integration = await api.integrations.githubLinkExisting(
+                                { installation_id: String(installation_id) },
+                                teamIdForIntegration
+                            )
+                        } catch (e) {
+                            const errorCode = e instanceof ApiError ? e.code : null
+                            const needsUserOAuth =
+                                errorCode === 'github_link_existing_orphan_installation' ||
+                                errorCode === 'github_link_existing_personal_github_required'
+                            if (!needsUserOAuth) {
+                                throw e
+                            }
+                            const { oauth_url } = await api.integrations.githubOAuthAuthorize(
+                                {
+                                    installation_id: String(installation_id),
+                                    next: replaceUrl,
+                                    connect_from: nextParams.connect_from ?? undefined,
+                                },
+                                teamIdForIntegration
+                            )
+                            window.location.href = oauth_url
+                            return
+                        }
+                    } else {
+                        integration = await api.integrations.create({
+                            kind: 'github',
+                            config: { installation_id, state: stateToken, code },
+                        })
+                    }
 
                     // Forward the ids so the `next` landing page (e.g. the PostHog Code
                     // deep link) knows which install was just completed.
                     replaceUrl = combineUrl(replaceUrl, {
                         installation_id: String(installation_id),
-                        integration_id: String(integration.id),
+                        integration_id: String(integration!.id),
                     }).url
 
                     actions.loadIntegrations()
@@ -229,7 +281,7 @@ export const integrationsLogic = kea<integrationsLogicType>([
             }
         },
         handleOauthCallback: async ({ kind, searchParams }) => {
-            const { state, code, error, stripe_user_id, account_id, user_id, install_signature } = searchParams
+            const { state, code, error, stripe_user_id, account_id, user_id } = searchParams
             const { next, token, source, server_id, kind: stateKind } = fromParamsGivenUrl(state)
             // slack-posthog-code reuses /integrations/slack/callback as its approved redirect URI,
             // so the real kind is carried in OAuth state and takes precedence over the URL path.
@@ -242,16 +294,34 @@ export const integrationsLogic = kea<integrationsLogicType>([
                 return
             }
 
-            // Stripe marketplace installs redirect here without a PostHog-minted state —
-            // Stripe initiates OAuth itself on install (stripe_api_access_type: oauth). Skip
-            // the CSRF state check; the code is still validated server-side via Stripe exchange.
+            // Stripe marketplace installs redirect here without a PostHog-minted state, so we
+            // can't verify the callback against a CSRF cookie. Without that, an attacker could
+            // capture their own Connect-OAuth callback URL and trick a logged-in PostHog admin
+            // into visiting it, silently linking the attacker's Stripe account to the victim's
+            // team. Redirect to a confirmation page that shows the user the Stripe account
+            // they're about to link, and only POST to /integrations/ on explicit confirm.
             // resolvedKind is typed as IntegrationKind which doesn't list 'stripe' in the enum,
             // but the URL route (`/integrations/:kind/callback`) passes it through verbatim.
             const isStripeMarketplaceInstall =
                 (resolvedKind as string) === 'stripe' && !state && !!stripe_user_id && !!code
 
+            if (isStripeMarketplaceInstall) {
+                const params = new URLSearchParams({
+                    code: String(code),
+                    stripe_user_id: String(stripe_user_id),
+                })
+                if (account_id) {
+                    params.set('account_id', String(account_id))
+                }
+                if (user_id) {
+                    params.set('user_id', String(user_id))
+                }
+                router.actions.replace(`${urls.stripeConfirmInstall()}?${params.toString()}`)
+                return
+            }
+
             try {
-                if (!isStripeMarketplaceInstall && token !== getCookie('ph_oauth_state')) {
+                if (token !== getCookie('ph_oauth_state')) {
                     throw new Error('Invalid state token')
                 }
 
@@ -261,9 +331,7 @@ export const integrationsLogic = kea<integrationsLogicType>([
                 } else {
                     const integration = await api.integrations.create({
                         kind: resolvedKind,
-                        config: isStripeMarketplaceInstall
-                            ? { code, stripe_user_id, account_id, user_id, install_signature }
-                            : { state, code },
+                        config: { state, code },
                     })
 
                     // Add the integration ID to the replaceUrl so that the landing page can use it

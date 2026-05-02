@@ -22,12 +22,12 @@ import {
 } from '../ingestion/session_replay'
 import { TopHog } from '../ingestion/tophog/tophog'
 import { KafkaConsumer } from '../kafka/consumer'
-import { KafkaProducerWrapper } from '../kafka/producer'
 import { getBlockEncryptor } from '../session-replay/shared/crypto'
 import { SessionFeatureStore } from '../session-replay/shared/features/session-feature-store'
 import { getKeyStore } from '../session-replay/shared/keystore'
 import { MemoryCachedKeyStore } from '../session-replay/shared/keystore/cache'
 import { SessionMetadataStore } from '../session-replay/shared/metadata/session-metadata-store'
+import { ReplayEventsOutput, SessionFeaturesOutput } from '../session-replay/shared/outputs'
 import { RetentionService } from '../session-replay/shared/retention/retention-service'
 import { TeamService } from '../session-replay/shared/teams/team-service'
 import { KeyStore, RecordingEncryptor } from '../session-replay/shared/types'
@@ -37,7 +37,7 @@ import { EventIngestionRestrictionManager } from '../utils/event-ingestion-restr
 import { logger } from '../utils/logger'
 import { captureException } from '../utils/posthog'
 import { PromiseScheduler } from '../utils/promise-scheduler'
-import { SessionRecordingApiConfig, SessionRecordingConfig } from './config'
+import { SessionRecordingApiConfig, SessionRecordingConfig, SessionReplayOutputsConfig } from './config'
 import { KafkaOffsetManager } from './kafka/offset-manager'
 import { SessionRecordingIngesterMetrics } from './metrics'
 import { BlackholeSessionBatchFileStorage } from './sessions/blackhole-session-batch-writer'
@@ -54,6 +54,8 @@ import { SessionTracker } from './sessions/session-tracker'
  */
 export type SessionRecordingIngesterConfig = SessionRecordingConfig &
     SessionRecordingApiConfig &
+    // The consumer reads its overflow output topic to decide whether overflow is enabled.
+    Pick<SessionReplayOutputsConfig, 'INGESTION_SESSIONREPLAY_OUTPUT_OVERFLOW_TOPIC'> &
     Pick<
         IngestionConsumerConfig,
         // For TopHog metrics
@@ -81,7 +83,6 @@ export class SessionRecordingIngester {
         { message: Message },
         OverflowOutput
     >
-    private readonly kafkaMetadataProducer: KafkaProducerWrapper
     private readonly topHog: TopHog
     private readonly keyStore: KeyStore
     private readonly encryptor: RecordingEncryptor
@@ -90,9 +91,14 @@ export class SessionRecordingIngester {
         private config: SessionRecordingIngesterConfig,
         postgres: PostgresRouter,
         outputs: IngestionOutputs<
-            IngestionWarningsOutput | DlqOutput | OverflowOutput | TophogOutput | LogEntriesOutput
+            | IngestionWarningsOutput
+            | DlqOutput
+            | OverflowOutput
+            | TophogOutput
+            | LogEntriesOutput
+            | ReplayEventsOutput
+            | SessionFeaturesOutput
         >,
-        kafkaMetadataProducer: KafkaProducerWrapper,
         redisPool: RedisPool,
         restrictionRedisPool: RedisPool
     ) {
@@ -110,7 +116,6 @@ export class SessionRecordingIngester {
             autoOffsetStore: false,
         })
 
-        this.kafkaMetadataProducer = kafkaMetadataProducer
         this.redisPool = redisPool
         this.restrictionRedisPool = restrictionRedisPool
 
@@ -152,18 +157,11 @@ export class SessionRecordingIngester {
         const retentionService = new RetentionService(this.redisPool, this.teamService)
 
         const offsetManager = new KafkaOffsetManager(this.commitOffsets.bind(this), this.topic)
-        const metadataStore = new SessionMetadataStore(
-            this.kafkaMetadataProducer,
-            this.config.SESSION_RECORDING_V2_REPLAY_EVENTS_KAFKA_TOPIC
-        )
+        const metadataStore = new SessionMetadataStore(outputs)
         const consoleLogStore = new SessionConsoleLogStore(outputs, {
             messageLimit: this.config.SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT,
         })
-        const featureStore = new SessionFeatureStore(
-            this.kafkaMetadataProducer,
-            this.config.SESSION_RECORDING_V2_SESSION_FEATURES_KAFKA_TOPIC,
-            this.config.SESSION_RECORDING_FEATURES_ENABLED
-        )
+        const featureStore = new SessionFeatureStore(outputs, this.config.SESSION_RECORDING_FEATURES_ENABLED)
         this.fileStorage = s3Client
             ? new RetentionAwareStorage(
                   s3Client,
@@ -385,8 +383,8 @@ export class SessionRecordingIngester {
 
     private overflowEnabled(): boolean {
         return (
-            !!this.config.INGESTION_SESSION_REPLAY_CONSUMER_OVERFLOW_TOPIC &&
-            this.config.INGESTION_SESSION_REPLAY_CONSUMER_OVERFLOW_TOPIC !== this.topic
+            !!this.config.INGESTION_SESSIONREPLAY_OUTPUT_OVERFLOW_TOPIC &&
+            this.config.INGESTION_SESSIONREPLAY_OUTPUT_OVERFLOW_TOPIC !== this.topic
         )
     }
 }

@@ -21,6 +21,25 @@ import { DateMappingOption } from '~/types'
 
 import type { dateFilterLogicType } from './dateFilterLogicType'
 
+const RELATIVE_UNIT_LABEL: Record<string, string> = {
+    h: 'hour',
+    d: 'day',
+    w: 'week',
+    m: 'month',
+    q: 'quarter',
+    y: 'year',
+}
+
+function formatRelativeOffset(value: string): string {
+    const match = /^-(\d+)([hdwmqy])$/.exec(value)
+    if (!match) {
+        return value
+    }
+    const n = Number.parseInt(match[1], 10)
+    const unit = RELATIVE_UNIT_LABEL[match[2]] ?? 'day'
+    return `${n} ${unit}${n === 1 ? '' : 's'} ago`
+}
+
 /** Check if a date value has time precision (non-midnight time component) */
 function hasTimePrecision(dateValue: string | Dayjs | null | undefined): boolean {
     if (!dateValue) {
@@ -46,6 +65,7 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
         openDateToNow: true,
         openFixedDate: true,
         openJumpToTimestamp: true,
+        openCustomRelativeRange: true,
         close: true,
         applyRange: true,
         setFixedRangeGranularity: (granularity: 'day' | 'minute') => ({ granularity }),
@@ -74,6 +94,7 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
                 openDateToNow: () => DateFilterView.DateToNow,
                 openFixedDate: () => DateFilterView.FixedDate,
                 openJumpToTimestamp: () => DateFilterView.JumpToTimestamp,
+                openCustomRelativeRange: () => DateFilterView.CustomRelativeRange,
             },
         ],
         isVisible: [
@@ -85,6 +106,7 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
                 openDateToNow: () => true,
                 openFixedDate: () => true,
                 openJumpToTimestamp: () => true,
+                openCustomRelativeRange: () => true,
                 setDate: (_, { keepPopoverOpen }) => keepPopoverOpen,
                 close: () => false,
             },
@@ -159,6 +181,16 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
                         (option.values[1] ?? null) === (dateTo ?? null)
                 ),
         ],
+        isCustomRelativeRange: [
+            (s) => [s.dateFrom, s.dateTo],
+            (dateFrom, dateTo): boolean => {
+                // Check if both dates are in relative format (e.g., "-30d", "-7d")
+                const isRelativeFromDate = typeof dateFrom === 'string' && /^-\d+[hdwmqy]$/.test(dateFrom)
+                const isRelativeToDate = typeof dateTo === 'string' && /^-\d+[hdwmqy]$/.test(dateTo)
+                return isRelativeFromDate && isRelativeToDate && !!dateFrom && !!dateTo
+            },
+        ],
+        isCustomRelativeRangeView: [(s) => [s.view], (view): boolean => view === DateFilterView.CustomRelativeRange],
         dateFromHasTimePrecision: [(s) => [s.dateFrom], (dateFrom) => hasTimePrecision(dateFrom)],
         dateToHasTimePrecision: [(s) => [s.dateTo], (dateTo) => hasTimePrecision(dateTo)],
         label: [
@@ -168,9 +200,13 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
                 s.isFixedRange,
                 s.isDateToNow,
                 s.isFixedDate,
+                s.isCustomRelativeRange,
                 s.dateOptions,
                 (_, p) => p.isFixedDateMode,
                 (_, p) => p.placeholder,
+                (_, p) => p.allowTimePrecision,
+                (_, p) => p.showCustomRelativeRange,
+                (_, p) => p.allowSingleAndRange,
                 s.dateFromHasTimePrecision,
                 s.dateToHasTimePrecision,
             ],
@@ -180,18 +216,53 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
                 isFixedRange,
                 isDateToNow,
                 isFixedDate,
+                isCustomRelativeRange,
                 dateOptions,
                 isFixedDateMode,
                 placeholder,
+                allowTimePrecision,
+                showCustomRelativeRange,
+                allowSingleAndRange,
                 dateFromHasTimePrecision,
                 dateToHasTimePrecision
-            ) =>
-                isFixedRange
-                    ? dateFromHasTimePrecision || dateToHasTimePrecision
+            ) => {
+                // Only render the "N days ago to M days ago" label when the consumer has opted into
+                // the custom-relative-range picker — other call sites (e.g. trends) may legitimately
+                // store both dates as relative strings (e.g. "-0d"/"-0d" for "Today") without intending
+                // the two-offset semantic, and should fall through to dateFilterToText.
+                if (
+                    showCustomRelativeRange &&
+                    isCustomRelativeRange &&
+                    typeof dateFrom === 'string' &&
+                    typeof dateTo === 'string'
+                ) {
+                    return `${formatRelativeOffset(dateFrom)} to ${formatRelativeOffset(dateTo)}`
+                }
+                // When the consumer allows both single and range selections, render an absolute
+                // single-bound value as just the formatted date rather than "X to now" — picking
+                // a custom date should not visually imply a range. Time is preserved when the
+                // picked value has it (the single-date picker lets users include a time), whereas
+                // ranges still require the explicit `allowTimePrecision` opt-in.
+                if (
+                    allowSingleAndRange &&
+                    dateFrom &&
+                    !dateTo &&
+                    typeof dateFrom === 'string' &&
+                    !/^-\d+[hdwmqy]/.test(dateFrom) &&
+                    dayjs(dateFrom).isValid()
+                ) {
+                    return dateFromHasTimePrecision ? formatDateTime(dayjs(dateFrom)) : formatDate(dayjs(dateFrom))
+                }
+                const renderWithTime = allowTimePrecision && (dateFromHasTimePrecision || dateToHasTimePrecision)
+                return isFixedRange
+                    ? renderWithTime
                         ? formatDateTimeRange(dayjs(dateFrom), dayjs(dateTo))
                         : formatDateRange(dayjs(dateFrom), dayjs(dateTo))
                     : isDateToNow
                       ? `${
+                            // Preserve pre-PR behavior: honour time precision based on the stored
+                            // value alone. `allowTimePrecision` gating only applies to range
+                            // rendering (to keep fixed ranges date-only in the cohort field).
                             dateFromHasTimePrecision ? formatDateTime(dayjs(dateFrom)) : formatDate(dayjs(dateFrom))
                         } to now`
                       : isFixedDate
@@ -204,7 +275,8 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
                                   : NO_OVERRIDE_RANGE_PLACEHOLDER,
                               dateOptions,
                               false
-                          ),
+                          )
+            },
         ],
     }),
     listeners(({ actions, values, props }) => ({
@@ -220,7 +292,11 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
             }
         },
         setDate: ({ dateFrom, dateTo, explicitDate }) => {
-            props.onChange?.(dateFrom, dateTo, explicitDate)
+            // Normalise empty-string to null so consumers (e.g. cohort criteria) don't persist
+            // semantically-empty upper bounds. Several call sites still pass `''` for "no bound".
+            const normalisedFrom = dateFrom === '' ? null : dateFrom
+            const normalisedTo = dateTo === '' ? null : dateTo
+            props.onChange?.(normalisedFrom, normalisedTo, explicitDate)
         },
         setExplicitDate: ({ explicitDate }) => {
             props.onChange?.(values.dateFrom, values.dateTo, explicitDate)

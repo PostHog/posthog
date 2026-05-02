@@ -6,6 +6,7 @@ import debugMcpUiApps from './debug/debugMcpUiApps'
 import searchDocs from './documentation/searchDocs'
 // Experiments (hand-written — CRUD + lifecycle are codegen in generated/experiments.ts)
 import getExperimentResults from './experiments/getResults'
+import experimentListDeprecated from './experiments/listDeprecated'
 // Generated tools (from definitions/*.yaml)
 import { GENERATED_TOOL_MAP } from './generated'
 // Insights
@@ -32,6 +33,8 @@ import updateEventDefinition from './projects/updateEventDefinition'
 // Query
 import generateHogQLFromQuestion from './query/generateHogQLFromQuestion'
 import queryRun from './query/run'
+import hogqlSchema from './query/schema'
+import queryValidate from './query/validate'
 // Search
 import entitySearch from './search/entitySearch'
 // Misc
@@ -59,6 +62,8 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
 
     // Experiments (results is hand-written; CRUD + lifecycle are codegen)
     'experiment-results-get': getExperimentResults,
+    // Deprecated alias for experiment-list — forwards and annotates the response.
+    'experiment-get-all': experimentListDeprecated,
 
     // Insights
     'insight-query': queryInsight,
@@ -66,6 +71,8 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     // Queries
     'query-generate-hogql-from-question': generateHogQLFromQuestion,
     'query-run': queryRun,
+    'query-validate': queryValidate,
+    'hogql-schema': hogqlSchema,
 
     // LLM Analytics
     'get-llm-total-costs-for-project': getLLMCosts,

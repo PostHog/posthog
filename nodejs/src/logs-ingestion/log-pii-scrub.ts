@@ -1,7 +1,7 @@
 /**
- * Lossy ingestion scrub: replace matches with PII_REDACTED ({{REDACTED}}). Only `record.body` is scrubbed — one
- * RE2 pass over the raw UTF-8 string (no JSON parse). Rules: Bearer-shaped tokens, Stripe `sk_*` keys, email
- * addresses. OTLP `attributes` / `resource_attributes` and other string fields are not modified here.
+ * Lossy ingestion scrub: replace matches with PII_REDACTED ({{REDACTED}}). Scrubs `record.body` and each value in
+ * `record.attributes` (no JSON parse). Rules: Bearer-shaped tokens, Stripe `sk_*` keys, email addresses.
+ * `resource_attributes` and other string fields (e.g. `service_name`, `severity_text`) are not modified here.
  *
  * **Not guaranteed:** secrets only discoverable by JSON object keys inside `body` (no tree walk), values only in
  * JSON number/boolean leaves. PAN-like digit runs are not redacted.
@@ -63,12 +63,26 @@ export function scrubPlainString(input: string): string {
     return scrubPlainStringWithStats(input).output
 }
 
-/** Mutate record in place: `body` only. Returns PII replacement count for that record. */
+/**
+ * Mutate record in place: `body` and each `attributes` value.
+ * `piiReplacements` is the sum of all successful redactions (body + every attribute value), not split by field.
+ */
 export function scrubLogRecord(record: LogRecord): PiiScrubStats {
-    if (record.body == null) {
-        return EMPTY_PII
+    let piiReplacements = 0
+
+    if (record.body != null) {
+        const { output, piiReplacements: n } = scrubPlainStringWithStats(record.body)
+        record.body = output
+        piiReplacements += n
     }
-    const { output, piiReplacements } = scrubPlainStringWithStats(record.body)
-    record.body = output
-    return { piiReplacements }
+
+    if (record.attributes != null) {
+        for (const [key, val] of Object.entries(record.attributes)) {
+            const { output, piiReplacements: n } = scrubPlainStringWithStats(val)
+            record.attributes[key] = output
+            piiReplacements += n
+        }
+    }
+
+    return piiReplacements === 0 ? EMPTY_PII : { piiReplacements }
 }

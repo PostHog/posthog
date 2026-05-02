@@ -20,7 +20,12 @@ import { hashCodeForString } from 'lib/utils'
 import { useInView } from 'react-intersection-observer'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { NotebookNodeLogicProps, notebookNodeLogic } from './notebookNodeLogic'
-import { posthogNodeInputRule, posthogNodePasteRule, useSyncedAttributes } from './utils'
+import {
+    posthogNodeInputRule,
+    posthogNodePasteRule,
+    shouldOmitFromClipboardHTML,
+    useSyncedAttributes,
+} from './utils'
 import { KNOWN_NODES } from '../utils'
 import { NotebookNodeTitle } from './components/NotebookNodeTitle'
 import { DuckSqlRunMenu } from './components/DuckSqlRunMenu'
@@ -299,7 +304,12 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
 
                                             <div className="flex deprecated-space-x-1">
                                                 {parsedHref && (
-                                                    <LemonButton size="small" icon={<IconLink />} to={parsedHref} />
+                                                    <LemonButton
+                                                        size="small"
+                                                        icon={<IconLink />}
+                                                        to={parsedHref}
+                                                        tooltip="Open linked resource"
+                                                    />
                                                 )}
 
                                                 {isPythonNode ? (
@@ -340,6 +350,11 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                                         size="small"
                                                         icon={<IconPencil />}
                                                         active={editingNodeIds[nodeId]}
+                                                        tooltip={
+                                                            editingNodeIds[nodeId]
+                                                                ? 'Hide editor'
+                                                                : 'Show editor and settings'
+                                                        }
                                                         data-attr="notebook-node-edit-settings"
                                                     />
                                                 ) : null}
@@ -349,12 +364,17 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                                         onClick={() => setExpanded(!expanded)}
                                                         size="small"
                                                         icon={expanded ? <IconCollapse /> : <IconExpand />}
+                                                        tooltip={expanded ? 'Hide output' : 'Show output'}
                                                     />
                                                 )}
 
                                                 {hasMenu ? (
                                                     <LemonMenu items={menuItems} placement="bottom-end">
-                                                        <LemonButton icon={<IconEllipsis />} size="small" />
+                                                        <LemonButton
+                                                            icon={<IconEllipsis />}
+                                                            size="small"
+                                                            tooltip="More actions"
+                                                        />
                                                     </LemonMenu>
                                                 ) : null}
                                             </div>
@@ -413,6 +433,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                             size="xsmall"
                                             type="secondary"
                                             icon={<IconPlus />}
+                                            tooltip="Add block"
                                             onClick={(e) => {
                                                 e.stopPropagation()
                                                 setSlashCommandsPopoverVisible(true)
@@ -425,6 +446,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                             size="xsmall"
                                             type="secondary"
                                             icon={x.icon ?? <IconPlus />}
+                                            tooltip={x.text}
                                             onClick={(e) => {
                                                 e.stopPropagation()
                                                 x.onClick()
@@ -501,29 +523,43 @@ export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>(
         },
 
         addAttributes() {
+            // All exposed attributes round-trip through HTML as JSON.
+            // `parseHTML` on the way in and `renderHTML` on the way out are symmetric
+            // so default Cmd+C and the explicit `copyToClipboard` action produce the same encoding and parse cleanly
+            const jsonAttr = (name: string): Record<string, any> => ({
+                parseHTML: (element: HTMLElement) => {
+                    const raw = element.getAttribute(name)
+                    return raw === null ? null : JSON.parse(raw)
+                },
+                renderHTML: (attrs: Record<string, any>) => {
+                    const value = attrs[name]
+                    if (value === null || value === undefined) {
+                        return {}
+                    }
+                    return { [name]: JSON.stringify(value) }
+                },
+            })
+
             const nodeAttributes = Object.fromEntries(
                 Object.entries(attributes as Record<string, any>).map(([name, config]) => {
                     return [
                         name,
                         {
                             ...config,
-                            parseHTML: (element: HTMLElement) => {
-                                const attribute = element.getAttribute(name)
-                                return attribute ? JSON.parse(atob(attribute)) : null
-                            },
+                            ...jsonAttr(name),
                         },
                     ]
                 })
             )
 
             return {
-                height: {},
-                title: {},
+                height: jsonAttr('height'),
+                title: jsonAttr('title'),
                 nodeId: {
                     default: null,
                 },
                 __init: { default: null },
-                children: {},
+                children: jsonAttr('children'),
                 ...nodeAttributes,
             }
         },
@@ -537,20 +573,12 @@ export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>(
         },
 
         renderHTML({ HTMLAttributes }) {
-            // We want to stringify all object attributes so that we can use them in the serializedText
-            const sanitizedAttributes = Object.fromEntries(
-                Object.entries(HTMLAttributes).map(([key, value]) => {
-                    if (Array.isArray(value) || typeof value === 'object') {
-                        return [key, JSON.stringify(value)]
-                    }
-                    return [key, value]
-                })
+            // Per-attribute renderHTML callbacks already JSON-stringified each value;
+            // here we just apply the same omit rule the explicit Copy action uses
+            const sanitized = Object.fromEntries(
+                Object.entries(HTMLAttributes).filter(([key, value]) => !shouldOmitFromClipboardHTML(key, value))
             )
-
-            // This method is primarily used by copy and paste so we can remove the nodeID, assuming we don't want duplicates
-            delete sanitizedAttributes['nodeId']
-
-            return [wrapperProps.nodeType, mergeAttributes(sanitizedAttributes)]
+            return [wrapperProps.nodeType, mergeAttributes(sanitized)]
         },
 
         addNodeView() {

@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { IconClock } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, Tooltip } from '@posthog/lemon-ui'
 
-import { dayjs } from 'lib/dayjs'
+import { Dayjs, dayjs } from 'lib/dayjs'
 import { useKeyHeld } from 'lib/hooks/useKeyHeld'
 import { IconSkipBackward } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter, colonDelimitedDuration, shortTimeZone } from 'lib/utils'
@@ -66,7 +66,13 @@ function RelativeTimestampLabel({ size }: { size: 'small' | 'normal' }): JSX.Ele
 export function Timestamp({
     size,
     noPadding,
-}: { size: 'small' | 'normal' } & Pick<LemonButtonProps, 'noPadding'>): JSX.Element {
+    fixedTimestamp,
+    hideIcon,
+}: {
+    size: 'small' | 'normal'
+    fixedTimestamp?: string | number | Dayjs | null
+    hideIcon?: boolean
+} & Pick<LemonButtonProps, 'noPadding'>): JSX.Element {
     const { logicProps, currentTimestamp, currentPlayerTimeSeconds, sessionPlayerData } =
         useValues(sessionRecordingPlayerLogic)
     const { isScrubbing, scrubbingTime, scrubbingTimeSeconds } = useValues(seekbarLogic(logicProps))
@@ -74,22 +80,28 @@ export function Timestamp({
     const { setTimestampFormat } = useActions(playerSettingsLogic)
     const [isHovered, setIsHovered] = useState(false)
 
+    const isFixed = fixedTimestamp != null
+    const fixedMs = isFixed ? dayjs(fixedTimestamp).valueOf() : undefined
+
     const scrubbingTimestamp = sessionPlayerData.start?.valueOf()
         ? scrubbingTime + sessionPlayerData.start?.valueOf()
         : undefined
 
-    const activeTimestamp = isScrubbing ? scrubbingTimestamp : currentTimestamp
+    const activeTimestamp = isFixed ? fixedMs : isScrubbing ? scrubbingTimestamp : currentTimestamp
     const relativeTimeSeconds = (isScrubbing ? scrubbingTimeSeconds : currentPlayerTimeSeconds) ?? 0
     const relativeTime = colonDelimitedDuration(relativeTimeSeconds, 2)
 
-    const values = Object.values(TimestampFormat)
-    const nextIndex = (values.indexOf(timestampFormat) + 1) % values.length
-    const nextFormat = values[nextIndex]
+    // Relative format has no meaning for a fixed point in time, so clicks only cycle UTC and Device.
+    const availableFormats = isFixed ? [TimestampFormat.UTC, TimestampFormat.Device] : Object.values(TimestampFormat)
+    const displayFormat =
+        isFixed && timestampFormat === TimestampFormat.Relative ? TimestampFormat.UTC : timestampFormat
+    const nextIndex = (availableFormats.indexOf(displayFormat) + 1) % availableFormats.length
+    const nextFormat = availableFormats[nextIndex]
 
     const tooltipContent = (
         <div className="space-y-1">
-            {values.map((format) => {
-                const isCurrent = format === timestampFormat
+            {availableFormats.map((format) => {
+                const isCurrent = format === displayFormat
                 const label = TIMESTAMP_FORMAT_LABELS[format]
                 const value =
                     format === TimestampFormat.Relative
@@ -119,7 +131,7 @@ export function Timestamp({
                 className="text-center whitespace-nowrap text-xs"
                 noPadding={noPadding}
                 size="xsmall"
-                icon={<IconClock className="text-muted" />}
+                icon={hideIcon ? undefined : <IconClock className="text-muted" />}
                 onMouseEnter={() => setIsHovered(true)}
                 onMouseLeave={() => setIsHovered(false)}
                 onClick={() => {
@@ -127,12 +139,12 @@ export function Timestamp({
                 }}
             >
                 <span className="font-mono">
-                    {timestampFormat === TimestampFormat.Relative ? (
+                    {displayFormat === TimestampFormat.Relative ? (
                         <RelativeTimestampLabel size={size} />
                     ) : (
                         <SimpleTimeLabel
                             startTime={activeTimestamp}
-                            timestampFormat={timestampFormat}
+                            timestampFormat={displayFormat}
                             containerSize={size}
                         />
                     )}

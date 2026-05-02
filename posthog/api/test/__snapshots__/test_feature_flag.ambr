@@ -674,6 +674,7 @@
          "posthog_filesystemshortcut"."type",
          "posthog_filesystemshortcut"."ref",
          "posthog_filesystemshortcut"."href",
+         "posthog_filesystemshortcut"."order",
          "posthog_filesystemshortcut"."created_at"
   FROM "posthog_filesystemshortcut"
   WHERE ("posthog_filesystemshortcut"."ref" = '0001'
@@ -715,6 +716,7 @@
          "posthog_filesystemshortcut"."type",
          "posthog_filesystemshortcut"."ref",
          "posthog_filesystemshortcut"."href",
+         "posthog_filesystemshortcut"."order",
          "posthog_filesystemshortcut"."created_at"
   FROM "posthog_filesystemshortcut"
   WHERE ("posthog_filesystemshortcut"."ref" = '0001'
@@ -964,6 +966,7 @@
          "posthog_filesystemshortcut"."type",
          "posthog_filesystemshortcut"."ref",
          "posthog_filesystemshortcut"."href",
+         "posthog_filesystemshortcut"."order",
          "posthog_filesystemshortcut"."created_at"
   FROM "posthog_filesystemshortcut"
   WHERE ("posthog_filesystemshortcut"."ref" = '0001'
@@ -1046,6 +1049,7 @@
          "posthog_filesystemshortcut"."type",
          "posthog_filesystemshortcut"."ref",
          "posthog_filesystemshortcut"."href",
+         "posthog_filesystemshortcut"."order",
          "posthog_filesystemshortcut"."created_at"
   FROM "posthog_filesystemshortcut"
   WHERE ("posthog_filesystemshortcut"."ref" = '0001'
@@ -1223,6 +1227,7 @@
          "posthog_filesystemshortcut"."type",
          "posthog_filesystemshortcut"."ref",
          "posthog_filesystemshortcut"."href",
+         "posthog_filesystemshortcut"."order",
          "posthog_filesystemshortcut"."created_at"
   FROM "posthog_filesystemshortcut"
   WHERE ("posthog_filesystemshortcut"."ref" = '0001'
@@ -1618,6 +1623,7 @@
          "posthog_filesystemshortcut"."type",
          "posthog_filesystemshortcut"."ref",
          "posthog_filesystemshortcut"."href",
+         "posthog_filesystemshortcut"."order",
          "posthog_filesystemshortcut"."created_at"
   FROM "posthog_filesystemshortcut"
   WHERE ("posthog_filesystemshortcut"."ref" = '0001'
@@ -1884,6 +1890,7 @@
          "posthog_filesystemshortcut"."type",
          "posthog_filesystemshortcut"."ref",
          "posthog_filesystemshortcut"."href",
+         "posthog_filesystemshortcut"."order",
          "posthog_filesystemshortcut"."created_at"
   FROM "posthog_filesystemshortcut"
   WHERE ("posthog_filesystemshortcut"."ref" = '0001'
@@ -2231,6 +2238,7 @@
          "posthog_filesystemshortcut"."type",
          "posthog_filesystemshortcut"."ref",
          "posthog_filesystemshortcut"."href",
+         "posthog_filesystemshortcut"."order",
          "posthog_filesystemshortcut"."created_at"
   FROM "posthog_filesystemshortcut"
   WHERE ("posthog_filesystemshortcut"."ref" = '0001'
