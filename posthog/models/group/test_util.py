@@ -7,6 +7,7 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.group.util import (
     create_group,
     get_group_by_key,
@@ -622,7 +623,7 @@ class TestOrmDatabaseErrorHandling(SimpleTestCase):
 class TestCreateGroup(SimpleTestCase):
     def setUp(self):
         self.team_id = 10
-        self.group_type_index = 0
+        self.group_type_index: GroupTypeIndex = 0
         self.group_key = "org:123"
         self.properties = {"name": "Acme"}
 

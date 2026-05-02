@@ -112,7 +112,9 @@ class Dashboard(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.M
     def delete(self, *args, **kwargs):
         from posthog.models.group_type_mapping import clear_dashboard_from_group_type_mapping
 
-        clear_dashboard_from_group_type_mapping(team_id=self.team_id, dashboard_id=self.id)
+        clear_dashboard_from_group_type_mapping(
+            team_id=self.team_id, dashboard_id=self.id, project_id=self.team.project_id
+        )
         return super().delete(*args, **kwargs)
 
     @classmethod

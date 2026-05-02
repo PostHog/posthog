@@ -361,6 +361,7 @@ def update_group_type_mapping_fields(
     for field_name, value in fields.items():
         setattr(instance, field_name, value)
     instance.save()
+    invalidate_group_types_cache(instance.project_id)
 
 
 def delete_group_type_mapping(instance: GroupTypeMapping) -> None:
@@ -398,10 +399,12 @@ def delete_group_type_mapping(instance: GroupTypeMapping) -> None:
     PERSONHOG_ROUTING_TOTAL.labels(
         operation="delete_group_type_mapping", source="django_orm", client_name=get_client_name()
     ).inc()
+    project_id = instance.project_id
     instance.delete()
+    invalidate_group_types_cache(project_id)
 
 
-def clear_dashboard_from_group_type_mapping(team_id: int, dashboard_id: int) -> None:
+def clear_dashboard_from_group_type_mapping(team_id: int, dashboard_id: int, project_id: int | None = None) -> None:
     """Clear detail_dashboard_id from any GroupTypeMapping referencing this dashboard.
 
     Uses GetGroupTypeMappingByDashboardId to find the mapping, then UpdateGroupTypeMapping to clear it.
@@ -453,3 +456,5 @@ def clear_dashboard_from_group_type_mapping(team_id: int, dashboard_id: int) -> 
     ).update(  # nosemgrep: no-direct-persons-db-orm
         detail_dashboard_id=None
     )
+    if project_id is not None:
+        invalidate_group_types_cache(project_id)

@@ -627,15 +627,17 @@ class TestUpdateGroupTypeMappingFields(SimpleTestCase):
             operation="update_group_type_mapping", source="personhog", client_name="posthog-django"
         )
 
+    @patch("posthog.models.group_type_mapping.invalidate_group_types_cache")
     @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
     @patch(_CLIENT_PATCH)
-    def test_client_none_falls_back_to_orm_save(self, mock_get_client, mock_routing_counter):
+    def test_client_none_falls_back_to_orm_save(self, mock_get_client, mock_routing_counter, mock_invalidate):
         mock_get_client.return_value = None
 
         instance = self._make_instance()
         update_group_type_mapping_fields(instance, fields={"name_singular": "Org"})
 
         instance.save.assert_called_once()
+        mock_invalidate.assert_called_once_with(instance.project_id)
         mock_routing_counter.labels.assert_called_with(
             operation="update_group_type_mapping", source="django_orm", client_name="posthog-django"
         )
@@ -748,15 +750,17 @@ class TestDeleteGroupTypeMapping(SimpleTestCase):
             operation="delete_group_type_mapping", source="personhog", client_name="posthog-django"
         )
 
+    @patch("posthog.models.group_type_mapping.invalidate_group_types_cache")
     @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
     @patch(_CLIENT_PATCH)
-    def test_client_none_falls_back_to_orm_delete(self, mock_get_client, mock_routing_counter):
+    def test_client_none_falls_back_to_orm_delete(self, mock_get_client, mock_routing_counter, mock_invalidate):
         mock_get_client.return_value = None
 
         instance = self._make_instance()
         delete_group_type_mapping(instance)
 
         instance.delete.assert_called_once()
+        mock_invalidate.assert_called_once_with(1)
         mock_routing_counter.labels.assert_called_with(
             operation="delete_group_type_mapping", source="django_orm", client_name="posthog-django"
         )
@@ -821,15 +825,17 @@ class TestClearDashboardFromGroupTypeMapping(SimpleTestCase):
         mock_client.update_group_type_mapping.assert_not_called()
         mock_invalidate.assert_not_called()
 
+    @patch("posthog.models.group_type_mapping.invalidate_group_types_cache")
     @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
     @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
     @patch(_CLIENT_PATCH)
-    def test_client_none_falls_back_to_orm(self, mock_get_client, mock_routing_counter, mock_objects):
+    def test_client_none_falls_back_to_orm(self, mock_get_client, mock_routing_counter, mock_objects, mock_invalidate):
         mock_get_client.return_value = None
 
-        clear_dashboard_from_group_type_mapping(team_id=10, dashboard_id=42)
+        clear_dashboard_from_group_type_mapping(team_id=10, dashboard_id=42, project_id=1)
 
         mock_objects.using.assert_called_once()
+        mock_invalidate.assert_called_once_with(1)
         mock_routing_counter.labels.assert_called_with(
             operation="clear_dashboard_from_group_type_mapping", source="django_orm", client_name="posthog-django"
         )
@@ -845,7 +851,7 @@ class TestClearDashboardFromGroupTypeMapping(SimpleTestCase):
         mock_client.get_group_type_mapping_by_dashboard_id.side_effect = RuntimeError("grpc timeout")
         mock_get_client.return_value = mock_client
 
-        clear_dashboard_from_group_type_mapping(team_id=10, dashboard_id=42)
+        clear_dashboard_from_group_type_mapping(team_id=10, dashboard_id=42, project_id=1)
 
         mock_objects.using.assert_called_once()
         mock_errors_counter.labels.assert_called_once()
