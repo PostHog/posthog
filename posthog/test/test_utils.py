@@ -9,6 +9,7 @@ from freezegun import freeze_time
 from posthog.test.base import BaseTest
 from unittest.mock import call, patch
 
+from django.core.cache import cache
 from django.core.handlers.wsgi import WSGIRequest
 from django.http import HttpRequest
 from django.test import TestCase
@@ -309,6 +310,10 @@ class TestRelativeDateParse(TestCase):
 
 
 class TestDefaultEventName(BaseTest):
+    def setUp(self):
+        super().setUp()
+        cache.clear()
+
     def test_no_events_returns_pageview_default(self):
         # When team has no events at all, default to $pageview (most common for new teams)
         self.assertEqual(get_default_event_name(self.team), "$pageview")
@@ -361,6 +366,21 @@ class TestDefaultEventName(BaseTest):
         if create_screen:
             EventDefinition.objects.create(name="$screen", team=self.team)
         self.assertEqual(get_default_event_name(self.team), expected)
+
+    def test_negative_result_is_not_cached(self):
+        # Empty teams may simply not have ingested events yet — caching the
+        # negative would block them from ever updating to the positive answer.
+        with self.assertNumQueries(2):
+            get_default_event_info(self.team)
+        with self.assertNumQueries(2):
+            get_default_event_info(self.team)
+
+    def test_positive_result_is_cached(self):
+        EventDefinition.objects.create(name="$pageview", team=self.team)
+        with self.assertNumQueries(1):
+            get_default_event_info(self.team)
+        with self.assertNumQueries(0):
+            get_default_event_info(self.team)
 
 
 class TestLoadDataFromRequest(TestCase):

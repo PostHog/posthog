@@ -646,8 +646,20 @@ async def initialize_self_capture_api_token():
         posthoganalytics.host = settings.SITE_URL
 
 
+DEFAULT_EVENT_INFO_CACHE_TTL_SECONDS = 24 * 60 * 60
+
+
+def _default_event_info_cache_key(team_id: int) -> str:
+    return f"default_event_info:positive:{team_id}"
+
+
 def get_default_event_info(team: "Team") -> dict:
     from posthog.models import EventDefinition
+
+    cache_key = _default_event_info_cache_key(team.id)
+    cached = get_safe_cache(cache_key)
+    if cached is not None:
+        return cached
 
     existing_names = set(
         EventDefinition.objects.filter(team=team, name__in=["$pageview", "$screen"]).values_list("name", flat=True)
@@ -664,11 +676,18 @@ def get_default_event_info(team: "Team") -> dict:
     else:
         default_event_name = "$pageview"
 
-    return {
+    result = {
         "default_event_name": default_event_name,
         "has_pageview": has_pageview,
         "has_screen": has_screen,
     }
+
+    # Only cache positive answers: once a team has $pageview or $screen the answer is
+    # monotonic, but a negative result might just mean events haven't been ingested yet.
+    if has_pageview or has_screen:
+        safe_cache_set(cache_key, result, timeout=DEFAULT_EVENT_INFO_CACHE_TTL_SECONDS)
+
+    return result
 
 
 def get_default_event_name(team: "Team") -> str | None:
