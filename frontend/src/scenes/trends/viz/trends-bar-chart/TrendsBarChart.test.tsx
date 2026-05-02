@@ -3,7 +3,7 @@ import '@testing-library/jest-dom'
 import { cleanup, screen, waitFor } from '@testing-library/react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { setupJsdom } from 'lib/hog-charts/test-helpers'
+import { setupJsdom } from 'lib/hog-charts/testing'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import { buildTrendsQuery, chart, renderInsight } from '~/test/insight-testing'
