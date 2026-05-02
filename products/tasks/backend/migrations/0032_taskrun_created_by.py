@@ -15,7 +15,7 @@ class Migration(migrations.Migration):
             field=models.ForeignKey(
                 blank=True,
                 db_index=False,
-                help_text="The user who initiated this run. Used to scope execution identity (OAuth tokens, MCP installations, private sandbox environments) to the run initiator rather than the task creator.",
+                help_text="The user who initiated this run.",
                 null=True,
                 on_delete=django.db.models.deletion.SET_NULL,
                 related_name="initiated_task_runs",
