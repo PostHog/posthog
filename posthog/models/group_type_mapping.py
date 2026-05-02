@@ -229,6 +229,24 @@ def _fetch_group_types_for_projects_via_personhog(
     return result
 
 
+_REQUEST_CACHED_GROUP_TYPES_ATTR = "_request_cached_group_types"
+
+
+def cached_group_types_for_request(model_instance: Any, project_id: int) -> list[dict[str, Any]]:
+    """Memoise `get_group_types_for_project(project_id)` per request on `model_instance`.
+
+    Sibling SerializerMethodFields (e.g. `has_group_types` and `group_types` on
+    `TeamSerializer` / `ProjectBackwardCompatSerializer`) both want the same answer,
+    so without this memo each render hits the Redis cache twice. The memo lives on
+    the model instance, which is request-scoped in practice — DRF builds a fresh
+    serializer + ORM instance per request and callers do not retain instances
+    across requests.
+    """
+    if not hasattr(model_instance, _REQUEST_CACHED_GROUP_TYPES_ATTR):
+        setattr(model_instance, _REQUEST_CACHED_GROUP_TYPES_ATTR, get_group_types_for_project(project_id))
+    return getattr(model_instance, _REQUEST_CACHED_GROUP_TYPES_ATTR)
+
+
 def get_group_types_for_projects(project_ids: list[int]) -> dict[int, list[dict[str, Any]]]:
     """Batch fetch group types for multiple projects via personhog, falling back to ORM on error."""
     from posthog.personhog_client.client import get_personhog_client

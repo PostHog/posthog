@@ -39,7 +39,7 @@ from posthog.models.activity_logging.activity_log import (
     log_activity,
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
-from posthog.models.group_type_mapping import get_group_types_for_project
+from posthog.models.group_type_mapping import cached_group_types_for_request
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.product_intent.product_intent import (
     ProductIntent,
@@ -71,22 +71,6 @@ from ee.api.rbac.access_control import AccessControlViewSetMixin
 logger = structlog.get_logger(__name__)
 
 MAX_ALLOWED_PROJECTS_PER_ORG = 1500
-
-
-_REQUEST_CACHED_GROUP_TYPES_ATTR = "_request_cached_group_types"
-
-
-def _group_types_for_project(project: Project) -> list[dict[str, Any]]:
-    """Memoise `get_group_types_for_project` per request on the project instance.
-
-    `has_group_types` and `group_types` are sibling SerializerMethodFields that
-    both want the same answer; without this, each render hit Redis twice. Cache
-    is request-scoped because callers do not retain Project instances across
-    requests (DRF builds a fresh serializer + ORM instance each request).
-    """
-    if not hasattr(project, _REQUEST_CACHED_GROUP_TYPES_ATTR):
-        setattr(project, _REQUEST_CACHED_GROUP_TYPES_ATTR, get_group_types_for_project(project.id))
-    return getattr(project, _REQUEST_CACHED_GROUP_TYPES_ATTR)
 
 
 class ProjectSerializer(serializers.ModelSerializer):
@@ -363,10 +347,10 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
         return self.user_permissions.team(team).effective_membership_level
 
     def get_has_group_types(self, project: Project) -> bool:
-        return bool(_group_types_for_project(project))
+        return bool(cached_group_types_for_request(project, project.id))
 
     def get_group_types(self, project: Project) -> list[dict[str, Any]]:
-        return _group_types_for_project(project)
+        return cached_group_types_for_request(project, project.id)
 
     def get_live_events_token(self, project: Project) -> Optional[str]:
         team = project.teams.get(pk=project.pk)

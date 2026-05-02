@@ -19,15 +19,15 @@ from rest_framework import status, test
 from temporalio.service import RPCError
 
 from posthog.api.oauth.test_dcr import generate_rsa_key
-from posthog.api.team import (
-    _default_data_color_theme_id,
-    _group_types_for_team,
-    _reset_default_data_color_theme_id_cache,
-)
+from posthog.api.team import _default_data_color_theme_id, _reset_default_data_color_theme_id_cache
 from posthog.api.test.batch_exports.conftest import start_test_worker
 from posthog.constants import AvailableFeature
 from posthog.models import ActivityLog
-from posthog.models.group_type_mapping import GROUP_TYPES_CACHE_KEY_PREFIX, GROUP_TYPES_STALE_CACHE_KEY_PREFIX
+from posthog.models.group_type_mapping import (
+    GROUP_TYPES_CACHE_KEY_PREFIX,
+    GROUP_TYPES_STALE_CACHE_KEY_PREFIX,
+    cached_group_types_for_request,
+)
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
@@ -3237,21 +3237,22 @@ class TestTeamSerializerHomeViewWins(APIBaseTest):
         _reset_default_data_color_theme_id_cache()
         self.addCleanup(_reset_default_data_color_theme_id_cache)
 
-    def test_group_types_for_team_memoises_per_instance(self):
+    def test_cached_group_types_for_request_memoises_per_instance(self):
         # has_group_types and group_types are sibling SerializerMethodFields; previously
-        # each hit Redis. They now share a request-scoped memo on the team instance.
-        with patch("posthog.api.team.get_group_types_for_project", return_value=[]) as mock_fetch:
-            _group_types_for_team(self.team)
-            _group_types_for_team(self.team)
-            _group_types_for_team(self.team)
+        # each hit Redis. They now share a request-scoped memo on the model instance,
+        # via the helper in posthog/models/group_type_mapping.py.
+        with patch("posthog.models.group_type_mapping.get_group_types_for_project", return_value=[]) as mock_fetch:
+            cached_group_types_for_request(self.team, self.team.project_id)
+            cached_group_types_for_request(self.team, self.team.project_id)
+            cached_group_types_for_request(self.team, self.team.project_id)
         assert mock_fetch.call_count == 1
 
-        # Different team instance bypasses the memo: a single mock spanning both
-        # instances must see exactly two fetches (one per instance), not one.
+        # Different model instance bypasses the memo: a single mock spanning both
+        # instances must see exactly one fetch (the fresh one), not zero.
         fresh_team = Team.objects.get(pk=self.team.pk)
-        with patch("posthog.api.team.get_group_types_for_project", return_value=[]) as mock_fetch:
-            _group_types_for_team(self.team)  # already cached on this instance
-            _group_types_for_team(fresh_team)  # uncached on fresh instance
+        with patch("posthog.models.group_type_mapping.get_group_types_for_project", return_value=[]) as mock_fetch:
+            cached_group_types_for_request(self.team, self.team.project_id)  # cached on self.team
+            cached_group_types_for_request(fresh_team, fresh_team.project_id)  # uncached on fresh
         assert mock_fetch.call_count == 1
         assert mock_fetch.call_args.args == (fresh_team.project_id,)
 

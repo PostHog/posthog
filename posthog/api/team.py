@@ -40,7 +40,7 @@ from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.data_color_theme import DataColorTheme
 from posthog.models.evaluation_context import EvaluationContext, TeamDefaultEvaluationContext, normalize_context_name
 from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig
-from posthog.models.group_type_mapping import get_group_types_for_project
+from posthog.models.group_type_mapping import cached_group_types_for_request
 from posthog.models.organization import OrganizationMembership
 from posthog.models.product_intent.product_intent import ProductIntentSerializer, calculate_product_activation
 from posthog.models.project import Project
@@ -369,22 +369,6 @@ def _validate_trigger_property_filters(properties: object, context: str) -> None
             raise exceptions.ValidationError(f"{context}: property {prop_idx} must have a 'value' field.")
 
 
-_REQUEST_CACHED_GROUP_TYPES_ATTR = "_request_cached_group_types"
-
-
-def _group_types_for_team(team: Team) -> list[dict[str, Any]]:
-    """Memoise `get_group_types_for_project` per request on the team instance.
-
-    `has_group_types` and `group_types` are sibling SerializerMethodFields that
-    both want the same answer; without this, each render hit Redis twice. Cache
-    is request-scoped because callers do not retain Team instances across
-    requests (DRF builds a fresh serializer + ORM instance each request).
-    """
-    if not hasattr(team, _REQUEST_CACHED_GROUP_TYPES_ATTR):
-        setattr(team, _REQUEST_CACHED_GROUP_TYPES_ATTR, get_group_types_for_project(team.project_id))
-    return getattr(team, _REQUEST_CACHED_GROUP_TYPES_ATTR)
-
-
 _default_theme_id_cache: int | None = None
 
 
@@ -497,10 +481,10 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         return self.user_permissions.team(team).effective_membership_level
 
     def get_has_group_types(self, team: Team) -> bool:
-        return bool(_group_types_for_team(team))
+        return bool(cached_group_types_for_request(team, team.project_id))
 
     def get_group_types(self, team: Team) -> list[dict[str, Any]]:
-        return _group_types_for_team(team)
+        return cached_group_types_for_request(team, team.project_id)
 
     def get_live_events_token(self, team: Team) -> str | None:
         request = self.context.get("request")
