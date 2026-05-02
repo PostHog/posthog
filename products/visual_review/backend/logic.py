@@ -2044,6 +2044,7 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
                 run__branch__in=_DEFAULT_BRANCHES,
                 run__status=RunStatus.COMPLETED,
                 result__in=(SnapshotResult.CHANGED, SnapshotResult.REMOVED),
+                identifier__in=universe_identifiers,
             )
             .values("identifier", "run__run_type")
             .annotate(c=Count("id"))
@@ -2051,22 +2052,36 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
         ):
             change_count_by_key[(run_type, identifier)] = c
 
-        recent_run_ids = list(
-            Run.objects.raw(
-                """
-                SELECT id, run_type FROM (
-                    SELECT id, run_type,
-                           ROW_NUMBER() OVER (PARTITION BY run_type ORDER BY created_at DESC) AS rn
-                    FROM visual_review_run
-                    WHERE repo_id = %s AND branch = ANY(%s) AND status = %s
-                ) ranked WHERE rn <= %s
-                """,
-                [str(repo_id), list(_DEFAULT_BRANCHES), RunStatus.COMPLETED, BASELINE_DRIFT_RECENT_RUN_COUNT],
+        # Postgres doesn't allow filtering directly on a window function, and
+        # the ORM doesn't auto-wrap a window-annotated queryset in a subquery
+        # for us. Looping per run_type is K cheap index-only LIMIT queries
+        # (K = distinct run_types present, typically ~4: storybook /
+        # playwright / cypress / other) instead of one raw window query —
+        # avoids Run.objects.raw and the semgrep raw-sql block.
+        run_types_present = (
+            Run.objects.filter(
+                repo_id=repo_id,
+                branch__in=_DEFAULT_BRANCHES,
+                status=RunStatus.COMPLETED,
             )
+            .values_list("run_type", flat=True)
+            .distinct()
         )
+        recent_run_ids: list[int] = []
+        for rt in run_types_present:
+            recent_run_ids.extend(
+                Run.objects.filter(
+                    repo_id=repo_id,
+                    branch__in=_DEFAULT_BRANCHES,
+                    status=RunStatus.COMPLETED,
+                    run_type=rt,
+                )
+                .order_by("-created_at")
+                .values_list("id", flat=True)[:BASELINE_DRIFT_RECENT_RUN_COUNT]
+            )
         if recent_run_ids:
             for identifier, run_type, drift_avg in (
-                RunSnapshot.objects.filter(run_id__in=[r.id for r in recent_run_ids])
+                RunSnapshot.objects.filter(run_id__in=recent_run_ids)
                 .values("identifier", "run__run_type")
                 .annotate(drift_avg=Avg("diff_percentage", filter=Q(diff_percentage__gt=0)))
                 .values_list("identifier", "run__run_type", "drift_avg")
