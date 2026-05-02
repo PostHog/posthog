@@ -28,7 +28,7 @@ function createMockContext(analyticsContext: Record<string, string> = {}): Conte
 }
 
 describe('feedback tool', () => {
-    it('captures a feedback event with the message and acknowledges the user', async () => {
+    it('captures agent-observed friction with full metadata', async () => {
         captureMock.mockClear()
         const tool = feedback()
         const context = createMockContext({
@@ -40,6 +40,8 @@ describe('feedback tool', () => {
 
         const result = await tool.handler(context, {
             feedback: 'The query-run tool returned an unhelpful error',
+            source: 'agent_observed',
+            posthog_area: 'MCP',
             category: 'bug',
             severity: 'high',
             tool_name: 'query-run',
@@ -52,6 +54,8 @@ describe('feedback tool', () => {
         expect(captured.groups).toEqual({ organization: 'org-1', project: 'project-uuid' })
         expect(captured.properties).toMatchObject({
             feedback: 'The query-run tool returned an unhelpful error',
+            source: 'agent_observed',
+            posthog_area: 'MCP',
             category: 'bug',
             severity: 'high',
             tool_name: 'query-run',
@@ -61,6 +65,29 @@ describe('feedback tool', () => {
             project_name: 'My Project',
         })
         expect(result.content[0]!.text).toContain('Thanks')
+    })
+
+    it('captures user-initiated feedback about a PostHog product area', async () => {
+        captureMock.mockClear()
+        const tool = feedback()
+        const context = createMockContext()
+
+        await tool.handler(context, {
+            feedback: 'Would love a way to filter session replays by mobile OS version',
+            source: 'user_initiated',
+            posthog_area: 'session replay',
+            category: 'missing_feature',
+        })
+
+        const captured = captureMock.mock.calls[0]![0]
+        expect(captured.properties).toMatchObject({
+            feedback: 'Would love a way to filter session replays by mobile OS version',
+            source: 'user_initiated',
+            posthog_area: 'session replay',
+            category: 'missing_feature',
+        })
+        expect(captured.properties).not.toHaveProperty('tool_name')
+        expect(captured.properties).not.toHaveProperty('skill_name')
     })
 
     it('omits optional properties when not provided', async () => {

@@ -2,26 +2,35 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "category": {
-            "description": "Optional category. Use \"bug\" for incorrect behavior, \"usability\" for confusing or hard-to-use tools, \"missing_feature\" for capabilities the user wished existed, \"documentation\" for unclear descriptions, \"performance\" for slow responses, \"skill\" for issues with a PostHog skill, or \"other\".",
-            "enum": ["bug", "usability", "missing_feature", "documentation", "performance", "skill", "other"],
+            "description": "Optional category. Use \"bug\" for incorrect behavior, \"usability\" for confusing UX, \"missing_feature\" for capabilities the user wished existed, \"documentation\" for unclear docs, \"performance\" for slow responses, \"praise\" for positive feedback, or \"other\".",
+            "enum": ["bug", "usability", "missing_feature", "documentation", "performance", "praise", "other"],
             "type": "string"
         },
         "feedback": {
-            "description": "The feedback message to share with PostHog. Only call this tool after the user has explicitly agreed to share. Be specific about what got in the way (tool name, error message, skill name, what they were trying to do) but do not include the user's data, query results, or anything sensitive.",
+            "description": "The feedback message to share with PostHog. For user-initiated feedback, capture the user's words faithfully. For agent-observed friction, only call this tool after the user has explicitly agreed. Never include the user's data, query results, credentials, or anything sensitive — summarize instead.",
             "minLength": 1,
             "type": "string"
         },
+        "posthog_area": {
+            "description": "Free-text area of PostHog the feedback is about, e.g. \"session replay\", \"feature flags\", \"insights\", \"dashboards\", \"data warehouse\", \"MCP\", \"MCP skills\", \"billing\", \"docs\". Omit if not applicable.",
+            "type": "string"
+        },
         "severity": {
-            "description": "Optional severity. \"high\" = blocked the task, \"medium\" = painful workaround, \"low\" = minor polish. Omit if unclear.",
+            "description": "Optional severity for issues. \"high\" = blocked the task, \"medium\" = painful workaround, \"low\" = minor polish. Omit for non-issue feedback (praise, ideas).",
             "enum": ["low", "medium", "high"],
             "type": "string"
         },
         "skill_name": {
-            "description": "The PostHog skill the feedback is about (e.g. \"querying-posthog-data\"). Omit if not about a skill.",
+            "description": "The PostHog skill the feedback is about, if any (e.g. \"querying-posthog-data\"). Omit if not about a skill.",
+            "type": "string"
+        },
+        "source": {
+            "description": "How the feedback originated. \"user_initiated\" = the user asked you to send feedback (any topic). \"agent_observed\" = you noticed friction while working and the user agreed to share it.",
+            "enum": ["user_initiated", "agent_observed"],
             "type": "string"
         },
         "tool_name": {
-            "description": "The MCP tool the feedback is about (e.g. \"query-run\"). Omit if the feedback is general or applies to multiple tools.",
+            "description": "The MCP tool the feedback is about, if any (e.g. \"query-run\"). Omit if the feedback is not MCP-tool-specific.",
             "type": "string"
         }
     },

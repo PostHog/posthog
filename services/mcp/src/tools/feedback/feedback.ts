@@ -11,7 +11,7 @@ type Params = z.infer<typeof schema>
 type Result = { content: Array<{ type: string; text: string }> }
 
 export const feedbackHandler: ToolBase<typeof schema, Result>['handler'] = async (context: Context, params: Params) => {
-    const { feedback, category, severity, tool_name, skill_name } = params
+    const { feedback, source, posthog_area, category, severity, tool_name, skill_name } = params
 
     try {
         const distinctId = await context.getDistinctId()
@@ -26,6 +26,8 @@ export const feedbackHandler: ToolBase<typeof schema, Result>['handler'] = async
                 : {}),
             properties: {
                 feedback,
+                ...(source ? { source } : {}),
+                ...(posthog_area ? { posthog_area } : {}),
                 ...(category ? { category } : {}),
                 ...(severity ? { severity } : {}),
                 ...(tool_name ? { tool_name } : {}),
@@ -41,7 +43,7 @@ export const feedbackHandler: ToolBase<typeof schema, Result>['handler'] = async
         content: [
             {
                 type: 'text',
-                text: 'Thanks — your feedback was shared with the PostHog MCP team and will help us improve the experience.',
+                text: 'Thanks — your feedback was shared with the PostHog team and will help us improve.',
             },
         ],
     }

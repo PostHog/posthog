@@ -464,30 +464,44 @@ export const FeedbackSchema = z.object({
         .string()
         .min(1)
         .describe(
-            "The feedback message to share with PostHog. Only call this tool after the user has explicitly agreed to share. Be specific about what got in the way (tool name, error message, skill name, what they were trying to do) but do not include the user's data, query results, or anything sensitive."
+            "The feedback message to share with PostHog. For user-initiated feedback, capture the user's words faithfully. For agent-observed friction, only call this tool after the user has explicitly agreed. Never include the user's data, query results, credentials, or anything sensitive — summarize instead."
         ),
-    category: z
-        .enum(['bug', 'usability', 'missing_feature', 'documentation', 'performance', 'skill', 'other'])
+    source: z
+        .enum(['user_initiated', 'agent_observed'])
         .optional()
         .describe(
-            'Optional category. Use "bug" for incorrect behavior, "usability" for confusing or hard-to-use tools, "missing_feature" for capabilities the user wished existed, "documentation" for unclear descriptions, "performance" for slow responses, "skill" for issues with a PostHog skill, or "other".'
+            'How the feedback originated. "user_initiated" = the user asked you to send feedback (any topic). "agent_observed" = you noticed friction while working and the user agreed to share it.'
+        ),
+    posthog_area: z
+        .string()
+        .optional()
+        .describe(
+            'Free-text area of PostHog the feedback is about, e.g. "session replay", "feature flags", "insights", "dashboards", "data warehouse", "MCP", "MCP skills", "billing", "docs". Omit if not applicable.'
+        ),
+    category: z
+        .enum(['bug', 'usability', 'missing_feature', 'documentation', 'performance', 'praise', 'other'])
+        .optional()
+        .describe(
+            'Optional category. Use "bug" for incorrect behavior, "usability" for confusing UX, "missing_feature" for capabilities the user wished existed, "documentation" for unclear docs, "performance" for slow responses, "praise" for positive feedback, or "other".'
         ),
     severity: z
         .enum(['low', 'medium', 'high'])
         .optional()
         .describe(
-            'Optional severity. "high" = blocked the task, "medium" = painful workaround, "low" = minor polish. Omit if unclear.'
+            'Optional severity for issues. "high" = blocked the task, "medium" = painful workaround, "low" = minor polish. Omit for non-issue feedback (praise, ideas).'
         ),
     tool_name: z
         .string()
         .optional()
         .describe(
-            'The MCP tool the feedback is about (e.g. "query-run"). Omit if the feedback is general or applies to multiple tools.'
+            'The MCP tool the feedback is about, if any (e.g. "query-run"). Omit if the feedback is not MCP-tool-specific.'
         ),
     skill_name: z
         .string()
         .optional()
-        .describe('The PostHog skill the feedback is about (e.g. "querying-posthog-data"). Omit if not about a skill.'),
+        .describe(
+            'The PostHog skill the feedback is about, if any (e.g. "querying-posthog-data"). Omit if not about a skill.'
+        ),
 })
 
 // PostHog AI tools
