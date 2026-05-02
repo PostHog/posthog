@@ -17,8 +17,8 @@ from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.search_attributes import POSTHOG_SESSION_RECORDING_ID_KEY, POSTHOG_TEAM_ID_KEY
 from posthog.temporal.session_replay.summarization_sweep.constants import (
+    CHILD_DISPATCH_BATCH_SIZE,
     FIND_ACTIVITY_TIMEOUT,
-    MAX_SESSIONS_PER_TEAM,
     SESSION_LOOKBACK_MINUTES,
     WORKFLOW_NAME,
 )
@@ -56,7 +56,6 @@ class SummarizeTeamSessionsWorkflow(PostHogWorkflow):
                 FindSessionsInput(
                     team_id=inputs.team_id,
                     lookback_minutes=SESSION_LOOKBACK_MINUTES,
-                    max_sessions=MAX_SESSIONS_PER_TEAM,
                 )
             ],
             start_to_close_timeout=FIND_ACTIVITY_TIMEOUT,
@@ -106,27 +105,29 @@ class SummarizeTeamSessionsWorkflow(PostHogWorkflow):
                 "dry_run": True,
             }
 
-        start_results = await asyncio.gather(
-            *(
-                self._start_child(inputs.team_id, sid, result.user_id, result.user_distinct_id)
-                for sid in result.session_ids
-            ),
-            return_exceptions=True,
-        )
+        # Batched fan-out so that even at high sample rates / large candidate sets we don't blow
+        # past the workflow execution timeout with thousands of concurrent `start_child_workflow`
+        # calls in flight. Each batch awaits before starting the next.
         started = 0
         skipped = 0
         failed = 0
-        for r in start_results:
-            if isinstance(r, BaseException):
-                failed += 1
-                workflow.logger.warning(
-                    "summarization_sweep.start_child_failed",
-                    extra={"team_id": inputs.team_id, "error": str(r)},
-                )
-            elif r:
-                started += 1
-            else:
-                skipped += 1
+        for batch_start in range(0, len(result.session_ids), CHILD_DISPATCH_BATCH_SIZE):
+            batch = result.session_ids[batch_start : batch_start + CHILD_DISPATCH_BATCH_SIZE]
+            batch_results = await asyncio.gather(
+                *(self._start_child(inputs.team_id, sid, result.user_id, result.user_distinct_id) for sid in batch),
+                return_exceptions=True,
+            )
+            for r in batch_results:
+                if isinstance(r, BaseException):
+                    failed += 1
+                    workflow.logger.warning(
+                        "summarization_sweep.start_child_failed",
+                        extra={"team_id": inputs.team_id, "error": str(r)},
+                    )
+                elif r:
+                    started += 1
+                else:
+                    skipped += 1
 
         # All-fail is systemic (queue config, permissions, Temporal outage) — surface it.
         if failed > 0 and started == 0 and skipped == 0:

@@ -317,11 +317,19 @@ function buildGroupedSchemasByOutput(schema, mappings) {
             }
         }
 
+        // Inline the full `components.parameters` (and any other top-level
+        // component buckets we don't slice) verbatim. The per-product paths
+        // reference shared parameter objects like `#/components/parameters/
+        // ProjectIdPath` — without these, orval validation fails with
+        // INVALID_REFERENCE and silently writes nothing. The parameter set
+        // is small and reused across products, so the duplication is fine.
+        const sharedComponents = { ...schema.components }
+        delete sharedComponents.schemas
         grouped.set(outputDir, {
             openapi: entry.openapi,
             info: { ...entry.info, title: `${entry.info?.title ?? 'API'} - ${path.basename(outputDir)}` },
             paths: entry.paths,
-            components: { schemas: filteredSchemas },
+            components: { ...sharedComponents, schemas: filteredSchemas },
         })
     }
 

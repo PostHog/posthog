@@ -60,7 +60,12 @@ function extractErrorDetail(error: unknown, fallback: string): string {
 export const onboardingExitLogic = kea<onboardingExitLogicType>([
     path(['scenes', 'onboarding', 'onboardingExitLogic']),
     connect(() => ({
-        values: [onboardingLogic, ['stepKey', 'onCompleteOnboardingRedirectUrl']],
+        values: [
+            onboardingLogic,
+            ['stepKey', 'onCompleteOnboardingRedirectUrl'],
+            organizationLogic,
+            ['currentOrganizationId'],
+        ],
         actions: [userLogic, ['loadUser', 'loadUserSuccess']],
     })),
     actions({
@@ -70,6 +75,7 @@ export const onboardingExitLogic = kea<onboardingExitLogicType>([
         setMessage: (message: string) => ({ message }),
         submitDelegation: true,
         setIsSubmitting: (isSubmitting: boolean) => ({ isSubmitting }),
+        captureOrgIdAtOpen: (orgId: string | null) => ({ orgId }),
     }),
     reducers({
         isExitModalOpen: [
@@ -100,14 +106,26 @@ export const onboardingExitLogic = kea<onboardingExitLogicType>([
                 closeExitModal: () => false,
             },
         ],
+        // Pin the org id captured when the modal opened so we submit against the same org
+        // even if the user switches orgs in another tab while this modal is open.
+        orgIdAtOpen: [
+            null as string | null,
+            {
+                captureOrgIdAtOpen: (_, { orgId }) => orgId,
+                closeExitModal: () => null,
+            },
+        ],
     }),
     selectors({
-        canSubmitDelegation: [(s) => [s.targetEmail], (targetEmail) => isValidEmail(targetEmail)],
+        canSubmitDelegation: [(s) => [s.targetEmail], (targetEmail: string) => isValidEmail(targetEmail)],
     }),
     listeners(({ actions, values }) => ({
         openExitModal: () => {
             // Frontend-only event (no backend counterpart); the delegation success event is fired from the backend.
             posthog.capture('onboarding exit modal opened', { step_at_open: values.stepKey || null })
+            // Snapshot the org so a mid-modal org switch in another tab can't redirect the
+            // submission to the wrong org.
+            actions.captureOrgIdAtOpen(values.currentOrganizationId ?? null)
         },
         submitDelegation: async () => {
             // Guard against double-submit from Enter-Enter or rapid button double-click. The
@@ -119,9 +137,22 @@ export const onboardingExitLogic = kea<onboardingExitLogicType>([
             if (!values.canSubmitDelegation) {
                 return
             }
-            const orgId = organizationLogic.values.currentOrganizationId
+            const orgId = values.orgIdAtOpen ?? values.currentOrganizationId
             if (!orgId) {
                 lemonToast.error("Couldn't find your current organization. Please refresh and try again.")
+                return
+            }
+            // Fail-closed if the user switched orgs in another tab while this modal was open.
+            // Submitting against the previous org would create the invite under the wrong tenant.
+            if (
+                values.orgIdAtOpen &&
+                values.currentOrganizationId &&
+                values.orgIdAtOpen !== values.currentOrganizationId
+            ) {
+                lemonToast.error(
+                    'Your active organization changed while this dialog was open. Please reopen and try again.'
+                )
+                actions.closeExitModal()
                 return
             }
             actions.setIsSubmitting(true)

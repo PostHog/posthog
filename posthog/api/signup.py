@@ -729,9 +729,14 @@ def process_social_invite_signup(
         except Team.DoesNotExist:
             return None
 
+    # Capture before invite.use() — use() deletes the invite row, so the in-memory boolean is
+    # the only safe source of truth for delegation routing.
+    is_delegation = bool(getattr(invite, "is_setup_delegation", False))
     if user:
         invite.validate(user=user, email=email)
         invite.use(user, prevalidated=True)
+        if is_delegation:
+            strategy.session_set("next", "/onboarding")
         return user
     else:
         invite.validate(user=None, email=email)
@@ -744,6 +749,8 @@ def process_social_invite_signup(
             message = "Account unable to be created. This account may already exist. Please try again or use different credentials."
             raise ValidationError(message, code="unknown", params={"source": "social_create_user"})
 
+        if is_delegation:
+            strategy.session_set("next", "/onboarding")
         return _user
 
 
@@ -776,6 +783,8 @@ def process_social_domain_jit_provisioning_signup(
                         target_email=email, organization=domain_instance.organization
                     )
                     invite.validate(user=None, email=email)
+                    # Capture before invite.use() deletes the invite row.
+                    is_delegation = bool(getattr(invite, "is_setup_delegation", False))
 
                     try:
                         user = strategy.create_user(
@@ -787,6 +796,9 @@ def process_social_domain_jit_provisioning_signup(
                         capture_exception(e)
                         message = "Account unable to be created. This account may already exist. Please try again or use different credentials."
                         raise ValidationError(message, code="unknown", params={"source": "social_create_user"})
+
+                    if is_delegation:
+                        strategy.session_set("next", "/onboarding")
 
                 except (OrganizationInvite.DoesNotExist, InviteExpiredException):
                     user = User.objects.create_and_join(

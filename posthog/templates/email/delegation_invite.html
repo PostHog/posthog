@@ -5,17 +5,23 @@
 </h1>
 <p class="text-center">
     <strong>{{ inviter_first_name }}</strong> ({{ inviter_email }}) started setting up PostHog for
-    <strong>{{ org_name }}</strong> and would like you to finish the setup. Accept the invite below to get
+    <strong>{{ org_name }}</strong> and would like you to finish the setup. Accept the invitation below to get
     started — you'll be taken through the full setup flow.
 </p>
 <p class="text-center">
-    What is PostHog? It's a platform for building better products. It's got product analytics, session recording,
-    feature flags, surveys, A/B experiments, an AI product manager, a data warehouse, LLM observability, and loads of
-    other tools built-in.
+    PostHog is an all-in-one platform for product analytics, session replays, feature flags, experiments, surveys,
+    and more.
 </p>
-<div class="mb mt text-center">
-    <a class="button primary" href="{{ url }}">Accept &amp; set up PostHog</a>
+{% if invite.message %}
+<div class="invite-message">
+    <div class="invite-message-divider"></div>
+    {{ invite.message }}
 </div>
+{% endif %}
+<div class="mb mt text-center">
+    <a class="button primary" href="{{ invite }}">Accept and set up PostHog</a>
+</div>
+<p class="invite-bottom">This invitation will expire on {{ expiry_date }}.</p>
 
 {% block footer %}
 {% endblock %}

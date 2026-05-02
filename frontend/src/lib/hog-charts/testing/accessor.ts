@@ -2,9 +2,9 @@
 // can assert on overlays (value labels, reference lines, axis ticks) and the
 // reported series count without poking at the canvas.
 //
-// Canvas-only behaviors (line dash patterns, area fills) are covered by the
-// unit tests under lib/hog-charts/__tests__/canvas-renderer.test.ts; integration
-// tests should rely on those + this DOM surface rather than re-mocking 2d ctx.
+// The data-attr selectors below are part of the library's stable testing
+// contract — renaming them breaks consumers' tests. Keep in sync with the
+// overlay components that emit them.
 
 interface ReferenceLineSummary {
     label: string | null
@@ -58,6 +58,29 @@ function parsePixelStyle(style: CSSStyleDeclaration, prop: 'top' | 'left'): numb
     return Number.isFinite(n) ? n : null
 }
 
+// The reference-line component renders a 1px line as a single coloured border
+// edge on an otherwise zero-size div: horizontal lines colour `border-top`,
+// vertical lines colour `border-left`. Whichever of the two is set tells us
+// both the orientation and the line colour in one shot.
+function readReferenceLine(el: HTMLElement): ReferenceLineSummary {
+    const horizontalColor = el.style.borderTopColor
+    const verticalColor = el.style.borderLeftColor
+    const orientation: 'horizontal' | 'vertical' | null = horizontalColor
+        ? 'horizontal'
+        : verticalColor
+          ? 'vertical'
+          : null
+    const color = horizontalColor || verticalColor || null
+    const position = parsePixelStyle(el.style, orientation === 'vertical' ? 'left' : 'top')
+
+    // The optional label is rendered as the immediately-following sibling div.
+    const labelEl = el.nextElementSibling
+    const isLabel = labelEl?.getAttribute('data-attr') === 'hog-chart-reference-line-label'
+    const label = isLabel ? (labelEl as HTMLElement).textContent : null
+
+    return { color, orientation, position, label }
+}
+
 export function getHogChart(scope: HTMLElement = document.body): HogChart {
     const canvas = findCanvas(scope)
     if (!canvas) {
@@ -93,26 +116,9 @@ export function getHogChart(scope: HTMLElement = document.body): HogChart {
                 (el) => el.textContent ?? ''
             ),
         referenceLines: () =>
-            Array.from(wrapper.querySelectorAll<HTMLElement>('[data-attr="hog-chart-reference-line"]')).map((el) => {
-                // Horizontal lines set borderTopColor; verticals set borderLeftColor.
-                const borderTop = el.style.borderTopColor
-                const borderLeft = el.style.borderLeftColor
-                const orientation: 'horizontal' | 'vertical' | null = borderTop
-                    ? 'horizontal'
-                    : borderLeft
-                      ? 'vertical'
-                      : null
-                const position = parsePixelStyle(el.style, orientation === 'vertical' ? 'left' : 'top')
-                // The label is rendered as the next sibling div, when present.
-                const labelEl = el.nextElementSibling
-                const isLabel = labelEl?.getAttribute('data-attr') === 'hog-chart-reference-line-label'
-                return {
-                    color: borderTop || borderLeft || null,
-                    orientation,
-                    position,
-                    label: isLabel ? (labelEl as HTMLElement).textContent : null,
-                }
-            }),
+            Array.from(wrapper.querySelectorAll<HTMLElement>('[data-attr="hog-chart-reference-line"]')).map(
+                readReferenceLine
+            ),
         valueLabels: () =>
             Array.from(wrapper.querySelectorAll<HTMLElement>('[data-attr="hog-chart-value-label"]')).map((el) => ({
                 text: el.textContent ?? '',

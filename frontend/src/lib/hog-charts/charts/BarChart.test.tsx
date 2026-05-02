@@ -3,7 +3,7 @@ import { cleanup, render } from '@testing-library/react'
 import { drawBars } from '../core/canvas-renderer'
 import type { BarRect } from '../core/canvas-renderer'
 import type { ChartTheme, ResolvedSeries, Series } from '../core/types'
-import { setupJsdom } from '../test-helpers'
+import { setupJsdom, setupSyncRaf } from '../testing'
 import { BarChart } from './BarChart'
 
 jest.mock('../core/canvas-renderer', () => {
@@ -31,26 +31,19 @@ type Layout = 'stacked' | 'grouped' | 'percent'
 type Orientation = 'vertical' | 'horizontal'
 
 describe('BarChart', () => {
-    let teardown: () => void
+    let teardownJsdom: () => void
+    let teardownRaf: () => void
 
-    let originalRaf: typeof global.requestAnimationFrame | undefined
     beforeEach(() => {
-        teardown = setupJsdom()
+        teardownJsdom = setupJsdom()
+        teardownRaf = setupSyncRaf()
         mockedDrawBars.mockClear()
-        originalRaf = global.requestAnimationFrame
-        // Run draw effects synchronously so the static-layer RAF fires before the test reads the spy.
-        global.requestAnimationFrame = ((cb: FrameRequestCallback) => {
-            cb(0)
-            return 0
-        }) as typeof global.requestAnimationFrame
     })
 
     afterEach(() => {
-        teardown()
+        teardownRaf()
+        teardownJsdom()
         cleanup()
-        if (originalRaf) {
-            global.requestAnimationFrame = originalRaf
-        }
     })
 
     describe.each<[Layout, Orientation]>([

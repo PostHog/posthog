@@ -1,5 +1,5 @@
-import re
 from collections import Counter
+from datetime import UTC, datetime
 
 import structlog
 from temporalio import activity
@@ -8,11 +8,12 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.sync import database_sync_to_async, database_sync_to_async_pool
 from posthog.temporal.common.client import async_connect
-from posthog.temporal.common.search_attributes import POSTHOG_SESSION_RECORDING_ID_KEY
+from posthog.temporal.common.search_attributes import POSTHOG_SESSION_RECORDING_ID_KEY, POSTHOG_TEAM_ID_KEY
 from posthog.temporal.session_replay.summarization_sweep.constants import (
     CH_QUERY_MAX_EXECUTION_SECONDS,
     SCHEDULE_ID_PREFIX,
     SCHEDULE_TYPE,
+    STUCK_RASTERIZE_LOOKBACK,
     STUCK_RASTERIZE_THRESHOLD,
     WORKFLOW_NAME,
 )
@@ -22,7 +23,10 @@ from posthog.temporal.session_replay.summarization_sweep.models import (
     FindSessionsResult,
     UpsertTeamScheduleInput,
 )
-from posthog.temporal.session_replay.summarization_sweep.session_candidates import fetch_recent_session_ids
+from posthog.temporal.session_replay.summarization_sweep.session_candidates import (
+    coerce_sample_rate,
+    fetch_recent_session_ids,
+)
 
 from products.signals.backend.models import SignalSourceConfig
 
@@ -41,17 +45,8 @@ def _is_team_summarization_allowed(team_id: int) -> bool:
     ).exists()
 
 
-def _select_summarization_user(team: Team) -> User | None:
+def _select_summarization_user(team: Team, config: SignalSourceConfig | None) -> User | None:
     # Stability matters: the chosen user is embedded in the child's `redis_key_base`.
-    config = (
-        SignalSourceConfig.objects.filter(
-            team_id=team.id,
-            source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
-            source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
-        )
-        .select_related("created_by")
-        .first()
-    )
     if config is not None and config.created_by_id is not None:
         return config.created_by
     return team.all_users_with_access().order_by("id").first()
@@ -59,45 +54,52 @@ def _select_summarization_user(team: Team) -> User | None:
 
 def _load_team_user_and_sessions(team_id: int, lookback_minutes: int) -> tuple[Team, list[str], User | None]:
     team = Team.objects.get(id=team_id)
+    config = (
+        SignalSourceConfig.objects.filter(
+            team_id=team_id,
+            source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
+            source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
+            enabled=True,
+        )
+        .select_related("created_by")
+        .first()
+    )
+    # Race: was enabled at `_is_team_summarization_allowed`, now disabled. No-op cycle.
+    if config is None:
+        return team, [], None
+    raw_filters = config.config.get("recording_filters")
     session_ids = fetch_recent_session_ids(
         team=team,
         lookback_minutes=lookback_minutes,
+        sample_rate=coerce_sample_rate(config.config.get("sample_rate")),
+        recording_filters=raw_filters if isinstance(raw_filters, dict) else None,
         max_execution_time_seconds=CH_QUERY_MAX_EXECUTION_SECONDS,
     )
     if not session_ids:
         return team, [], None
-    return team, session_ids, _select_summarization_user(team)
+    return team, session_ids, _select_summarization_user(team, config)
 
 
-# Session ids land here from ClickHouse and originate at SDK clients. Rejecting anything
-# outside this shape keeps untrusted input out of the Temporal visibility query string.
-_SAFE_SESSION_ID_RE = re.compile(r"^[a-zA-Z0-9_-]{1,100}$")
-
-
-async def _stuck_session_ids(session_ids: list[str]) -> set[str]:
+async def _stuck_session_ids(team_id: int, session_ids: list[str]) -> set[str]:
     if not session_ids:
         return set()
-    safe_ids = [sid for sid in session_ids if _SAFE_SESSION_ID_RE.match(sid)]
-    if len(safe_ids) < len(session_ids):
-        logger.warning(
-            "summarization_sweep.unsafe_session_id_dropped",
-            count=len(session_ids) - len(safe_ids),
-        )
-    if not safe_ids:
-        return set()
+    candidate_set = set(session_ids)
     try:
         client = await async_connect()
-        ids_clause = ",".join(f'"{sid}"' for sid in safe_ids)
+        cutoff = (datetime.now(UTC) - STUCK_RASTERIZE_LOOKBACK).strftime("%Y-%m-%dT%H:%M:%S.000Z")
         query = (
             f'WorkflowType = "rasterize-recording" '
             f'AND ExecutionStatus IN ("Failed", "TimedOut") '
-            f"AND {POSTHOG_SESSION_RECORDING_ID_KEY.name} IN ({ids_clause})"
+            f"AND {POSTHOG_TEAM_ID_KEY.name} = {team_id} "
+            f'AND CloseTime > "{cutoff}"'
         )
         failures: Counter[str] = Counter()
         async for wf in client.list_workflows(query=query):
             for pair in wf.typed_search_attributes:
                 if pair.key.name == POSTHOG_SESSION_RECORDING_ID_KEY.name:
-                    failures[pair.value] += 1
+                    sid = pair.value
+                    if sid in candidate_set:
+                        failures[sid] += 1
                     break
         return {sid for sid, n in failures.items() if n >= STUCK_RASTERIZE_THRESHOLD}
     except Exception as exc:
@@ -127,8 +129,8 @@ async def find_sessions_for_team_activity(inputs: FindSessionsInput) -> FindSess
         session_ids=session_ids,
         extra_summary_context=None,
     )
-    sessions_to_summarize = [sid for sid in session_ids if not existing_summaries.get(sid)][: inputs.max_sessions]
-    stuck = await _stuck_session_ids(sessions_to_summarize)
+    sessions_to_summarize = [sid for sid in session_ids if not existing_summaries.get(sid)]
+    stuck = await _stuck_session_ids(inputs.team_id, sessions_to_summarize)
     sessions_to_summarize = [sid for sid in sessions_to_summarize if sid not in stuck]
 
     return FindSessionsResult(

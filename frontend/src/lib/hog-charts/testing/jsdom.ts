@@ -1,7 +1,5 @@
-import { fireEvent, waitFor } from '@testing-library/react'
-
-import { DEFAULT_MARGINS } from './core/hooks/useChartMargins'
-import type { ChartDimensions, ResolvedSeries, Series } from './core/types'
+import { DEFAULT_MARGINS } from '../core/hooks/useChartMargins'
+import type { ChartDimensions, ResolvedSeries, Series } from '../core/types'
 
 export const dimensions: ChartDimensions = {
     width: 800,
@@ -43,27 +41,17 @@ export function setupJsdom(): () => void {
     return () => spy.mockRestore()
 }
 
-/** Fire a mouseMove on a chart wrapper element at the pixel position
- *  corresponding to the given label index. */
-export function hoverAtIndex(wrapper: HTMLElement, index: number, totalLabels: number): void {
-    const step = dimensions.plotWidth / (totalLabels - 1)
-    fireEvent.mouseMove(wrapper, {
-        clientX: dimensions.plotLeft + step * index,
-        clientY: dimensions.plotTop + dimensions.plotHeight / 2,
-    })
-}
-
-export async function clickAtIndex(wrapper: HTMLElement, index: number, totalLabels: number): Promise<void> {
-    hoverAtIndex(wrapper, index, totalLabels)
-    // Wait for the hover state to flush — onClick reads tooltipCtx synchronously
-    // to decide between pinning and onPointClick, and a stale null takes the wrong branch.
-    await waitFor(
-        () => {
-            if (!document.querySelector('[data-hog-charts-tooltip]')) {
-                throw new Error('tooltip not yet rendered')
-            }
-        },
-        { timeout: 3000 }
-    )
-    fireEvent.click(wrapper)
+/** Run requestAnimationFrame callbacks synchronously for the duration of a
+ *  test. Use when the test needs to inspect what the chart drew before the
+ *  static-layer RAF would normally fire. Call in beforeEach, and call the
+ *  returned cleanup function in afterEach. */
+export function setupSyncRaf(): () => void {
+    const original = global.requestAnimationFrame
+    global.requestAnimationFrame = ((cb: FrameRequestCallback) => {
+        cb(0)
+        return 0
+    }) as typeof global.requestAnimationFrame
+    return () => {
+        global.requestAnimationFrame = original
+    }
 }

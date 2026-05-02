@@ -17,18 +17,20 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect
+from django.utils import timezone as django_timezone
 from django.utils.html import escape
 from django.views.decorators.http import require_http_methods
 
 import jwt
 import requests
 import structlog
+import posthoganalytics
 from django_filters.rest_framework import DjangoFilterBackend
 from django_otp import login as otp_login
 from django_otp.plugins.otp_static.models import StaticDevice, StaticToken
 from django_otp.plugins.otp_totp.models import TOTPDevice
 from django_otp.util import random_hex
-from drf_spectacular.utils import extend_schema, extend_schema_field, extend_schema_view, inline_serializer
+from drf_spectacular.utils import extend_schema, extend_schema_field, extend_schema_view
 from loginas.utils import is_impersonated_session
 from prometheus_client import Counter
 from rest_framework import exceptions, mixins, serializers, viewsets
@@ -62,7 +64,7 @@ from posthog.auth import (
     SessionAuthentication,
     session_auth_required,
 )
-from posthog.constants import PERMITTED_FORUM_DOMAINS
+from posthog.constants import INVITE_DAYS_VALIDITY, PERMITTED_FORUM_DOMAINS
 from posthog.email import is_email_available
 from posthog.event_usage import (
     report_user_deleted_account,
@@ -71,13 +73,13 @@ from posthog.event_usage import (
     report_user_verified_email,
 )
 from posthog.exceptions_capture import capture_exception
-from posthog.helpers.email_utils import validate_display_name
+from posthog.helpers.email_utils import EmailNormalizer, validate_display_name
 from posthog.helpers.session_cache import SessionCache
 from posthog.helpers.two_factor_session import has_passkeys, set_two_factor_verified_in_session
 from posthog.middleware import get_impersonated_session_expires_at, is_read_only_impersonation
-from posthog.models import Team, User, UserScenePersonalisation
+from posthog.models import OrganizationInvite, Team, User, UserScenePersonalisation
 from posthog.models.onboarding_delegation import cancel_pending_delegation, clear_delegation_state
-from posthog.models.organization import Organization
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.user import (
     NOTIFICATION_DEFAULTS,
@@ -127,6 +129,31 @@ class PendingInviteSerializer(serializers.Serializer):
     organization_id = serializers.CharField()
     organization_name = serializers.CharField()
     created_at = serializers.DateTimeField()
+
+
+class OnboardingSkipRequestSerializer(serializers.Serializer):
+    """Request body for POST /api/users/{id}/onboarding/skip/.
+
+    Source of truth for OpenAPI / generated TS / zod / MCP — bind this serializer at
+    runtime so the contract clients believe is enforced (length cap, choice validation,
+    no extra fields) is actually enforced server-side.
+    """
+
+    reason = serializers.ChoiceField(
+        choices=[("later", "Later"), ("other", "Other")],
+        required=True,
+        help_text=(
+            "Why the user is leaving onboarding. 'later' keeps them able to return; "
+            "'other' is a catch-all. 'delegated' is rejected here — use the delegate "
+            "endpoint so the delegation invite is created atomically."
+        ),
+    )
+    step_at_skip = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=64,
+        help_text="Onboarding step key the user was on when skipping, for analytics only.",
+    )
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -338,8 +365,6 @@ class UserSerializer(serializers.ModelSerializer):
         # "First user" == "didn't arrive via an invite". Direct signal (membership.invited_by IS NULL)
         # avoids the earliest-joined heuristic, which silently reassigns creator status if the
         # original creator leaves the org.
-        from posthog.models.organization import OrganizationMembership
-
         membership = (
             OrganizationMembership.objects.filter(organization=organization, user=instance)
             .only("invited_by_id")
@@ -356,12 +381,6 @@ class UserSerializer(serializers.ModelSerializer):
         Only returned when the serialized user is the requesting user — staff retrieving
         another account should not see that user's private invites.
         """
-        from django.utils import timezone as django_timezone
-
-        from posthog.constants import INVITE_DAYS_VALIDITY
-        from posthog.helpers.email_utils import EmailNormalizer
-        from posthog.models import OrganizationInvite, OrganizationMembership
-
         request = self.context.get("request")
         if not request or request.user.id != instance.id or not instance.email:
             return []
@@ -371,6 +390,11 @@ class UserSerializer(serializers.ModelSerializer):
             "organization_id", flat=True
         )
 
+        # Hard cap on the number of invites returned. /api/users/@me/ runs on every page
+        # navigation; an outlier user invited to many orgs (e.g. a popular gmail.com address)
+        # would otherwise ship a huge payload on every hit.
+        PENDING_INVITES_MAX = 25
+
         invites = (
             OrganizationInvite.objects.filter(
                 target_email__iexact=normalized_email,
@@ -378,7 +402,7 @@ class UserSerializer(serializers.ModelSerializer):
             )
             .exclude(organization_id__in=existing_org_ids)
             .select_related("organization")
-            .order_by("-created_at")
+            .order_by("-created_at")[:PENDING_INVITES_MAX]
         )
 
         return [
@@ -835,25 +859,7 @@ class UserViewSet(
         return Response(self.get_serializer(instance=instance).data)
 
     @extend_schema(
-        request=inline_serializer(
-            name="OnboardingSkipRequest",
-            fields={
-                "reason": serializers.ChoiceField(
-                    choices=[OnboardingSkippedReason.LATER, OnboardingSkippedReason.OTHER],
-                    required=True,
-                    help_text=(
-                        "Why the user is leaving onboarding. 'later' keeps them able to return; "
-                        "'other' is a catch-all. 'delegated' is rejected here — use the delegate "
-                        "endpoint so the delegation invite is created atomically."
-                    ),
-                ),
-                "step_at_skip": serializers.CharField(
-                    required=False,
-                    allow_blank=True,
-                    help_text="Onboarding step key the user was on when skipping, for analytics only.",
-                ),
-            },
-        ),
+        request=OnboardingSkipRequestSerializer,
         responses=UserSerializer,
     )
     @action(methods=["POST"], detail=True, url_path="onboarding/skip", throttle_classes=[OnboardingSkipThrottle])
@@ -869,16 +875,15 @@ class UserViewSet(
         """
         instance = self.get_object()
 
-        reason = (request.data or {}).get("reason") if isinstance(request.data, dict) else None
+        # Bind the declared serializer at runtime so the contract clients believe is
+        # enforced (length cap on step_at_skip, choice validation on reason, rejection
+        # of malformed payloads) is actually enforced server-side.
+        skip_serializer = OnboardingSkipRequestSerializer(data=request.data if isinstance(request.data, dict) else {})
+        skip_serializer.is_valid(raise_exception=True)
+        validated = skip_serializer.validated_data
         non_delegated_reasons = {OnboardingSkippedReason.LATER, OnboardingSkippedReason.OTHER}
-        if reason not in non_delegated_reasons:
-            raise serializers.ValidationError(
-                {"reason": "Must be 'later' or 'other'."},
-                code="invalid_input",
-            )
-
-        step_at_skip = (request.data or {}).get("step_at_skip") if isinstance(request.data, dict) else ""
-        step_at_skip = step_at_skip or ""
+        reason = validated["reason"]
+        step_at_skip = validated.get("step_at_skip") or ""
 
         with transaction.atomic():
             locked = User.objects.select_for_update().get(pk=instance.pk)
@@ -945,8 +950,6 @@ class UserViewSet(
                 distinct_id = str(instance.distinct_id)
 
                 def _fire_skip_analytics() -> None:
-                    import posthoganalytics
-
                     try:
                         # Single event name with `reason` as a property keeps dashboards simple —
                         # counting skips doesn't require unioning event names.

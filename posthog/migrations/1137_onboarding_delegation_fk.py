@@ -5,12 +5,21 @@ class Migration(migrations.Migration):
     """
     Add User.onboarding_delegated_to_invite (FK) with NOT VALID in separate migration.
 
-    Split from 1135 so 1135 stays atomic with rollback; NOT VALID is safe in a transaction
-    in PostgreSQL. Index is 1137_onboarding_delegated_to_invite_index (CONCURRENTLY).
+    Split from 1136 so 1136 stays atomic with rollback; NOT VALID is safe in a transaction
+    in PostgreSQL. Index is 1138_onboarding_delegated_to_invite_index (CONCURRENTLY).
+
+    Why no follow-up VALIDATE CONSTRAINT: the column is added NULL with no DEFAULT, so
+    every pre-existing row is NULL and there is nothing to validate against the new FK.
+    The constraint is fully enforced going forward (Postgres always enforces NOT VALID
+    constraints for new writes — `NOT VALID` only suppresses the historical-row check).
+    `pg_constraint.convalidated=false` will linger; that's a cosmetic flag, not a
+    correctness issue. If this column is ever backfilled with non-NULL values, run
+    `ALTER TABLE posthog_user VALIDATE CONSTRAINT posthog_user_onboarding_delegated_to_invite_id_fkey`
+    in a follow-up migration with `atomic=False` before depending on full validation.
     """
 
     dependencies = [
-        ("posthog", "1135_onboarding_delegation_fields"),
+        ("posthog", "1136_onboarding_delegation_fields"),
     ]
 
     operations = [

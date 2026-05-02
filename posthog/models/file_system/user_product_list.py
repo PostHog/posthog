@@ -6,6 +6,7 @@ from django.db.models import Count
 from django.db.models.expressions import F
 from django.db.models.signals import post_save
 from django.dispatch.dispatcher import receiver
+from django.utils import timezone
 
 from posthog.schema import ProductIntentContext, ProductItemCategory, ProductKey
 
@@ -127,20 +128,21 @@ class UserProductList(UUIDModel, UpdatedMetaFields):
         if not target_paths:
             return []
 
-        affected: list[UserProductList] = []
-        for product_path in target_paths:
-            item, created = UserProductList.objects.get_or_create(
-                user=user,
-                team=team,
-                product_path=product_path,
-                defaults={"enabled": True, "reason": reason},
-            )
-            if not created and not item.enabled:
-                item.enabled = True
-                item.reason = reason
-                item.save(update_fields=["enabled", "reason", "updated_at"])
-            affected.append(item)
-        return affected
+        # Bulk-create rows that don't yet exist (~one query) instead of N sequential
+        # `get_or_create` round-trips, then bulk-flip any rows the user had previously
+        # disabled. `unique_together` on (team, user, product_path) makes this idempotent.
+        # `auto_now` doesn't fire on bulk update, so set updated_at explicitly.
+        UserProductList.objects.bulk_create(
+            [
+                UserProductList(user=user, team=team, product_path=path, enabled=True, reason=reason)
+                for path in target_paths
+            ],
+            ignore_conflicts=True,
+        )
+        UserProductList.objects.filter(user=user, team=team, product_path__in=target_paths, enabled=False).update(
+            enabled=True, reason=reason, updated_at=timezone.now()
+        )
+        return list(UserProductList.objects.filter(user=user, team=team, product_path__in=target_paths))
 
     @staticmethod
     def create_from_product_intent(product_intent: "ProductIntent", user: "User") -> "list[UserProductList]":

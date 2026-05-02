@@ -48,7 +48,15 @@ logger = structlog.get_logger(__name__)
 # small bounded worker count caps the number of orphaned eval threads under sustained
 # flag-service degradation. Per-request executor instantiation would otherwise leak a
 # zombie thread per slow eval.
-_DELEGATION_FLAG_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix="delegation-flag")
+_DELEGATION_FLAG_MAX_WORKERS = 4
+_DELEGATION_FLAG_EXECUTOR = concurrent.futures.ThreadPoolExecutor(
+    max_workers=_DELEGATION_FLAG_MAX_WORKERS, thread_name_prefix="delegation-flag"
+)
+# Bound the executor's task queue so a sustained flag-service outage can't grow it
+# unbounded — every queued task corresponds to a worker that's blocked on a slow upstream
+# call, so once the queue is full additional submits should fail-open immediately rather
+# than wait their turn behind work the caller has already abandoned via `.result(timeout=...)`.
+_DELEGATION_FLAG_MAX_QUEUE = _DELEGATION_FLAG_MAX_WORKERS * 2
 
 
 class OrganizationInviteManager:
@@ -433,6 +441,18 @@ class OrganizationInviteViewSet(
                 send_feature_flag_events=False,
             )
 
+        # If the executor's queue is already saturated, every worker is blocked on a slow
+        # upstream call. Skip the eval and fail-open immediately rather than queue more
+        # work that the caller will abandon at the 1s timeout — that pattern grows the
+        # queue without bound under sustained flag-service degradation.
+        # noqa: SLF001 — accessing _work_queue is the documented way to introspect depth.
+        try:
+            queue_depth = _DELEGATION_FLAG_EXECUTOR._work_queue.qsize()
+        except Exception:
+            queue_depth = 0
+        if queue_depth >= _DELEGATION_FLAG_MAX_QUEUE:
+            return None
+
         try:
             return _DELEGATION_FLAG_EXECUTOR.submit(_eval).result(timeout=1.0)
         except Exception:
@@ -549,6 +569,7 @@ class OrganizationInviteViewSet(
                         target_email=target_email,
                         message=message,
                         step_at_delegation=step_at_delegation,
+                        is_resubmit=True,
                     )
                 serializer = OrganizationInviteSerializer(existing_invite, context=self.get_serializer_context())
                 return response.Response(serializer.data, status=status.HTTP_200_OK)

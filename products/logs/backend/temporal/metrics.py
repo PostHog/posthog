@@ -154,7 +154,11 @@ def increment_checkpoint_unavailable() -> None:
 
 
 def record_check_duration(duration_ms: int) -> None:
-    _record_histogram("logs_alerting_check_duration_ms", "Per-alert evaluation duration", duration_ms)
+    _record_histogram(
+        "logs_alerting_check_duration_ms",
+        "Per-alert end-to-end duration (eval + dispatch); cohort bulk save excluded — see logs_alerting_cohort_save_ms",
+        duration_ms,
+    )
 
 
 def record_clickhouse_duration(duration_ms: int) -> None:
@@ -173,28 +177,46 @@ def record_semaphore_wait(wait_ms: int) -> None:
     )
 
 
-def record_alert_save_duration(duration_ms: int) -> None:
+def record_cohort_save_duration(duration_ms: int) -> None:
     _record_histogram(
-        "logs_alerting_alert_save_ms",
-        "Postgres write time for the per-eval alert state update (full transaction)",
+        "logs_alerting_cohort_save_ms",
+        "Postgres write time for the per-cohort bulk save (full transaction: bulk_create + bulk_update)",
         duration_ms,
     )
 
 
-def record_alert_event_create_duration(duration_ms: int) -> None:
+def record_cohort_event_insert_duration(duration_ms: int) -> None:
     _record_histogram(
-        "logs_alerting_alert_event_create_ms",
-        "Postgres INSERT time for the per-eval LogsAlertEvent audit row (only on state change or error)",
+        "logs_alerting_cohort_event_insert_ms",
+        "Postgres bulk_create time for LogsAlertEvent rows in a cohort (only on state changes or errors)",
         duration_ms,
     )
 
 
-def record_alert_update_duration(duration_ms: int) -> None:
+def record_cohort_update_duration(duration_ms: int) -> None:
     _record_histogram(
-        "logs_alerting_alert_update_ms",
-        "Postgres UPDATE time for the alert configuration row (without surrounding transaction overhead)",
+        "logs_alerting_cohort_update_ms",
+        "Postgres bulk_update time for LogsAlertConfiguration rows in a cohort",
         duration_ms,
     )
+
+
+def record_cohort_size(size: int) -> None:
+    _record_histogram(
+        "logs_alerting_cohort_size",
+        "Number of alerts in a cohort sharing one batched ClickHouse query and one bulk Postgres save",
+        size,
+    )
+
+
+def increment_cohort_save_fallback(reason: str) -> None:
+    """Counts cohort bulk-save failures that triggered the per-alert fallback path."""
+    meter = get_metric_meter({"reason": reason})
+    counter = meter.create_counter(
+        "logs_alerting_cohort_save_fallback_total",
+        "Cohort bulk-save fell back to per-alert UPDATEs (e.g. IntegrityError)",
+    )
+    counter.add(1)
 
 
 def record_scheduler_lag(lag_ms: int) -> None:

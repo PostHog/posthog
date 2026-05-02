@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 
 import { IconArrowRight } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTextArea } from '@posthog/lemon-ui'
@@ -44,12 +44,20 @@ export function OnboardingExitModal(): JSX.Element {
         closeExitModal()
     }
 
-    const showEmailValidationError = targetEmail.length > 0 && !canSubmitDelegation
+    // Defer the danger state until the user has at least blurred the field once.
+    // Showing the error after the very first character is hostile; the disabled submit
+    // button already communicates the constraint while they're still typing.
+    const [emailWasBlurred, setEmailWasBlurred] = useState(false)
+    const showEmailValidationError = emailWasBlurred && targetEmail.length > 0 && !canSubmitDelegation
 
     const senderName = user?.first_name?.trim() || 'Your teammate'
     const orgName = user?.organization?.name?.trim() || 'your team'
     const recipientDisplay = targetEmail.trim() || 'their email'
-    const messagePreview = message.trim() || 'Hey — can you get this set up? Thanks!'
+    // The placeholder text in the textarea must NOT be reflected as live preview content,
+    // or users assume the placeholder copy will be sent verbatim. Show it as quoted only
+    // when the user has actually typed something.
+    const trimmedMessage = message.trim()
+    const hasMessage = trimmedMessage.length > 0
 
     return (
         <LemonModal
@@ -90,6 +98,7 @@ export function OnboardingExitModal(): JSX.Element {
                         }}
                         onBlur={() => {
                             isComposingRef.current = false
+                            setEmailWasBlurred(true)
                         }}
                     />
                     {showEmailValidationError ? (
@@ -129,7 +138,8 @@ export function OnboardingExitModal(): JSX.Element {
                             type="secondary"
                             onClick={handleClose}
                             htmlType="button"
-                            disabledReason={isSubmitting ? 'Sending invitation…' : undefined}
+                            // Stay enabled during submit to match the "always allow close"
+                            // policy enforced by `handleClose` and `hasUnsavedInput`.
                         >
                             Cancel
                         </LemonButton>
@@ -146,7 +156,10 @@ export function OnboardingExitModal(): JSX.Element {
                 </form>
 
                 {/* Live invitation preview — renders what the teammate will receive. */}
-                <div className="flex flex-col gap-2">
+                {/* Preview is hidden below md: — on small viewports the form fills the screen
+                    and the preview ends up below the fold, so users can't see it while typing
+                    anyway. Skipping it avoids a useless scroll-down step on mobile. */}
+                <div className="hidden md:flex flex-col gap-2">
                     <p className="m-0 text-xs text-muted uppercase tracking-wide font-semibold">Preview</p>
                     <div className="rounded-lg border border-primary bg-surface-primary overflow-hidden">
                         <div className="flex items-center gap-2 px-3 py-2 border-b border-primary bg-surface-secondary">
@@ -160,9 +173,15 @@ export function OnboardingExitModal(): JSX.Element {
                             <p className="m-0 text-sm font-semibold">
                                 {senderName} asked you to finish setting up PostHog for {orgName}
                             </p>
-                            <div className="rounded bg-surface-secondary px-2 py-2 text-xs italic text-default whitespace-pre-line">
-                                “{messagePreview}”
-                            </div>
+                            {hasMessage ? (
+                                <div className="rounded bg-surface-secondary px-2 py-2 text-xs italic text-default whitespace-pre-line">
+                                    “{trimmedMessage}”
+                                </div>
+                            ) : (
+                                <div className="rounded bg-surface-secondary px-2 py-2 text-xs italic text-muted">
+                                    No personal message
+                                </div>
+                            )}
                             <p className="m-0 text-xs text-muted">
                                 You'll be added as an admin so you can finish setup.
                             </p>

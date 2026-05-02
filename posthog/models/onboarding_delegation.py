@@ -142,6 +142,14 @@ def _seed_sidebar_for_delegator(*, user_id: int, organization_id: UUID | str) ->
         )
     except Exception as exc:  # noqa: BLE001 - sidebar seeding must never block delegation
         capture_exception(exc)
+        # Pair the Sentry capture with an indexable structured log so ops can correlate
+        # broken-sidebar reports back to a specific delegator/org without hunting Sentry.
+        logger.warning(
+            "delegation_sidebar_seed_failed",
+            user_id=user_id,
+            organization_id=str(organization_id),
+            error=str(exc),
+        )
 
 
 def cancel_pending_delegation(*, locked_user: User) -> None:
@@ -232,8 +240,16 @@ def schedule_delegation_side_effects(
     target_email: str,
     message: str,
     step_at_delegation: str,
+    is_resubmit: bool = False,
 ) -> None:
-    """Queue post-commit effects for a created delegation invite."""
+    """Queue post-commit effects for a created delegation invite.
+
+    `is_resubmit=True` is set when the caller is replaying side effects on an existing
+    invite (the dispatch path for "email never reached the worker" recovery). In that
+    case we re-queue the email but emit a distinct analytics event so the
+    `onboarding delegated` count remains a true count of delegations rather than a
+    count of dispatch attempts.
+    """
 
     def _queue_delegation_email() -> None:
         from posthog.tasks.email import send_invite
@@ -254,7 +270,7 @@ def schedule_delegation_side_effects(
         try:
             posthoganalytics.capture(
                 distinct_id=distinct_id,
-                event="onboarding delegated",
+                event=("onboarding delegation email retried" if is_resubmit else "onboarding delegated"),
                 properties={
                     "target_email_domain": target_email.split("@")[-1] if "@" in target_email else None,
                     "has_message": bool(message),

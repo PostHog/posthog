@@ -229,7 +229,7 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
     # on the frontend, which only suppresses the redirect when this matches the current org.
     onboarding_skipped_organization_id = models.UUIDField(null=True, blank=True)
     # Index is created out-of-band via `CREATE INDEX CONCURRENTLY` in a follow-up migration —
-    # see 1137_onboarding_delegated_to_invite_index. `db_index=False` keeps Django's base AddField
+    # see 1138_onboarding_delegated_to_invite_index. `db_index=False` keeps Django's base AddField
     # from emitting a blocking CREATE INDEX on posthog_user during deploy.
     onboarding_delegated_to_invite = models.ForeignKey(
         "posthog.OrganizationInvite",
