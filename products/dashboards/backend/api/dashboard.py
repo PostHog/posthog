@@ -142,8 +142,8 @@ FILTERS_OVERRIDE_PARAM = OpenApiParameter(
 tracer = trace.get_tracer(__name__)
 
 # Minimum trigram word similarity score for a dashboard `name` or `description` to be
-# considered a search match. Calibrated against the `_apply_search_*` tests in
-# posthog/api/test/dashboards/test_dashboard.py — tighten it and the typo cases stop
+# considered a search match. Calibrated against the `test_list_filter_by_search_*` tests
+# in posthog/api/test/dashboards/test_dashboard.py — tighten it and the typo cases stop
 # matching, loosen it and unrelated rows leak in.
 MIN_TRIGRAM_SIMILARITY = 0.3
 # Hard cap on the `?search=` query parameter — protects against pathological inputs

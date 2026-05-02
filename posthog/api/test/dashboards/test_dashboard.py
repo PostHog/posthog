@@ -200,7 +200,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             assert name not in result_names, f"expected {name!r} excluded, got {result_names}"
 
     def test_list_filter_by_search_matches_description_with_lower_rank_than_name(self):
-        # Description matches are kept but rank below name matches — `name_score * 2 + description_score`.
+        # Description matches are kept but rank below name matches.
         name_match_id, _ = self.dashboard_api.create_dashboard({"name": "revenue"})
         description_match_id, _ = self.dashboard_api.create_dashboard(
             {"name": "Q4 review", "description": "Quarterly revenue dashboard"}

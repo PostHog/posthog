@@ -175,17 +175,25 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
         dashboards: [
             (s) => [
                 dashboardsModel.selectors.nameSortedDashboards,
+                dashboardsModel.selectors.rawDashboards,
                 s.searchedDashboards,
                 s.filters,
                 s.currentTab,
                 s.user,
             ],
-            (allDashboards, searchedDashboards, filters, currentTab, user) => {
-                // When a search term is active we trust the server's relevance ranking
-                // (combined FTS rank + trigram similarity); otherwise we use the model's
-                // alphabetised list. This keeps the exact match at the top of the list.
+            (allDashboards, rawDashboards, searchedDashboards, filters, currentTab, user) => {
+                // When a search term is active we trust the server's trigram word similarity
+                // ranking; otherwise we use the model's alphabetised list. This keeps the exact
+                // match at the top.
+                //
+                // For the search branch we re-hydrate each row from `rawDashboards` so that
+                // pin/unpin/rename mutations driven by `dashboardsModel` show up immediately
+                // in the search results — without this, `searchedDashboards` would freeze at
+                // the API response state until the next refetch.
                 let haystack: DashboardBasicType[] =
-                    filters.search && searchedDashboards ? searchedDashboards : allDashboards
+                    filters.search && searchedDashboards
+                        ? searchedDashboards.map((d) => (rawDashboards[d.id] as DashboardBasicType | undefined) ?? d)
+                        : allDashboards
                 if (currentTab === DashboardsTab.Pinned) {
                     haystack = haystack.filter((d) => d.pinned)
                 }
