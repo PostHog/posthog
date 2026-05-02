@@ -3336,6 +3336,21 @@
             "readOnlyHint": false
         }
     },
+    "proxy-diagnose": {
+        "description": "Run a deep diagnostic on a reverse proxy that's stuck or erroring. Inspects the customer's CNAME, the certificate provider's hostname state, CAA records walked up the DNS tree (the most common stuck-validation cause), HTTP-01 challenge reachability, a live event probe, and certificate expiry. Returns a structured report with each check's status and concrete remediation steps — including the exact DNS records the customer should add when CAA blocks issuance. Use this when proxy-get returns an erroring or timed_out status, or whenever a user asks why their proxy isn't working.",
+        "category": "Reverse proxy",
+        "feature": "reverse_proxy",
+        "summary": "Diagnose reverse proxy",
+        "title": "Diagnose reverse proxy",
+        "required_scopes": ["organization:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "proxy-get": {
         "description": "Get full details of a specific reverse proxy by ID. Returns the domain, CNAME target (the DNS record value the user needs to configure), current provisioning status, and any error or warning messages. Use this to debug why a proxy isn't working or to check DNS verification status.",
         "category": "Reverse proxy",
