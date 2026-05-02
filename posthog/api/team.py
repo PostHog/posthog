@@ -1,6 +1,7 @@
 import re
 import json
 import math
+import hashlib
 import secrets
 from datetime import timedelta
 from functools import cached_property
@@ -413,15 +414,29 @@ def _reset_default_data_color_theme_id_cache() -> None:
 LIVE_EVENTS_TOKEN_TTL_SECONDS = 24 * 60 * 60
 
 
+def _live_events_token_cache_key(team: Team, user_id: int | None) -> str:
+    """Build the cache key for the live-events JWT.
+
+    Includes a short fingerprint of `settings.SECRET_KEY` so that rotating the
+    signing secret automatically partitions the cache namespace - cached tokens
+    signed with the old key become unreachable rather than served until TTL.
+    Hashing also defends the cache key against future api-token formats that
+    might contain the `:` separator we use between components.
+    """
+    signing_fingerprint = hashlib.sha256(settings.SECRET_KEY.encode()).hexdigest()[:16]
+    return f"live_events_token:{signing_fingerprint}:{team.id}:{user_id}:{team.api_token}:{team.organization_id}"
+
+
 def get_or_mint_live_events_token(team: Team, user_id: int | None) -> str:
     """Return a cached live-events JWT for this (team, user) pair, minting one if missing.
 
     The JWT itself is valid for 7 days. The cache TTL is 24h, so any token returned
     from cache still has at least 6 days of remaining validity. The cache key includes
     every field that ends up in the claims so api-token rotations or organization
-    moves automatically force a fresh mint.
+    moves automatically force a fresh mint, plus a SECRET_KEY fingerprint so signing-
+    key rotation auto-partitions the cache namespace (no manual flush needed).
     """
-    cache_key = f"live_events_token:{team.id}:{user_id}:{team.api_token}:{team.organization_id}"
+    cache_key = _live_events_token_cache_key(team, user_id)
     cached = get_safe_cache(cache_key)
     if cached is not None:
         return cached
