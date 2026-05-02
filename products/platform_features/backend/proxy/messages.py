@@ -35,14 +35,14 @@ def caa_blocking(domain: str, restricting_zone: str, allowed: list[str], require
     )
 
 
-def cname_missing(domain: str, expected: str) -> str:
-    return f"`{domain}` doesn't have a CNAME DNS record yet. Add a CNAME pointing to `{expected}` at your DNS provider."
+def cname_missing(domain: str) -> str:
+    return f"`{domain}` doesn't have a CNAME DNS record yet. Add the record below at your DNS provider."
 
 
-def cname_mismatch(domain: str, expected: str, actual: str) -> str:
+def cname_mismatch(domain: str, actual: str) -> str:
     return (
-        f"`{domain}` points to `{actual}`, but it should point to `{expected}`. "
-        "Update the CNAME record at your DNS provider."
+        f"`{domain}` is pointing to `{actual}` instead of the expected target. "
+        "Update the CNAME record below at your DNS provider."
     )
 
 

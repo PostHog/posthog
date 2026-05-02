@@ -443,24 +443,10 @@ const checkStatusIcon = (status: DiagnosticCheckStatus): JSX.Element => {
     }
 }
 
-const summaryBannerType = (status: DiagnosticReport['summary']['status']): 'success' | 'warning' | 'error' => {
-    if (status === 'healthy') {
-        return 'success'
-    }
-    if (status === 'warn') {
-        return 'warning'
-    }
-    return 'error'
-}
-
 function DiagnosticReportContent({ report }: { report: DiagnosticReport }): JSX.Element {
     return (
         <div className="flex flex-col gap-3">
             <div className="text-xs text-secondary">Ran {new Date(report.ran_at).toLocaleString()}</div>
-            <LemonBanner type={summaryBannerType(report.summary.status)}>
-                <div className="font-semibold capitalize">{report.summary.status}</div>
-                {report.summary.next_action && <LemonMarkdown>{report.summary.next_action}</LemonMarkdown>}
-            </LemonBanner>
             <div className="flex flex-col gap-2">
                 {report.checks.map((check) => (
                     <DiagnosticCheckRow key={check.id} check={check} />

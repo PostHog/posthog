@@ -173,17 +173,17 @@ def _check_cname(record: ProxyRecord) -> CheckResult:
                 id="cname",
                 name="DNS CNAME",
                 status="pass",
-                detail=f"`{record.domain}` correctly points to `{record.target_cname}`.",
+                detail=f"`{record.domain}` is correctly configured.",
             )
         return CheckResult(
             id="cname",
             name="DNS CNAME",
             status="fail",
-            detail=messages.cname_mismatch(record.domain, record.target_cname, actual),
+            detail=messages.cname_mismatch(record.domain, actual),
             remediation=Remediation(
                 type="dns",
-                summary=f"Update CNAME for `{record.domain}` to point to `{record.target_cname}`.",
-                records=[DnsRecord(name=record.domain, type="CNAME", value=record.target_cname)],
+                summary=f"Update the CNAME record for `{record.domain}` to the value below.",
+                records=[DnsRecord(name=record.domain, type="CNAME", value=expected)],
             ),
         )
     except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer):
@@ -191,11 +191,11 @@ def _check_cname(record: ProxyRecord) -> CheckResult:
             id="cname",
             name="DNS CNAME",
             status="fail",
-            detail=messages.cname_missing(record.domain, record.target_cname),
+            detail=messages.cname_missing(record.domain),
             remediation=Remediation(
                 type="dns",
-                summary=f"Add a CNAME record for `{record.domain}` pointing to `{record.target_cname}`.",
-                records=[DnsRecord(name=record.domain, type="CNAME", value=record.target_cname)],
+                summary=f"Add the CNAME record below for `{record.domain}`.",
+                records=[DnsRecord(name=record.domain, type="CNAME", value=expected)],
             ),
         )
     except dns.exception.DNSException as e:
