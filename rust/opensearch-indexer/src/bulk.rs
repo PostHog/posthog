@@ -28,8 +28,7 @@ const DOC_OVERHEAD_FUDGE: usize = 256;
 /// including offsets from skipped non-`$ai_*` events that the consumer forwards
 /// through the channel for ordering. A Skip at offset N+1 must wait for any
 /// in-flight Index at N to be ack'd, otherwise a crash mid-flush would advance
-/// the partition past unwritten data — see plan §"Key correctness divergences
-/// from property-defs-rs".
+/// the partition past unwritten data.
 ///
 /// Generic over the offset type so unit tests can exercise state transitions
 /// with `BulkBatch<()>` (real `Offset` is non-constructible outside the
@@ -149,8 +148,8 @@ fn write_action_line(buf: &mut Vec<u8>, doc: &IndexDoc) {
 
 /// HTTP `_bulk` writer. Retries 5xx and transport errors with `1s → 60s`
 /// exponential backoff (uncapped attempt count — channel back-pressure pauses
-/// the consumer). Per-item failures inside a 200 response are logged but still
-/// commit in C1; the per-class router lands in C2.
+/// the consumer). Per-item failures inside a 200 response are logged and
+/// committed; per-item retry/DLQ classification is handled by the caller.
 pub struct BulkWriter {
     client: reqwest::Client,
     url: String,
@@ -175,8 +174,9 @@ impl BulkWriter {
     }
 
     /// Drains `batch`, POSTs `_bulk`, retries transient errors infinitely, and
-    /// stores offsets after a 2xx ack. Returns `Ok` for both `errors:false` and
-    /// `errors:true` (the C1 placeholder behavior — C2 routes per-item errors).
+    /// stores offsets after a 2xx ack. Returns `Ok` for both `errors:false`
+    /// and `errors:true` — per-item failures are surfaced via `FlushStats` for
+    /// the caller to classify.
     pub async fn flush(&self, batch: &mut BulkBatch) -> Result<FlushStats, FlushError> {
         if batch.is_empty() {
             return Ok(FlushStats::default());
@@ -194,7 +194,7 @@ impl BulkWriter {
                 warn!(
                     failures,
                     total = offset_count,
-                    "bulk response had per-item errors; committing anyway (C1 placeholder, C2 adds classifier)"
+                    "bulk response had per-item errors; committing anyway"
                 );
             }
             failures
@@ -288,11 +288,10 @@ struct BulkResponse {
     items: Vec<BulkResponseItem>,
 }
 
-/// Each item is `{"index": {...}}`. C1 only emits `index` actions; if a future
-/// stage adds `create`/`update` actions, this required field will fail to
-/// deserialize for those rows — the loud `FlushError::Parse` is the intended
-/// trip-wire so the change must be deliberate, not a silent miss in
-/// `failure_count()`.
+/// Each item is `{"index": {...}}`. We only emit `index` actions; if a future
+/// change adds `create`/`update` actions, this required field will fail to
+/// deserialize for those rows — `FlushError::Parse` is intentional so the
+/// change must be deliberate, not a silent miss in `failure_count()`.
 #[derive(Debug, Deserialize)]
 struct BulkResponseItem {
     index: BulkActionResult,
@@ -403,8 +402,9 @@ mod tests {
 
     #[test]
     fn bulk_response_rejects_unknown_action_type() {
-        // The trip-wire: if a future stage emits `create` actions, the response
-        // shape changes and we must update BulkResponseItem deliberately.
+        // If a future change emits `create` actions, the response shape changes
+        // and BulkResponseItem must be updated deliberately rather than silently
+        // missing the new action type.
         let body = br#"{"took":3,"errors":false,"items":[{"create":{"status":201}}]}"#;
         let result: Result<BulkResponse, _> = serde_json::from_slice(body);
         assert!(
@@ -625,8 +625,8 @@ mod tests {
     #[tokio::test]
     async fn post_with_retry_recovers_after_5xx() {
         let server = MockServer::start_async().await;
-        // Stage 1: 503. Stage 2: swap to 200 once we've observed at least one
-        // failed attempt, so the retry loop is exercised.
+        // Phase 1: respond 503. After observing at least one failed attempt,
+        // swap to 200 so the retry loop is exercised end-to-end.
         let fail = server
             .mock_async(|when, then| {
                 when.method(POST).path("/llm-traces/_bulk");

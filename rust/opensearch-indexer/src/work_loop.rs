@@ -28,8 +28,7 @@ const SINK_TIMER_INTERVAL: Duration = Duration::from_millis(250);
 /// each offset only after the message ahead of it on that partition has been
 /// processed. Committing offsets in the consumer would let a skipped event at
 /// offset N+1 advance the partition past an in-flight `IndexDoc` at offset N
-/// that hasn't been written to OpenSearch yet — see plan §"Key correctness
-/// divergences from property-defs-rs".
+/// that hasn't been written to OpenSearch yet.
 pub async fn run_consumer(
     consumer: SingleTopicConsumer,
     tx: mpsc::Sender<(SinkMsg, Offset)>,
@@ -72,8 +71,9 @@ pub async fn run_consumer(
             Ok(Some(doc)) => SinkMsg::Index(Box::new(doc)),
             Ok(None) => SinkMsg::Skip,
             Err(e) => {
-                // Stage E will route parse errors to the DLQ. For now, log and skip;
-                // the sink will commit the offset so the consumer doesn't wedge.
+                // Log and forward as Skip so the sink commits the offset and
+                // the consumer doesn't wedge on a malformed event. A future
+                // change can route these to a DLQ topic.
                 error!(uuid = %event.uuid, "Parse error: {e}");
                 SinkMsg::Skip
             }
@@ -92,7 +92,7 @@ pub struct SinkConfig {
     pub max_batch_age: Duration,
 }
 
-/// Stage C1 sink: accumulate `(IndexDoc | Skip, Offset)` into a `BulkBatch`,
+/// Sink loop: accumulate `(IndexDoc | Skip, Offset)` into a `BulkBatch`,
 /// flush on either the size or age threshold, and commit offsets after the
 /// `_bulk` ack. A non-retryable flush error fails the lifecycle component so
 /// the manager can shut the service down loudly.

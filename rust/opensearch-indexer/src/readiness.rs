@@ -7,9 +7,9 @@ const POLL_INTERVAL: Duration = Duration::from_secs(2);
 const MAX_WAIT: Duration = Duration::from_secs(60);
 
 /// Block until `GET /_alias/<alias>` returns 200, or fail after `MAX_WAIT`.
-/// Decision #7 in the plan: the indexer refuses to start if the alias is
-/// missing — auto-creating an index would silently produce wrong mappings, so
-/// we'd rather page the operator than ingest into a bad target.
+/// The indexer refuses to start if the alias is missing — auto-creating an
+/// index would silently produce wrong mappings, so we'd rather page the
+/// operator than ingest into a bad target.
 ///
 /// Honors `shutdown` so a SIGTERM during the gate window terminates promptly
 /// instead of running out the 60s timer (matters for K8s rollouts that catch
@@ -95,7 +95,7 @@ mod tests {
     #[tokio::test]
     async fn retries_then_succeeds_when_alias_appears() {
         let server = MockServer::start_async().await;
-        // Stage 1: alias missing.
+        // Phase 1: alias missing.
         let miss = server
             .mock_async(|when, then| {
                 when.method(GET).path("/_alias/llm-traces");

@@ -64,9 +64,11 @@ async fn main() -> anyhow::Result<()> {
     let shutdown_token = CancellationToken::new();
     spawn_early_signal_listener(shutdown_token.clone());
 
-    // Readiness gate: refuse to start if the alias is missing. Decision #7 in plan.
-    // Runs before binding HTTP / spawning workers so K8s sees the pod as not-ready
-    // (no listener) until the dependency is verified.
+    // Readiness gate: refuse to start if the alias is missing. Auto-creating
+    // an index would silently produce wrong mappings, so we'd rather fail fast
+    // than ingest into a bad target. Runs before binding HTTP / spawning
+    // workers so K8s sees the pod as not-ready (no listener) until the
+    // dependency is verified.
     let probe_client = reqwest::Client::builder()
         .timeout(Duration::from_secs(5))
         .build()?;

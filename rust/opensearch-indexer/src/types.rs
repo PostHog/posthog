@@ -73,8 +73,9 @@ pub struct IndexDoc {
     #[serde(skip)]
     pub event_uuid: Uuid,
 
-    /// Wall-clock instant when the event finished parsing. Used by the bulk-flush
-    /// histogram in Stage E to observe end-to-end lag.
+    /// Wall-clock instant when the event finished parsing. Used to observe
+    /// end-to-end ingestion lag and to anchor the bulk batch's age-based flush
+    /// trigger.
     #[serde(skip)]
     pub parsed_at: Instant,
 }
@@ -155,7 +156,7 @@ mod tests {
 /// Channel message between the consumer and the sink. `Skip` carries no payload —
 /// it just lets the sink advance the partition offset in receive order so a
 /// non-`$ai_*` event landing after an in-flight `Index(...)` can't commit ahead of
-/// it. See plan §"Key correctness divergences from property-defs-rs".
+/// it.
 ///
 /// `IndexDoc` is boxed so each channel slot is pointer-sized; otherwise mpsc
 /// pre-allocates the largest variant on every slot, including the cheap `Skip`s.
