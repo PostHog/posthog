@@ -3,6 +3,7 @@ import asyncio
 from typing import Any, Optional
 
 from django.conf import settings
+from django.core.cache import cache
 from django.db.models import QuerySet
 from django.http import HttpRequest, JsonResponse
 
@@ -44,6 +45,17 @@ from posthog.utils import str_to_bool
 
 from ee.tasks.subscriptions.subscription_utils import DEFAULT_MAX_ASSET_COUNT
 
+SUMMARY_QUOTA_CACHE_TTL_SECONDS = 60
+SUMMARY_CAP_HIT_DEDUPE_TTL_SECONDS = 600
+
+
+def _summary_quota_cache_key(organization_id) -> str:
+    return f"subscription:summary_quota:org:{organization_id}"
+
+
+def _summary_cap_hit_dedupe_key(organization_id) -> str:
+    return f"subscription:summary_cap_hit:org:{organization_id}"
+
 
 def _count_active_summaries(organization) -> int:
     """Count subscriptions with summary_enabled=True (and not soft-deleted) across
@@ -54,6 +66,10 @@ def _count_active_summaries(organization) -> int:
         summary_enabled=True,
         deleted=False,
     ).count()
+
+
+def _invalidate_summary_quota_cache(organization_id) -> None:
+    cache.delete(_summary_quota_cache_key(organization_id))
 
 
 @extend_schema_field({"type": "array", "items": {"type": "integer"}})
@@ -252,11 +268,45 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         if limit is None:
             return
 
-        if _count_active_summaries(organization) >= limit:
+        active_count = _count_active_summaries(organization)
+        if active_count >= limit:
+            self._capture_summary_cap_hit(organization, active_count, limit)
             raise QuotaLimitExceeded(
                 f"Your plan allows up to {limit} active AI summaries. "
                 "Disable an existing summary or upgrade your plan to add more."
             )
+
+    def _capture_summary_cap_hit(self, organization, active_count: int, limit: int) -> None:
+        # Rate-limited to one event per org per 10 minutes so a misbehaving
+        # client retrying in a loop doesn't spam the analytics stream. Within
+        # that window the user-visible 402 still fires every time.
+        dedupe_key = _summary_cap_hit_dedupe_key(organization.id)
+        if cache.get(dedupe_key):
+            return
+        cache.set(dedupe_key, True, SUMMARY_CAP_HIT_DEDUPE_TTL_SECONDS)
+
+        request = self.context.get("request")
+        distinct_id = (
+            str(request.user.distinct_id)
+            if request and getattr(request, "user", None) and getattr(request.user, "distinct_id", None)
+            else f"team_{self.context.get('team_id')}"
+        )
+        try:
+            posthoganalytics.capture(
+                distinct_id=distinct_id,
+                event="subscription_ai_summary_cap_hit",
+                properties={
+                    "team_id": self.context.get("team_id"),
+                    "organization_id": str(organization.id),
+                    "active_count": active_count,
+                    "limit": limit,
+                    "is_create": self.instance is None,
+                },
+                groups={"organization": str(organization.id)},
+            )
+        except Exception:
+            # Telemetry must never poison the validation path.
+            pass
 
     def _prompt_guide_feature_enabled(self) -> bool:
         """Evaluate the prompt-guide feature flag for the caller's organization.
@@ -350,6 +400,11 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         dashboard_export_insight_ids = validated_data.pop("dashboard_export_insights", [])
         instance: Subscription = super().create(validated_data)
 
+        # Bust the org-wide active-summary count cache so the next quota
+        # fetch reflects this row, regardless of summary_enabled — over-busting
+        # is cheap and removes the need to track the prior state.
+        _invalidate_summary_quota_cache(instance.team.organization_id)
+
         if dashboard_export_insight_ids:
             instance.dashboard_export_insights.set(dashboard_export_insight_ids)
 
@@ -427,9 +482,11 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                 },
             ):
                 instance = super().update(instance, validated_data)
+            _invalidate_summary_quota_cache(instance.team.organization_id)
             return instance
 
         instance = super().update(instance, validated_data)
+        _invalidate_summary_quota_cache(instance.team.organization_id)
 
         if dashboard_export_insight_ids:
             instance.dashboard_export_insights.set(dashboard_export_insight_ids)
@@ -596,18 +653,23 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
     )
     def summary_quota(self, request, **kwargs):
         organization = self.organization
+        cache_key = _summary_quota_cache_key(organization.id)
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return Response(cached)
+
         active_count = _count_active_summaries(organization)
         limit = get_organization_limit(
             organization=organization,
             key=LimitKey.MAX_ACTIVE_AI_SUMMARIES_PER_ORG,
         )
-        return Response(
-            {
-                "active_count": active_count,
-                "limit": limit,
-                "at_limit": limit is not None and active_count >= limit,
-            }
-        )
+        payload = {
+            "active_count": active_count,
+            "limit": limit,
+            "at_limit": limit is not None and active_count >= limit,
+        }
+        cache.set(cache_key, payload, SUMMARY_QUOTA_CACHE_TTL_SECONDS)
+        return Response(payload)
 
     @extend_schema(
         request=None,

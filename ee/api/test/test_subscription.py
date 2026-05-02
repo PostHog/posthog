@@ -649,6 +649,58 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["at_limit"] is True
 
+    def test_summary_quota_endpoint_uses_cache_and_invalidates_on_save(self) -> None:
+        # Tight integration check: hot path is the cached read; mutating a
+        # subscription via the API busts the cache so the next read reflects
+        # the new state without waiting for the TTL.
+        cache.clear()
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        self._seed_active_summary_subscriptions(2)
+
+        with patch("ee.api.subscription.get_organization_limit", return_value=10):
+            first = self.client.get(f"/api/projects/{self.team.id}/subscriptions/summary_quota")
+            assert first.status_code == status.HTTP_200_OK
+            assert first.json()["active_count"] == 2
+
+            # New row added directly in DB should NOT be visible — cache hit.
+            self._seed_active_summary_subscriptions(1)
+            second = self.client.get(f"/api/projects/{self.team.id}/subscriptions/summary_quota")
+            assert second.json()["active_count"] == 2
+
+            # Saving via the API path busts the cache.
+            self._create_subscription(summary_enabled=True)
+            third = self.client.get(f"/api/projects/{self.team.id}/subscriptions/summary_quota")
+            # 2 seeded + 1 direct + 1 via API = 4 active.
+            assert third.json()["active_count"] == 4
+
+    def test_cap_hit_emits_event_and_dedupes_within_window(self) -> None:
+        # Verifies the cap-hit telemetry fires with rich properties on first
+        # block and is suppressed on subsequent blocks within the dedupe
+        # window so a misbehaving client can't spam the analytics stream.
+        cache.clear()
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        self._seed_active_summary_subscriptions(5)
+
+        with (
+            patch("ee.api.subscription.get_organization_limit", return_value=5),
+            patch("ee.api.subscription.posthoganalytics.capture") as mock_capture,
+        ):
+            first = self._create_subscription(summary_enabled=True)
+            second = self._create_subscription(summary_enabled=True)
+
+        assert first.status_code == status.HTTP_402_PAYMENT_REQUIRED
+        assert second.status_code == status.HTTP_402_PAYMENT_REQUIRED
+        assert mock_capture.call_count == 1
+        captured_kwargs = mock_capture.call_args.kwargs
+        assert captured_kwargs["event"] == "subscription_ai_summary_cap_hit"
+        properties = captured_kwargs["properties"]
+        assert properties["active_count"] == 5
+        assert properties["limit"] == 5
+        assert properties["organization_id"] == str(self.organization.id)
+        assert properties["is_create"] is True
+
     def test_restoring_deleted_summary_enabled_subscription_re_checks_cap(self) -> None:
         # An attacker (or a curious user) PATCHing `deleted=False` on a
         # soft-deleted summary_enabled=True subscription must re-trigger the
