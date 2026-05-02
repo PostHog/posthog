@@ -73,6 +73,20 @@ logger = structlog.get_logger(__name__)
 MAX_ALLOWED_PROJECTS_PER_ORG = 1500
 
 
+_GROUP_TYPES_REQUEST_CACHE_ATTR = "_serializer_cached_group_types"
+
+
+def _group_types_for_project(project: Project) -> list[dict[str, Any]]:
+    """Memoise `get_group_types_for_project` per request on the project instance.
+
+    `has_group_types` and `group_types` are sibling SerializerMethodFields that
+    both want the same answer; without this, each render hit Redis twice.
+    """
+    if not hasattr(project, _GROUP_TYPES_REQUEST_CACHE_ATTR):
+        setattr(project, _GROUP_TYPES_REQUEST_CACHE_ATTR, get_group_types_for_project(project.id))
+    return getattr(project, _GROUP_TYPES_REQUEST_CACHE_ATTR)
+
+
 class ProjectSerializer(serializers.ModelSerializer):
     class Meta:
         model = Project
@@ -347,10 +361,10 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
         return self.user_permissions.team(team).effective_membership_level
 
     def get_has_group_types(self, project: Project) -> bool:
-        return bool(get_group_types_for_project(project.id))
+        return bool(_group_types_for_project(project))
 
     def get_group_types(self, project: Project) -> list[dict[str, Any]]:
-        return get_group_types_for_project(project.id)
+        return _group_types_for_project(project)
 
     def get_live_events_token(self, project: Project) -> Optional[str]:
         team = project.teams.get(pk=project.pk)

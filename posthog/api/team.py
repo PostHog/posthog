@@ -3,7 +3,7 @@ import json
 import math
 import secrets
 from datetime import timedelta
-from functools import cached_property
+from functools import cached_property, lru_cache
 from typing import Any, Literal, cast
 
 from django.conf import settings
@@ -369,6 +369,28 @@ def _validate_trigger_property_filters(properties: object, context: str) -> None
             raise exceptions.ValidationError(f"{context}: property {prop_idx} must have a 'value' field.")
 
 
+_GROUP_TYPES_REQUEST_CACHE_ATTR = "_serializer_cached_group_types"
+
+
+def _group_types_for_team(team: Team) -> list[dict[str, Any]]:
+    """Memoise `get_group_types_for_project` per request on the team instance.
+
+    `has_group_types` and `group_types` are sibling SerializerMethodFields that
+    both want the same answer; without this, each render hit Redis twice.
+    """
+    if not hasattr(team, _GROUP_TYPES_REQUEST_CACHE_ATTR):
+        setattr(team, _GROUP_TYPES_REQUEST_CACHE_ATTR, get_group_types_for_project(team.project_id))
+    return getattr(team, _GROUP_TYPES_REQUEST_CACHE_ATTR)
+
+
+@lru_cache(maxsize=1)
+def _default_data_color_theme_id() -> int | None:
+    """The system-wide default DataColorTheme is a deploy-time fixture - effectively
+    a constant. Cache it for process lifetime to skip a per-render PG round-trip
+    on the home view's TeamSerializer for orgs without DATA_COLOR_THEMES."""
+    return DataColorTheme.objects.filter(team_id__isnull=True).values_list("id", flat=True).first()
+
+
 class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin):
     instance: Team | None
 
@@ -441,9 +463,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         representation = super().to_representation(instance)
         # fallback to the default posthog data theme id, if the color feature isn't available e.g. after a downgrade
         if not instance.organization.is_feature_available(AvailableFeature.DATA_COLOR_THEMES):
-            representation["default_data_theme"] = (
-                DataColorTheme.objects.filter(team_id__isnull=True).values_list("id", flat=True).first()
-            )
+            representation["default_data_theme"] = _default_data_color_theme_id()
 
         return representation
 
@@ -452,10 +472,10 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         return self.user_permissions.team(team).effective_membership_level
 
     def get_has_group_types(self, team: Team) -> bool:
-        return bool(get_group_types_for_project(team.project_id))
+        return bool(_group_types_for_team(team))
 
     def get_group_types(self, team: Team) -> list[dict[str, Any]]:
-        return get_group_types_for_project(team.project_id)
+        return _group_types_for_team(team)
 
     def get_live_events_token(self, team: Team) -> str | None:
         request = self.context.get("request")

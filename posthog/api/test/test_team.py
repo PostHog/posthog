@@ -3224,3 +3224,45 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         data = response.json()
         assert sorted(data.keys()) == ["timezone"]
         assert data["timezone"] in ("UTC", "Europe/London")
+
+
+class TestTeamSerializerHomeViewWins(APIBaseTest):
+    def test_group_types_for_team_memoises_per_instance(self):
+        # has_group_types and group_types are sibling SerializerMethodFields; previously
+        # each hit Redis. They now share a request-scoped memo on the team instance.
+        from posthog.api.team import _group_types_for_team
+
+        with patch("posthog.api.team.get_group_types_for_project", return_value=[]) as mock_fetch:
+            _group_types_for_team(self.team)
+            _group_types_for_team(self.team)
+            _group_types_for_team(self.team)
+        assert mock_fetch.call_count == 1
+
+        # Different team instance bypasses the memo (cache lives on the instance).
+        from posthog.models.team import Team
+
+        fresh_team = Team.objects.get(pk=self.team.pk)
+        with patch("posthog.api.team.get_group_types_for_project", return_value=[]) as mock_fetch:
+            _group_types_for_team(fresh_team)
+        assert mock_fetch.call_count == 1
+
+    def test_default_data_color_theme_id_is_lru_cached(self):
+        # System-wide default DataColorTheme is a deploy-time fixture; cache for
+        # process lifetime to skip a per-render PG round-trip on the home view.
+        from posthog.api.team import _default_data_color_theme_id
+
+        _default_data_color_theme_id.cache_clear()
+
+        with patch("posthog.api.team.DataColorTheme.objects") as mock_objects:
+            chained = mock_objects.filter.return_value.values_list.return_value
+            chained.first.return_value = 42
+
+            assert _default_data_color_theme_id() == 42
+            assert _default_data_color_theme_id() == 42
+            assert _default_data_color_theme_id() == 42
+
+        # Only the first call hit the ORM
+        assert mock_objects.filter.call_count == 1
+        info = _default_data_color_theme_id.cache_info()
+        assert info.misses == 1
+        assert info.hits == 2
