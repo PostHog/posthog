@@ -375,12 +375,12 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
+        list: true
         title: List error tracking symbol sets
         description: >
             List source map symbol sets for the current project. Supports pagination plus filtering by exact `ref` or
             upload `status` (`valid`, `invalid`, or `all`) and sorting with `order_by`. Each result includes
             `has_uploaded_file` so you can tell whether the download tool will work.
-        list: true
         response:
             include:
                 - id
