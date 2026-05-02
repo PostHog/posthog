@@ -168,9 +168,8 @@ export const CardWithItems: Story = {
             <CardHeader>
                 <CardTitle>Team members</CardTitle>
             </CardHeader>
-            <CardContent>
-                <Field>
-                    <ItemGroup combined>
+            <CardContent className="py-0">
+                    <ItemGroup>
                         <Item
                             variant="pressable"
                             render={
@@ -202,7 +201,6 @@ export const CardWithItems: Story = {
                             }
                         />
                     </ItemGroup>
-                </Field>
             </CardContent>
         </Card>
     ),

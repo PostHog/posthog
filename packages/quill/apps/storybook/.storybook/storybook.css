@@ -58,6 +58,10 @@
     * {
         @apply border-border outline-ring/50;
     }
+
+    body {
+        @apply bg-background text-foreground;
+    }
 }
 
 /* Disable animations during visual regression tests */

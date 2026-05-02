@@ -1,8 +1,8 @@
 @layer components {
     .quill-command {
         padding: 0.25rem;
-        color: var(--popover-foreground);
-        background-color: var(--popover);
+        color: var(--foreground);
+        background-color: var(--card);
         border-radius: var(--radius-xl);
     }
 

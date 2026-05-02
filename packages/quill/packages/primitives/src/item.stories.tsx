@@ -85,7 +85,7 @@ export const Pressable: Story = {
 export const Group: Story = {
     render: () => (
         <ItemGroup>
-            <ItemGroup combined>
+            <ItemGroup>
                 <Item variant="outline">
                     <ItemContent>
                         <ItemTitle>Basic Item</ItemTitle>
@@ -120,7 +120,7 @@ export const Group: Story = {
 
 export const GroupList: Story = {
     render: () => (
-        <ItemGroup combined>
+        <ItemGroup>
             <Item
                 variant="pressable"
                 size="xs"
