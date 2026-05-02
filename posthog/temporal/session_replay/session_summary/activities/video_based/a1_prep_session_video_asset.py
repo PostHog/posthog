@@ -73,10 +73,13 @@ async def prep_session_video_asset_activity(
         return None
 
     # TODO: attach Gemini Files API id to the asset with an expiration date so we can reuse it.
+    # Scope reuse to summary-owned assets (`is_system=True`) so user-triggered exports of the
+    # same recording aren't matched and overwritten by the AI render path.
     existing_asset = await ExportedAsset.objects.filter(
         team_id=inputs.team_id,
         export_format=FULL_VIDEO_EXPORT_FORMAT,
         export_context__session_recording_id=inputs.session_id,
+        is_system=True,
     ).afirst()
 
     if existing_asset:

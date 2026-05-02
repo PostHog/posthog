@@ -51,3 +51,28 @@ async def test_returns_none_when_session_too_short():
         mock_sre.return_value.get_metadata.return_value = {"duration": 1}
         result = await ActivityEnvironment().run(prep_session_video_asset_activity, _inputs())
     assert result is None
+
+
+@pytest.mark.asyncio
+async def test_existing_asset_lookup_is_scoped_to_system_assets():
+    captured_filter_kwargs: dict = {}
+
+    def _capture_filter(**kwargs):
+        captured_filter_kwargs.update(kwargs)
+        qs = MagicMock()
+        qs.afirst = AsyncMock(return_value=None)
+        return qs
+
+    team = MagicMock(api_token="tok")
+    team.name = "Test Team"
+    with (
+        patch(f"{ACTIVITY_MODULE}.SingleSessionSummary.objects.get_summary", return_value=None),
+        patch(f"{ACTIVITY_MODULE}.Team.objects.aget", new=AsyncMock(return_value=team)),
+        patch(f"{ACTIVITY_MODULE}.SessionReplayEvents") as mock_sre,
+        patch(f"{ACTIVITY_MODULE}.ExportedAsset.objects.filter", side_effect=_capture_filter),
+        patch(f"{ACTIVITY_MODULE}.ExportedAsset.objects.acreate", new=AsyncMock(return_value=MagicMock(id=99))),
+    ):
+        mock_sre.return_value.get_metadata.return_value = {"duration": 999}
+        await ActivityEnvironment().run(prep_session_video_asset_activity, _inputs())
+
+    assert captured_filter_kwargs.get("is_system") is True
