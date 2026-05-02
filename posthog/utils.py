@@ -646,7 +646,8 @@ async def initialize_self_capture_api_token():
         posthoganalytics.host = settings.SITE_URL
 
 
-DEFAULT_EVENT_INFO_CACHE_TTL_SECONDS = 24 * 60 * 60
+DEFAULT_EVENT_INFO_FULLY_POSITIVE_TTL_SECONDS = 24 * 60 * 60
+DEFAULT_EVENT_INFO_PARTIALLY_POSITIVE_TTL_SECONDS = 30 * 60
 
 
 def _default_event_info_cache_key(team_id: int) -> str:
@@ -682,10 +683,14 @@ def get_default_event_info(team: "Team") -> dict:
         "has_screen": has_screen,
     }
 
-    # Only cache positive answers: once a team has $pageview or $screen the answer is
-    # monotonic, but a negative result might just mean events haven't been ingested yet.
-    if has_pageview or has_screen:
-        safe_cache_set(cache_key, result, timeout=DEFAULT_EVENT_INFO_CACHE_TTL_SECONDS)
+    # Only cache positive answers: a negative result might just mean events haven't
+    # been ingested yet. With both true the answer is fully monotonic so we can
+    # cache for a day; with only one true the team might still be setting up the
+    # other surface (e.g. wired up web, later wires up mobile) so cap the TTL.
+    if has_pageview and has_screen:
+        safe_cache_set(cache_key, result, timeout=DEFAULT_EVENT_INFO_FULLY_POSITIVE_TTL_SECONDS)
+    elif has_pageview or has_screen:
+        safe_cache_set(cache_key, result, timeout=DEFAULT_EVENT_INFO_PARTIALLY_POSITIVE_TTL_SECONDS)
 
     return result
 

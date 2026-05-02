@@ -382,6 +382,32 @@ class TestDefaultEventName(BaseTest):
         with self.assertNumQueries(0):
             get_default_event_info(self.team)
 
+    @parameterized.expand(
+        [
+            ("only_pageview", True, False, 30 * 60),
+            ("only_screen", False, True, 30 * 60),
+            ("both", True, True, 24 * 60 * 60),
+        ]
+    )
+    def test_cache_ttl_depends_on_completeness(
+        self, _name: str, create_pageview: bool, create_screen: bool, expected_ttl: int
+    ):
+        from posthog.utils import _default_event_info_cache_key
+
+        if create_pageview:
+            EventDefinition.objects.create(name="$pageview", team=self.team)
+        if create_screen:
+            EventDefinition.objects.create(name="$screen", team=self.team)
+
+        with patch("posthog.utils.safe_cache_set") as mock_set:
+            get_default_event_info(self.team)
+
+        mock_set.assert_called_once()
+        _, kwargs = mock_set.call_args
+        args, _ = mock_set.call_args
+        assert args[0] == _default_event_info_cache_key(self.team.id)
+        assert kwargs["timeout"] == expected_ttl
+
 
 class TestLoadDataFromRequest(TestCase):
     def _create_request_with_headers(self, origin: str, referer: str) -> WSGIRequest:
