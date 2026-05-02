@@ -403,8 +403,7 @@ class TestDefaultEventName(BaseTest):
             get_default_event_info(self.team)
 
         mock_set.assert_called_once()
-        _, kwargs = mock_set.call_args
-        args, _ = mock_set.call_args
+        args, kwargs = mock_set.call_args
         assert args[0] == _default_event_info_cache_key(self.team.id)
         assert kwargs["timeout"] == expected_ttl
 

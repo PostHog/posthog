@@ -646,12 +646,12 @@ async def initialize_self_capture_api_token():
         posthoganalytics.host = settings.SITE_URL
 
 
-DEFAULT_EVENT_INFO_FULLY_POSITIVE_TTL_SECONDS = 24 * 60 * 60
-DEFAULT_EVENT_INFO_PARTIALLY_POSITIVE_TTL_SECONDS = 30 * 60
+BOTH_DEFAULTS_PRESENT_TTL_SECONDS = 24 * 60 * 60
+ONE_DEFAULT_PRESENT_TTL_SECONDS = 30 * 60
 
 
 def _default_event_info_cache_key(team_id: int) -> str:
-    return f"default_event_info:positive:{team_id}"
+    return f"default_event_info:{team_id}"
 
 
 def get_default_event_info(team: "Team") -> dict:
@@ -687,12 +687,19 @@ def get_default_event_info(team: "Team") -> dict:
     # been ingested yet. With both true the answer is fully monotonic so we can
     # cache for a day; with only one true the team might still be setting up the
     # other surface (e.g. wired up web, later wires up mobile) so cap the TTL.
-    if has_pageview and has_screen:
-        safe_cache_set(cache_key, result, timeout=DEFAULT_EVENT_INFO_FULLY_POSITIVE_TTL_SECONDS)
-    elif has_pageview or has_screen:
-        safe_cache_set(cache_key, result, timeout=DEFAULT_EVENT_INFO_PARTIALLY_POSITIVE_TTL_SECONDS)
+    ttl = _default_event_info_ttl(has_pageview=has_pageview, has_screen=has_screen)
+    if ttl is not None:
+        safe_cache_set(cache_key, result, timeout=ttl)
 
     return result
+
+
+def _default_event_info_ttl(*, has_pageview: bool, has_screen: bool) -> int | None:
+    if has_pageview and has_screen:
+        return BOTH_DEFAULTS_PRESENT_TTL_SECONDS
+    if has_pageview or has_screen:
+        return ONE_DEFAULT_PRESENT_TTL_SECONDS
+    return None
 
 
 def get_default_event_name(team: "Team") -> str | None:
