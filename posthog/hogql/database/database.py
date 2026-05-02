@@ -16,6 +16,7 @@ from posthog.schema import (
     DatabaseSchemaEndpointTable,
     DatabaseSchemaField,
     DatabaseSchemaManagedViewTable,
+    DatabaseSchemaManagedWarehousePromotedTable,
     DatabaseSchemaPostHogTable,
     DatabaseSchemaSchema,
     DatabaseSchemaSource,
@@ -31,6 +32,7 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
+from posthog.hogql.database.managed_warehouse_postgres_table import ManagedWarehousePostgresTable
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DatabaseField,
@@ -170,6 +172,7 @@ type DatabaseSchemaTable = (
     DatabaseSchemaPostHogTable
     | DatabaseSchemaSystemTable
     | DatabaseSchemaDataWarehouseTable
+    | DatabaseSchemaManagedWarehousePromotedTable
     | DatabaseSchemaViewTable
     | DatabaseSchemaManagedViewTable
     | DatabaseSchemaEndpointTable
@@ -296,6 +299,7 @@ class Database(BaseModel):
 
     _warehouse_table_names: list[str] = []
     _warehouse_self_managed_table_names: list[str] = []
+    _managed_warehouse_table_names: list[str] = []
     _view_table_names: list[str] = []
     _denied_tables: set[str] = set()  # Tables user doesn't have permission to access
     _connection_id: str | None = None
@@ -320,6 +324,7 @@ class Database(BaseModel):
         self._week_start_day = week_start_day
         self._warehouse_table_names = []
         self._warehouse_self_managed_table_names = []
+        self._managed_warehouse_table_names = []
         self._view_table_names = []
         self._denied_tables = set()
         self._connection_id = None
@@ -412,6 +417,7 @@ class Database(BaseModel):
             self.get_posthog_table_names()
             + sorted(set(warehouse_table_names))
             + self._warehouse_self_managed_table_names
+            + self._managed_warehouse_table_names
             + self._view_table_names
         )
 
@@ -437,7 +443,12 @@ class Database(BaseModel):
         return ["query_log", *system_tables.resolve_all_table_names()]
 
     def get_warehouse_table_names(self) -> list[str]:
-        return self._warehouse_table_names + self._warehouse_self_managed_table_names
+        return (
+            self._warehouse_table_names + self._warehouse_self_managed_table_names + self._managed_warehouse_table_names
+        )
+
+    def get_managed_warehouse_table_names(self) -> list[str]:
+        return self._managed_warehouse_table_names
 
     def get_view_names(self) -> list[str]:
         return self._view_table_names
@@ -452,6 +463,11 @@ class Database(BaseModel):
         for name in sorted(node.resolve_all_table_names()):
             self._warehouse_self_managed_table_names.append(name)
 
+    def _add_managed_warehouse_tables(self, node: TableNode):
+        self.tables.merge_with(node)
+        for name in sorted(node.resolve_all_table_names()):
+            self._managed_warehouse_table_names.append(name)
+
     def _add_views(self, node: TableNode):
         self.tables.merge_with(node)
         for name in sorted(node.resolve_all_table_names()):
@@ -463,7 +479,7 @@ class Database(BaseModel):
     @staticmethod
     def _is_helper_function_table(table: object) -> bool:
         return isinstance(table, FunctionCallTable) and not isinstance(
-            table, (DirectPostgresTable, PostgresTable, S3Table)
+            table, (DirectPostgresTable, ManagedWarehousePostgresTable, PostgresTable, S3Table)
         )
 
     def _remove_lazy_joins_to_disallowed_tables(self, allowed_table_names: set[str]) -> None:
@@ -512,6 +528,9 @@ class Database(BaseModel):
         self._warehouse_table_names = [name for name in self._warehouse_table_names if name in allowed_table_names]
         self._warehouse_self_managed_table_names = [
             name for name in self._warehouse_self_managed_table_names if name in allowed_table_names
+        ]
+        self._managed_warehouse_table_names = [
+            name for name in self._managed_warehouse_table_names if name in allowed_table_names
         ]
         self._view_table_names = [name for name in self._view_table_names if name in allowed_table_names]
         self._remove_lazy_joins_to_disallowed_tables(allowed_table_names)
@@ -728,16 +747,30 @@ class Database(BaseModel):
                     )
                     fields_dict = {field.name: field for field in fields}
 
-                    tables[table_key] = DatabaseSchemaDataWarehouseTable(
-                        fields=fields_dict,
-                        id=str(warehouse_table.id),
-                        name=table_key,
-                        format=warehouse_table.format,
-                        url_pattern=warehouse_table.url_pattern,
-                        schema=schema,
-                        source=source,
-                        row_count=warehouse_table.row_count,
-                    )
+                    if (
+                        warehouse_table.format == "ManagedWarehouse"
+                        and warehouse_table.managed_warehouse_promoted_table_id is not None
+                    ):
+                        promoted = warehouse_table.managed_warehouse_promoted_table
+                        tables[table_key] = DatabaseSchemaManagedWarehousePromotedTable(
+                            fields=fields_dict,
+                            id=str(warehouse_table.id),
+                            name=table_key,
+                            source_schema_name=promoted.source_schema_name,
+                            source_table_name=promoted.source_table_name,
+                            row_count=warehouse_table.row_count,
+                        )
+                    else:
+                        tables[table_key] = DatabaseSchemaDataWarehouseTable(
+                            fields=fields_dict,
+                            id=str(warehouse_table.id),
+                            name=table_key,
+                            format=warehouse_table.format,
+                            url_pattern=warehouse_table.url_pattern,
+                            schema=schema,
+                            source=source,
+                            row_count=warehouse_table.row_count,
+                        )
                 except (QueryError, ResolutionError) as e:
                     logger.warning(
                         f"Failed to serialize data warehouse table '{table_key}': {str(e)}",
@@ -1018,6 +1051,7 @@ class Database(BaseModel):
         warehouse_tables_dot_notation_mapping: dict[str, str] = {}
         warehouse_tables: TableNode = TableNode()
         self_managed_warehouse_tables: TableNode = TableNode()
+        managed_warehouse_tables: TableNode = TableNode()
         views: TableNode = TableNode()
         warehouse_tables_to_process: list[tuple[Table, DataWarehouseTable]] = []
         with timings.measure("data_warehouse_saved_query"):
@@ -1107,7 +1141,7 @@ class Database(BaseModel):
                 tables_query = (
                     DataWarehouseTable.raw_objects.filter(team_id=team.pk)
                     .exclude(deleted=True)
-                    .select_related("credential", "external_data_source")
+                    .select_related("credential", "external_data_source", "managed_warehouse_promoted_table")
                 )
                 if database._is_direct_query():
                     tables_query = tables_query.filter(external_data_source_id=database._connection_id)
@@ -1139,13 +1173,20 @@ class Database(BaseModel):
                     s3_table = table.hogql_definition(modifiers)
                     primary_table = s3_table
 
+                    is_managed_warehouse_table = isinstance(s3_table, ManagedWarehousePostgresTable)
+
                     # If the warehouse table has no _properties_ field, then set it as a virtual table
-                    if s3_table.fields.get("properties") is None:
+                    if not is_managed_warehouse_table and s3_table.fields.get("properties") is None:
                         s3_table.fields["properties"] = WarehousePropertiesVirtualTable(
                             fields=s3_table.fields, parent_table=s3_table, hidden=True
                         )
 
-                    if table.external_data_source:
+                    if is_managed_warehouse_table:
+                        # Names like "schema.table" — nest the chain so queries can
+                        # reference them via dotted paths and `database.get_table` resolves them.
+                        chain = table.name.split(".") if "." in table.name else [table.name]
+                        managed_warehouse_tables.add_child(TableNode.create_nested_for_chain(chain, s3_table))
+                    elif table.external_data_source:
                         if not database._is_direct_query():
                             warehouse_tables.add_child(TableNode(name=table.name, table=s3_table))
                     else:
@@ -1300,6 +1341,7 @@ class Database(BaseModel):
 
         database._add_warehouse_tables(warehouse_tables)
         database._add_warehouse_self_managed_tables(self_managed_warehouse_tables)
+        database._add_managed_warehouse_tables(managed_warehouse_tables)
         database._add_views(views)
 
         with timings.measure("warehouse_foreign_keys"):

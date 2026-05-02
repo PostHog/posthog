@@ -8,6 +8,7 @@ from .external_data_job import *
 from .external_data_schema import *
 from .external_data_source import *
 from .join import *
+from .managed_warehouse_promoted_table import *
 from .modeling import *
 from .query_tab_state import *
 from .revenue_analytics_config import *

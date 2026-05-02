@@ -6485,6 +6485,19 @@ class DatabaseSchemaField(BaseModel):
     type: DatabaseSerializedFieldType
 
 
+class DatabaseSchemaManagedWarehousePromotedTable(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    fields: dict[str, DatabaseSchemaField]
+    id: str
+    name: str
+    row_count: float | None = None
+    source_schema_name: str
+    source_table_name: str
+    type: Literal["managed_warehouse"] = "managed_warehouse"
+
+
 class DatabaseSchemaPostHogTable(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -21469,6 +21482,7 @@ class QueryResponseAlternative73(BaseModel):
         DatabaseSchemaPostHogTable
         | DatabaseSchemaSystemTable
         | DatabaseSchemaDataWarehouseTable
+        | DatabaseSchemaManagedWarehousePromotedTable
         | DatabaseSchemaViewTable
         | DatabaseSchemaManagedViewTable
         | DatabaseSchemaBatchExportTable
@@ -21740,6 +21754,7 @@ class DatabaseSchemaQueryResponse(BaseModel):
         DatabaseSchemaPostHogTable
         | DatabaseSchemaSystemTable
         | DatabaseSchemaDataWarehouseTable
+        | DatabaseSchemaManagedWarehousePromotedTable
         | DatabaseSchemaViewTable
         | DatabaseSchemaManagedViewTable
         | DatabaseSchemaBatchExportTable

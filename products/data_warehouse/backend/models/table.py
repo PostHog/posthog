@@ -2,7 +2,7 @@ import csv
 import time
 from datetime import datetime
 from io import StringIO
-from typing import TYPE_CHECKING, Any, NotRequired, Optional, TypedDict
+from typing import Any, NotRequired, Optional, TypedDict
 from uuid import UUID
 
 from django.db import models
@@ -18,6 +18,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
+from posthog.hogql.database.managed_warehouse_postgres_table import ManagedWarehousePostgresTable
 from posthog.hogql.database.models import DatabaseField, FieldOrTable, StructDatabaseField
 from posthog.hogql.database.s3_table import (
     DataWarehouseTable as HogQLDataWarehouseTable,
@@ -49,9 +50,6 @@ from products.data_warehouse.backend.models.util import (
 
 from .credential import DataWarehouseCredential
 from .external_table_definitions import external_tables
-
-if TYPE_CHECKING:
-    pass
 
 SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING: dict[DatabaseSerializedFieldType, str] = {
     DatabaseSerializedFieldType.INTEGER: "Int64",
@@ -120,6 +118,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         JSON = "JSONEachRow", "JSON"
         Delta = "Delta", "Delta"
         DeltaS3Wrapper = "DeltaS3Wrapper", "DeltaS3Wrapper"
+        ManagedWarehouse = "ManagedWarehouse", "ManagedWarehouse"
 
     name = models.CharField(max_length=128)
     format = models.CharField(max_length=128, choices=TableFormat)
@@ -130,6 +129,17 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
     credential = models.ForeignKey(DataWarehouseCredential, on_delete=models.CASCADE, null=True, blank=True)
 
     external_data_source = models.ForeignKey("ExternalDataSource", on_delete=models.CASCADE, null=True, blank=True)
+    managed_warehouse_promoted_table = models.OneToOneField(
+        "ManagedWarehousePromotedTable",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="data_warehouse_table",
+        help_text=(
+            "Set when this table was promoted from the customer's managed DuckLake warehouse. "
+            "When set, queries route through ClickHouse's postgresql() table function instead of S3."
+        ),
+    )
 
     columns = models.JSONField(
         default=dict,
@@ -440,7 +450,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
 
     def hogql_definition(
         self, modifiers: Optional[HogQLQueryModifiers] = None
-    ) -> HogQLDataWarehouseTable | DirectPostgresTable:
+    ) -> HogQLDataWarehouseTable | DirectPostgresTable | ManagedWarehousePostgresTable:
         columns = self.columns or {}
 
         fields: dict[str, FieldOrTable] = {}
@@ -474,6 +484,37 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                     structure.append(f"`{column}` {clickhouse_type}")
 
             fields[column] = self._get_hogql_field_for_column(column, type, clickhouse_type, is_nullable)
+
+        if (
+            self.format == DataWarehouseTable.TableFormat.ManagedWarehouse
+            and self.managed_warehouse_promoted_table_id is not None
+        ):
+            from posthog.hogql.errors import QueryError
+
+            from posthog.ducklake.common import _get_org_id_for_team, get_duckgres_server_for_organization
+            from posthog.exceptions_capture import capture_exception
+
+            try:
+                server = get_duckgres_server_for_organization(_get_org_id_for_team(self.team_id))
+            except Exception as exc:
+                capture_exception(exc)
+                raise QueryError(f"Failed to resolve managed warehouse server for team {self.team_id}") from exc
+
+            if server is None:
+                raise QueryError(f"No DuckgresServer configured for team {self.team_id}")
+
+            promoted = self.managed_warehouse_promoted_table
+            return ManagedWarehousePostgresTable(
+                name=self.name,
+                fields=fields,
+                host=server.host,
+                port=server.port,
+                database=server.database,
+                user=server.username,
+                password=server.password,
+                schema=promoted.source_schema_name,
+                postgres_table_name=promoted.source_table_name,
+            )
 
         if self.external_data_source and self.external_data_source.is_direct_postgres:
             postgres_catalog = (

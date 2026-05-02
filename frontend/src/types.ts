@@ -7026,6 +7026,23 @@ export interface DataWarehouseProvisioningStatus {
     connection: DataWarehouseProvisioningConnection | null
 }
 
+export interface ManagedWarehousePromotedTable {
+    id: string
+    created_at: string
+    updated_at: string
+    source_schema_name: string
+    source_table_name: string
+    data_warehouse_table_id: string | null
+    data_warehouse_table_name: string | null
+}
+
+export interface AvailableManagedWarehouseSourceTable {
+    schema: string
+    name: string
+    table_type: 'BASE TABLE' | 'VIEW'
+    already_promoted: boolean
+}
+
 export type HeatmapType = 'screenshot' | 'iframe' | 'recording'
 export type HeatmapStatus = 'processing' | 'completed' | 'failed'
 

@@ -4018,6 +4018,12 @@ export interface DatabaseSchemaDataWarehouseTable extends DatabaseSchemaTableCom
     source?: DatabaseSchemaSource
 }
 
+export interface DatabaseSchemaManagedWarehousePromotedTable extends DatabaseSchemaTableCommon {
+    type: 'managed_warehouse'
+    source_schema_name: string
+    source_table_name: string
+}
+
 export interface DatabaseSchemaBatchExportTable extends DatabaseSchemaTableCommon {
     type: 'batch_export'
 }
@@ -4026,6 +4032,7 @@ export type DatabaseSchemaTable =
     | DatabaseSchemaPostHogTable
     | DatabaseSchemaSystemTable
     | DatabaseSchemaDataWarehouseTable
+    | DatabaseSchemaManagedWarehousePromotedTable
     | DatabaseSchemaViewTable
     | DatabaseSchemaManagedViewTable
     | DatabaseSchemaBatchExportTable

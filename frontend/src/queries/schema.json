@@ -13300,6 +13300,38 @@
             ],
             "type": "string"
         },
+        "DatabaseSchemaManagedWarehousePromotedTable": {
+            "additionalProperties": false,
+            "properties": {
+                "fields": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/DatabaseSchemaField"
+                    },
+                    "type": "object"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "row_count": {
+                    "type": "number"
+                },
+                "source_schema_name": {
+                    "type": "string"
+                },
+                "source_table_name": {
+                    "type": "string"
+                },
+                "type": {
+                    "const": "managed_warehouse",
+                    "type": "string"
+                }
+            },
+            "required": ["fields", "id", "name", "source_schema_name", "source_table_name", "type"],
+            "type": "object"
+        },
         "DatabaseSchemaMaterializedViewTable": {
             "additionalProperties": false,
             "properties": {
@@ -13495,6 +13527,9 @@
                 },
                 {
                     "$ref": "#/definitions/DatabaseSchemaDataWarehouseTable"
+                },
+                {
+                    "$ref": "#/definitions/DatabaseSchemaManagedWarehousePromotedTable"
                 },
                 {
                     "$ref": "#/definitions/DatabaseSchemaViewTable"
