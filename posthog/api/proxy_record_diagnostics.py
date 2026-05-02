@@ -564,8 +564,22 @@ def _check_cert_expiry(record: ProxyRecord) -> CheckResult:
         )
 
     not_after = cert["notAfter"]
-    assert isinstance(not_after, str)
-    expires_at = dt.datetime.strptime(not_after, "%b %d %H:%M:%S %Y %Z").replace(tzinfo=dt.UTC)
+    if not isinstance(not_after, str):
+        return CheckResult(
+            id="cert_expiry",
+            name="Certificate expiry",
+            status="warn",
+            detail="Certificate fetched but expiry has an unexpected type.",
+        )
+    try:
+        expires_at = dt.datetime.strptime(not_after, "%b %d %H:%M:%S %Y %Z").replace(tzinfo=dt.UTC)
+    except ValueError:
+        return CheckResult(
+            id="cert_expiry",
+            name="Certificate expiry",
+            status="warn",
+            detail="Certificate fetched but expiry could not be parsed.",
+        )
     days_remaining = (expires_at - dt.datetime.now(dt.UTC)).days
 
     if days_remaining < CERT_EXPIRY_WARN_DAYS:
