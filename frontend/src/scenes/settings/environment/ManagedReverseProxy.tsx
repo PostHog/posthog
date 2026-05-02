@@ -459,7 +459,7 @@ function DiagnosticReportContent({ report }: { report: DiagnosticReport }): JSX.
             <div className="text-xs text-secondary">Ran {new Date(report.ran_at).toLocaleString()}</div>
             <LemonBanner type={summaryBannerType(report.summary.status)}>
                 <div className="font-semibold capitalize">{report.summary.status}</div>
-                {report.summary.next_action && <div>{report.summary.next_action}</div>}
+                {report.summary.next_action && <LemonMarkdown>{report.summary.next_action}</LemonMarkdown>}
             </LemonBanner>
             <div className="flex flex-col gap-2">
                 {report.checks.map((check) => (
@@ -478,10 +478,10 @@ function DiagnosticCheckRow({ check }: { check: DiagnosticCheckResult }): JSX.El
                 <span className="font-semibold">{check.name}</span>
                 <span className="text-xs text-secondary capitalize">({check.status})</span>
             </div>
-            <div className="text-sm">{check.detail}</div>
+            <LemonMarkdown className="text-sm">{check.detail}</LemonMarkdown>
             {check.remediation && (
                 <div className="border-t pt-2 mt-1 flex flex-col gap-2">
-                    <div className="text-sm font-semibold">{check.remediation.summary}</div>
+                    <LemonMarkdown className="text-sm font-semibold">{check.remediation.summary}</LemonMarkdown>
                     {check.remediation.records.length > 0 && (
                         <div className="flex flex-col gap-1">
                             {check.remediation.records.map((dnsRecord, i) => (
