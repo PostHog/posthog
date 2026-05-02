@@ -18,14 +18,10 @@ from temporalio.exceptions import ActivityError, ApplicationError
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models import ProxyRecord
+from posthog.proxy.cloudflare import CloudflareAPIError, CustomHostnameSSLStatus, get_custom_hostname_by_domain
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.logger import get_logger
-from posthog.temporal.proxy_service.cloudflare import (
-    CloudflareAPIError,
-    CustomHostnameSSLStatus,
-    get_custom_hostname_by_domain,
-)
 from posthog.temporal.proxy_service.common import (
     CaptureEventInputs,
     NonRetriableException,
