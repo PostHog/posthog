@@ -188,26 +188,19 @@ export const webhookTabLogic = kea<webhookTabLogicType>([
     })),
     listeners(({ actions, props, values }) => ({
         loadWebhookInfoSuccess: ({ webhookInfo }) => {
-            // Prefill the edit form with non-secret values returned by the server.
-            // Masked secret markers (`{secret: true}`) are intentionally omitted from
-            // the form so `webhookFieldInputsChanged` only flips to true when the user
-            // actually edits a field. The component reads `webhookInfo.inputs`
-            // separately to decide whether to render a "configured" placeholder.
+            // Server returns each input either as `{secret: true}` (masked) or `{value: ...}`
+            // (HogFunctionSerializer convention). Unwrap non-secret values for the form so
+            // `webhookFieldInputsChanged` only flips to true when the user actually edits.
             const inputs = webhookInfo?.inputs
             if (!inputs) {
                 return
             }
-            const nonSecretValues = Object.fromEntries(
-                Object.entries(inputs).filter(
-                    ([, value]) =>
-                        !(
-                            value &&
-                            typeof value === 'object' &&
-                            !Array.isArray(value) &&
-                            (value as { secret?: boolean }).secret === true
-                        )
-                )
-            )
+            const nonSecretValues: Record<string, any> = {}
+            for (const [name, entry] of Object.entries(inputs)) {
+                if (entry && typeof entry === 'object' && !Array.isArray(entry) && 'value' in entry) {
+                    nonSecretValues[name] = (entry as { value: unknown }).value
+                }
+            }
             if (Object.keys(nonSecretValues).length > 0) {
                 actions.setWebhookFieldInputsValues(nonSecretValues)
             }

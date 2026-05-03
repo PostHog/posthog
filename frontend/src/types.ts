@@ -5741,7 +5741,7 @@ export interface WebhookExternalStatus {
     error?: string
 }
 
-export type WebhookInputValue = { secret: true } | string | number | boolean | null
+export type WebhookInputValue = { secret: true } | { value: unknown }
 
 export interface WebhookInfo {
     supports_webhooks: boolean

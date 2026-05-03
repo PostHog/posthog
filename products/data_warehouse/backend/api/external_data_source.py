@@ -31,6 +31,7 @@ from posthog.schema import (
 
 from posthog.hogql.database.database import Database
 
+from posthog.api.hog_function import HogFunctionSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.exceptions_capture import capture_exception
@@ -735,34 +736,6 @@ class SimpleExternalDataSourceSerializers(serializers.ModelSerializer):
             "source_type",
         ]
         read_only_fields = ["id", "created_by", "created_at", "status", "source_type"]
-
-
-def _build_masked_webhook_inputs(source: WebhookSource, hog_function: HogFunction) -> dict[str, Any]:
-    """Return current webhook input values for UI prefill, masking any secret fields.
-
-    Mirrors the secret-masking behaviour of HogFunctionSerializer.to_representation: a
-    set secret value is reported as ``{"secret": True}`` so the frontend can render a
-    "configured" placeholder without leaking the actual value.
-    """
-    webhook_fields = source.get_source_config.webhookFields or []
-    raw_inputs = hog_function.inputs or {}
-    raw_encrypted = hog_function.encrypted_inputs or {}
-
-    result: dict[str, Any] = {}
-    for field in webhook_fields:
-        name = field.name
-        raw = raw_inputs.get(name)
-        value = raw.get("value") if isinstance(raw, dict) and "value" in raw else raw
-        encrypted_value = raw_encrypted.get(name)
-        is_secret = bool(getattr(field, "secret", False))
-
-        if is_secret:
-            if value or encrypted_value:
-                result[name] = {"secret": True}
-        elif value is not None:
-            result[name] = value
-
-    return result
 
 
 @extend_schema(tags=[ProductKey.DATA_WAREHOUSE])
@@ -1828,7 +1801,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         if hog_function.inputs:
             schema_mapping = hog_function.inputs.get("schema_mapping", {}).get("value", {})
 
-        webhook_inputs = _build_masked_webhook_inputs(source, hog_function)
+        webhook_field_names = {f.name for f in (source.get_source_config.webhookFields or [])}
+        all_inputs = HogFunctionSerializer(hog_function).data.get("inputs") or {}
+        webhook_inputs = {k: v for k, v in all_inputs.items() if k in webhook_field_names}
 
         return Response(
             status=status.HTTP_200_OK,
