@@ -125,7 +125,7 @@ impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
                 crate::ctx_log!(
                     Level::ERROR,
                     ctx,
-                    sink = sink_str,
+                    sink = labels.sink,
                     event_uuid = %uuid,
                     error = %e,
                     "event serialization failed, dropping event"
