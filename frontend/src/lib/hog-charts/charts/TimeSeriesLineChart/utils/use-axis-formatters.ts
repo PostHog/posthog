@@ -50,7 +50,7 @@ export function useXTickFormatter(
             interval: xAxis.interval,
             allDays: xAxis.allDays ?? labels,
         })
-    }, [xAxis, labels])
+    }, [xAxis?.tickFormatter, xAxis?.timezone, xAxis?.interval, xAxis?.allDays, labels])
 }
 
 export function useYTickFormatter(yAxis: YAxisConfig | undefined): ((value: number) => string) | undefined {
