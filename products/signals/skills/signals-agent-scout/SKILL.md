@@ -49,6 +49,15 @@ Three cheap reads cold-start a run. Skip any you already have context on:
   counts). Most useful on a project you've never run on; once memory is dense,
   profile is one of several baselines rather than the primary map.
 
+Once you've read these, take a moment to **calibrate**: how mature is this team's
+memory, has anything new appeared since the last run, and where is coverage thin?
+[`references/calibration.md`](references/calibration.md) covers the maturity /
+change / coverage signals to read off the data you just pulled, the
+explore-vs-exploit posture each combination implies (cold-start, change-driven,
+steady-state exploit, stale-coverage wildcard), and the wildcard move that keeps
+mature projects from going coverage-stale. Memory compounds — calibration is how
+you avoid it compounding into blind spots.
+
 ### Explore
 
 Pick what looks interesting and follow it. There is no required starting point —

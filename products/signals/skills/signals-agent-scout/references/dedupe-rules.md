@@ -89,6 +89,10 @@ Use `tags` so future searches converge:
   `domain:logs`.
 - `entity:<id>` — direct lookup (issue id, flag key, experiment id, source prefix,
   insight short_id, etc.).
+- `tag:exploration` — written from a wildcard / coverage-rotation read (see
+  [calibration.md](calibration.md)). Distinguishes "I deliberately poked here and
+  it was quiet" from a real `noise` tag. A future wildcard can re-check
+  `tag:exploration` entries; a `noise` tag should be trusted longer.
 
 TTL defaults to 7 days for `agent_inference` memory. Override with `ttl_days` (clamped
 `[1, 90]`) when the steer should outlast the default — e.g. a long-lived "team-confirmed
