@@ -3,7 +3,7 @@ import posthog from 'posthog-js'
 import { useCallback, useMemo, type ErrorInfo } from 'react'
 
 import { buildTheme } from 'lib/charts/utils/theme'
-import { BarChart, createXAxisTickCallback } from 'lib/hog-charts'
+import { BarChart, buildYTickFormatter, createXAxisTickCallback } from 'lib/hog-charts'
 import type { BarChartConfig, PointClickData, TooltipContext } from 'lib/hog-charts'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -19,7 +19,7 @@ import { openPersonsModal } from '../../persons-modal/PersonsModal'
 import { trendsDataLogic } from '../../trendsDataLogic'
 import type { IndexedTrendResult } from '../../types'
 import { handleTrendsChartClick, type TrendsChartClickDeps } from '../handleTrendsChartClick'
-import { buildTrendsYTickFormatter } from '../trends-line-chart/trendsAxisFormat'
+import { trendsFilterToYFormatterConfig } from '../trends-line-chart/trendsAxisFormat'
 import type { TrendsSeriesMeta } from '../trends-line-chart/trendsSeriesMeta'
 import { TrendsTooltip } from '../trends-line-chart/TrendsTooltip'
 import { handleTrendsBarAggregatedChartClick } from './handleTrendsBarAggregatedChartClick'
@@ -133,7 +133,7 @@ export function TrendsBarChart({ context }: TrendsBarChartProps): JSX.Element | 
     }, [isAggregated, interval, currentPeriodResult?.days, timezone])
 
     const yTickFormatter = useMemo(
-        () => buildTrendsYTickFormatter(trendsFilter, isPercentStackView, baseCurrency),
+        () => buildYTickFormatter(trendsFilterToYFormatterConfig(trendsFilter, isPercentStackView, baseCurrency)),
         [trendsFilter, isPercentStackView, baseCurrency]
     )
 

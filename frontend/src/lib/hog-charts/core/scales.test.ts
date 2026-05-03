@@ -309,6 +309,17 @@ describe('hog-charts scales', () => {
             const series = [makeSeries({ key: 's1', data: [0, 0] })]
             expect(() => computePercentStackData(series, ['a', 'b'])).not.toThrow()
         })
+
+        it.each(['s1', 's2'])('replaces NaN with 0 for series %s in an all-zero column', (key) => {
+            const s1 = makeSeries({ key: 's1', data: [10, 0, 30] })
+            const s2 = makeSeries({ key: 's2', data: [20, 0, 40] })
+            const result = computePercentStackData([s1, s2], ['a', 'b', 'c'])
+            const band = result.get(key)!
+            expect(band.top.every(Number.isFinite)).toBe(true)
+            expect(band.bottom.every(Number.isFinite)).toBe(true)
+            expect(band.top[1]).toBe(0)
+            expect(band.bottom[1]).toBe(0)
+        })
     })
 
     describe('computeStackData', () => {

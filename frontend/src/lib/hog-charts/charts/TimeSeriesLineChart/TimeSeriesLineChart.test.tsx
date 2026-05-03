@@ -88,6 +88,54 @@ describe('TimeSeriesLineChart', () => {
         expect(props.config?.xTickFormatter).toBe(explicit)
     })
 
+    it('builds a y-axis tick formatter from yAxis.format', () => {
+        render(
+            <TimeSeriesLineChart
+                series={SERIES}
+                labels={LABELS}
+                theme={THEME}
+                config={{ yAxis: { format: 'percentage' } }}
+            />
+        )
+        const props = lineChartSpy.mock.calls[0][0] as LineChartProps
+        const formatter = props.config?.yTickFormatter
+        expect(formatter).not.toBeUndefined()
+        expect(formatter?.(50)).toBe('50%')
+    })
+
+    it('builds a y-axis tick formatter from yAxis.prefix/suffix without format', () => {
+        render(
+            <TimeSeriesLineChart
+                series={SERIES}
+                labels={LABELS}
+                theme={THEME}
+                config={{ yAxis: { prefix: '$', suffix: ' req' } }}
+            />
+        )
+        const props = lineChartSpy.mock.calls[0][0] as LineChartProps
+        expect(props.config?.yTickFormatter?.(42)).toBe('$42 req')
+    })
+
+    it('explicit yAxis.tickFormatter wins over yAxis.format', () => {
+        const explicit = (v: number): string => `y:${v}`
+        render(
+            <TimeSeriesLineChart
+                series={SERIES}
+                labels={LABELS}
+                theme={THEME}
+                config={{ yAxis: { tickFormatter: explicit, format: 'percentage' } }}
+            />
+        )
+        const props = lineChartSpy.mock.calls[0][0] as LineChartProps
+        expect(props.config?.yTickFormatter).toBe(explicit)
+    })
+
+    it('does not build a y-axis tick formatter when no format options are set', () => {
+        render(<TimeSeriesLineChart series={SERIES} labels={LABELS} theme={THEME} config={{ yAxis: {} }} />)
+        const props = lineChartSpy.mock.calls[0][0] as LineChartProps
+        expect(props.config?.yTickFormatter).toBeUndefined()
+    })
+
     it('does not auto-format when only one of timezone or interval is provided', () => {
         render(
             <TimeSeriesLineChart

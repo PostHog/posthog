@@ -1,7 +1,7 @@
 import { Meta, StoryObj } from '@storybook/react'
 
 import { TimeSeriesLineChart } from 'lib/hog-charts'
-import type { Series, TimeInterval } from 'lib/hog-charts'
+import type { Series, TimeInterval, YAxisConfig } from 'lib/hog-charts'
 
 import { Stage, useReactiveTheme } from '../../story-helpers'
 
@@ -104,6 +104,65 @@ function DateAxisCell({ title, labels, series, interval, timezone }: DateAxisCel
             </Stage>
         </div>
     )
+}
+
+interface YFormatCellProps {
+    title: string
+    config: YAxisConfig
+    series: Series[]
+}
+
+function YFormatCell({ title, config, series }: YFormatCellProps): JSX.Element {
+    const theme = useReactiveTheme()
+    return (
+        // eslint-disable-next-line react/forbid-dom-props
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <span className="text-xs text-muted">{title}</span>
+            <Stage width={420} height={220}>
+                <TimeSeriesLineChart
+                    series={series}
+                    labels={DAYS}
+                    theme={theme}
+                    config={{ yAxis: { ...config, showGrid: true } }}
+                />
+            </Stage>
+        </div>
+    )
+}
+
+const NUMERIC_SERIES: Series[] = [{ key: 'visits', label: 'Visits', data: [1200, 1350, 1280, 1600, 1450, 1700, 1520] }]
+const PERCENTAGE_SERIES: Series[] = [{ key: 'rate', label: 'Conversion', data: [12, 18, 22, 31, 28, 35, 41] }]
+const PERCENTAGE_SCALED_SERIES: Series[] = [
+    { key: 'rate', label: 'Conversion', data: [0.12, 0.18, 0.22, 0.31, 0.28, 0.35, 0.41] },
+]
+const CURRENCY_SERIES: Series[] = [
+    { key: 'revenue', label: 'Revenue', data: [1200, 1450, 1390, 1820, 1675, 2100, 1990] },
+]
+const DURATION_SERIES: Series[] = [{ key: 'session', label: 'Session length', data: [45, 90, 120, 180, 240, 300, 540] }]
+const DURATION_MS_SERIES: Series[] = [{ key: 'latency', label: 'Latency', data: [120, 180, 240, 320, 410, 530, 680] }]
+
+export const YAxisFormats: Story = {
+    render: () => (
+        // eslint-disable-next-line react/forbid-dom-props
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, auto)', gap: 24 }}>
+            <YFormatCell title="numeric" series={NUMERIC_SERIES} config={{ format: 'numeric' }} />
+            <YFormatCell
+                title="numeric · prefix + suffix"
+                series={NUMERIC_SERIES}
+                config={{ format: 'numeric', prefix: '$', suffix: ' req' }}
+            />
+            <YFormatCell title="short" series={NUMERIC_SERIES} config={{ format: 'short' }} />
+            <YFormatCell title="percentage (0-100)" series={PERCENTAGE_SERIES} config={{ format: 'percentage' }} />
+            <YFormatCell
+                title="percentage_scaled (0-1)"
+                series={PERCENTAGE_SCALED_SERIES}
+                config={{ format: 'percentage_scaled' }}
+            />
+            <YFormatCell title="currency" series={CURRENCY_SERIES} config={{ format: 'currency', currency: 'USD' }} />
+            <YFormatCell title="duration (s)" series={DURATION_SERIES} config={{ format: 'duration' }} />
+            <YFormatCell title="duration_ms" series={DURATION_MS_SERIES} config={{ format: 'duration_ms' }} />
+        </div>
+    ),
 }
 
 export const DateAxis: Story = {

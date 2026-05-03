@@ -19,11 +19,41 @@ from products.logs.backend.alert_check_query import (
     BatchedAlertCheckQuery,
     BatchedBucketedResult,
     BucketedCount,
+    _rolling_check_ranges,
     fetch_live_logs_checkpoint,
     is_projection_eligible,
     resolve_alert_date_to,
 )
 from products.logs.backend.models import LogsAlertConfiguration
+
+
+def _seed_log_rows(
+    team_id: int,
+    service: str,
+    base: datetime,
+    counts_per_minute: list[int],
+    uuid_prefix: str,
+) -> None:
+    rows = []
+    for minute_idx, count in enumerate(counts_per_minute):
+        minute_start = base + dt.timedelta(minutes=minute_idx)
+        for log_idx in range(count):
+            ts = minute_start + dt.timedelta(seconds=10 + log_idx)
+            rows.append(
+                {
+                    "uuid": f"{uuid_prefix}-{minute_idx:03d}-{log_idx:03d}",
+                    "team_id": team_id,
+                    "timestamp": ts.strftime("%Y-%m-%d %H:%M:%S.%f"),
+                    "body": "",
+                    "severity_text": "info",
+                    "severity_number": 9,
+                    "service_name": service,
+                    "resource_attributes": {},
+                    "attributes_map_str": {},
+                }
+            )
+    if rows:
+        sync_execute("INSERT INTO logs FORMAT JSONEachRow\n" + "\n".join(json.dumps(r) for r in rows))
 
 
 class TestIsProjectionEligible(unittest.TestCase):
@@ -758,6 +788,205 @@ class TestEvaluatorWindowAccuracy(ClickhouseTestMixin, APIBaseTest):
             )
 
 
+class TestExecuteRollingChecks(ClickhouseTestMixin, APIBaseTest):
+    SERVICE = "rolling_checks_test"
+
+    def _make_alert(self, **kwargs) -> LogsAlertConfiguration:
+        defaults = {
+            "team": self.team,
+            "name": "Rolling check test",
+            "threshold_count": 10,
+            "threshold_operator": "above",
+            "window_minutes": 15,
+            "filters": {"serviceNames": [self.SERVICE]},
+        }
+        defaults.update(kwargs)
+        return LogsAlertConfiguration.objects.create(**defaults)
+
+    def _seed_per_minute(self, base: datetime, counts_per_minute: list[int]) -> None:
+        _seed_log_rows(self.team.id, self.SERVICE, base, counts_per_minute, "rc")
+
+    @freeze_time("2025-12-16T13:30:00Z")
+    def test_m_equals_1_returns_single_latest_window_count(self):
+        self._seed_per_minute(datetime(2025, 12, 16, 12, 0, tzinfo=UTC), [1, 1, 1, 1, 1])
+        alert = self._make_alert(window_minutes=15)
+        nca = datetime(2025, 12, 16, 12, 15, tzinfo=UTC)
+
+        result = AlertCheckQuery(
+            team=self.team, alert=alert, date_from=nca - dt.timedelta(minutes=15), date_to=nca
+        ).execute_rolling_checks(nca=nca, window_minutes=15, cadence_minutes=5, period_count=1)
+
+        assert len(result) == 1
+        assert result[0].count == 5
+        assert result[0].timestamp == datetime(2025, 12, 16, 12, 0, tzinfo=UTC)
+
+    @freeze_time("2025-12-16T13:30:00Z")
+    def test_m_equals_3_overlapping_windows_each_count_includes_shared_data(self):
+        self._seed_per_minute(datetime(2025, 12, 16, 12, 0, tzinfo=UTC), [1] * 60)
+        alert = self._make_alert(window_minutes=15)
+        nca = datetime(2025, 12, 16, 12, 30, tzinfo=UTC)
+        date_from = nca - dt.timedelta(minutes=15 + 2 * 5)
+
+        result = AlertCheckQuery(team=self.team, alert=alert, date_from=date_from, date_to=nca).execute_rolling_checks(
+            nca=nca, window_minutes=15, cadence_minutes=5, period_count=3
+        )
+
+        assert len(result) == 3
+        assert [b.count for b in result] == [15, 15, 15]
+        assert [b.timestamp for b in result] == [
+            datetime(2025, 12, 16, 12, 5, tzinfo=UTC),
+            datetime(2025, 12, 16, 12, 10, tzinfo=UTC),
+            datetime(2025, 12, 16, 12, 15, tzinfo=UTC),
+        ]
+
+    @freeze_time("2025-12-16T13:30:00Z")
+    def test_spike_is_visible_in_all_windows_that_contain_it(self):
+        counts = [0] * 60
+        for m in range(8, 13):
+            counts[m] = 40
+        self._seed_per_minute(datetime(2025, 12, 16, 12, 0, tzinfo=UTC), counts)
+        alert = self._make_alert(window_minutes=15)
+        nca = datetime(2025, 12, 16, 12, 30, tzinfo=UTC)
+        date_from = nca - dt.timedelta(minutes=15 + 4 * 5)
+
+        result = AlertCheckQuery(team=self.team, alert=alert, date_from=date_from, date_to=nca).execute_rolling_checks(
+            nca=nca, window_minutes=15, cadence_minutes=5, period_count=5
+        )
+
+        assert [b.count for b in result] == [80, 200, 200, 120, 0]
+
+    @parameterized.expand(
+        [
+            ("offset_0", 0),
+            ("offset_1", 1),
+            ("offset_5", 5),
+            ("offset_7", 7),
+            ("offset_13", 13),
+            ("offset_17", 17),
+            ("offset_22", 22),
+            ("offset_30", 30),
+            ("offset_47", 47),
+            ("offset_55", 55),
+            ("offset_59", 59),
+        ]
+    )
+    @freeze_time("2025-12-16T13:30:00Z")
+    def test_count_is_invariant_to_nca_clock_offset(self, _name: str, offset_min: int):
+        self._seed_per_minute(datetime(2025, 12, 16, 10, 0, tzinfo=UTC), [1] * 180)
+        alert = self._make_alert(window_minutes=15)
+
+        nca = datetime(2025, 12, 16, 12, 0, tzinfo=UTC) + dt.timedelta(minutes=offset_min)
+        date_from = nca - dt.timedelta(minutes=15 + 2 * 5)
+        result = AlertCheckQuery(team=self.team, alert=alert, date_from=date_from, date_to=nca).execute_rolling_checks(
+            nca=nca, window_minutes=15, cadence_minutes=5, period_count=3
+        )
+        counts = [b.count for b in result]
+        assert counts == [15, 15, 15]
+
+    @freeze_time("2025-12-16T13:30:00Z")
+    def test_cadence_other_than_5min_works(self):
+        self._seed_per_minute(datetime(2025, 12, 16, 12, 0, tzinfo=UTC), [1] * 60)
+        alert = self._make_alert(window_minutes=15, check_interval_minutes=10)
+        nca = datetime(2025, 12, 16, 12, 40, tzinfo=UTC)
+        date_from = nca - dt.timedelta(minutes=35)
+
+        result = AlertCheckQuery(team=self.team, alert=alert, date_from=date_from, date_to=nca).execute_rolling_checks(
+            nca=nca, window_minutes=15, cadence_minutes=10, period_count=3
+        )
+
+        assert [b.count for b in result] == [15, 15, 15]
+
+    @freeze_time("2025-12-16T13:30:00Z")
+    def test_empty_results_returns_zero_for_each_period(self):
+        alert = self._make_alert(filters={"serviceNames": ["nonexistent"]})
+        nca = datetime(2025, 12, 16, 12, 30, tzinfo=UTC)
+        date_from = nca - dt.timedelta(minutes=15 + 2 * 5)
+
+        result = AlertCheckQuery(team=self.team, alert=alert, date_from=date_from, date_to=nca).execute_rolling_checks(
+            nca=nca, window_minutes=15, cadence_minutes=5, period_count=3
+        )
+
+        assert len(result) == 3
+        assert [b.count for b in result] == [0, 0, 0]
+
+
+class TestExecuteRollingChecksBatched(ClickhouseTestMixin, APIBaseTest):
+    SERVICE_A = "rolling_batch_a"
+    SERVICE_B = "rolling_batch_b"
+
+    def _make_alert(self, *, filters: dict, **kwargs) -> LogsAlertConfiguration:
+        defaults = {
+            "team": self.team,
+            "name": "Rolling batch test",
+            "threshold_count": 10,
+            "threshold_operator": "above",
+            "window_minutes": 15,
+            "filters": filters,
+        }
+        defaults.update(kwargs)
+        return LogsAlertConfiguration.objects.create(**defaults)
+
+    def _seed(self, service: str, base: datetime, counts_per_minute: list[int]) -> None:
+        _seed_log_rows(self.team.id, service, base, counts_per_minute, f"rcb-{service}")
+
+    @freeze_time("2025-12-16T13:30:00Z")
+    def test_per_alert_counts_match_single_alert_query(self):
+        base = datetime(2025, 12, 16, 12, 0, tzinfo=UTC)
+        self._seed(self.SERVICE_A, base, [3] * 60)
+        self._seed(self.SERVICE_B, base, [7] * 60)
+
+        alert_a = self._make_alert(filters={"serviceNames": [self.SERVICE_A]})
+        alert_b = self._make_alert(filters={"serviceNames": [self.SERVICE_B]})
+
+        nca = datetime(2025, 12, 16, 12, 30, tzinfo=UTC)
+        date_from = nca - dt.timedelta(minutes=15 + 2 * 5)
+
+        batched = BatchedAlertCheckQuery(
+            team=self.team, alerts=[alert_a, alert_b], date_from=date_from, date_to=nca
+        ).execute_rolling_checks(nca=nca, window_minutes=15, cadence_minutes=5, period_count=3)
+
+        for alert in (alert_a, alert_b):
+            single = AlertCheckQuery(
+                team=self.team, alert=alert, date_from=date_from, date_to=nca
+            ).execute_rolling_checks(nca=nca, window_minutes=15, cadence_minutes=5, period_count=3)
+            assert batched.per_alert[str(alert.id)] == single
+
+    @freeze_time("2025-12-16T13:30:00Z")
+    def test_single_alert_cohort_matches_per_alert_path(self):
+        base = datetime(2025, 12, 16, 12, 0, tzinfo=UTC)
+        self._seed(self.SERVICE_A, base, [5] * 60)
+        alert = self._make_alert(filters={"serviceNames": [self.SERVICE_A]})
+
+        nca = datetime(2025, 12, 16, 12, 30, tzinfo=UTC)
+        date_from = nca - dt.timedelta(minutes=15 + 2 * 5)
+
+        batched = BatchedAlertCheckQuery(
+            team=self.team, alerts=[alert], date_from=date_from, date_to=nca
+        ).execute_rolling_checks(nca=nca, window_minutes=15, cadence_minutes=5, period_count=3)
+        single = AlertCheckQuery(team=self.team, alert=alert, date_from=date_from, date_to=nca).execute_rolling_checks(
+            nca=nca, window_minutes=15, cadence_minutes=5, period_count=3
+        )
+
+        assert batched.per_alert[str(alert.id)] == single
+
+    @freeze_time("2025-12-16T13:30:00Z")
+    def test_m_equals_1_returns_single_period_per_alert(self):
+        base = datetime(2025, 12, 16, 12, 0, tzinfo=UTC)
+        self._seed(self.SERVICE_A, base, [2] * 60)
+        alert = self._make_alert(filters={"serviceNames": [self.SERVICE_A]})
+
+        nca = datetime(2025, 12, 16, 12, 30, tzinfo=UTC)
+        date_from = nca - dt.timedelta(minutes=15)
+
+        result = BatchedAlertCheckQuery(
+            team=self.team, alerts=[alert], date_from=date_from, date_to=nca
+        ).execute_rolling_checks(nca=nca, window_minutes=15, cadence_minutes=5, period_count=1)
+
+        per = result.per_alert[str(alert.id)]
+        assert len(per) == 1
+        assert per[0].count == 30
+
+
 class TestBatchedAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
     """Per-team batching: run N alerts in one CH query via `countIf(<predicate>)`.
 
@@ -1383,3 +1612,95 @@ class TestResolveAlertDateTo(unittest.TestCase):
     def test_checkpoint_exactly_at_threshold_is_still_used(self):
         checkpoint = self.NEXT_CHECK_AT - CHECKPOINT_MAX_STALENESS
         assert resolve_alert_date_to(self.NEXT_CHECK_AT, checkpoint) == checkpoint
+
+
+class TestRollingCheckRanges(unittest.TestCase):
+    NCA = datetime(2026, 5, 3, 6, 0, 0, tzinfo=UTC)
+
+    def test_m_equals_1_returns_single_latest_window(self):
+        ranges = _rolling_check_ranges(self.NCA, window_minutes=15, cadence_minutes=5, period_count=1)
+        assert ranges == [(self.NCA - dt.timedelta(minutes=15), self.NCA)]
+
+    def test_m_equals_3_window_15_cadence_5(self):
+        ranges = _rolling_check_ranges(self.NCA, window_minutes=15, cadence_minutes=5, period_count=3)
+        assert ranges == [
+            (datetime(2026, 5, 3, 5, 35, tzinfo=UTC), datetime(2026, 5, 3, 5, 50, tzinfo=UTC)),
+            (datetime(2026, 5, 3, 5, 40, tzinfo=UTC), datetime(2026, 5, 3, 5, 55, tzinfo=UTC)),
+            (datetime(2026, 5, 3, 5, 45, tzinfo=UTC), datetime(2026, 5, 3, 6, 0, tzinfo=UTC)),
+        ]
+
+    def test_m_equals_3_window_30_cadence_5(self):
+        ranges = _rolling_check_ranges(self.NCA, window_minutes=30, cadence_minutes=5, period_count=3)
+        assert ranges == [
+            (datetime(2026, 5, 3, 5, 20, tzinfo=UTC), datetime(2026, 5, 3, 5, 50, tzinfo=UTC)),
+            (datetime(2026, 5, 3, 5, 25, tzinfo=UTC), datetime(2026, 5, 3, 5, 55, tzinfo=UTC)),
+            (datetime(2026, 5, 3, 5, 30, tzinfo=UTC), datetime(2026, 5, 3, 6, 0, tzinfo=UTC)),
+        ]
+
+    def test_cadence_equals_window_produces_non_overlapping_back_to_back(self):
+        ranges = _rolling_check_ranges(self.NCA, window_minutes=15, cadence_minutes=15, period_count=3)
+        assert ranges == [
+            (datetime(2026, 5, 3, 5, 15, tzinfo=UTC), datetime(2026, 5, 3, 5, 30, tzinfo=UTC)),
+            (datetime(2026, 5, 3, 5, 30, tzinfo=UTC), datetime(2026, 5, 3, 5, 45, tzinfo=UTC)),
+            (datetime(2026, 5, 3, 5, 45, tzinfo=UTC), datetime(2026, 5, 3, 6, 0, tzinfo=UTC)),
+        ]
+
+    def test_cadence_greater_than_window_produces_gaps(self):
+        ranges = _rolling_check_ranges(self.NCA, window_minutes=5, cadence_minutes=10, period_count=3)
+        assert ranges == [
+            (datetime(2026, 5, 3, 5, 35, tzinfo=UTC), datetime(2026, 5, 3, 5, 40, tzinfo=UTC)),
+            (datetime(2026, 5, 3, 5, 45, tzinfo=UTC), datetime(2026, 5, 3, 5, 50, tzinfo=UTC)),
+            (datetime(2026, 5, 3, 5, 55, tzinfo=UTC), datetime(2026, 5, 3, 6, 0, tzinfo=UTC)),
+        ]
+
+    def test_oldest_first_ordering(self):
+        ranges = _rolling_check_ranges(self.NCA, window_minutes=15, cadence_minutes=5, period_count=5)
+        starts = [start for start, _ in ranges]
+        assert starts == sorted(starts)
+
+    @parameterized.expand(
+        [
+            ("M1", 1),
+            ("M2", 2),
+            ("M3", 3),
+            ("M5", 5),
+            ("M10", 10),
+        ]
+    )
+    def test_newest_range_ends_exactly_at_nca(self, _name: str, m: int):
+        ranges = _rolling_check_ranges(self.NCA, window_minutes=15, cadence_minutes=5, period_count=m)
+        assert ranges[-1][1] == self.NCA
+
+    def test_total_lookback_matches_window_plus_m_minus_1_times_cadence(self):
+        ranges = _rolling_check_ranges(self.NCA, window_minutes=15, cadence_minutes=5, period_count=3)
+        oldest_start = ranges[0][0]
+        expected_lookback = dt.timedelta(minutes=15 + (3 - 1) * 5)
+        assert self.NCA - oldest_start == expected_lookback
+
+    @parameterized.expand(
+        [
+            ("M1_w15_c5", 1, 15, 5),
+            ("M2_w15_c5", 2, 15, 5),
+            ("M3_w15_c5", 3, 15, 5),
+            ("M5_w30_c5", 5, 30, 5),
+            ("M10_w60_c5", 10, 60, 5),
+            ("M3_w5_c1", 3, 5, 1),
+        ]
+    )
+    def test_each_range_is_exactly_window_minutes_wide(self, _name: str, m: int, window: int, cadence: int):
+        ranges = _rolling_check_ranges(self.NCA, window_minutes=window, cadence_minutes=cadence, period_count=m)
+        for start, end in ranges:
+            assert end - start == dt.timedelta(minutes=window)
+
+    @parameterized.expand(
+        [
+            ("M2_w15_c5", 2, 15, 5),
+            ("M3_w15_c5", 3, 15, 5),
+            ("M5_w30_c5", 5, 30, 5),
+        ]
+    )
+    def test_adjacent_ranges_offset_by_cadence(self, _name: str, m: int, window: int, cadence: int):
+        ranges = _rolling_check_ranges(self.NCA, window_minutes=window, cadence_minutes=cadence, period_count=m)
+        for i in range(len(ranges) - 1):
+            assert ranges[i + 1][0] - ranges[i][0] == dt.timedelta(minutes=cadence)
+            assert ranges[i + 1][1] - ranges[i][1] == dt.timedelta(minutes=cadence)

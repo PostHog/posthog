@@ -25,6 +25,7 @@ from products.logs.backend.alert_check_query import (
     fetch_live_logs_checkpoint,
     is_projection_eligible,
     resolve_alert_date_to,
+    rolling_check_lookback_minutes,
 )
 from products.logs.backend.alert_error_classifier import (
     AlertErrorCode,
@@ -114,12 +115,8 @@ class CheckAlertsInput:
 class _AlertCohort:
     """Group of alerts that share team + bucket grid and can be batched into one CH query.
 
-    Cohort key (implicit, derived in `_build_cohorts`):
-    `(team_id, window_minutes, evaluation_periods, projection_eligible, date_to)`.
-
-    All five must match for two alerts to share a query. `date_to` matters because
-    checkpoint clamping can pull alerts with different `next_check_at` values onto
-    the same window, and we want them to share the scan when that happens.
+    Cohort key (built in `_build_cohorts`): (team_id, window_minutes,
+    evaluation_periods, check_interval_minutes, projection_eligible, date_to).
     """
 
     alerts: tuple[LogsAlertConfiguration, ...]
@@ -143,8 +140,16 @@ class _AlertCohort:
         return self.alerts[0].evaluation_periods
 
     @property
+    def check_interval_minutes(self) -> int:
+        return self.alerts[0].check_interval_minutes
+
+    @property
     def date_from(self) -> datetime:
-        return self.date_to - timedelta(minutes=self.window_minutes * self.evaluation_periods)
+        return self.date_to - timedelta(
+            minutes=rolling_check_lookback_minutes(
+                self.window_minutes, self.check_interval_minutes, self.evaluation_periods
+            )
+        )
 
 
 @dataclasses.dataclass(frozen=True)
@@ -402,29 +407,25 @@ def _build_cohorts(
     now: datetime,
     checkpoint: datetime | None,
 ) -> list[_AlertCohort]:
-    """Group alerts into cohorts that can share a batched CH query.
-
-    Cohort key: (team_id, window_minutes, evaluation_periods, projection_eligible, date_to).
-    A single-alert "cohort" is fine — `BatchedAlertCheckQuery` with N=1 has the
-    same shape as `AlertCheckQuery.execute_bucketed`, so we don't bother
-    bypassing the batched path for cohorts of one.
-    """
-    grouped: dict[tuple, list[LogsAlertConfiguration]] = {}
+    """Group alerts into cohorts that can share a batched CH query."""
+    grouped: dict[tuple, tuple[list[LogsAlertConfiguration], datetime, bool]] = {}
     for alert in alerts:
         nca = alert.next_check_at if alert.next_check_at is not None else now
         date_to = resolve_alert_date_to(nca, checkpoint)
+        projection_eligible = is_projection_eligible(alert.filters)
         key = (
             alert.team_id,
             alert.window_minutes,
             alert.evaluation_periods,
-            is_projection_eligible(alert.filters),
+            alert.check_interval_minutes,
+            projection_eligible,
             date_to,
         )
-        grouped.setdefault(key, []).append(alert)
+        grouped.setdefault(key, ([], date_to, projection_eligible))[0].append(alert)
 
     return [
-        _AlertCohort(alerts=tuple(members), date_to=key[4], projection_eligible=key[3])
-        for key, members in grouped.items()
+        _AlertCohort(alerts=tuple(members), date_to=date_to, projection_eligible=projection_eligible)
+        for (members, date_to, projection_eligible) in grouped.values()
     ]
 
 
@@ -435,7 +436,12 @@ def _run_batched_query(cohort: _AlertCohort) -> BatchedBucketedResult:
         date_from=cohort.date_from,
         date_to=cohort.date_to,
         projection_eligible=cohort.projection_eligible,
-    ).execute_periods(period_minutes=cohort.window_minutes, period_count=cohort.evaluation_periods)
+    ).execute_rolling_checks(
+        nca=cohort.date_to,
+        window_minutes=cohort.window_minutes,
+        cadence_minutes=cohort.check_interval_minutes,
+        period_count=cohort.evaluation_periods,
+    )
 
 
 def _run_per_alert_queries(cohort: _AlertCohort) -> _CohortQueryResult:
@@ -448,7 +454,12 @@ def _run_per_alert_queries(cohort: _AlertCohort) -> _CohortQueryResult:
                 alert=alert,
                 date_from=cohort.date_from,
                 date_to=cohort.date_to,
-            ).execute_periods(period_minutes=cohort.window_minutes, period_count=cohort.evaluation_periods)
+            ).execute_rolling_checks(
+                nca=cohort.date_to,
+                window_minutes=cohort.window_minutes,
+                cadence_minutes=cohort.check_interval_minutes,
+                period_count=cohort.evaluation_periods,
+            )
             duration_ms = (time.monotonic_ns() - start) // 1_000_000
             per_alert[str(alert.id)] = _PrefetchedQuery(buckets=buckets, query_duration_ms=duration_ms)
         except Exception as e:
@@ -898,13 +909,13 @@ def _evaluate_single_alert(
     """
     original_next_check_at = alert.next_check_at
 
-    # First-run alerts (`next_check_at` still null after enable) anchor on `now`;
-    # from the second eval onward, `next_check_at` is set and idempotence holds.
     nca = alert.next_check_at if alert.next_check_at is not None else now
     date_to = resolve_alert_date_to(nca, checkpoint)
-    # Each bucket represents one historical "what the alert query would have
-    # returned" — window_minutes of data. M buckets cover M * window_minutes total.
-    date_from = date_to - timedelta(minutes=alert.window_minutes * alert.evaluation_periods)
+    date_from = date_to - timedelta(
+        minutes=rolling_check_lookback_minutes(
+            alert.window_minutes, alert.check_interval_minutes, alert.evaluation_periods
+        )
+    )
 
     check_result: CheckResult
     recent_breaches: tuple[bool, ...] = ()
@@ -922,11 +933,14 @@ def _evaluate_single_alert(
                 alert=alert,
                 date_from=date_from,
                 date_to=date_to,
-            ).execute_periods(period_minutes=alert.window_minutes, period_count=alert.evaluation_periods)
+            ).execute_rolling_checks(
+                nca=date_to,
+                window_minutes=alert.window_minutes,
+                cadence_minutes=alert.check_interval_minutes,
+                period_count=alert.evaluation_periods,
+            )
             query_duration_ms = int((time.perf_counter() - query_start) * 1000)
 
-        # `execute_periods` returns one entry per evaluation period in ASC order;
-        # the state machine wants newest-first, which `_derive_breaches` reverses.
         breaches = _derive_breaches(buckets, alert.threshold_count, alert.threshold_operator, alert.evaluation_periods)
         latest_count = buckets[-1].count if buckets else 0
         check_result = CheckResult(

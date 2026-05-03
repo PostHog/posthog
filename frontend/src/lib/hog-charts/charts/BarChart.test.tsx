@@ -114,10 +114,7 @@ describe('BarChart', () => {
         expect(container.querySelector('canvas')).not.toBeNull()
     })
 
-    // Pins today's behaviour for multi-axis stacked bars: cap rounding picks the last visible
-    // series in array order, regardless of yAxisId. The topmost rendered layer per axis isn't
-    // necessarily that key — see the multi-axis follow-up in PROGRESS.md.
-    it('rounds the cap of only the last visible series across axes (multi-axis stacked)', () => {
+    it('rounds the cap of the topmost visible series per yAxisId (multi-axis stacked)', () => {
         const series: Series[] = [
             { key: 'left-1', label: 'L1', data: [10, 20, 30], yAxisId: 'left' },
             { key: 'left-2', label: 'L2', data: [5, 15, 25], yAxisId: 'left' },
@@ -135,11 +132,8 @@ describe('BarChart', () => {
         const hasRoundedCap = (bars: BarRect[] | undefined): boolean =>
             !!bars && bars.some((b) => b.corners.topLeft || b.corners.topRight)
 
+        expect(hasRoundedCap(callsByKey.get('left-2'))).toBe(true)
         expect(hasRoundedCap(callsByKey.get('right-1'))).toBe(true)
-        // Today's behaviour: the topmost layer of the left axis (left-2) does not get the
-        // rounded cap, because the selection only considers array order. Pinning so the fix
-        // flips this assertion intentionally when it lands.
-        expect(hasRoundedCap(callsByKey.get('left-2'))).toBe(false)
         expect(hasRoundedCap(callsByKey.get('left-1'))).toBe(false)
     })
 })
