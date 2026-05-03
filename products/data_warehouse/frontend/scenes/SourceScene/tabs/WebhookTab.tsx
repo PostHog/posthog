@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { LemonBanner, LemonButton, LemonInput, LemonSkeleton, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSkeleton, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import { getColorVar } from 'lib/colors'
 import { AppMetricsFilters } from 'lib/components/AppMetrics/AppMetricsFilters'
@@ -9,7 +9,6 @@ import { appMetricsLogic } from 'lib/components/AppMetrics/appMetricsLogic'
 import { AppMetricSummary } from 'lib/components/AppMetrics/AppMetricSummary'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { SourceConfig, SourceFieldConfig } from '~/queries/schema/schema-general'
 import { WebhookInfo } from '~/types'
@@ -130,7 +129,6 @@ function WebhookConfigurationSection({
     serverInputs: Record<string, unknown>
 }): JSX.Element {
     const { webhookFieldInputs, isWebhookFieldInputsSubmitting } = useValues(webhookTabLogic(formLogicProps))
-    const { setWebhookFieldInputsValue } = useActions(webhookTabLogic(formLogicProps))
     const webhookFields = sourceConfig.webhookFields ?? []
 
     return (
@@ -138,63 +136,21 @@ function WebhookConfigurationSection({
             <h3 className="text-lg font-semibold">Configuration</h3>
             <Form logic={webhookTabLogic} props={formLogicProps} formKey="webhookFieldInputs" enableFormOnSubmit>
                 <div className="space-y-3 ph-no-capture">
-                    {webhookFields.map((field: SourceFieldConfig) => (
-                        <ConfigurationField
-                            key={field.name}
-                            field={field}
-                            sourceConfig={sourceConfig}
-                            currentValue={webhookFieldInputs[field.name]}
-                            serverValue={serverInputs[field.name]}
-                            onChange={(value) => setWebhookFieldInputsValue(field.name, value)}
-                        />
-                    ))}
+                    {webhookFields.map((field: SourceFieldConfig) =>
+                        sourceFieldToElement(
+                            field,
+                            sourceConfig,
+                            webhookFieldInputs[field.name],
+                            true,
+                            serverInputs[field.name]
+                        )
+                    )}
                     <LemonButton type="primary" htmlType="submit" loading={isWebhookFieldInputsSubmitting}>
                         Save changes
                     </LemonButton>
                 </div>
             </Form>
         </LemonCard>
-    )
-}
-
-function ConfigurationField({
-    field,
-    sourceConfig,
-    currentValue,
-    serverValue,
-    onChange,
-}: {
-    field: SourceFieldConfig
-    sourceConfig: SourceConfig
-    currentValue: unknown
-    serverValue: unknown
-    onChange: (value: string) => void
-}): JSX.Element {
-    const isExistingSecret =
-        serverValue !== null &&
-        typeof serverValue === 'object' &&
-        !Array.isArray(serverValue) &&
-        (serverValue as { secret?: boolean }).secret === true
-
-    if (!isExistingSecret) {
-        return sourceFieldToElement(field, sourceConfig, currentValue, true)
-    }
-
-    return (
-        <LemonField
-            name={field.name}
-            label={field.label}
-            help="Enter a new value to replace the configured secret. Leave blank to keep the existing value."
-        >
-            <LemonInput
-                className="ph-ignore-input"
-                data-attr={field.name}
-                type={field.type === 'password' ? 'password' : 'text'}
-                value={typeof currentValue === 'string' ? currentValue : ''}
-                placeholder="Configured — enter a new value to change"
-                onChange={onChange}
-            />
-        </LemonField>
     )
 }
 
