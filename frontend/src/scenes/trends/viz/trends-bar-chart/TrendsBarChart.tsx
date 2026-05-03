@@ -10,7 +10,6 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
@@ -68,8 +67,7 @@ const handleChartError = (error: Error, info: ErrorInfo): void => {
 }
 
 export function TrendsBarChart({ context }: TrendsBarChartProps): JSX.Element | null {
-    const { isDarkModeOn } = useValues(themeLogic)
-    const theme = useMemo(() => buildTheme(), [isDarkModeOn])
+    const theme = useMemo(() => buildTheme(), [])
     const { insightProps } = useValues(insightLogic)
 
     const {
