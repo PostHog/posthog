@@ -519,6 +519,12 @@ def _validate_filters(filters: dict) -> None:
 
 
 class LogsAlertEventSerializer(serializers.ModelSerializer):
+    breach_window = serializers.ListField(
+        child=serializers.BooleanField(),
+        read_only=True,
+        help_text="The N-of-M breach pattern at evaluation time, newest-first.",
+    )
+
     class Meta:
         model = LogsAlertEvent
         fields = [
@@ -528,6 +534,7 @@ class LogsAlertEventSerializer(serializers.ModelSerializer):
             "state_before",
             "state_after",
             "threshold_breached",
+            "breach_window",
             "result_count",
             "error_message",
             "query_duration_ms",

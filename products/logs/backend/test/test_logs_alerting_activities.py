@@ -1788,6 +1788,14 @@ class TestEvaluateSingleAlertEndToEnd(ClickhouseTestMixin, APIBaseTest):
         alert.refresh_from_db()
         assert alert.state == LogsAlertConfiguration.State.NOT_FIRING
 
+        events = list(LogsAlertEvent.objects.filter(alert=alert).order_by("created_at"))
+        # Cycle 2 fired with breach pattern (T, T, F): newest=:15 breach, then :10 breach, then :05 ok.
+        fire_event = next(e for e in events if e.state_after == "firing")
+        assert fire_event.breach_window == [True, True, False]
+        # Cycle 4 resolved with (F, F, T): newest=:25 ok, :20 ok, :15 breach.
+        resolve_event = next(e for e in events if e.state_after == "not_firing")
+        assert resolve_event.breach_window == [False, False, True]
+
     @freeze_time("2025-12-16T10:25:00Z")
     @patch("products.logs.backend.temporal.activities.produce_internal_event")
     def test_cooldown_suppresses_resolve_notification_within_window(self, mock_produce):

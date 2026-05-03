@@ -48,6 +48,7 @@ class InvalidTransition(Exception):
 class CheckResult:
     result_count: int | None
     threshold_breached: bool
+    breach_window: tuple[bool, ...] = ()
     error_message: str | None = None
     query_duration_ms: int | None = None
     is_transient_error: bool = False
@@ -94,9 +95,9 @@ def evaluate_alert_check(
     check: CheckResult,
     now: datetime,
 ) -> AlertCheckOutcome:
-    """Implements the RFC state table: N-of-M sliding-window trigger
-    (CloudWatch-style) for firing, immediate resolution on the first OK
-    check, and cooldown suppression.
+    """Implements the RFC state table: symmetric N-of-M sliding-window trigger
+    (CloudWatch-style) — fires when breach_count >= N, resolves when it drops
+    below N. Plus cooldown suppression on notifications.
     """
     if snapshot.state == AlertState.BROKEN:
         # Terminal until a user reset — the scheduler already excludes BROKEN alerts,

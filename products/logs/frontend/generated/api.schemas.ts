@@ -444,6 +444,8 @@ export interface LogsAlertEventApi {
     readonly state_before: string
     readonly state_after: string
     readonly threshold_breached: boolean
+    /** The N-of-M breach pattern at evaluation time, newest-first. */
+    readonly breach_window: readonly boolean[]
     /** @nullable */
     readonly result_count: number | null
     /** @nullable */

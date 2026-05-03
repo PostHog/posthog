@@ -716,6 +716,7 @@ def _stage_alert_for_save(dispatched: _DispatchedAlert, now: datetime) -> tuple[
             alert=alert,
             result_count=evaluation.check_result.result_count,
             threshold_breached=evaluation.check_result.threshold_breached,
+            breach_window=list(evaluation.check_result.breach_window),
             state_before=evaluation.state_before,
             state_after=committed.new_state.value,
             error_message=evaluation.outcome.error_message,
@@ -946,6 +947,7 @@ def _evaluate_single_alert(
         check_result = CheckResult(
             result_count=latest_count,
             threshold_breached=breaches[0] if breaches else False,
+            breach_window=breaches,
             query_duration_ms=query_duration_ms,
         )
         recent_breaches = breaches[1:]

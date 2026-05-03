@@ -215,6 +215,7 @@ class LogsAlertEvent(UUIDModel):
     created_at = models.DateTimeField(auto_now_add=True)
     result_count = models.PositiveIntegerField(null=True, blank=True)
     threshold_breached = models.BooleanField()
+    breach_window = models.JSONField(default=list, blank=True)
     state_before = models.CharField(max_length=20)
     state_after = models.CharField(max_length=20)
     error_message = models.TextField(null=True, blank=True)
