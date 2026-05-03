@@ -102,58 +102,68 @@ function buildCandidates(args: BuildCandidatesArgs): Candidate[] {
     if (ctx) {
         ctx.font = LABEL_FONT
     }
-    const { series, labels, scales, resolveValue, valueFormatter, mode, isHorizontal, isBarChart, minBarSize } = args
-    const out: Candidate[] = []
+    return args.mode === 'stack-total' ? buildStackTotal(args, ctx) : buildPerSegment(args, ctx)
+}
 
-    if (mode === 'stack-total') {
-        if (labels.length > args.maxPointsPerSeries) {
-            return out
+function bandTotal(visible: ResolvedSeries[], dIdx: number): number | null {
+    let total = 0
+    let count = 0
+    for (const s of visible) {
+        const v = s.data[dIdx]
+        if (typeof v === 'number' && isFinite(v)) {
+            total += v
+            count++
         }
-        const visible = series.filter((s) => !s.visibility?.excluded && !s.visibility?.fromValueLabels)
-        if (visible.length === 0) {
-            return out
-        }
-        const yScale = resolveYScale(visible[0], scales)
-        const topColor = visible[visible.length - 1].color
-        for (let dIdx = 0; dIdx < labels.length; dIdx++) {
-            let total = 0
-            let count = 0
-            for (const s of visible) {
-                const v = s.data[dIdx]
-                if (typeof v === 'number' && isFinite(v)) {
-                    total += v
-                    count++
-                }
-            }
-            if (count === 0 || total === 0 || !isFinite(total)) {
-                continue
-            }
-            const categoricalCoord = scales.x(labels[dIdx])
-            const valueCoord = yScale(total)
-            if (categoricalCoord == null || !isFinite(categoricalCoord) || !isFinite(valueCoord)) {
-                continue
-            }
-            if (isBarChart && minBarSize > 0) {
-                const baseline = yScale(0)
-                if (isFinite(baseline) && Math.abs(valueCoord - baseline) < minBarSize) {
-                    continue
-                }
-            }
-            pushCandidate(
-                out,
-                ctx,
-                isHorizontal,
-                `${STACK_TOTAL_KEY}-${dIdx}`,
-                -1,
-                topColor,
-                valueFormatter(total, -1, dIdx),
-                categoricalCoord,
-                valueCoord,
-                total >= 0
-            )
-        }
+    }
+    return count === 0 || total === 0 || !isFinite(total) ? null : total
+}
+
+function buildStackTotal(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2D | null): Candidate[] {
+    const { series, labels, scales, valueFormatter, isHorizontal, isBarChart, minBarSize } = args
+    const out: Candidate[] = []
+    if (labels.length > args.maxPointsPerSeries) {
         return out
     }
+    const visible = series.filter((s) => !s.visibility?.excluded && !s.visibility?.fromValueLabels)
+    if (visible.length === 0) {
+        return out
+    }
+    const yScale = resolveYScale(visible[0], scales)
+    const topColor = visible[visible.length - 1].color
+    const baseline = isBarChart && minBarSize > 0 ? yScale(0) : NaN
+
+    for (let dIdx = 0; dIdx < labels.length; dIdx++) {
+        const total = bandTotal(visible, dIdx)
+        if (total === null) {
+            continue
+        }
+        const categoricalCoord = scales.x(labels[dIdx])
+        const valueCoord = yScale(total)
+        if (categoricalCoord == null || !isFinite(categoricalCoord) || !isFinite(valueCoord)) {
+            continue
+        }
+        if (isFinite(baseline) && Math.abs(valueCoord - baseline) < minBarSize) {
+            continue
+        }
+        pushCandidate(
+            out,
+            ctx,
+            isHorizontal,
+            `${STACK_TOTAL_KEY}-${dIdx}`,
+            -1,
+            topColor,
+            valueFormatter(total, -1, dIdx),
+            categoricalCoord,
+            valueCoord,
+            total >= 0
+        )
+    }
+    return out
+}
+
+function buildPerSegment(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2D | null): Candidate[] {
+    const { series, labels, scales, resolveValue, valueFormatter, isHorizontal, isBarChart, minBarSize } = args
+    const out: Candidate[] = []
 
     for (let sIdx = 0; sIdx < series.length; sIdx++) {
         const s = series[sIdx]
@@ -167,15 +177,12 @@ function buildCandidates(args: BuildCandidatesArgs): Candidate[] {
                 continue
             }
             const yValue = resolveValue(s, dIdx)
+            if (typeof yValue !== 'number' || !isFinite(yValue)) {
+                continue
+            }
             const categoricalCoord = scales.x(labels[dIdx])
-            const valueCoord = isFinite(yValue) ? yScale(yValue) : NaN
-            if (
-                typeof yValue !== 'number' ||
-                !isFinite(yValue) ||
-                categoricalCoord == null ||
-                !isFinite(categoricalCoord) ||
-                !isFinite(valueCoord)
-            ) {
+            const valueCoord = yScale(yValue)
+            if (categoricalCoord == null || !isFinite(categoricalCoord) || !isFinite(valueCoord)) {
                 continue
             }
             if (isBarChart && minBarSize > 0) {
