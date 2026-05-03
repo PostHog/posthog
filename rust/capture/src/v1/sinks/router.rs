@@ -89,17 +89,16 @@ impl Router {
             let name = *name;
             futs.push(async move { sink.flush().await.map_err(|e| (name, e)) });
         }
-        let mut first_err: Option<anyhow::Error> = None;
+        let mut errors: Vec<String> = Vec::new();
         while let Some(result) = futs.next().await {
             if let Err((name, e)) = result {
-                if first_err.is_none() {
-                    first_err = Some(anyhow::anyhow!("sink {name}: {e:#}"));
-                }
+                errors.push(format!("sink {name}: {e:#}"));
             }
         }
-        match first_err {
-            Some(e) => Err(e),
-            None => Ok(()),
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!("{}", errors.join("; ")))
         }
     }
 }

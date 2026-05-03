@@ -111,6 +111,11 @@ pub struct Sinks {
 impl Sinks {
     pub fn validate(&self) -> anyhow::Result<()> {
         anyhow::ensure!(!self.configs.is_empty(), "no v1 sinks configured");
+        anyhow::ensure!(
+            self.configs.contains_key(&self.default),
+            "default sink '{}' is not present in configured sinks",
+            self.default,
+        );
         for (&name, cfg) in &self.configs {
             cfg.validate()
                 .map_err(|e| anyhow::anyhow!("sink {}: {e}", name))?;
@@ -155,10 +160,21 @@ pub fn load_sinks_from(sinks_csv: &str, env: &HashMap<String, String>) -> anyhow
 fn load_sink_config(name: SinkName, env: &HashMap<String, String>) -> anyhow::Result<Config> {
     let prefix = name.env_prefix();
 
+    // Collect prefixes of other sinks so we can skip keys that belong to a
+    // longer prefix (e.g. MSK_ALT_ keys when loading MSK_).
+    let other_prefixes: Vec<&str> = [SinkName::Msk, SinkName::MskAlt, SinkName::Ws]
+        .iter()
+        .filter(|n| **n != name)
+        .map(|n| n.env_prefix())
+        .collect();
+
     let mut kafka_map = HashMap::new();
     let mut sink_map = HashMap::new();
     for (k, v) in env {
         if let Some(rest) = k.strip_prefix(prefix) {
+            if other_prefixes.iter().any(|op| k.starts_with(op)) {
+                continue;
+            }
             if let Some(kafka_key) = rest.strip_prefix("KAFKA_") {
                 kafka_map.insert(kafka_key.to_string(), v.clone());
             } else {
@@ -308,6 +324,20 @@ mod tests {
     }
 
     #[test]
+    fn msk_alt_keys_do_not_leak_into_msk_config() {
+        let mut env = test_env_for(SinkName::Msk);
+        env.insert(
+            "CAPTURE_V1_SINK_MSK_ALT_KAFKA_HOSTS".into(),
+            "alt-host:9092".into(),
+        );
+        let cfg = load_sink_config(SinkName::Msk, &env).unwrap();
+        assert_eq!(
+            cfg.kafka.hosts, "localhost:9092",
+            "MSK_ALT host should not leak into MSK config"
+        );
+    }
+
+    #[test]
     fn non_kafka_keys_ignored_by_kafka_config() {
         let mut env = test_env_for(SinkName::Msk);
         env.insert(
@@ -429,6 +459,21 @@ mod tests {
         assert!(
             err.to_string().contains("queue_mib"),
             "expected queue_mib in error: {err}"
+        );
+    }
+
+    #[test]
+    fn sinks_validate_default_not_in_configs() {
+        let env = test_env_for(SinkName::Msk);
+        let cfg = load_sink_config(SinkName::Msk, &env).unwrap();
+        let sinks = Sinks {
+            default: SinkName::Ws,
+            configs: [(SinkName::Msk, cfg)].into_iter().collect(),
+        };
+        let err = sinks.validate().unwrap_err();
+        assert!(
+            err.to_string().contains("default sink"),
+            "expected 'default sink' in error: {err}"
         );
     }
 
