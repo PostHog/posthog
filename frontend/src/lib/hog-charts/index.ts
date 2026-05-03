@@ -5,8 +5,10 @@ export { LineChart } from './charts/LineChart'
 export type { LineChartProps } from './charts/LineChart'
 export { TimeSeriesLineChart } from './charts/TimeSeriesLineChart/TimeSeriesLineChart'
 export type {
+    InProgressConfig,
     TimeSeriesLineChartConfig,
     TimeSeriesLineChartProps,
+    ValueLabelsConfig,
 } from './charts/TimeSeriesLineChart/TimeSeriesLineChart'
 
 // Base chart (for building new chart types)
@@ -64,3 +66,5 @@ export type { TimeInterval } from './charts/TimeSeriesLineChart/utils/dates'
 export { buildYTickFormatter } from './charts/TimeSeriesLineChart/utils/y-formatters'
 export type { YAxisFormat, YFormatterConfig } from './charts/TimeSeriesLineChart/utils/y-formatters'
 export type { XAxisConfig, YAxisConfig } from './charts/TimeSeriesLineChart/utils/use-axis-formatters'
+export { buildGoalLineReferenceLines, computeSeriesNonZeroMax } from './charts/TimeSeriesLineChart/utils/goal-lines'
+export type { GoalLineConfig } from './charts/TimeSeriesLineChart/utils/goal-lines'
