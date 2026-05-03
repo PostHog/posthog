@@ -1,8 +1,12 @@
 import dataclasses
+from collections.abc import Callable
 from functools import cached_property
 from typing import Any, Union, cast
 
+from django.core.cache import cache
 from django.db.models import Model, QuerySet
+from django.db.models.signals import post_delete, post_save
+from django.dispatch import receiver
 from django.shortcuts import get_object_or_404
 
 import posthoganalytics
@@ -28,11 +32,12 @@ from posthog.event_usage import (
 )
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import validate_display_name
-from posthog.models import Organization, User
+from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
 from posthog.models.activity_logging.model_activity import ImpersonatedContext
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_invite import OrganizationInvite
+from posthog.models.project import Project
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.uploaded_media import UploadedMedia
 from posthog.permissions import (
@@ -47,6 +52,11 @@ from posthog.rbac.migrations.rbac_team_migration import rbac_team_access_control
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.tasks.tasks import delete_organization_data_and_notify_task
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
+from posthog.utils import get_safe_cache, safe_cache_set
+
+from ee.models.explicit_team_membership import ExplicitTeamMembership
+from ee.models.rbac.access_control import AccessControl
+from ee.models.rbac.role import Role, RoleMembership
 
 
 class PremiumMultiorganizationPermission(permissions.BasePermission):
@@ -84,6 +94,93 @@ class OrganizationPermissionsWithDelete(OrganizationAdminWritePermissions):
 
 
 tracer = trace.get_tracer(__name__)
+
+
+ORG_SERIALIZER_CACHE_TTL_SECONDS = 60 * 60
+_ORG_SERIALIZER_VERSION_KEY_PREFIX = "org_serializer_version:"
+
+
+def _org_serializer_cache_version(organization_id: str) -> int:
+    version = cache.get(f"{_ORG_SERIALIZER_VERSION_KEY_PREFIX}{organization_id}")
+    if version is None:
+        cache.add(f"{_ORG_SERIALIZER_VERSION_KEY_PREFIX}{organization_id}", 0, timeout=None)
+        return 0
+    return int(version)
+
+
+def _bump_org_serializer_cache_version(organization_id: str) -> None:
+    try:
+        cache.incr(f"{_ORG_SERIALIZER_VERSION_KEY_PREFIX}{organization_id}")
+    except ValueError:
+        cache.add(f"{_ORG_SERIALIZER_VERSION_KEY_PREFIX}{organization_id}", 1, timeout=None)
+
+
+def _cached_per_user_org(field: str, user_id: int, organization_id: str, fetcher: Callable[[], Any]) -> Any:
+    version = _org_serializer_cache_version(organization_id)
+    cache_key = f"org_serializer:{field}:{organization_id}:v{version}:{user_id}"
+    cached = get_safe_cache(cache_key)
+    if cached is not None:
+        return cached
+    result = fetcher()
+    safe_cache_set(cache_key, result, timeout=ORG_SERIALIZER_CACHE_TTL_SECONDS)
+    return result
+
+
+@receiver(post_save, sender=Team)
+@receiver(post_delete, sender=Team)
+def _invalidate_org_serializer_cache_on_team_change(sender: type[Team], instance: Team, **kwargs: Any) -> None:
+    if instance.organization_id is not None:
+        _bump_org_serializer_cache_version(str(instance.organization_id))
+
+
+@receiver(post_save, sender=Project)
+@receiver(post_delete, sender=Project)
+def _invalidate_org_serializer_cache_on_project_change(sender: type[Project], instance: Project, **kwargs: Any) -> None:
+    if instance.organization_id is not None:
+        _bump_org_serializer_cache_version(str(instance.organization_id))
+
+
+@receiver(post_save, sender=OrganizationMembership)
+@receiver(post_delete, sender=OrganizationMembership)
+def _invalidate_org_serializer_cache_on_org_membership_change(
+    sender: type[OrganizationMembership], instance: OrganizationMembership, **kwargs: Any
+) -> None:
+    if instance.organization_id is not None:
+        _bump_org_serializer_cache_version(str(instance.organization_id))
+
+
+def _bump_for_team_id(team_id: Any) -> None:
+    if team_id is None:
+        return
+    organization_id = Team.objects.filter(id=team_id).values_list("organization_id", flat=True).first()
+    if organization_id is not None:
+        _bump_org_serializer_cache_version(str(organization_id))
+
+
+@receiver(post_save, sender=AccessControl)
+@receiver(post_delete, sender=AccessControl)
+def _invalidate_org_serializer_cache_on_access_control_change(
+    sender: type[AccessControl], instance: AccessControl, **kwargs: Any
+) -> None:
+    _bump_for_team_id(instance.team_id)
+
+
+@receiver(post_save, sender=ExplicitTeamMembership)
+@receiver(post_delete, sender=ExplicitTeamMembership)
+def _invalidate_org_serializer_cache_on_explicit_team_membership_change(
+    sender: type[ExplicitTeamMembership], instance: ExplicitTeamMembership, **kwargs: Any
+) -> None:
+    _bump_for_team_id(instance.team_id)
+
+
+@receiver(post_save, sender=RoleMembership)
+@receiver(post_delete, sender=RoleMembership)
+def _invalidate_org_serializer_cache_on_role_membership_change(
+    sender: type[RoleMembership], instance: RoleMembership, **kwargs: Any
+) -> None:
+    organization_id = Role.objects.filter(id=instance.role_id).values_list("organization_id", flat=True).first()
+    if organization_id is not None:
+        _bump_org_serializer_cache_version(str(organization_id))
 
 
 class OrganizationSerializer(
@@ -187,6 +284,15 @@ class OrganizationSerializer(
 
     @tracer.start_as_current_span("organization_serializer.teams")
     def get_teams(self, instance: Organization) -> list[dict[str, Any]]:
+        request = self.context.get("request")
+        user_id = (
+            request.user.id if request and getattr(request, "user", None) and request.user.is_authenticated else None
+        )
+        if user_id is None:
+            return self._fetch_visible_teams(instance)
+        return _cached_per_user_org("teams", user_id, str(instance.id), lambda: self._fetch_visible_teams(instance))
+
+    def _fetch_visible_teams(self, instance: Organization) -> list[dict[str, Any]]:
         # Support new access control system
         visible_teams = (
             self.user_access_control.filter_queryset_by_access_level(instance.teams.all(), include_all_if_admin=True)
@@ -197,12 +303,23 @@ class OrganizationSerializer(
         visible_teams = visible_teams.filter(id__in=self.user_permissions.team_ids_visible_for_user).select_related(
             "project"
         )
-        return TeamBasicSerializer(visible_teams, context=self.context, many=True).data  # type: ignore
+        return list(TeamBasicSerializer(visible_teams, context=self.context, many=True).data)  # type: ignore
 
     @tracer.start_as_current_span("organization_serializer.projects")
     def get_projects(self, instance: Organization) -> list[dict[str, Any]]:
+        request = self.context.get("request")
+        user_id = (
+            request.user.id if request and getattr(request, "user", None) and request.user.is_authenticated else None
+        )
+        if user_id is None:
+            return self._fetch_visible_projects(instance)
+        return _cached_per_user_org(
+            "projects", user_id, str(instance.id), lambda: self._fetch_visible_projects(instance)
+        )
+
+    def _fetch_visible_projects(self, instance: Organization) -> list[dict[str, Any]]:
         visible_projects = instance.projects.filter(id__in=self.user_permissions.project_ids_visible_for_user)
-        return ProjectBasicSerializer(visible_projects, context=self.context, many=True).data  # type: ignore
+        return list(ProjectBasicSerializer(visible_projects, context=self.context, many=True).data)  # type: ignore
 
     @extend_schema_field(serializers.DictField(child=serializers.CharField()))
     def get_metadata(self, instance: Organization) -> dict[str, Union[str, int, object]]:
