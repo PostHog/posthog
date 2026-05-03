@@ -1727,29 +1727,31 @@ class TestEvaluateSingleAlertEndToEnd(ClickhouseTestMixin, APIBaseTest):
         defaults.update(kwargs)
         return LogsAlertConfiguration.objects.create(**defaults)
 
-    @freeze_time("2025-12-16T10:25:00Z")
+    @freeze_time("2025-12-16T10:35:00Z")
     @patch("products.logs.backend.temporal.activities.produce_internal_event")
-    def test_n_of_m_progression_across_three_consecutive_evals(self, _mock_produce):
+    def test_n_of_m_progression_across_consecutive_evals(self, _mock_produce):
         # Real-CH version of the N-of-M progression test. M=3 N=2 over 5-min buckets.
-        # Three consecutive evals at next_check_at 10:15, 10:20, 10:25, each
-        # shifting the query window by one bucket. Bucket counts are designed
-        # so the breach pattern progresses NOT_FIRING → FIRING → NOT_FIRING
-        # (resolve).
-        # Bucket counts (above threshold=100):
+        # Symmetric N-of-M: stays firing while breach_count >= N, resolves only
+        # once it drops below N — so a single OK bucket after firing is not
+        # enough to resolve.
+        # Bucket counts (threshold=100):
         #   :00 = 50  (no breach)
         #   :05 = 50  (no breach)
         #   :10 = 200 (breach)
         #   :15 = 200 (breach)
         #   :20 = 50  (no breach)
-        # Cycle 1 (next_check_at 10:15): buckets [:00, :05, :10] → 1-of-3 → not_firing
-        # Cycle 2 (next_check_at 10:20): buckets [:05, :10, :15] → 2-of-3 newest=breach → fire
-        # Cycle 3 (next_check_at 10:25): newest bucket = :20 (no breach) → resolve from FIRING
+        #   :25 = 50  (no breach)
+        # Cycle 1 (NCA 10:15): rolling [10:00,10:05,10:10] → (T, F, F) → 1-of-3 → not_firing
+        # Cycle 2 (NCA 10:20): rolling [10:05,10:10,10:15] → (T, T, F) → 2-of-3 → fire
+        # Cycle 3 (NCA 10:25): rolling [10:10,10:15,10:20] → (F, T, T) → 2-of-3 → STILL firing
+        # Cycle 4 (NCA 10:30): rolling [10:15,10:20,10:25] → (F, F, T) → 1-of-3 → resolve
         bucket_volumes = {
             "2025-12-16 10:00:30.000000": 50,
             "2025-12-16 10:05:30.000000": 50,
             "2025-12-16 10:10:30.000000": 200,
             "2025-12-16 10:15:30.000000": 200,
             "2025-12-16 10:20:30.000000": 50,
+            "2025-12-16 10:25:30.000000": 50,
         }
         self._seed_logs(
             "n_of_m_progression",
@@ -1764,22 +1766,25 @@ class TestEvaluateSingleAlertEndToEnd(ClickhouseTestMixin, APIBaseTest):
             next_check_at=datetime(2025, 12, 16, 10, 15, 0, tzinfo=UTC),
         )
 
-        # Cycle 1: 1-of-3 breach → stays NOT_FIRING
         _evaluate_and_save_one(alert, datetime(2025, 12, 16, 10, 15, 0, tzinfo=UTC), _make_stats())
         alert.refresh_from_db()
         assert alert.state == LogsAlertConfiguration.State.NOT_FIRING
 
-        # Cycle 2: 2-of-3 breach AND newest is a breach → fire
         alert.next_check_at = datetime(2025, 12, 16, 10, 20, 0, tzinfo=UTC)
         alert.save(update_fields=["next_check_at"])
         _evaluate_and_save_one(alert, datetime(2025, 12, 16, 10, 20, 0, tzinfo=UTC), _make_stats())
         alert.refresh_from_db()
         assert alert.state == LogsAlertConfiguration.State.FIRING
 
-        # Cycle 3: newest bucket (:20) is no-breach → resolve (immediate from FIRING)
         alert.next_check_at = datetime(2025, 12, 16, 10, 25, 0, tzinfo=UTC)
         alert.save(update_fields=["next_check_at"])
         _evaluate_and_save_one(alert, datetime(2025, 12, 16, 10, 25, 0, tzinfo=UTC), _make_stats())
+        alert.refresh_from_db()
+        assert alert.state == LogsAlertConfiguration.State.FIRING
+
+        alert.next_check_at = datetime(2025, 12, 16, 10, 30, 0, tzinfo=UTC)
+        alert.save(update_fields=["next_check_at"])
+        _evaluate_and_save_one(alert, datetime(2025, 12, 16, 10, 30, 0, tzinfo=UTC), _make_stats())
         alert.refresh_from_db()
         assert alert.state == LogsAlertConfiguration.State.NOT_FIRING
 
