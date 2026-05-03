@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use common_types::CapturedEventHeaders;
+use common_types::{CapturedEvent, CapturedEventHeaders, RawEvent};
 use rdkafka::error::RDKafkaErrorCode;
 use rstest::rstest;
 use uuid::Uuid;
@@ -13,6 +13,7 @@ use crate::v1::sinks::event::Event;
 use crate::v1::sinks::sink::Sink;
 use crate::v1::sinks::types::{BatchSummary, Outcome};
 use crate::v1::sinks::{Config, Destination, SinkName};
+use crate::v1::test_utils::{self, WrappedEventMut};
 
 use super::mock::MockProducer;
 use super::producer::ProduceError;
@@ -907,4 +908,110 @@ async fn nonempty_partition_key_propagates_as_some() {
     h.producer.with_records(|records| {
         assert_eq!(records[0].key.as_deref(), Some("phc_test:user-1"));
     });
+}
+
+// ===========================================================================
+// Realistic WrappedEvent round-trip tests
+//
+// These use production-shaped fixtures from test_utils and verify the
+// MockProducer payload deserializes as CapturedEvent + RawEvent.
+// ===========================================================================
+
+#[tokio::test]
+async fn realistic_single_pageview_round_trip() {
+    let h = TestHarness::new();
+    let wrapped = test_utils::realistic_pageview("user-42");
+    let events: Vec<&(dyn Event + Send + Sync)> = vec![&wrapped];
+
+    let results = h.sink.publish_batch(&h.ctx, &events).await;
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].key(), wrapped.uuid);
+    assert_eq!(results[0].outcome(), Outcome::Success);
+
+    h.producer.with_records(|records| {
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].topic, "events_main");
+
+        let captured: CapturedEvent =
+            serde_json::from_str(&records[0].payload).expect("must deserialize as CapturedEvent");
+        assert_eq!(captured.uuid, wrapped.uuid);
+        assert_eq!(captured.distinct_id, "user-42");
+        assert_eq!(captured.event, "$pageview");
+
+        let data: RawEvent =
+            serde_json::from_str(&captured.data).expect("data must deserialize as RawEvent");
+        assert_eq!(data.event, "$pageview");
+        assert_eq!(data.properties["$browser"], "Chrome");
+        assert_eq!(data.properties["$session_id"], "01jq9abc-def0-1234-5678-9abcdef01234");
+        assert_eq!(data.properties["$process_person_profile"], true);
+    });
+}
+
+#[tokio::test]
+async fn realistic_batch_round_trip() {
+    let h = TestHarness::new();
+    let batch = test_utils::realistic_batch();
+    let events: Vec<&(dyn Event + Send + Sync)> = vec![&batch[0], &batch[1], &batch[2]];
+
+    let results = h.sink.publish_batch(&h.ctx, &events).await;
+
+    assert_eq!(results.len(), 3);
+    for r in &results {
+        assert_eq!(r.outcome(), Outcome::Success);
+    }
+
+    h.producer.with_records(|records| {
+        assert_eq!(records.len(), 3);
+        for record in records {
+            let captured: CapturedEvent =
+                serde_json::from_str(&record.payload).expect("must deserialize as CapturedEvent");
+            let _data: RawEvent =
+                serde_json::from_str(&captured.data).expect("data must deserialize as RawEvent");
+        }
+
+        let names: Vec<&str> = records
+            .iter()
+            .map(|r| {
+                let c: CapturedEvent = serde_json::from_str(&r.payload).unwrap();
+                match c.event.as_str() {
+                    "$pageview" => "$pageview",
+                    "$identify" => "$identify",
+                    _ => "custom",
+                }
+            })
+            .collect();
+        assert_eq!(names, vec!["$pageview", "$identify", "custom"]);
+    });
+}
+
+#[tokio::test]
+async fn realistic_event_with_destination_mutation() {
+    let h = TestHarness::new();
+    let wrapped = test_utils::realistic_pageview("user-42")
+        .with_destination(Destination::AnalyticsHistorical);
+    let events: Vec<&(dyn Event + Send + Sync)> = vec![&wrapped];
+
+    let results = h.sink.publish_batch(&h.ctx, &events).await;
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].outcome(), Outcome::Success);
+    h.producer.with_records(|records| {
+        assert_eq!(records[0].topic, "events_hist");
+    });
+}
+
+#[tokio::test]
+async fn realistic_dropped_event_not_published() {
+    use crate::v1::analytics::types::EventResult;
+
+    let h = TestHarness::new();
+    let wrapped = test_utils::realistic_pageview("user-42")
+        .with_result(EventResult::Drop, Some("rate_limited"));
+    let events: Vec<&(dyn Event + Send + Sync)> = vec![&wrapped];
+
+    let results = h.sink.publish_batch(&h.ctx, &events).await;
+
+    assert!(results.is_empty());
+    assert_eq!(h.producer.record_count(), 0);
 }
