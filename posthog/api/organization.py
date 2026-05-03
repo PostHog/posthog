@@ -200,8 +200,10 @@ _INVALIDATION_SOURCES: list[tuple[type[Model], Callable[[Any], str | None]]] = [
 def _connect_invalidation(model: type[Model], get_org_id: Callable[[Any], str | None]) -> None:
     def receiver_fn(sender: type[Model], instance: Any, **kwargs: Any) -> None:
         organization_id = get_org_id(instance)
-        if organization_id is not None:
-            transaction.on_commit(lambda: _bump_org_serializer_cache_version(organization_id))
+        if organization_id is None:
+            return
+        _bump_org_serializer_cache_version(organization_id)
+        transaction.on_commit(lambda: _bump_org_serializer_cache_version(organization_id))
 
     post_save.connect(receiver_fn, sender=model, weak=False)
     post_delete.connect(receiver_fn, sender=model, weak=False)
