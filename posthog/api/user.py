@@ -6,6 +6,7 @@ import secrets
 import urllib.parse
 from base64 import b32encode
 from binascii import unhexlify
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional, cast
 
@@ -15,6 +16,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.db import transaction
+from django.db.models.signals import post_delete, post_save
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.utils import timezone as django_timezone
@@ -104,7 +106,7 @@ from posthog.tasks.email import (
     send_two_factor_auth_enabled_email,
 )
 from posthog.user_permissions import UserPermissions
-from posthog.utils import render_template
+from posthog.utils import get_safe_cache, render_template, safe_cache_set
 
 from products.dashboards.backend.models.dashboard import Dashboard
 
@@ -115,6 +117,87 @@ NUM_2FA_BACKUP_CODES = 10
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
+
+
+USER_SERIALIZER_CACHE_TTL_SECONDS = 60 * 60
+USER_SERIALIZER_FIELDS: tuple[str, ...] = (
+    "pending_invites",
+    "is_2fa_enabled",
+    "has_social_auth",
+    "has_sso_enforcement",
+)
+
+
+def _user_cache_key(field: str, user_id: int) -> str:
+    return f"user_serializer:{field}:{user_id}"
+
+
+def _cached_per_user(field: str, user_id: int, fetcher: Callable[[], Any]) -> Any:
+    cache_key = _user_cache_key(field, user_id)
+    cached = get_safe_cache(cache_key)
+    if cached is not None:
+        return cached
+    result = fetcher()
+    safe_cache_set(cache_key, result, timeout=USER_SERIALIZER_CACHE_TTL_SECONDS)
+    return result
+
+
+def _invalidate_user_cache(user_id: Any) -> None:
+    if user_id is None:
+        return
+    keys = [_user_cache_key(f, user_id) for f in USER_SERIALIZER_FIELDS]
+    try:
+        cache.delete_many(keys)
+    except Exception:
+        pass
+    transaction.on_commit(lambda: _delete_keys_safely(keys))
+
+
+def _delete_keys_safely(keys: list[str]) -> None:
+    try:
+        cache.delete_many(keys)
+    except Exception:
+        pass
+
+
+def _invalidate_for_user_save(sender: type, instance: Any, **kwargs: Any) -> None:
+    _invalidate_user_cache(getattr(instance, "id", None))
+
+
+def _invalidate_for_related_user(sender: type, instance: Any, **kwargs: Any) -> None:
+    _invalidate_user_cache(getattr(instance, "user_id", None))
+
+
+def _invalidate_for_org_domain(sender: type, instance: Any, **kwargs: Any) -> None:
+    organization_id = getattr(instance, "organization_id", None)
+    if organization_id is None:
+        return
+    user_ids = OrganizationMembership.objects.filter(organization_id=organization_id).values_list("user_id", flat=True)
+    for user_id in user_ids:
+        _invalidate_user_cache(user_id)
+
+
+def _invalidate_for_invite(sender: type, instance: Any, **kwargs: Any) -> None:
+    target_email = getattr(instance, "target_email", None)
+    if not target_email:
+        return
+    user_ids = User.objects.filter(email__iexact=target_email).values_list("id", flat=True)
+    for user_id in user_ids:
+        _invalidate_user_cache(user_id)
+
+
+post_save.connect(_invalidate_for_user_save, sender=User, weak=False)
+post_delete.connect(_invalidate_for_user_save, sender=User, weak=False)
+post_save.connect(_invalidate_for_related_user, sender=UserSocialAuth, weak=False)
+post_delete.connect(_invalidate_for_related_user, sender=UserSocialAuth, weak=False)
+post_save.connect(_invalidate_for_related_user, sender=TOTPDevice, weak=False)
+post_delete.connect(_invalidate_for_related_user, sender=TOTPDevice, weak=False)
+post_save.connect(_invalidate_for_related_user, sender=OrganizationMembership, weak=False)
+post_delete.connect(_invalidate_for_related_user, sender=OrganizationMembership, weak=False)
+post_save.connect(_invalidate_for_org_domain, sender=OrganizationDomain, weak=False)
+post_delete.connect(_invalidate_for_org_domain, sender=OrganizationDomain, weak=False)
+post_save.connect(_invalidate_for_invite, sender=OrganizationInvite, weak=False)
+post_delete.connect(_invalidate_for_invite, sender=OrganizationInvite, weak=False)
 
 
 class ScenePersonalisationBasicSerializer(serializers.ModelSerializer):
@@ -339,14 +422,17 @@ class UserSerializer(serializers.ModelSerializer):
 
     @tracer.start_as_current_span("user_serializer.has_social_auth")
     def get_has_social_auth(self, instance: User) -> bool:
-        return instance.social_auth.exists()
+        return _cached_per_user("has_social_auth", instance.id, lambda: instance.social_auth.exists())
 
     @tracer.start_as_current_span("user_serializer.is_2fa_enabled")
     def get_is_2fa_enabled(self, instance: User) -> bool:
-        return default_device(instance) is not None
+        return _cached_per_user("is_2fa_enabled", instance.id, lambda: default_device(instance) is not None)
 
     @tracer.start_as_current_span("user_serializer.has_sso_enforcement")
     def get_has_sso_enforcement(self, instance: User) -> bool:
+        return _cached_per_user("has_sso_enforcement", instance.id, lambda: self._compute_has_sso_enforcement(instance))
+
+    def _compute_has_sso_enforcement(self, instance: User) -> bool:
         organization = instance.current_organization
         if not organization:
             return False
@@ -392,6 +478,9 @@ class UserSerializer(serializers.ModelSerializer):
         if not request or request.user.id != instance.id or not instance.email:
             return []
 
+        return _cached_per_user("pending_invites", instance.id, lambda: self._compute_pending_invites(instance))
+
+    def _compute_pending_invites(self, instance: User) -> list[dict]:
         normalized_email = EmailNormalizer.normalize(instance.email)
         existing_org_ids = OrganizationMembership.objects.filter(user=instance).values_list(
             "organization_id", flat=True
