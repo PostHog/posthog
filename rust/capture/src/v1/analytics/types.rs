@@ -1,3 +1,4 @@
+use std::io;
 use std::ops::Not;
 
 use chrono::{DateTime, SecondsFormat, Utc};
@@ -5,6 +6,21 @@ use common_types::{CapturedEventHeaders, HasEventName};
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use uuid::Uuid;
+
+/// Safe adapter for writing serde_json output into a `String` buffer.
+/// `from_utf8` on serde_json output is essentially free (JSON mandates UTF-8).
+struct StringWriter<'a>(&'a mut String);
+
+impl io::Write for StringWriter<'_> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        let s = std::str::from_utf8(buf).map_err(io::Error::other)?;
+        self.0.push_str(s);
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
 
 use crate::v1::context::Context;
 use crate::v1::sinks::event::Event as SinkEvent;
@@ -31,7 +47,7 @@ pub struct Batch {
     pub created_at: String,
     #[serde(default)]
     pub historical_migration: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub capture_internal: Option<bool>,
     pub batch: Vec<Event>,
 }
@@ -54,9 +70,7 @@ pub struct Event {
     pub uuid: String,
     pub distinct_id: String,
     pub timestamp: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub window_id: Option<String>,
     pub options: Options,
     #[serde(default = "empty_raw_object")]
@@ -166,11 +180,6 @@ impl SinkEvent for WrappedEvent {
         // v0 parity: only drop partition key for main/overflow analytics.
         // DLQ, Historical, and Custom destinations always retain their key
         // even when person processing is disabled via event restrictions.
-        //
-        // TODO: when v1 adds overflow limiting, a separate signal
-        // (e.g. `drop_partition_key: bool`) is needed for the
-        // `Limited + !preserve_locality` case that drops key WITHOUT
-        // setting the person processing header.
         if self.force_disable_person_processing
             && matches!(
                 self.destination,
@@ -179,17 +188,19 @@ impl SinkEvent for WrappedEvent {
         {
             return;
         }
-        if self.event.options.cookieless_mode == Some(true) {
-            let ip = if ctx.capture_internal {
-                "127.0.0.1"
-            } else {
-                // client_ip.to_string() allocates; write! into the buffer avoids that
+        match (
+            self.event.options.cookieless_mode == Some(true),
+            ctx.capture_internal,
+        ) {
+            (true, true) => {
+                let _ = write!(buf, "{}:127.0.0.1", ctx.api_token);
+            }
+            (true, false) => {
                 let _ = write!(buf, "{}:{}", ctx.api_token, ctx.client_ip);
-                return;
-            };
-            let _ = write!(buf, "{}:{}", ctx.api_token, ip);
-        } else {
-            let _ = write!(buf, "{}:{}", ctx.api_token, self.event.distinct_id);
+            }
+            (false, _) => {
+                let _ = write!(buf, "{}:{}", ctx.api_token, self.event.distinct_id);
+            }
         }
     }
 
@@ -242,10 +253,7 @@ impl WrappedEvent {
                 $buf.push('"');
                 $buf.push_str($key);
                 $buf.push_str("\":");
-                // SAFETY: serde_json::to_writer only emits valid UTF-8 (JSON spec
-                // mandates UTF-8), so writing into String's backing Vec<u8> cannot
-                // produce invalid UTF-8.
-                serde_json::to_writer(unsafe { $buf.as_mut_vec() }, $val)
+                serde_json::to_writer(StringWriter(&mut $buf), $val)
                     .map_err(|e| anyhow::anyhow!("injecting {}: {e:#}", $key))?;
             }};
         }
@@ -279,6 +287,12 @@ impl WrappedEvent {
         let properties = if injection.is_empty() {
             self.event.properties.clone()
         } else {
+            if !raw.starts_with('{') {
+                return Err(anyhow::anyhow!(
+                    "properties must be a JSON object for injection, got: {:.32}",
+                    raw,
+                ));
+            }
             if raw.len() < 2 {
                 return Err(anyhow::anyhow!(
                     "properties too short ({} bytes) for JSON object",
@@ -286,7 +300,7 @@ impl WrappedEvent {
                 ));
             }
             let prefix = &raw[..raw.len() - 1];
-            let has_existing = raw.len() > 2;
+            let has_existing = !raw[1..].trim_start().starts_with('}');
 
             let mut buf = String::with_capacity(raw.len() + injection.len() + 2);
             buf.push_str(prefix);
@@ -1452,5 +1466,76 @@ mod tests {
         assert_eq!(data.properties["$browser"], "Safari");
         assert_eq!(data.properties["$os"], "macOS");
         assert_eq!(data.properties["$process_person_profile"], true);
+    }
+
+    // --- A3: property injection safety ---
+
+    #[test]
+    fn serialize_array_properties_rejected() {
+        let uuid = Uuid::new_v4();
+        let wrapped = WrappedEvent {
+            event: Event {
+                event: "$pageview".to_string(),
+                uuid: uuid.to_string(),
+                distinct_id: "user-42".to_string(),
+                timestamp: "2026-03-19T14:29:58.123Z".to_string(),
+                session_id: Some("sess-abc".to_string()),
+                window_id: None,
+                options: Options {
+                    cookieless_mode: None,
+                    disable_skew_adjustment: None,
+                    product_tour_id: None,
+                    process_person_profile: None,
+                },
+                properties: raw_obj("[1,2,3]"),
+            },
+            uuid,
+            adjusted_timestamp: Some(dt("2026-03-19T14:29:53.123Z")),
+            result: EventResult::Ok,
+            details: None,
+            destination: Destination::AnalyticsMain,
+            force_disable_person_processing: false,
+        };
+
+        let ctx = serialize_ctx();
+        let mut buf = String::new();
+        let err = wrapped.serialize_into(&ctx, &mut buf).unwrap_err();
+        assert!(
+            err.to_string().contains("must be a JSON object"),
+            "expected object guard, got: {err}"
+        );
+    }
+
+    #[test]
+    fn serialize_whitespace_padded_empty_object() {
+        let uuid = Uuid::new_v4();
+        let wrapped = WrappedEvent {
+            event: Event {
+                event: "$pageview".to_string(),
+                uuid: uuid.to_string(),
+                distinct_id: "user-42".to_string(),
+                timestamp: "2026-03-19T14:29:58.123Z".to_string(),
+                session_id: Some("sess-abc".to_string()),
+                window_id: None,
+                options: Options {
+                    cookieless_mode: None,
+                    disable_skew_adjustment: None,
+                    product_tour_id: None,
+                    process_person_profile: None,
+                },
+                properties: raw_obj("{   }"),
+            },
+            uuid,
+            adjusted_timestamp: Some(dt("2026-03-19T14:29:53.123Z")),
+            result: EventResult::Ok,
+            details: None,
+            destination: Destination::AnalyticsMain,
+            force_disable_person_processing: false,
+        };
+
+        let ctx = serialize_ctx();
+        let (_, data) = serialize_and_parse(&wrapped, &ctx);
+        assert_eq!(data.properties["$session_id"], "sess-abc");
+        assert_eq!(data.properties.len(), 1);
     }
 }
