@@ -8,6 +8,7 @@ import type { ChartScales, ResolvedSeries, ResolveValueFn } from '../core/types'
 export type ValueLabelsMode = 'per-segment' | 'stack-total'
 
 export interface ValueLabelsProps {
+    /** `seriesIndex` is `-1` for stack-total labels (no single source series). */
     valueFormatter?: (value: number, seriesIndex: number, dataIndex: number) => string
     minGap?: number
     /** Series with more than this many data points are skipped entirely to avoid
