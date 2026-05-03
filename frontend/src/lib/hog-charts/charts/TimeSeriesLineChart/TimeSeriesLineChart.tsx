@@ -8,44 +8,31 @@ import { buildGoalLineReferenceLines, type GoalLineConfig } from './utils/goal-l
 import { useXTickFormatter, useYTickFormatter, type XAxisConfig, type YAxisConfig } from './utils/use-axis-formatters'
 
 export interface ValueLabelsConfig {
-    /** When set, only series whose `key` is in this list get value labels.
-     *  Other series stay rendered on the chart but skip the labels overlay. */
     seriesKeys?: string[]
-    /** Override the label text formatter. Falls back to a `yAxis`-driven
-     *  formatter when omitted (or no formatter when `yAxis.format` is unset). */
     formatter?: (value: number) => string
 }
 
 export interface InProgressConfig {
-    /** Index from which the in-progress (dashed) tail begins. Series whose
-     *  `stroke.partial` is already set keep their explicit value. */
     fromIndex: number
 }
 
 export interface TimeSeriesLineChartConfig {
     xAxis?: XAxisConfig
     yAxis?: YAxisConfig
-    /** Mark the tail of every series as in-progress (dashed). */
     inProgress?: InProgressConfig
-    /** Render the {@link ValueLabels} overlay. `true` enables it with defaults;
-     *  passing an object configures filtering/formatting. */
     valueLabels?: boolean | ValueLabelsConfig
-    /** Render goal lines as horizontal {@link ReferenceLines} on the chart. */
     goalLines?: GoalLineConfig[]
 }
 
 export interface TimeSeriesLineChartProps<Meta = unknown> {
     series: Series<Meta>[]
-    /** Pre-formatted time labels. Length must match each series.data. */
     labels: string[]
     theme: ChartTheme
     config?: TimeSeriesLineChartConfig
     tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
     onPointClick?: (data: PointClickData<Meta>) => void
-    /** `data-attr` applied to the chart wrapper for product-level test selectors. */
     dataAttr?: string
     className?: string
-    /** Custom overlays composed alongside the built-in ones (rendered after them). */
     children?: React.ReactNode
 }
 
@@ -86,8 +73,6 @@ export function TimeSeriesLineChart<Meta = unknown>({
         )
     }, [series, inProgress?.fromIndex])
 
-    // Filter ValueLabels overlay via the per-series `fromValueLabels` flag — leaves
-    // everything else (rendering, hit-testing, tooltips) untouched.
     const transformedSeries = useMemo(() => {
         const seriesKeys = valueLabelsConfig?.seriesKeys
         if (!seriesKeys) {

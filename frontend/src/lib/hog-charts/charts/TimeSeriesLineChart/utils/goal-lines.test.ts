@@ -24,19 +24,23 @@ describe('goal-lines', () => {
             ).toBe(3)
         })
 
-        it('returns 0 when no series have non-zero values', () => {
-            expect(computeSeriesNonZeroMax([makeSeries([0, 0, NaN])])).toBe(0)
-            expect(computeSeriesNonZeroMax([])).toBe(0)
+        it.each([
+            ['only zeros/NaN', [makeSeries([0, 0, NaN])]],
+            ['empty input', []],
+        ])('returns 0 when %s', (_, input) => {
+            expect(computeSeriesNonZeroMax(input)).toBe(0)
         })
     })
 
     describe('buildGoalLineReferenceLines', () => {
         const series = [makeSeries([10, 20, 30])]
 
-        it('returns an empty array for nullish/empty input', () => {
-            expect(buildGoalLineReferenceLines(null, series)).toEqual([])
-            expect(buildGoalLineReferenceLines(undefined, series)).toEqual([])
-            expect(buildGoalLineReferenceLines([], series)).toEqual([])
+        it.each([
+            ['null', null],
+            ['undefined', undefined],
+            ['empty', []],
+        ] as const)('returns [] for %s input', (_, input) => {
+            expect(buildGoalLineReferenceLines(input, series)).toEqual([])
         })
 
         it('maps each goal to a horizontal "goal" ReferenceLine, defaulting label position to start', () => {

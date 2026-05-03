@@ -108,32 +108,13 @@ describe('TimeSeriesLineChart', () => {
         expect(props.config?.xTickFormatter).toBe(explicit)
     })
 
-    it('builds a y-axis tick formatter from yAxis.format', () => {
-        render(
-            <TimeSeriesLineChart
-                series={SERIES}
-                labels={LABELS}
-                theme={THEME}
-                config={{ yAxis: { format: 'percentage' } }}
-            />
-        )
+    it.each([
+        [{ format: 'percentage' as const }, 50, '50%'],
+        [{ prefix: '$', suffix: ' req' }, 42, '$42 req'],
+    ])('builds a y-axis tick formatter from yAxis %p', (yAxis, value, expected) => {
+        render(<TimeSeriesLineChart series={SERIES} labels={LABELS} theme={THEME} config={{ yAxis }} />)
         const props = lineChartSpy.mock.calls[0][0] as LineChartProps
-        const formatter = props.config?.yTickFormatter
-        expect(formatter).not.toBeUndefined()
-        expect(formatter?.(50)).toBe('50%')
-    })
-
-    it('builds a y-axis tick formatter from yAxis.prefix/suffix without format', () => {
-        render(
-            <TimeSeriesLineChart
-                series={SERIES}
-                labels={LABELS}
-                theme={THEME}
-                config={{ yAxis: { prefix: '$', suffix: ' req' } }}
-            />
-        )
-        const props = lineChartSpy.mock.calls[0][0] as LineChartProps
-        expect(props.config?.yTickFormatter?.(42)).toBe('$42 req')
+        expect(props.config?.yTickFormatter?.(value)).toBe(expected)
     })
 
     it('explicit yAxis.tickFormatter wins over yAxis.format', () => {
@@ -211,12 +192,17 @@ describe('TimeSeriesLineChart', () => {
     })
 
     describe('config.valueLabels', () => {
-        it('does not render ValueLabels when omitted or false', () => {
-            render(<TimeSeriesLineChart series={SERIES} labels={LABELS} theme={THEME} />)
-            expect(valueLabelsSpy).not.toHaveBeenCalled()
-
+        it.each([
+            ['omitted', undefined],
+            ['false', false as const],
+        ])('does not render ValueLabels when %s', (_, valueLabels) => {
             render(
-                <TimeSeriesLineChart series={SERIES} labels={LABELS} theme={THEME} config={{ valueLabels: false }} />
+                <TimeSeriesLineChart
+                    series={SERIES}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={valueLabels === undefined ? undefined : { valueLabels }}
+                />
             )
             expect(valueLabelsSpy).not.toHaveBeenCalled()
         })
@@ -287,11 +273,18 @@ describe('TimeSeriesLineChart', () => {
     })
 
     describe('config.goalLines', () => {
-        it('does not render ReferenceLines when goalLines is omitted or empty', () => {
-            render(<TimeSeriesLineChart series={SERIES} labels={LABELS} theme={THEME} />)
-            expect(referenceLinesSpy).not.toHaveBeenCalled()
-
-            render(<TimeSeriesLineChart series={SERIES} labels={LABELS} theme={THEME} config={{ goalLines: [] }} />)
+        it.each([
+            ['omitted', undefined],
+            ['empty', [] as never[]],
+        ])('does not render ReferenceLines when goalLines is %s', (_, goalLines) => {
+            render(
+                <TimeSeriesLineChart
+                    series={SERIES}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={goalLines === undefined ? undefined : { goalLines }}
+                />
+            )
             expect(referenceLinesSpy).not.toHaveBeenCalled()
         })
 
