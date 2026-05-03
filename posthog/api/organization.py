@@ -7,6 +7,7 @@ from django.shortcuts import get_object_or_404
 
 import posthoganalytics
 from drf_spectacular.utils import extend_schema, extend_schema_field
+from opentelemetry import trace
 from rest_framework import exceptions, permissions, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -80,6 +81,9 @@ class OrganizationPermissionsWithDelete(OrganizationAdminWritePermissions):
             OrganizationMembership.objects.get(user=cast(User, request.user), organization=organization).level
             >= min_level
         )
+
+
+tracer = trace.get_tracer(__name__)
 
 
 class OrganizationSerializer(
@@ -176,10 +180,12 @@ class OrganizationSerializer(
         organization, _, _ = Organization.objects.bootstrap(user, **validated_data)
         return organization
 
+    @tracer.start_as_current_span("organization_serializer.membership_level")
     def get_membership_level(self, organization: Organization) -> OrganizationMembership.Level | None:
         membership = self.user_permissions.organization_memberships.get(organization.pk)
         return OrganizationMembership.Level(membership.level) if membership is not None else None
 
+    @tracer.start_as_current_span("organization_serializer.teams")
     def get_teams(self, instance: Organization) -> list[dict[str, Any]]:
         # Support new access control system
         visible_teams = (
@@ -193,6 +199,7 @@ class OrganizationSerializer(
         )
         return TeamBasicSerializer(visible_teams, context=self.context, many=True).data  # type: ignore
 
+    @tracer.start_as_current_span("organization_serializer.projects")
     def get_projects(self, instance: Organization) -> list[dict[str, Any]]:
         visible_projects = instance.projects.filter(id__in=self.user_permissions.project_ids_visible_for_user)
         return ProjectBasicSerializer(visible_projects, context=self.context, many=True).data  # type: ignore
@@ -240,6 +247,7 @@ class OrganizationSerializer(
         return value
 
     @extend_schema_field(serializers.IntegerField())
+    @tracer.start_as_current_span("organization_serializer.member_count")
     def get_member_count(self, organization: Organization):
         return (
             OrganizationMembership.objects.exclude(user__email__endswith=INTERNAL_BOT_EMAIL_SUFFIX)
@@ -249,6 +257,10 @@ class OrganizationSerializer(
             .filter(organization=organization)
             .count()
         )
+
+    @tracer.start_as_current_span("organization_serializer.to_representation")
+    def to_representation(self, instance):
+        return super().to_representation(instance)
 
 
 @extend_schema(tags=["platform_features"])

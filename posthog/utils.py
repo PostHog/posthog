@@ -488,15 +488,17 @@ def get_context_for_template(
             user_permissions = UserPermissions(user=user, team=user.team)
             user_access_control = UserAccessControl(user=user, team=user.team)
             with tracer.start_as_current_span("template.rbac.effective"):
-                posthog_app_context["effective_resource_access_control"] = {
-                    resource: user_access_control.effective_access_level_for_resource(resource)
-                    for resource in ACCESS_CONTROL_RESOURCES
-                }
+                effective_access: dict[str, Any] = {}
+                for resource in ACCESS_CONTROL_RESOURCES:
+                    with tracer.start_as_current_span(f"template.rbac.effective.{resource}"):
+                        effective_access[resource] = user_access_control.effective_access_level_for_resource(resource)
+                posthog_app_context["effective_resource_access_control"] = effective_access
             with tracer.start_as_current_span("template.rbac.levels"):
-                posthog_app_context["resource_access_control"] = {
-                    resource: user_access_control.access_level_for_resource(resource)
-                    for resource in ACCESS_CONTROL_RESOURCES
-                }
+                resource_access: dict[str, Any] = {}
+                for resource in ACCESS_CONTROL_RESOURCES:
+                    with tracer.start_as_current_span(f"template.rbac.levels.{resource}"):
+                        resource_access[resource] = user_access_control.access_level_for_resource(resource)
+                posthog_app_context["resource_access_control"] = resource_access
 
             with tracer.start_as_current_span("template.user_serializer"):
                 user_serialized = UserSerializer(
