@@ -56,7 +56,7 @@ from posthog.utils import get_safe_cache, safe_cache_set
 
 from ee.models.explicit_team_membership import ExplicitTeamMembership
 from ee.models.rbac.access_control import AccessControl
-from ee.models.rbac.role import Role, RoleMembership
+from ee.models.rbac.role import RoleMembership
 
 
 class PremiumMultiorganizationPermission(permissions.BasePermission):
@@ -171,10 +171,10 @@ def _team_id_to_org_id(instance: Any) -> str | None:
 
 
 def _role_id_to_org_id(instance: Any) -> str | None:
-    role_id = getattr(instance, "role_id", None)
-    if role_id is None:
+    role = getattr(instance, "role", None)
+    if role is None:
         return None
-    organization_id = Role.objects.filter(id=role_id).values_list("organization_id", flat=True).first()
+    organization_id = getattr(role, "organization_id", None)
     return str(organization_id) if organization_id is not None else None
 
 
