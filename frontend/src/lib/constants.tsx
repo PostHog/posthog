@@ -357,6 +357,7 @@ export const FEATURE_FLAGS = {
     LOGS_SETTINGS_PII_SCRUB: 'logs-settings-pii-scrub', // owner: #team-logs
     LOGS_SETTINGS_RETENTION: 'logs-settings-retention', // owner: #team-logs
     LOGS_SPARKLINE_SERVICE_BREAKDOWN: 'logs-sparkline-service-breakdown', // owner: #team-logs
+    LOGS_SQL_VIEW: 'logs-sql-view', // owner: #team-logs
     LOGS_TABBED_VIEW: 'logs-tabbed-view', // owner: #team-logs
     MANAGED_VIEWSETS: 'managed-viewsets', // owner: @rafaeelaudibert #team-revenue-analytics
     MARKETING_ANALYTICS_DRILL_DOWN: 'marketing-analytics-drill-down', // owner: @jabahamondes  #team-web-analytics
