@@ -63,3 +63,4 @@ export { createXAxisTickCallback, parseDateForAxis } from './charts/TimeSeriesLi
 export type { TimeInterval } from './charts/TimeSeriesLineChart/utils/dates'
 export { buildYTickFormatter } from './charts/TimeSeriesLineChart/utils/y-formatters'
 export type { YAxisFormat, YFormatterConfig } from './charts/TimeSeriesLineChart/utils/y-formatters'
+export type { XAxisConfig, YAxisConfig } from './charts/TimeSeriesLineChart/utils/use-axis-formatters'

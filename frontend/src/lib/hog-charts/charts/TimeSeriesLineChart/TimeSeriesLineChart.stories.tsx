@@ -1,7 +1,7 @@
 import { Meta, StoryObj } from '@storybook/react'
 
 import { TimeSeriesLineChart } from 'lib/hog-charts'
-import type { Series, TimeInterval } from 'lib/hog-charts'
+import type { Series, TimeInterval, YAxisConfig } from 'lib/hog-charts'
 
 import { Stage, useReactiveTheme } from '../../story-helpers'
 
@@ -108,7 +108,7 @@ function DateAxisCell({ title, labels, series, interval, timezone }: DateAxisCel
 
 interface YFormatCellProps {
     title: string
-    config: NonNullable<Parameters<typeof TimeSeriesLineChart>[0]['config']>['yAxis']
+    config: YAxisConfig
     series: Series[]
 }
 
