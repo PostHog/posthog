@@ -1,5 +1,6 @@
 """Temporal activities for logs alerting."""
 
+import gc
 import time
 import asyncio
 import dataclasses
@@ -67,6 +68,7 @@ from products.logs.backend.temporal.metrics import (
     record_pending_alerts,
     record_scheduler_lag,
     record_semaphore_wait,
+    record_worker_memory_snapshot,
 )
 
 if TYPE_CHECKING:
@@ -81,6 +83,15 @@ def _safe_record(label: str, fn, *args, **kwargs) -> None:
         fn(*args, **kwargs)
     except Exception:
         logger.exception("Failed to record %s", label)
+
+
+def _post_cohort_memory_cleanup() -> None:
+    """gc.collect() then snapshot the post-GC live-object count. Called after each cohort."""
+    try:
+        gc.collect()
+    except Exception:
+        logger.exception("gc.collect failed in post-cohort cleanup")
+    _safe_record("worker_gc_objects gauge", record_worker_memory_snapshot)
 
 
 def _derive_breaches(
@@ -322,6 +333,8 @@ async def check_alerts_activity(input: CheckAlertsInput) -> CheckAlertsOutput:
                 # reflects that this cohort didn't advance state.
                 local_stats["errored"] += len(dispatched)
                 local_stats["checked"] += len(dispatched)
+                # Off-thread: gc.collect() is CPU-bound and would block the event loop.
+                await asyncio.to_thread(_post_cohort_memory_cleanup)
                 return local_stats
 
             # Phase 4 (serial): finalize stats + per-alert post-save metrics.
@@ -332,6 +345,7 @@ async def check_alerts_activity(input: CheckAlertsInput) -> CheckAlertsOutput:
                 # Alert's per-alert fallback save failed — count as errored.
                 local_stats["checked"] += 1
                 local_stats["errored"] += 1
+            await asyncio.to_thread(_post_cohort_memory_cleanup)
         _safe_record("semaphore_wait histogram", record_semaphore_wait, wait_ms)
         return local_stats
 
@@ -631,6 +645,7 @@ def _check_alerts_sync() -> CheckAlertsOutput:
             capture_exception(e, {"team_id": cohort.team_id, "phase": "bulk_save"})
             stats["errored"] += len(dispatched)
             stats["checked"] += len(dispatched)
+            _post_cohort_memory_cleanup()
             continue
 
         # Phase 4: finalize stats + per-alert post-save metrics.
@@ -640,6 +655,7 @@ def _check_alerts_sync() -> CheckAlertsOutput:
         for _ in failed:
             stats["checked"] += 1
             stats["errored"] += 1
+        _post_cohort_memory_cleanup()
 
     if stats["checked"] > 0:
         logger.info("Alert check cycle complete", **stats)

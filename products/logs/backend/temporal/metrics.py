@@ -1,11 +1,13 @@
 """Prometheus metrics and Temporal interceptor for logs alerting."""
 
+import gc
 import time
 import typing
 import datetime as dt
 
 from django.conf import settings
 
+from prometheus_client import Gauge
 from temporalio import activity, workflow
 from temporalio.common import MetricMeter
 from temporalio.worker import ActivityInboundInterceptor, ExecuteActivityInput, Interceptor
@@ -238,6 +240,32 @@ def increment_cohort_query_fallback(reason: CohortQueryFallbackReason) -> None:
         "Batched CH cohort query failed and fell back to per-alert queries",
     )
     counter.add(1)
+
+
+# `prometheus_client`'s default REGISTRY auto-registers `ProcessCollector` and
+# `GCCollector`, so the worker's /metrics endpoint already exposes
+# `process_resident_memory_bytes`, `process_virtual_memory_bytes`,
+# `process_open_fds`, and `python_gc_collections_total{generation}` on Linux pods.
+# This gauge is the one signal those built-ins don't cover: the count of objects
+# currently tracked by Python's GC, sampled post-collection. Diverging RSS while
+# this stays flat = native (CH driver, librdkafka) retention; both rising = Python
+# heap retention.
+WORKER_GC_OBJECTS = Gauge(
+    "logs_alerting_worker_gc_objects",
+    "Live Python objects tracked by the garbage collector, sampled per cohort post-gc.collect().",
+)
+
+
+def record_worker_memory_snapshot() -> None:
+    """Set `WORKER_GC_OBJECTS` to the current live-object count. Best-effort.
+
+    `gc.get_objects()` materialises a list (~13MB transient at 1.6M objects) but
+    `sum(gc.get_count())` is not a substitute — count1/count2 are *collection*
+    counters, not object counts, and post-`gc.collect()` they're all ~0. Caller
+    runs this in a worker thread (`asyncio.to_thread`) so the allocation is off
+    the event loop.
+    """
+    WORKER_GC_OBJECTS.set(len(gc.get_objects()))
 
 
 def record_scheduler_lag(lag_ms: int) -> None:
