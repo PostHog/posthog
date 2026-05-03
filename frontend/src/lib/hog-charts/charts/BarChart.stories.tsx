@@ -1,6 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import { BarChart } from 'lib/hog-charts'
+import { BarChart, ValueLabels } from 'lib/hog-charts'
 import type { BarChartConfig, Series } from 'lib/hog-charts'
 
 import { Stage, useReactiveTheme } from '../story-helpers'
@@ -27,6 +27,29 @@ export const StackedMixedSign: Story = {
         return (
             <Stage>
                 <BarChart series={series} labels={DAYS} config={config} theme={theme} />
+            </Stage>
+        )
+    },
+}
+
+/** Pins the regression that ValueLabels swaps placement axes when horizontal. */
+export const WithValueLabelsHorizontal: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        const series: Series[] = [
+            { key: 'desktop', label: 'Desktop', color: '', data: [40, 38, 44, 41, 45, 47, 46] },
+            { key: 'mobile', label: 'Mobile', color: '', data: [22, 25, 18, 24, 26, 28, 27] },
+        ]
+        const config: BarChartConfig = {
+            showGrid: true,
+            barLayout: 'grouped',
+            axisOrientation: 'horizontal',
+        }
+        return (
+            <Stage>
+                <BarChart series={series} labels={DAYS} config={config} theme={theme}>
+                    <ValueLabels />
+                </BarChart>
             </Stage>
         )
     },

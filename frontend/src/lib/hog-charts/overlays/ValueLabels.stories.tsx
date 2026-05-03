@@ -1,7 +1,7 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import { LineChart, ValueLabels } from 'lib/hog-charts'
-import type { LineChartConfig, Series } from 'lib/hog-charts'
+import { BarChart, LineChart, ValueLabels } from 'lib/hog-charts'
+import type { BarChartConfig, LineChartConfig, Series } from 'lib/hog-charts'
 
 import { Stage, useReactiveTheme } from '../story-helpers'
 
@@ -155,6 +155,36 @@ export const CrossSeriesOverlapRemoval: Story = {
         )
     },
 }
+
+const BAR_SERIES: Series[] = [
+    { key: 'desktop', label: 'Desktop', color: '', data: [40, 38, 44, 41, 45, 47, 46] },
+    { key: 'mobile', label: 'Mobile', color: '', data: [22, 25, 18, 24, 26, 28, 27] },
+    { key: 'tablet', label: 'Tablet', color: '', data: [10, 12, 9, 11, 13, 14, 12] },
+]
+
+function makeBarStory(config: BarChartConfig, mode?: 'per-segment' | 'stack-total'): Story {
+    return {
+        render: () => {
+            const theme = useReactiveTheme()
+            return (
+                <Stage>
+                    <BarChart series={BAR_SERIES} labels={LABELS} config={config} theme={theme}>
+                        <ValueLabels mode={mode} />
+                    </BarChart>
+                </Stage>
+            )
+        },
+    }
+}
+
+export const VerticalStackedBars = makeBarStory({ showGrid: true, barLayout: 'stacked' })
+export const VerticalStackedBarsTotal = makeBarStory({ showGrid: true, barLayout: 'stacked' }, 'stack-total')
+export const HorizontalStackedBars = makeBarStory({
+    showGrid: true,
+    barLayout: 'stacked',
+    axisOrientation: 'horizontal',
+})
+export const PercentStackBars = makeBarStory({ showGrid: true, barLayout: 'percent' })
 
 export const WithCustomFormatter: Story = {
     render: () => {
