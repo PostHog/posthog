@@ -71,6 +71,26 @@ def _period_ranges(
     ]
 
 
+def rolling_check_lookback_minutes(window_minutes: int, cadence_minutes: int, period_count: int) -> int:
+    """Total minutes of history covered by M cadence-stepped rolling windows."""
+    return window_minutes + (period_count - 1) * cadence_minutes
+
+
+def _rolling_check_ranges(
+    nca: dt.datetime,
+    window_minutes: int,
+    cadence_minutes: int,
+    period_count: int,
+) -> list[tuple[dt.datetime, dt.datetime]]:
+    """M cadence-stepped rolling windows ending at NCA, oldest-first."""
+    ranges: list[tuple[dt.datetime, dt.datetime]] = []
+    for k in range(period_count - 1, -1, -1):
+        end = nca - dt.timedelta(minutes=k * cadence_minutes)
+        start = end - dt.timedelta(minutes=window_minutes)
+        ranges.append((start, end))
+    return ranges
+
+
 def _timestamp_in_range(start: dt.datetime, end: dt.datetime) -> ast.Expr:
     # Compare raw `timestamp`, not `toStartOfMinute(timestamp)`: `date_from` can carry
     # sub-minute fractions from a DateTime64(6) checkpoint, and a minute-floor wrap
@@ -236,8 +256,22 @@ class AlertCheckQuery:
     def execute_periods(self, period_minutes: int, period_count: int) -> list[BucketedCount]:
         """Per-period counts anchored to `date_from`, oldest-first."""
         self._tag()
-
         ranges = _period_ranges(self.date_from, period_minutes, period_count)
+        return self._execute_count_per_range(ranges)
+
+    def execute_rolling_checks(
+        self,
+        nca: dt.datetime,
+        window_minutes: int,
+        cadence_minutes: int,
+        period_count: int,
+    ) -> list[BucketedCount]:
+        """Per-check counts for M cadence-stepped rolling windows ending at NCA, oldest-first."""
+        self._tag()
+        ranges = _rolling_check_ranges(nca, window_minutes, cadence_minutes, period_count)
+        return self._execute_count_per_range(ranges)
+
+    def _execute_count_per_range(self, ranges: list[tuple[dt.datetime, dt.datetime]]) -> list[BucketedCount]:
         select_columns: list[ast.Expr] = [
             ast.Alias(
                 alias=f"period_{i}",
@@ -252,7 +286,7 @@ class AlertCheckQuery:
             where=self.where_expr,
         )
         response = self._run_query(query)
-        row = response.results[0] if response.results else [0] * period_count
+        row = response.results[0] if response.results else [0] * len(ranges)
         return [BucketedCount(timestamp=start, count=count) for (start, _), count in zip(ranges, row)]
 
     def _run_query(self, query: ast.SelectQuery | ast.SelectSetQuery) -> HogQLQueryResponse:
@@ -395,10 +429,24 @@ class BatchedAlertCheckQuery:
         return BatchedBucketedResult(per_alert=per_alert, query_duration_ms=duration_ms)
 
     def execute_periods(self, period_minutes: int, period_count: int) -> BatchedBucketedResult:
-        """Per-alert per-period counts anchored to `date_from` (cohort version of `AlertCheckQuery.execute_periods`)."""
+        """Per-alert per-period counts anchored to `date_from`."""
         self._tag()
-
         ranges = _period_ranges(self.date_from, period_minutes, period_count)
+        return self._execute_count_per_range(ranges)
+
+    def execute_rolling_checks(
+        self,
+        nca: dt.datetime,
+        window_minutes: int,
+        cadence_minutes: int,
+        period_count: int,
+    ) -> BatchedBucketedResult:
+        """Per-alert per-check counts for M cadence-stepped rolling windows ending at NCA."""
+        self._tag()
+        ranges = _rolling_check_ranges(nca, window_minutes, cadence_minutes, period_count)
+        return self._execute_count_per_range(ranges)
+
+    def _execute_count_per_range(self, ranges: list[tuple[dt.datetime, dt.datetime]]) -> BatchedBucketedResult:
         select_columns: list[ast.Expr] = [
             ast.Alias(
                 alias=f"alert_{alert_i}_period_{period_i}",
