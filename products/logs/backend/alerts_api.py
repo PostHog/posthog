@@ -61,8 +61,9 @@ UNCAPPED_ALERT_TEAM_IDS: frozenset[int] = frozenset(
 MAX_SIMULATE_LOOKBACK_DAYS = 30
 MAX_SIMULATE_BUCKETS = 15_000
 STATE_TIMELINE_LOOKBACK_HOURS = 24
-# Mirrors LogsAlertConfiguration.check_interval_minutes' default — kept here so
-# the simulate endpoint evaluates at the same cadence production runs at.
+# Mirrors LogsAlertConfiguration.check_interval_minutes' default — used as the
+# simulate endpoint's default cadence so it matches production when callers
+# don't override it.
 DEFAULT_CHECK_INTERVAL_MINUTES = 5
 _SENTINEL: Final = object()
 _NOT_ANNOTATED: Final = object()
@@ -556,6 +557,12 @@ class LogsAlertSimulateRequestSerializer(serializers.Serializer):
     window_minutes = serializers.IntegerField(
         help_text="Window size in minutes — determines bucket interval.",
     )
+    check_interval_minutes = serializers.IntegerField(
+        default=DEFAULT_CHECK_INTERVAL_MINUTES,
+        min_value=1,
+        max_value=max(ALLOWED_WINDOW_MINUTES),
+        help_text="How often the alert is evaluated, in minutes.",
+    )
     evaluation_periods = serializers.IntegerField(
         default=1,
         min_value=1,
@@ -599,6 +606,8 @@ class LogsAlertSimulateRequestSerializer(serializers.Serializer):
     def validate(self, attrs: dict) -> dict:
         if attrs.get("datapoints_to_alarm", 1) > attrs.get("evaluation_periods", 1):
             raise ValidationError({"datapoints_to_alarm": "Cannot exceed evaluation_periods."})
+        if attrs["check_interval_minutes"] > attrs["window_minutes"]:
+            raise ValidationError({"check_interval_minutes": "Cannot exceed window_minutes."})
         return attrs
 
 
@@ -994,20 +1003,22 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             threshold_count=data["threshold_count"],
             threshold_operator=data["threshold_operator"],
             window_minutes=window_minutes,
+            check_interval_minutes=data["check_interval_minutes"],
         )
+        cadence_minutes = fake_alert.check_interval_minutes
 
         sparse_buckets: list[BucketedCount] = AlertCheckQuery(
             team=self.team,
             alert=fake_alert,
             date_from=date_from_dt,
             date_to=date_to_dt,
-        ).execute_bucketed(interval_minutes=DEFAULT_CHECK_INTERVAL_MINUTES, limit=MAX_SIMULATE_BUCKETS)
+        ).execute_bucketed(interval_minutes=cadence_minutes, limit=MAX_SIMULATE_BUCKETS)
 
-        cadence_buckets = _fill_empty_buckets(sparse_buckets, date_from_dt, date_to_dt, DEFAULT_CHECK_INTERVAL_MINUTES)
+        cadence_buckets = _fill_empty_buckets(sparse_buckets, date_from_dt, date_to_dt, cadence_minutes)
 
-        # ALLOWED_WINDOW_MINUTES is bounded below by DEFAULT_CHECK_INTERVAL_MINUTES,
+        # ALLOWED_WINDOW_MINUTES is bounded below by the configured cadence,
         # so integer division here is always >= 1.
-        buckets_per_window = window_minutes // DEFAULT_CHECK_INTERVAL_MINUTES
+        buckets_per_window = window_minutes // cadence_minutes
         counts = [b.count for b in cadence_buckets]
         rolling_counts: list[int] = []
         # Bucket i represents `[T_i, T_i + check_interval)`. The actual evaluator

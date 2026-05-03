@@ -39,12 +39,12 @@ from posthog.models.activity_logging.activity_log import (
     log_activity,
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
-from posthog.models.group_type_mapping import get_group_types_for_project
+from posthog.models.group_type_mapping import cached_group_types_for_project
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.product_intent.product_intent import (
     ProductIntent,
     ProductIntentSerializer,
-    enqueue_product_activation_calc_debounced,
+    calculate_product_activation,
 )
 from posthog.models.project import Project
 from posthog.models.team.setup_tasks import SetupTaskId
@@ -347,10 +347,10 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
         return self.user_permissions.team(team).effective_membership_level
 
     def get_has_group_types(self, project: Project) -> bool:
-        return bool(get_group_types_for_project(project.id))
+        return bool(cached_group_types_for_project(project))
 
     def get_group_types(self, project: Project) -> list[dict[str, Any]]:
-        return get_group_types_for_project(project.id)
+        return cached_group_types_for_project(project)
 
     def get_live_events_token(self, project: Project) -> Optional[str]:
         team = project.teams.get(pk=project.pk)
@@ -385,7 +385,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
     def get_product_intents(self, obj):
         project = obj
         team = project.passthrough_team
-        enqueue_product_activation_calc_debounced(team.id)
+        calculate_product_activation.delay(team.id, only_calc_if_days_since_last_checked=1)
         return ProductIntent.objects.filter(team=team).values(
             "product_type", "created_at", "onboarding_completed_at", "updated_at"
         )

@@ -315,6 +315,9 @@ export const LogsAlertsDestinationsDeleteCreateBody = /* @__PURE__ */ zod.object
  * Simulate a logs alert on historical data using the full state machine. Read-only — no alert check records are created.
  */
 
+export const logsAlertsSimulateCreateBodyCheckIntervalMinutesDefault = 5
+export const logsAlertsSimulateCreateBodyCheckIntervalMinutesMax = 60
+
 export const logsAlertsSimulateCreateBodyEvaluationPeriodsDefault = 1
 export const logsAlertsSimulateCreateBodyEvaluationPeriodsMax = 10
 
@@ -334,6 +337,12 @@ export const LogsAlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
             'Whether the alert fires when the count is above or below the threshold.\n\n* `above` - Above\n* `below` - Below'
         ),
     window_minutes: zod.number().describe('Window size in minutes — determines bucket interval.'),
+    check_interval_minutes: zod
+        .number()
+        .min(1)
+        .max(logsAlertsSimulateCreateBodyCheckIntervalMinutesMax)
+        .default(logsAlertsSimulateCreateBodyCheckIntervalMinutesDefault)
+        .describe('How often the alert is evaluated, in minutes.'),
     evaluation_periods: zod
         .number()
         .min(1)

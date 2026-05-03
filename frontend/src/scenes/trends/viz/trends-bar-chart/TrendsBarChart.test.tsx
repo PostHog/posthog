@@ -114,3 +114,100 @@ describe('TrendsBarChart (ActionsBar)', () => {
         expect(tooltip.row('Pageview')).toMatch(/%/)
     })
 })
+
+describe('TrendsBarChart (ActionsBarValue)', () => {
+    const aggregatedBar = (extra?: Parameters<typeof buildTrendsQuery>[0]): ReturnType<typeof buildTrendsQuery> =>
+        buildTrendsQuery({ trendsFilter: { display: ChartDisplayType.ActionsBarValue }, ...extra })
+
+    it('renders without crashing for a single event', async () => {
+        renderInsight({ query: aggregatedBar(), featureFlags: HOG_CHARTS_FLAG })
+
+        await waitFor(() => {
+            expect(screen.getByRole('img', { name: /chart with/i })).toBeInTheDocument()
+        })
+    })
+
+    it('emits one series per breakdown so each bar gets its own color', async () => {
+        renderInsight({
+            query: aggregatedBar({
+                series: [{ kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' }],
+                breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
+            }),
+            featureFlags: HOG_CHARTS_FLAG,
+        })
+
+        // Five hedgehog breakdowns → five sparse-stacked series sharing five bands.
+        await waitFor(() => {
+            expect(screen.getByRole('img', { name: /chart with 5 data series/i })).toBeInTheDocument()
+        })
+    })
+
+    it('opens the persons modal on click without resolving a day', async () => {
+        renderInsight({ query: aggregatedBar(), featureFlags: HOG_CHARTS_FLAG })
+
+        await chart.clickAtIndex(0)
+
+        await waitFor(() => {
+            expect(personsModal.get()).toBeInTheDocument()
+        })
+        // Aggregated mode has no DateDisplay in the title.
+        expect(personsModal.title()).not.toMatch(/Wednesday/)
+    })
+
+    it('fires context.onDataPointClick without a day argument', async () => {
+        // Per-band breakdown resolution is covered at the unit-handler level — the
+        // hog-charts hover/click helpers don't yet handle horizontal axis-orientation, so
+        // integration coverage stays at the single-bar level here.
+        const onDataPointClick = jest.fn()
+        renderInsight({
+            query: aggregatedBar(),
+            context: { onDataPointClick },
+            featureFlags: HOG_CHARTS_FLAG,
+        })
+
+        await chart.clickAtIndex(0)
+
+        await waitFor(() => {
+            expect(onDataPointClick).toHaveBeenCalledTimes(1)
+        })
+        const [seriesArg] = onDataPointClick.mock.calls[0]
+        expect(seriesArg.day).toBeUndefined()
+    })
+
+    it('renders InsightEmptyState when every aggregated_value is zero', async () => {
+        renderInsight({
+            query: aggregatedBar({
+                series: [{ kind: NodeKind.EventsNode, event: 'NoActivity', name: 'NoActivity' }],
+            }),
+            featureFlags: HOG_CHARTS_FLAG,
+        })
+
+        await waitFor(() => {
+            expect(screen.getByTestId('insight-empty-state')).toBeInTheDocument()
+        })
+    })
+})
+
+describe('TrendsBarChart gate', () => {
+    it.each([
+        { name: 'showValuesOnSeries', filter: { display: ChartDisplayType.ActionsBar, showValuesOnSeries: true } },
+        {
+            name: 'goalLines',
+            filter: {
+                display: ChartDisplayType.ActionsBar,
+                goalLines: [{ label: 'Target', value: 150, displayIfCrossed: true }],
+            },
+        },
+    ])('falls back to the legacy renderer when the insight needs $name', async ({ filter }) => {
+        renderInsight({
+            query: buildTrendsQuery({ trendsFilter: filter }),
+            featureFlags: HOG_CHARTS_FLAG,
+        })
+
+        await waitFor(() => {
+            // hog-charts BarChart sets data-attr="trend-bar-graph"; legacy ActionsLineGraph does not.
+            expect(screen.queryByTestId('trend-bar-graph')).not.toBeInTheDocument()
+            expect(screen.queryByTestId('trend-bar-value-graph')).not.toBeInTheDocument()
+        })
+    })
+})
