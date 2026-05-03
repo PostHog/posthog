@@ -1,19 +1,25 @@
 # Sourcemap debugging reference
 
-Use these commands from the app repo being debugged. Adjust `dist` to the build output directory for the framework.
+The "Package and config checks", "Local artifact checks", and "CLI and plugin logging" sections assume you have the
+app repo locally — adjust `dist` to the build output directory for the framework. The "Symbol set lookups via MCP",
+"Captured frame checks", and "Failure matrix" sections work with PostHog MCP access alone.
 
 ## Package and config checks
 
-Show relevant package versions:
+Show relevant package versions, using the package manager the repo actually uses:
 
 ```bash
+# pnpm
 pnpm list @posthog/rollup-plugin @posthog/webpack-plugin @posthog/nextjs-config @posthog/nuxt @posthog/cli vite rollup webpack next nuxt --depth 0
-```
 
-If the repo uses npm or yarn, use the matching command:
-
-```bash
+# npm
 npm ls @posthog/rollup-plugin @posthog/webpack-plugin @posthog/nextjs-config @posthog/nuxt @posthog/cli vite rollup webpack next nuxt --depth=0
+
+# yarn (classic)
+yarn list --pattern '@posthog/* vite rollup webpack next nuxt' --depth=0
+
+# bun
+bun pm ls | grep -E '@posthog/|^├── (vite|rollup|webpack|next|nuxt)@'
 ```
 
 Search for PostHog upload config:
@@ -38,7 +44,9 @@ List emitted JS and map files:
 find dist -type f \( -name '*.js' -o -name '*.mjs' -o -name '*.cjs' -o -name '*.map' \) -print
 ```
 
-Inspect local artifacts with the bundled helper:
+Inspect local artifacts with the bundled helper. This is the canonical check — it summarizes JS chunk-id markers,
+source map shape (`mappings_length`, `sources_length`, `sources_content_length`, `names_length`), and also reads
+PostHog symbol-data containers downloaded from the API:
 
 ```bash
 python3 scripts/inspect_sourcemaps.py dist/**/*.js dist/**/*.js.map
@@ -46,7 +54,8 @@ python3 scripts/inspect_sourcemaps.py dist/**/*.js dist/**/*.js.map
 
 Resolve `scripts/inspect_sourcemaps.py` relative to this skill directory.
 
-Quick `jq` summary for one source map:
+If the helper isn't accessible (CI runner without Python, etc.), a `jq` one-liner gives a coarse summary of one
+source map:
 
 ```bash
 jq '{
@@ -62,7 +71,7 @@ jq '{
 }' dist/assets/app.js.map
 ```
 
-Search for injected PostHog chunk IDs:
+For a quick sanity grep on whether chunk IDs landed in the JS:
 
 ```bash
 rg -n "chunkId=|_posthogChunkIds|sourceMappingURL" dist
@@ -88,7 +97,8 @@ RUST_LOG=posthog_cli=debug \
 posthog-cli sourcemap process --directory dist --release-name my-app --release-version 0.0.0
 ```
 
-For plugin-based builds, set `logLevel: "debug"` in the PostHog plugin config when available.
+For plugin-based builds, set `logLevel: "debug"` inside the same `posthog({ ... })` options object that holds
+`personalApiKey`/`projectId` in `vite.config.*` / `webpack.config.*` / framework wrapper.
 
 Useful log facts:
 
@@ -98,40 +108,29 @@ Useful log facts:
 - whether changed content was skipped because forced overwrite was not enabled.
 - whether a source map was missing, empty, or unparsable.
 
-## Symbol set API checks
+## Symbol set lookups via MCP
 
-The PostHog UI is usually enough: **Project settings > Error tracking > Symbol sets**. Use the API when you need a
-scriptable check or want to download the uploaded object.
+Prefer these MCP tools when available; they handle auth, project scoping, and pagination automatically:
 
-List a symbol set by chunk ID:
+- `posthog:error-tracking-symbol-sets-list` with `ref=<chunk_id>` to find the row for a frame.
+- `posthog:error-tracking-symbol-sets-retrieve` with the ID to inspect one row.
+- `posthog:error-tracking-symbol-sets-download-retrieve` to get a presigned URL pointing at the uploaded
+  symbol-data file. The URL expires after one hour. Download immediately; do not echo it back unless the user
+  explicitly asks.
 
-```bash
-curl -sS \
-  -H "Authorization: Bearer $POSTHOG_PERSONAL_API_KEY" \
-  "$POSTHOG_HOST/api/projects/$POSTHOG_PROJECT_ID/error_tracking/symbol_sets/?ref=$CHUNK_ID" \
-  | jq
-```
-
-Download uploaded symbol data:
-
-```bash
-curl -sS \
-  -H "Authorization: Bearer $POSTHOG_PERSONAL_API_KEY" \
-  "$POSTHOG_HOST/api/projects/$POSTHOG_PROJECT_ID/error_tracking/symbol_sets/$SYMBOL_SET_ID/download/" \
-  | jq -r .url
-```
-
-Inspect the downloaded file:
+After downloading, inspect with the helper:
 
 ```bash
 python3 scripts/inspect_sourcemaps.py symbolset.bin
 ```
 
-Symbol set fields to check:
+If MCP access is not available, the same data lives in **Project settings > Error tracking > Symbol sets** in the
+PostHog UI.
+
+Symbol set fields to check (fields the MCP tools and UI both expose):
 
 - `ref`: should equal the captured frame `chunk_id`.
-- `storage_ptr`: empty means there is no uploaded object.
-- `content_hash`: empty often means pending or incomplete upload.
+- `has_uploaded_file: false`: no uploaded object, upload did not finish.
 - `last_used`: updated when PostHog loads the symbol set, not when symbolication succeeds.
 - `failure_reason`: cached parse/load failure if present.
 - `release`: useful for grouping, but JavaScript frame lookup primarily needs the chunk ID.
@@ -156,7 +155,7 @@ line and column should point into the same JS file that was uploaded with the ma
 | --------------------------------------- | ----------------------------------------------------------------------- | --------------------------------------------------------------------- |
 | No `chunk_id` on frames                 | Chunk ID injection missing or SDK frame parser did not map the filename | Inspect deployed JS and raw frame filenames.                          |
 | Symbol set row missing                  | Upload went to another PostHog project/host or skipped this asset       | Compare plugin `projectId`, `host`, and chunk ID.                     |
-| Symbol set has no uploaded object       | Upload did not finish                                                   | Check build logs and API response.                                    |
+| `has_uploaded_file: false`              | Upload did not finish                                                   | Check build logs; compare `posthog-cli` output to the symbol set row. |
 | Local map has empty `mappings`          | Build chain emitted unusable source map                                 | Check bundler source map settings and plugins.                        |
 | Local map valid, uploaded map empty     | CLI/plugin processing bug or wrong file selected during upload          | Compare helper output before and after upload.                        |
 | Uploaded map valid, deployed JS differs | Deployment/CDN/post-build transform changed JS after upload             | Compare deployed JS bytes to local build output.                      |

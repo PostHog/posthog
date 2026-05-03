@@ -1,10 +1,11 @@
 ---
 name: diagnosing-sourcemap-symbolication
 description: >
-  Help users debug their own PostHog Error Tracking source map and symbol set setup from inside a JavaScript or
-  TypeScript app repo. Use when stack traces stay minified after source maps are uploaded, PostHog symbol sets show
-  last_used but frames are not readable, chunk IDs do not match, "Token not found" appears, uploaded maps look empty,
-  or Vite/Rollup/Webpack/Next/Nuxt sourcemap configuration needs troubleshooting.
+  Help users debug PostHog Error Tracking source map and symbol set setup. Works either from inside a JavaScript or
+  TypeScript app repo, or with PostHog MCP access alone when the repo is unavailable. Use when stack traces stay
+  minified after source maps are uploaded, PostHog symbol sets show last_used but frames are not readable, chunk IDs
+  do not match, "Token not found" appears, uploaded maps look empty, or Vite/Rollup/Webpack/Next/Nuxt sourcemap
+  configuration needs troubleshooting.
 ---
 
 # Diagnosing sourcemap symbolication
@@ -59,25 +60,56 @@ Look for:
 
 If local maps already have empty `mappings` or empty `sources`, fix the build config before debugging PostHog upload.
 
+### Step 2.5 - Smoking gun: empty `mappings`
+
+If `inspect_sourcemaps.py` reports `"empty_mappings": true` on a `.map` file (and `sources_length: 0`,
+`names_length: 0`), the bundler emitted a structurally valid but data-less source map. This is the single
+strongest signal that the bug is upstream of PostHog upload — the CLI faithfully uploads whatever is on disk.
+
+For Vite this almost always means `config.build.sourcemap` was unset and a Vite-internal plugin
+(`vite:css-post`, `vite:build-import-analysis`) skipped sourcemap generation during its `renderChunk` because it
+reads `config.build.sourcemap` directly rather than the Rollup output option. Check the build log for:
+
+```text
+[plugin vite:css-post] Sourcemap is likely to be incorrect: a plugin (vite:css-post) was used to transform files,
+but didn't generate a sourcemap for the transformation
+```
+
+Workaround: set `build.sourcemap: 'hidden'` (or `true`) in `vite.config.*`. Hidden maps still get uploaded but are
+not advertised via `sourceMappingURL` in the served JS.
+
+For other bundlers, the same class of bug shows up when a transform/plugin returns a sourcemap object with empty
+fields instead of `null`. Inspect the local artifact first, before suspecting upload or processing.
+
 ### Step 3 - Check symbol sets in PostHog
 
-Open **Project settings > Error tracking > Symbol sets** in PostHog. Find the symbol set whose `ref` matches the frame's
-`chunk_id`.
+Look up the symbol set whose `ref` matches the captured frame's `chunk_id`.
+
+If MCP access to the project is available, prefer the dedicated tools:
+
+- `posthog:error-tracking-symbol-sets-list` with `ref=<chunk_id>` returns the matching row.
+- `posthog:error-tracking-symbol-sets-retrieve` with the ID returns the same shape (and confirms permissions).
+- `posthog:error-tracking-symbol-sets-download-retrieve` returns a one-hour presigned URL pointing at the uploaded
+  symbol-data file. Download it immediately; do not echo the URL back unless the user explicitly asks.
+
+If MCP access is not available, the same data is in **Project settings > Error tracking > Symbol sets** in the
+PostHog UI.
 
 Interpret the row:
 
 - `ref` must match the captured frame `chunk_id`.
 - `last_used` updating means PostHog found and loaded that symbol set. It does not guarantee the frame resolved.
-- no uploaded file or missing content hash means the upload did not complete.
-- a cached failure reason means PostHog could not parse or load the uploaded symbol data.
+- `has_uploaded_file: false` means the upload did not complete.
+- A non-null `failure_reason` means PostHog could not parse or load the uploaded symbol data.
 
-If the UI offers a source map download, download it and inspect it with the helper:
+Once downloaded, inspect the file with the helper:
 
 ```bash
 python3 scripts/inspect_sourcemaps.py symbolset.bin
 ```
 
-The downloaded file may be a PostHog symbol-data container, not plain JSON; the helper handles both.
+The downloaded file is a PostHog symbol-data container (compressed, with embedded minified source plus source map),
+not plain JSON; the helper handles both.
 
 ### Step 4 - Compare local, uploaded, and served files
 
@@ -103,5 +135,5 @@ Common fixes:
 
 ## Reference
 
-For exact commands, API checks, and a failure matrix, read
+For exact commands, MCP tool usage, and a failure matrix, read
 [sourcemap-debugging.md](./references/sourcemap-debugging.md).

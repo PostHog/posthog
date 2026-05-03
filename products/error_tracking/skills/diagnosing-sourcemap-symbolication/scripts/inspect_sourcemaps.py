@@ -31,11 +31,15 @@ def read_u64(data: bytes, offset: int) -> tuple[int, int]:
 
 def decode_zstd(data: bytes) -> bytes:
     try:
+        import io
+
         import zstandard
     except ImportError as err:
         raise RuntimeError("zstandard is required to decode compressed v2 symbol data") from err
 
-    return zstandard.ZstdDecompressor().decompress(data)
+    # PostHog's Rust writer streams the frame and does not include a content-size in the
+    # header, so ZstdDecompressor().decompress(data) refuses it. Use the streaming reader.
+    return zstandard.ZstdDecompressor().stream_reader(io.BytesIO(data)).read()
 
 
 def parse_source_and_map_payload(payload: bytes) -> dict[str, Any]:
