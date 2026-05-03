@@ -3,7 +3,14 @@ import posthog from 'posthog-js'
 import { useCallback, useMemo, type ErrorInfo } from 'react'
 
 import { buildTheme } from 'lib/charts/utils/theme'
-import { createXAxisTickCallback, DEFAULT_Y_AXIS_ID, LineChart, ReferenceLines, ValueLabels } from 'lib/hog-charts'
+import {
+    buildYTickFormatter,
+    createXAxisTickCallback,
+    DEFAULT_Y_AXIS_ID,
+    LineChart,
+    ReferenceLines,
+    ValueLabels,
+} from 'lib/hog-charts'
 import type { LineChartConfig, PointClickData, Series, TooltipContext } from 'lib/hog-charts'
 import { formatPercentStackAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -23,7 +30,7 @@ import { handleTrendsChartClick } from '../handleTrendsChartClick'
 import { AnnotationsLayer } from './AnnotationsLayer'
 import { goalLinesToReferenceLines } from './goalLinesAdapter'
 import { TrendsAlertOverlays } from './TrendsAlertOverlays'
-import { buildTrendsYTickFormatter } from './trendsAxisFormat'
+import { trendsFilterToYFormatterConfig } from './trendsAxisFormat'
 import { buildTrendsChartConfig, buildTrendsSeries } from './trendsChartTransforms'
 import type { TrendsSeriesMeta } from './trendsSeriesMeta'
 import { TrendsTooltip } from './TrendsTooltip'
@@ -142,7 +149,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
     )
 
     const yTickFormatter = useMemo(
-        () => buildTrendsYTickFormatter(trendsFilter, isPercentStackView, baseCurrency),
+        () => buildYTickFormatter(trendsFilterToYFormatterConfig(trendsFilter, isPercentStackView, baseCurrency)),
         [trendsFilter, isPercentStackView, baseCurrency]
     )
 
