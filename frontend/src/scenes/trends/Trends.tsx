@@ -62,6 +62,15 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
         inSharedMode,
     }
 
+    // TrendsBarChart does not yet wire up showValuesOnSeries, goal lines, alert
+    // thresholds, or annotations — fall back to legacy when the insight needs them.
+    const canRouteThroughHogChartsBar =
+        featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_BAR] &&
+        !isLifecycle &&
+        !isStickiness &&
+        !trendsFilter?.showValuesOnSeries &&
+        !trendsFilter?.goalLines?.length
+
     const renderViz = (): JSX.Element | undefined => {
         if (
             !display ||
@@ -75,18 +84,7 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
             return <ActionsLineGraph {...commonProps} />
         }
         if (display === ChartDisplayType.ActionsBar || display === ChartDisplayType.ActionsUnstackedBar) {
-            // TrendsBarChart does not yet wire up showValuesOnSeries, goal lines, alert
-            // threshold overlays, or annotations. Narrow the gate around the two flags we
-            // can detect from trendsFilter so insights that opt into them stay on the
-            // legacy renderer; alerts and annotations are tracked as follow-ups.
-            const needsLegacyTrendsOverlay = trendsFilter?.showValuesOnSeries || !!trendsFilter?.goalLines?.length
-            if (
-                featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_BAR] &&
-                display === ChartDisplayType.ActionsBar &&
-                !isLifecycle &&
-                !isStickiness &&
-                !needsLegacyTrendsOverlay
-            ) {
+            if (canRouteThroughHogChartsBar && display === ChartDisplayType.ActionsBar) {
                 return <TrendsBarChart context={context} />
             }
             return <ActionsLineGraph {...commonProps} />
@@ -109,14 +107,7 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
             return <ActionsPie {...commonProps} />
         }
         if (display === ChartDisplayType.ActionsBarValue) {
-            // Same deferred-overlay gate as ActionsBar above — kept inline for symmetry.
-            const needsLegacyTrendsOverlay = trendsFilter?.showValuesOnSeries || !!trendsFilter?.goalLines?.length
-            if (
-                featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_BAR] &&
-                !isLifecycle &&
-                !isStickiness &&
-                !needsLegacyTrendsOverlay
-            ) {
+            if (canRouteThroughHogChartsBar) {
                 return <TrendsBarChart context={context} />
             }
             return <ActionsHorizontalBar {...commonProps} />
