@@ -76,5 +76,13 @@ export function useYTickFormatter(yAxis: YAxisConfig | undefined): ((value: numb
             minDecimalPlaces: yAxis.minDecimalPlaces,
             currency: yAxis.currency,
         })
-    }, [yAxis])
+    }, [
+        yAxis?.tickFormatter,
+        yAxis?.format,
+        yAxis?.prefix,
+        yAxis?.suffix,
+        yAxis?.decimalPlaces,
+        yAxis?.minDecimalPlaces,
+        yAxis?.currency,
+    ])
 }
