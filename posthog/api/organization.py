@@ -328,7 +328,7 @@ class OrganizationSerializer(
         visible_teams = visible_teams.filter(id__in=self.user_permissions.team_ids_visible_for_user).select_related(
             "project"
         )
-        return list(TeamBasicSerializer(visible_teams, context=self.context, many=True).data)  # type: ignore
+        return list(TeamBasicSerializer(visible_teams, context=self.context, many=True).data)
 
     @tracer.start_as_current_span("organization_serializer.projects")
     def get_projects(self, instance: Organization) -> list[dict[str, Any]]:
@@ -341,7 +341,7 @@ class OrganizationSerializer(
 
     def _fetch_visible_projects(self, instance: Organization) -> list[dict[str, Any]]:
         visible_projects = instance.projects.filter(id__in=self.user_permissions.project_ids_visible_for_user)
-        return list(ProjectBasicSerializer(visible_projects, context=self.context, many=True).data)  # type: ignore
+        return list(ProjectBasicSerializer(visible_projects, context=self.context, many=True).data)
 
     @extend_schema_field(serializers.DictField(child=serializers.CharField()))
     def get_metadata(self, instance: Organization) -> dict[str, Union[str, int, object]]:
