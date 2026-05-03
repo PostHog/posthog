@@ -195,7 +195,6 @@ async def poll_for_turn(
                 task_run,
                 refreshed_status=refreshed.status,
                 error_message=refreshed.error_message,
-                skip_lines=skip_lines,
                 printed_lines=printed_lines,
                 verbose=verbose,
                 output_fn=output_fn,
@@ -208,7 +207,6 @@ async def _drain_final_log(
     *,
     refreshed_status: str,
     error_message: str | None = None,
-    skip_lines: int,
     printed_lines: int,
     verbose: bool,
     output_fn: OutputFn,
@@ -216,10 +214,15 @@ async def _drain_final_log(
     """
     Drain one last S3 read after the TaskRun hit a terminal status. S3 may not have flushed the final agent_message
     before Temporal marked the run done, so we retry the read. Raises RuntimeError if no message is recoverable.
+
+    Re-parses the full log (skip_lines=0) rather than only the slice past the poll cursor: when the agent emits
+    text mid-run but never reaches `end_turn` (e.g. killed by inactivity timeout mid-tool-call), the agent_message
+    landed in an earlier poll slice and the cursor has advanced past it. Without the full re-read we'd discard a
+    perfectly recoverable run summary. The whole-log walk is idempotent and only runs once at terminal status.
     """
     final_message = None
     final_log = None
-    final_lines = skip_lines
+    final_lines = 0
     final_empty_end_turn = False
     for attempt in range(MAX_CONSECUTIVE_STORAGE_ERRORS):
         try:
@@ -227,7 +230,7 @@ async def _drain_final_log(
                 # thread_sensitive=False because of pure I/O (object_storage.read + JSON parsing) and doesn't touch the ORM
                 _check_logs,
                 thread_sensitive=False,
-            )(task_run, skip_lines)
+            )(task_run, skip_lines=0)
             break
         except ObjectStorageError:
             logger.warning(
