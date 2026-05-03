@@ -17,6 +17,7 @@ import {
 import { AppMetricsSparkline } from 'lib/components/AppMetrics/AppMetricsSparkline'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -326,10 +327,20 @@ function ManagedSchemaTable({
                               title: 'Rows synced (7d)',
                               key: 'rows_synced_sparkline',
                               render: function RenderSparkline(_: unknown, schema: ExternalDataSourceSchema) {
+                                  const lastSyncedAt = schema.last_synced_at ? dayjs(schema.last_synced_at) : null
+                                  const syncedWithin7Days =
+                                      lastSyncedAt?.isSameOrAfter(dayjs().subtract(7, 'day')) ?? false
+
+                                  if (!syncedWithin7Days) {
+                                      return <span className="text-muted">—</span>
+                                  }
+
                                   return (
                                       <AppMetricsSparkline
                                           logicKey={`dwh-schema-sparkline-${schema.id}`}
                                           loadOnChanges
+                                          successMetricNames={['rows_synced']}
+                                          metricLabels={{ rows_synced: 'Rows synced' }}
                                           forceParams={{
                                               appSource: DATA_WAREHOUSE_APP_SOURCE,
                                               appSourceId: sourceId,

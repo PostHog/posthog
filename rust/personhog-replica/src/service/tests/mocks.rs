@@ -268,6 +268,77 @@ impl storage::GroupStorage for FailingStorage {
     ) -> storage::StorageResult<Vec<storage::GroupTypeMapping>> {
         Err(self.error.clone())
     }
+
+    async fn create_group(
+        &self,
+        _team_id: i64,
+        _group_type_index: i32,
+        _group_key: &str,
+        _group_properties: &serde_json::Value,
+        _created_at: chrono::DateTime<chrono::Utc>,
+    ) -> storage::StorageResult<storage::Group> {
+        Err(self.error.clone())
+    }
+
+    async fn update_group(
+        &self,
+        _team_id: i64,
+        _group_type_index: i32,
+        _group_key: &str,
+        _update_mask: &[String],
+        _group_properties: Option<&serde_json::Value>,
+        _properties_last_updated_at: Option<&serde_json::Value>,
+        _properties_last_operation: Option<&serde_json::Value>,
+        _created_at: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> storage::StorageResult<Option<storage::Group>> {
+        Err(self.error.clone())
+    }
+
+    async fn delete_groups_batch_for_team(
+        &self,
+        _team_id: i64,
+        _batch_size: i64,
+    ) -> storage::StorageResult<i64> {
+        Err(self.error.clone())
+    }
+
+    async fn get_group_type_mapping_by_dashboard_id(
+        &self,
+        _team_id: i64,
+        _dashboard_id: i64,
+        _consistency: storage::postgres::ConsistencyLevel,
+    ) -> storage::StorageResult<Option<storage::GroupTypeMapping>> {
+        Err(self.error.clone())
+    }
+
+    async fn update_group_type_mapping(
+        &self,
+        _project_id: i64,
+        _group_type_index: i32,
+        _update_mask: &[String],
+        _name_singular: Option<&str>,
+        _name_plural: Option<&str>,
+        _detail_dashboard_id: Option<i64>,
+        _default_columns: Option<&[String]>,
+    ) -> storage::StorageResult<Option<storage::GroupTypeMapping>> {
+        Err(self.error.clone())
+    }
+
+    async fn delete_group_type_mapping(
+        &self,
+        _project_id: i64,
+        _group_type_index: i32,
+    ) -> storage::StorageResult<bool> {
+        Err(self.error.clone())
+    }
+
+    async fn delete_group_type_mappings_batch_for_team(
+        &self,
+        _team_id: i64,
+        _batch_size: i64,
+    ) -> storage::StorageResult<i64> {
+        Err(self.error.clone())
+    }
 }
 
 /// Mock storage that returns successful empty results for testing consistency validation
@@ -519,6 +590,87 @@ impl storage::GroupStorage for SuccessStorage {
         _consistency: storage::postgres::ConsistencyLevel,
     ) -> storage::StorageResult<Vec<storage::GroupTypeMapping>> {
         Ok(Vec::new())
+    }
+
+    async fn create_group(
+        &self,
+        team_id: i64,
+        group_type_index: i32,
+        group_key: &str,
+        group_properties: &serde_json::Value,
+        created_at: chrono::DateTime<chrono::Utc>,
+    ) -> storage::StorageResult<storage::Group> {
+        Ok(storage::Group {
+            id: 1,
+            team_id,
+            group_type_index,
+            group_key: group_key.to_string(),
+            group_properties: group_properties.clone(),
+            created_at,
+            properties_last_updated_at: None,
+            properties_last_operation: None,
+            version: 0,
+        })
+    }
+
+    async fn update_group(
+        &self,
+        _team_id: i64,
+        _group_type_index: i32,
+        _group_key: &str,
+        _update_mask: &[String],
+        _group_properties: Option<&serde_json::Value>,
+        _properties_last_updated_at: Option<&serde_json::Value>,
+        _properties_last_operation: Option<&serde_json::Value>,
+        _created_at: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> storage::StorageResult<Option<storage::Group>> {
+        Ok(None)
+    }
+
+    async fn delete_groups_batch_for_team(
+        &self,
+        _team_id: i64,
+        _batch_size: i64,
+    ) -> storage::StorageResult<i64> {
+        Ok(0)
+    }
+
+    async fn get_group_type_mapping_by_dashboard_id(
+        &self,
+        _team_id: i64,
+        _dashboard_id: i64,
+        _consistency: storage::postgres::ConsistencyLevel,
+    ) -> storage::StorageResult<Option<storage::GroupTypeMapping>> {
+        Ok(None)
+    }
+
+    async fn update_group_type_mapping(
+        &self,
+        _project_id: i64,
+        _group_type_index: i32,
+        _update_mask: &[String],
+        _name_singular: Option<&str>,
+        _name_plural: Option<&str>,
+        _detail_dashboard_id: Option<i64>,
+        _default_columns: Option<&[String]>,
+    ) -> storage::StorageResult<Option<storage::GroupTypeMapping>> {
+        Ok(None)
+    }
+
+    async fn delete_group_type_mapping(
+        &self,
+        _project_id: i64,
+        _group_type_index: i32,
+    ) -> storage::StorageResult<bool> {
+        Ok(false)
+    }
+
+    async fn delete_group_type_mappings_batch_for_team(
+        &self,
+        _team_id: i64,
+        _batch_size: i64,
+    ) -> storage::StorageResult<i64> {
+        Ok(0)
     }
 }
 
@@ -803,5 +955,87 @@ impl storage::GroupStorage for ConsistencyTrackingStorage {
     ) -> storage::StorageResult<Vec<storage::GroupTypeMapping>> {
         self.record(consistency);
         Ok(Vec::new())
+    }
+
+    async fn create_group(
+        &self,
+        team_id: i64,
+        group_type_index: i32,
+        group_key: &str,
+        group_properties: &serde_json::Value,
+        created_at: chrono::DateTime<chrono::Utc>,
+    ) -> storage::StorageResult<storage::Group> {
+        Ok(storage::Group {
+            id: 1,
+            team_id,
+            group_type_index,
+            group_key: group_key.to_string(),
+            group_properties: group_properties.clone(),
+            created_at,
+            properties_last_updated_at: None,
+            properties_last_operation: None,
+            version: 0,
+        })
+    }
+
+    async fn update_group(
+        &self,
+        _team_id: i64,
+        _group_type_index: i32,
+        _group_key: &str,
+        _update_mask: &[String],
+        _group_properties: Option<&serde_json::Value>,
+        _properties_last_updated_at: Option<&serde_json::Value>,
+        _properties_last_operation: Option<&serde_json::Value>,
+        _created_at: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> storage::StorageResult<Option<storage::Group>> {
+        Ok(None)
+    }
+
+    async fn delete_groups_batch_for_team(
+        &self,
+        _team_id: i64,
+        _batch_size: i64,
+    ) -> storage::StorageResult<i64> {
+        Ok(0)
+    }
+
+    async fn get_group_type_mapping_by_dashboard_id(
+        &self,
+        _team_id: i64,
+        _dashboard_id: i64,
+        consistency: storage::postgres::ConsistencyLevel,
+    ) -> storage::StorageResult<Option<storage::GroupTypeMapping>> {
+        self.record(consistency);
+        Ok(None)
+    }
+
+    async fn update_group_type_mapping(
+        &self,
+        _project_id: i64,
+        _group_type_index: i32,
+        _update_mask: &[String],
+        _name_singular: Option<&str>,
+        _name_plural: Option<&str>,
+        _detail_dashboard_id: Option<i64>,
+        _default_columns: Option<&[String]>,
+    ) -> storage::StorageResult<Option<storage::GroupTypeMapping>> {
+        Ok(None)
+    }
+
+    async fn delete_group_type_mapping(
+        &self,
+        _project_id: i64,
+        _group_type_index: i32,
+    ) -> storage::StorageResult<bool> {
+        Ok(false)
+    }
+
+    async fn delete_group_type_mappings_batch_for_team(
+        &self,
+        _team_id: i64,
+        _batch_size: i64,
+    ) -> storage::StorageResult<i64> {
+        Ok(0)
     }
 }

@@ -9,6 +9,7 @@ from freezegun import freeze_time
 from posthog.test.base import BaseTest
 from unittest.mock import call, patch
 
+from django.core.cache import cache
 from django.core.handlers.wsgi import WSGIRequest
 from django.http import HttpRequest
 from django.test import TestCase
@@ -309,6 +310,10 @@ class TestRelativeDateParse(TestCase):
 
 
 class TestDefaultEventName(BaseTest):
+    def setUp(self):
+        super().setUp()
+        cache.clear()
+
     def test_no_events_returns_pageview_default(self):
         # When team has no events at all, default to $pageview (most common for new teams)
         self.assertEqual(get_default_event_name(self.team), "$pageview")
@@ -361,6 +366,90 @@ class TestDefaultEventName(BaseTest):
         if create_screen:
             EventDefinition.objects.create(name="$screen", team=self.team)
         self.assertEqual(get_default_event_name(self.team), expected)
+
+    def test_negative_result_is_not_cached(self):
+        # Empty teams may simply not have ingested events yet — caching the
+        # negative would block them from ever updating to the positive answer.
+        with self.assertNumQueries(2):
+            get_default_event_info(self.team)
+        with self.assertNumQueries(2):
+            get_default_event_info(self.team)
+
+    def test_positive_result_is_cached(self):
+        EventDefinition.objects.create(name="$pageview", team=self.team)
+        with self.assertNumQueries(1):
+            get_default_event_info(self.team)
+        with self.assertNumQueries(0):
+            get_default_event_info(self.team)
+
+    @parameterized.expand(
+        [
+            ("only_pageview", True, False, 30 * 60),
+            ("only_screen", False, True, 30 * 60),
+            ("both", True, True, 24 * 60 * 60),
+        ]
+    )
+    def test_cache_ttl_depends_on_completeness(
+        self, _name: str, create_pageview: bool, create_screen: bool, expected_ttl: int
+    ):
+        from posthog.utils import _default_event_info_cache_key
+
+        if create_pageview:
+            EventDefinition.objects.create(name="$pageview", team=self.team)
+        if create_screen:
+            EventDefinition.objects.create(name="$screen", team=self.team)
+
+        with patch("posthog.utils.safe_cache_set") as mock_set:
+            get_default_event_info(self.team)
+
+        mock_set.assert_called_once()
+        args, kwargs = mock_set.call_args
+        assert args[0] == _default_event_info_cache_key(self.team.id)
+        assert kwargs["timeout"] == expected_ttl
+
+    def test_cache_invalidated_when_default_event_definition_deleted(self):
+        ed = EventDefinition.objects.create(name="$pageview", team=self.team)
+        # warm the cache
+        assert get_default_event_info(self.team)["has_pageview"] is True
+        with self.assertNumQueries(0):
+            assert get_default_event_info(self.team)["has_pageview"] is True
+
+        ed.delete()
+        # cache should now be cold and reflect the new ground truth
+        assert get_default_event_info(self.team)["has_pageview"] is False
+
+    def test_cache_invalidated_when_default_event_definition_renamed_away(self):
+        ed = EventDefinition.objects.create(name="$pageview", team=self.team)
+        assert get_default_event_info(self.team)["has_pageview"] is True
+
+        ed.name = "pageview_legacy"
+        ed.save()
+        # rename of the cached default event must bust the cache
+        assert get_default_event_info(self.team)["has_pageview"] is False
+
+    def test_cache_invalidated_when_default_event_definition_renamed_in(self):
+        ed = EventDefinition.objects.create(name="legacy_event", team=self.team)
+        assert get_default_event_info(self.team)["has_pageview"] is False
+
+        ed.name = "$pageview"
+        ed.save()
+        # renaming an event into one of the defaults must bust the cache
+        assert get_default_event_info(self.team)["has_pageview"] is True
+
+    def test_cache_not_invalidated_when_unrelated_event_definition_changed(self):
+        EventDefinition.objects.create(name="$pageview", team=self.team)
+        EventDefinition.objects.create(name="$screen", team=self.team)
+        # warm the both-present cache
+        assert get_default_event_info(self.team) == {
+            "default_event_name": "$pageview",
+            "has_pageview": True,
+            "has_screen": True,
+        }
+
+        # creating an unrelated event definition should NOT bust the cache
+        EventDefinition.objects.create(name="custom_event", team=self.team)
+        with self.assertNumQueries(0):
+            get_default_event_info(self.team)
 
 
 class TestLoadDataFromRequest(TestCase):

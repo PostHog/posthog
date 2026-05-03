@@ -2237,6 +2237,7 @@ dependencies = [
 name = "common-s3"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "async-trait",
  "aws-config",
  "aws-sdk-s3",
@@ -6706,6 +6707,7 @@ dependencies = [
  "common-alloc",
  "dashmap 6.1.0",
  "envconfig",
+ "futures",
  "k8s-awareness",
  "kube",
  "lifecycle",

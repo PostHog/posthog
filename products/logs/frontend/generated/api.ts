@@ -21,14 +21,21 @@ import type {
     LogsAttributesRetrieveParams,
     LogsExportCreate201,
     LogsHasLogsRetrieve200,
+    LogsSamplingRuleApi,
+    LogsSamplingRuleReorderApi,
+    LogsSamplingRuleSimulateResponseApi,
+    LogsSamplingRulesListParams,
+    LogsSamplingRulesReorderCreateParams,
     LogsValuesRetrieveParams,
     LogsViewApi,
     LogsViewsListParams,
     PaginatedLogsAlertConfigurationListApi,
     PaginatedLogsAlertEventListApi,
+    PaginatedLogsSamplingRuleListApi,
     PaginatedLogsViewListApi,
     PaginatedPluginLogEntryListApi,
     PatchedLogsAlertConfigurationApi,
+    PatchedLogsSamplingRuleApi,
     PatchedLogsViewApi,
     PluginConfigsLogsListParams,
     _LogsAttributesResponseApi,
@@ -522,6 +529,166 @@ export const logsQueryCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(_logsQueryRequestApi),
+    })
+}
+
+export const getLogsSamplingRulesListUrl = (projectId: string, params?: LogsSamplingRulesListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/logs/sampling_rules/?${stringifiedParams}`
+        : `/api/projects/${projectId}/logs/sampling_rules/`
+}
+
+export const logsSamplingRulesList = async (
+    projectId: string,
+    params?: LogsSamplingRulesListParams,
+    options?: RequestInit
+): Promise<PaginatedLogsSamplingRuleListApi> => {
+    return apiMutator<PaginatedLogsSamplingRuleListApi>(getLogsSamplingRulesListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getLogsSamplingRulesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/sampling_rules/`
+}
+
+export const logsSamplingRulesCreate = async (
+    projectId: string,
+    logsSamplingRuleApi: NonReadonly<LogsSamplingRuleApi>,
+    options?: RequestInit
+): Promise<LogsSamplingRuleApi> => {
+    return apiMutator<LogsSamplingRuleApi>(getLogsSamplingRulesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(logsSamplingRuleApi),
+    })
+}
+
+export const getLogsSamplingRulesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/logs/sampling_rules/${id}/`
+}
+
+export const logsSamplingRulesRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<LogsSamplingRuleApi> => {
+    return apiMutator<LogsSamplingRuleApi>(getLogsSamplingRulesRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getLogsSamplingRulesUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/logs/sampling_rules/${id}/`
+}
+
+export const logsSamplingRulesUpdate = async (
+    projectId: string,
+    id: string,
+    logsSamplingRuleApi: NonReadonly<LogsSamplingRuleApi>,
+    options?: RequestInit
+): Promise<LogsSamplingRuleApi> => {
+    return apiMutator<LogsSamplingRuleApi>(getLogsSamplingRulesUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(logsSamplingRuleApi),
+    })
+}
+
+export const getLogsSamplingRulesPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/logs/sampling_rules/${id}/`
+}
+
+export const logsSamplingRulesPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedLogsSamplingRuleApi: NonReadonly<PatchedLogsSamplingRuleApi>,
+    options?: RequestInit
+): Promise<LogsSamplingRuleApi> => {
+    return apiMutator<LogsSamplingRuleApi>(getLogsSamplingRulesPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedLogsSamplingRuleApi),
+    })
+}
+
+export const getLogsSamplingRulesDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/logs/sampling_rules/${id}/`
+}
+
+export const logsSamplingRulesDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getLogsSamplingRulesDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+/**
+ * Dry-run estimate for how much volume this rule would remove (placeholder response until CH-backed simulation is wired).
+ */
+export const getLogsSamplingRulesSimulateCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/logs/sampling_rules/${id}/simulate/`
+}
+
+export const logsSamplingRulesSimulateCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<LogsSamplingRuleSimulateResponseApi> => {
+    return apiMutator<LogsSamplingRuleSimulateResponseApi>(getLogsSamplingRulesSimulateCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+/**
+ * Atomically reassign priorities so the given ID order maps to ascending priorities (0..n-1).
+ */
+export const getLogsSamplingRulesReorderCreateUrl = (
+    projectId: string,
+    params?: LogsSamplingRulesReorderCreateParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/logs/sampling_rules/reorder/?${stringifiedParams}`
+        : `/api/projects/${projectId}/logs/sampling_rules/reorder/`
+}
+
+export const logsSamplingRulesReorderCreate = async (
+    projectId: string,
+    logsSamplingRuleReorderApi: LogsSamplingRuleReorderApi,
+    params?: LogsSamplingRulesReorderCreateParams,
+    options?: RequestInit
+): Promise<PaginatedLogsSamplingRuleListApi> => {
+    return apiMutator<PaginatedLogsSamplingRuleListApi>(getLogsSamplingRulesReorderCreateUrl(projectId, params), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(logsSamplingRuleReorderApi),
     })
 }
 

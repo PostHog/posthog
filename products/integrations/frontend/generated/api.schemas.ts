@@ -153,7 +153,8 @@ export interface RoleLookupResponseApi {
 }
 
 /**
- * * `azure-blob` - Azure Blob
+ * * `apns` - Apple Push
+ * `azure-blob` - Azure Blob
  * `bing-ads` - Bing Ads
  * `clickup` - Clickup
  * `customerio-app` - Customerio App
@@ -190,6 +191,7 @@ export interface RoleLookupResponseApi {
 export type IntegrationKindEnumApi = (typeof IntegrationKindEnumApi)[keyof typeof IntegrationKindEnumApi]
 
 export const IntegrationKindEnumApi = {
+    Apns: 'apns',
     AzureBlob: 'azure-blob',
     BingAds: 'bing-ads',
     Clickup: 'clickup',
@@ -245,6 +247,31 @@ export interface PaginatedIntegrationConfigListApi {
     /** @nullable */
     previous?: string | null
     results: IntegrationConfigApi[]
+}
+
+export interface SlackChannelApi {
+    /** Slack channel ID (e.g. C0123ABC) — pass to cdp-functions inputs.channel. */
+    id: string
+    /** Slack channel name without the leading '#'. */
+    name: string
+    /** True if the channel is private. */
+    is_private: boolean
+    /** True if the PostHog Slack app is a member of the channel and can post to it. */
+    is_member: boolean
+    /** True if the channel is shared with another Slack workspace. */
+    is_ext_shared: boolean
+    /** True if the channel is private and the PostHog Slack app cannot access it. */
+    is_private_without_access: boolean
+}
+
+export interface SlackChannelsResponseApi {
+    /** Slack channels visible to the PostHog Slack app. */
+    channels: SlackChannelApi[]
+    /**
+     * ISO 8601 timestamp of the last full Slack API refresh (only set on full lists, not single-channel lookups).
+     * @nullable
+     */
+    lastRefreshedAt?: string | null
 }
 
 /**
@@ -303,6 +330,8 @@ export interface UserGitHubAccountApi {
 }
 
 export interface UserGitHubIntegrationItemApi {
+    /** PostHog UserIntegration row id. */
+    id: string
     /** Integration kind; always `github` for this API. */
     kind: string
     /** GitHub App installation id. */
@@ -347,7 +376,7 @@ export interface UserGitHubLinkStartRequestApi {
 export interface UserGitHubLinkStartResponseApi {
     /** URL to open in the browser to install or authorize the GitHub App for this user. */
     install_url: string
-    /** oauth_authorize when using user OAuth against an existing team installation; app_install for the GitHub App installation UI. */
+    /** OAuth or install flow used for this GitHub connection. */
     connect_flow: string
 }
 
@@ -446,6 +475,29 @@ export type UsersIntegrationsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type UsersIntegrationsGithubBranchesRetrieveParams = {
+    /**
+     * Maximum number of branches to return
+     * @minimum 1
+     * @maximum 1000
+     */
+    limit?: number
+    /**
+     * Number of branches to skip
+     * @minimum 0
+     */
+    offset?: number
+    /**
+     * Repository in owner/repo format
+     * @minLength 1
+     */
+    repo: string
+    /**
+     * Optional case-insensitive branch name search query.
+     */
+    search?: string
 }
 
 export type UsersIntegrationsGithubReposRetrieveParams = {
