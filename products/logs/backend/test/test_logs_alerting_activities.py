@@ -673,6 +673,92 @@ class TestRunCohortQueryFallback(unittest.TestCase):
             assert prefetched.buckets is not None and prefetched.buckets[0].count == i
             assert prefetched.query_duration_ms == 42
 
+    @patch("products.logs.backend.temporal.activities.MAX_COHORT_CHUNK_SIZE", 2)
+    @patch("products.logs.backend.temporal.activities._run_batched_query")
+    def test_large_cohort_splits_into_chunks(self, mock_batched):
+        # 5 alerts at chunk size 2 → 3 batched calls (2, 2, 1) and one merged result.
+        from products.logs.backend.alert_check_query import BatchedBucketedResult
+        from products.logs.backend.temporal.activities import _run_cohort_query
+
+        cohort = self._make_cohort(5)
+
+        def make_result(sub_cohort):
+            return BatchedBucketedResult(
+                per_alert={
+                    str(a.id): [
+                        BucketedCount(timestamp=datetime(2025, 1, 1, tzinfo=UTC), count=int(a.id.split("-")[1]))
+                    ]
+                    for a in sub_cohort.alerts
+                },
+                query_duration_ms=1,
+            )
+
+        mock_batched.side_effect = make_result
+
+        result = _run_cohort_query(cohort)
+
+        # Each chunk is one batched call; cohort splits into ceil(5/2)=3 chunks.
+        # Sort because chunks may execute concurrently — call order on the mock is nondeterministic.
+        assert mock_batched.call_count == 3
+        chunk_sizes = sorted(len(call.args[0].alerts) for call in mock_batched.call_args_list)
+        assert chunk_sizes == [1, 2, 2]
+
+        # All 5 alerts present in the merged result with counts matching their index.
+        for i in range(5):
+            prefetched = result.per_alert[f"alert-{i}"]
+            assert prefetched.error is None
+            assert prefetched.buckets is not None and prefetched.buckets[0].count == i
+
+    @patch("products.logs.backend.temporal.activities.increment_cohort_query_fallback")
+    @patch("products.logs.backend.temporal.activities.classify_alert_error")
+    @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
+    @patch("products.logs.backend.temporal.activities.MAX_COHORT_CHUNK_SIZE", 2)
+    @patch("products.logs.backend.temporal.activities._run_batched_query")
+    def test_chunk_failure_isolated_from_other_chunks(
+        self, mock_batched, mock_alert_check_query_cls, mock_classify, _mock_fallback_counter
+    ):
+        # First chunk succeeds; second chunk's batched query fails non-transient → only that
+        # chunk's alerts hit the per-alert fallback. Third chunk succeeds again.
+        from products.logs.backend.alert_check_query import BatchedBucketedResult
+        from products.logs.backend.temporal.activities import _run_cohort_query
+
+        cohort = self._make_cohort(5)
+        mock_classify.return_value = MagicMock(is_transient=False, code="query_performance")
+
+        good_result = BatchedBucketedResult(
+            per_alert={"will be replaced": [BucketedCount(timestamp=datetime(2025, 1, 1, tzinfo=UTC), count=99)]},
+            query_duration_ms=1,
+        )
+
+        def batched_side_effect(sub_cohort):
+            ids = [a.id for a in sub_cohort.alerts]
+            if "alert-2" in ids:
+                raise RuntimeError("chunk 2 batched failure")
+            return BatchedBucketedResult(
+                per_alert={str(a.id): good_result.per_alert["will be replaced"] for a in sub_cohort.alerts},
+                query_duration_ms=1,
+            )
+
+        mock_batched.side_effect = batched_side_effect
+
+        # Per-alert fallback returns synthetic buckets so we can tell it ran.
+        def make_query_instance(*, team, alert, **_kwargs):
+            instance = MagicMock()
+            instance.execute_rolling_checks.return_value = [
+                BucketedCount(timestamp=datetime(2025, 1, 1, tzinfo=UTC), count=7)
+            ]
+            return instance
+
+        mock_alert_check_query_cls.side_effect = make_query_instance
+
+        result = _run_cohort_query(cohort)
+
+        # Chunks 0 and 2 returned batched results; chunk 1 hit per-alert fallback.
+        expected_counts = {"alert-0": 99, "alert-1": 99, "alert-2": 7, "alert-3": 7, "alert-4": 99}
+        for alert_id, expected in expected_counts.items():
+            prefetched = result.per_alert[alert_id]
+            assert prefetched.buckets is not None and prefetched.buckets[0].count == expected
+
 
 class TestRunCohortQueryFallbackEndToEnd(ClickhouseTestMixin, APIBaseTest):
     """CH-backed integration test for the per-alert fallback path."""
