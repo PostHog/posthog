@@ -10,10 +10,10 @@ Show relevant package versions, using the package manager the repo actually uses
 
 ```bash
 # pnpm
-pnpm list @posthog/rollup-plugin @posthog/webpack-plugin @posthog/nextjs-config @posthog/nuxt @posthog/cli vite rollup webpack next nuxt --depth 0
+pnpm list @posthog/rollup-plugin @posthog/webpack-plugin @posthog/nextjs-config @posthog/nuxt @posthog/cli vite rollup webpack next nuxt --depth 8
 
 # npm
-npm ls @posthog/rollup-plugin @posthog/webpack-plugin @posthog/nextjs-config @posthog/nuxt @posthog/cli vite rollup webpack next nuxt --depth=0
+npm ls @posthog/rollup-plugin @posthog/webpack-plugin @posthog/nextjs-config @posthog/nuxt @posthog/cli vite rollup webpack next nuxt
 
 # yarn (classic)
 yarn list --pattern '@posthog/* vite rollup webpack next nuxt' --depth=0
@@ -21,6 +21,8 @@ yarn list --pattern '@posthog/* vite rollup webpack next nuxt' --depth=0
 # bun
 bun pm ls | grep -E '@posthog/|^├── (vite|rollup|webpack|next|nuxt)@'
 ```
+
+Use non-zero depth because `@posthog/cli` and Rollup are often transitive dependencies of the build plugin/framework.
 
 Search for PostHog upload config:
 
@@ -49,10 +51,11 @@ source map shape (`mappings_length`, `sources_length`, `sources_content_length`,
 PostHog symbol-data containers downloaded from the API:
 
 ```bash
-python3 scripts/inspect_sourcemaps.py dist/**/*.js dist/**/*.js.map
+python3 <skill_dir>/scripts/inspect_sourcemaps.py dist
 ```
 
-Resolve `scripts/inspect_sourcemaps.py` relative to this skill directory.
+Resolve `scripts/inspect_sourcemaps.py` relative to this skill directory. It accepts files, directories, and glob
+patterns.
 
 If the helper isn't accessible (CI runner without Python, etc.), a `jq` one-liner gives a coarse summary of one
 source map:
@@ -121,8 +124,11 @@ Prefer these MCP tools when available; they handle auth, project scoping, and pa
 After downloading, inspect with the helper:
 
 ```bash
-python3 scripts/inspect_sourcemaps.py symbolset.bin
+python3 <skill_dir>/scripts/inspect_sourcemaps.py symbolset.bin
 ```
+
+If the downloaded symbol-data file is compressed and the helper reports a missing `zstandard` module, install
+`zstandard` in the active Python environment and rerun.
 
 If MCP access is not available, the same data lives in **Project settings > Error tracking > Symbol sets** in the
 PostHog UI.

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import glob
 import json
 import re
 import struct
@@ -15,6 +16,8 @@ MAGIC = b"posthog_error_tracking"
 DATA_TYPE_SOURCE_AND_MAP = 2
 COMPRESSION_NONE = 0
 COMPRESSION_ZSTD = 1
+JAVASCRIPT_SUFFIXES = {".js", ".mjs", ".cjs"}
+MAX_INLINE_VALUE_LENGTH = 240
 
 CHUNK_ID_RE = re.compile(r"chunkId=([^\s]+)")
 SOURCE_MAPPING_URL_RE = re.compile(r"sourceMappingURL=([^\s]+)")
@@ -107,6 +110,7 @@ def summarize_sourcemap_text(text: str) -> dict[str, Any]:
     sources = source_map.get("sources")
     sources_content = source_map.get("sourcesContent")
     names = source_map.get("names")
+    debug_id = source_map.get("debug_id") or source_map.get("debugId")
 
     return {
         "kind": "sourcemap",
@@ -114,7 +118,8 @@ def summarize_sourcemap_text(text: str) -> dict[str, Any]:
         "bytes": len(text.encode("utf-8")),
         "version": source_map.get("version"),
         "file": source_map.get("file"),
-        "chunk_id": source_map.get("chunk_id") or source_map.get("chunkId"),
+        "chunk_id": source_map.get("chunk_id") or source_map.get("chunkId") or debug_id,
+        "debug_id": debug_id,
         "source_root": source_map.get("sourceRoot"),
         "mappings_length": len(mappings) if isinstance(mappings, str) else None,
         "sources_length": len(sources) if isinstance(sources, list) else None,
@@ -123,6 +128,12 @@ def summarize_sourcemap_text(text: str) -> dict[str, Any]:
         "first_sources": sources[:5] if isinstance(sources, list) else None,
         "empty_mappings": mappings == "",
     }
+
+
+def truncate(value: str, limit: int = MAX_INLINE_VALUE_LENGTH) -> str:
+    if len(value) <= limit:
+        return value
+    return value[: limit - 3] + "..."
 
 
 def summarize_js_text(text: str) -> dict[str, Any]:
@@ -134,7 +145,7 @@ def summarize_js_text(text: str) -> dict[str, Any]:
         "chunk_ids": chunk_ids[:10],
         "chunk_id_count": len(chunk_ids),
         "has_posthog_chunk_id_map": bool(POSTHOG_CHUNK_IDS_RE.search(text)),
-        "source_mapping_urls": source_mapping_urls[:10],
+        "source_mapping_urls": [truncate(url) for url in source_mapping_urls[:10]],
         "source_mapping_url_count": len(source_mapping_urls),
     }
 
@@ -188,6 +199,7 @@ def run_self_test() -> int:
         {
             "version": 3,
             "file": "app.js",
+            "debugId": "debug_123",
             "sources": ["src/app.ts"],
             "sourcesContent": ['console.log("hello");'],
             "names": ["console"],
@@ -206,9 +218,26 @@ def print_json(value: dict[str, Any]) -> None:
     print(json.dumps(value, sort_keys=True))
 
 
+def is_interesting_path(path: Path) -> bool:
+    return path.suffix == ".map" or path.suffix in JAVASCRIPT_SUFFIXES
+
+
+def expand_input_path(path: Path) -> list[Path]:
+    path_string = str(path)
+    if glob.has_magic(path_string):
+        matches = [Path(match) for match in glob.glob(path_string, recursive=True)]
+        expanded = sorted(match for match in matches if match.is_file() and is_interesting_path(match))
+        return expanded or [path]
+
+    if path.is_dir():
+        return sorted(child for child in path.rglob("*") if child.is_file() and is_interesting_path(child))
+
+    return [path]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("paths", nargs="*", type=Path, help="JS, .map, or PostHog symbol-data files")
+    parser.add_argument("paths", nargs="*", type=Path, help="JS, .map, PostHog symbol-data files, dirs, or globs")
     parser.add_argument("--pretty", action="store_true", help="Pretty-print JSON output")
     parser.add_argument("--self-test", action="store_true", help="Run an in-memory smoke test")
     args = parser.parse_args()
@@ -220,7 +249,8 @@ def main() -> int:
         parser.error("provide at least one path, or use --self-test")
 
     exit_code = 0
-    for path in args.paths:
+    paths = [expanded for path in args.paths for expanded in expand_input_path(path)]
+    for path in paths:
         try:
             summaries = inspect_path(path)
         except Exception as err:

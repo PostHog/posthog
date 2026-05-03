@@ -45,10 +45,11 @@ Run the same production build that uploads maps. Use the repo's package manager 
 Then inspect the generated files:
 
 ```bash
-python3 scripts/inspect_sourcemaps.py dist/**/*.js dist/**/*.js.map
+python3 <skill_dir>/scripts/inspect_sourcemaps.py dist
 ```
 
-Resolve `scripts/inspect_sourcemaps.py` relative to this skill directory.
+Resolve `scripts/inspect_sourcemaps.py` relative to this skill directory. The helper accepts individual JS/map files,
+PostHog symbol-data files, directories, and glob patterns.
 
 Look for:
 
@@ -66,9 +67,10 @@ If `inspect_sourcemaps.py` reports `"empty_mappings": true` on a `.map` file (an
 `names_length: 0`), the bundler emitted a structurally valid but data-less source map. This is the single
 strongest signal that the bug is upstream of PostHog upload — the CLI faithfully uploads whatever is on disk.
 
-For Vite this almost always means `config.build.sourcemap` was unset and a Vite-internal plugin
-(`vite:css-post`, `vite:build-import-analysis`) skipped sourcemap generation during its `renderChunk` because it
-reads `config.build.sourcemap` directly rather than the Rollup output option. Check the build log for:
+For Vite/Rollup this can happen when `config.build.sourcemap` was unset and a Vite-internal plugin
+(`vite:css-post`, `vite:build-import-analysis`) skipped sourcemap generation during `renderChunk` because it reads
+`config.build.sourcemap` directly rather than the Rollup output option. This is reproducible in Vite 7/Rollup builds
+with CSS/IIFE/import-analysis paths. Check the build log for:
 
 ```text
 [plugin vite:css-post] Sourcemap is likely to be incorrect: a plugin (vite:css-post) was used to transform files,
@@ -105,11 +107,12 @@ Interpret the row:
 Once downloaded, inspect the file with the helper:
 
 ```bash
-python3 scripts/inspect_sourcemaps.py symbolset.bin
+python3 <skill_dir>/scripts/inspect_sourcemaps.py symbolset.bin
 ```
 
 The downloaded file is a PostHog symbol-data container (compressed, with embedded minified source plus source map),
-not plain JSON; the helper handles both.
+not plain JSON; the helper handles both. For compressed v2 containers, install Python `zstandard` in the active
+environment if the helper reports it missing.
 
 ### Step 4 - Compare local, uploaded, and served files
 
