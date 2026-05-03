@@ -1461,6 +1461,16 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             const source = values.connectors?.find((s) => s?.name?.toLowerCase?.() === kind)
             const manualSource = values.manualConnectors?.find((s) => s?.type?.toLowerCase() === kind)
 
+            // Bail on noise URL changes (e.g. child components writing pagination/filter params).
+            // Without this, any URL push past step 1 would re-trigger setStep(2) and yank the
+            // user back to credentials.
+            if (manualSource && values.manualLinkingProvider === manualSource.type) {
+                return
+            }
+            if (source && values.selectedConnector?.name === source.name) {
+                return
+            }
+
             if (manualSource) {
                 actions.toggleManualLinkFormVisible(true)
                 actions.setManualLinkingProvider(manualSource.type)
