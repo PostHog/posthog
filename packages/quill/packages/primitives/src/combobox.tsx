@@ -135,7 +135,13 @@ function ComboboxContent({
 }
 
 function ComboboxList({ className, ...props }: ComboboxPrimitive.List.Props): React.ReactElement {
-    return <ComboboxPrimitive.List data-slot="combobox-list" className={cn('quill-combobox__list', className)} {...props} />
+    return (
+        <ComboboxPrimitive.List
+            data-slot="combobox-list"
+            className={cn('quill-combobox__list scroll-mask-y-4 scroll-py-4', className)}
+            {...props}
+        />
+    )
 }
 
 function ComboboxItem({

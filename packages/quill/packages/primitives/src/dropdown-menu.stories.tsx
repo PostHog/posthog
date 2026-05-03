@@ -322,3 +322,35 @@ export const SelectAllWithHook: Story = {
         )
     },
 } satisfies Story
+
+const TIMEZONES = [
+    'Pacific/Midway', 'Pacific/Honolulu', 'America/Anchorage', 'America/Los_Angeles',
+    'America/Denver', 'America/Phoenix', 'America/Chicago', 'America/Mexico_City',
+    'America/New_York', 'America/Toronto', 'America/Halifax', 'America/Sao_Paulo',
+    'Atlantic/Azores', 'Europe/London', 'Europe/Dublin', 'Europe/Lisbon',
+    'Europe/Paris', 'Europe/Berlin', 'Europe/Madrid', 'Europe/Rome',
+    'Europe/Athens', 'Europe/Helsinki', 'Africa/Cairo', 'Europe/Moscow',
+    'Asia/Dubai', 'Asia/Karachi', 'Asia/Kolkata', 'Asia/Bangkok',
+    'Asia/Singapore', 'Asia/Hong_Kong', 'Asia/Shanghai', 'Asia/Tokyo',
+    'Asia/Seoul', 'Australia/Perth', 'Australia/Sydney', 'Pacific/Auckland',
+] as const
+
+export const Overflow: Story = {
+    render: () => {
+        const [open, setOpen] = useState(true)
+        return (
+            <DropdownMenu open={open} onOpenChange={setOpen}>
+                <DropdownMenuTrigger render={<Button variant="outline" size="sm" />}>
+                    Pick a timezone
+                </DropdownMenuTrigger>
+                <DropdownMenuContent className="w-auto min-w-56">
+                    <DropdownMenuGroup>
+                        {TIMEZONES.map((tz) => (
+                            <DropdownMenuItem key={tz}>{tz}</DropdownMenuItem>
+                        ))}
+                    </DropdownMenuGroup>
+                </DropdownMenuContent>
+            </DropdownMenu>
+        )
+    },
+} satisfies Story

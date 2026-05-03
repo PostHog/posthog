@@ -28,6 +28,7 @@ function DropdownMenuContent({
     sideOffset = 4,
     className,
     anchor,
+    children,
     ...props
 }: MenuPrimitive.Popup.Props &
     Pick<MenuPrimitive.Positioner.Props, 'align' | 'alignOffset' | 'side' | 'sideOffset' | 'anchor'>): React.ReactElement {
@@ -50,7 +51,11 @@ function DropdownMenuContent({
                         className
                     )}
                     {...props}
-                />
+                >
+                    <div className="quill-menu__scroller scroll-mask-y-4 scroll-py-4">
+                        {children}
+                    </div>
+                </MenuPrimitive.Popup>
             </MenuPrimitive.Positioner>
         </MenuPrimitive.Portal>
     )

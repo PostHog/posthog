@@ -72,7 +72,7 @@ function CommandInput({
 }
 
 function CommandList({ className, ...props }: React.ComponentProps<typeof CommandPrimitive.List>): React.ReactElement {
-    return <CommandPrimitive.List data-slot="command-list" className={cn('quill-command__list', className)} {...props} />
+    return <CommandPrimitive.List data-slot="command-list" className={cn('quill-command__list scroll-mask-y-4 scroll-py-4', className)} {...props} />
 }
 
 function CommandEmpty({

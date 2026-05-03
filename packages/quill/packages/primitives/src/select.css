@@ -147,11 +147,11 @@
 
     .quill-select__scroll-button {
         top: 0;
+        left: 50%;
         z-index: 10;
-        width: 100%;
-        padding-block: 0.25rem;
-        cursor: default;
         background-color: var(--card);
+        border-radius: 9999px;
+        transform: translateX(-50%);
     }
 
     .quill-select__scroll-button svg:not([class*='size-']) {
@@ -161,7 +161,11 @@
 
     .quill-select__scroll-button--down {
         top: auto;
-        bottom: 0;
+        bottom: var(--spacing);
+    }
+
+    .quill-select__scroll-button--up {
+        top: var(--spacing);
     }
 
     @media (prefers-reduced-motion: reduce) {

@@ -95,3 +95,36 @@ export const WithCheckboxAndRadio: Story = {
         )
     },
 } satisfies Story
+
+const TIMEZONES = [
+    'Pacific/Midway', 'Pacific/Honolulu', 'America/Anchorage', 'America/Los_Angeles',
+    'America/Denver', 'America/Phoenix', 'America/Chicago', 'America/Mexico_City',
+    'America/New_York', 'America/Toronto', 'America/Halifax', 'America/Sao_Paulo',
+    'Atlantic/Azores', 'Europe/London', 'Europe/Dublin', 'Europe/Lisbon',
+    'Europe/Paris', 'Europe/Berlin', 'Europe/Madrid', 'Europe/Rome',
+    'Europe/Athens', 'Europe/Helsinki', 'Africa/Cairo', 'Europe/Moscow',
+    'Asia/Dubai', 'Asia/Karachi', 'Asia/Kolkata', 'Asia/Bangkok',
+    'Asia/Singapore', 'Asia/Hong_Kong', 'Asia/Shanghai', 'Asia/Tokyo',
+    'Asia/Seoul', 'Australia/Perth', 'Australia/Sydney', 'Pacific/Auckland',
+] as const
+
+export const Overflow: Story = {
+    render: () => (
+        <Menubar>
+            <MenubarMenu>
+                <MenubarTrigger>Timezone</MenubarTrigger>
+                <MenubarContent className="min-w-56">
+                    {TIMEZONES.map((tz) => (
+                        <MenubarItem key={tz}>{tz}</MenubarItem>
+                    ))}
+                </MenubarContent>
+            </MenubarMenu>
+            <MenubarMenu>
+                <MenubarTrigger>Help</MenubarTrigger>
+                <MenubarContent>
+                    <MenubarItem>About</MenubarItem>
+                </MenubarContent>
+            </MenubarMenu>
+        </Menubar>
+    ),
+} satisfies Story
