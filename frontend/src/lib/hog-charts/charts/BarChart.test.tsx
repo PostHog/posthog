@@ -114,9 +114,6 @@ describe('BarChart', () => {
         expect(container.querySelector('canvas')).not.toBeNull()
     })
 
-    // buildStackData stacks each yAxisId independently, so each axis has its own topmost
-    // visible series. Cap rounding must follow that per-axis structure — otherwise the
-    // topmost layer on one axis renders flat while the other gets the rounded cap.
     it('rounds the cap of the topmost visible series per yAxisId (multi-axis stacked)', () => {
         const series: Series[] = [
             { key: 'left-1', label: 'L1', data: [10, 20, 30], yAxisId: 'left' },
@@ -135,10 +132,8 @@ describe('BarChart', () => {
         const hasRoundedCap = (bars: BarRect[] | undefined): boolean =>
             !!bars && bars.some((b) => b.corners.topLeft || b.corners.topRight)
 
-        // Topmost visible series on each axis gets the rounded cap.
         expect(hasRoundedCap(callsByKey.get('left-2'))).toBe(true)
         expect(hasRoundedCap(callsByKey.get('right-1'))).toBe(true)
-        // Lower stack layers remain flat-capped.
         expect(hasRoundedCap(callsByKey.get('left-1'))).toBe(false)
     })
 })

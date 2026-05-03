@@ -310,8 +310,6 @@ describe('hog-charts scales', () => {
             expect(() => computePercentStackData(series, ['a', 'b'])).not.toThrow()
         })
 
-        // d3.stackOffsetExpand divides by column sum; an all-zero column produces NaN.
-        // The builder must scrub those before they reach the renderer / tooltip resolver.
         it.each(['s1', 's2'])('replaces NaN with 0 for series %s in an all-zero column', (key) => {
             const s1 = makeSeries({ key: 's1', data: [10, 0, 30] })
             const s2 = makeSeries({ key: 's2', data: [20, 0, 40] })
@@ -319,7 +317,6 @@ describe('hog-charts scales', () => {
             const band = result.get(key)!
             expect(band.top.every(Number.isFinite)).toBe(true)
             expect(band.bottom.every(Number.isFinite)).toBe(true)
-            // The all-zero column flattens to a zero-height segment.
             expect(band.top[1]).toBe(0)
             expect(band.bottom[1]).toBe(0)
         })

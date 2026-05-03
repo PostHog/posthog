@@ -92,10 +92,9 @@ function BarChartInner<Meta = unknown>({
         return undefined
     }, [barLayout, series, labels])
 
-    // Pick which series should round its cap in stacked/percent layouts.
-    // buildStackData groups by yAxisId and stacks each axis independently, so each axis has
-    // its own topmost visible series. Track them per-axis — the global "last visible series"
-    // approach would only round the cap on one axis when there are dual axes.
+    // Cap rounding is per-axis: buildStackData stacks each yAxisId independently, so each
+    // axis has its own topmost visible series. Iteration order matches d3.stack's key order,
+    // so the last write per axis is that axis's top layer.
     const topStackedKeyByAxis = useMemo<Map<string, string>>(() => {
         const m = new Map<string, string>()
         if (barLayout === 'grouped') {
@@ -106,8 +105,6 @@ function BarChartInner<Meta = unknown>({
                 continue
             }
             const axisId = s.yAxisId ?? DEFAULT_Y_AXIS_ID
-            // Last one wins, mirroring d3.stack's key order — so the value at the end of
-            // iteration is the topmost visible layer for that axis.
             m.set(axisId, s.key)
         }
         return m
