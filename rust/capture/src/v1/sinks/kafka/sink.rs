@@ -88,7 +88,17 @@ fn reject_publishable(
         .collect()
 }
 
-type AckFuture = Pin<Box<dyn Future<Output = (Uuid, DateTime<Utc>, Result<(), super::producer::ProduceError>)> + Send>>;
+type AckFuture = Pin<
+    Box<
+        dyn Future<
+                Output = (
+                    Uuid,
+                    DateTime<Utc>,
+                    Result<(), super::producer::ProduceError>,
+                ),
+            > + Send,
+    >,
+>;
 
 impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
     /// Phase 1: serialize and enqueue events to the producer sequentially,
@@ -356,8 +366,13 @@ impl<P: KafkaProducerTrait + 'static> Sink for KafkaSink<P> {
         let mut enqueued_keys: Vec<Uuid> = Vec::new();
 
         self.enqueue_events(
-            ctx, events, &labels, enqueued_at,
-            &mut results, &mut pending, &mut enqueued_keys,
+            ctx,
+            events,
+            &labels,
+            enqueued_at,
+            &mut results,
+            &mut pending,
+            &mut enqueued_keys,
         )
         .await;
 
@@ -366,7 +381,11 @@ impl<P: KafkaProducerTrait + 'static> Sink for KafkaSink<P> {
             .await;
 
         Self::collect_timeouts(
-            &labels, enqueued_at, enqueued_keys, &resolved_keys, &mut results,
+            &labels,
+            enqueued_at,
+            enqueued_keys,
+            &resolved_keys,
+            &mut results,
         );
 
         let summary = BatchSummary::from_results(&results);
