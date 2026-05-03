@@ -546,6 +546,10 @@ class LogsAlertSimulateBucketSerializer(serializers.Serializer):
     timestamp = serializers.DateTimeField(help_text="Bucket start timestamp.")
     count = serializers.IntegerField(help_text="Number of matching logs in this bucket.")
     threshold_breached = serializers.BooleanField(help_text="Whether the count crossed the threshold in this bucket.")
+    breach_window = serializers.ListField(
+        child=serializers.BooleanField(),
+        help_text="The N-of-M breach pattern at this bucket, newest-first.",
+    )
     state = serializers.CharField(help_text="Alert state after evaluating this bucket.")
     notification = serializers.CharField(help_text="Notification action: none, fire, or resolve.")
     reason = serializers.CharField(help_text="Human-readable explanation of the state transition.")
@@ -1103,6 +1107,7 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     "timestamp": bucket.timestamp.isoformat(),
                     "count": window_count,
                     "threshold_breached": breached,
+                    "breach_window": list(recent),
                     "state": outcome.new_state.value,
                     "notification": outcome.notification.value,
                     "reason": reason,

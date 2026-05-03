@@ -512,6 +512,8 @@ export interface LogsAlertSimulateBucketApi {
     count: number
     /** Whether the count crossed the threshold in this bucket. */
     threshold_breached: boolean
+    /** The N-of-M breach pattern at this bucket, newest-first. */
+    breach_window: boolean[]
     /** Alert state after evaluating this bucket. */
     state: string
     /** Notification action: none, fire, or resolve. */

@@ -11,6 +11,7 @@ import {
     LogsAlertEventKindEnumApi,
 } from 'products/logs/frontend/generated/api.schemas'
 
+import { CheckDots } from './CheckDots'
 import { LogsAlertEventHistoryLogicProps, logsAlertEventHistoryLogic } from './logsAlertEventHistoryLogic'
 
 interface LogsAlertEventHistoryModalProps {
@@ -62,7 +63,16 @@ function LogsAlertEventTimeline(): JSX.Element {
             title: 'Detail',
             render: (_, event) => {
                 const { detail } = describeEvent(event)
-                return detail ? <span className="text-muted text-xs">{detail}</span> : null
+                const showBreachWindow =
+                    event.kind === LogsAlertEventKindEnumApi.Check &&
+                    !event.error_message &&
+                    event.breach_window.length > 0
+                return (
+                    <div className="flex items-center gap-2">
+                        {showBreachWindow ? <CheckDots checks={[...event.breach_window].reverse()} /> : null}
+                        {detail ? <span className="text-muted text-xs">{detail}</span> : null}
+                    </div>
+                )
             },
         },
     ]
@@ -139,15 +149,14 @@ function describeEvent(event: LogsAlertEventApi): EventDescription {
         return {
             label: 'Fired',
             type: 'danger',
-            detail:
-                event.result_count !== null ? `${event.result_count} logs · threshold breached` : 'threshold breached',
+            detail: event.result_count !== null ? `${event.result_count} logs in latest check` : null,
         }
     }
     if (event.state_before === 'firing' && event.state_after !== 'firing') {
         return {
             label: 'Resolved',
             type: 'success',
-            detail: event.result_count !== null ? `${event.result_count} logs · back to normal` : 'back to normal',
+            detail: event.result_count !== null ? `${event.result_count} logs in latest check` : null,
         }
     }
     return {
@@ -166,7 +175,15 @@ function LogsAlertEventDetails({ event }: { event: LogsAlertEventApi }): JSX.Ele
             <dd className="font-mono">
                 {event.state_before} → {event.state_after}
             </dd>
-            {event.kind === LogsAlertEventKindEnumApi.Check ? (
+            {event.kind === LogsAlertEventKindEnumApi.Check && event.breach_window.length > 0 ? (
+                <>
+                    <dt className="text-muted">Checks</dt>
+                    <dd className="inline-flex items-center gap-2">
+                        <CheckDots checks={[...event.breach_window].reverse()} />
+                        <span className="text-muted text-xs">oldest → newest</span>
+                    </dd>
+                </>
+            ) : event.kind === LogsAlertEventKindEnumApi.Check ? (
                 <>
                     <dt className="text-muted">Breached</dt>
                     <dd className="font-mono">{event.threshold_breached ? 'yes' : 'no'}</dd>

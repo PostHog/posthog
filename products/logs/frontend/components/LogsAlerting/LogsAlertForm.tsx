@@ -20,6 +20,7 @@ import { ServiceFilter } from 'products/logs/frontend/components/LogsViewer/Filt
 import { SeverityLevelsFilter } from 'products/logs/frontend/components/LogsViewer/Filters/SeverityLevelsFilter'
 import { ThresholdOperatorEnumApi } from 'products/logs/frontend/generated/api.schemas'
 
+import { CheckDots } from './CheckDots'
 import { logsAlertFormLogic } from './logsAlertFormLogic'
 
 const WINDOW_OPTIONS = [
@@ -38,31 +39,18 @@ const taxonomicGroupTypes = [
 ]
 
 function buildCheckPattern(datapoints: number, periods: number): boolean[] {
-    // Last check is always matched — it's the one that tips the alert over.
-    // Distribute OK checks evenly across the remaining positions.
-    const result: boolean[] = Array(periods).fill(true)
-    const okCount = periods - datapoints
+    if (!Number.isFinite(periods) || !Number.isFinite(datapoints) || periods <= 0 || datapoints <= 0) {
+        return []
+    }
+    const totalChecks = Math.floor(periods)
+    const matchedChecks = Math.min(Math.floor(datapoints), totalChecks)
+    const result: boolean[] = Array(totalChecks).fill(true)
+    const okCount = totalChecks - matchedChecks
     for (let i = 0; i < okCount; i++) {
-        const pos = Math.round((i * (periods - 2)) / Math.max(okCount - 1, 1))
+        const pos = Math.round((i * (totalChecks - 2)) / Math.max(okCount - 1, 1))
         result[pos] = false
     }
     return result
-}
-
-function CheckDots({ checks }: { checks: boolean[] }): JSX.Element {
-    return (
-        <>
-            {checks.map((matched, i) => (
-                <div
-                    key={i}
-                    className={`w-3 h-3 rounded-full border ${
-                        matched ? 'bg-danger-highlight border-danger' : 'bg-success-highlight border-success'
-                    }`}
-                    title={`Check ${i + 1}: ${matched ? 'matched' : 'ok'}`}
-                />
-            ))}
-        </>
-    )
 }
 
 function CheckDotsTooltip({ datapoints, periods }: { datapoints: number; periods: number }): JSX.Element {

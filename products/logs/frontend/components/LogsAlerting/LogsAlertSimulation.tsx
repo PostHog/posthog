@@ -10,6 +10,7 @@ import { humanFriendlyDuration } from 'lib/utils'
 
 import { LogsAlertSimulateBucketApi, LogsAlertSimulateResponseApi } from 'products/logs/frontend/generated/api.schemas'
 
+import { CheckDots } from './CheckDots'
 import { logsAlertFormLogic } from './logsAlertFormLogic'
 
 const SIMULATION_RANGE_OPTIONS = [
@@ -133,6 +134,7 @@ interface Incident {
     durationMinutes: number
     peakCount: number
     stillFiring: boolean
+    breachWindow: boolean[]
 }
 
 function extractIncidents(buckets: LogsAlertSimulateBucketApi[]): Incident[] {
@@ -148,6 +150,7 @@ function extractIncidents(buckets: LogsAlertSimulateBucketApi[]): Incident[] {
                     durationMinutes: 1,
                     peakCount: b.count,
                     stillFiring: true,
+                    breachWindow: b.breach_window,
                 }
             } else {
                 currentIncident.durationMinutes += 1
@@ -225,6 +228,9 @@ function SimulationIncidents({ incidents, threshold }: { incidents: Incident[]; 
                 <Tooltip title="Highest rolling window count during this alert vs your configured threshold">
                     <div className="flex-[1] min-w-0 px-2 cursor-help">Peak / threshold</div>
                 </Tooltip>
+                <Tooltip title="N-of-M breach pattern at the firing check (oldest → newest). Red = breached, green = ok.">
+                    <div className="flex-[1] min-w-0 px-2 cursor-help">Pattern</div>
+                </Tooltip>
                 <Tooltip title="Whether the alert resolved or is still active at the end of the simulation window">
                     <div className="flex-[3] min-w-0 px-2 cursor-help">Outcome</div>
                 </Tooltip>
@@ -246,6 +252,11 @@ function SimulationIncidents({ incidents, threshold }: { incidents: Incident[]; 
                             <div className="flex-[1] min-w-0 px-2">
                                 <span className={severityColor}>{incident.peakCount.toLocaleString()}</span>
                                 <span className="text-secondary"> / {threshold.toLocaleString()}</span>
+                            </div>
+                            <div className="flex-[1] min-w-0 px-2">
+                                {incident.breachWindow.length > 0 ? (
+                                    <CheckDots checks={[...incident.breachWindow].reverse()} />
+                                ) : null}
                             </div>
                             <div className="flex-[3] min-w-0 px-2">
                                 {incident.stillFiring ? (
