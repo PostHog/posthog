@@ -1789,7 +1789,26 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
         },
         submitFeatureFlagFailure: async () => {
-            scrollToFormError()
+            // Collapsed LemonCollapse panels don't render their children, so any inline error
+            // and its `.Field--error` scroll target won't exist in the DOM until the panel is open.
+            const formErrors = values.featureFlagErrors as DeepPartialMap<FeatureFlagType, ValidationErrorType>
+            const filtersErrors = formErrors?.filters as any
+            const variantErrorsList = filtersErrors?.multivariate?.variants as
+                | Array<{ key?: string } | undefined>
+                | undefined
+            const variantKeysWithErrors =
+                variantErrorsList
+                    ?.map((err, index) => (err?.key ? `variant-${index}` : null))
+                    .filter((key): key is string => key !== null) ?? []
+            if (variantKeysWithErrors.length) {
+                actions.setOpenVariants(Array.from(new Set([...values.openVariants, ...variantKeysWithErrors])))
+            }
+            if (filtersErrors?.payloads?.true && !values.payloadExpanded) {
+                actions.setPayloadExpanded(true)
+            }
+            scrollToFormError({
+                fallbackErrorMessage: 'This flag has validation errors. Please review the highlighted fields above.',
+            })
         },
         updateFeatureFlagActiveFailure: ({ errorObject }) => {
             if (values.featureFlag.id && handleApprovalRequired(errorObject, 'feature_flag', values.featureFlag.id)) {
