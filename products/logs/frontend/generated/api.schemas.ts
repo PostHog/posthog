@@ -477,6 +477,12 @@ export interface LogsAlertSimulateRequestApi {
     /** Window size in minutes — determines bucket interval. */
     window_minutes: number
     /**
+     * How often the alert is evaluated, in minutes.
+     * @minimum 1
+     * @maximum 60
+     */
+    check_interval_minutes?: number
+    /**
      * Total check periods in the N-of-M evaluation window (M).
      * @minimum 1
      * @maximum 10
