@@ -77,11 +77,18 @@ Bad memory entry: "we have errors today, FYI". No actionability, no entity, no c
 
 Use `tags` so future searches converge:
 
+- `pattern` — durable observation about how this team's data normally shapes (baselines,
+  recurring cadences, healthy ratios). The most common tag in steady-state runs.
 - `dedupe` — entries that gate future emits.
 - `noise` — patterns to ignore (single-user, dev-only, recurring with no fix path).
-- `addressed` — team-confirmed fix shipped.
-- `domain:<area>` (e.g. `domain:error_tracking`, `domain:experiments`) — filterable by topic.
-- `entity:<id>` — direct lookup.
+- `addressed` — team-confirmed fix shipped, or a topic the team has already moved on
+  from.
+- `domain:<area>` — filterable by topic. Canonical values match the per-product
+  references: `domain:error_tracking`, `domain:warehouse`, `domain:experiments`,
+  `domain:llm_analytics`, `domain:web_analytics`, `domain:feature_flags`,
+  `domain:logs`.
+- `entity:<id>` — direct lookup (issue id, flag key, experiment id, source prefix,
+  insight short_id, etc.).
 
 TTL defaults to 7 days for `agent_inference` memory. Override with `ttl_days` (clamped
 `[1, 90]`) when the steer should outlast the default — e.g. a long-lived "team-confirmed

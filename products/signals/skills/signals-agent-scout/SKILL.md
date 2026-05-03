@@ -60,6 +60,24 @@ product covered by [`references/products/`](references/products/), there's a thi
 PostHog skill (already on disk under `~/.claude/skills/`) gives the deeper
 exploration playbook. Use these to direct attention; don't march through them.
 
+Currently covered:
+
+- [`error-tracking.md`](references/products/error-tracking.md) — `$exception`
+  shapes, burst vs stuck loop, multi-fingerprint clusters, status regressions.
+- [`warehouse.md`](references/products/warehouse.md) — `external_data_sources`
+  failures, stuck syncs, schema drift, downstream blast radius.
+- [`experiments.md`](references/products/experiments.md) — stale experiments,
+  primary-metric movement, variant imbalance, instrumentation gaps.
+- [`llm-analytics.md`](references/products/llm-analytics.md) — `$ai_generation`
+  cost spikes, eval pass-rate drops, runaway loops, cluster-level patterns.
+- [`web-analytics.md`](references/products/web-analytics.md) — `$pageview`
+  bursts and drops, conversion-funnel regressions, autocapture surface changes.
+- [`feature-flags.md`](references/products/feature-flags.md) — evaluation
+  loops, stale rollouts, dependency staleness, blast-radius drift.
+- [`logs.md`](references/products/logs.md) — volume bursts, severity
+  distribution shifts, service silence, fresh message patterns,
+  trace-correlated bursts.
+
 You don't need a per-product reference to start exploring. Memory might point at a
 specific entity to recheck. The profile might surface a `top_events` burst or a
 failing `external_data_sources` row that's worth investigating directly. Recent
