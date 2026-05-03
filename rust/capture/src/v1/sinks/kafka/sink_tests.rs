@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use common_types::CapturedEventHeaders;
 use rdkafka::error::RDKafkaErrorCode;
+use rstest::rstest;
 use uuid::Uuid;
 
 use crate::config::CaptureMode;
@@ -685,10 +686,18 @@ fn sink_name_returns_configured_name() {
 // Topic routing for non-default destinations
 // ---------------------------------------------------------------------------
 
+#[rstest]
+#[case::historical(Destination::AnalyticsHistorical, "events_hist")]
+#[case::overflow(Destination::Overflow, "events_overflow")]
+#[case::dlq(Destination::Dlq, "events_dlq")]
+#[case::custom(Destination::Custom("my_topic".into()), "my_topic")]
 #[tokio::test]
-async fn destination_historical_routes_to_correct_topic() {
+async fn destination_routes_to_correct_topic(
+    #[case] destination: Destination,
+    #[case] expected_topic: &str,
+) {
     let h = TestHarness::new();
-    let event = FakeEvent::ok("evt-1").with_destination(Destination::AnalyticsHistorical);
+    let event = FakeEvent::ok("evt-1").with_destination(destination);
     let events: Vec<&(dyn Event + Send + Sync)> = vec![&event];
 
     let results = h.sink.publish_batch(&h.ctx, &events).await;
@@ -696,56 +705,7 @@ async fn destination_historical_routes_to_correct_topic() {
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].outcome(), Outcome::Success);
     h.producer.with_records(|records| {
-        assert_eq!(records[0].topic, "events_hist");
-    });
-}
-
-#[tokio::test]
-async fn destination_overflow_routes_to_correct_topic() {
-    let h = TestHarness::new();
-    let event = FakeEvent::ok("evt-1").with_destination(Destination::Overflow);
-    let events: Vec<&(dyn Event + Send + Sync)> = vec![&event];
-
-    let results = h.sink.publish_batch(&h.ctx, &events).await;
-
-    assert_eq!(results.len(), 1);
-    assert_eq!(results[0].outcome(), Outcome::Success);
-    h.producer.with_records(|records| {
-        assert_eq!(records[0].topic, "events_overflow");
-    });
-}
-
-#[tokio::test]
-async fn destination_dlq_routes_to_correct_topic() {
-    let h = TestHarness::new();
-    let event = FakeEvent::ok("evt-1").with_destination(Destination::Dlq);
-    let events: Vec<&(dyn Event + Send + Sync)> = vec![&event];
-
-    let results = h.sink.publish_batch(&h.ctx, &events).await;
-
-    assert_eq!(results.len(), 1);
-    assert_eq!(results[0].outcome(), Outcome::Success);
-    h.producer.with_records(|records| {
-        assert_eq!(records[0].topic, "events_dlq");
-    });
-}
-
-// ---------------------------------------------------------------------------
-// Destination::Custom topic routing
-// ---------------------------------------------------------------------------
-
-#[tokio::test]
-async fn destination_custom_routes_to_custom_topic() {
-    let h = TestHarness::new();
-    let event = FakeEvent::ok("evt-1").with_destination(Destination::Custom("my_topic".into()));
-    let events: Vec<&(dyn Event + Send + Sync)> = vec![&event];
-
-    let results = h.sink.publish_batch(&h.ctx, &events).await;
-
-    assert_eq!(results.len(), 1);
-    assert_eq!(results[0].outcome(), Outcome::Success);
-    h.producer.with_records(|records| {
-        assert_eq!(records[0].topic, "my_topic");
+        assert_eq!(records[0].topic, expected_topic);
     });
 }
 
@@ -792,116 +752,78 @@ const HEALTH_TEST_UNHEALTHY_SLEEP: Duration = Duration::from_millis(500);
 const HEALTH_TEST_HEALTHY_SLEEP: Duration = Duration::from_millis(50);
 
 // ---------------------------------------------------------------------------
-// Health: all events timeout -> no heartbeat -> is_healthy becomes false
+// Health: no heartbeat when every event fails (parameterized by failure mode)
 // ---------------------------------------------------------------------------
 
-#[tokio::test]
-async fn health_not_refreshed_on_full_timeout() {
-    let h = TestHarness::builder()
-        .with_liveness(HEALTH_TEST_LIVENESS_DEADLINE, HEALTH_TEST_POLL_INTERVAL)
-        .ack_delay(Duration::from_secs(10))
-        .produce_timeout(HEALTH_TEST_PRODUCE_TIMEOUT)
-        .build();
-    let e1 = FakeEvent::ok("evt-1");
-    let e2 = FakeEvent::ok("evt-2");
-    let e3 = FakeEvent::ok("evt-3");
-    let events: Vec<&(dyn Event + Send + Sync)> = vec![&e1, &e2, &e3];
-
-    let results = h.sink.publish_batch(&h.ctx, &events).await;
-    for r in &results {
-        assert_eq!(r.outcome(), Outcome::Timeout);
-    }
-
-    tokio::time::sleep(HEALTH_TEST_UNHEALTHY_SLEEP).await;
-    assert!(
-        !h.handle.is_healthy(),
-        "handle should be unhealthy after full timeout batch"
-    );
+enum FailureMode {
+    Timeout,
+    SendError,
+    AckError,
+    SerializationError,
 }
 
-// ---------------------------------------------------------------------------
-// Health: all events fail at send (queue full) -> no heartbeat
-// ---------------------------------------------------------------------------
-
-#[tokio::test]
-async fn health_not_refreshed_on_full_send_error() {
-    let h = TestHarness::builder()
+fn health_harness(mode: &FailureMode) -> TestHarness {
+    let mut b = TestHarness::builder()
         .with_liveness(HEALTH_TEST_LIVENESS_DEADLINE, HEALTH_TEST_POLL_INTERVAL)
-        .produce_timeout(HEALTH_TEST_PRODUCE_TIMEOUT)
-        .send_error(|| ProduceError::Kafka {
-            code: RDKafkaErrorCode::QueueFull,
-        })
-        .enqueue_retry_max(0)
-        .build();
-    let e1 = FakeEvent::ok("evt-1");
-    let e2 = FakeEvent::ok("evt-2");
-    let e3 = FakeEvent::ok("evt-3");
-    let events: Vec<&(dyn Event + Send + Sync)> = vec![&e1, &e2, &e3];
-
-    let results = h.sink.publish_batch(&h.ctx, &events).await;
-    for r in &results {
-        assert_eq!(r.outcome(), Outcome::RetriableError);
+        .produce_timeout(HEALTH_TEST_PRODUCE_TIMEOUT);
+    match mode {
+        FailureMode::Timeout => {
+            b = b.ack_delay(Duration::from_secs(10));
+        }
+        FailureMode::SendError => {
+            b = b
+                .send_error(|| ProduceError::Kafka {
+                    code: RDKafkaErrorCode::QueueFull,
+                })
+                .enqueue_retry_max(0);
+        }
+        FailureMode::AckError => {
+            b = b.ack_error(|| ProduceError::DeliveryCancelled);
+        }
+        FailureMode::SerializationError => {}
     }
-
-    tokio::time::sleep(HEALTH_TEST_UNHEALTHY_SLEEP).await;
-    assert!(
-        !h.handle.is_healthy(),
-        "handle should be unhealthy after full send error batch"
-    );
+    b.build()
 }
 
-// ---------------------------------------------------------------------------
-// Health: all events fail at ack (delivery cancelled) -> no heartbeat
-// ---------------------------------------------------------------------------
-
-#[tokio::test]
-async fn health_not_refreshed_on_full_ack_error() {
-    let h = TestHarness::builder()
-        .with_liveness(HEALTH_TEST_LIVENESS_DEADLINE, HEALTH_TEST_POLL_INTERVAL)
-        .produce_timeout(HEALTH_TEST_PRODUCE_TIMEOUT)
-        .ack_error(|| ProduceError::DeliveryCancelled)
-        .build();
-    let e1 = FakeEvent::ok("evt-1");
-    let e2 = FakeEvent::ok("evt-2");
-    let e3 = FakeEvent::ok("evt-3");
-    let events: Vec<&(dyn Event + Send + Sync)> = vec![&e1, &e2, &e3];
-
-    let results = h.sink.publish_batch(&h.ctx, &events).await;
-    for r in &results {
-        assert_eq!(r.outcome(), Outcome::RetriableError);
-    }
-
-    tokio::time::sleep(HEALTH_TEST_UNHEALTHY_SLEEP).await;
-    assert!(
-        !h.handle.is_healthy(),
-        "handle should be unhealthy after full ack error batch"
-    );
+fn health_events(mode: &FailureMode) -> Vec<FakeEvent> {
+    let make = |id: &str| match mode {
+        FailureMode::SerializationError => FakeEvent::ok(id).with_payload(Err("bad".into())),
+        _ => FakeEvent::ok(id),
+    };
+    vec![make("evt-1"), make("evt-2"), make("evt-3")]
 }
 
-// ---------------------------------------------------------------------------
-// Health: all events fail serialization -> no heartbeat
-// ---------------------------------------------------------------------------
+fn expected_outcome(mode: &FailureMode) -> Outcome {
+    match mode {
+        FailureMode::Timeout => Outcome::Timeout,
+        FailureMode::SendError => Outcome::RetriableError,
+        FailureMode::AckError => Outcome::RetriableError,
+        FailureMode::SerializationError => Outcome::FatalError,
+    }
+}
 
+#[rstest]
+#[case::timeout(FailureMode::Timeout)]
+#[case::send_error(FailureMode::SendError)]
+#[case::ack_error(FailureMode::AckError)]
+#[case::serialization_error(FailureMode::SerializationError)]
 #[tokio::test]
-async fn health_not_refreshed_on_full_serialization_error() {
-    let h = TestHarness::builder()
-        .with_liveness(HEALTH_TEST_LIVENESS_DEADLINE, HEALTH_TEST_POLL_INTERVAL)
-        .produce_timeout(HEALTH_TEST_PRODUCE_TIMEOUT)
-        .build();
-    let e1 = FakeEvent::ok("evt-1").with_payload(Err("bad".into()));
-    let e2 = FakeEvent::ok("evt-2").with_payload(Err("bad".into()));
-    let e3 = FakeEvent::ok("evt-3").with_payload(Err("bad".into()));
-    let events: Vec<&(dyn Event + Send + Sync)> = vec![&e1, &e2, &e3];
+async fn health_not_refreshed_on_full_failure(#[case] mode: FailureMode) {
+    let h = health_harness(&mode);
+    let owned_events = health_events(&mode);
+    let refs: Vec<&FakeEvent> = owned_events.iter().collect();
+    let events: Vec<&(dyn Event + Send + Sync)> = vec![refs[0], refs[1], refs[2]];
+    let expected = expected_outcome(&mode);
 
     let results = h.sink.publish_batch(&h.ctx, &events).await;
     for r in &results {
-        assert_eq!(r.outcome(), Outcome::FatalError);
+        assert_eq!(r.outcome(), expected);
     }
 
     tokio::time::sleep(HEALTH_TEST_UNHEALTHY_SLEEP).await;
     assert!(
         !h.handle.is_healthy(),
-        "handle should be unhealthy after full serialization error batch"
+        "handle should be unhealthy after full {expected:?} batch"
     );
 }
 
