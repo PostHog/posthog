@@ -116,9 +116,9 @@ After investigating warehouse on a project, leave durable steers like:
 
 - _"`stripe-charges` syncs weekdays only — Sunday gaps are not a stall."_
   (`pattern`, `domain:warehouse`, `entity:stripe-charges`)
-- _"Prefix `legacy_pg_`is migrating to`prod*pg*`; failures on the legacy
-source are expected through 2026-06."_ (`addressed`, `domain:warehouse`,
-`entity:legacy*pg*`)
+- _"Prefix `legacy-pg` is migrating to `prod-pg`; failures on the legacy
+  source are expected through 2026-06."_ (`addressed`, `domain:warehouse`,
+  `entity:legacy-pg`)
 - _"View `lifetime_revenue` powers the LTV dashboard (id 42); flag warehouse
   sources feeding it as priority."_ (`pattern`, `domain:warehouse`,
   `entity:lifetime_revenue`)

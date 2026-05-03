@@ -50,9 +50,8 @@ priority is to surface — let the team triage which it is.
 `$ai_generation` `count` very high, `distinct_users` very low. One user (often
 a developer or an agentic workflow) generating thousands of calls. Validate
 with `query-llm-traces-list` filtered to the top user — if a single trace has
-
-> 50 generations, it's either a multi-step agent (intentional) or a stuck
-> loop. Memory probably already records which side of this the team is on.
+more than 50 generations, it's either a multi-step agent (intentional) or a
+stuck loop. Memory probably already records which side of this the team is on.
 
 ### New model adoption
 
