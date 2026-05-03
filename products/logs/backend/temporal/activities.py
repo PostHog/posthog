@@ -5,9 +5,9 @@ import time
 import asyncio
 import contextlib
 import dataclasses
-import concurrent.futures
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from datetime import UTC, datetime, timedelta
+from itertools import batched
 from typing import TYPE_CHECKING
 
 from django.db import transaction
@@ -46,11 +46,7 @@ from products.logs.backend.alert_state_machine import (
 from products.logs.backend.alert_utils import advance_next_check_at
 from products.logs.backend.logs_url_params import build_logs_url_params
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
-from products.logs.backend.temporal.constants import (
-    MAX_CHUNK_CONCURRENCY,
-    MAX_COHORT_CHUNK_SIZE,
-    MAX_CONCURRENT_ALERT_EVALS,
-)
+from products.logs.backend.temporal.constants import MAX_ALERT_COHORT_SIZE, MAX_CONCURRENT_ALERT_EVALS
 from products.logs.backend.temporal.metrics import (
     increment_check_errors,
     increment_checkpoint_unavailable,
@@ -459,12 +455,18 @@ def _load_alerts_and_checkpoint() -> tuple[datetime, list[LogsAlertConfiguration
 
 
 def _build_cohorts(
-    alerts: list[LogsAlertConfiguration],
+    alerts: Sequence[LogsAlertConfiguration],
     *,
     now: datetime,
     checkpoint: datetime | None,
 ) -> list[_AlertCohort]:
-    """Group alerts into cohorts that can share a batched CH query."""
+    """Group alerts into cohorts that can share a batched CH query.
+
+    Each cohort holds at most `MAX_ALERT_COHORT_SIZE` alerts. Larger groups (same
+    team / window / cadence / projection / date_to) split into multiple cohorts
+    so each individual batched query stays bounded — and the existing outer
+    semaphore (`MAX_CONCURRENT_ALERT_EVALS`) is the only concurrency control.
+    """
     grouped: dict[tuple, tuple[list[LogsAlertConfiguration], datetime, bool]] = {}
     for alert in alerts:
         nca = alert.next_check_at if alert.next_check_at is not None else now
@@ -480,10 +482,11 @@ def _build_cohorts(
         )
         grouped.setdefault(key, ([], date_to, projection_eligible))[0].append(alert)
 
-    return [
-        _AlertCohort(alerts=tuple(members), date_to=date_to, projection_eligible=projection_eligible)
-        for (members, date_to, projection_eligible) in grouped.values()
-    ]
+    cohorts: list[_AlertCohort] = []
+    for members, date_to, projection_eligible in grouped.values():
+        for chunk in batched(members, MAX_ALERT_COHORT_SIZE):
+            cohorts.append(_AlertCohort(alerts=chunk, date_to=date_to, projection_eligible=projection_eligible))
+    return cohorts
 
 
 def _run_batched_query(cohort: _AlertCohort) -> BatchedBucketedResult:
@@ -526,45 +529,15 @@ def _run_per_alert_queries(cohort: _AlertCohort) -> _CohortQueryResult:
 
 
 def _run_cohort_query(cohort: _AlertCohort) -> _CohortQueryResult:
-    """Batched cohort CH query; per-alert fallback on non-transient failure.
+    """Batched CH query for a cohort; per-alert fallback on non-transient failure.
 
-    Cohorts larger than `MAX_COHORT_CHUNK_SIZE` split into sub-queries whose
-    results merge into one `_CohortQueryResult`. Each chunk's batched query
-    and fallback are independent — a failure in one chunk doesn't trigger
-    per-alert fallback across the whole cohort. Chunks run with bounded
-    concurrency (`MAX_CHUNK_CONCURRENCY`); 1 = sequential.
-    """
-    if len(cohort.alerts) <= MAX_COHORT_CHUNK_SIZE:
-        return _run_cohort_chunk_query(cohort)
-
-    chunks = [
-        dataclasses.replace(cohort, alerts=cohort.alerts[start : start + MAX_COHORT_CHUNK_SIZE])
-        for start in range(0, len(cohort.alerts), MAX_COHORT_CHUNK_SIZE)
-    ]
-
-    if MAX_CHUNK_CONCURRENCY <= 1:
-        chunk_results = [_run_cohort_chunk_query(c) for c in chunks]
-    else:
-        with concurrent.futures.ThreadPoolExecutor(
-            max_workers=min(MAX_CHUNK_CONCURRENCY, len(chunks)),
-            thread_name_prefix="logs-alerting-chunk",
-        ) as executor:
-            chunk_results = list(executor.map(_run_cohort_chunk_query, chunks))
-
-    merged: dict[str, _PrefetchedQuery] = {}
-    for r in chunk_results:
-        merged.update(r.per_alert)
-    return _CohortQueryResult(per_alert=merged)
-
-
-def _run_cohort_chunk_query(cohort: _AlertCohort) -> _CohortQueryResult:
-    """Single batched CH query for a cohort (or chunk); per-alert fallback on non-transient failure.
-
-    Skip fallback for single-alert cohorts (would hit the same error) and transient cluster
-    errors (would hammer a struggling cluster with N more failing queries).
+    Cohorts are pre-sized at `_build_cohorts` time so this function operates on a
+    single bounded group. Skip fallback for single-alert cohorts (would hit the
+    same error) and transient cluster errors (would hammer a struggling cluster
+    with N more failing queries).
     """
     try:
-        batched = _run_batched_query(cohort)
+        batched_result = _run_batched_query(cohort)
     except Exception as e:
         team_id = cohort.team_id
         cohort_size = len(cohort.alerts)
@@ -598,8 +571,8 @@ def _run_cohort_chunk_query(cohort: _AlertCohort) -> _CohortQueryResult:
     return _CohortQueryResult(
         per_alert={
             str(alert.id): _PrefetchedQuery(
-                buckets=batched.per_alert.get(str(alert.id), []),
-                query_duration_ms=batched.query_duration_ms,
+                buckets=batched_result.per_alert.get(str(alert.id), []),
+                query_duration_ms=batched_result.query_duration_ms,
             )
             for alert in cohort.alerts
         }
