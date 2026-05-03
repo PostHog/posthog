@@ -3,8 +3,9 @@ import posthog from 'posthog-js'
 import { useCallback, useMemo, type ErrorInfo } from 'react'
 
 import { buildTheme } from 'lib/charts/utils/theme'
-import { BarChart, buildYTickFormatter, createXAxisTickCallback } from 'lib/hog-charts'
+import { BarChart, buildYTickFormatter, createXAxisTickCallback, ValueLabels } from 'lib/hog-charts'
 import type { BarChartConfig, PointClickData, TooltipContext } from 'lib/hog-charts'
+import { formatPercentStackAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
@@ -88,6 +89,7 @@ export function TrendsBarChart({ context }: TrendsBarChartProps): JSX.Element | 
         querySource,
         getTrendsColor,
         getTrendsHidden,
+        showValuesOnSeries,
     } = useValues(trendsDataLogic(insightProps))
     const { timezone, weekStartDay, baseCurrency } = useValues(teamLogic)
     const { aggregationLabel } = useValues(groupsModel)
@@ -176,6 +178,11 @@ export function TrendsBarChart({ context }: TrendsBarChartProps): JSX.Element | 
         ]
     )
 
+    const valueLabelFormatter = useCallback(
+        (value: number) => formatPercentStackAxisValue(trendsFilter, value, isPercentStackView, baseCurrency),
+        [trendsFilter, isPercentStackView, baseCurrency]
+    )
+
     const onPointClick = useCallback(
         (clickData: PointClickData) => {
             if (isAggregated) {
@@ -260,6 +267,8 @@ export function TrendsBarChart({ context }: TrendsBarChartProps): JSX.Element | 
             className="BarGraph"
             dataAttr={isAggregated ? 'trend-bar-value-graph' : 'trend-bar-graph'}
             onError={handleChartError}
-        />
+        >
+            {showValuesOnSeries && <ValueLabels valueFormatter={valueLabelFormatter} />}
+        </BarChart>
     )
 }
