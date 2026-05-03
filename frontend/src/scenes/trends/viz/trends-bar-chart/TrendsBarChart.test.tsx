@@ -25,7 +25,10 @@ const HOG_CHARTS_FLAG = { [FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_BAR]: true
 const trendsBar = (extra?: Parameters<typeof buildTrendsQuery>[0]): ReturnType<typeof buildTrendsQuery> =>
     buildTrendsQuery({ trendsFilter: { display: ChartDisplayType.ActionsBar }, ...extra })
 
-describe('TrendsBarChart (ActionsBar)', () => {
+// TODO(sam): re-enable when TrendsBarChart is wired back into Trends.tsx — the chart
+// isn't production-ready yet, so the route was removed and these integration tests
+// rely on the route via renderInsight().
+describe.skip('TrendsBarChart (ActionsBar)', () => {
     it.each([
         { name: 'one series for a single event', query: trendsBar(), expected: 1 },
         {
@@ -115,7 +118,7 @@ describe('TrendsBarChart (ActionsBar)', () => {
     })
 })
 
-describe('TrendsBarChart (ActionsBarValue)', () => {
+describe.skip('TrendsBarChart (ActionsBarValue)', () => {
     const aggregatedBar = (extra?: Parameters<typeof buildTrendsQuery>[0]): ReturnType<typeof buildTrendsQuery> =>
         buildTrendsQuery({ trendsFilter: { display: ChartDisplayType.ActionsBarValue }, ...extra })
 
@@ -188,7 +191,7 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
     })
 })
 
-describe('TrendsBarChart gate', () => {
+describe.skip('TrendsBarChart gate', () => {
     it.each([
         { name: 'showValuesOnSeries', filter: { display: ChartDisplayType.ActionsBar, showValuesOnSeries: true } },
         {
