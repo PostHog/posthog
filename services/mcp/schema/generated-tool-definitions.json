@@ -810,7 +810,7 @@
         }
     },
     "dashboards-get-all": {
-        "description": "Get all dashboards in the project with optional filtering by pinned status or search term. Returns name, description, pinned status, tags, and creation metadata. Tiles and insights are not included — use dashboard-get to fetch a dashboard's tiles, then dashboard-insights-run to fetch the actual data for each insight.",
+        "description": "List dashboards in the project. The optional `search` parameter runs a fuzzy match against name and description using Postgres trigram word similarity (handles typos, transpositions, and prefix-as-you-type) and returns results ranked by relevance — use it to find a specific dashboard by name rather than paging through every dashboard. `search` is capped at 200 characters; longer queries return a 400 error. Optional filters by tag and pinned status are also supported. Returns name, description, pinned status, tags, and creation metadata. Tiles and insights are not included — use dashboard-get to fetch a dashboard's tiles, then dashboard-insights-run to fetch the actual data for each insight.",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Get all dashboards",

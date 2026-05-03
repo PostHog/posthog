@@ -4002,6 +4002,14 @@ snapshots:
         hash: v1.k794b7964.4fde6fb028b96110a7ba260785fdb7739d57285129b1a5d2a78bbf6de0124ee5.9ZHWl5hLcjIh4iaVlBLPZwjFdMT8ih4esVB86IP5gKE
     scenes-app-feature-flags--new-feature-flag--light:
         hash: v1.k794b7964.f4e33226f2d9dc4c1896e59b772e84d6c05243fe6aa1179d390905f0a44c7843.tNQWSyGlWM3N5t9myZ732Wz1A45RQijcTjUMXC2PqGI
+    scenes-app-feature-flags--new-multivariate-flag-variant-key-error--dark:
+        hash: v1.k794b7964.162a1ebe4a801337b84666b07a1e43055a7603f3abb230c0b98c8f42da585aad.tkpPEcXhdbvAA2AmSYkrYhfN-EQnLRPqNZAlQoZj870
+    scenes-app-feature-flags--new-multivariate-flag-variant-key-error--light:
+        hash: v1.k794b7964.b02933f644aee3ce68340c02f2e73068c77b1804d10e10de6b93291f32f38b53.XkrGBrHhNOptEjC2JV5y7umfR7qovViNR_RqM7O6I_E
+    scenes-app-feature-flags--new-remote-config-flag-payload-error--dark:
+        hash: v1.k794b7964.41717dc825a37facb7c1fe3bb7cbbcb135f80f69971279a9ffba4a88d2946316.fHerCbJ-eNkDoZmMfgM39T2qWIFZdpxFjcAhPDzBlhQ
+    scenes-app-feature-flags--new-remote-config-flag-payload-error--light:
+        hash: v1.k794b7964.f51fc88581aa9679f0315bdfcc665968a85dc44d3a351b4b558fa10508e1c3b2.TDiDX5REkSVUJtb_HL095q3zzOlFMJHDngWeGy0LNS8
     scenes-app-feature-flags-code-examples--code-instructions-node-with-group-multivariate-flag-local-evaluation--dark:
         hash: v1.k794b7964.ac812954f56156e7283a5103f2d7ef66391e452a67c60df53ab7bb23f08231c4.GayyB5gpMu03PVFXWLU0h99-6qG28mNLT2sdqZpb64c
     scenes-app-feature-flags-code-examples--code-instructions-node-with-group-multivariate-flag-local-evaluation--light:
