@@ -3267,7 +3267,6 @@ class TestTeamSerializerHomeViewWins(APIBaseTest):
             assert _default_data_color_theme_id() == 42
             assert _default_data_color_theme_id() == 42
 
-        # Only the first call hit the ORM
         assert mock_objects.filter.call_count == 1
 
     def test_default_data_color_theme_id_does_not_cache_none(self):
@@ -3281,9 +3280,8 @@ class TestTeamSerializerHomeViewWins(APIBaseTest):
             assert _default_data_color_theme_id() is None
             assert _default_data_color_theme_id() is None
 
-        assert mock_objects.filter.call_count == 2  # both calls hit the ORM
+        assert mock_objects.filter.call_count == 2
 
-        # Once the row appears, the next call picks it up and caches it.
         with patch("posthog.api.team.DataColorTheme.objects") as mock_objects:
             chained = mock_objects.filter.return_value.order_by.return_value.values_list.return_value
             chained.first.return_value = 7
