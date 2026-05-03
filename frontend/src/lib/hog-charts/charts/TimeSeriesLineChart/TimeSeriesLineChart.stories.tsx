@@ -147,14 +147,9 @@ export const YAxisFormats: Story = {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, auto)', gap: 24 }}>
             <YFormatCell title="numeric" series={NUMERIC_SERIES} config={{ format: 'numeric' }} />
             <YFormatCell
-                title="numeric · prefix '$'"
+                title="numeric · prefix + suffix"
                 series={NUMERIC_SERIES}
-                config={{ format: 'numeric', prefix: '$' }}
-            />
-            <YFormatCell
-                title="numeric · suffix ' req'"
-                series={NUMERIC_SERIES}
-                config={{ format: 'numeric', suffix: ' req' }}
+                config={{ format: 'numeric', prefix: '$', suffix: ' req' }}
             />
             <YFormatCell title="short" series={NUMERIC_SERIES} config={{ format: 'short' }} />
             <YFormatCell title="percentage (0-100)" series={PERCENTAGE_SERIES} config={{ format: 'percentage' }} />
@@ -163,16 +158,7 @@ export const YAxisFormats: Story = {
                 series={PERCENTAGE_SCALED_SERIES}
                 config={{ format: 'percentage_scaled' }}
             />
-            <YFormatCell
-                title="currency · USD"
-                series={CURRENCY_SERIES}
-                config={{ format: 'currency', currency: 'USD' }}
-            />
-            <YFormatCell
-                title="currency · EUR"
-                series={CURRENCY_SERIES}
-                config={{ format: 'currency', currency: 'EUR' }}
-            />
+            <YFormatCell title="currency" series={CURRENCY_SERIES} config={{ format: 'currency', currency: 'USD' }} />
             <YFormatCell title="duration (s)" series={DURATION_SERIES} config={{ format: 'duration' }} />
             <YFormatCell title="duration_ms" series={DURATION_MS_SERIES} config={{ format: 'duration_ms' }} />
         </div>

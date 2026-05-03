@@ -35,6 +35,7 @@ export function TimeSeriesLineChart<Meta = unknown>({
     const { xAxis, yAxis } = config ?? {}
     const xTickFormatter = useXTickFormatter(xAxis, labels)
     const yTickFormatter = useYTickFormatter(yAxis)
+
     const lineChartConfig: LineChartConfig = {
         yScaleType: yAxis?.scale,
         xTickFormatter,
