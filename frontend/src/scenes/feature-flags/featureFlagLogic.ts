@@ -1806,6 +1806,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             if (filtersErrors?.payloads?.true && !values.payloadExpanded) {
                 actions.setPayloadExpanded(true)
             }
+            // Yield so React flushes the expand-actions re-render before scrollToFormError schedules
+            // its requestAnimationFrame callback — otherwise on browsers/scheduler combinations where
+            // the render lands after RAF, `.Field--error` isn't in the DOM yet and the fallback toast
+            // fires instead of scrolling to the error.
+            await Promise.resolve()
             scrollToFormError({
                 fallbackErrorMessage: 'This flag has validation errors. Please review the highlighted fields above.',
             })

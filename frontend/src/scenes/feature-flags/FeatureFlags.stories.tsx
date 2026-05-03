@@ -1,11 +1,12 @@
 import { Meta, StoryObj } from '@storybook/react'
 import { waitFor } from '@testing-library/dom'
-import userEvent from '@testing-library/user-event'
 
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
+
+import { featureFlagLogic } from './featureFlagLogic'
 
 import featureFlags from './__mocks__/feature_flags.json'
 
@@ -99,22 +100,35 @@ export const FeatureFlagNotFound: Story = {
     },
 }
 
-const querySelector = async <T extends HTMLElement>(
-    canvasElement: HTMLElement,
-    selector: string,
-    timeout = 4000
-): Promise<T> => {
+const waitForMountedFeatureFlagLogic = async (): Promise<ReturnType<typeof featureFlagLogic.build>> => {
     return waitFor(
         () => {
-            const el = canvasElement.querySelector<T>(selector)
-            if (!el) {
-                throw new Error(`Element not found: ${selector}`)
+            const logic = featureFlagLogic.findMounted({ id: 'new' })
+            if (!logic) {
+                throw new Error('featureFlagLogic({ id: "new" }) not yet mounted')
             }
-            return el
+            return logic
         },
-        { timeout }
+        { timeout: 5000 }
     )
 }
+
+const waitForErrorText = async (canvasElement: HTMLElement, expectedText: string): Promise<void> => {
+    await waitFor(
+        () => {
+            const errors = Array.from(canvasElement.querySelectorAll('.Field--error'))
+            const match = errors.some((el) => el.textContent?.includes(expectedText))
+            if (!match) {
+                const seen = errors.map((el) => el.textContent?.trim()).join(' | ') || '(no .Field--error elements)'
+                throw new Error(`Expected error "${expectedText}" not visible. Found: ${seen}`)
+            }
+        },
+        { timeout: 5000 }
+    )
+}
+
+// These stories drive the form into a known validation-failure state via the logic so visual
+// snapshots reliably capture the rendered error UI, instead of relying on brittle UI clicks.
 
 export const NewMultivariateFlagVariantKeyError: Story = {
     parameters: {
@@ -122,26 +136,28 @@ export const NewMultivariateFlagVariantKeyError: Story = {
         testOptions: { waitForLoadersToDisappear: false },
     },
     play: async ({ canvasElement }) => {
-        // Fill the top-level key so its error doesn't preempt the variant key error.
-        const keyInput = await querySelector<HTMLInputElement>(canvasElement, '[data-attr="feature-flag-key"]')
-        await userEvent.type(keyInput, 'demo-flag-with-variant-error')
+        const logic = await waitForMountedFeatureFlagLogic()
 
-        await userEvent.click(await querySelector(canvasElement, '[data-attr="feature-flag-type-multivariate"]'))
-        // Add a third variant — it starts with an empty key, which will fail validation on submit.
-        await userEvent.click(await querySelector(canvasElement, '[data-attr="feature-flag-add-variant"]'))
-        await userEvent.click(await querySelector(canvasElement, '[data-attr="save-feature-flag"]'))
-
-        // After submit fails, the listener should auto-expand the panel with the empty-key variant
-        // so the error is visible. We wait for the rendered error span to appear.
-        await waitFor(
-            () => {
-                const errorEl = canvasElement.querySelector('[data-attr="feature-flag-variant-key-2"]')
-                if (!errorEl) {
-                    throw new Error('Variant 2 input not visible — panel did not auto-expand')
-                }
+        // Set filters.multivariate directly with three variants — the third has an empty key so
+        // validation will fail. Going via setFeatureFlagValue('filters', …) avoids racing with
+        // the setMultivariateEnabled listener, which dispatches setMultivariateOptions in a
+        // microtask and would otherwise overwrite variants added before it ran.
+        logic.actions.setFeatureFlagValue('key', 'demo-flag-with-variant-error')
+        logic.actions.setFeatureFlagValue('filters', {
+            ...logic.values.featureFlag.filters,
+            multivariate: {
+                variants: [
+                    { key: 'control', name: '', rollout_percentage: 50 },
+                    { key: 'test', name: '', rollout_percentage: 25 },
+                    { key: '', name: '', rollout_percentage: 25 },
+                ],
             },
-            { timeout: 4000 }
-        )
+        })
+        // kea-forms validators run, submitFeatureFlagFailure fires, the listener auto-expands the
+        // variant panel with the empty key, and the inline error is rendered.
+        logic.actions.submitFeatureFlag()
+
+        await waitForErrorText(canvasElement, 'Please set a key')
     },
 }
 
@@ -151,21 +167,14 @@ export const NewRemoteConfigFlagPayloadError: Story = {
         testOptions: { waitForLoadersToDisappear: false },
     },
     play: async ({ canvasElement }) => {
-        const keyInput = await querySelector<HTMLInputElement>(canvasElement, '[data-attr="feature-flag-key"]')
-        await userEvent.type(keyInput, 'demo-remote-config-flag')
+        const logic = await waitForMountedFeatureFlagLogic()
 
-        await userEvent.click(await querySelector(canvasElement, '[data-attr="feature-flag-type-remote_config"]'))
-        await userEvent.click(await querySelector(canvasElement, '[data-attr="save-feature-flag"]'))
+        logic.actions.setFeatureFlagValue('key', 'demo-remote-config-flag')
+        logic.actions.setFeatureFlagValue('is_remote_configuration', true)
+        // Submit with empty payload: validatePayloadRequired fails, submitFeatureFlagFailure fires,
+        // the listener expands the payload section, and the inline error is rendered.
+        logic.actions.submitFeatureFlag()
 
-        // After submit fails the payload section should auto-expand and reveal the error.
-        await waitFor(
-            () => {
-                const errorEl = canvasElement.querySelector('.Field--error')
-                if (!errorEl) {
-                    throw new Error('No .Field--error element rendered — payload section did not auto-expand')
-                }
-            },
-            { timeout: 4000 }
-        )
+        await waitForErrorText(canvasElement, 'Payload is required')
     },
 }
