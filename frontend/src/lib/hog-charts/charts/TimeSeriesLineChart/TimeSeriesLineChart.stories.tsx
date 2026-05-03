@@ -1,7 +1,7 @@
 import { Meta, StoryObj } from '@storybook/react'
 
 import { TimeSeriesLineChart } from 'lib/hog-charts'
-import type { GoalLineConfig, Series, TimeInterval, YAxisConfig } from 'lib/hog-charts'
+import type { Series, TimeInterval, YAxisConfig } from 'lib/hog-charts'
 
 import { Stage, useReactiveTheme } from '../../story-helpers'
 
@@ -163,63 +163,6 @@ export const YAxisFormats: Story = {
             <YFormatCell title="duration_ms" series={DURATION_MS_SERIES} config={{ format: 'duration_ms' }} />
         </div>
     ),
-}
-
-export const InProgress: Story = {
-    render: () => {
-        const theme = useReactiveTheme()
-        return (
-            <Stage>
-                <TimeSeriesLineChart
-                    series={SERIES}
-                    labels={DAYS}
-                    theme={theme}
-                    config={{ inProgress: { fromIndex: 4 }, yAxis: { showGrid: true } }}
-                />
-            </Stage>
-        )
-    },
-}
-
-export const ValueLabelsStory: Story = {
-    name: 'ValueLabels',
-    render: () => {
-        const theme = useReactiveTheme()
-        return (
-            <Stage>
-                <TimeSeriesLineChart
-                    series={SERIES}
-                    labels={DAYS}
-                    theme={theme}
-                    config={{
-                        valueLabels: { seriesKeys: ['visits', 'signups'] },
-                        yAxis: { showGrid: true },
-                    }}
-                />
-            </Stage>
-        )
-    },
-}
-
-const GOAL_LINES: GoalLineConfig[] = [
-    { value: 50, label: 'Target', labelPosition: 'start' },
-    { value: 30, label: 'Floor', color: 'var(--danger)', labelPosition: 'end' },
-]
-
-export const GoalLines: Story = {
-    render: () => {
-        const theme = useReactiveTheme()
-        return (
-            <Stage>
-                <TimeSeriesLineChart
-                    series={SERIES}
-                    labels={DAYS}
-                    theme={theme}
-                    config={{ goalLines: GOAL_LINES, yAxis: { showGrid: true } }}
-                />
-            </Stage>
-        )
-    },
 }
 
 export const DateAxis: Story = {
