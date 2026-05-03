@@ -283,6 +283,30 @@ export function useSyncedAttributes<T extends CustomNotebookNodeAttributes>(
     return [parsedAttrs.current, updateAttributes]
 }
 
+// nodeId/__-prefixed are internal
+// null/undefined would otherwise serialize as the literal strings "null"/"undefined".
+export function shouldOmitFromClipboardHTML(key: string, value: unknown): boolean {
+    return key === 'nodeId' || key.startsWith('__') || value == null
+}
+
+// Builds the HTML that the explicit "Copy" action writes to the clipboard.
+// Each attribute is JSON.stringified to mirror the per-attribute renderHTML in
+// `createPostHogWidgetNode`, so paste round-trips through `JSON.parse` regardless of which
+// copy path produced the HTML. Building via the DOM lets the browser handle attribute escaping.
+export function buildNotebookNodeClipboardHTML(nodeType: string, attrs: Record<string, any>): string {
+    const element = document.createElement(nodeType)
+    element.setAttribute('data-pm-slice', '0 0 []')
+
+    for (const [key, value] of Object.entries(attrs)) {
+        if (shouldOmitFromClipboardHTML(key, value)) {
+            continue
+        }
+        element.setAttribute(key, JSON.stringify(value))
+    }
+
+    return element.outerHTML
+}
+
 export const getLogicKey = ({
     tabId,
     personId,

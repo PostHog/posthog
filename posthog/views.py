@@ -23,6 +23,7 @@ from django.views.decorators.csrf import csrf_exempt, csrf_protect
 from django.views.decorators.http import require_http_methods
 
 import structlog
+from opentelemetry import trace
 
 from posthog.auth import AUTH_BRAND_COOKIE, apply_auth_brand_cookie, normalize_auth_brand
 from posthog.cloud_utils import is_cloud
@@ -60,6 +61,12 @@ from products.messaging.backend.models.message_preferences import (
 from products.messaging.backend.services.customerio_sync_service import sync_preferences_to_customerio
 
 logger = structlog.get_logger(__name__)
+tracer = trace.get_tracer(__name__)
+
+
+def _traced(name: str, fn, *args, **kwargs):
+    with tracer.start_as_current_span(name):
+        return fn(*args, **kwargs)
 
 
 def noop(*args, **kwargs) -> None:
@@ -170,29 +177,37 @@ def render_query(request: HttpRequest) -> HttpResponse:
 
 @never_cache
 def preflight_check(request: HttpRequest) -> JsonResponse:
-    slack_client_id = SlackIntegration.slack_config().get("SLACK_APP_CLIENT_ID")
-    posthog_code_slack_config = SlackIntegration.posthog_code_slack_config()
-    posthog_code_slack_client_id = posthog_code_slack_config.get("SLACK_POSTHOG_CODE_CLIENT_ID")
-    posthog_code_slack_signing_secret = posthog_code_slack_config.get("SLACK_POSTHOG_CODE_SIGNING_SECRET")
+    with tracer.start_as_current_span("preflight.slack_config"):
+        slack_client_id = SlackIntegration.slack_config().get("SLACK_APP_CLIENT_ID")
+        posthog_code_slack_config = SlackIntegration.posthog_code_slack_config()
+        posthog_code_slack_client_id = posthog_code_slack_config.get("SLACK_POSTHOG_CODE_CLIENT_ID")
+        posthog_code_slack_signing_secret = posthog_code_slack_config.get("SLACK_POSTHOG_CODE_SIGNING_SECRET")
     hubspot_client_id = settings.HUBSPOT_APP_CLIENT_ID
     salesforce_client_id = settings.SALESFORCE_CONSUMER_KEY
 
+    in_cloud = is_cloud()
+
     response = {
         "django": True,
-        "redis": is_cloud() or is_redis_alive() or settings.TEST,
-        "plugins": is_cloud() or is_plugin_server_alive() or settings.TEST,
-        "celery": is_cloud() or is_celery_alive() or settings.TEST,
-        "clickhouse": is_cloud() or is_clickhouse_connected() or settings.TEST,
-        "kafka": is_cloud() or settings.TEST,
-        "db": is_cloud() or is_postgres_alive(),
-        "initiated": is_cloud() or Organization.objects.exists(),
-        "cloud": is_cloud(),
+        "redis": in_cloud or _traced("preflight.is_redis_alive", is_redis_alive) or settings.TEST,
+        "plugins": in_cloud or _traced("preflight.is_plugin_server_alive", is_plugin_server_alive) or settings.TEST,
+        "celery": in_cloud or _traced("preflight.is_celery_alive", is_celery_alive) or settings.TEST,
+        "clickhouse": in_cloud
+        or _traced("preflight.is_clickhouse_connected", is_clickhouse_connected)
+        or settings.TEST,
+        "kafka": in_cloud or settings.TEST,
+        "db": in_cloud or _traced("preflight.is_postgres_alive", is_postgres_alive),
+        "initiated": in_cloud or _traced("preflight.organization_exists", Organization.objects.exists),
+        "cloud": in_cloud,
         "demo": settings.DEMO,
         "realm": get_instance_realm(),
         "region": get_instance_region(),
-        "available_social_auth_providers": get_instance_available_sso_providers(),
-        "can_create_org": get_can_create_org(request.user),
-        "email_service_available": is_cloud() or is_email_available(with_absolute_urls=True),
+        "available_social_auth_providers": _traced(
+            "preflight.available_social_auth_providers", get_instance_available_sso_providers
+        ),
+        "can_create_org": _traced("preflight.can_create_org", get_can_create_org, request.user),
+        "email_service_available": in_cloud
+        or _traced("preflight.is_email_available", is_email_available, with_absolute_urls=True),
         "slack_service": {
             "available": bool(slack_client_id),
             "client_id": slack_client_id or None,
@@ -207,7 +222,7 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
             "hubspot": {"client_id": hubspot_client_id},
             "salesforce": {"client_id": salesforce_client_id},
         },
-        "object_storage": is_cloud() or is_object_storage_available(),
+        "object_storage": in_cloud or _traced("preflight.is_object_storage_available", is_object_storage_available),
         "public_egress_ip_addresses": settings.PUBLIC_EGRESS_IP_ADDRESSES,
     }
     auth_brand = normalize_auth_brand(request.COOKIES.get(AUTH_BRAND_COOKIE))
@@ -226,9 +241,11 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
     if request.user.is_authenticated:
         response = {
             **response,
-            "available_timezones": get_available_timezones_with_offsets(),
+            "available_timezones": _traced("preflight.available_timezones", get_available_timezones_with_offsets),
             "opt_out_capture": os.environ.get("OPT_OUT_CAPTURE", False),
-            "licensed_users_available": get_licensed_users_available() if not is_cloud() else None,
+            "licensed_users_available": _traced("preflight.licensed_users_available", get_licensed_users_available)
+            if not in_cloud
+            else None,
             "openai_available": bool(os.environ.get("OPENAI_API_KEY")),
             "site_url": settings.SITE_URL,
             "instance_preferences": settings.INSTANCE_PREFERENCES,

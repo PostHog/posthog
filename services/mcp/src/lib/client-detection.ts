@@ -18,6 +18,13 @@
  * - `isPostHogCodeConsumer()` matches the `x-posthog-mcp-consumer` header
  *   sent by the PostHog Code Tasks wrapper.
  *
+ * - `isVibeCodingClient()` matches the OAuth application name (returned by
+ *   token introspection — see `StateManager._fetchApiKey`). Vibe-coding
+ *   platforms like Lovable and Replit connect through their own OAuth app
+ *   while reporting a generic `clientInfo.name`, so the OAuth name is the
+ *   reliable identifier. Used to force single-exec mode regardless of the
+ *   self-reported MCP client name.
+ *
  * - `capabilities` is a feature-flag-style object describing protocol
  *   features the client actually implements (e.g. `supportsInstructions` —
  *   Codex ignores the `instructions` field returned from `initialize`).
@@ -61,6 +68,15 @@ export const CODING_AGENT_CLIENT_NAME_FRAGMENTS = [
 // emission in single-exec mode. Slack-launched runs send `"slack"` instead.
 export const POSTHOG_CODE_CONSUMER = 'posthog-code'
 
+// OAuth application names (from token introspection) for vibe-coding platforms
+// that should default to single-exec mode. These match against the OAuth
+// `client_name` (the registered OAuth app name in PostHog), not the MCP
+// `clientInfo.name` self-report — those platforms typically connect through a
+// generic MCP client wrapper, so the OAuth name is what reliably identifies
+// the upstream tool. Substring match is case-insensitive and separator-agnostic
+// so "Lovable", "Lovable.dev", "Replit", and "Replit Agent" all resolve.
+export const VIBE_CODING_OAUTH_CLIENT_NAME_FRAGMENTS = ['lovable', 'replit'] as const
+
 export type ClientCapabilities = {
     // MCP `initialize` response includes an `instructions` field that most
     // clients inject into the model's system prompt. Codex discards it, so
@@ -88,12 +104,14 @@ type MCPClientProfileInput = {
     clientName?: string | undefined
     clientVersion?: string | undefined
     consumer?: string | undefined
+    oauthClientName?: string | undefined
 }
 
 export class MCPClientProfile {
     readonly clientName: string | undefined
     readonly clientVersion: string | undefined
     readonly consumer: string | undefined
+    readonly oauthClientName: string | undefined
 
     private _capabilities: ClientCapabilities | undefined
 
@@ -101,6 +119,7 @@ export class MCPClientProfile {
         this.clientName = input.clientName
         this.clientVersion = input.clientVersion
         this.consumer = input.consumer
+        this.oauthClientName = input.oauthClientName
     }
 
     isCodingAgent(): boolean {
@@ -109,6 +128,10 @@ export class MCPClientProfile {
 
     isPostHogCodeConsumer(): boolean {
         return this.consumer === POSTHOG_CODE_CONSUMER
+    }
+
+    isVibeCodingClient(): boolean {
+        return matchesAnyFragment(this.oauthClientName, VIBE_CODING_OAUTH_CLIENT_NAME_FRAGMENTS)
     }
 
     get capabilities(): ClientCapabilities {
@@ -135,4 +158,8 @@ export function isCodingAgentClient(clientName: string | undefined): boolean {
 
 export function isPostHogCodeConsumer(mcpConsumer: string | undefined): boolean {
     return new MCPClientProfile({ consumer: mcpConsumer }).isPostHogCodeConsumer()
+}
+
+export function isVibeCodingClient(oauthClientName: string | undefined): boolean {
+    return new MCPClientProfile({ oauthClientName }).isVibeCodingClient()
 }
