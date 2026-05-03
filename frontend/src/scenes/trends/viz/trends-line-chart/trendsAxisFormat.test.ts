@@ -1,8 +1,11 @@
+import { buildYTickFormatter } from 'lib/hog-charts'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 
 import { CurrencyCode, TrendsFilter } from '~/queries/schema/schema-general'
 
 import { trendsFilterToYFormatterConfig } from './trendsAxisFormat'
+
+const NBSP = ' '
 
 describe('trendsFilterToYFormatterConfig', () => {
     it.each<AggregationAxisFormat>([
@@ -39,14 +42,7 @@ describe('trendsFilterToYFormatterConfig', () => {
         ['empty filter', {}],
         ['null filter', null],
     ])('defaults format to numeric for %s', (_, trendsFilter) => {
-        expect(trendsFilterToYFormatterConfig(trendsFilter, false)).toEqual({
-            format: 'numeric',
-            prefix: undefined,
-            suffix: undefined,
-            decimalPlaces: undefined,
-            minDecimalPlaces: undefined,
-            currency: undefined,
-        })
+        expect(trendsFilterToYFormatterConfig(trendsFilter, false)).toEqual({ format: 'numeric' })
     })
 
     it('returns a percentage config when isPercentStackView is true, ignoring the trends filter', () => {
@@ -54,5 +50,28 @@ describe('trendsFilterToYFormatterConfig', () => {
         expect(trendsFilterToYFormatterConfig(trendsFilter, true, 'USD' as CurrencyCode)).toEqual({
             format: 'percentage',
         })
+    })
+})
+
+describe('trends y-tick formatter end-to-end', () => {
+    it.each<[string, TrendsFilter, number, string]>([
+        ['numeric', { aggregationAxisFormat: 'numeric' }, 1234, '1,234'],
+        ['percentage', { aggregationAxisFormat: 'percentage' }, 50, '50%'],
+        ['duration', { aggregationAxisFormat: 'duration' }, 90, `1m${NBSP}30s`],
+        [
+            'prefix + suffix',
+            { aggregationAxisFormat: 'numeric', aggregationAxisPrefix: '~', aggregationAxisPostfix: '!' },
+            7,
+            '~7!',
+        ],
+    ])('formats %s through the trends → hog-charts pipeline', (_, trendsFilter, value, expected) => {
+        const fmt = buildYTickFormatter(trendsFilterToYFormatterConfig(trendsFilter, false))
+        expect(fmt(value)).toBe(expected)
+    })
+
+    it('formats percent-stack values regardless of the underlying trends filter', () => {
+        const trendsFilter: TrendsFilter = { aggregationAxisFormat: 'currency' }
+        const fmt = buildYTickFormatter(trendsFilterToYFormatterConfig(trendsFilter, true, 'USD' as CurrencyCode))
+        expect(fmt(50)).toBe('50%')
     })
 })
