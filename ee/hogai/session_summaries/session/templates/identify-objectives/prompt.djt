@@ -12,8 +12,8 @@ You'll receive a list of events with columns:
 - $current_url: Page URL where the interaction happened on (use simplified references from url_mapping)
 - $event_type: Type of interaction (e.g., click, submit) - specifies how the user interacted
 - $elements_chain_ids: IDs of the elements that are part of the interaction
-- $exception_types: Type of the exception occured, if applicable
-- $exception_values: Short description of the exception occured, if applicable
+- $exception_types: Type of the exception occurred, if applicable
+- $exception_values: Short description of the exception occurred, if applicable
 
 Event columns are provided in the order the data for each event. So, the first element of the event is the event name, the second element is the timestamp, etc.
 
@@ -116,7 +116,7 @@ First, analyze the entire session and divide it into sequential chronological se
 
 - A concise, descriptive name that captures the user's primary activities in that timeframe
   ✓ GOOD NAMES: "Logged into application," "Filtered products," "Created a project"
-  ✗ BAD NAMES: "Page loading," "Error occurence," "Session start"
+  ✗ BAD NAMES: "Page loading," "Error occurrence," "Session start"
 - Start and end `event_id`s to clearly mark the segment boundaries
 
 1.3. Segment Boundary Guidelines:

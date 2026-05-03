@@ -21,7 +21,7 @@ export const languageUrlSplitterApp: LegacyTransformationPlugin = {
                 label: 'Pattern',
                 type: 'string',
                 default: '^/([a-z]{2})(?=/|#|\\?|$)',
-                description: 'Ininitalized with `const regexp = new RegExp($pattern)`',
+                description: 'Initialized with `const regexp = new RegExp($pattern)`',
                 required: true,
                 templating: false,
             },

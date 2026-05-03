@@ -46,7 +46,7 @@ export function GitHubRepoSummary({
             <div className="flex items-center gap-2 min-h-5">
                 <div className="text-xs text-muted">
                     <IconBranch className="inline mr-1 text-sm" />
-                    {repoNames.length} repositor{repoNames.length === 1 ? 'y' : 'ies'} accessible:{' '}
+                    {repoNames.length} {repoNames.length === 1 ? 'repository' : 'repositories'} accessible:{' '}
                     {repoNames.length <= 3
                         ? repoNames.join(', ')
                         : `${repoNames.slice(0, 3).join(', ')} and ${repoNames.length - 3} more`}

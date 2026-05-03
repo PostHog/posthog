@@ -4,7 +4,7 @@
     "main": "index.ts",
     "config": [
         {
-            "markdown": "Processes specified properties to flatten sematic versions. Assumes any property contains a string which matches [the SemVer specification](https://semver.org/#backusnaur-form-grammar-for-valid-semver-versions)"
+            "markdown": "Processes specified properties to flatten semantic versions. Assumes any property contains a string which matches [the SemVer specification](https://semver.org/#backusnaur-form-grammar-for-valid-semver-versions)"
         },
         {
             "key": "properties",

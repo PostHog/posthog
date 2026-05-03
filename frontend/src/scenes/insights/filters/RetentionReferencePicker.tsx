@@ -25,7 +25,7 @@ export function RetentionReferencePicker(): JSX.Element {
                     value: 'total',
                     label: 'starting cohort size',
                     tooltip:
-                        'eg. Retention for day 3 will be percentage of users who returned on day 3 as a percentage of users on day 0 (users who preformed start event)',
+                        'eg. Retention for day 3 will be percentage of users who returned on day 3 as a percentage of users on day 0 (users who performed start event)',
                 },
                 {
                     value: 'previous',

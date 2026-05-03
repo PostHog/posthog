@@ -6,7 +6,7 @@
             "name": "Pattern",
             "type": "string",
             "default": "^/([a-z]{2})(?=/|#|\\?|$)",
-            "hint": "Ininitalized with `const regexp = new RegExp($pattern)`",
+            "hint": "Initialized with `const regexp = new RegExp($pattern)`",
             "required": true
         },
         {
