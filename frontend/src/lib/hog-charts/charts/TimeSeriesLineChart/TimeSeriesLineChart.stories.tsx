@@ -106,6 +106,69 @@ function DateAxisCell({ title, labels, series, interval, timezone }: DateAxisCel
     )
 }
 
+interface YFormatCellProps {
+    title: string
+    config: NonNullable<Parameters<typeof TimeSeriesLineChart>[0]['config']>['yAxis']
+    series: Series[]
+}
+
+function YFormatCell({ title, config, series }: YFormatCellProps): JSX.Element {
+    const theme = useReactiveTheme()
+    return (
+        // eslint-disable-next-line react/forbid-dom-props
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <span className="text-xs text-muted">{title}</span>
+            <Stage width={420} height={220}>
+                <TimeSeriesLineChart
+                    series={series}
+                    labels={DAYS}
+                    theme={theme}
+                    config={{ yAxis: { ...config, showGrid: true } }}
+                />
+            </Stage>
+        </div>
+    )
+}
+
+const NUMERIC_SERIES: Series[] = [{ key: 'visits', label: 'Visits', data: [1200, 1350, 1280, 1600, 1450, 1700, 1520] }]
+const PERCENTAGE_SERIES: Series[] = [{ key: 'rate', label: 'Conversion', data: [12, 18, 22, 31, 28, 35, 41] }]
+const CURRENCY_SERIES: Series[] = [
+    { key: 'revenue', label: 'Revenue', data: [1200, 1450, 1390, 1820, 1675, 2100, 1990] },
+]
+const DURATION_SERIES: Series[] = [{ key: 'session', label: 'Session length', data: [45, 90, 120, 180, 240, 300, 540] }]
+
+export const YAxisFormats: Story = {
+    render: () => (
+        // eslint-disable-next-line react/forbid-dom-props
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, auto)', gap: 24 }}>
+            <YFormatCell title="numeric" series={NUMERIC_SERIES} config={{ format: 'numeric' }} />
+            <YFormatCell
+                title="numeric · prefix '$'"
+                series={NUMERIC_SERIES}
+                config={{ format: 'numeric', prefix: '$' }}
+            />
+            <YFormatCell
+                title="numeric · suffix ' req'"
+                series={NUMERIC_SERIES}
+                config={{ format: 'numeric', suffix: ' req' }}
+            />
+            <YFormatCell title="short" series={NUMERIC_SERIES} config={{ format: 'short' }} />
+            <YFormatCell title="percentage" series={PERCENTAGE_SERIES} config={{ format: 'percentage' }} />
+            <YFormatCell
+                title="currency · USD"
+                series={CURRENCY_SERIES}
+                config={{ format: 'currency', currency: 'USD' }}
+            />
+            <YFormatCell
+                title="currency · EUR"
+                series={CURRENCY_SERIES}
+                config={{ format: 'currency', currency: 'EUR' }}
+            />
+            <YFormatCell title="duration (s)" series={DURATION_SERIES} config={{ format: 'duration' }} />
+        </div>
+    ),
+}
+
 export const DateAxis: Story = {
     render: () => {
         const cells: { interval: TimeInterval; labels: string[]; series: Series[]; title: string }[] = [

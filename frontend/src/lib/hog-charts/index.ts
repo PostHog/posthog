@@ -61,3 +61,5 @@ export { computeVisibleXLabels } from './overlays/AxisLabels'
 // Timeseries utils
 export { createXAxisTickCallback, parseDateForAxis } from './charts/TimeSeriesLineChart/utils/dates'
 export type { TimeInterval } from './charts/TimeSeriesLineChart/utils/dates'
+export { buildYTickFormatter } from './charts/TimeSeriesLineChart/utils/y-formatters'
+export type { YAxisFormat, YFormatterConfig } from './charts/TimeSeriesLineChart/utils/y-formatters'
