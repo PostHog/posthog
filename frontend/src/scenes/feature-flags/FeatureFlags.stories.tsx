@@ -6,9 +6,8 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 
-import { featureFlagLogic } from './featureFlagLogic'
-
 import featureFlags from './__mocks__/feature_flags.json'
+import { featureFlagLogic } from './featureFlagLogic'
 
 const meta: Meta = {
     component: App,
