@@ -28,7 +28,6 @@ import { Label } from 'lib/ui/Label/Label'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { cn } from 'lib/utils/css-classes'
 import { newInternalTab } from 'lib/utils/newInternalTab'
-import { availableOnboardingProducts, getProductIcon } from 'scenes/onboarding/utils'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -179,24 +178,6 @@ const getIconForItem = (item: SearchItem): ReactNode => {
         itemType = 'workflows'
     }
     if (itemType) {
-        // Recents and starred entries only carry the stored `type`, with no manifest-derived
-        // icon color attached. Defer to the same centralized mapping billing/onboarding use
-        // so products like web analytics still render with the right icon.
-        const productType = typeof itemType === 'string' ? itemType : undefined
-        if (
-            productType &&
-            (item.category === 'recents' || item.category === 'starred') &&
-            productType in availableOnboardingProducts
-        ) {
-            const manifestIconColor = (availableOnboardingProducts as Partial<Record<string, { iconColor?: string }>>)[
-                productType
-            ]?.iconColor
-            return getProductIcon(undefined, {
-                productType,
-                iconColor: manifestIconColor,
-                className: 'shrink-0 text-base',
-            })
-        }
         // Handle iconColor which may be a single-element array or tuple
         const rawColor = item.record?.iconColor as string[] | undefined
         const colorOverride: [string, string] | undefined = rawColor
