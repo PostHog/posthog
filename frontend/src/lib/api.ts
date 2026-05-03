@@ -197,9 +197,9 @@ import {
     SessionRecordingUpdateType,
     SessionSummaryResponse,
     SharingConfigurationType,
-    AnthropicAgentType,
-    AnthropicEnvironmentType,
-    AnthropicVaultType,
+    AnthropicManagedAgentEnvironmentType,
+    AnthropicManagedAgentType,
+    AnthropicManagedAgentVaultType,
     SlackChannelType,
     SubscriptionType,
     Survey,
@@ -1534,16 +1534,19 @@ export class ApiRequest {
         return this.integrations(teamId).addPathComponent(id).addPathComponent('linear_teams')
     }
 
-    public integrationAnthropicAgents(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.integrations(teamId).addPathComponent(id).addPathComponent('anthropic_agents')
+    public integrationAnthropicManagedAgents(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.integrations(teamId).addPathComponent(id).addPathComponent('anthropic_managed_agents')
     }
 
-    public integrationAnthropicEnvironments(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.integrations(teamId).addPathComponent(id).addPathComponent('anthropic_environments')
+    public integrationAnthropicManagedAgentEnvironments(
+        id: IntegrationType['id'],
+        teamId?: TeamType['id']
+    ): ApiRequest {
+        return this.integrations(teamId).addPathComponent(id).addPathComponent('anthropic_managed_agent_environments')
     }
 
-    public integrationAnthropicVaults(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.integrations(teamId).addPathComponent(id).addPathComponent('anthropic_vaults')
+    public integrationAnthropicManagedAgentVaults(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.integrations(teamId).addPathComponent(id).addPathComponent('anthropic_managed_agent_vaults')
     }
 
     public integrationGitHubRepositories(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
@@ -5781,14 +5784,18 @@ const api = {
         async linearTeams(id: IntegrationType['id']): Promise<{ teams: LinearTeamType[] }> {
             return await new ApiRequest().integrationLinearTeams(id).get()
         },
-        async anthropicAgents(id: IntegrationType['id']): Promise<{ agents: AnthropicAgentType[] }> {
-            return await new ApiRequest().integrationAnthropicAgents(id).get()
+        async anthropicManagedAgents(id: IntegrationType['id']): Promise<{ agents: AnthropicManagedAgentType[] }> {
+            return await new ApiRequest().integrationAnthropicManagedAgents(id).get()
         },
-        async anthropicEnvironments(id: IntegrationType['id']): Promise<{ environments: AnthropicEnvironmentType[] }> {
-            return await new ApiRequest().integrationAnthropicEnvironments(id).get()
+        async anthropicManagedAgentEnvironments(
+            id: IntegrationType['id']
+        ): Promise<{ environments: AnthropicManagedAgentEnvironmentType[] }> {
+            return await new ApiRequest().integrationAnthropicManagedAgentEnvironments(id).get()
         },
-        async anthropicVaults(id: IntegrationType['id']): Promise<{ vaults: AnthropicVaultType[] }> {
-            return await new ApiRequest().integrationAnthropicVaults(id).get()
+        async anthropicManagedAgentVaults(
+            id: IntegrationType['id']
+        ): Promise<{ vaults: AnthropicManagedAgentVaultType[] }> {
+            return await new ApiRequest().integrationAnthropicManagedAgentVaults(id).get()
         },
         async githubRepositories(
             id: IntegrationType['id'],

@@ -3,10 +3,10 @@ import { useValues } from 'kea'
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
 import {
-    AnthropicAgentPicker,
-    AnthropicEnvironmentPicker,
-    AnthropicVaultPicker,
-} from 'lib/integrations/AnthropicIntegrationHelpers'
+    AnthropicManagedAgentEnvironmentPicker,
+    AnthropicManagedAgentPicker,
+    AnthropicManagedAgentVaultPicker,
+} from 'lib/integrations/AnthropicManagedAgentsHelpers'
 import {
     ClickUpListPicker,
     ClickUpSpacePicker,
@@ -153,14 +153,22 @@ export function CyclotronJobInputIntegrationField({
     if (schema.integration_field === 'linear_team') {
         return <LinearTeamPicker value={value} onChange={(x) => onChange?.(x)} integration={integration} />
     }
-    if (schema.integration_field === 'anthropic_agent') {
-        return <AnthropicAgentPicker value={value} onChange={(x) => onChange?.(x)} integration={integration} />
+    if (schema.integration_field === 'anthropic_managed_agent') {
+        return <AnthropicManagedAgentPicker value={value} onChange={(x) => onChange?.(x)} integration={integration} />
     }
-    if (schema.integration_field === 'anthropic_environment') {
-        return <AnthropicEnvironmentPicker value={value} onChange={(x) => onChange?.(x)} integration={integration} />
+    if (schema.integration_field === 'anthropic_managed_agent_environment') {
+        return (
+            <AnthropicManagedAgentEnvironmentPicker
+                value={value}
+                onChange={(x) => onChange?.(x)}
+                integration={integration}
+            />
+        )
     }
-    if (schema.integration_field === 'anthropic_vault') {
-        return <AnthropicVaultPicker value={value} onChange={(x) => onChange?.(x)} integration={integration} />
+    if (schema.integration_field === 'anthropic_managed_agent_vault') {
+        return (
+            <AnthropicManagedAgentVaultPicker value={value} onChange={(x) => onChange?.(x)} integration={integration} />
+        )
     }
     if (schema.integration_field === 'github_repository') {
         return <GitHubRepositoryPicker value={value} onChange={(x) => onChange?.(x)} integrationId={integration.id} />

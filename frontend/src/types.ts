@@ -5143,18 +5143,18 @@ export interface LinearTeamType {
     name: string
 }
 
-export interface AnthropicAgentType {
+export interface AnthropicManagedAgentType {
     id: string
     name: string
     version?: string | null
 }
 
-export interface AnthropicEnvironmentType {
+export interface AnthropicManagedAgentEnvironmentType {
     id: string
     name: string
 }
 
-export interface AnthropicVaultType {
+export interface AnthropicManagedAgentVaultType {
     id: string
     display_name: string
 }
