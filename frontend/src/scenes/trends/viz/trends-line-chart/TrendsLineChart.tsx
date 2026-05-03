@@ -79,6 +79,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
 
     const trackChartPerformance = useHogChartTracking({
         chart_type: display ?? undefined,
+        insight_type: 'Trends',
         has_breakdown: !!breakdownFilter?.breakdown,
         insight_short_id: insight?.short_id,
         dashboard_id: insightProps?.dashboardId,
