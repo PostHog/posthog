@@ -1,5 +1,6 @@
 from datetime import timedelta
 from typing import cast
+from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, patch
@@ -682,7 +683,8 @@ class TestOrganizationSerializer(APIBaseTest):
     def test_get_teams_invalidates_on_team_save(self):
         OrganizationSerializer(self.organization, context=self.context).get_teams(self.organization)
 
-        Team.objects.create(organization=self.organization, name="New Team")
+        with self.captureOnCommitCallbacks(execute=True):
+            Team.objects.create(organization=self.organization, name="New Team")
 
         fresh_serializer = OrganizationSerializer(self.organization, context=self._fresh_context_for(self.user))
         with patch.object(fresh_serializer, "_fetch_visible_teams", wraps=fresh_serializer._fetch_visible_teams) as spy:
@@ -694,7 +696,8 @@ class TestOrganizationSerializer(APIBaseTest):
         team2 = Team.objects.create(organization=self.organization, name="Will Be Deleted")
         OrganizationSerializer(self.organization, context=self.context).get_teams(self.organization)
 
-        team2.delete()
+        with self.captureOnCommitCallbacks(execute=True):
+            team2.delete()
 
         fresh_serializer = OrganizationSerializer(self.organization, context=self._fresh_context_for(self.user))
         with patch.object(fresh_serializer, "_fetch_visible_teams", wraps=fresh_serializer._fetch_visible_teams) as spy:
@@ -728,7 +731,8 @@ class TestOrganizationSerializer(APIBaseTest):
 
         existing_project = self.team.project
         existing_project.name = "Renamed Project"
-        existing_project.save()
+        with self.captureOnCommitCallbacks(execute=True):
+            existing_project.save()
 
         fresh_serializer = OrganizationSerializer(self.organization, context=self._fresh_context_for(self.user))
         with patch.object(
@@ -755,7 +759,7 @@ class TestOrganizationSerializer(APIBaseTest):
             (
                 "role_membership",
                 lambda self: RoleMembership.objects.create(
-                    role=Role.objects.create(name=f"role-{id(self)}", organization=self.organization),
+                    role=Role.objects.create(name=f"role-{uuid4().hex}", organization=self.organization),
                     user=self.user,
                 ),
             ),
@@ -769,7 +773,8 @@ class TestOrganizationSerializer(APIBaseTest):
         OrganizationSerializer(self.organization, context=self.context).get_teams(self.organization)
         initial_version = _org_serializer_cache_version(str(self.organization.id))
 
-        mutate(self)
+        with self.captureOnCommitCallbacks(execute=True):
+            mutate(self)
 
         after_version = _org_serializer_cache_version(str(self.organization.id))
         assert after_version > initial_version

@@ -1,12 +1,12 @@
 import dataclasses
 from collections.abc import Callable
 from functools import cached_property
-from typing import Any, Union, cast
+from typing import Any, Literal, Union, cast
 
 from django.core.cache import cache
+from django.db import transaction
 from django.db.models import Model, QuerySet
 from django.db.models.signals import post_delete, post_save
-from django.dispatch import receiver
 from django.shortcuts import get_object_or_404
 
 import posthoganalytics
@@ -97,25 +97,46 @@ tracer = trace.get_tracer(__name__)
 
 
 ORG_SERIALIZER_CACHE_TTL_SECONDS = 60 * 60
+ORG_SERIALIZER_VERSION_TTL_SECONDS = 7 * 24 * 60 * 60
 _ORG_SERIALIZER_VERSION_KEY_PREFIX = "org_serializer_version:"
 
 
+def _org_serializer_version_key(organization_id: str) -> str:
+    return f"{_ORG_SERIALIZER_VERSION_KEY_PREFIX}{organization_id}"
+
+
 def _org_serializer_cache_version(organization_id: str) -> int:
-    version = cache.get(f"{_ORG_SERIALIZER_VERSION_KEY_PREFIX}{organization_id}")
-    if version is None:
-        cache.add(f"{_ORG_SERIALIZER_VERSION_KEY_PREFIX}{organization_id}", 0, timeout=None)
+    key = _org_serializer_version_key(organization_id)
+    raw = get_safe_cache(key)
+    if raw is None:
+        try:
+            cache.add(key, 0, timeout=ORG_SERIALIZER_VERSION_TTL_SECONDS)
+        except Exception:
+            pass
         return 0
-    return int(version)
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _bump_org_serializer_cache_version(organization_id: str) -> None:
+    key = _org_serializer_version_key(organization_id)
     try:
-        cache.incr(f"{_ORG_SERIALIZER_VERSION_KEY_PREFIX}{organization_id}")
+        cache.incr(key)
     except ValueError:
-        cache.add(f"{_ORG_SERIALIZER_VERSION_KEY_PREFIX}{organization_id}", 1, timeout=None)
+        try:
+            cache.add(key, 1, timeout=ORG_SERIALIZER_VERSION_TTL_SECONDS)
+        except Exception:
+            pass
+    except Exception:
+        pass
 
 
-def _cached_per_user_org(field: str, user_id: int, organization_id: str, fetcher: Callable[[], Any]) -> Any:
+CacheField = Literal["teams", "projects"]
+
+
+def _cached_per_user_org(field: CacheField, user_id: int, organization_id: str, fetcher: Callable[[], Any]) -> Any:
     version = _org_serializer_cache_version(organization_id)
     cache_key = f"org_serializer:{field}:{organization_id}:v{version}:{user_id}"
     cached = get_safe_cache(cache_key)
@@ -126,61 +147,68 @@ def _cached_per_user_org(field: str, user_id: int, organization_id: str, fetcher
     return result
 
 
-@receiver(post_save, sender=Team)
-@receiver(post_delete, sender=Team)
-def _invalidate_org_serializer_cache_on_team_change(sender: type[Team], instance: Team, **kwargs: Any) -> None:
-    if instance.organization_id is not None:
-        _bump_org_serializer_cache_version(str(instance.organization_id))
+def _resolve_cached_user_id(serializer_context: dict[str, Any]) -> int | None:
+    request = serializer_context.get("request")
+    if request is None:
+        return None
+    user = getattr(request, "user", None)
+    if user is None or not user.is_authenticated:
+        return None
+    return user.id
 
 
-@receiver(post_save, sender=Project)
-@receiver(post_delete, sender=Project)
-def _invalidate_org_serializer_cache_on_project_change(sender: type[Project], instance: Project, **kwargs: Any) -> None:
-    if instance.organization_id is not None:
-        _bump_org_serializer_cache_version(str(instance.organization_id))
+def _instance_org_id(instance: Any) -> str | None:
+    organization_id = getattr(instance, "organization_id", None)
+    return str(organization_id) if organization_id is not None else None
 
 
-@receiver(post_save, sender=OrganizationMembership)
-@receiver(post_delete, sender=OrganizationMembership)
-def _invalidate_org_serializer_cache_on_org_membership_change(
-    sender: type[OrganizationMembership], instance: OrganizationMembership, **kwargs: Any
-) -> None:
-    if instance.organization_id is not None:
-        _bump_org_serializer_cache_version(str(instance.organization_id))
-
-
-def _bump_for_team_id(team_id: Any) -> None:
+def _team_id_to_org_id(instance: Any) -> str | None:
+    team_id = getattr(instance, "team_id", None)
     if team_id is None:
-        return
+        return None
     organization_id = Team.objects.filter(id=team_id).values_list("organization_id", flat=True).first()
-    if organization_id is not None:
-        _bump_org_serializer_cache_version(str(organization_id))
+    return str(organization_id) if organization_id is not None else None
 
 
-@receiver(post_save, sender=AccessControl)
-@receiver(post_delete, sender=AccessControl)
-def _invalidate_org_serializer_cache_on_access_control_change(
-    sender: type[AccessControl], instance: AccessControl, **kwargs: Any
-) -> None:
-    _bump_for_team_id(instance.team_id)
+def _role_id_to_org_id(instance: Any) -> str | None:
+    role_id = getattr(instance, "role_id", None)
+    if role_id is None:
+        return None
+    organization_id = Role.objects.filter(id=role_id).values_list("organization_id", flat=True).first()
+    return str(organization_id) if organization_id is not None else None
 
 
-@receiver(post_save, sender=ExplicitTeamMembership)
-@receiver(post_delete, sender=ExplicitTeamMembership)
-def _invalidate_org_serializer_cache_on_explicit_team_membership_change(
-    sender: type[ExplicitTeamMembership], instance: ExplicitTeamMembership, **kwargs: Any
-) -> None:
-    _bump_for_team_id(instance.team_id)
+_VISIBILITY_RESOURCES = {"project", "organization"}
 
 
-@receiver(post_save, sender=RoleMembership)
-@receiver(post_delete, sender=RoleMembership)
-def _invalidate_org_serializer_cache_on_role_membership_change(
-    sender: type[RoleMembership], instance: RoleMembership, **kwargs: Any
-) -> None:
-    organization_id = Role.objects.filter(id=instance.role_id).values_list("organization_id", flat=True).first()
-    if organization_id is not None:
-        _bump_org_serializer_cache_version(str(organization_id))
+def _access_control_to_org_id(instance: Any) -> str | None:
+    if getattr(instance, "resource", None) not in _VISIBILITY_RESOURCES:
+        return None
+    return _team_id_to_org_id(instance)
+
+
+_INVALIDATION_SOURCES: list[tuple[type[Model], Callable[[Any], str | None]]] = [
+    (Team, _instance_org_id),
+    (Project, _instance_org_id),
+    (OrganizationMembership, _instance_org_id),
+    (AccessControl, _access_control_to_org_id),
+    (ExplicitTeamMembership, _team_id_to_org_id),
+    (RoleMembership, _role_id_to_org_id),
+]
+
+
+def _connect_invalidation(model: type[Model], get_org_id: Callable[[Any], str | None]) -> None:
+    def receiver_fn(sender: type[Model], instance: Any, **kwargs: Any) -> None:
+        organization_id = get_org_id(instance)
+        if organization_id is not None:
+            transaction.on_commit(lambda: _bump_org_serializer_cache_version(organization_id))
+
+    post_save.connect(receiver_fn, sender=model, weak=False)
+    post_delete.connect(receiver_fn, sender=model, weak=False)
+
+
+for _model, _resolver in _INVALIDATION_SOURCES:
+    _connect_invalidation(_model, _resolver)
 
 
 class OrganizationSerializer(
@@ -284,10 +312,7 @@ class OrganizationSerializer(
 
     @tracer.start_as_current_span("organization_serializer.teams")
     def get_teams(self, instance: Organization) -> list[dict[str, Any]]:
-        request = self.context.get("request")
-        user_id = (
-            request.user.id if request and getattr(request, "user", None) and request.user.is_authenticated else None
-        )
+        user_id = _resolve_cached_user_id(self.context)
         if user_id is None:
             return self._fetch_visible_teams(instance)
         return _cached_per_user_org("teams", user_id, str(instance.id), lambda: self._fetch_visible_teams(instance))
@@ -307,10 +332,7 @@ class OrganizationSerializer(
 
     @tracer.start_as_current_span("organization_serializer.projects")
     def get_projects(self, instance: Organization) -> list[dict[str, Any]]:
-        request = self.context.get("request")
-        user_id = (
-            request.user.id if request and getattr(request, "user", None) and request.user.is_authenticated else None
-        )
+        user_id = _resolve_cached_user_id(self.context)
         if user_id is None:
             return self._fetch_visible_projects(instance)
         return _cached_per_user_org(
