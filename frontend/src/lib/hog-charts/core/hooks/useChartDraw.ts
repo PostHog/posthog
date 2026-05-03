@@ -34,6 +34,8 @@ function clearAndPrepare(ctx: CanvasRenderingContext2D, dimensions: ChartDimensi
     ctx.clearRect(0, 0, dimensions.width, dimensions.height)
 }
 
+const now = (): number => performance.now()
+
 export function useChartDraw({
     ctx,
     overlayCtx,
@@ -56,7 +58,7 @@ export function useChartDraw({
     // Captured at the first render of this hook. `useRef`'s initializer runs every render but
     // only the first value is retained, so this approximates the chart's mount time well enough
     // for `sinceMountMs` to be meaningful for the first-paint metric.
-    const mountTimeRef = useRef(typeof performance !== 'undefined' ? performance.now() : 0)
+    const mountTimeRef = useRef(now())
     const firstPaintFiredRef = useRef(false)
     // Stash the latest perf callback so changing identity doesn't re-run the static-draw effect.
     const onPerformanceRef = useLatest(onPerformance)
@@ -74,9 +76,9 @@ export function useChartDraw({
         staticRafRef.current = requestAnimationFrame(() => {
             staticRafRef.current = null
             clearAndPrepare(ctx, dimensions)
-            const drawStart = typeof performance !== 'undefined' ? performance.now() : 0
+            const drawStart = now()
             drawStatic({ ctx, dimensions, scales, series, labels, hoverIndex: -1, theme })
-            const drawEnd = typeof performance !== 'undefined' ? performance.now() : 0
+            const drawEnd = now()
             ctx.restore()
             const onPerf = onPerformanceRef.current
             if (onPerf) {
