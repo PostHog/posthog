@@ -1,6 +1,14 @@
 import { useEffect, useRef } from 'react'
 
-import type { ChartDimensions, ChartDrawArgs, ChartScales, ChartTheme, ResolvedSeries } from '../types'
+import type {
+    ChartDimensions,
+    ChartDrawArgs,
+    ChartScales,
+    ChartTheme,
+    OnChartPerformance,
+    ResolvedSeries,
+} from '../types'
+import { useLatest } from './useLatest'
 
 interface UseChartDrawOptions {
     /** Context for the static layer (grid, lines, areas, points). Redrawn only when chart inputs change. */
@@ -15,6 +23,8 @@ interface UseChartDrawOptions {
     theme: ChartTheme
     drawStatic: (args: ChartDrawArgs) => void
     drawHover: (args: ChartDrawArgs) => void
+    /** Optional perf callback fired after each static paint. */
+    onPerformance?: OnChartPerformance
 }
 
 function clearAndPrepare(ctx: CanvasRenderingContext2D, dimensions: ChartDimensions): void {
@@ -35,12 +45,21 @@ export function useChartDraw({
     theme,
     drawStatic,
     drawHover,
+    onPerformance,
 }: UseChartDrawOptions): void {
     // Track the in-flight RAF id in a ref so each new effect run can cancel the previous
     // RAF before scheduling its own. Relying on the React cleanup ordering alone leaves
     // a window where a stale RAF from render N-1 can paint after render N's setup runs.
     const staticRafRef = useRef<number | null>(null)
     const hoverRafRef = useRef<number | null>(null)
+
+    // Captured at the first render of this hook. `useRef`'s initializer runs every render but
+    // only the first value is retained, so this approximates the chart's mount time well enough
+    // for `sinceMountMs` to be meaningful for the first-paint metric.
+    const mountTimeRef = useRef(typeof performance !== 'undefined' ? performance.now() : 0)
+    const firstPaintFiredRef = useRef(false)
+    // Stash the latest perf callback so changing identity doesn't re-run the static-draw effect.
+    const onPerformanceRef = useLatest(onPerformance)
 
     // Static layer — redraws only when chart inputs change. Excluded `hoverIndex` from deps
     // on purpose so a hover sweep doesn't repaint every line/area/point per move.
@@ -55,8 +74,26 @@ export function useChartDraw({
         staticRafRef.current = requestAnimationFrame(() => {
             staticRafRef.current = null
             clearAndPrepare(ctx, dimensions)
+            const drawStart = typeof performance !== 'undefined' ? performance.now() : 0
             drawStatic({ ctx, dimensions, scales, series, labels, hoverIndex: -1, theme })
             ctx.restore()
+            const onPerf = onPerformanceRef.current
+            if (onPerf) {
+                const drawEnd = typeof performance !== 'undefined' ? performance.now() : 0
+                const phase = firstPaintFiredRef.current ? 'redraw' : 'first-paint'
+                firstPaintFiredRef.current = true
+                let dataPointCount = 0
+                for (const s of series) {
+                    dataPointCount += s.data.length
+                }
+                onPerf({
+                    phase,
+                    drawMs: drawEnd - drawStart,
+                    sinceMountMs: drawEnd - mountTimeRef.current,
+                    seriesCount: series.length,
+                    dataPointCount,
+                })
+            }
         })
         return () => {
             if (staticRafRef.current != null) {
@@ -65,6 +102,7 @@ export function useChartDraw({
             }
         }
         // hoverIndex deliberately omitted — see comment above.
+        // onPerformanceRef and mountTimeRef are refs and stable.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [ctx, dimensions, scales, series, labels, theme, drawStatic])
 

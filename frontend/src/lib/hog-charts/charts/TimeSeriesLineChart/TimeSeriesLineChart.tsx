@@ -1,6 +1,13 @@
 import React, { useMemo } from 'react'
 
-import type { ChartTheme, LineChartConfig, PointClickData, Series, TooltipContext } from '../../core/types'
+import type {
+    ChartTheme,
+    LineChartConfig,
+    OnChartPerformance,
+    PointClickData,
+    Series,
+    TooltipContext,
+} from '../../core/types'
 import { LineChart } from '../LineChart'
 import { createXAxisTickCallback, type TimeInterval } from './utils/dates'
 
@@ -38,6 +45,8 @@ export interface TimeSeriesLineChartProps<Meta = unknown> {
     /** `data-attr` applied to the chart wrapper for product-level test selectors. */
     dataAttr?: string
     className?: string
+    /** Optional perf callback. See `ChartProps.onPerformance`. */
+    onPerformance?: OnChartPerformance
 }
 
 export function TimeSeriesLineChart<Meta = unknown>({
@@ -49,6 +58,7 @@ export function TimeSeriesLineChart<Meta = unknown>({
     onPointClick,
     dataAttr,
     className,
+    onPerformance,
 }: TimeSeriesLineChartProps<Meta>): React.ReactElement {
     const { xAxis, yAxis } = config ?? {}
     const xAxisTickFormatter = xAxis?.tickFormatter
@@ -87,6 +97,7 @@ export function TimeSeriesLineChart<Meta = unknown>({
             onPointClick={onPointClick}
             className={className}
             dataAttr={dataAttr}
+            onPerformance={onPerformance}
         />
     )
 }

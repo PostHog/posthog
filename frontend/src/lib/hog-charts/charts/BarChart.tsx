@@ -19,6 +19,7 @@ import type {
     ChartScales,
     ChartTheme,
     CreateScalesFn,
+    OnChartPerformance,
     PointClickData,
     ResolvedSeries,
     Series,
@@ -49,6 +50,8 @@ export interface BarChartProps<Meta = unknown> {
     dataAttr?: string
     children?: React.ReactNode
     onError?: (error: Error, info: React.ErrorInfo) => void
+    /** Optional perf callback. See `ChartProps.onPerformance`. */
+    onPerformance?: OnChartPerformance
 }
 
 export function BarChart<Meta = unknown>({ onError, ...rest }: BarChartProps<Meta>): React.ReactElement {
@@ -69,6 +72,7 @@ function BarChartInner<Meta = unknown>({
     className,
     dataAttr,
     children,
+    onPerformance,
 }: Omit<BarChartProps<Meta>, 'onError'>): React.ReactElement {
     const {
         yScaleType = 'linear',
@@ -266,6 +270,7 @@ function BarChartInner<Meta = unknown>({
             className={className}
             dataAttr={dataAttr}
             resolveValue={resolveValue}
+            onPerformance={onPerformance}
         >
             {children}
         </Chart>

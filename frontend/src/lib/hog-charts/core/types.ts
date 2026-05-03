@@ -199,6 +199,30 @@ export interface ChartDrawArgs {
     theme: ChartTheme
 }
 
+/** Phase of the chart's lifecycle a `ChartPerformanceEvent` represents. */
+export type ChartPerformancePhase = 'first-paint' | 'redraw'
+
+/** Agnostic performance metrics emitted by a chart after each static-layer paint.
+ *  Consumers wire this to whatever telemetry they use — the chart library itself stays
+ *  unaware of any analytics SDK. */
+export interface ChartPerformanceEvent {
+    /** `first-paint` is the first successful static draw after the chart mounts.
+     *  Subsequent paints (data updates, dimension changes, theme switches) are `redraw`. */
+    phase: ChartPerformancePhase
+    /** Wall time spent inside the chart-type's own static draw fn, in ms. */
+    drawMs: number
+    /** Wall time from the chart's mount to this paint completing, in ms.
+     *  Most useful for `first-paint` — tracks overall time-to-first-render. */
+    sinceMountMs: number
+    /** Number of series passed in (including hidden ones — consumers can subtract). */
+    seriesCount: number
+    /** Total data points across all series (sum of `series.data.length`). */
+    dataPointCount: number
+}
+
+/** Callback fired after each static-layer paint with timing data. */
+export type OnChartPerformance = (event: ChartPerformanceEvent) => void
+
 /** Resolves the y-value for a series at a given data index. Used by interaction/tooltip layer. */
 export type ResolveValueFn = (series: Series, dataIndex: number) => number
 

@@ -19,6 +19,7 @@ import type {
     ChartTheme,
     CreateScalesFn,
     LineChartConfig,
+    OnChartPerformance,
     PointClickData,
     ResolvedSeries,
     Series,
@@ -44,6 +45,8 @@ export interface LineChartProps<Meta = unknown> {
     dataAttr?: string
     children?: React.ReactNode
     onError?: (error: Error, info: React.ErrorInfo) => void
+    /** Optional perf callback. See `ChartProps.onPerformance`. */
+    onPerformance?: OnChartPerformance
 }
 
 export function LineChart<Meta = unknown>({ onError, ...rest }: LineChartProps<Meta>): React.ReactElement {
@@ -64,6 +67,7 @@ function LineChartInner<Meta = unknown>({
     className,
     dataAttr,
     children,
+    onPerformance,
 }: LineChartProps<Meta>): React.ReactElement {
     const { yScaleType = 'linear', percentStackView = false, showGrid = false } = config ?? {}
 
@@ -239,6 +243,7 @@ function LineChartInner<Meta = unknown>({
             className={className}
             dataAttr={dataAttr}
             resolveValue={resolveValue}
+            onPerformance={onPerformance}
         >
             {children}
         </Chart>

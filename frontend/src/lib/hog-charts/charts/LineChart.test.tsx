@@ -90,4 +90,33 @@ describe('LineChart', () => {
         const { container } = render(<LineChart series={broken} labels={LABELS} theme={THEME} />)
         expect(container.querySelector('canvas')).not.toBeNull()
     })
+
+    describe('onPerformance', () => {
+        it('fires once with `first-paint` after the initial draw', () => {
+            const onPerformance = jest.fn()
+            render(<LineChart series={SERIES} labels={LABELS} theme={THEME} onPerformance={onPerformance} />)
+            expect(onPerformance).toHaveBeenCalledTimes(1)
+            const event = onPerformance.mock.calls[0][0]
+            expect(event.phase).toBe('first-paint')
+            expect(event.seriesCount).toBe(SERIES.length)
+            expect(event.dataPointCount).toBe(SERIES.reduce((n, s) => n + s.data.length, 0))
+            expect(event.drawMs).toBeGreaterThanOrEqual(0)
+            expect(event.sinceMountMs).toBeGreaterThanOrEqual(event.drawMs)
+        })
+
+        it('fires `redraw` on subsequent paints triggered by data change', () => {
+            const onPerformance = jest.fn()
+            const { rerender } = render(
+                <LineChart series={SERIES} labels={LABELS} theme={THEME} onPerformance={onPerformance} />
+            )
+            expect(onPerformance).toHaveBeenLastCalledWith(expect.objectContaining({ phase: 'first-paint' }))
+
+            const updated: Series[] = [
+                { key: 'a', label: 'A', data: [11, 22, 33] },
+                { key: 'b', label: 'B', data: [6, 16, 26] },
+            ]
+            rerender(<LineChart series={updated} labels={LABELS} theme={THEME} onPerformance={onPerformance} />)
+            expect(onPerformance).toHaveBeenLastCalledWith(expect.objectContaining({ phase: 'redraw' }))
+        })
+    })
 })

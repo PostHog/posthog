@@ -19,6 +19,7 @@ import type {
     ChartScales,
     ChartTheme,
     CreateScalesFn,
+    OnChartPerformance,
     PointClickData,
     ResolvedSeries,
     ResolveValueFn,
@@ -86,6 +87,10 @@ export interface ChartProps<Meta = unknown> {
      *  axis (y in horizontal mode). Should be referentially stable; non-stable identities
      *  invalidate the interaction memo on every render. */
     labelToCoord?: (label: string) => number | undefined
+    /** Optional callback fired after each static-layer paint with timing metrics. Stays
+     *  agnostic — the chart library doesn't know about any analytics SDK. Identity may
+     *  change freely; the latest callback is read at draw time. */
+    onPerformance?: OnChartPerformance
 }
 
 export function Chart<Meta = unknown>({
@@ -103,6 +108,7 @@ export function Chart<Meta = unknown>({
     children,
     resolveValue,
     labelToCoord,
+    onPerformance,
 }: ChartProps<Meta>): React.ReactElement {
     const {
         xTickFormatter,
@@ -189,6 +195,7 @@ export function Chart<Meta = unknown>({
         theme,
         drawStatic,
         drawHover: composedDrawHover,
+        onPerformance,
     })
 
     const wrapperStyle = hoverIndex >= 0 && onPointClick ? WRAPPER_STYLE_POINTER : WRAPPER_STYLE_DEFAULT

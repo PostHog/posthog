@@ -6,6 +6,7 @@ import { buildTheme } from 'lib/charts/utils/theme'
 import { createXAxisTickCallback, DEFAULT_Y_AXIS_ID, LineChart, ReferenceLines, ValueLabels } from 'lib/hog-charts'
 import type { LineChartConfig, PointClickData, Series, TooltipContext } from 'lib/hog-charts'
 import { formatPercentStackAxisValue } from 'scenes/insights/aggregationAxisFormat'
+import { useHogChartTracking } from 'scenes/insights/hooks/useHogChartTracking'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { teamLogic } from 'scenes/teamLogic'
@@ -75,6 +76,14 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
     } = useValues(trendsDataLogic(insightProps))
     const { timezone, weekStartDay, baseCurrency } = useValues(teamLogic)
     const { aggregationLabel } = useValues(groupsModel)
+
+    const trackChartPerformance = useHogChartTracking({
+        chart_type: display ?? undefined,
+        has_breakdown: !!breakdownFilter?.breakdown,
+        insight_short_id: insight?.short_id,
+        dashboard_id: insightProps?.dashboardId,
+        in_shared_mode: inSharedMode,
+    })
 
     const isPercentStackView = !!showPercentStackView && !!supportsPercentStackView
     const resolvedGroupTypeLabel =
@@ -271,6 +280,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
             className="LineGraph"
             dataAttr="trend-line-graph"
             onError={handleChartError}
+            onPerformance={trackChartPerformance}
         >
             <ReferenceLines lines={referenceLines} />
             {insight.id ? (
