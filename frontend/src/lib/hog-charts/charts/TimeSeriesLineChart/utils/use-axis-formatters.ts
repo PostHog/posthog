@@ -4,10 +4,13 @@ import { createXAxisTickCallback, type TimeInterval } from './dates'
 import { buildYTickFormatter, type YFormatterConfig } from './y-formatters'
 
 export interface XAxisConfig {
+    /** Custom tick label formatter. When set, it wins over the date-axis auto formatter. */
     tickFormatter?: (value: string, index: number) => string | null
     hide?: boolean
     timezone?: string
     interval?: TimeInterval
+    /** Raw date strings underlying each label, used to compute boundary-aware ticks.
+     * If omitted, falls back to `labels`. */
     allDays?: string[]
 }
 

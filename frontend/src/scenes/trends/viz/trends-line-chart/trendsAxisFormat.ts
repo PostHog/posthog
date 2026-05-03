@@ -2,8 +2,6 @@ import { YFormatterConfig } from 'lib/hog-charts/charts/TimeSeriesLineChart/util
 
 import { CurrencyCode, TrendsFilter } from '~/queries/schema/schema-general'
 
-/** Map a `TrendsFilter` (+ percent-stack flag and project currency) to the generic
- *  `YFormatterConfig` consumed by `buildYTickFormatter` in `lib/hog-charts`. */
 export function trendsFilterToYFormatterConfig(
     trendsFilter: TrendsFilter | null | undefined,
     isPercentStackView: boolean,
