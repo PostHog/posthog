@@ -188,7 +188,14 @@ const getIconForItem = (item: SearchItem): ReactNode => {
             (item.category === 'recents' || item.category === 'starred') &&
             productType in availableOnboardingProducts
         ) {
-            return getProductIcon(undefined, { productType, className: 'shrink-0 text-base' })
+            const manifestIconColor = (availableOnboardingProducts as Partial<Record<string, { iconColor?: string }>>)[
+                productType
+            ]?.iconColor
+            return getProductIcon(undefined, {
+                productType,
+                iconColor: manifestIconColor,
+                className: 'shrink-0 text-base',
+            })
         }
         // Handle iconColor which may be a single-element array or tuple
         const rawColor = item.record?.iconColor as string[] | undefined
