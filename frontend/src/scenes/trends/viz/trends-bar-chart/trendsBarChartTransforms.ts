@@ -50,11 +50,9 @@ export function buildTrendsBarTimeSeries<R extends TrendsBarResultLike, M = unkn
     return results.map((r, index) => buildMainTrendsBarSeries(r, index, opts, r.data))
 }
 
-/** hog-charts BarChart only supports one color per series. To color each aggregated bar
- *  differently we emit N series whose data is zero everywhere except at their own band index —
- *  d3.stack then resolves to a single visible segment per band, painted with that series' color.
- *  Stacked corner-rounding is applied only to the topmost-by-array-order series, so all bars
- *  except the last have square caps. Acceptable for a first cut; track as a follow-up. */
+// Sparse-stacked: hog-charts BarChart allows one color per series, so we emit N series with
+// data=0 except at their own band — d3.stack reduces this to one visible segment per band.
+// Trade-off: only the last series gets rounded-corner caps.
 export function buildTrendsBarAggregatedSeries<R extends TrendsBarResultLike, M = unknown>(
     results: R[],
     opts: BuildTrendsBarSeriesOpts<R, M>

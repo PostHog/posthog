@@ -189,9 +189,7 @@ export function TrendsBarChart({ context }: TrendsBarChartProps): JSX.Element | 
 
     const renderTooltip = useCallback(
         (ctx: TooltipContext<TrendsSeriesMeta>) => {
-            // Sparse-stacked layout fills ctx.seriesData with all N series — most have data=0
-            // at the hovered band. Filter to the series that actually own a bar at this band so
-            // the tooltip shows one row, not a column of zeros.
+            // Sparse-stacked: drop sibling series with data=0 at this band so the tooltip shows one row.
             const tooltipCtx: TooltipContext<TrendsSeriesMeta> = isAggregated
                 ? {
                       ...ctx,

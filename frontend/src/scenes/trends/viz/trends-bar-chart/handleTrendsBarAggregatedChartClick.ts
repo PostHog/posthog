@@ -1,9 +1,8 @@
 import { datasetToActorsQuery } from '../datasetToActorsQuery'
 import type { TrendsChartClickDeps } from '../handleTrendsChartClick'
 
-/** Click handler for horizontal aggregated bars (ActionsBarValue). The chart is sparse-stacked
- *  so band index === result index — resolve via dataIndex, not the primary series picked by
- *  buildPointClickData (that's the first non-excluded series, regardless of which band was clicked). */
+// Sparse-stacked: resolve by dataIndex, not series.key — buildPointClickData would otherwise
+// dispatch the first non-excluded series regardless of which band was clicked.
 export function handleTrendsBarAggregatedChartClick(dataIndex: number, deps: TrendsChartClickDeps): void {
     const dataset = deps.indexedResults[dataIndex]
     if (!dataset) {
