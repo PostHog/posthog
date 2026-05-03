@@ -21,6 +21,7 @@
         "@modelcontextprotocol/sdk": "^1.29.0",
         "fuse.js": "catalog:",
         "typescript": "catalog:",
+        "yaml": "^2.8.2",
         "zod": "^4.3.6"
     },
     "devDependencies": {

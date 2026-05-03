@@ -10,6 +10,8 @@ import * as path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { ClientGenerator, type OpenApiSpec, type ToolDefinitionMeta } from './client-generator'
+import { loadYamlDefinitions } from './load-yaml'
+import { SPECIAL_CLIENT_METHODS } from './special-tools'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -21,6 +23,7 @@ const REPO_ROOT = path.resolve(MCP_ROOT, '../..')
 const OPENAPI_PATH = path.resolve(REPO_ROOT, 'frontend/tmp/openapi.json')
 const DEFINITIONS_JSON_PATH = path.resolve(MCP_ROOT, 'schema/generated-tool-definitions.json')
 const SCHEMAS_NAMESPACE_PATH = path.resolve(MCP_ROOT, 'src/api/generated.ts')
+const DEFINITIONS_YAML_DIR = path.resolve(MCP_ROOT, 'definitions')
 
 const OUT_DIR = path.resolve(EXEC_ROOT, 'src/generated')
 const OUT_CLIENT_TS = path.join(OUT_DIR, 'client.ts')
@@ -79,8 +82,12 @@ function main(): void {
     const definitions = loadDefinitions()
     const schemasNamespaceSource = loadSchemasNamespaceSource()
     const knownSchemas = knownSchemasFromNamespace(schemasNamespaceSource)
+    const yamlIndex = loadYamlDefinitions(DEFINITIONS_YAML_DIR)
 
-    const generator = new ClientGenerator(spec, definitions, knownSchemas)
+    const generator = new ClientGenerator(spec, definitions, knownSchemas, {
+        yamlIndex,
+        specialMethods: SPECIAL_CLIENT_METHODS,
+    })
     const ops = generator.collectOperations()
 
     const clientTs = generator.renderClientTs(ops)

@@ -11,17 +11,30 @@ The point is to test whether this shape uses fewer context tokens and is more us
 ## Setup
 
 ```bash
-# 1. Make sure the OpenAPI spec is up to date — the codegen reads from
-#    posthog/frontend/tmp/openapi.json
+# 1. Make sure the OpenAPI spec + v2 codegen artifacts are up to date —
+#    `services/mcp/exec` consumes:
+#      - frontend/tmp/openapi.json                (source of truth for ops + types)
+#      - services/mcp/src/api/generated.ts        (Schemas namespace, re-exported verbatim)
+#      - services/mcp/schema/generated-tool-definitions.json (richer descriptions)
+#      - services/mcp/definitions/*.yaml          (which ops are enabled + curated docs)
 hogli build:openapi
 
-# 2. Make sure services/mcp/src/api/generated.ts is up to date — we re-export
-#    its Schemas namespace verbatim
-cd services/mcp && pnpm run generate-orval-schemas && pnpm run generate-mcp-types
-
-# 3. Generate the client + sdk.d.ts + search-index.json
-cd ../mcp/exec && pnpm install && pnpm run generate
+# 2. Generate the client + sdk.d.ts + search-index.json
+cd services/mcp/exec && pnpm install && pnpm run generate
 ```
+
+The YAML files in `services/mcp/definitions/` gate which OpenAPI operations land in the
+generated `Client`. Operations marked `enabled: false` are excluded; `enabled: true` ones
+inherit any curated `title` / `description` from the YAML (overriding the raw OpenAPI text)
+which then flows into JSDoc on `sdk.d.ts` and the `search` ranking signal.
+
+In addition to OpenAPI operations, the generator emits:
+
+- `client.executeSql({ query, truncate? })`, `client.readDataSchema({ query })`,
+  `client.readDataWarehouseSchema()` — backed by `POST /api/environments/{id}/mcp_tools/{name}/`.
+- `client.queryTrends`, `client.queryFunnel`, `client.queryRetention`, `client.queryStickiness`,
+  `client.queryPaths`, `client.queryLifecycle`, `client.queryLlmTracesList`, `client.queryLlmTrace`,
+  `client.queryTrendsActors` — backed by `POST /api/environments/{id}/query/`.
 
 ## Run (stdio)
 

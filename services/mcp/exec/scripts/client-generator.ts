@@ -1,10 +1,18 @@
 /**
  * ClientGenerator: takes an OpenAPI spec + tool-definitions metadata + known schema names
- * and emits client.ts, sdk.d.ts, and search-docs.
+ * + (optionally) a YAML index of enabled tools/wrappers, and emits client.ts, sdk.d.ts,
+ * and search-docs.
  *
  * Extracted as its own module so tests can drive it against fixture specs without spawning
  * the script.
+ *
+ * When `yamlIndex` is provided, only operations whose `operationId` appears in
+ * `yamlIndex.enabled` are emitted, and per-tool YAML descriptions/titles override the
+ * OpenAPI summary/description. Special methods (mcp_tools/* + query wrappers) are always
+ * emitted alongside OpenAPI ops.
  */
+import type { EnabledWrapper, YamlIndex } from './load-yaml'
+import type { SpecialMethod } from './special-tools'
 
 export interface OpenApiRef {
     $ref: string
@@ -100,12 +108,26 @@ const AUTO_RESOLVED_PATH_PARAMS: Record<string, string> = {
     environment_id: 'getEnvironmentId',
 }
 
+export interface ClientGeneratorOptions {
+    /** When set, only operations whose operationId is in `yamlIndex.enabled` are emitted. */
+    yamlIndex?: YamlIndex
+    /** Hand-listed methods backed by the mcp_tools/* endpoint. */
+    specialMethods?: SpecialMethod[]
+}
+
 export class ClientGenerator {
+    private readonly yamlIndex: YamlIndex | undefined
+    private readonly specialMethods: SpecialMethod[]
+
     constructor(
         private spec: OpenApiSpec,
         private definitions: Record<string, ToolDefinitionMeta>,
-        private knownSchemas: Set<string>
-    ) {}
+        private knownSchemas: Set<string>,
+        options: ClientGeneratorOptions = {}
+    ) {
+        this.yamlIndex = options.yamlIndex
+        this.specialMethods = options.specialMethods ?? []
+    }
 
     private isAutoResolved(paramName: string): boolean {
         return paramName in AUTO_RESOLVED_PATH_PARAMS
@@ -131,6 +153,9 @@ export class ClientGenerator {
                 if (!op?.operationId) {
                     continue
                 }
+                if (this.yamlIndex && !this.yamlIndex.enabled.has(op.operationId)) {
+                    continue
+                }
                 const methodName = this.deriveMethodName(op.operationId, urlPath)
                 if (seenMethodNames.has(methodName)) {
                     continue
@@ -141,9 +166,10 @@ export class ClientGenerator {
                 const pathParams = params.filter((p) => p.in === 'path')
                 const queryParams = params.filter((p) => p.in === 'query' && p.name !== 'format')
 
+                const yamlOp = this.yamlIndex?.enabled.get(op.operationId)
                 const meta = this.lookupDefinitionMeta(op.operationId)
-                const summary = meta?.summary ?? op.summary ?? ''
-                const description = meta?.description ?? op.description ?? ''
+                const summary = yamlOp?.title ?? yamlOp?.summary ?? meta?.summary ?? op.summary ?? ''
+                const description = yamlOp?.description ?? meta?.description ?? op.description ?? ''
 
                 const bodyResolved = this.resolveBodyType(op)
                 const responseResolved = this.resolveResponseType(op)
@@ -189,11 +215,29 @@ export class ClientGenerator {
             methods.push(this.renderClientMethod(op, inputName, responseType, !!inputDef))
         }
 
+        for (const m of this.specialMethods) {
+            if (m.inputDecl) {
+                inputInterfaces.push(m.inputDecl + '\n')
+            }
+            methods.push(this.renderSpecialMethod(m))
+        }
+
+        const wrappers = this.yamlIndex?.wrappers ?? []
+        for (const w of wrappers) {
+            methods.push(this.renderQueryWrapperMethod(w))
+        }
+
         lines.push(...inputInterfaces)
         lines.push('export class Client {')
         lines.push('    constructor(private http: HttpClient, private context: Context) {}')
         lines.push('')
         lines.push(...methods)
+        if (this.specialMethods.length > 0) {
+            lines.push(this.renderInvokeMcpToolHelper())
+        }
+        if (wrappers.length > 0) {
+            lines.push(this.renderRunQueryHelper())
+        }
         lines.push('}')
         lines.push('')
         return lines.join('\n')
@@ -226,6 +270,24 @@ export class ClientGenerator {
             methodSignatures.push('')
         }
 
+        for (const m of this.specialMethods) {
+            if (m.inputDecl) {
+                inputInterfaces.push(m.inputDecl + '\n')
+            }
+            methodSignatures.push(this.renderSpecialMethodDocComment(m))
+            const inputArg = m.inputName ? `input: ${m.inputName}` : ''
+            methodSignatures.push(`    ${m.methodName}(${inputArg}): Promise<${m.responseType}>`)
+            methodSignatures.push('')
+        }
+
+        for (const w of this.yamlIndex?.wrappers ?? []) {
+            methodSignatures.push(this.renderQueryWrapperDocComment(w))
+            methodSignatures.push(
+                `    ${this.queryWrapperMethodName(w)}(input: { query: Record<string, unknown> }): Promise<unknown>`
+            )
+            methodSignatures.push('')
+        }
+
         lines.push(...inputInterfaces)
         lines.push('export interface Client {')
         lines.push(...methodSignatures)
@@ -245,6 +307,30 @@ export class ClientGenerator {
                 description: op.description,
                 summary: op.summary,
                 snippet: `${op.httpMethod} ${op.urlPath}${op.summary ? ` — ${op.summary}` : ''}`,
+            })
+        }
+
+        for (const m of this.specialMethods) {
+            docs.push({
+                id: `op:${m.methodName}`,
+                kind: 'operation',
+                name: m.methodName,
+                description: m.description,
+                summary: m.summary,
+                snippet: `client.${m.methodName}() — ${m.summary}`,
+            })
+        }
+
+        for (const w of this.yamlIndex?.wrappers ?? []) {
+            const methodName = this.queryWrapperMethodName(w)
+            const summary = w.title ?? w.systemPromptHint ?? `Run a ${w.schemaRef} query`
+            docs.push({
+                id: `op:${methodName}`,
+                kind: 'operation',
+                name: methodName,
+                description: w.description ?? summary,
+                summary,
+                snippet: `client.${methodName}({ query: <${w.schemaRef}> }) — ${summary}`,
             })
         }
 
@@ -334,6 +420,106 @@ export class ClientGenerator {
         lines.push(`    }`)
         lines.push('')
         return lines.join('\n')
+    }
+
+    private renderSpecialMethod(m: SpecialMethod): string {
+        const inputArg = m.inputName ? `input: ${m.inputName}` : ''
+        const argsExpr = m.inputName ? 'input as unknown as Record<string, unknown>' : '{}'
+        const lines: string[] = []
+        lines.push(this.renderSpecialMethodDocComment(m))
+        lines.push(`    async ${m.methodName}(${inputArg}): Promise<${m.responseType}> {`)
+        lines.push(`        return this.invokeMcpTool<${m.responseType}>('${m.backendName}', ${argsExpr})`)
+        lines.push(`    }`)
+        lines.push('')
+        return lines.join('\n')
+    }
+
+    private renderQueryWrapperMethod(w: EnabledWrapper): string {
+        const methodName = this.queryWrapperMethodName(w)
+        const lines: string[] = []
+        lines.push(this.renderQueryWrapperDocComment(w))
+        lines.push(`    async ${methodName}(input: { query: Record<string, unknown> }): Promise<unknown> {`)
+        lines.push(`        return this.runQuery(input.query)`)
+        lines.push(`    }`)
+        lines.push('')
+        return lines.join('\n')
+    }
+
+    private renderInvokeMcpToolHelper(): string {
+        // Mirrors services/mcp/src/tools/posthogAiTools/invokeTool.ts. The endpoint always
+        // returns 200 with `{ success, content }`; we throw on success: false so the
+        // SnippetRunner classifies it as a runtime error rather than returning a silent failure.
+        const lines: string[] = []
+        lines.push('')
+        lines.push('    private async invokeMcpTool<T>(name: string, args: Record<string, unknown>): Promise<T> {')
+        lines.push('        const project_id = await this.context.getProjectId()')
+        lines.push('        const result = await this.http.request<{ success: boolean; content: unknown }>({')
+        lines.push("            method: 'POST',")
+        lines.push(
+            '            path: `/api/environments/${encodeURIComponent(project_id)}/mcp_tools/${encodeURIComponent(name)}/`,'
+        )
+        lines.push('            body: { args },')
+        lines.push('        })')
+        lines.push('        if (!result.success) {')
+        lines.push(
+            "            throw new Error(typeof result.content === 'string' ? result.content : JSON.stringify(result.content))"
+        )
+        lines.push('        }')
+        lines.push('        return result.content as T')
+        lines.push('    }')
+        return lines.join('\n')
+    }
+
+    private renderRunQueryHelper(): string {
+        const lines: string[] = []
+        lines.push('')
+        lines.push('    private async runQuery(query: Record<string, unknown>): Promise<unknown> {')
+        lines.push('        const project_id = await this.context.getProjectId()')
+        lines.push('        return this.http.request<unknown>({')
+        lines.push("            method: 'POST',")
+        lines.push('            path: `/api/environments/${encodeURIComponent(project_id)}/query/`,')
+        lines.push('            body: { query },')
+        lines.push('        })')
+        lines.push('    }')
+        return lines.join('\n')
+    }
+
+    private renderSpecialMethodDocComment(m: SpecialMethod): string {
+        const lines: string[] = []
+        lines.push('    /**')
+        lines.push(`     * ${m.summary}`)
+        if (m.description) {
+            lines.push('     *')
+            for (const descLine of m.description.split('\n')) {
+                lines.push(`     * ${descLine}`)
+            }
+        }
+        lines.push('     */')
+        return lines.join('\n')
+    }
+
+    private renderQueryWrapperDocComment(w: EnabledWrapper): string {
+        const lines: string[] = []
+        lines.push('    /**')
+        lines.push(`     * ${w.title ?? `Run a ${w.schemaRef} query`}`)
+        lines.push('     *')
+        lines.push(`     * POST /api/environments/{project_id}/query/ with body { query: <${w.schemaRef}> }.`)
+        if (w.systemPromptHint) {
+            lines.push('     *')
+            lines.push(`     * When to use: ${w.systemPromptHint}`)
+        }
+        if (w.description) {
+            lines.push('     *')
+            for (const descLine of w.description.split('\n')) {
+                lines.push(`     * ${descLine}`)
+            }
+        }
+        lines.push('     */')
+        return lines.join('\n')
+    }
+
+    private queryWrapperMethodName(w: EnabledWrapper): string {
+        return this.toCamelCase(w.toolName)
     }
 
     private renderPathExpr(op: ResolvedOperation): string {

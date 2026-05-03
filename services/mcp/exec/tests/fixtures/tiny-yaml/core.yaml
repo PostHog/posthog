@@ -1,0 +1,22 @@
+category: Tiny
+feature: tiny
+url_prefix: /tiny
+tools:
+    pets-list:
+        operation: pets_list
+        enabled: true
+        title: List pets
+        description: Curated description from YAML.
+    pets-create:
+        operation: pets_create
+        enabled: false
+    pets-retrieve:
+        operation: pets_retrieve
+        enabled: true
+wrappers:
+    query-tiny:
+        schema_ref: TinyQuery
+        enabled: true
+        title: Run a tiny query
+        description: A tiny query wrapper used in tests.
+        system_prompt_hint: Tiny test wrapper
