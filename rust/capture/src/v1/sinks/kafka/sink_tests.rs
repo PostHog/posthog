@@ -1015,3 +1015,117 @@ async fn realistic_dropped_event_not_published() {
     assert!(results.is_empty());
     assert_eq!(h.producer.record_count(), 0);
 }
+
+// ===========================================================================
+// Coverage gap fills (C5)
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// Mixed send error + ack error in one batch: first event fails at send,
+// remaining events fail at ack. Verifies both error types are reported.
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn mixed_send_error_and_ack_error_in_batch() {
+    let h = TestHarness::builder()
+        .send_error(|| ProduceError::Kafka {
+            code: RDKafkaErrorCode::QueueFull,
+        })
+        .send_error_count(1)
+        .enqueue_retry_max(0)
+        .ack_error(|| ProduceError::DeliveryCancelled)
+        .build();
+    let e1 = FakeEvent::ok("evt-1");
+    let e2 = FakeEvent::ok("evt-2");
+    let e3 = FakeEvent::ok("evt-3");
+    let events: Vec<&(dyn Event + Send + Sync)> = vec![&e1, &e2, &e3];
+
+    let results = h.sink.publish_batch(&h.ctx, &events).await;
+
+    assert_eq!(results.len(), 3);
+    let by_key: HashMap<Uuid, _> = results.iter().map(|r| (r.key(), r)).collect();
+
+    // evt-1: send error (queue_full)
+    assert_eq!(by_key[&e1.parsed_uuid].outcome(), Outcome::RetriableError);
+    assert_eq!(by_key[&e1.parsed_uuid].cause(), Some("queue_full"));
+
+    // evt-2 and evt-3: enqueued successfully, but ack error (delivery_cancelled)
+    assert_eq!(by_key[&e2.parsed_uuid].outcome(), Outcome::RetriableError);
+    assert_eq!(
+        by_key[&e2.parsed_uuid].cause(),
+        Some("delivery_cancelled")
+    );
+    assert_eq!(by_key[&e3.parsed_uuid].outcome(), Outcome::RetriableError);
+    assert_eq!(
+        by_key[&e3.parsed_uuid].cause(),
+        Some("delivery_cancelled")
+    );
+
+    // Only evt-2 and evt-3 were enqueued (evt-1 failed at send)
+    assert_eq!(h.producer.record_count(), 2);
+}
+
+// ---------------------------------------------------------------------------
+// Partial timeout: first event fails at send (immediate), remaining time out.
+// Verifies mixed Outcome::RetriableError and Outcome::Timeout in one batch.
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn partial_timeout_with_send_error() {
+    let h = TestHarness::builder()
+        .send_error(|| ProduceError::Kafka {
+            code: RDKafkaErrorCode::QueueFull,
+        })
+        .send_error_count(1)
+        .enqueue_retry_max(0)
+        .ack_delay(Duration::from_secs(60))
+        .produce_timeout(Duration::from_millis(50))
+        .build();
+    let e1 = FakeEvent::ok("evt-1");
+    let e2 = FakeEvent::ok("evt-2");
+    let events: Vec<&(dyn Event + Send + Sync)> = vec![&e1, &e2];
+
+    let results = h.sink.publish_batch(&h.ctx, &events).await;
+
+    assert_eq!(results.len(), 2);
+    let by_key: HashMap<Uuid, _> = results.iter().map(|r| (r.key(), r)).collect();
+
+    // evt-1: immediate send error
+    assert_eq!(by_key[&e1.parsed_uuid].outcome(), Outcome::RetriableError);
+    assert_eq!(by_key[&e1.parsed_uuid].cause(), Some("queue_full"));
+
+    // evt-2: enqueued successfully, but ack times out
+    assert_eq!(by_key[&e2.parsed_uuid].outcome(), Outcome::Timeout);
+    assert_eq!(by_key[&e2.parsed_uuid].cause(), Some("timeout"));
+}
+
+// ---------------------------------------------------------------------------
+// Partial timeout: serialization failure + timeout in one batch.
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn partial_timeout_with_serialization_error() {
+    let h = TestHarness::builder()
+        .ack_delay(Duration::from_secs(60))
+        .produce_timeout(Duration::from_millis(50))
+        .build();
+    let e1 = FakeEvent::ok("evt-1").with_payload(Err("bad".into()));
+    let e2 = FakeEvent::ok("evt-2");
+    let events: Vec<&(dyn Event + Send + Sync)> = vec![&e1, &e2];
+
+    let results = h.sink.publish_batch(&h.ctx, &events).await;
+
+    assert_eq!(results.len(), 2);
+    let by_key: HashMap<Uuid, _> = results.iter().map(|r| (r.key(), r)).collect();
+
+    // evt-1: serialization failure (immediate, fatal)
+    assert_eq!(by_key[&e1.parsed_uuid].outcome(), Outcome::FatalError);
+    assert_eq!(
+        by_key[&e1.parsed_uuid].cause(),
+        Some("serialization_failed")
+    );
+
+    // evt-2: enqueued, times out
+    assert_eq!(by_key[&e2.parsed_uuid].outcome(), Outcome::Timeout);
+    assert_eq!(by_key[&e2.parsed_uuid].cause(), Some("timeout"));
+}
