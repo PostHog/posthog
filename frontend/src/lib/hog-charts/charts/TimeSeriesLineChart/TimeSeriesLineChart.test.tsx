@@ -254,6 +254,19 @@ describe('TimeSeriesLineChart', () => {
             expect(valueFormatter?.(50, 0, 0)).toBe('50%')
         })
 
+        it('reuses an explicit yAxis.tickFormatter as the default', () => {
+            const explicit = (v: number): string => `y:${v}`
+            render(
+                <TimeSeriesLineChart
+                    series={SERIES}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={{ yAxis: { tickFormatter: explicit }, valueLabels: true }}
+                />
+            )
+            expect(valueLabelsSpy.mock.calls[0][0].valueFormatter).toBe(explicit)
+        })
+
         it('marks non-allowed series as excluded from value labels via visibility.fromValueLabels', () => {
             const series: Series[] = [
                 { key: 'a', label: 'A', data: [1, 2, 3] },

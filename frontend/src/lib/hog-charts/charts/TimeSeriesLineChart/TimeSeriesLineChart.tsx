@@ -6,7 +6,6 @@ import { ValueLabels } from '../../overlays/ValueLabels'
 import { LineChart } from '../LineChart'
 import { buildGoalLineReferenceLines, type GoalLineConfig } from './utils/goal-lines'
 import { useXTickFormatter, useYTickFormatter, type XAxisConfig, type YAxisConfig } from './utils/use-axis-formatters'
-import { buildYTickFormatter } from './utils/y-formatters'
 
 export interface ValueLabelsConfig {
     /** When set, only series whose `key` is in this list get value labels.
@@ -60,20 +59,6 @@ function resolveValueLabelsConfig(valueLabels: TimeSeriesLineChartConfig['valueL
     return valueLabels
 }
 
-function hasYFormatterConfig(yAxis: YAxisConfig | undefined): boolean {
-    if (!yAxis) {
-        return false
-    }
-    return (
-        yAxis.format !== undefined ||
-        yAxis.prefix !== undefined ||
-        yAxis.suffix !== undefined ||
-        yAxis.decimalPlaces !== undefined ||
-        yAxis.minDecimalPlaces !== undefined ||
-        yAxis.currency !== undefined
-    )
-}
-
 export function TimeSeriesLineChart<Meta = unknown>({
     series,
     labels,
@@ -114,25 +99,7 @@ export function TimeSeriesLineChart<Meta = unknown>({
         )
     }, [seriesWithInProgress, valueLabelsConfig?.seriesKeys])
 
-    const valueLabelFormatter = useMemo(() => {
-        if (!valueLabelsConfig) {
-            return undefined
-        }
-        if (valueLabelsConfig.formatter) {
-            return valueLabelsConfig.formatter
-        }
-        if (hasYFormatterConfig(yAxis)) {
-            return buildYTickFormatter({
-                format: yAxis?.format,
-                prefix: yAxis?.prefix,
-                suffix: yAxis?.suffix,
-                decimalPlaces: yAxis?.decimalPlaces,
-                minDecimalPlaces: yAxis?.minDecimalPlaces,
-                currency: yAxis?.currency,
-            })
-        }
-        return undefined
-    }, [valueLabelsConfig, yAxis])
+    const valueLabelFormatter = valueLabelsConfig ? (valueLabelsConfig.formatter ?? yTickFormatter) : undefined
 
     const referenceLines = useMemo(
         () => buildGoalLineReferenceLines(goalLines, transformedSeries),
@@ -160,9 +127,7 @@ export function TimeSeriesLineChart<Meta = unknown>({
             dataAttr={dataAttr}
         >
             {referenceLines.length > 0 && <ReferenceLines lines={referenceLines} />}
-            {valueLabelsConfig && (
-                <ValueLabels valueFormatter={valueLabelFormatter ? (v) => valueLabelFormatter(v) : undefined} />
-            )}
+            {valueLabelsConfig && <ValueLabels valueFormatter={valueLabelFormatter} />}
             {children}
         </LineChart>
     )
