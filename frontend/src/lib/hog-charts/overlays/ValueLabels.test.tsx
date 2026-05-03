@@ -276,6 +276,15 @@ describe('ValueLabels', () => {
     })
 
     describe('stack-total mode', () => {
+        it('honours maxPointsPerSeries against the number of bands', () => {
+            const series: ResolvedSeries[] = [{ key: 's', label: 'S', color: '#f00', data: [10, 20, 30, 40, 50] }]
+            const { container } = renderInChart(
+                makeContext(series),
+                <ValueLabels mode="stack-total" maxPointsPerSeries={3} />
+            )
+            expect(labelDivs(container)).toHaveLength(0)
+        })
+
         it('sums visible series per band, skips zero totals and excluded series', () => {
             const series: ResolvedSeries[] = [
                 { key: 'a', label: 'A', color: '#112233', data: [10, 0, 30] },

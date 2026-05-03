@@ -106,6 +106,9 @@ function buildCandidates(args: BuildCandidatesArgs): Candidate[] {
     const out: Candidate[] = []
 
     if (mode === 'stack-total') {
+        if (labels.length > args.maxPointsPerSeries) {
+            return out
+        }
         const visible = series.filter((s) => !s.visibility?.excluded && !s.visibility?.fromValueLabels)
         if (visible.length === 0) {
             return out
