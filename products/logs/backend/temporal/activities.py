@@ -3,8 +3,10 @@
 import gc
 import time
 import asyncio
+import contextlib
 import dataclasses
 import concurrent.futures
+from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
@@ -77,12 +79,41 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 
+def _log_metric_failure(label: str, e: BaseException, **context: object) -> None:
+    """Warn about a best-effort metric failure WITHOUT a traceback.
+
+    `logger.exception` sets `exc_info=True`, making the underlying `LogRecord`
+    retain the exception's `__traceback__` — and through it, every frame's
+    `f_locals`. Handlers that buffer records (Sentry breadcrumbs, pytest log
+    capture) then pin the entire cohort state alive across activity invocations.
+    Metric failures are non-actionable; label + error type + message is enough.
+    """
+    logger.warning(
+        "Failed to record metric",
+        label=label,
+        error=str(e),
+        error_type=type(e).__name__,
+        **context,
+    )
+
+
 def _safe_record(label: str, fn, *args, **kwargs) -> None:
     """Best-effort metric recording — failures must never break alerting."""
     try:
         fn(*args, **kwargs)
-    except Exception:
-        logger.exception("Failed to record %s", label)
+    except Exception as e:
+        _log_metric_failure(label, e)
+
+
+@contextlib.contextmanager
+def _safe_record_block(label: str, **context: object) -> Iterator[None]:
+    """Context-manager form of `_safe_record` for try-blocks wrapping multiple
+    metric calls (where extracting them into a single callable would obscure
+    branching logic). Same warning-without-traceback semantics."""
+    try:
+        yield
+    except Exception as e:
+        _log_metric_failure(label, e, **context)
 
 
 def _post_cohort_memory_cleanup() -> None:
@@ -362,11 +393,22 @@ async def check_alerts_activity(input: CheckAlertsInput) -> CheckAlertsOutput:
     if aggregated["checked"] > 0:
         logger.info("Alert check cycle complete", **aggregated)
 
+    # DB failure here is actionable (connection/timeout/query error) so log at
+    # error level with full error context — but skip `logger.exception` because
+    # retained tracebacks pin cohort state alive across invocations (see
+    # `_log_metric_failure` docstring). Metric record stays best-effort.
     try:
         pending = await database_sync_to_async_pool(_count_pending_alerts)()
-        record_pending_alerts(pending)
-    except Exception:
-        logger.exception("Failed to record pending_alerts gauge")
+    except Exception as e:
+        # `logger.exception` would retain the traceback (and frame locals like
+        # `cohorts`) across activity invocations via buffered LogRecords.
+        logger.error(  # noqa: TRY400
+            "Failed to count pending alerts",
+            error=str(e),
+            error_type=type(e).__name__,
+        )
+    else:
+        _safe_record("pending_alerts gauge", record_pending_alerts, pending)
 
     return CheckAlertsOutput(
         alerts_checked=aggregated["checked"],
@@ -397,25 +439,21 @@ def _load_alerts_and_checkpoint() -> tuple[datetime, list[LogsAlertConfiguration
 
     all_alerts = list(_due_alerts_qs(now).select_related("team"))
 
-    try:
-        record_alerts_active(len(all_alerts))
-    except Exception:
-        logger.exception("Failed to record alerts_active gauge")
+    _safe_record("alerts_active gauge", record_alerts_active, len(all_alerts))
 
     checkpoint: datetime | None = None
     if all_alerts:
         try:
             checkpoint = fetch_live_logs_checkpoint(all_alerts[0].team)
-        except Exception:
-            logger.exception("Failed to fetch logs ingestion checkpoint; falling back to wall-clock")
+        except Exception as e:
+            # Real failure (CH unavailable, etc.) — traceback wanted; one record per cycle, not cohort-scoped.
+            logger.exception("Failed to fetch logs ingestion checkpoint; falling back to wall-clock", error=str(e))
 
-    try:
+    with _safe_record_block("checkpoint metric"):
         if checkpoint is None:
             increment_checkpoint_unavailable()
         else:
             record_checkpoint_lag(now, checkpoint)
-    except Exception:
-        logger.exception("Failed to record checkpoint metric")
 
     return now, all_alerts, checkpoint
 
@@ -849,14 +887,12 @@ def _save_cohort_outcomes(
         saved, failed = _save_staged_per_alert(staged)
 
     save_ms = int((time.perf_counter() - save_start) * 1000)
-    try:
+    with _safe_record_block("cohort save metrics"):
         record_cohort_save_duration(save_ms)
         if event_insert_ms is not None:
             record_cohort_event_insert_duration(event_insert_ms)
         if update_ms is not None:
             record_cohort_update_duration(update_ms)
-    except Exception:
-        logger.exception("Failed to record cohort save metrics")
 
     return saved, failed
 
@@ -914,7 +950,7 @@ def _finalize_alert(dispatched: _DispatchedAlert, elapsed_ms: int, stats: dict[s
         elif outcome.notification == NotificationAction.RESOLVE:
             stats["resolved"] += 1
 
-    try:
+    with _safe_record_block("alert finalize metrics", alert_id=str(evaluation.alert.id)):
         record_check_duration(elapsed_ms)
 
         if outcome.error_message:
@@ -934,8 +970,6 @@ def _finalize_alert(dispatched: _DispatchedAlert, elapsed_ms: int, stats: dict[s
         state_before_enum = AlertState(evaluation.state_before)
         if committed_state != state_before_enum:
             increment_state_transition(state_before_enum, committed_state)
-    except Exception:
-        logger.exception("Failed to record alert finalize metrics", alert_id=str(evaluation.alert.id))
 
 
 def _evaluate_single_alert(
@@ -1025,7 +1059,7 @@ def _evaluate_single_alert(
 
     # Eval-phase metrics: CH-side and scheduler lag. Save/dispatch metrics fire
     # later in their own phases.
-    try:
+    with _safe_record_block("alert eval metrics", alert_id=str(alert.id)):
         if check_result.query_duration_ms is not None:
             record_clickhouse_duration(check_result.query_duration_ms)
         if original_next_check_at is not None:
@@ -1034,8 +1068,6 @@ def _evaluate_single_alert(
                 record_scheduler_lag(lag_ms)
         if error_category is not None:
             increment_check_errors(error_category)
-    except Exception:
-        logger.exception("Failed to record alert eval metrics", alert_id=str(alert.id))
 
     return _AlertEvaluation(
         alert=alert,
