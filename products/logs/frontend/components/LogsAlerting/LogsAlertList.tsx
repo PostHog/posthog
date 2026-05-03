@@ -14,7 +14,9 @@ import {
 import { TZLabel } from 'lib/components/TZLabel'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
 import IconSlack from 'public/services/slack.png'
@@ -24,6 +26,7 @@ import {
     NotificationDestinationTypeEnumApi,
     LogsAlertConfigurationApi,
     LogsAlertConfigurationStateEnumApi,
+    LogsAlertQuotaApi,
     ThresholdOperatorEnumApi,
 } from 'products/logs/frontend/generated/api.schemas'
 
@@ -37,8 +40,35 @@ function formatThreshold(alert: LogsAlertConfigurationApi): string {
     return `${operator} ${alert.threshold_count} in ${alert.window_minutes}m`
 }
 
+function AlertQuotaWidget({ quota }: { quota: LogsAlertQuotaApi }): JSX.Element {
+    if (quota.limit === null) {
+        return <span className="text-muted text-xs">{quota.used} alerts</span>
+    }
+    const ratio = quota.used / quota.limit
+    return (
+        <Tooltip
+            title={
+                <>
+                    Need more? <Link to="mailto:sales@posthog.com?subject=Logs alerts limit">Contact us</Link> to raise
+                    the limit.
+                </>
+            }
+        >
+            <span
+                className={cn('text-xs cursor-help', {
+                    'text-danger': quota.used >= quota.limit,
+                    'text-warning': quota.used < quota.limit && ratio >= 0.8,
+                    'text-muted': ratio < 0.8,
+                })}
+            >
+                {quota.used} of {quota.limit} alerts
+            </span>
+        </Tooltip>
+    )
+}
+
 export function LogsAlertList(): JSX.Element {
-    const { alerts, alertsLoading, resettingAlertIds, creatingAlert } = useValues(logsAlertingLogic)
+    const { alerts, alertsLoading, resettingAlertIds, creatingAlert, quota } = useValues(logsAlertingLogic)
     const {
         setEditingAlert,
         deleteAlert,
@@ -246,14 +276,28 @@ export function LogsAlertList(): JSX.Element {
         return <SpinnerOverlay />
     }
 
+    const atLimit = quota !== null && quota.limit !== null && quota.used >= quota.limit
+
     return (
         <div className="space-y-2">
-            <div className="flex justify-end">
+            <div className="flex items-center gap-2">
+                {quota && <AlertQuotaWidget quota={quota} />}
                 <LemonButton
+                    className="ml-auto"
                     type="primary"
                     size="small"
                     onClick={() => createAlertAndOpen()}
                     loading={creatingAlert}
+                    disabledReason={
+                        atLimit ? (
+                            <>
+                                Reached the limit of {quota?.limit} alerts.{' '}
+                                <Link to="mailto:sales@posthog.com?subject=Logs alerts limit">Contact us</Link> to raise
+                                it.
+                            </>
+                        ) : undefined
+                    }
+                    disabledReasonInteractive
                     data-attr="logs-alerts-new"
                 >
                     New alert

@@ -21478,6 +21478,16 @@ export namespace Schemas {
       readonly query_duration_ms: number | null;
     }
 
+    export interface LogsAlertQuota {
+      /** Number of alerts currently configured for the team. */
+      used: number;
+      /**
+       * Maximum number of alerts allowed for the team. `null` means uncapped.
+       * @nullable
+       */
+      limit: number | null;
+    }
+
     export interface LogsAlertSimulateBucket {
       /** Bucket start timestamp. */
       timestamp: string;

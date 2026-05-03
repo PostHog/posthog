@@ -463,6 +463,16 @@ export interface PaginatedLogsAlertEventListApi {
     results: LogsAlertEventApi[]
 }
 
+export interface LogsAlertQuotaApi {
+    /** Number of alerts currently configured for the team. */
+    used: number
+    /**
+     * Maximum number of alerts allowed for the team. `null` means uncapped.
+     * @nullable
+     */
+    limit: number | null
+}
+
 export interface LogsAlertSimulateRequestApi {
     /** Filter criteria — same format as LogsAlertConfiguration.filters. */
     filters: unknown

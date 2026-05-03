@@ -58,6 +58,12 @@ MAX_ALERTS_PER_TEAM = 20
 UNCAPPED_ALERT_TEAM_IDS: frozenset[int] = frozenset(
     int(t) for x in os.environ.get("LOGS_ALERTS_UNCAPPED_TEAM_IDS", "").split(",") if (t := x.strip()).isdigit()
 )
+
+
+def alert_limit_for_team(team_id: int) -> int | None:
+    return None if team_id in UNCAPPED_ALERT_TEAM_IDS else MAX_ALERTS_PER_TEAM
+
+
 MAX_SIMULATE_LOOKBACK_DAYS = 30
 MAX_SIMULATE_BUCKETS = 15_000
 STATE_TIMELINE_LOOKBACK_HOURS = 24
@@ -498,10 +504,11 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             # Django optimises count() to SELECT COUNT(*). Locking the team
             # row instead serialises concurrent creates for this team.
             Team.objects.select_for_update().get(id=validated_data["team_id"])
-            if validated_data["team_id"] not in UNCAPPED_ALERT_TEAM_IDS:
+            limit = alert_limit_for_team(validated_data["team_id"])
+            if limit is not None:
                 count = LogsAlertConfiguration.objects.filter(team_id=validated_data["team_id"]).count()
-                if count >= MAX_ALERTS_PER_TEAM:
-                    raise ValidationError(f"Maximum number of alerts ({MAX_ALERTS_PER_TEAM}) reached for this team.")
+                if count >= limit:
+                    raise ValidationError(f"Maximum number of alerts ({limit}) reached for this team.")
             return super().create(validated_data)
 
 
@@ -633,6 +640,14 @@ class LogsAlertSimulateResponseSerializer(serializers.Serializer):
     total_buckets = serializers.IntegerField(help_text="Total number of buckets in the simulation window.")
     threshold_count = serializers.IntegerField(help_text="Threshold count used for evaluation.")
     threshold_operator = serializers.CharField(help_text="Threshold operator used for evaluation.")
+
+
+class LogsAlertQuotaSerializer(serializers.Serializer):
+    used = serializers.IntegerField(help_text="Number of alerts currently configured for the team.")
+    limit = serializers.IntegerField(
+        allow_null=True,
+        help_text="Maximum number of alerts allowed for the team. `null` means uncapped.",
+    )
 
 
 class LogsAlertCreateDestinationSerializer(serializers.Serializer):
@@ -991,6 +1006,16 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
         report_user_action(request.user, "logs alert reset", {"alert_id": str(alert.id)})
         return Response(self.get_serializer(alert).data)
+
+    @extend_schema(
+        request=None,
+        responses={200: LogsAlertQuotaSerializer},
+        description="Current alert count and configured limit for the team. `limit: null` means uncapped.",
+    )
+    @action(detail=False, methods=["GET"], url_path="quota")
+    def quota(self, request: Request, *args: object, **kwargs: object) -> Response:
+        used = LogsAlertConfiguration.objects.filter(team_id=self.team_id).count()
+        return Response(LogsAlertQuotaSerializer({"used": used, "limit": alert_limit_for_team(self.team_id)}).data)
 
     @extend_schema(
         request=LogsAlertSimulateRequestSerializer,

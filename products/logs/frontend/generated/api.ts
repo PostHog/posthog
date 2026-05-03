@@ -14,6 +14,7 @@ import type {
     LogsAlertCreateDestinationApi,
     LogsAlertDeleteDestinationApi,
     LogsAlertDestinationResponseApi,
+    LogsAlertQuotaApi,
     LogsAlertSimulateRequestApi,
     LogsAlertSimulateResponseApi,
     LogsAlertsEventsListParams,
@@ -406,6 +407,20 @@ export const logsAlertsResetCreate = async (
     return apiMutator<LogsAlertConfigurationApi>(getLogsAlertsResetCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+/**
+ * Current alert count and configured limit for the team. `limit: null` means uncapped.
+ */
+export const getLogsAlertsQuotaRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/alerts/quota/`
+}
+
+export const logsAlertsQuotaRetrieve = async (projectId: string, options?: RequestInit): Promise<LogsAlertQuotaApi> => {
+    return apiMutator<LogsAlertQuotaApi>(getLogsAlertsQuotaRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 

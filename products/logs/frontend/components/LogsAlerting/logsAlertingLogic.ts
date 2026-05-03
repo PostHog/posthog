@@ -13,9 +13,10 @@ import {
     logsAlertsDestroy,
     logsAlertsList,
     logsAlertsPartialUpdate,
+    logsAlertsQuotaRetrieve,
     logsAlertsResetCreate,
 } from 'products/logs/frontend/generated/api'
-import { LogsAlertConfigurationApi } from 'products/logs/frontend/generated/api.schemas'
+import { LogsAlertConfigurationApi, LogsAlertQuotaApi } from 'products/logs/frontend/generated/api.schemas'
 
 import type { logsAlertingLogicType } from './logsAlertingLogicType'
 import { alertFiltersForPreEnableCheck, dispatchPreEnableCheck, runPreEnableChecks } from './logsAlertUtils'
@@ -90,6 +91,15 @@ export const logsAlertingLogic = kea<logsAlertingLogicType>([
                 },
             },
         ],
+        quota: [
+            null as LogsAlertQuotaApi | null,
+            {
+                loadQuota: async () => {
+                    const projectId = String(values.currentTeamId)
+                    return await logsAlertsQuotaRetrieve(projectId)
+                },
+            },
+        ],
     })),
 
     listeners(({ actions, values }) => ({
@@ -99,6 +109,7 @@ export const logsAlertingLogic = kea<logsAlertingLogicType>([
                 await logsAlertsDestroy(projectId, id)
                 lemonToast.success('Alert deleted')
                 actions.loadAlerts()
+                actions.loadQuota()
             } catch {
                 lemonToast.error('Failed to delete alert')
             }
@@ -174,6 +185,7 @@ export const logsAlertingLogic = kea<logsAlertingLogicType>([
                 const created = await logsAlertsCreate(projectId, { enabled: false })
                 router.actions.push(urls.logsAlertDetail(created.id))
                 actions.loadAlerts()
+                actions.loadQuota()
             } catch (e: any) {
                 lemonToast.error(e?.detail ?? e?.message ?? 'Failed to create alert')
             } finally {
@@ -184,6 +196,7 @@ export const logsAlertingLogic = kea<logsAlertingLogicType>([
 
     afterMount(({ actions, values, cache }) => {
         actions.loadAlerts()
+        actions.loadQuota()
         cache.disposables.add(() => {
             const intervalId = window.setInterval(() => {
                 if (!values.isCreating && values.editingAlert === null && values.viewingHistoryAlert === null) {

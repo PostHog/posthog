@@ -447,6 +447,28 @@ class TestLogsAlertAPI(APIBaseTest):
         assert response.status_code == expected_status
         assert LogsAlertConfiguration.objects.filter(team=self.team).count() == expected_count
 
+    # --- Quota endpoint ---
+
+    def test_quota_endpoint_returns_used_and_limit(self):
+        for i in range(3):
+            LogsAlertConfiguration.objects.create(
+                team=self.team,
+                name=f"Alert {i}",
+                threshold_count=1,
+                created_by=self.user,
+                filters={"severityLevels": ["error"]},
+            )
+
+        response = self.client.get(f"{self.base_url}quota/")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"used": 3, "limit": MAX_ALERTS_PER_TEAM}
+
+    def test_quota_endpoint_returns_null_limit_when_team_uncapped(self):
+        with patch("products.logs.backend.alerts_api.UNCAPPED_ALERT_TEAM_IDS", frozenset({self.team.id})):
+            response = self.client.get(f"{self.base_url}quota/")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"used": 0, "limit": None}
+
     # --- Read-only fields ---
 
     def test_state_ignored_on_create(self):
