@@ -1,18 +1,34 @@
+import json
 from datetime import UTC, datetime, timedelta
 
 from freezegun import freeze_time
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
+from posthog.clickhouse.client import sync_execute
 from posthog.models.team.team import Team
 
-from products.logs.backend.alert_check_query import BucketedCount
+from products.logs.backend.alert_check_query import AlertCheckQuery, BucketedCount
 from products.logs.backend.alerts_api import ALLOWED_WINDOW_MINUTES, MAX_ALERTS_PER_TEAM
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
+
+
+def _make_log_row(*, team_id: int, service: str, uuid: str, ts: datetime, body: str) -> dict:
+    return {
+        "uuid": uuid,
+        "team_id": team_id,
+        "timestamp": ts.strftime("%Y-%m-%d %H:%M:%S.%f"),
+        "body": body,
+        "severity_text": "info",
+        "severity_number": 9,
+        "service_name": service,
+        "resource_attributes": {},
+        "attributes_map_str": {},
+    }
 
 
 class TestLogsAlertAPI(APIBaseTest):
@@ -1519,3 +1535,310 @@ class TestLogsAlertAPI(APIBaseTest):
             assert rolling_by_offset.get(offset_min) == expected_count, (
                 f"offset={offset_min}min: expected {expected_count}, got {rolling_by_offset.get(offset_min)}"
             )
+
+
+class TestSimulateEvaluatorParity(ClickhouseTestMixin, APIBaseTest):
+    CLASS_DATA_LEVEL_SETUP = True
+    SERVICE = "parity_test_service"
+    BASE_TIME = datetime(2025, 12, 16, 10, 0, 0, tzinfo=UTC)
+    BUCKET_COUNTS = (5, 0, 12, 3, 0, 8, 25, 0, 1, 0, 7, 4)
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        super().setUpTestData()
+        rows = []
+        for bucket_idx, count in enumerate(cls.BUCKET_COUNTS):
+            bucket_start = cls.BASE_TIME + timedelta(minutes=bucket_idx * 5)
+            for log_idx in range(count):
+                ts = bucket_start + timedelta(seconds=30 + log_idx * 5)
+                rows.append(
+                    _make_log_row(
+                        team_id=cls.team.id,
+                        service=cls.SERVICE,
+                        uuid=f"parity-{bucket_idx}-{log_idx}",
+                        ts=ts,
+                        body="parity test",
+                    )
+                )
+        if rows:
+            sync_execute("INSERT INTO logs FORMAT JSONEachRow\n" + "\n".join(json.dumps(r) for r in rows))
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.base_url = f"/api/projects/{self.team.pk}/logs/alerts/"
+        self._ff_patcher = patch("posthoganalytics.feature_enabled", return_value=True)
+        self._ff_patcher.start()
+        self.addCleanup(self._ff_patcher.stop)
+
+    @parameterized.expand(
+        [
+            ("c1_w5_m3", 1, 5, 3),
+            ("c5_w15_m3", 5, 15, 3),
+            ("c10_w30_m3", 10, 30, 3),
+        ]
+    )
+    @freeze_time("2025-12-16T11:30:00Z")
+    def test_simulator_rolling_count_matches_evaluator_at_cadence_steps(
+        self, _name: str, cadence: int, window: int, m: int
+    ) -> None:
+        filters = {"serviceNames": [self.SERVICE]}
+
+        sim_response = self.client.post(
+            f"{self.base_url}simulate/",
+            {
+                "filters": filters,
+                "threshold_count": 100,
+                "threshold_operator": "above",
+                "window_minutes": window,
+                "check_interval_minutes": cadence,
+                "evaluation_periods": m,
+                "datapoints_to_alarm": 1,
+                "date_from": "-2h",
+            },
+            format="json",
+        )
+        assert sim_response.status_code == status.HTTP_200_OK, sim_response.json()
+
+        sim_by_ts = {datetime.fromisoformat(b["timestamp"]): b["count"] for b in sim_response.json()["buckets"]}
+
+        fake_alert = LogsAlertConfiguration(
+            team=self.team,
+            filters=filters,
+            threshold_count=100,
+            threshold_operator="above",
+            window_minutes=window,
+            check_interval_minutes=cadence,
+            evaluation_periods=m,
+        )
+
+        last_bucket_end = self.BASE_TIME + timedelta(minutes=len(self.BUCKET_COUNTS) * 5)
+        end = last_bucket_end + timedelta(minutes=window)
+        lookback = window + (m - 1) * cadence
+        nca = self.BASE_TIME
+        while nca <= end:
+            sim_count = sim_by_ts.get(nca)
+            if sim_count is None:
+                nca += timedelta(minutes=cadence)
+                continue
+            eval_buckets = AlertCheckQuery(
+                team=self.team,
+                alert=fake_alert,
+                date_from=nca - timedelta(minutes=lookback),
+                date_to=nca,
+            ).execute_rolling_checks(nca=nca, window_minutes=window, cadence_minutes=cadence, period_count=m)
+            assert sim_count == eval_buckets[-1].count, (
+                f"cadence={cadence}, window={window}, NCA={nca.isoformat()}: "
+                f"sim={sim_count}, eval={eval_buckets[-1].count}"
+            )
+            nca += timedelta(minutes=cadence)
+
+
+class TestSimulateEvaluatorLifecycleParity(ClickhouseTestMixin, APIBaseTest):
+    BASE_TIME = datetime(2026, 5, 3, 10, 0, 0, tzinfo=UTC)
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.service = f"lifecycle_parity_test_{self._testMethodName}"
+        self.base_url = f"/api/projects/{self.team.pk}/logs/alerts/"
+        self._ff_patcher = patch("posthoganalytics.feature_enabled", return_value=True)
+        self._ff_patcher.start()
+        self.addCleanup(self._ff_patcher.stop)
+        self._checkpoint_patcher = patch(
+            "products.logs.backend.alert_check_query.fetch_live_logs_checkpoint",
+            return_value=None,
+        )
+        self._checkpoint_patcher.start()
+        self.addCleanup(self._checkpoint_patcher.stop)
+        self._kafka_patcher = patch(
+            "products.logs.backend.temporal.activities.produce_internal_event",
+            return_value=None,
+        )
+        self._kafka_patcher.start()
+        self.addCleanup(self._kafka_patcher.stop)
+
+    def _insert_logs(self, counts_per_minute: list[int]) -> None:
+        rows = []
+        for minute_idx, count in enumerate(counts_per_minute):
+            minute_start = self.BASE_TIME + timedelta(minutes=minute_idx)
+            for log_idx in range(count):
+                ts = minute_start + timedelta(seconds=15, milliseconds=log_idx * 10)
+                rows.append(
+                    _make_log_row(
+                        team_id=self.team.id,
+                        service=self.service,
+                        uuid=f"lc-{minute_idx:04d}-{log_idx:05d}",
+                        ts=ts,
+                        body="lifecycle test",
+                    )
+                )
+        if rows:
+            sync_execute("INSERT INTO logs FORMAT JSONEachRow\n" + "\n".join(json.dumps(r) for r in rows))
+
+    def _make_alert(self, **overrides: object) -> LogsAlertConfiguration:
+        from products.logs.backend.alert_state_machine import AlertState
+
+        defaults = {
+            "team": self.team,
+            "name": "Lifecycle test alert",
+            "filters": {"serviceNames": [self.service]},
+            "threshold_count": 100,
+            "threshold_operator": "above",
+            "window_minutes": 15,
+            "evaluation_periods": 3,
+            "datapoints_to_alarm": 2,
+            "cooldown_minutes": 0,
+            "check_interval_minutes": 5,
+            "enabled": True,
+            "state": AlertState.NOT_FIRING.value,
+        }
+        defaults.update(overrides)
+        return LogsAlertConfiguration.objects.create(**defaults)
+
+    def _drive_evaluator(
+        self,
+        alert: LogsAlertConfiguration,
+        start_nca: datetime,
+        end_nca: datetime,
+    ) -> list[tuple[datetime, str]]:
+        from products.logs.backend.temporal.activities import _check_alerts_sync
+
+        alert.next_check_at = start_nca
+        alert.save(update_fields=["next_check_at"])
+
+        nca = start_nca
+        while nca <= end_nca:
+            with freeze_time(nca):
+                _check_alerts_sync()
+            nca += timedelta(minutes=alert.check_interval_minutes)
+
+        events: list[tuple[datetime, str]] = []
+        for row in (
+            LogsAlertEvent.objects.filter(alert=alert)
+            .order_by("created_at")
+            .values("created_at", "state_before", "state_after")
+        ):
+            before = row["state_before"]
+            after = row["state_after"]
+            if before == "not_firing" and after == "firing":
+                kind = "fire"
+            elif before == "firing" and after == "not_firing":
+                kind = "resolve"
+            else:
+                continue
+            ts = row["created_at"].replace(second=0, microsecond=0)
+            events.append((ts, kind))
+        return events
+
+    def _run_simulator(
+        self,
+        *,
+        filters: dict,
+        threshold: int,
+        operator: str,
+        window_minutes: int,
+        evaluation_periods: int,
+        datapoints_to_alarm: int,
+        cooldown_minutes: int,
+        date_from: str,
+        check_interval_minutes: int = 5,
+    ) -> list[tuple[datetime, str]]:
+        response = self.client.post(
+            f"{self.base_url}simulate/",
+            {
+                "filters": filters,
+                "threshold_count": threshold,
+                "threshold_operator": operator,
+                "window_minutes": window_minutes,
+                "check_interval_minutes": check_interval_minutes,
+                "evaluation_periods": evaluation_periods,
+                "datapoints_to_alarm": datapoints_to_alarm,
+                "cooldown_minutes": cooldown_minutes,
+                "date_from": date_from,
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        events: list[tuple[datetime, str]] = []
+        for bucket in response.json()["buckets"]:
+            notif = bucket["notification"]
+            if notif in ("fire", "resolve"):
+                ts = datetime.fromisoformat(bucket["timestamp"])
+                events.append((ts, notif))
+        return events
+
+    def _filter_events_to_window(
+        self, events: list[tuple[datetime, str]], start: datetime, end: datetime
+    ) -> list[tuple[datetime, str]]:
+        return [(t, k) for t, k in events if start <= t <= end]
+
+    def test_old_burst_does_not_fire_at_later_nca(self):
+        counts = [50] * 30 + [0] * 50
+        self._insert_logs(counts)
+
+        alert = self._make_alert()
+
+        start = self.BASE_TIME + timedelta(minutes=60)
+        end = self.BASE_TIME + timedelta(minutes=80)
+
+        eval_events = self._drive_evaluator(alert, start_nca=start, end_nca=end)
+        eval_events = self._filter_events_to_window(eval_events, start, end)
+
+        assert eval_events == []
+
+    def test_only_one_rolling_window_breaches_does_not_fire(self):
+        counts = [0] * 20 + [8] * 15 + [0] * 40
+        self._insert_logs(counts)
+
+        alert = self._make_alert()
+
+        start = self.BASE_TIME
+        end = self.BASE_TIME + timedelta(minutes=70)
+
+        eval_events = self._drive_evaluator(alert, start_nca=start, end_nca=end)
+        eval_events = self._filter_events_to_window(eval_events, start, end)
+
+        assert eval_events == []
+
+    @parameterized.expand(
+        [
+            ("cadence_1min_window_5", 1, 5),
+            ("cadence_5min_window_15", 5, 15),
+            ("cadence_10min_window_30", 10, 30),
+        ]
+    )
+    def test_lifecycle_parity_at_cadence(self, _name: str, cadence: int, window: int) -> None:
+        # 30min quiet, 30min burst @ 30/min, 60min quiet — long enough that
+        # every cadence's rolling window (max 30min wide) slides off the burst.
+        counts = [0] * 30 + [30] * 30 + [0] * 60
+        self._insert_logs(counts)
+
+        alert = self._make_alert(
+            check_interval_minutes=cadence,
+            window_minutes=window,
+            evaluation_periods=3,
+            datapoints_to_alarm=2,
+        )
+
+        start = self.BASE_TIME
+        end = self.BASE_TIME + timedelta(minutes=110)
+
+        with freeze_time(end + timedelta(minutes=cadence)):
+            sim_events = self._run_simulator(
+                filters={"serviceNames": [self.service]},
+                threshold=100,
+                operator="above",
+                window_minutes=window,
+                evaluation_periods=3,
+                datapoints_to_alarm=2,
+                cooldown_minutes=0,
+                date_from="-3h",
+                check_interval_minutes=cadence,
+            )
+        sim_events = self._filter_events_to_window(sim_events, start, end)
+
+        eval_events = self._drive_evaluator(alert, start_nca=start, end_nca=end)
+        eval_events = self._filter_events_to_window(eval_events, start, end)
+
+        assert eval_events == sim_events, f"cadence={cadence}: eval={eval_events}\nsim={sim_events}"
+        assert any(k == "fire" for _, k in eval_events)
+        assert any(k == "resolve" for _, k in eval_events)
