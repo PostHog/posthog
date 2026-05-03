@@ -169,6 +169,9 @@ tools:
                 - last_error_message
                 - created_at
                 - updated_at
+    logs-alerts-quota-retrieve:
+        operation: logs_alerts_quota_retrieve
+        enabled: false
     logs-alerts-reset-create:
         operation: logs_alerts_reset_create
         enabled: false

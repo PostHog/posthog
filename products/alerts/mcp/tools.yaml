@@ -152,6 +152,9 @@ tools:
     logs-alerts-partial-update:
         operation: logs_alerts_partial_update
         enabled: false
+    logs-alerts-quota-retrieve:
+        operation: logs_alerts_quota_retrieve
+        enabled: false
     logs-alerts-reset-create:
         operation: logs_alerts_reset_create
         enabled: false
