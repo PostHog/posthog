@@ -105,6 +105,7 @@ impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
     /// preserving per-partition ordering. Returns early results for
     /// serialization / send failures and collects ack futures for events
     /// that were successfully enqueued.
+    #[allow(clippy::too_many_arguments)]
     async fn enqueue_events(
         &self,
         ctx: &Context,
