@@ -205,28 +205,40 @@ impl SinkEvent for WrappedEvent {
     }
 
     fn serialize_into(&self, ctx: &Context, buf: &mut String) -> anyhow::Result<()> {
-        let ingestion_data = self.build_ingestion_data()?;
+        let spliced = self.build_spliced_properties()?;
+        let properties: &RawValue = spliced.as_deref().unwrap_or(&self.event.properties);
+        let ingestion_data = IngestionData {
+            event: &self.event.event,
+            distinct_id: Some(&self.event.distinct_id),
+            uuid: Some(self.uuid),
+            properties,
+            timestamp: Some(&self.event.timestamp),
+        };
         let data = serde_json::to_string(&ingestion_data)
             .map_err(|e| anyhow::anyhow!("serializing IngestionData: {e:#}"))?;
-        let ip = if ctx.capture_internal {
-            "127.0.0.1".to_string()
+
+        let ip;
+        let ip_ref: &str = if ctx.capture_internal {
+            "127.0.0.1"
         } else {
-            ctx.client_ip.to_string()
+            ip = ctx.client_ip.to_string();
+            &ip
         };
         let timestamp = self.adjusted_timestamp.ok_or_else(|| {
             anyhow::anyhow!("serialize_into called on event without adjusted_timestamp")
         })?;
+        let now = ctx
+            .server_received_at
+            .to_rfc3339_opts(chrono::SecondsFormat::AutoSi, true);
         let ie = IngestionEvent {
             uuid: self.uuid,
-            distinct_id: self.event.distinct_id.clone(),
-            ip,
-            data,
-            now: ctx
-                .server_received_at
-                .to_rfc3339_opts(chrono::SecondsFormat::AutoSi, true),
+            distinct_id: &self.event.distinct_id,
+            ip: ip_ref,
+            data: &data,
+            now: &now,
             sent_at: Some(ctx.client_timestamp),
-            token: ctx.api_token.clone(),
-            event: self.event.event.clone(),
+            token: &ctx.api_token,
+            event: &self.event.event,
             timestamp,
             is_cookieless_mode: self.event.options.cookieless_mode.unwrap_or(false),
             historical_migration: ctx.historical_migration,
@@ -280,47 +292,41 @@ impl WrappedEvent {
         Ok(buf)
     }
 
-    fn build_ingestion_data(&self) -> anyhow::Result<IngestionData> {
+    /// Build spliced properties if injection is needed, or return None
+    /// to signal the caller should borrow `self.event.properties` directly.
+    fn build_spliced_properties(&self) -> anyhow::Result<Option<Box<RawValue>>> {
         let injection = self.build_property_injections()?;
+        if injection.is_empty() {
+            return Ok(None);
+        }
+
         let raw = self.event.properties.get();
+        if !raw.starts_with('{') {
+            return Err(anyhow::anyhow!(
+                "properties must be a JSON object for injection, got: {:.32}",
+                raw,
+            ));
+        }
+        if raw.len() < 2 {
+            return Err(anyhow::anyhow!(
+                "properties too short ({} bytes) for JSON object",
+                raw.len()
+            ));
+        }
+        let prefix = &raw[..raw.len() - 1];
+        let has_existing = !raw[1..].trim_start().starts_with('}');
 
-        let properties = if injection.is_empty() {
-            self.event.properties.clone()
-        } else {
-            if !raw.starts_with('{') {
-                return Err(anyhow::anyhow!(
-                    "properties must be a JSON object for injection, got: {:.32}",
-                    raw,
-                ));
-            }
-            if raw.len() < 2 {
-                return Err(anyhow::anyhow!(
-                    "properties too short ({} bytes) for JSON object",
-                    raw.len()
-                ));
-            }
-            let prefix = &raw[..raw.len() - 1];
-            let has_existing = !raw[1..].trim_start().starts_with('}');
+        let mut buf = String::with_capacity(raw.len() + injection.len() + 2);
+        buf.push_str(prefix);
+        if has_existing {
+            buf.push(',');
+        }
+        buf.push_str(&injection);
+        buf.push('}');
 
-            let mut buf = String::with_capacity(raw.len() + injection.len() + 2);
-            buf.push_str(prefix);
-            if has_existing {
-                buf.push(',');
-            }
-            buf.push_str(&injection);
-            buf.push('}');
-
-            RawValue::from_string(buf)
-                .map_err(|e| anyhow::anyhow!("property surgery produced invalid JSON: {e:#}"))?
-        };
-
-        Ok(IngestionData {
-            event: self.event.event.clone(),
-            distinct_id: Some(self.event.distinct_id.clone()),
-            uuid: Some(self.uuid),
-            properties,
-            timestamp: Some(self.event.timestamp.clone()),
-        })
+        RawValue::from_string(buf)
+            .map(Some)
+            .map_err(|e| anyhow::anyhow!("property surgery produced invalid JSON: {e:#}"))
     }
 }
 
@@ -348,17 +354,21 @@ impl HasEventName for WrappedEvent {
 /// Field order matches `CapturedEvent` from `common_types` so that serde's
 /// derived `Serialize` emits JSON keys in the same order as v0. Serde
 /// annotations (`skip_serializing_if`) also match CapturedEvent exactly.
+///
+/// Borrows from `WrappedEvent` and `Context` to avoid per-event heap
+/// allocations -- the struct is created, serialized, and dropped within
+/// a single `serialize_into` call.
 #[derive(Debug, Serialize)]
-pub struct IngestionEvent {
+pub struct IngestionEvent<'a> {
     pub uuid: Uuid,
-    pub distinct_id: String,
-    pub ip: String,
-    pub data: String,
-    pub now: String,
+    pub distinct_id: &'a str,
+    pub ip: &'a str,
+    pub data: &'a str,
+    pub now: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sent_at: Option<DateTime<Utc>>,
-    pub token: String,
-    pub event: String,
+    pub token: &'a str,
+    pub event: &'a str,
     pub timestamp: DateTime<Utc>,
     #[serde(skip_serializing_if = "<&bool>::not", default)]
     pub is_cookieless_mode: bool,
@@ -376,15 +386,15 @@ pub struct IngestionEvent {
 ///   does not support these at top level (clients send them inside
 ///   `properties`, where they pass through the opaque blob as-is)
 #[derive(Debug, Serialize)]
-pub struct IngestionData {
-    pub event: String,
+pub struct IngestionData<'a> {
+    pub event: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub distinct_id: Option<String>,
+    pub distinct_id: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub uuid: Option<Uuid>,
-    pub properties: Box<RawValue>,
+    pub properties: &'a RawValue,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub timestamp: Option<String>,
+    pub timestamp: Option<&'a str>,
 }
 
 #[cfg(test)]
