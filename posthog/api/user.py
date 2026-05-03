@@ -106,7 +106,7 @@ from posthog.tasks.email import (
     send_two_factor_auth_enabled_email,
 )
 from posthog.user_permissions import UserPermissions
-from posthog.utils import get_safe_cache, render_template, safe_cache_set
+from posthog.utils import render_template, safe_cache_set
 
 from products.dashboards.backend.models.dashboard import Dashboard
 
@@ -127,6 +127,8 @@ USER_SERIALIZER_FIELDS: tuple[str, ...] = (
     "has_sso_enforcement",
 )
 
+_USER_CACHE_MISS = object()
+
 
 def _user_cache_key(field: str, user_id: int) -> str:
     return f"user_serializer:{field}:{user_id}"
@@ -134,30 +136,46 @@ def _user_cache_key(field: str, user_id: int) -> str:
 
 def _cached_per_user(field: str, user_id: int, fetcher: Callable[[], Any]) -> Any:
     cache_key = _user_cache_key(field, user_id)
-    cached = get_safe_cache(cache_key)
-    if cached is not None:
+    try:
+        cached = cache.get(cache_key, _USER_CACHE_MISS)
+    except Exception:
+        cached = _USER_CACHE_MISS
+    if cached is not _USER_CACHE_MISS:
         return cached
     result = fetcher()
     safe_cache_set(cache_key, result, timeout=USER_SERIALIZER_CACHE_TTL_SECONDS)
     return result
 
 
-def _invalidate_user_cache(user_id: Any) -> None:
+def _safe_delete_many(keys: list[str]) -> None:
+    if not keys:
+        return
+    try:
+        cache.delete_many(keys)
+    except Exception:
+        logger.warning("user_serializer_cache_invalidate_failure", key_count=len(keys), exc_info=True)
+
+
+def _invalidate_keys(keys: list[str]) -> None:
+    # Double-delete: immediate handles Django TestCase atomic blocks (where
+    # on_commit never fires); on_commit handles production correctness around
+    # the read-committed race where a concurrent reader can re-cache pre-commit
+    # state between the immediate delete and the writer's transaction commit.
+    _safe_delete_many(keys)
+    transaction.on_commit(lambda: _safe_delete_many(keys))
+
+
+def _invalidate_user_cache(user_id: int | None) -> None:
     if user_id is None:
         return
-    keys = [_user_cache_key(f, user_id) for f in USER_SERIALIZER_FIELDS]
-    try:
-        cache.delete_many(keys)
-    except Exception:
-        pass
-    transaction.on_commit(lambda: _delete_keys_safely(keys))
+    _invalidate_keys([_user_cache_key(f, user_id) for f in USER_SERIALIZER_FIELDS])
 
 
-def _delete_keys_safely(keys: list[str]) -> None:
-    try:
-        cache.delete_many(keys)
-    except Exception:
-        pass
+def _invalidate_user_caches(user_ids: list[int]) -> None:
+    if not user_ids:
+        return
+    keys = [_user_cache_key(f, user_id) for user_id in user_ids for f in USER_SERIALIZER_FIELDS]
+    _invalidate_keys(keys)
 
 
 def _invalidate_for_user_save(sender: type, instance: Any, **kwargs: Any) -> None:
@@ -172,18 +190,27 @@ def _invalidate_for_org_domain(sender: type, instance: Any, **kwargs: Any) -> No
     organization_id = getattr(instance, "organization_id", None)
     if organization_id is None:
         return
-    user_ids = OrganizationMembership.objects.filter(organization_id=organization_id).values_list("user_id", flat=True)
-    for user_id in user_ids:
-        _invalidate_user_cache(user_id)
+    try:
+        user_ids = list(
+            OrganizationMembership.objects.filter(organization_id=organization_id).values_list("user_id", flat=True)
+        )
+    except Exception:
+        logger.warning("user_serializer_org_domain_invalidate_query_failure", exc_info=True)
+        return
+    _invalidate_user_caches(user_ids)
 
 
 def _invalidate_for_invite(sender: type, instance: Any, **kwargs: Any) -> None:
     target_email = getattr(instance, "target_email", None)
     if not target_email:
         return
-    user_ids = User.objects.filter(email__iexact=target_email).values_list("id", flat=True)
-    for user_id in user_ids:
-        _invalidate_user_cache(user_id)
+    try:
+        # EmailNormalizer.normalize is .lower(); iexact is case-insensitive — same set as the read path.
+        user_ids = list(User.objects.filter(email__iexact=target_email).values_list("id", flat=True))
+    except Exception:
+        logger.warning("user_serializer_invite_invalidate_query_failure", exc_info=True)
+        return
+    _invalidate_user_caches(user_ids)
 
 
 post_save.connect(_invalidate_for_user_save, sender=User, weak=False)
