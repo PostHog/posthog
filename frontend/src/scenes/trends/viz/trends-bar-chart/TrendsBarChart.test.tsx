@@ -204,10 +204,10 @@ describe('TrendsBarChart gate', () => {
             featureFlags: HOG_CHARTS_FLAG,
         })
 
-        // Legacy ActionsLineGraph uses Chart.js, which test-helpers' setupJsdom does not stand up
-        // — the new BarGraph data attr is the cheapest signal for "did the new renderer mount?"
         await waitFor(() => {
-            expect(screen.queryByRole('img', { name: /chart with/i })).not.toBeInTheDocument()
+            // hog-charts BarChart sets data-attr="trend-bar-graph"; legacy ActionsLineGraph does not.
+            expect(screen.queryByTestId('trend-bar-graph')).not.toBeInTheDocument()
+            expect(screen.queryByTestId('trend-bar-value-graph')).not.toBeInTheDocument()
         })
     })
 })
