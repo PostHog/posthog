@@ -505,7 +505,11 @@ class UserSerializer(serializers.ModelSerializer):
         if not request or request.user.id != instance.id or not instance.email:
             return []
 
-        return _cached_per_user("pending_invites", instance.id, lambda: self._compute_pending_invites(instance))
+        cached = _cached_per_user("pending_invites", instance.id, lambda: self._compute_pending_invites(instance))
+        # Drop entries that have aged past INVITE_DAYS_VALIDITY since the cache was populated.
+        # Cheap (typically <=25 rows, capped) and avoids serving expired invites for the cache TTL.
+        cutoff = django_timezone.now() - timedelta(days=INVITE_DAYS_VALIDITY)
+        return [invite for invite in cached if invite["created_at"] > cutoff]
 
     def _compute_pending_invites(self, instance: User) -> list[dict]:
         normalized_email = EmailNormalizer.normalize(instance.email)
