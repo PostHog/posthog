@@ -4230,13 +4230,13 @@
             "readOnlyHint": true
         }
     },
-    "signals-agent-harness-memory-create": {
+    "signals-agent-memory-create": {
         "description": "Upsert an `agent_inference` memory entry keyed on `(team, key)`. Re-using a key updates the existing entry in place and resets its TTL (default 7 days, max 90). Cannot overwrite `human_confirmed` entries — those are managed by humans only. Use this to record \"already saw it\" notes, dedupe keys, validated hypotheses, or narrow the scope of future runs.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Write or refresh an agent memory",
         "title": "Write or refresh an agent memory",
-        "required_scopes": ["task:write"],
+        "required_scopes": ["signal_agent:write"],
         "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
@@ -4245,13 +4245,13 @@
             "readOnlyHint": false
         }
     },
-    "signals-agent-harness-memory-forget-create": {
+    "signals-agent-memory-delete": {
         "description": "Delete an `agent_inference` memory entry by key. Returns `deleted=false` if no row matched — the call is idempotent. Cannot delete `human_confirmed` entries.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Forget an agent memory by key",
         "title": "Forget an agent memory by key",
-        "required_scopes": ["task:write"],
+        "required_scopes": ["signal_agent:write"],
         "new_mcp": true,
         "annotations": {
             "destructiveHint": true,
@@ -4260,13 +4260,13 @@
             "readOnlyHint": false
         }
     },
-    "signals-agent-harness-memory-list": {
+    "signals-agent-memory-list": {
         "description": "Return `SignalMemory` entries the project has accumulated — known issues, false positives, team steering. ILIKE matches on `content`; tags filter via Postgres array overlap (pass repeated `tags=` query params). Expired `agent_inference` entries are hidden by default; pass `include_expired=true` for audit/debug.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Search durable agent memories",
         "title": "Search durable agent memories",
-        "required_scopes": ["task:read"],
+        "required_scopes": ["signal_agent:read"],
         "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
@@ -4275,13 +4275,13 @@
             "readOnlyHint": true
         }
     },
-    "signals-agent-harness-project-profile-get": {
-        "description": "Return a deterministic snapshot of \"what's true about this project\" — products in use, product intents (stuck onboardings), connected integrations, warehouse sources, signal source configs (split enabled/disabled), and existing inbox report counts. Singleton per team; the response reflects either the newest non-expired cached profile or a freshly-built one. Read this once at the start of a run (right after `skill-get`) to orient on the team in one tool call instead of paginating through `inbox-source-configs-list` / `inbox-reports-list` / `read-data-schema` / `activity-log-list`. Distinct from `signals-agent-harness-memory-list`: profile is ground truth from authoritative tables; memory is the agent's inferred learnings.",
+    "signals-agent-project-profile-get": {
+        "description": "Return a deterministic snapshot of \"what's true about this project\" — products in use, product intents (stuck onboardings), connected integrations, warehouse sources, signal source configs (split enabled/disabled), and existing inbox report counts. Singleton per team; the response reflects either the newest non-expired cached profile or a freshly-built one. Read this once at the start of a run (right after `skill-get`) to orient on the team in one tool call instead of paginating through `inbox-source-configs-list` / `inbox-reports-list` / `read-data-schema` / `activity-log-list`. Distinct from `signals-agent-memory-list`: profile is ground truth from authoritative tables; memory is the agent's inferred learnings.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Get the project profile",
         "title": "Get the project profile",
-        "required_scopes": ["task:read"],
+        "required_scopes": ["signal_agent:read"],
         "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
@@ -4290,13 +4290,13 @@
             "readOnlyHint": true
         }
     },
-    "signals-agent-harness-runs-findings-create": {
+    "signals-agent-runs-findings-create": {
         "description": "Persist a finding to `SignalAgentRun.findings` and fire `emit_signal` with `source_product = signals_agent`. Idempotent on `(run_id, finding_id)` — a second call with the same `finding_id` short-circuits without re-firing the pipeline. Honors the team's `shadow_mode` flag: when true, the finding is persisted on the run row but the external emit is a no-op. Use `weight` to rank, `confidence` to self-grade, and attach evidence citations referencing `error_tracking`, `session_replay`, `logs`, `feature_flags`, etc.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Emit a finding for a run",
         "title": "Emit a finding for a run",
-        "required_scopes": ["task:write"],
+        "required_scopes": ["signal_agent:write"],
         "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
@@ -4305,13 +4305,13 @@
             "readOnlyHint": false
         }
     },
-    "signals-agent-harness-runs-list": {
+    "signals-agent-runs-list": {
         "description": "Return recent `SignalAgentRun` summaries for the current project, newest first. Used by the headless Signals agent to dedupe its own work — read what other runs already covered before generating new hypotheses. ILIKE matches on `summary`; results are capped at 100 (default 20). Optional `since` window narrows to recent runs only.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Search recent agent runs",
         "title": "Search recent agent runs",
-        "required_scopes": ["task:read"],
+        "required_scopes": ["signal_agent:read"],
         "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
@@ -4320,13 +4320,13 @@
             "readOnlyHint": true
         }
     },
-    "signals-agent-harness-runs-retrieve": {
-        "description": "Return the full `SignalAgentRun` row including `summary`, `findings`, `hypotheses_considered`, `tool_call_log`, and `metadata`. Strictly team-scoped — a UUID belonging to another project returns 404. Follow up to a row surfaced by `signals-agent-harness-runs-list` when you need the full payload.",
+    "signals-agent-runs-retrieve": {
+        "description": "Return the full `SignalAgentRun` row including `summary`, `findings`, `hypotheses_considered`, `tool_call_log`, and `metadata`. Strictly team-scoped — a UUID belonging to another project returns 404. Follow up to a row surfaced by `signals-agent-runs-list` when you need the full payload.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Get an agent run by ID",
         "title": "Get an agent run by ID",
-        "required_scopes": ["task:read"],
+        "required_scopes": ["signal_agent:read"],
         "new_mcp": true,
         "annotations": {
             "destructiveHint": false,

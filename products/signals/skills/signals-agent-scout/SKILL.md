@@ -4,14 +4,14 @@ description: >
   Generic Signals scout for PostHog projects. Explores freely across whichever products the
   team uses (errors, replays, web analytics, experiments, feature flags, warehouse, LLM
   analytics, surveys, hog functions), saves observations as durable memory, and emits the
-  findings that clear the confidence bar via signals-agent-harness-runs-findings-create.
+  findings that clear the confidence bar via signals-agent-runs-findings-create.
   Use for first-pass scouting on any project. The scout's understanding of the team
   compounds across runs through memory; per-product references in references/products/
   steer attention without prescribing a fixed playbook.
 compatibility: >
-  Designed for the PostHog Signals agent harness in a Claude sandbox with read-only PostHog
-  MCP scopes (task:read, llm_skill:read, plus standard analytics reads). Assumes the
-  signals-agent-harness MCP family is available: project-profile-get, runs-list, memory-list,
+  Designed for the PostHog Signals agent in a Claude sandbox with read-only PostHog MCP
+  scopes (signal_agent:read, llm_skill:read, plus standard analytics reads). Assumes the
+  signals-agent MCP family is available: project-profile-get, runs-list, memory-list,
   runs-findings-create, memory-create. The sandbox image bakes the official PostHog skill
   set into ~/.claude/skills/ and /scripts/plugins/posthog/skills/, so per-product
   references can name upstream skills directly without MCP fetches.
@@ -36,14 +36,14 @@ you find threads and develop hypotheses. Skip what's not useful, revisit what is
 
 Three cheap reads cold-start a run. Skip any you already have context on:
 
-- `signals-agent-harness-memory-list` — durable team steering inherited from past
+- `signals-agent-memory-list` — durable team steering inherited from past
   runs. **This is your team-specific map.** Memories tagged `pattern`, `noise`,
   `addressed`, `dedupe`, or `domain:<area>` tell you what's normal, what's already
   surfaced, and what to skip.
-- `signals-agent-harness-runs-list` (last 7d) — what prior scouts found and ruled
+- `signals-agent-runs-list` (last 7d) — what prior scouts found and ruled
   out. Skim summaries; pull `runs-retrieve` only when a summary mentions a topic
   you're considering.
-- `signals-agent-harness-project-profile-get` — deterministic snapshot (products in
+- `signals-agent-project-profile-get` — deterministic snapshot (products in
   use, integrations, external data sources, signal source configs, recent
   dashboards, popular insights, top events with reach + burst metrics, inbox report
   counts). Most useful on a project you've never run on; once memory is dense,
@@ -113,7 +113,7 @@ when memory replaces an emit, and noise patterns.
 
 For each candidate finding:
 
-- **Emit** via `signals-agent-harness-runs-findings-create` if it clears the
+- **Emit** via `signals-agent-runs-findings-create` if it clears the
   confidence bar. Read [`references/finding-schema.md`](references/finding-schema.md)
   before your first emit — covers the prose contract, weight/confidence rubrics,
   evidence shape, hypothesis wording, severity mapping, and a worked example.

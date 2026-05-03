@@ -52,6 +52,7 @@ MCP_READ_SCOPES: list[str] = [
     "query:read",
     "session_recording:read",
     "session_recording_playlist:read",
+    "signal_agent:read",
     "subscription:read",
     "survey:read",
     "task:read",
@@ -81,6 +82,7 @@ MCP_WRITE_SCOPES: list[str] = [
 INTERNAL_SCOPES: list[str] = [
     "task:write",
     "llm_gateway:read",
+    "signal_agent:write",
 ]
 
 TOKEN_EXPIRATION_SECONDS = 60 * 60 * 6  # 6 hours

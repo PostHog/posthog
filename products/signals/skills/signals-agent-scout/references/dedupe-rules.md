@@ -27,17 +27,17 @@ For any candidate finding, classify it against prior runs and memory before emit
 
 ## Reading prior runs efficiently
 
-`signals-agent-harness-runs-list` returns recent run summaries (the prose closing
+`signals-agent-runs-list` returns recent run summaries (the prose closing
 paragraph). Skim the summaries, not the full prompts. A run summary that mentions your
 candidate's entity ID, dedupe-key keyword, or topic is enough to flag for closer reading
-via `signals-agent-harness-runs-retrieve`.
+via `signals-agent-runs-retrieve`.
 
 When in doubt, read the prior run's findings (`get_run.findings`) — they expose the
 exact `dedupe_keys`, evidence ids, and time_range you'd be re-emitting.
 
 ## Reading memory efficiently
 
-`signals-agent-harness-memory-list` defaults to non-expired entries. Sort visually by:
+`signals-agent-memory-list` defaults to non-expired entries. Sort visually by:
 
 - `tags` containing `dedupe`, `noise`, `addressed`, `ignore`, or your candidate topic.
 - Recent `created_at` first.

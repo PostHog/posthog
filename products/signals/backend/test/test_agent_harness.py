@@ -154,10 +154,10 @@ class TestPromptBuilder(BaseTest):
         # project-profile harness tool, eliminating the discovery-burn the
         # scout would otherwise pay on a fresh team.
         assert "Then: orient on this project" in prompt
-        assert "signals-agent-harness-project-profile-get" in prompt
+        assert "signals-agent-project-profile-get" in prompt
         # The base prompt teaches the agent to call the harness MCP tools by name.
-        assert "signals-agent-harness-runs-findings-create" in prompt
-        assert "signals-agent-harness-memory-list" in prompt
+        assert "signals-agent-runs-findings-create" in prompt
+        assert "signals-agent-memory-list" in prompt
         # Recency lens references the started_at anchor.
         assert "Recency lens" in prompt
         assert "2026-05-01T12:34:56+00:00" in prompt

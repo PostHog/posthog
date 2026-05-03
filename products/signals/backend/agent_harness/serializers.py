@@ -520,7 +520,7 @@ class ProjectProfilePayloadSerializer(serializers.Serializer):
 
 
 class ProjectProfileSerializer(serializers.Serializer):
-    """Wire shape for the project profile returned by `signals-agent-harness-project-profile-list`.
+    """Wire shape for the project profile returned by `signals-agent-project-profile-get`.
 
     Read this once at the start of a run (after `skill-get`) to orient on the team. Cache
     is per-team with a ~36h soft TTL; the response always reflects either the latest cached

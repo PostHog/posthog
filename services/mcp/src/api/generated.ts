@@ -32727,7 +32727,7 @@ export namespace Schemas {
     }
 
     /**
-     * Wire shape for the project profile returned by `signals-agent-harness-project-profile-list`.
+     * Wire shape for the project profile returned by `signals-agent-project-profile-get`.
 
     Read this once at the start of a run (after `skill-get`) to orient on the team. Cache
     is per-team with a ~36h soft TTL; the response always reflects either the latest cached
@@ -45300,7 +45300,7 @@ export namespace Schemas {
     offset?: number;
     };
 
-    export type SignalsAgentHarnessMemoryListParams = {
+    export type SignalsAgentMemoryListParams = {
     /**
      * Include expired `agent_inference` entries (default false). Use for audit/debug only.
      */
@@ -45325,7 +45325,7 @@ export namespace Schemas {
     text?: string;
     };
 
-    export type SignalsAgentHarnessRunsListParams = {
+    export type SignalsAgentRunsListParams = {
     /**
      * Max rows to return (default 20, hard cap 100).
      * @minimum 1

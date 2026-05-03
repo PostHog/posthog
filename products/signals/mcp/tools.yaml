@@ -119,11 +119,11 @@ tools:
     inbox-source-configs-update:
         operation: signals_source_configs_update
         enabled: false
-    signals-agent-harness-runs-list:
-        operation: signals_agent_harness_runs_list
+    signals-agent-runs-list:
+        operation: signals_agent_runs_list
         enabled: true
         scopes:
-            - task:read
+            - signal_agent:read
         annotations:
             readOnly: true
             destructive: false
@@ -146,11 +146,11 @@ tools:
                 - completed_at
                 - summary
                 - findings_count
-    signals-agent-harness-runs-retrieve:
-        operation: signals_agent_harness_runs_retrieve
+    signals-agent-runs-retrieve:
+        operation: signals_agent_runs_retrieve
         enabled: true
         scopes:
-            - task:read
+            - signal_agent:read
         annotations:
             readOnly: true
             destructive: false
@@ -160,12 +160,12 @@ tools:
             Return the full `SignalAgentRun` row including `summary`, `findings`,
             `hypotheses_considered`, `tool_call_log`, and `metadata`. Strictly team-scoped — a
             UUID belonging to another project returns 404. Follow up to a row surfaced by
-            `signals-agent-harness-runs-list` when you need the full payload.
-    signals-agent-harness-runs-findings-create:
-        operation: signals_agent_harness_runs_findings_create
+            `signals-agent-runs-list` when you need the full payload.
+    signals-agent-runs-findings-create:
+        operation: signals_agent_runs_findings_create
         enabled: true
         scopes:
-            - task:write
+            - signal_agent:write
         annotations:
             readOnly: false
             destructive: false
@@ -179,11 +179,11 @@ tools:
             run row but the external emit is a no-op. Use `weight` to rank, `confidence` to
             self-grade, and attach evidence citations referencing `error_tracking`,
             `session_replay`, `logs`, `feature_flags`, etc.
-    signals-agent-harness-memory-list:
-        operation: signals_agent_harness_memory_list
+    signals-agent-memory-list:
+        operation: signals_agent_memory_list
         enabled: true
         scopes:
-            - task:read
+            - signal_agent:read
         annotations:
             readOnly: true
             destructive: false
@@ -205,11 +205,11 @@ tools:
                 - updated_at
                 - expires_at
                 - created_by_run_id
-    signals-agent-harness-memory-create:
-        operation: signals_agent_harness_memory_create
+    signals-agent-memory-create:
+        operation: signals_agent_memory_create
         enabled: true
         scopes:
-            - task:write
+            - signal_agent:write
         annotations:
             readOnly: false
             destructive: false
@@ -221,11 +221,11 @@ tools:
             Cannot overwrite `human_confirmed` entries — those are managed by humans only.
             Use this to record "already saw it" notes, dedupe keys, validated hypotheses, or
             narrow the scope of future runs.
-    signals-agent-harness-project-profile-get:
-        operation: signals_agent_harness_project_profile_get
+    signals-agent-project-profile-get:
+        operation: signals_agent_project_profile_get
         enabled: true
         scopes:
-            - task:read
+            - signal_agent:read
         annotations:
             readOnly: true
             destructive: false
@@ -240,13 +240,13 @@ tools:
             of a run (right after `skill-get`) to orient on the team in one tool call
             instead of paginating through `inbox-source-configs-list` /
             `inbox-reports-list` / `read-data-schema` / `activity-log-list`. Distinct from
-            `signals-agent-harness-memory-list`: profile is ground truth from authoritative
+            `signals-agent-memory-list`: profile is ground truth from authoritative
             tables; memory is the agent's inferred learnings.
-    signals-agent-harness-memory-forget-create:
-        operation: signals_agent_harness_memory_forget_create
+    signals-agent-memory-delete:
+        operation: signals_agent_memory_delete
         enabled: true
         scopes:
-            - task:write
+            - signal_agent:write
         annotations:
             readOnly: false
             destructive: true

@@ -4,7 +4,7 @@ Common shapes the scout should recognize and how to drill in. Each pattern names
 profile signal that surfaces it, the validating queries, and the disqualifiers that
 rule it out.
 
-The project profile (`signals-agent-harness-project-profile-get`) is the entry point
+The project profile (`signals-agent-project-profile-get`) is the entry point
 for most patterns. Read it first — many of these patterns become obvious from the
 profile alone.
 

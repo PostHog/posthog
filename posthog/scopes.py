@@ -75,6 +75,7 @@ APIScopeObject = Literal[
     "session_recording",
     "session_recording_playlist",
     "sharing_configuration",
+    "signal_agent",
     "streamlit_app",
     "subscription",
     "survey",

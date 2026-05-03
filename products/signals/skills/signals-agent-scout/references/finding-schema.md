@@ -1,6 +1,6 @@
 # Finding schema reference
 
-Read this before your first call to `signals-agent-harness-runs-findings-create`.
+Read this before your first call to `signals-agent-runs-findings-create`.
 The harness validates request shape but doesn't grade prose quality — that's on you.
 
 ## Required fields

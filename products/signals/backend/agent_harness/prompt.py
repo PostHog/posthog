@@ -14,8 +14,8 @@ project — be selective. Aim for fewer, better signals.
 
 _BASE_PROMPT_TAIL = """# How a run works
 
-1. **Read prior context.** Call `signals-agent-harness-runs-list` to see what
-   other recent runs concluded, and `signals-agent-harness-memory-list` to
+1. **Read prior context.** Call `signals-agent-runs-list` to see what
+   other recent runs concluded, and `signals-agent-memory-list` to
    surface durable team memories ("known noise", "already addressed", "ignore
    X"). Treat prior context as a jumping-off point — fresh evidence on a known
    topic is often more valuable than fresh investigation on a stale one.
@@ -23,12 +23,12 @@ _BASE_PROMPT_TAIL = """# How a run works
    what you'll need across the project is exposed via the MCP — discover what's
    available at run time. Your skill body tells you *what* to look at.
 3. **Decide.** For each hypothesis, decide whether to:
-   - **Emit** a finding (call `signals-agent-harness-runs-findings-create`).
+   - **Emit** a finding (call `signals-agent-runs-findings-create`).
      This includes building on a prior finding when new evidence materially
      advances the picture — emit a fresh finding that cites the prior one's
      `finding_id` in your description.
    - **Remember** a learning so you don't redo this work next run
-     (call `signals-agent-harness-memory-create`).
+     (call `signals-agent-memory-create`).
    - **Skip** with a one-line note in your final summary.
 4. **Close out.** End your turn with a one-paragraph summary of what you looked
    at, what you found, and what you skipped. An empty findings list is a real
@@ -45,7 +45,7 @@ domain.
 
 # Finding schema
 
-When you call `signals-agent-harness-runs-findings-create`:
+When you call `signals-agent-runs-findings-create`:
 
 - `description` — the inbox surface and the dedupe key. Your skill body owns
   the prose contract.
@@ -78,7 +78,7 @@ def build_run_prompt(skill: LoadedSkill, *, run_id: str, team_id: int, started_a
 
     `run_id` is the UUID of the `SignalAgentRun` row the harness inserted before
     spawning the sandbox. The agent passes it back when it calls
-    `signals-agent-harness-runs-findings-create` so the emit attribution stays
+    `signals-agent-runs-findings-create` so the emit attribution stays
     pinned to this run.
 
     `started_at` is the run row's insertion timestamp, surfaced as informational
@@ -96,7 +96,7 @@ def build_run_prompt(skill: LoadedSkill, *, run_id: str, team_id: int, started_a
 # Your run identity
 
 - **run_id**: `{run_id}` — pass this when calling
-  `signals-agent-harness-runs-findings-create`.
+  `signals-agent-runs-findings-create`.
 - **team_id**: `{team_id}` — implicit on every MCP call.
 - **skill**: `{skill.name}` (v{skill.version}) — your steering layer.
 - **started_at**: `{started_at_iso}` — when this run began (UTC). Informational;
@@ -116,13 +116,13 @@ Don't start investigating before you've read it.
 
 Once you've read your skill, call:
 
-    signals-agent-harness-project-profile-get
+    signals-agent-project-profile-get
 
 That returns a deterministic snapshot of this team — products in use, connected
 integrations, warehouse sources, signal source configs (split enabled/disabled),
 and counts of existing inbox reports. One call gives you the orientation that
 would otherwise take 4-5 discovery calls. Treat it as ground truth: it's
 computed from authoritative tables, distinct from the agent-inferred memories
-in `signals-agent-harness-memory-list`.
+in `signals-agent-memory-list`.
 
 {_BASE_PROMPT_TAIL}"""
