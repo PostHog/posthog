@@ -59,9 +59,12 @@ export function buildTrendsBarAggregatedSeries<R extends TrendsBarResultLike, M 
     results: R[],
     opts: BuildTrendsBarSeriesOpts<R, M>
 ): { series: Series<M>[]; labels: string[] } {
-    const labels = results.map((r) => r.label ?? '')
-    const n = results.length
-    const series = results.map((r, index) => {
+    // Hidden results are dropped entirely — keeping them as `excluded` series would leave
+    // a phantom band on the category axis with no bar.
+    const visible = opts.getHidden ? results.filter((r, i) => !opts.getHidden!(r, i)) : results
+    const labels = visible.map((r) => r.label ?? '')
+    const n = visible.length
+    const series = visible.map((r, index) => {
         const data = new Array<number>(n).fill(0)
         const value = r.aggregated_value ?? 0
         if (Number.isFinite(value)) {

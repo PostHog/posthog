@@ -107,4 +107,20 @@ describe('buildTrendsBarAggregatedSeries', () => {
         const { series } = buildTrendsBarAggregatedSeries(results, { getColor: (_r, i) => colors[i] })
         expect(series.map((s) => s.color)).toEqual(colors)
     })
+
+    it('drops hidden results so visible bars are densely packed', () => {
+        const results = [
+            mkResult({ id: 'a', label: 'A', aggregated_value: 1 }),
+            mkResult({ id: 'b', label: 'B', aggregated_value: 2 }),
+            mkResult({ id: 'c', label: 'C', aggregated_value: 3 }),
+        ]
+        const { series, labels } = buildTrendsBarAggregatedSeries(results, {
+            getColor: () => RED,
+            getHidden: (_r, i) => i === 1,
+        })
+        expect(labels).toEqual(['A', 'C'])
+        expect(series).toHaveLength(2)
+        expect(series[0].data).toEqual([1, 0])
+        expect(series[1].data).toEqual([0, 3])
+    })
 })
