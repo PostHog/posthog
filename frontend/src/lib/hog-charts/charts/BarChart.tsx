@@ -24,6 +24,7 @@ import type {
     Series,
     TooltipContext,
 } from '../core/types'
+import { DEFAULT_Y_AXIS_ID } from '../core/types'
 
 // Brand for the private ChartScales._private slot used by BarChart. The base Chart
 // and other chart types treat this as opaque; BarChart's draw callbacks narrow back to it.
@@ -92,16 +93,24 @@ function BarChartInner<Meta = unknown>({
     }, [barLayout, series, labels])
 
     // Pick which series should round its cap in stacked/percent layouts.
-    // d3.stack uses the order passed to `stack.keys()` (here: visible series in their array order),
-    // so the topmost visual layer at every x is the last visible series. That key gets cap rounding.
-    // If the consumer reorders or hides series, this recomputes — `series` and `excluded` flags
-    // are both in the dep array.
-    const topStackedKey = useMemo<string | null>(() => {
+    // buildStackData groups by yAxisId and stacks each axis independently, so each axis has
+    // its own topmost visible series. Track them per-axis — the global "last visible series"
+    // approach would only round the cap on one axis when there are dual axes.
+    const topStackedKeyByAxis = useMemo<Map<string, string>>(() => {
+        const m = new Map<string, string>()
         if (barLayout === 'grouped') {
-            return null
+            return m
         }
-        const visible = series.filter((s) => !s.visibility?.excluded)
-        return visible.length > 0 ? visible[visible.length - 1].key : null
+        for (const s of series) {
+            if (s.visibility?.excluded) {
+                continue
+            }
+            const axisId = s.yAxisId ?? DEFAULT_Y_AXIS_ID
+            // Last one wins, mirroring d3.stack's key order — so the value at the end of
+            // iteration is the topmost visible layer for that axis.
+            m.set(axisId, s.key)
+        }
+        return m
     }, [barLayout, series])
 
     const chartConfig = useMemo<BarChartConfig | undefined>(() => {
@@ -184,7 +193,8 @@ function BarChartInner<Meta = unknown>({
                     continue
                 }
                 const stackedBand = stackedData?.get(s.key)
-                const isTop = topStackedKey !== null && s.key === topStackedKey
+                const axisId = s.yAxisId ?? DEFAULT_Y_AXIS_ID
+                const isTop = topStackedKeyByAxis.get(axisId) === s.key
                 const bars = computeSeriesBars({
                     series: s,
                     labels: drawLabels,
@@ -202,7 +212,7 @@ function BarChartInner<Meta = unknown>({
                 )
             }
         },
-        [showGrid, stackedData, barLayout, isHorizontal, topStackedKey, barCornerRadius]
+        [showGrid, stackedData, barLayout, isHorizontal, topStackedKeyByAxis, barCornerRadius]
     )
 
     const drawHover = useCallback(
@@ -218,7 +228,8 @@ function BarChartInner<Meta = unknown>({
                     continue
                 }
                 const stackedBand = stackedData?.get(s.key)
-                const isTop = topStackedKey !== null && s.key === topStackedKey
+                const axisId = s.yAxisId ?? DEFAULT_Y_AXIS_ID
+                const isTop = topStackedKeyByAxis.get(axisId) === s.key
                 const bar = computeBarAtIndex({
                     series: s,
                     label: hoveredLabel,
@@ -234,7 +245,7 @@ function BarChartInner<Meta = unknown>({
                 }
             }
         },
-        [stackedData, barLayout, isHorizontal, topStackedKey, barCornerRadius]
+        [stackedData, barLayout, isHorizontal, topStackedKeyByAxis, barCornerRadius]
     )
 
     const resolveValue = useMemo(() => {

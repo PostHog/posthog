@@ -220,9 +220,13 @@ function buildStackData(
 
         const stacked = stack(tableData)
         for (const layer of stacked) {
+            // d3.stackOffsetExpand divides each value by the column sum; when every series at
+            // an index sums to 0 it produces NaN. Treat that column as a flat zero-height
+            // segment so downstream renderers and tooltip resolvers don't have to guard
+            // against NaN. Harmless for the no-offset path where d3 always emits finite numbers.
             result.set(layer.key, {
-                top: layer.map((d) => d[1]),
-                bottom: layer.map((d) => d[0]),
+                top: layer.map((d) => (Number.isFinite(d[1]) ? d[1] : 0)),
+                bottom: layer.map((d) => (Number.isFinite(d[0]) ? d[0] : 0)),
             })
         }
     }

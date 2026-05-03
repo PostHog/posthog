@@ -309,6 +309,23 @@ describe('hog-charts scales', () => {
             const series = [makeSeries({ key: 's1', data: [0, 0] })]
             expect(() => computePercentStackData(series, ['a', 'b'])).not.toThrow()
         })
+
+        it('replaces NaN with 0 in columns where every series sums to 0', () => {
+            // d3.stackOffsetExpand divides by column sum; an all-zero column produces NaN.
+            // The builder must scrub those before they reach the renderer / tooltip resolver.
+            const s1 = makeSeries({ key: 's1', data: [10, 0, 30] })
+            const s2 = makeSeries({ key: 's2', data: [20, 0, 40] })
+            const result = computePercentStackData([s1, s2], ['a', 'b', 'c'])
+
+            for (const key of ['s1', 's2']) {
+                const band = result.get(key)!
+                expect(band.top.every(Number.isFinite)).toBe(true)
+                expect(band.bottom.every(Number.isFinite)).toBe(true)
+                // The all-zero column flattens to a zero-height segment.
+                expect(band.top[1]).toBe(0)
+                expect(band.bottom[1]).toBe(0)
+            }
+        })
     })
 
     describe('computeStackData', () => {
