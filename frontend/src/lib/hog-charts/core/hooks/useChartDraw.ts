@@ -76,10 +76,10 @@ export function useChartDraw({
             clearAndPrepare(ctx, dimensions)
             const drawStart = typeof performance !== 'undefined' ? performance.now() : 0
             drawStatic({ ctx, dimensions, scales, series, labels, hoverIndex: -1, theme })
+            const drawEnd = typeof performance !== 'undefined' ? performance.now() : 0
             ctx.restore()
             const onPerf = onPerformanceRef.current
             if (onPerf) {
-                const drawEnd = typeof performance !== 'undefined' ? performance.now() : 0
                 const phase = firstPaintFiredRef.current ? 'redraw' : 'first-paint'
                 firstPaintFiredRef.current = true
                 let dataPointCount = 0
