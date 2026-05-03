@@ -160,7 +160,10 @@ async fn v1_batch_round_trip() -> Result<()> {
     }
 
     event_names.sort();
-    assert_eq!(event_names, vec!["$identify", "$pageview", "button_clicked"]);
+    assert_eq!(
+        event_names,
+        vec!["$identify", "$pageview", "button_clicked"]
+    );
 
     topic.assert_empty();
     Ok(())
@@ -193,12 +196,9 @@ async fn v1_kafka_headers_round_trip() -> Result<()> {
         headers.get("distinct_id").map(|s| s.as_str()),
         Some("integ-user-headers")
     );
-    assert_eq!(
-        headers.get("event").map(|s| s.as_str()),
-        Some("$pageview")
-    );
-    assert!(headers.get("uuid").is_some());
-    assert!(headers.get("timestamp").is_some());
+    assert_eq!(headers.get("event").map(|s| s.as_str()), Some("$pageview"));
+    assert!(headers.contains_key("uuid"));
+    assert!(headers.contains_key("timestamp"));
 
     Ok(())
 }
@@ -240,11 +240,10 @@ async fn v1_dropped_event_not_published() -> Result<()> {
     let (sink, _monitor) = build_v1_sink(topic.topic_name()).await;
     let ctx = v1_test_context();
 
-    let wrapped = test_utils::realistic_pageview("integ-user-dropped")
-        .with_result(
-            capture::v1::analytics::types::EventResult::Drop,
-            Some("rate_limited"),
-        );
+    let wrapped = test_utils::realistic_pageview("integ-user-dropped").with_result(
+        capture::v1::analytics::types::EventResult::Drop,
+        Some("rate_limited"),
+    );
     let events: Vec<&(dyn Event + Send + Sync)> = vec![&wrapped];
 
     let results = sink.publish_batch(&ctx, &events).await;

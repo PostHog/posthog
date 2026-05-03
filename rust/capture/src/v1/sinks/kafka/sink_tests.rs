@@ -47,7 +47,7 @@ struct FakeEvent {
     parsed_uuid: Uuid,
     publish: bool,
     destination: Destination,
-    partition_key: String,
+    partition_key: Option<String>,
     payload: Result<String, String>,
     event_headers: CapturedEventHeaders,
 }
@@ -58,7 +58,7 @@ impl FakeEvent {
             parsed_uuid: Uuid::new_v4(),
             publish: true,
             destination: Destination::AnalyticsMain,
-            partition_key: format!("phc_test:{uuid}"),
+            partition_key: Some(format!("phc_test:{uuid}")),
             payload: Ok(r#"{"event":"test"}"#.to_string()),
             event_headers: empty_captured_headers(),
         }
@@ -79,8 +79,8 @@ impl FakeEvent {
         self
     }
 
-    fn with_partition_key(mut self, k: &str) -> Self {
-        self.partition_key = k.to_string();
+    fn with_partition_key(mut self, k: Option<&str>) -> Self {
+        self.partition_key = k.map(String::from);
         self
     }
 }
@@ -102,8 +102,14 @@ impl Event for FakeEvent {
         self.event_headers.clone()
     }
 
-    fn write_partition_key(&self, _ctx: &Context, buf: &mut String) {
-        buf.push_str(&self.partition_key);
+    fn partition_key<'buf>(&self, _ctx: &Context, buf: &'buf mut String) -> Option<&'buf str> {
+        match &self.partition_key {
+            Some(k) => {
+                buf.push_str(k);
+                Some(buf.as_str())
+            }
+            None => None,
+        }
     }
 
     fn serialize_into(&self, _ctx: &Context, buf: &mut String) -> anyhow::Result<()> {
@@ -874,13 +880,13 @@ async fn health_refreshed_on_partial_success() {
 }
 
 // ---------------------------------------------------------------------------
-// Empty partition key propagates as None (not Some(""))
+// Partition key: None vs Some
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn empty_partition_key_propagates_as_none() {
+async fn none_partition_key_propagates_as_none() {
     let h = TestHarness::new();
-    let event = FakeEvent::ok("evt-1").with_partition_key("");
+    let event = FakeEvent::ok("evt-1").with_partition_key(None);
     let events: Vec<&(dyn Event + Send + Sync)> = vec![&event];
 
     let results = h.sink.publish_batch(&h.ctx, &events).await;
@@ -890,15 +896,15 @@ async fn empty_partition_key_propagates_as_none() {
     h.producer.with_records(|records| {
         assert_eq!(
             records[0].key, None,
-            "empty partition key must become None, not Some(\"\")"
+            "None partition key must propagate as None"
         );
     });
 }
 
 #[tokio::test]
-async fn nonempty_partition_key_propagates_as_some() {
+async fn some_partition_key_propagates_as_some() {
     let h = TestHarness::new();
-    let event = FakeEvent::ok("evt-1").with_partition_key("phc_test:user-1");
+    let event = FakeEvent::ok("evt-1").with_partition_key(Some("phc_test:user-1"));
     let events: Vec<&(dyn Event + Send + Sync)> = vec![&event];
 
     let results = h.sink.publish_batch(&h.ctx, &events).await;
@@ -943,7 +949,10 @@ async fn realistic_single_pageview_round_trip() {
             serde_json::from_str(&captured.data).expect("data must deserialize as RawEvent");
         assert_eq!(data.event, "$pageview");
         assert_eq!(data.properties["$browser"], "Chrome");
-        assert_eq!(data.properties["$session_id"], "01jq9abc-def0-1234-5678-9abcdef01234");
+        assert_eq!(
+            data.properties["$session_id"],
+            "01jq9abc-def0-1234-5678-9abcdef01234"
+        );
         assert_eq!(data.properties["$process_person_profile"], true);
     });
 }
@@ -1051,15 +1060,9 @@ async fn mixed_send_error_and_ack_error_in_batch() {
 
     // evt-2 and evt-3: enqueued successfully, but ack error (delivery_cancelled)
     assert_eq!(by_key[&e2.parsed_uuid].outcome(), Outcome::RetriableError);
-    assert_eq!(
-        by_key[&e2.parsed_uuid].cause(),
-        Some("delivery_cancelled")
-    );
+    assert_eq!(by_key[&e2.parsed_uuid].cause(), Some("delivery_cancelled"));
     assert_eq!(by_key[&e3.parsed_uuid].outcome(), Outcome::RetriableError);
-    assert_eq!(
-        by_key[&e3.parsed_uuid].cause(),
-        Some("delivery_cancelled")
-    );
+    assert_eq!(by_key[&e3.parsed_uuid].cause(), Some("delivery_cancelled"));
 
     // Only evt-2 and evt-3 were enqueued (evt-1 failed at send)
     assert_eq!(h.producer.record_count(), 2);
