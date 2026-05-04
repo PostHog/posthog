@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useCallback } from 'react'
 
-import { IconChevronDown, IconFilter } from '@posthog/icons'
+import { IconChevronDown } from '@posthog/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -76,30 +76,15 @@ export function CategoryDropdown({
 }
 
 function renderTrigger(variant: Exclude<CategoryDropdownVariant, 'control'>, activeLabel: string): JSX.Element {
-    const dataAttr = `taxonomic-category-dropdown-trigger-${variant}`
-
-    if (variant === 'pill') {
-        return (
-            <LemonButton
-                type="secondary"
-                size="xsmall"
-                sideIcon={<IconChevronDown />}
-                data-attr={dataAttr}
-                aria-label={`Current category: ${activeLabel}. Click to change.`}
-            >
-                {activeLabel}
-            </LemonButton>
-        )
-    }
-
     return (
         <LemonButton
             type="secondary"
             size="xsmall"
-            icon={<IconFilter />}
             sideIcon={<IconChevronDown />}
-            data-attr={dataAttr}
+            data-attr={`taxonomic-category-dropdown-trigger-${variant}`}
             aria-label={`Current category: ${activeLabel}. Click to change.`}
-        />
+        >
+            {activeLabel}
+        </LemonButton>
     )
 }
