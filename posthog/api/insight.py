@@ -1429,6 +1429,8 @@ class InsightViewSet(
     def order_queryset(self, queryset: QuerySet) -> QuerySet:
         order = self.request.GET.get("order", None)
         if not order:
+            if self.request.GET.get("search"):
+                return queryset
             return queryset.order_by("order")
 
         if order == "-last_viewed_at":
