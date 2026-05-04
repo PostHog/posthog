@@ -6,12 +6,13 @@ from posthog.management.migration_analysis.formatters import JsonFormatter
 from posthog.management.migration_analysis.models import MigrationRisk, OperationRisk
 
 
-def _risk(app: str, name: str, score: int) -> MigrationRisk:
+def _risk(app: str, name: str, score: int, file_path: str | None = None) -> MigrationRisk:
     return MigrationRisk(
         path=f"{app}.{name}",
         app=app,
         name=name,
         operations=[OperationRisk(type="AddField", score=score, reason="test", details={})],
+        file_path=file_path,
     )
 
 
@@ -30,14 +31,27 @@ class TestJsonFormatter:
 
     def test_single_migration_full_shape(self):
         """Pins the full output contract for the simplest non-empty case,
-        including the `app.name` label format that consumers split on."""
-        report = json.loads(self.formatter.format_report([_risk("posthog", "1125_x", score=1)]))
+        including the `app.name` label format and the `file_path` field that
+        stamphog uses to scope its deny-list bypass."""
+        report = json.loads(
+            self.formatter.format_report(
+                [_risk("posthog", "1125_x", score=1, file_path="posthog/migrations/1125_x.py")]
+            )
+        )
 
         assert report == {
             "summary": {"safe": 1, "needs_review": 0, "blocked": 0},
             "max_level": "Safe",
-            "migrations": [{"label": "posthog.1125_x", "level": "Safe"}],
+            "migrations": [{"label": "posthog.1125_x", "level": "Safe", "file_path": "posthog/migrations/1125_x.py"}],
         }
+
+    def test_missing_file_path_emits_null(self):
+        """When the command can't resolve a disk path (frozen apps, weird
+        loaders), `file_path` is null rather than absent — keeps the schema
+        shape stable for consumers."""
+        report = json.loads(self.formatter.format_report([_risk("posthog", "1125_x", score=1)]))
+
+        assert report["migrations"] == [{"label": "posthog.1125_x", "level": "Safe", "file_path": None}]
 
     @pytest.mark.parametrize(
         "scores, expected_max_level",

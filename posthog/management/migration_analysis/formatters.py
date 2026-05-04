@@ -211,13 +211,18 @@ class JsonFormatter(RiskFormatter):
           "summary": {"safe": int, "needs_review": int, "blocked": int},
           "max_level": "Safe" | "Needs Review" | "Blocked" | null,
           "migrations": [
-            {"label": "<app>.<name>", "level": "Safe" | "Needs Review" | "Blocked"}
+            {
+              "label": "<app>.<name>",
+              "level": "Safe" | "Needs Review" | "Blocked",
+              "file_path": "<repo-relative-path>" | null
+            }
           ]
         }
 
     `max_level` is null only when there are no migrations to analyze. CI uses
-    this output to publish the Migration risk check; downstream tools can read
-    the same shape without scraping the console output.
+    this output to publish the Migration risk check; downstream tools (notably
+    stamphog) read `file_path` to scope the deny-list bypass to exactly the
+    files the analyzer classified — the analyzer is the source of truth.
     """
 
     def format_report(self, results: list[MigrationRisk]) -> str:
@@ -242,7 +247,11 @@ class JsonFormatter(RiskFormatter):
         }
 
     def _migration_dict(self, risk: MigrationRisk) -> dict:
-        return {"label": f"{risk.app}.{risk.name}", "level": risk.category}
+        return {
+            "label": f"{risk.app}.{risk.name}",
+            "level": risk.category,
+            "file_path": risk.file_path,
+        }
 
     def _max_level(self, results: list[MigrationRisk]) -> str | None:
         if not results:

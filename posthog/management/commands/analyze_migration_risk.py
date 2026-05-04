@@ -1,5 +1,6 @@
 # ruff: noqa: T201 allow print statements
 
+import os
 import sys
 
 from django.core.management.base import BaseCommand
@@ -113,16 +114,38 @@ class Command(BaseCommand):
             # downstream Migration risk check is never published — leaving
             # stamphog stuck in WAITING with no bridge retrigger.
             try:
+                file_path = self._migration_file_path(migration)
                 if loader:
-                    risk = analyzer.analyze_migration_with_context(migration, label, loader)
+                    risk = analyzer.analyze_migration_with_context(migration, label, loader, file_path=file_path)
                 else:
-                    risk = analyzer.analyze_migration(migration, label)
+                    risk = analyzer.analyze_migration(migration, label, file_path=file_path)
                 results.append(risk)
             except Exception as e:
                 print(f"## ⚠️ Error analyzing migration {label}: {e}", file=sys.stderr)
                 continue
 
         return results
+
+    def _migration_file_path(self, migration) -> str | None:
+        """Resolve the repo-relative file path for a loaded Django migration.
+
+        Uses the migration class's imported module rather than the loader so it
+        works for any app — including products with custom MIGRATION_MODULES
+        mappings, which still set __module__ to the actual import path.
+        """
+        module_name = getattr(migration.__class__, "__module__", None)
+        if not module_name:
+            return None
+        module = sys.modules.get(module_name)
+        absolute = getattr(module, "__file__", None)
+        if not absolute:
+            return None
+        try:
+            return os.path.relpath(absolute)
+        except ValueError:
+            # Cross-drive or otherwise unrelatable path — fall back to None
+            # so consumers know we couldn't pin a path for this migration.
+            return None
 
     def check_missing_migrations(self) -> str:
         """Check if there are model changes that need migrations."""

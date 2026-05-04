@@ -836,12 +836,34 @@ jobs:
               # branch-protection rules, dashboards) can consume it without
               # parsing the comment. The check is a CI feature; consumers and
               # the analyzer are decoupled.
-              if: always() && github.event_name == 'pull_request' && hashFiles('migration_analysis.json') != ''
+              #
+              # Always published — even with zero migrations to analyze, or
+              # when the analyzer crashed — so every PR ends up with a
+              # definitive verdict on its head SHA. Consumers can then treat
+              # "no completed check yet" purely as "CI hasn't finished" and
+              # don't need a fallback heuristic.
+              if: always() && github.event_name == 'pull_request'
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   HEAD_SHA: ${{ github.event.pull_request.head.sha }}
                   REPO: ${{ github.repository }}
               run: |
+                  if [ ! -f migration_analysis.json ]; then
+                    # Analyzer crashed before writing JSON. Publish a failure
+                    # check so stamphog (or any consumer) gets a definitive
+                    # verdict instead of looping in "wait for the check."
+                    echo "No migration_analysis.json — analyzer didn't run; publishing failure check"
+                    jq -n \
+                      --arg name "Migration risk" \
+                      --arg head_sha "$HEAD_SHA" \
+                      '{name: $name, head_sha: $head_sha, status: "completed",
+                        conclusion: "failure",
+                        output: {title: "❌ Analyzer failed",
+                                 summary: "<!-- stamphog:v1 [] -->\nMigration analyzer did not produce migration_analysis.json. Re-run the Backend CI job; if it keeps failing, inspect the analyzer step logs."}}' \
+                      | gh api "repos/$REPO/check-runs" --method POST --input -
+                    exit 0
+                  fi
+
                   MAX_LEVEL=$(jq -r '.max_level // "none"' migration_analysis.json)
 
                   case "$MAX_LEVEL" in
@@ -849,18 +871,35 @@ jobs:
                     "Needs Review")  CONCLUSION=neutral; TITLE="⚠️ Needs review" ;;
                     "Blocked")       CONCLUSION=failure; TITLE="❌ Blocked migrations" ;;
                     "none"|"null")
-                      echo "No migrations analyzed — skipping check"
-                      exit 0
+                      # Zero Django migrations to analyze. Publish success so
+                      # PRs that touch only ClickHouse/async/rbac migrations
+                      # (which the analyzer doesn't cover) don't leave
+                      # consumers waiting on a check that would never come.
+                      CONCLUSION=success
+                      TITLE="✅ No Django migrations to analyze"
                       ;;
                     *)
-                      echo "Unknown max_level '$MAX_LEVEL' — skipping check"
-                      exit 0
+                      echo "Unknown max_level '$MAX_LEVEL' — publishing failure"
+                      CONCLUSION=failure
+                      TITLE="❌ Unknown analyzer output"
                       ;;
                   esac
 
-                  # Truncate summary to fit the check-run output limit (~64KB).
-                  # The full markdown is also posted as a PR comment for humans.
-                  SUMMARY=$(head -c 60000 migration_analysis.md 2>/dev/null || echo "See PR comment")
+                  # Embed the analyzed file paths in the summary as a hidden
+                  # marker. Stamphog parses this to scope its deny-list bypass
+                  # to exactly the files the analyzer classified — heuristics
+                  # over directory names produce false bypasses for unrelated
+                  # systems (ClickHouse, async migrations) that share the
+                  # `migrations/` directory naming.
+                  ANALYZED_PATHS=$(jq -c '[.migrations[].file_path | select(. != null)]' migration_analysis.json 2>/dev/null || echo '[]')
+                  MARKER="<!-- stamphog:v1 ${ANALYZED_PATHS} -->"
+
+                  # Truncate the human report to fit the check-run output
+                  # limit (~64KB); the full markdown is also posted as a PR
+                  # comment for humans. The marker stays at the top so it's
+                  # never lost to truncation.
+                  REPORT_BODY=$(head -c 59000 migration_analysis.md 2>/dev/null || echo "See PR comment")
+                  SUMMARY=$(printf '%s\n%s' "$MARKER" "$REPORT_BODY")
 
                   jq -n \
                     --arg name "Migration risk" \
