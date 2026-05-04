@@ -1,6 +1,4 @@
-import { linearRegression } from 'simple-statistics'
-
-import { movingAverage, trendLine } from 'lib/statistics'
+import { linearRegression, movingAverage, trendLine } from 'lib/statistics'
 import { hexToRGBA } from 'lib/utils'
 
 import type { Series } from '../../../core/types'
