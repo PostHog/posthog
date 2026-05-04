@@ -91,6 +91,7 @@ class EventIngestionRestrictionConfigAdmin(admin.ModelAdmin):
     list_display = (
         "id",
         "token",
+        "display_team_id",
         "restriction_type",
         "pipelines",
         "display_topic",
@@ -100,7 +101,16 @@ class EventIngestionRestrictionConfigAdmin(admin.ModelAdmin):
         "has_event_uuids",
     )
     list_filter = ("restriction_type",)
+    list_per_page = 20
+    readonly_fields = ("display_team_id",)
     search_fields = ("token", "distinct_ids", "session_ids", "event_names", "event_uuids")
+
+    @admin.display(description="Team ID")
+    def display_team_id(self, obj):
+        from posthog.models.team.team import Team
+
+        team = Team.objects.filter(api_token=obj.token).values_list("id", flat=True).first()
+        return team
 
     @admin.display(description="Topic")
     def display_topic(self, obj):

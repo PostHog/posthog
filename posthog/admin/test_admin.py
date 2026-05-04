@@ -6,10 +6,12 @@ from django.contrib.admin import AdminSite
 from django.test import RequestFactory
 
 from posthog.admin import _OAUTH_ADMIN_MODEL_NAMES, install_admin_app_list_overrides, register_all_admin
+from posthog.admin.admins.event_ingestion_restriction_config import EventIngestionRestrictionConfigAdmin
 from posthog.admin.admins.user_admin import UserAdmin
 from posthog.admin.inlines.organization_member_inline import OrganizationMemberForUserInline, OrganizationMemberInline
 from posthog.admin.inlines.plugin_attachment_inline import PluginAttachmentInline
 from posthog.models import User
+from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig, RestrictionType
 
 
 class TestAdmin(BaseTest):
@@ -145,6 +147,31 @@ class TestPluginAttachmentInline(BaseTest):
         result = str(inline.raw_contents(attachment))
 
         assert "cannot preview:" in result
+
+
+class TestEventIngestionRestrictionConfigAdmin(BaseTest):
+    def test_display_team_id_returns_team_id_for_matching_token(self):
+        config = EventIngestionRestrictionConfig.objects.create(
+            token=self.team.api_token,
+            restriction_type=RestrictionType.DROP_EVENT_FROM_INGESTION,
+        )
+        admin_instance = EventIngestionRestrictionConfigAdmin(EventIngestionRestrictionConfig, AdminSite())
+        assert admin_instance.display_team_id(config) == self.team.id
+
+    def test_display_team_id_returns_none_for_unknown_token(self):
+        config = EventIngestionRestrictionConfig.objects.create(
+            token="phc_nonexistent_token",
+            restriction_type=RestrictionType.DROP_EVENT_FROM_INGESTION,
+        )
+        admin_instance = EventIngestionRestrictionConfigAdmin(EventIngestionRestrictionConfig, AdminSite())
+        assert admin_instance.display_team_id(config) is None
+
+
+class TestEventIngestionRestrictionConfigAdminConfig:
+    def test_display_team_id_in_list_display_and_readonly_fields(self):
+        admin_instance = EventIngestionRestrictionConfigAdmin(EventIngestionRestrictionConfig, AdminSite())
+        assert "display_team_id" in admin_instance.list_display
+        assert "display_team_id" in admin_instance.readonly_fields
 
 
 class TestOrganizationMemberInlineConfig(BaseTest):
