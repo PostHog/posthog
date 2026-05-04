@@ -754,6 +754,63 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert on_response.status_code == status.HTTP_402_PAYMENT_REQUIRED
         assert "active AI summaries" in on_response.json()["detail"]
 
+    def test_cap_is_enforced_across_teams_in_the_same_organization(self) -> None:
+        # Documents intent: the cap is org-scoped, not team-scoped. Subscriptions
+        # spread across multiple teams in the same organization all count toward
+        # the same bucket — so a fresh team in a maxed-out org can't add a new
+        # summary even if that team has none of its own.
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+
+        team_two = Team.objects.create(organization=self.organization, name="Team two")
+        team_three = Team.objects.create(organization=self.organization, name="Team three")
+        team_three_insight = Insight.objects.create(
+            filters=Filter(data=self.insight_filter_dict).to_dict(),
+            team=team_three,
+            created_by=self.user,
+        )
+
+        def _seed_for_team(team: Team, count: int) -> None:
+            for i in range(count):
+                Subscription.objects.create(
+                    team=team,
+                    insight=Insight.objects.create(
+                        filters=Filter(data=self.insight_filter_dict).to_dict(),
+                        team=team,
+                        created_by=self.user,
+                    ),
+                    target_type="email",
+                    target_value=f"{team.id}-{i}@posthog.com",
+                    frequency="weekly",
+                    interval=1,
+                    start_date=datetime(2022, 1, 1, tzinfo=UTC),
+                    title=f"existing {team.id}/{i}",
+                    created_by=self.user,
+                    summary_enabled=True,
+                )
+
+        _seed_for_team(self.team, 2)
+        _seed_for_team(team_two, 2)
+        _seed_for_team(team_three, 1)
+
+        with patch("ee.api.subscription.get_organization_limit", return_value=5):
+            response = self.client.post(
+                f"/api/projects/{team_three.id}/subscriptions",
+                {
+                    "insight": team_three_insight.id,
+                    "target_type": "email",
+                    "target_value": "team3-new@posthog.com",
+                    "frequency": "weekly",
+                    "interval": 1,
+                    "start_date": "2022-01-01T00:00:00",
+                    "title": "team three's sixth across-org summary",
+                    "summary_enabled": True,
+                },
+            )
+
+        assert response.status_code == status.HTTP_402_PAYMENT_REQUIRED
+        assert "active AI summaries" in response.json()["detail"]
+
     def test_deliver_subscription(self):
         mock_client = MagicMock()
         mock_client.start_workflow = AsyncMock()
