@@ -1959,7 +1959,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 data={"message": f"Invalid input keys: {', '.join(invalid_keys)}"},
             )
 
-        required_fields = {f.name for f in webhook_fields if getattr(f, "required", False)}
+        required_fields = [f.name for f in webhook_fields if getattr(f, "required", False)]
         blanked_required = [name for name in required_fields if name in inputs and not inputs[name]]
         if blanked_required:
             return Response(
