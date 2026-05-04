@@ -90,7 +90,7 @@ export default function SchemaForm(): JSX.Element {
 
     return (
         <>
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-2 flex-1 min-h-0">
                 {hasManySchemas && (
                     <div className="flex items-center gap-2">
                         <LemonInput
@@ -111,7 +111,7 @@ export default function SchemaForm(): JSX.Element {
                         </span>
                     </div>
                 )}
-                <div className="max-h-[60vh] overflow-y-auto">
+                <div className="flex-1 min-h-0 overflow-y-auto">
                     {isDirectQueryMode ? (
                         groupedDirectQueryDatabaseSchema.length > 0 ? (
                             <div className="border rounded bg-bg-light">
