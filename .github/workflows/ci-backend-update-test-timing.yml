@@ -6,8 +6,12 @@ on:
             - '.github/scripts/optimize_test_durations.py'
     workflow_dispatch:
         inputs:
-            run_id:
-                description: 'CI run ID to collect timing data from (leave empty to use latest successful run)'
+            backend_run_id:
+                description: 'Backend CI run ID (leave empty to use latest successful run)'
+                required: false
+                type: string
+            dagster_run_id:
+                description: 'Dagster CI run ID (leave empty to use latest successful run)'
                 required: false
                 type: string
     schedule:
@@ -48,11 +52,11 @@ jobs:
               id: find-backend-run
               env:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-                  INPUT_RUN_ID: ${{ inputs.run_id }}
+                  INPUT_RUN_ID: ${{ inputs.backend_run_id }}
               run: |
                   if [ -n "$INPUT_RUN_ID" ]; then
                       echo "run_id=$INPUT_RUN_ID" >> $GITHUB_OUTPUT
-                      echo "Using provided CI run: $INPUT_RUN_ID"
+                      echo "Using provided Backend CI run: $INPUT_RUN_ID"
                       exit 0
                   fi
 
@@ -92,7 +96,14 @@ jobs:
               id: find-dagster-run
               env:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  INPUT_RUN_ID: ${{ inputs.dagster_run_id }}
               run: |
+                  if [ -n "$INPUT_RUN_ID" ]; then
+                      echo "run_id=$INPUT_RUN_ID" >> $GITHUB_OUTPUT
+                      echo "Using provided Dagster CI run: $INPUT_RUN_ID"
+                      exit 0
+                  fi
+
                   # Find a recent successful ci-dagster.yml run with timing artifacts
                   # Only consider runs from the past 14 days to ensure artifacts haven't expired
                   echo "Searching for Dagster CI run with timing artifacts..."
@@ -129,8 +140,15 @@ jobs:
                   BACKEND_RUN_ID: ${{ steps.find-backend-run.outputs.run_id }}
                   DAGSTER_RUN_ID: ${{ steps.find-dagster-run.outputs.run_id }}
               run: |
-                  # Download backend timing artifacts
-                  gh run download "$BACKEND_RUN_ID" --pattern "timing_data-*" --dir timing_artifacts
+                  # Download backend timing artifacts. Use segment-specific patterns
+                  # so we don't accidentally pull Dagster artifacts here when the same
+                  # run ID is provided for both jobs (they share the timing_data- prefix
+                  # and would otherwise collide on extraction into the same dir).
+                  gh run download "$BACKEND_RUN_ID" \
+                      --pattern "timing_data-Core-*" \
+                      --pattern "timing_data-Temporal-*" \
+                      --pattern "timing_data-Products-*" \
+                      --dir timing_artifacts
 
                   # Download dagster timing artifacts if available
                   if [ -n "$DAGSTER_RUN_ID" ]; then

@@ -232,47 +232,56 @@ class HyperCache:
         HYPERCACHE_CACHE_COUNTER.labels(result="hit_db", namespace=self.namespace, value=self.value).inc()
         return data, "db"
 
-    def batch_get_from_cache(self, teams: list[Team]) -> dict[int, tuple[dict | None, str]]:
+    def batch_get_from_cache(self, teams: list[Team]) -> dict[int, tuple[dict | None, str, str | None]]:
         """
         Batch get cached values for multiple teams using MGET.
 
         Only reads from Redis (no S3 or DB fallback). This is optimized for
         verification where we want to check what's in cache without side effects.
 
+        When ``enable_etag=True``, etag keys are fetched in the same MGET so
+        the per-chunk Redis cost is one round trip regardless of how many
+        callers in the verify loop need the etag. The returned etag is
+        ``None`` when the key is absent (which the verifier surfaces as a
+        ``MISSING_ETAG`` mismatch) or when ``enable_etag=False``.
+
         Args:
             teams: List of Team objects to get cached values for
 
         Returns:
-            Dict mapping team_id to (cached_data, source) tuples.
+            Dict mapping team_id to (cached_data, source, etag) tuples.
             source is "redis" for hits, "miss" for cache misses.
+            etag is the cached etag string (or None when absent / disabled).
             Teams not in the result had no cache entry.
         """
         if not teams:
             return {}
 
-        # Build cache keys for all teams
+        # Build cache keys for all teams. When etags are enabled, append the
+        # etag keys to the same get_many call so we pay one round trip total.
         cache_keys = [self.get_cache_key(team) for team in teams]
+        etag_keys = [self.get_etag_key(team) for team in teams] if self.enable_etag else []
 
-        # Batch get from Redis using get_many (Django cache's MGET wrapper)
-        cached_values = self.cache_client.get_many(cache_keys)
+        cached_values = self.cache_client.get_many(cache_keys + etag_keys)
 
         # Map results back to team IDs, counting hits and misses for batch metrics
-        results: dict[int, tuple[dict | None, str]] = {}
+        results: dict[int, tuple[dict | None, str, str | None]] = {}
         hit_count = 0
         miss_count = 0
 
-        for team, cache_key in zip(teams, cache_keys):
+        for i, (team, cache_key) in enumerate(zip(teams, cache_keys)):
+            etag = cached_values.get(etag_keys[i]) if self.enable_etag else None
             data = cached_values.get(cache_key)
             if data is not None:
                 hit_count += 1
                 if data == _HYPER_CACHE_EMPTY_VALUE:
-                    results[team.id] = (None, "redis")
+                    results[team.id] = (None, "redis", etag)
                 else:
-                    results[team.id] = (json.loads(data), "redis")
+                    results[team.id] = (json.loads(data), "redis", etag)
             else:
                 # Cache miss - no S3/DB fallback in batch mode
                 miss_count += 1
-                results[team.id] = (None, "miss")
+                results[team.id] = (None, "miss", etag)
 
         # Batch increment Prometheus counters once per batch (avoids O(n) labels() overhead)
         if hit_count:

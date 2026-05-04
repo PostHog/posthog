@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import {
+    CreateSessionSummariesIndividuallyBody,
     SessionRecordingPlaylistsCreateBody,
     SessionRecordingPlaylistsListQueryParams,
     SessionRecordingPlaylistsPartialUpdateBody,
@@ -167,6 +168,29 @@ const sessionRecordingPlaylistsList = (): ToolBase<
             },
         })
         return await withPostHogUrl(context, result, '/replay')
+    },
+})
+
+const SessionRecordingSummarizeSchema = CreateSessionSummariesIndividuallyBody
+
+const sessionRecordingSummarize = (): ToolBase<typeof SessionRecordingSummarizeSchema, Schemas.SessionSummaries> => ({
+    name: 'session-recording-summarize',
+    schema: SessionRecordingSummarizeSchema,
+    handler: async (context: Context, params: z.infer<typeof SessionRecordingSummarizeSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.session_ids !== undefined) {
+            body['session_ids'] = params.session_ids
+        }
+        if (params.focus_area !== undefined) {
+            body['focus_area'] = params.focus_area
+        }
+        const result = await context.api.request<Schemas.SessionSummaries>({
+            method: 'POST',
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/session_summaries/create_session_summaries_individually/`,
+            body,
+        })
+        return result
     },
 })
 
@@ -617,6 +641,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'session-recording-playlist-get': sessionRecordingPlaylistGet,
     'session-recording-playlist-update': sessionRecordingPlaylistUpdate,
     'session-recording-playlists-list': sessionRecordingPlaylistsList,
+    'session-recording-summarize': sessionRecordingSummarize,
     'query-session-recordings-list': createQueryWrapper({
         name: 'query-session-recordings-list',
         schema: AssistantRecordingsQuery,

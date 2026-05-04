@@ -162,6 +162,16 @@ if [[ -t 0 ]] && [[ -z "${POSTHOG_CODE:-}" ]]; then
   _interactive=true
 fi
 
+# ── Go toolchain isolation ─────────────────────────────────────────
+# User shells often export GOROOT/GOCACHE for Homebrew, asdf, or other local Go
+# installs. Keep flox builds on the pinned Go toolchain and cache compiled
+# packages inside the flox environment so host Go upgrades cannot poison builds.
+unset GOROOT
+export GOTOOLCHAIN=local
+export GOPATH="$FLOX_ENV_CACHE/go"
+export GOCACHE="$FLOX_ENV_CACHE/go-build"
+export GOMODCACHE="$GOPATH/pkg/mod"
+
 # ── Direnv first-time setup (interactive only) ─────────────────────
 if [[ "$_interactive" == true ]] && ! command -v direnv >/dev/null 2>&1 && [[ ! -f "$FLOX_ENV_CACHE/.hush-direnv" ]]; then
   read -p "$(echo -e "${C_BOLD}direnv${C_RESET} recommended for auto-activation. Set up now? (Y/n) ")" -n 1 -r

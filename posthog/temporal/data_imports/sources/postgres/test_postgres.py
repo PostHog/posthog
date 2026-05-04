@@ -23,6 +23,7 @@ from posthog.temporal.data_imports.sources.postgres.partitioned_tables import (
     WINDOW_MAX_SERIALIZATION_RETRIES,
     ChildPartition,
     PartitionStrategy,
+    build_partition_query,
     derive_upper_bound,
     get_partition_strategy,
     is_supported_incremental_type_for_window,
@@ -489,6 +490,50 @@ class TestBuildQuery:
         assert "random() < 0.01" in rendered
         assert '"id"' in rendered
         assert "LIMIT 1000" in rendered
+
+
+class TestBuildPartitionQuery:
+    def _render(self, composed: sql.Composed) -> str:
+        return composed.as_string()
+
+    def test_full_refresh_targets_child_relation(self):
+        query = build_partition_query(
+            "public",
+            "events_2026_01",
+            should_use_incremental_field=False,
+            incremental_field=None,
+            incremental_field_type=None,
+            db_incremental_field_last_value=None,
+        )
+        rendered = self._render(query)
+        assert '"public"."events_2026_01"' in rendered
+        assert "WHERE" not in rendered
+
+    def test_incremental_applies_cursor_filter(self):
+        query = build_partition_query(
+            "public",
+            "events_2026_01",
+            should_use_incremental_field=True,
+            incremental_field="created_at",
+            incremental_field_type=IncrementalFieldType.Timestamp,
+            db_incremental_field_last_value="2026-01-15",
+        )
+        rendered = self._render(query)
+        assert '"public"."events_2026_01"' in rendered
+        assert '"created_at" > ' in rendered
+        assert "'2026-01-15'" in rendered
+        assert "ORDER BY" in rendered
+
+    def test_incremental_raises_without_field(self):
+        with pytest.raises(ValueError, match="incremental_field and incremental_field_type can't be None"):
+            build_partition_query(
+                "public",
+                "events_2026_01",
+                should_use_incremental_field=True,
+                incremental_field=None,
+                incremental_field_type=None,
+                db_incremental_field_last_value=None,
+            )
 
 
 class TestBuildCountQuery:

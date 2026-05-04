@@ -59,7 +59,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
-from posthog.clickhouse.query_tagging import Product, get_query_tag_value, tag_queries
+from posthog.clickhouse.query_tagging import Feature, Product, get_query_tag_value, tag_queries
 from posthog.ducklake.common import get_duckgres_server_for_organization
 from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import get_request_analytics_properties, report_user_action
@@ -1479,7 +1479,10 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             merged_data, self.team, client_query_id, request.user
         )
         self._tag_client_query_id(client_query_id)
-        tag_queries(product=Product.ENDPOINTS)
+        endpoint_feature = (
+            Feature.ENDPOINT_EXECUTION if get_query_tag_value("access_method") else Feature.ENDPOINT_PLAYGROUND
+        )
+        tag_queries(product=Product.ENDPOINTS, feature=endpoint_feature)
 
         if execution_mode not in BLOCKING_EXECUTION_MODES:
             raise ValidationError({"refresh": f"Only sync modes are supported, got: {execution_mode}"})
@@ -2393,7 +2396,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
     @action(methods=["POST"], detail=False, url_path="last_execution_times")
     def get_endpoints_last_execution_times(self, request: Request, *args, **kwargs) -> Response:
         try:
-            tag_queries(product=Product.ENDPOINTS)
+            tag_queries(product=Product.ENDPOINTS, feature=Feature.ENDPOINT_LAST_EXECUTION)
             data = EndpointLastExecutionTimesRequest.model_validate(request.data)
             names = data.names
             if not names:

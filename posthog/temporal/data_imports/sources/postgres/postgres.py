@@ -40,11 +40,14 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
 from posthog.temporal.data_imports.sources.common.sql import Column, Table
 from posthog.temporal.data_imports.sources.postgres.partitioned_tables import (
     PARTITIONED_TABLE_MAX_CHUNK_SIZE,
+    build_partition_query,
     get_estimated_row_count_for_partitioned_table as _get_estimated_row_count_for_partitioned_table,
     get_partition_settings_for_partitioned_table as _get_partition_settings_for_partitioned_table,
+    get_partition_strategy,
     is_partitioned_table as _is_partitioned_table,
     is_supported_incremental_type_for_window,
     iterate_date_windows,
+    iterate_partitions,
     list_child_partitions,
 )
 
@@ -1599,8 +1602,27 @@ def postgres_source(
                         and should_use_incremental_field
                         and is_supported_incremental_type_for_window(incremental_field_type)
                     )
+                    # When the parent is range-partitioned on the incremental field, we can
+                    # query each child relation directly instead of routing through the parent
+                    # and forcing the planner to Append + sort across all children. One cursor
+                    # per child = no cross-partition merge sort, trivial pruning, and child-sized
+                    # query plans that fit comfortably under statement_timeout.
+                    use_per_partition_chunking = False
+                    if use_window_chunking and child_partitions:
+                        try:
+                            partition_strategy = get_partition_strategy(cursor, schema, table_name)
+                        except Exception as e:
+                            partition_strategy = None
+                            logger.debug(f"Partition strategy detection failed: {e}")
+                        use_per_partition_chunking = (
+                            partition_strategy is not None
+                            and partition_strategy.strategy == "r"
+                            and incremental_field is not None
+                            and incremental_field in partition_strategy.key_columns
+                        )
                     logger.debug(
                         f"Postgres read strategy: use_window_chunking={use_window_chunking}, "
+                        f"use_per_partition_chunking={use_per_partition_chunking}, "
                         f"child_partitions={len(child_partitions)}"
                     )
 
@@ -1750,6 +1772,33 @@ def postgres_source(
 
                 if connection.closed is False:
                     connection.__exit__(None, None, None)
+
+            if use_per_partition_chunking and incremental_field is not None and incremental_field_type is not None:
+
+                def _build_per_partition_query(child_schema: str, child_name: str) -> sql.Composed:
+                    return build_partition_query(
+                        child_schema,
+                        child_name,
+                        should_use_incremental_field,
+                        incremental_field,
+                        incremental_field_type,
+                        db_incremental_field_last_value,
+                    )
+
+                yield from iterate_partitions(
+                    get_connection=get_connection,
+                    build_partition_query=_build_per_partition_query,
+                    schema=schema,
+                    table_name=table_name,
+                    child_partitions=child_partitions,
+                    chunk_size=chunk_size,
+                    arrow_schema=arrow_schema,
+                    logger=logger,
+                    incremental_field=incremental_field,
+                    incremental_field_type=incremental_field_type,
+                    db_incremental_field_last_value=db_incremental_field_last_value,
+                )
+                return
 
             if use_window_chunking and incremental_field is not None and incremental_field_type is not None:
 

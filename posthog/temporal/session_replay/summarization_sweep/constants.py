@@ -13,10 +13,16 @@ SCHEDULE_INTERVAL = timedelta(minutes=5)
 # up on the next one.
 SESSION_LOOKBACK_MINUTES = 30
 
-MAX_SESSIONS_PER_TEAM = 10
+SAMPLE_RATE_PRECISION = 10_000
+DEFAULT_SAMPLE_RATE = 0.1
+
+# Caps in-flight `start_child_workflow` calls per tick to keep the dispatch loop within
+# WORKFLOW_EXECUTION_TIMEOUT.
+CHILD_DISPATCH_BATCH_SIZE = 100
 
 # Stops the redispatch loop on recordings the rasterizer can't process.
 STUCK_RASTERIZE_THRESHOLD = 3
+STUCK_RASTERIZE_LOOKBACK = timedelta(hours=2)
 
 CH_QUERY_MAX_EXECUTION_SECONDS = 180
 

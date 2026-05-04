@@ -276,7 +276,11 @@ const experimentLaunch = (): ToolBase<typeof ExperimentLaunchSchema, WithPostHog
         },
     })
 
-const ExperimentListSchema = ExperimentsListQueryParams
+const ExperimentListSchema = ExperimentsListQueryParams.extend({
+    status: ExperimentsListQueryParams.shape['status'].describe(
+        'Filter by experiment status. Values: "draft" (not yet launched), "running" (launched, flag active), "paused" (launched, flag deactivated — mutually exclusive with running), "stopped" or "complete" (both mean ended), "all" (no filter). Defaults to all non-archived experiments.'
+    ),
+})
 
 const experimentList = (): ToolBase<typeof ExperimentListSchema, WithPostHogUrl<Schemas.PaginatedExperimentList>> =>
     withUiApp('experiment-list', {
@@ -288,8 +292,14 @@ const experimentList = (): ToolBase<typeof ExperimentListSchema, WithPostHogUrl<
                 method: 'GET',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/`,
                 query: {
+                    archived: params.archived,
+                    created_by_id: params.created_by_id,
+                    feature_flag_id: params.feature_flag_id,
                     limit: params.limit,
                     offset: params.offset,
+                    order: params.order,
+                    search: params.search,
+                    status: params.status,
                 },
             })
             const filtered = {

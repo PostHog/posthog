@@ -163,7 +163,6 @@ const cdpFunctionsList = (): ToolBase<
                 id: params.id,
                 limit: params.limit,
                 offset: params.offset,
-                search: params.search,
                 type: params.type,
                 updated_at: params.updated_at,
             },
@@ -184,6 +183,7 @@ const cdpFunctionsList = (): ToolBase<
                     'created_at',
                     'updated_at',
                     'created_by',
+                    'filters',
                 ])
             ),
         } as typeof result
