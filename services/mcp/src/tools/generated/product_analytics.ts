@@ -272,7 +272,7 @@ const InsightsActivityRetrieveSchema = InsightsActivityRetrieveParams.omit({ pro
 
 const insightsActivityRetrieve = (): ToolBase<
     typeof InsightsActivityRetrieveSchema,
-    Schemas.ActivityLogPaginatedResponse
+    WithPostHogUrl<Schemas.ActivityLogPaginatedResponse>
 > => ({
     name: 'insights-activity-retrieve',
     schema: InsightsActivityRetrieveSchema,
@@ -286,7 +286,18 @@ const insightsActivityRetrieve = (): ToolBase<
                 page: params.page,
             },
         })
-        return result
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                omitResponseFields(item, [
+                    'detail.changes.*.before',
+                    'detail.changes.*.after',
+                    'detail.trigger',
+                    'detail.type',
+                ])
+            ),
+        } as typeof result
+        return await withPostHogUrl(context, filtered, '/insights')
     },
 })
 
@@ -294,7 +305,7 @@ const InsightsAllActivityRetrieveSchema = InsightsAllActivityRetrieveQueryParams
 
 const insightsAllActivityRetrieve = (): ToolBase<
     typeof InsightsAllActivityRetrieveSchema,
-    Schemas.ActivityLogPaginatedResponse
+    WithPostHogUrl<Schemas.ActivityLogPaginatedResponse>
 > => ({
     name: 'insights-all-activity-retrieve',
     schema: InsightsAllActivityRetrieveSchema,
@@ -308,7 +319,18 @@ const insightsAllActivityRetrieve = (): ToolBase<
                 page: params.page,
             },
         })
-        return result
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                omitResponseFields(item, [
+                    'detail.changes.*.before',
+                    'detail.changes.*.after',
+                    'detail.trigger',
+                    'detail.type',
+                ])
+            ),
+        } as typeof result
+        return await withPostHogUrl(context, filtered, '/insights')
     },
 })
 
