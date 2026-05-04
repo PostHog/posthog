@@ -21,9 +21,16 @@ THUMB_HEIGHT = 140
 # clusters; min_pixels + min_side filter sub-character noise; max_clusters
 # caps at the rough UI legibility ceiling for bbox overlays. `total` on the
 # stored summary preserves the true count when the cap kicks in.
+#
+# Dilation tuning: 8 closes ~16px gaps, which is the common spacing
+# between text rows in a UI list (line height ~20px + ~13px gap). At
+# dilation=4 a list-shift diff exploded into one cluster per text row
+# plus one per separator; bumping to 8 collapses those into a single
+# regional cluster covering the list area, which is what humans
+# actually mean when they say "the list shifted".
 CLUSTER_MIN_PIXELS = 16
 CLUSTER_MIN_SIDE = 4
-CLUSTER_DILATION = 4
+CLUSTER_DILATION = 8
 CLUSTER_MAX = 20
 
 

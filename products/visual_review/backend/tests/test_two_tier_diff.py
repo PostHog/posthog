@@ -163,11 +163,12 @@ class TestClusterSummary:
         assert result.cluster_summary.total >= 1
         assert len(result.cluster_summary.items) >= 1
         # Bbox should land near the drawn rectangle (90,90)+20×20, with
-        # tolerance for the default 4-pixel dilation that grows the bbox.
+        # tolerance for the dilation that grows the bbox outward in
+        # every direction.
         c = result.cluster_summary.items[0]
         x, y, w, h = c.bbox
-        assert 80 <= x <= 92 and 80 <= y <= 92
-        assert 18 <= w <= 32 and 18 <= h <= 32
+        assert 76 <= x <= 92 and 76 <= y <= 92
+        assert 18 <= w <= 40 and 18 <= h <= 40
         assert c.px > 0
         assert 0 <= c.centroid[0] <= 200 and 0 <= c.centroid[1] <= 200
 
