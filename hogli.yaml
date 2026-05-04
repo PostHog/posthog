@@ -548,6 +548,9 @@ db:
             docker compose -f docker-compose.dev.yml exec -T db psql -U posthog -c "DROP DATABASE IF EXISTS test_posthog;"
             docker compose -f docker-compose.dev.yml exec -T db psql -U posthog -c "CREATE DATABASE test_posthog;"
             gunzip -c .postgres-backups/schema-latest.sql.gz | docker compose -f docker-compose.dev.yml exec -T db psql -q -U posthog test_posthog
+            # Schema-only dumps skip RunPython data migrations (e.g. the Default Theme row from 0537).
+            # Reseed defaults so tests don't hit empty tables. Idempotent.
+            DATABASE_URL=postgres://posthog:posthog@localhost:5432/test_posthog python manage.py ensure_migration_defaults
             echo "✅ Restored test_posthog from .postgres-backups/schema-latest.sql.gz"
         description: Restore test_posthog from a local schema dump (no download). Used by
             CI after restoring the schema from Actions cache.
