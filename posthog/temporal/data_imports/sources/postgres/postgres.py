@@ -97,8 +97,18 @@ class PostgresDiscoveredSchema:
 
 
 def _is_duckdb_connection(cursor: psycopg.Cursor) -> bool:
-    cursor.execute("SELECT version()")
-    row = cursor.fetchone()
+    # DuckDB is the rare branch — when the probe itself fails (e.g. a Supabase/PgBouncer
+    # pooler hiccup surfacing as `DbHandler exited`), assume standard Postgres so discovery
+    # can continue against a freshly reconnected session instead of bubbling up a raw
+    # psycopg error from the very first call into discovery.
+    try:
+        cursor.execute("SELECT version()")
+        row = cursor.fetchone()
+    except Exception as e:
+        structlog.get_logger().warning(
+            "Failed to probe Postgres engine via SELECT version(); assuming non-DuckDB", exc_info=e
+        )
+        return False
     version = str(row[0]) if row and row[0] is not None else ""
     return "duckdb" in version.lower() or "duckgres" in version.lower()
 

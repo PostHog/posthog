@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING, Optional, cast
 
 import structlog
 from psycopg import OperationalError
+from psycopg.errors import InternalError as PsycopgInternalError
 from sshtunnel import BaseSSHTunnelForwarderError
 
 if TYPE_CHECKING:
@@ -50,6 +51,7 @@ PostgresErrors = {
     'database "': "Database does not exist",
     "timeout expired": "Connection timed out. Does your database have our IP addresses allowed?",
     "SSL/TLS connection is required": "SSL/TLS connection is required but your database does not support it. Please enable SSL/TLS on your PostgreSQL server.",
+    "DbHandler exited": "Your database (e.g. a Supabase/PgBouncer pooler) dropped the connection. This is usually transient — please try again.",
 }
 
 
@@ -175,6 +177,11 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
             # exceeds Delta Lake's decimal budget (precision > 76 or scale > 32); retrying won't
             # help because the value shape is fixed in the source.
             "Cannot build decimal array from values": "One of your numeric columns contains values that exceed our decimal storage limits (max precision 76, max scale 32). Please constrain the column with a lower precision/scale, cast it to text in a view, or round the values at the source.",
+            # Pooler-side connection drop (Supabase/PgBouncer surfaces a psycopg `InternalError_`
+            # with this string). Genuinely transient on the customer's side, but retrying inside
+            # the same activity tends to hit the same dead session — fail fast with a clear
+            # message so the user can re-run the sync once the pooler stabilizes.
+            "DbHandler exited": "Your database (e.g. a Supabase/PgBouncer pooler) dropped the connection mid-sync. This is usually transient — please re-run the sync.",
         }
 
     def cleanup_cdc_resources_on_deletion(self, source: "ExternalDataSource") -> None:
@@ -386,7 +393,9 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
             self.get_schemas(config, team_id, names=[schema_name] if schema_name else None)
         except SSLRequiredError as e:
             return False, str(e)
-        except OperationalError as e:
+        except (OperationalError, PsycopgInternalError) as e:
+            # PsycopgInternalError covers pooler-side hiccups like "DbHandler exited"
+            # that Supabase/PgBouncer surface mid-discovery — see PostgresErrors mapping.
             error_msg = " ".join(str(n) for n in e.args)
             for key, value in PostgresErrors.items():
                 if key in error_msg:

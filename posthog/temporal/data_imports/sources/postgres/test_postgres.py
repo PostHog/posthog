@@ -48,6 +48,7 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     _get_sslmode,
     _get_table,
     _has_duplicate_primary_keys,
+    _is_duckdb_connection,
     _is_partitioned_table,
     _is_read_replica,
     _normalize_function_names,
@@ -136,6 +137,19 @@ class TestPostgresSourceNonRetryableErrors:
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Unrepresentable decimal error should be non-retryable: {error_msg}"
 
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "InternalError_: DbHandler exited",
+            'connection to server at "aws-0-eu-central-1.pooler.supabase.com" (1.2.3.4), port 5432 failed: DbHandler exited',
+        ],
+    )
+    def test_pooler_dbhandler_exited_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        match = next((value for key, value in non_retryable.items() if key in error_msg), None)
+        assert match is not None, f"DbHandler exited should be non-retryable: {error_msg}"
+        assert match is not None and "transient" in match.lower()
+
     def test_validate_credentials_for_access_method_requires_schema_for_warehouse_imports(self, source):
         config = source.parse_config(
             {
@@ -171,6 +185,33 @@ class TestPostgresSourceNonRetryableErrors:
         assert valid is True
         assert error is None
         validate_credentials.assert_called_once_with(config, 1, schema_name=None)
+
+    def test_validate_credentials_returns_pooler_message_for_dbhandler_exited(self, source):
+        config = source.parse_config(
+            {
+                "host": "aws-0-eu-central-1.pooler.supabase.com",
+                "port": 5432,
+                "database": "postgres",
+                "user": "postgres.tenantid",
+                "password": "secret",
+                "schema": "public",
+            }
+        )
+
+        with (
+            mock.patch.object(
+                source,
+                "get_schemas",
+                side_effect=psycopg.errors.InternalError_("DbHandler exited"),
+            ),
+            mock.patch.object(source, "is_database_host_valid", return_value=(True, None)),
+            mock.patch.object(source, "ssh_tunnel_is_valid", return_value=(True, None)),
+        ):
+            valid, error = source.validate_credentials(config, team_id=1)
+
+        assert valid is False
+        assert error is not None
+        assert "transient" in error.lower()
 
 
 class TestPostgresSchemaDiscovery:
@@ -310,6 +351,24 @@ class TestPostgresSchemaDiscovery:
 
         assert row_counts == {}
         patch_connect_to_postgres.assert_not_called()
+
+    def test_is_duckdb_connection_returns_false_when_version_probe_raises(self):
+        cursor = mock.MagicMock()
+        cursor.execute.side_effect = psycopg.errors.InternalError_("DbHandler exited")
+
+        assert _is_duckdb_connection(cursor) is False
+
+    def test_is_duckdb_connection_returns_false_for_standard_postgres(self):
+        cursor = mock.MagicMock()
+        cursor.fetchone.return_value = ("PostgreSQL 15.0",)
+
+        assert _is_duckdb_connection(cursor) is False
+
+    def test_is_duckdb_connection_returns_true_for_duckdb_version_string(self):
+        cursor = mock.MagicMock()
+        cursor.fetchone.return_value = ("DuckDB 1.4 (Duckgres)",)
+
+        assert _is_duckdb_connection(cursor) is True
 
 
 class TestGetSslmode:
