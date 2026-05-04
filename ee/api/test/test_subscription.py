@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Optional
 from uuid import uuid4
 
@@ -985,6 +985,37 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert response.json()["enabled"] is False
         subscription.refresh_from_db()
         assert subscription.enabled is False
+
+    def test_re_enable_resets_stale_next_delivery_date(self):
+        # Without this reset the scheduler's `next_delivery_date__lte=now` filter
+        # picks the sub up on its next tick and fires a second delivery right
+        # after the immediate TARGET_CHANGE confirmation.
+        subscription = Subscription.objects.create(
+            team=self.team,
+            target_type="email",
+            target_value="vasco@posthog.com",
+            frequency="daily",
+            start_date=timezone.now(),
+            insight=self.insight,
+            title="t",
+            enabled=False,
+        )
+        stale_date = timezone.now() - timedelta(days=3)
+        Subscription.objects.filter(pk=subscription.pk).update(next_delivery_date=stale_date)
+
+        with patch("ee.api.subscription.sync_connect") as temporal_mock:
+            temporal_mock.return_value.start_workflow = AsyncMock()
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/subscriptions/{subscription.id}/",
+                {"enabled": True},
+                format="json",
+            )
+
+        assert response.status_code == 200, response.content
+        subscription.refresh_from_db()
+        assert subscription.enabled is True
+        assert subscription.next_delivery_date is not None
+        assert subscription.next_delivery_date > timezone.now()
 
     def test_get_returns_enabled_field(self):
         subscription = Subscription.objects.create(

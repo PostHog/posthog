@@ -381,6 +381,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
     def update(self, instance: Subscription, validated_data: dict, *args, **kwargs) -> Subscription:
         request = self.context["request"]
         previous_value = instance.target_value
+        was_disabled = instance.enabled is False
         is_delete = not instance.deleted and validated_data.get("deleted") is True
         invite_message = validated_data.pop("invite_message", "")
         dashboard_export_insight_ids = validated_data.pop("dashboard_export_insights", [])
@@ -412,6 +413,14 @@ class SubscriptionSerializer(serializers.ModelSerializer):
 
         if dashboard_export_insight_ids:
             instance.dashboard_export_insights.set(dashboard_export_insight_ids)
+
+        # Re-enabling clears the stale next_delivery_date that was frozen while
+        # disabled. Without this, the scheduler picks the sub up on its next tick
+        # (the past date matches `next_delivery_date__lte=now`) and fires a second
+        # SCHEDULED delivery right after the immediate TARGET_CHANGE confirmation.
+        if was_disabled and instance.enabled:
+            instance.set_next_delivery_date()
+            instance.save(update_fields=["next_delivery_date"])
 
         # Skip the workflow trigger when the resulting state is disabled. No delivery
         # should fire for a disabled subscription regardless of whether it was just
