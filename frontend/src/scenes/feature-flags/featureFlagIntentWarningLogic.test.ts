@@ -157,6 +157,85 @@ describe('featureFlagIntentWarningLogic', () => {
                 groups: [{ properties: [], rollout_percentage: 100, variant: null }],
                 expectedUnreachable: [],
             },
+            {
+                name: 'broad group-targeted condition does not shadow later user-targeted condition',
+                groups: [
+                    {
+                        properties: [],
+                        rollout_percentage: 100,
+                        variant: null,
+                        aggregation_group_type_index: 0,
+                    },
+                    {
+                        properties: [],
+                        rollout_percentage: 0,
+                        variant: null,
+                        aggregation_group_type_index: null,
+                    },
+                ],
+                expectedUnreachable: [],
+            },
+            {
+                name: 'broad user-targeted condition does not shadow later group-targeted condition',
+                groups: [
+                    {
+                        properties: [],
+                        rollout_percentage: 100,
+                        variant: null,
+                        aggregation_group_type_index: null,
+                    },
+                    {
+                        properties: [],
+                        rollout_percentage: 100,
+                        variant: null,
+                        aggregation_group_type_index: 0,
+                    },
+                ],
+                expectedUnreachable: [],
+            },
+            {
+                name: 'broad group-targeted condition shadows later condition targeting the same group type',
+                groups: [
+                    {
+                        properties: [],
+                        rollout_percentage: 100,
+                        variant: null,
+                        aggregation_group_type_index: 0,
+                    },
+                    {
+                        properties: [
+                            {
+                                key: 'name',
+                                type: PropertyFilterType.Group,
+                                value: 'acme',
+                                operator: PropertyOperator.Exact,
+                            },
+                        ],
+                        rollout_percentage: 50,
+                        variant: null,
+                        aggregation_group_type_index: 0,
+                    },
+                ],
+                expectedUnreachable: [1],
+            },
+            {
+                name: 'broad condition for group type 0 does not shadow later condition for group type 1',
+                groups: [
+                    {
+                        properties: [],
+                        rollout_percentage: 100,
+                        variant: null,
+                        aggregation_group_type_index: 0,
+                    },
+                    {
+                        properties: [],
+                        rollout_percentage: 100,
+                        variant: null,
+                        aggregation_group_type_index: 1,
+                    },
+                ],
+                expectedUnreachable: [],
+            },
         ])('$name', async ({ groups, expectedUnreachable }) => {
             flagLogic.actions.setFeatureFlag({
                 ...NEW_FLAG,

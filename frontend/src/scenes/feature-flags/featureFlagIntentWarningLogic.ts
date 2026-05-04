@@ -77,13 +77,19 @@ export const featureFlagIntentWarningLogic = kea<featureFlagIntentWarningLogicTy
                     return new Set()
                 }
 
+                // A broad condition only shadows later conditions targeting the same entity type.
+                // Mixed-targeting flags can have condition sets aimed at users (null) or different
+                // group types, which are evaluated independently when their context is provided.
+                const flagAggregation = featureFlag?.filters?.aggregation_group_type_index ?? null
                 const unreachable = new Set<number>()
-                let foundBroad = false
+                const broadAggregations = new Set<number | null>()
                 for (let i = 0; i < groups.length; i++) {
-                    if (foundBroad) {
+                    const group = groups[i]
+                    const aggregation = group.aggregation_group_type_index ?? flagAggregation
+                    if (broadAggregations.has(aggregation)) {
                         unreachable.add(i)
-                    } else if (isGroupBroad(groups[i])) {
-                        foundBroad = true
+                    } else if (isGroupBroad(group)) {
+                        broadAggregations.add(aggregation)
                     }
                 }
                 return unreachable
