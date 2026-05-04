@@ -31,7 +31,7 @@ from ee.hogai.eval.sandboxed.scorers import ExitCodeZero
 SKILL_NAME = "configuring-experiment-rollout"
 
 
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 async def eval_rollout_skill(sandboxed_demo_data, pytestconfig, posthog_client, mcp_mode):
     cases: list[SandboxedEvalCase] = [
         SandboxedEvalCase(
