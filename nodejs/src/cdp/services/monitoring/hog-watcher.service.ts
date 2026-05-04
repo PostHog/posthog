@@ -203,18 +203,16 @@ export class HogWatcherService {
 
         const res = await this.redis.usePipeline({ name: 'getStates' }, (pipeline) => {
             for (const id of idsSet) {
-                pipeline.hget(`${REDIS_KEY_TOKENS}/${id}`, 'pool')
-                pipeline.hget(`${REDIS_KEY_TOKENS}/${id}`, 'ts')
+                pipeline.hmget(`${REDIS_KEY_TOKENS}/${id}`, 'pool', 'ts')
                 pipeline.get(`${REDIS_KEY_STATE}/${id}`)
             }
         })
 
         return Array.from(idsSet).reduce(
             (acc, id, index) => {
-                const resIndex = index * 3
-                const pool = res?.[resIndex]?.[1]
-                const ts = res?.[resIndex + 1]?.[1]
-                const stateVal = res?.[resIndex + 2]?.[1]
+                const resIndex = index * 2
+                const [pool, ts] = res?.[resIndex]?.[1] ?? [null, null]
+                const stateVal = res?.[resIndex + 1]?.[1]
 
                 // Same refill calculation as the Lua token bucket script
                 let tokens: number
