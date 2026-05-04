@@ -11,6 +11,7 @@ use property_defs_rs::{
     },
     update_cache::Cache,
 };
+use rstest::rstest;
 
 // One global recorder per test process. Multiple #[test]s run in parallel, share
 // the same recorder, and read counters via labeled lookups against the snapshot.
@@ -82,34 +83,13 @@ fn make_prop_def(name: &str) -> Update {
 fn test_cache_insertions() {
     let cache = Cache::new(10, 10, 10);
 
-    let evt_def = Update::Event(EventDefinition {
-        name: String::from("foobar"),
-        team_id: 1,
-        project_id: 1,
-        last_seen_at: Utc::now(),
-    });
+    let evt_def = make_event_def("foobar");
     cache.insert(evt_def.clone());
 
-    let evt_prop = Update::EventProperty(EventProperty {
-        event: String::from("foo"),
-        property: String::from("bar"),
-        team_id: 1,
-        project_id: 1,
-    });
+    let evt_prop = make_event_prop("foo", "bar");
     cache.insert(evt_prop.clone());
 
-    let prop_def = Update::Property(PropertyDefinition {
-        team_id: 1,
-        project_id: 1,
-        name: String::from("baz_count"),
-        is_numerical: true,
-        property_type: Some(PropertyValueType::Numeric),
-        event_type: PropertyParentType::Event,
-        group_type_index: None,
-        property_type_format: None,
-        query_usage_30_day: None,
-        volume_30_day: None,
-    });
+    let prop_def = make_prop_def("baz_count");
     cache.insert(prop_def.clone());
 
     assert!(cache.contains_key(&evt_def));
@@ -121,34 +101,13 @@ fn test_cache_insertions() {
 fn test_cache_removals() {
     let cache = Cache::new(10, 10, 10);
 
-    let evt_def = Update::Event(EventDefinition {
-        name: String::from("foobar"),
-        team_id: 1,
-        project_id: 1,
-        last_seen_at: Utc::now(),
-    });
+    let evt_def = make_event_def("foobar");
     cache.insert(evt_def.clone());
 
-    let evt_prop = Update::EventProperty(EventProperty {
-        event: String::from("foo"),
-        property: String::from("bar"),
-        team_id: 1,
-        project_id: 1,
-    });
+    let evt_prop = make_event_prop("foo", "bar");
     cache.insert(evt_prop.clone());
 
-    let prop_def = Update::Property(PropertyDefinition {
-        team_id: 1,
-        project_id: 1,
-        name: String::from("baz_count"),
-        is_numerical: true,
-        property_type: Some(PropertyValueType::Numeric),
-        event_type: PropertyParentType::Event,
-        group_type_index: None,
-        property_type_format: None,
-        query_usage_30_day: None,
-        volume_30_day: None,
-    });
+    let prop_def = make_prop_def("baz_count");
     cache.insert(prop_def.clone());
 
     // remove the entries and check
@@ -256,22 +215,18 @@ fn assert_miss_then_hit(label: &'static str, update: Update) {
     );
 }
 
-#[test]
-fn test_contains_key_emits_hit_miss_metrics_eventdefs() {
-    assert_miss_then_hit("eventdefs", make_event_def("hit_miss_eventdefs"));
-}
-
-#[test]
-fn test_contains_key_emits_hit_miss_metrics_eventprops() {
-    assert_miss_then_hit(
-        "eventprops",
-        make_event_prop("hit_miss_eventprops_evt", "hit_miss_eventprops_prop"),
-    );
-}
-
-#[test]
-fn test_contains_key_emits_hit_miss_metrics_propdefs() {
-    assert_miss_then_hit("propdefs", make_prop_def("hit_miss_propdefs"));
+#[rstest]
+#[case::eventdefs("eventdefs", make_event_def("hit_miss_eventdefs"))]
+#[case::eventprops(
+    "eventprops",
+    make_event_prop("hit_miss_eventprops_evt", "hit_miss_eventprops_prop")
+)]
+#[case::propdefs("propdefs", make_prop_def("hit_miss_propdefs"))]
+fn test_contains_key_emits_hit_miss_metrics(
+    #[case] label: &'static str,
+    #[case] update: Update,
+) {
+    assert_miss_then_hit(label, update);
 }
 
 // quick_cache enforces a minimum of 32 items per shard (`sync.rs` ~134:

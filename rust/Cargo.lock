@@ -7259,6 +7259,7 @@ dependencies = [
  "quick_cache",
  "rand 0.8.5",
  "regex",
+ "rstest",
  "serde",
  "serde_json",
  "serve-metrics",
