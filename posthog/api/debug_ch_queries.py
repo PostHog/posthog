@@ -356,6 +356,8 @@ class DebugCHQueries(viewsets.ViewSet):
                 team_id_filter = int(request.query_params["team_id"])
             except (TypeError, ValueError):
                 raise exceptions.ValidationError("team_id must be an integer.")
+            if team_id_filter <= 0:
+                raise exceptions.ValidationError("team_id must be a positive integer.")
 
         experiment_id_filter: Optional[int] = None
         if request.query_params.get("experiment_id"):
@@ -363,6 +365,8 @@ class DebugCHQueries(viewsets.ViewSet):
                 experiment_id_filter = int(request.query_params["experiment_id"])
             except (TypeError, ValueError):
                 raise exceptions.ValidationError("experiment_id must be an integer.")
+            if experiment_id_filter <= 0:
+                raise exceptions.ValidationError("experiment_id must be a positive integer.")
 
         params: dict = {
             "cluster": CLICKHOUSE_CLUSTER,
