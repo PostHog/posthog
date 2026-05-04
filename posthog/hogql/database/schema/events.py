@@ -23,6 +23,17 @@ from posthog.hogql.database.schema.persons_revenue_analytics import (
 from posthog.hogql.database.schema.sessions_v1 import SessionsTableV1, join_events_table_to_sessions_table
 
 
+def _events_table_name(context) -> str:
+    """Return the ClickHouse name HogQL should emit for the ``events`` family.
+
+    Honors the ``target_sharded_events`` context flag set by
+    ``DataDeletionRequest`` predicate compilation — see ``HogQLContext``.
+    """
+    if context is not None and getattr(context, "target_sharded_events", False):
+        return "sharded_events"
+    return "events"
+
+
 class EventsPersonSubTable(VirtualTable):
     fields: dict[str, FieldOrTable] = {
         "id": StringDatabaseField(name="person_id", nullable=False),
@@ -36,7 +47,7 @@ class EventsPersonSubTable(VirtualTable):
     }
 
     def to_printed_clickhouse(self, context):
-        return "events"
+        return _events_table_name(context)
 
     def to_printed_hogql(self):
         return "events"
@@ -56,7 +67,7 @@ class EventsGroupSubTable(VirtualTable):
         return []
 
     def to_printed_clickhouse(self, context):
-        return "events"
+        return _events_table_name(context)
 
     def to_printed_hogql(self):
         return "events"
@@ -134,7 +145,7 @@ class EventsTable(Table):
     }
 
     def to_printed_clickhouse(self, context):
-        return "events"
+        return _events_table_name(context)
 
     def to_printed_hogql(self):
         return "events"
