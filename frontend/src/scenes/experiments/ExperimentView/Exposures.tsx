@@ -29,15 +29,33 @@ interface MicroChartProps {
     exposures: ExperimentExposureQueryResponse
 }
 
-interface ChartDataset {
+interface ExposureSeries {
+    variant: string
     data: number[]
-    borderColor: string
-    fill: boolean
-    tension: number
-    borderWidth: number
-    pointRadius: number
-    label?: string
-    backgroundColor?: string
+}
+
+// Single-day timeseries get a synthetic prior day with 0 exposures so the chart
+// can draw a line instead of a single point.
+function buildExposureDatasets(timeseries: ExperimentExposureTimeSeries[]): {
+    labels: string[]
+    datasets: ExposureSeries[]
+} {
+    let labels = timeseries[0].days.map((day: string) => dayjs(day).format('MM/DD'))
+    let datasets: ExposureSeries[] = timeseries.map((series: ExperimentExposureTimeSeries) => ({
+        variant: series.variant,
+        data: series.exposure_counts,
+    }))
+
+    if (timeseries[0].days.length === 1) {
+        const previousDay = dayjs(timeseries[0].days[0]).subtract(1, 'day').format('MM/DD')
+        labels = [previousDay, ...labels]
+        datasets = datasets.map((dataset) => ({
+            ...dataset,
+            data: [0, ...dataset.data],
+        }))
+    }
+
+    return { labels, datasets }
 }
 
 function MicroChart({ exposures }: MicroChartProps): JSX.Element | null {
@@ -47,10 +65,9 @@ function MicroChart({ exposures }: MicroChartProps): JSX.Element | null {
                 return null
             }
 
-            const timeseries = exposures.timeseries
-
-            let datasets = timeseries.map((series: ExperimentExposureTimeSeries, index: number) => ({
-                data: series.exposure_counts,
+            const { datasets: rawDatasets } = buildExposureDatasets(exposures.timeseries)
+            const datasets = rawDatasets.map((series, index) => ({
+                data: series.data,
                 borderColor: getSeriesColor(index),
                 fill: false,
                 tension: 0.3,
@@ -58,17 +75,10 @@ function MicroChart({ exposures }: MicroChartProps): JSX.Element | null {
                 pointRadius: 0,
             }))
 
-            if (timeseries[0].days.length === 1) {
-                datasets = datasets.map((dataset: ChartDataset) => ({
-                    ...dataset,
-                    data: [0, ...dataset.data],
-                }))
-            }
-
             return {
                 type: 'line' as const,
                 data: {
-                    labels: datasets[0].data.map((_: any, i: number) => i),
+                    labels: datasets[0].data.map((_, i) => i),
                     datasets,
                 },
                 options: {
@@ -141,10 +151,10 @@ function ExposuresChart({ exposures, axisLineColor }: ExposuresChartProps): JSX.
                 return null
             }
 
-            let labels = exposures.timeseries[0].days.map((day: string) => dayjs(day).format('MM/DD'))
-            let datasets = exposures.timeseries.map((series: ExperimentExposureTimeSeries, index: number) => ({
+            const { labels, datasets: rawDatasets } = buildExposureDatasets(exposures.timeseries)
+            const datasets = rawDatasets.map((series, index) => ({
                 label: series.variant,
-                data: series.exposure_counts,
+                data: series.data,
                 borderColor: getSeriesColor(index),
                 backgroundColor: getSeriesBackgroundColor(index),
                 fill: false,
@@ -152,17 +162,6 @@ function ExposuresChart({ exposures, axisLineColor }: ExposuresChartProps): JSX.
                 borderWidth: 2,
                 pointRadius: 0,
             }))
-
-            if (exposures.timeseries[0].days.length === 1) {
-                const firstDay = dayjs(exposures.timeseries[0].days[0])
-                const previousDay = firstDay.subtract(1, 'day').format('MM/DD')
-
-                labels = [previousDay, ...labels]
-                datasets = datasets.map((dataset) => ({
-                    ...dataset,
-                    data: [0, ...dataset.data],
-                }))
-            }
 
             return {
                 type: 'line' as const,

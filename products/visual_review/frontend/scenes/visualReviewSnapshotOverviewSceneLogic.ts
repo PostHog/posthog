@@ -236,36 +236,23 @@ export const visualReviewSnapshotOverviewSceneLogic = kea<visualReviewSnapshotOv
                     _stability: entryStability(e),
                 })),
         ],
-        // The sort applied to filteredEntries depends on the active stat
-        // preset — alphabetical for the broad "All" view, severity-style
-        // ordering for the slices that highlight problems. Keeping it
-        // hardcoded per preset (rather than user-pickable) keeps the UX
-        // tight; the indicator label in the toolbar tells the user which
-        // sort is active.
-        sortLabel: [
-            (s) => [s.filters],
-            (filters): { kind: 'alpha' | 'drift'; label: string } => {
-                if (filters.statPreset === 'all') {
-                    return { kind: 'alpha', label: 'name (A → Z)' }
-                }
-                return { kind: 'drift', label: 'drift avg (high → low)' }
-            },
-        ],
+        // Single sort axis across every preset — drift severity descending
+        // with alphabetic tiebreak. Drift is what the visible meta row leads
+        // with on each card, so the toolbar indicator now matches what the
+        // user sees. Originally we had alpha for "All" and drift for the
+        // problem slices, but two axes meant the toolbar label had to keep
+        // re-explaining itself; one axis everywhere is calmer.
         filteredEntries: [
-            (s) => [s.decoratedEntries, s.filters, s.sortLabel],
-            (entries, filters, sortLabel) => {
+            (s) => [s.decoratedEntries, s.filters],
+            (entries, filters) => {
                 const filtered = applyFilters(entries, filters)
-                if (sortLabel.kind === 'alpha') {
-                    filtered.sort((a, b) => a.identifier.localeCompare(b.identifier))
-                } else {
-                    filtered.sort(
-                        (a, b) =>
-                            (b.recent_drift_avg ?? 0) - (a.recent_drift_avg ?? 0) ||
-                            b.baseline_change_count - a.baseline_change_count ||
-                            b.tolerate_count_30d - a.tolerate_count_30d ||
-                            a.identifier.localeCompare(b.identifier)
-                    )
-                }
+                filtered.sort(
+                    (a, b) =>
+                        (b.recent_drift_avg ?? 0) - (a.recent_drift_avg ?? 0) ||
+                        b.baseline_change_count - a.baseline_change_count ||
+                        b.tolerate_count_30d - a.tolerate_count_30d ||
+                        a.identifier.localeCompare(b.identifier)
+                )
                 return filtered
             },
         ],
