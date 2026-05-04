@@ -2,7 +2,7 @@ import { startRegistration } from '@simplewebauthn/browser'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { urlToAction } from 'kea-router'
+import { combineUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
@@ -220,6 +220,13 @@ export const inviteSignupLogic = kea<inviteSignupLogicType>([
             (s) => [s.featureFlags],
             (featureFlags): boolean => {
                 return !!featureFlags[FEATURE_FLAGS.PASSKEY_SIGNUP_ENABLED]
+            },
+        ],
+        skipInviteUrl: [
+            () => [router.selectors.searchParams],
+            (searchParams: Record<string, string>): string => {
+                const { from_signup_redirect: _omitted, ...preserved } = searchParams
+                return combineUrl('/signup', { ...preserved, skip_invite_check: '1' }).url
             },
         ],
     }),

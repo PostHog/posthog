@@ -203,7 +203,10 @@ export const signupLogic = kea<signupLogicType>([
                     router.values.searchParams as Record<string, string>
                 )
                 if (pendingInvite) {
-                    router.actions.push(`/signup/${pendingInvite.id}/`, { from_signup_redirect: '1' })
+                    router.actions.push(`/signup/${pendingInvite.id}/`, {
+                        ...router.values.searchParams,
+                        from_signup_redirect: '1',
+                    })
                     return
                 }
                 actions.setPanel(1)
@@ -366,7 +369,10 @@ export const signupLogic = kea<signupLogicType>([
                     router.values.searchParams as Record<string, string>
                 )
                 if (pendingInvite) {
-                    router.actions.push(`/signup/${pendingInvite.id}/`, { from_signup_redirect: '1' })
+                    router.actions.push(`/signup/${pendingInvite.id}/`, {
+                        ...router.values.searchParams,
+                        from_signup_redirect: '1',
+                    })
                     return
                 }
                 actions.setPanel(1)

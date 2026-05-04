@@ -221,6 +221,7 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
         turnstileSiteKey,
         turnstileToken,
         fromSignupRedirect,
+        skipInviteUrl,
     } = useValues(inviteSignupLogic)
     const { registerPasskey, setTurnstileToken } = useActions(inviteSignupLogic)
     const { preflight } = useValues(preflightLogic)
@@ -414,7 +415,7 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
             </div>
             {fromSignupRedirect && (
                 <div className="mt-2 text-center text-secondary">
-                    <Link to="/signup?skip_invite_check=1" data-attr="invite-signup-create-own-org">
+                    <Link to={skipInviteUrl} data-attr="invite-signup-create-own-org">
                         I'd rather create my own organization →
                     </Link>
                 </div>

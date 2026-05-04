@@ -35,4 +35,13 @@ describe('inviteSignupLogic — fromSignupRedirect flag', () => {
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.fromSignupRedirect).toBe(false)
     })
+
+    it('skipInviteUrl preserves other query params and drops from_signup_redirect', async () => {
+        router.actions.push('/signup/invite-123/', {
+            from_signup_redirect: '1',
+            next: '/insights',
+        })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.skipInviteUrl).toEqual('/signup?next=%2Finsights&skip_invite_check=1')
+    })
 })

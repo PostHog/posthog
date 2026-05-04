@@ -62,4 +62,16 @@ describe('signupLogic — pending invite redirect', () => {
         await expectLogic(logic).toFinishAllListeners()
         expect(router.values.location.pathname).toEqual('/signup')
     })
+
+    it('preserves existing search params (e.g. next) on the invite redirect', async () => {
+        router.actions.push('/signup', { next: '/insights' })
+        logic.actions.setSignupPanelEmailValue('email', 'alice@acme.com')
+        logic.actions.submitSignupPanelEmail()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(router.values.location.pathname).toEqual('/signup/invite-123/')
+        expect(router.values.searchParams).toEqual({
+            next: '/insights',
+            from_signup_redirect: '1',
+        })
+    })
 })
