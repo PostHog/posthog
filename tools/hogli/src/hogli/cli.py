@@ -21,7 +21,7 @@ from hogli import telemetry
 from hogli.command_types import BinScriptCommand, CompositeCommand, DirectCommand, HogliCommand
 from hogli.hooks import post_command_hooks, telemetry_property_hooks
 from hogli.manifest import get_category_for_command, get_manifest, get_services_for_command, load_manifest
-from hogli.validate import auto_update_manifest, find_missing_manifest_entries
+from hogli.validate import auto_update_manifest, find_manifest_validation_errors, find_missing_manifest_entries
 
 _DEFAULT_HELP = "Developer CLI framework with YAML-based command definitions."
 
@@ -87,7 +87,11 @@ class CategorizedGroup(click.Group):
         category_key_to_title = {cat.get("key"): cat.get("title") for cat in categories_list}
 
         # Set of commands that extend others (will be rendered under their parent)
-        child_commands = {child for parent in self.commands for child in manifest_obj.get_children_for_command(parent)}
+        child_commands = {
+            child
+            for parent in manifest_obj.get_all_commands()
+            for child in manifest_obj.get_children_for_command(parent)
+        }
 
         # Group commands by category, storing (key, title) tuple
         grouped: dict[tuple[str, str], list[tuple[str, str]]] = defaultdict(list)
@@ -190,6 +194,12 @@ class CategorizedGroup(click.Group):
                 f"{type(command).__name__}, expected click.Command"
             )
 
+        if command.name != cmd_name:
+            raise click.ClickException(
+                f"hogli: command {cmd_name!r} resolved {import_string!r} with Click name {command.name!r}; "
+                "the names must match"
+            )
+
         return command
 
 
@@ -230,16 +240,24 @@ def cli(ctx: click.Context) -> None:
 
 @cli.command(name="meta:check", help="Validate manifest against bin scripts (for CI)")
 def meta_check() -> None:
-    """Validate that all bin scripts are in the manifest."""
+    """Validate manifest script coverage and lazy Python references."""
     missing = find_missing_manifest_entries()
+    validation_errors = find_manifest_validation_errors()
 
-    if not missing:
+    if not missing and not validation_errors:
         click.echo("✓ All bin scripts are in the manifest")
+        click.echo("✓ All Click commands and boot modules resolve")
         return
 
-    click.echo(f"✗ Found {len(missing)} bin script(s) not in manifest:")
-    for script in sorted(missing):
-        click.echo(f"  - {script}")
+    if missing:
+        click.echo(f"✗ Found {len(missing)} bin script(s) not in manifest:")
+        for script in sorted(missing):
+            click.echo(f"  - {script}")
+
+    if validation_errors:
+        click.echo(f"✗ Found {len(validation_errors)} manifest validation error(s):")
+        for error in validation_errors:
+            click.echo(f"  - {error}")
 
     raise SystemExit(1)
 

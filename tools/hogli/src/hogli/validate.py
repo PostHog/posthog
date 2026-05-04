@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
+import sys
+import importlib
+from collections.abc import Iterator
+from typing import Any
+
 import yaml
+import click
 
 from hogli.manifest import MANIFEST_FILE, get_manifest
 
@@ -43,6 +49,111 @@ def get_manifest_scripts() -> set[str]:
                 scripts.add(script)
 
     return scripts
+
+
+def _iter_manifest_commands() -> Iterator[tuple[str, dict[str, Any]]]:
+    """Yield every command config from the manifest."""
+    manifest = get_manifest()
+    for category_key, commands in manifest.data.items():
+        if category_key in {"metadata", "config"} or not isinstance(commands, dict):
+            continue
+        for command_name, command_config in commands.items():
+            if isinstance(command_config, dict):
+                yield command_name, command_config
+
+
+def _ensure_commands_dir_importable() -> None:
+    """Put the configured commands package parent on sys.path."""
+    commands_dir = get_manifest().commands_dir
+    if not commands_dir:
+        return
+
+    parent_dir = str(commands_dir.parent)
+    if parent_dir not in sys.path:
+        sys.path.insert(0, parent_dir)
+
+
+def _parse_import_string(label: str, import_string: Any) -> tuple[str | None, str | None, str | None]:
+    if not isinstance(import_string, str) or import_string.count(":") != 1:
+        return None, None, f"{label} has invalid import string {import_string!r}; expected 'module.path:attr'"
+
+    module_path, attr = import_string.split(":", 1)
+    if not module_path or not attr:
+        return None, None, f"{label} has invalid import string {import_string!r}; expected 'module.path:attr'"
+
+    return module_path, attr, None
+
+
+def find_click_command_errors() -> list[str]:
+    """Validate lazy ``click:`` command targets in the manifest."""
+    _ensure_commands_dir_importable()
+    errors: list[str] = []
+
+    for command_name, command_config in _iter_manifest_commands():
+        import_string = command_config.get("click")
+        if import_string is None:
+            continue
+
+        module_path, attr, parse_error = _parse_import_string(f"command {command_name!r}", import_string)
+        if parse_error:
+            errors.append(parse_error)
+            continue
+
+        if module_path is None or attr is None:
+            continue
+
+        try:
+            module = importlib.import_module(module_path)
+        except Exception as exc:
+            errors.append(f"command {command_name!r} could not import {module_path!r}: {exc}")
+            continue
+
+        try:
+            command = getattr(module, attr)
+        except AttributeError as exc:
+            errors.append(f"command {command_name!r} could not resolve {import_string!r}: {exc}")
+            continue
+
+        if not isinstance(command, click.Command):
+            errors.append(
+                f"command {command_name!r} resolved {import_string!r} to {type(command).__name__}, "
+                "expected click.Command"
+            )
+            continue
+
+        if command.name != command_name:
+            errors.append(
+                f"command {command_name!r} resolved {import_string!r} with Click name {command.name!r}; "
+                "the names must match"
+            )
+
+    return errors
+
+
+def find_boot_module_errors() -> list[str]:
+    """Validate boot modules listed under ``config.boot_modules``."""
+    _ensure_commands_dir_importable()
+    manifest = get_manifest()
+    boot_modules = manifest.config.get("boot_modules", [])
+    if not isinstance(boot_modules, list):
+        return ["config.boot_modules must be a list of module paths"]
+
+    errors: list[str] = []
+    for module_path in boot_modules:
+        if not isinstance(module_path, str) or not module_path:
+            errors.append(f"boot module {module_path!r} is invalid; expected a non-empty module path")
+            continue
+        try:
+            importlib.import_module(module_path)
+        except Exception as exc:
+            errors.append(f"boot module {module_path!r} could not import: {exc}")
+
+    return errors
+
+
+def find_manifest_validation_errors() -> list[str]:
+    """Validate manifest references that help output intentionally leaves lazy."""
+    return [*find_boot_module_errors(), *find_click_command_errors()]
 
 
 def find_missing_manifest_entries() -> set[str]:

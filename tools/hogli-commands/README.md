@@ -4,7 +4,7 @@ Custom Python commands for the PostHog monorepo. They extend hogli with PostHog-
 
 ## How It Works
 
-Each command module is imported **on first use**, not at hogli startup. The hogli framework reads `config.commands_dir` from `/hogli.yaml`; manifest entries with a `click:` field are resolved by Click only when the user invokes the command or runs per-command `--help`.
+Each command module is imported **on first use**, not at hogli startup. The hogli framework reads `config.commands_dir` from `/hogli.yaml`; manifest entries with a `click:` field are resolved by Click when the user invokes the command, runs per-command `--help`, or runs `hogli meta:check`.
 
 Boot-time registrations (precheck handlers, telemetry hooks, post-command hooks) live in their own modules listed under `config.boot_modules:` in `hogli.yaml`. Those modules **must** be cheap to import — keep heavy dependencies behind lazy imports inside handler bodies.
 
@@ -31,6 +31,8 @@ tools:
     click: hogli_commands.myfeature:my_command
     description: One-line summary shown in `hogli --help`.
 ```
+
+The Click command name must match the manifest key. `hogli meta:check` validates the import string, target type, and name.
 
 3. Test it:
 
