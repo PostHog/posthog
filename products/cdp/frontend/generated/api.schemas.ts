@@ -601,10 +601,6 @@ export type HogFunctionsListParams = {
      */
     offset?: number
     /**
-     * A search term.
-     */
-    search?: string
-    /**
      * Multiple values may be separated by commas.
      */
     type?: string[]
