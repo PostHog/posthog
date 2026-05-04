@@ -68,6 +68,14 @@ export interface PersistedPinnedState {
     homepage: SceneTab | null
 }
 
+interface MountedTabLogic {
+    logic: SceneExport['logic']
+    logicProps: Record<string, any>
+    sceneId: string
+    sceneKey?: string
+    unmount: () => void
+}
+
 const getStorageKey = (key: string): string => {
     const teamId = getCurrentTeamIdOrNone() ?? teamLogic.findMounted()?.values.currentTeamId ?? 'null'
     return `${key}-${teamId}`
@@ -332,7 +340,7 @@ export const sceneLogic = kea<sceneLogicType>([
         values: [billingLogic, ['billing'], organizationLogic, ['organizationBeingDeleted']],
     })),
     afterMount(({ cache }) => {
-        cache.mountedTabLogic = {} as Record<string, () => void>
+        cache.mountedTabLogic = {} as Record<string, MountedTabLogic>
         cache.lastTrackedSceneByTab = {} as Record<string, { sceneId?: string; sceneKey?: string }>
         cache.initialNavigationTabCreated = false
         cache.lastRegisteredTabCount = null as number | null
@@ -1135,20 +1143,37 @@ export const sceneLogic = kea<sceneLogicType>([
                 }
             }
 
-            const unmount = cache.mountedTabLogic[tabId]
-            if (unmount) {
-                try {
-                    unmount()
-                } catch (error) {
-                    console.error('Error unmounting previous tab logic:', error)
-                }
-                delete cache.mountedTabLogic[tabId]
-            }
             if (exportedScene?.logic) {
                 try {
                     const builtLogicProps = { tabId, ...exportedScene?.paramsToProps?.(params) }
-                    const builtLogic = exportedScene?.logic(builtLogicProps)
-                    cache.mountedTabLogic[tabId] = builtLogic.mount()
+                    const mountedLogic = cache.mountedTabLogic[tabId]
+                    // Re-activating an existing internal tab should not remount its scene logic.
+                    // Child logics attach to this scene root to keep draft state alive while inactive.
+                    const canKeepMountedLogic =
+                        mountedLogic?.logic === exportedScene.logic &&
+                        mountedLogic?.sceneId === sceneId &&
+                        mountedLogic.sceneKey === sceneKey &&
+                        equal(mountedLogic.logicProps, builtLogicProps)
+
+                    if (!canKeepMountedLogic) {
+                        if (mountedLogic) {
+                            try {
+                                mountedLogic.unmount()
+                            } catch (error) {
+                                console.error('Error unmounting previous tab logic:', error)
+                            }
+                            delete cache.mountedTabLogic[tabId]
+                        }
+
+                        const builtLogic = exportedScene.logic(builtLogicProps)
+                        cache.mountedTabLogic[tabId] = {
+                            logic: exportedScene.logic,
+                            logicProps: builtLogicProps,
+                            sceneId,
+                            sceneKey,
+                            unmount: builtLogic.mount(),
+                        }
+                    }
                 } catch (error) {
                     // Scene logic builders (e.g. dashboardLogic.key()) can throw on malformed
                     // route params like `/dashboard/abc`. Capture so regressions surface, then
@@ -1156,6 +1181,16 @@ export const sceneLogic = kea<sceneLogicType>([
                     posthog.captureException(error, { extra: { sceneId, sceneKey, tabId } })
                     actions.loadScene(Scene.Error404, undefined, tabId, emptySceneParams, 'REPLACE')
                     return
+                }
+            } else {
+                const mountedLogic = cache.mountedTabLogic[tabId]
+                if (mountedLogic) {
+                    try {
+                        mountedLogic.unmount()
+                    } catch (error) {
+                        console.error('Error unmounting previous tab logic:', error)
+                    }
+                    delete cache.mountedTabLogic[tabId]
                 }
             }
 
@@ -1591,10 +1626,10 @@ export const sceneLogic = kea<sceneLogicType>([
                 const { tabIds } = values
                 for (const id of Object.keys(cache.mountedTabLogic)) {
                     if (!tabIds[id]) {
-                        const unmount = cache.mountedTabLogic[id]
-                        if (unmount) {
+                        const mountedLogic = cache.mountedTabLogic[id]
+                        if (mountedLogic) {
                             try {
-                                unmount()
+                                mountedLogic.unmount()
                             } catch (error) {
                                 console.error('Error unmounting tab logic:', error)
                             }
