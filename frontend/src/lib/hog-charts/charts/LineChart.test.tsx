@@ -101,18 +101,14 @@ describe('LineChart', () => {
     })
 
     describe('axis configuration', () => {
-        it('hides x-axis ticks when hideXAxis is true', () => {
+        it.each([
+            ['hideXAxis', { hideXAxis: true }, 'xTicks'],
+            ['hideYAxis', { hideYAxis: true }, 'yTicks'],
+        ] as const)('hides ticks when %s is true', (_, config, accessor) => {
             const { chart } = renderHogChart(
-                <LineChart series={SERIES} labels={LABELS} theme={THEME} config={{ hideXAxis: true }} />
+                <LineChart series={SERIES} labels={LABELS} theme={THEME} config={config} />
             )
-            expect(chart.xTicks()).toHaveLength(0)
-        })
-
-        it('hides y-axis ticks when hideYAxis is true', () => {
-            const { chart } = renderHogChart(
-                <LineChart series={SERIES} labels={LABELS} theme={THEME} config={{ hideYAxis: true }} />
-            )
-            expect(chart.yTicks()).toHaveLength(0)
+            expect(chart[accessor]()).toHaveLength(0)
         })
 
         it('applies xTickFormatter to x-axis ticks', () => {

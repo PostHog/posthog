@@ -13,7 +13,6 @@ export interface OverlayContextOverrides {
     dimensions?: BaseChartContext['dimensions']
     labels?: string[]
     series?: ResolvedSeries[]
-    scales?: ChartScales
     theme?: ChartTheme
     resolveValue?: ResolveValueFn
     canvasBounds?: () => DOMRect | null

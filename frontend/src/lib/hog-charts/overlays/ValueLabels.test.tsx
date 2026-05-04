@@ -2,7 +2,7 @@ import { cleanup, type RenderResult } from '@testing-library/react'
 import React from 'react'
 
 import type { BaseChartContext } from '../core/chart-context'
-import type { ChartTheme, ResolvedSeries, ResolveValueFn } from '../core/types'
+import type { ChartScales, ChartTheme, ResolvedSeries, ResolveValueFn } from '../core/types'
 import { makeOverlayContext, type OverlayContextOverrides, renderOverlayInChart } from '../testing'
 import { ValueLabels } from './ValueLabels'
 
@@ -22,12 +22,16 @@ const xScale = (label: string): number | undefined => X_POSITIONS[label]
 // Left axis: 0 -> 368, 100 -> 16
 const yScale = (v: number): number => 368 - (v / 100) * 352
 
-function makeContext(series: ResolvedSeries[], overrides: OverlayContextOverrides = {}): BaseChartContext {
-    return makeOverlayContext(overrides.scales ?? { x: xScale, y: yScale, yTicks: () => [0, 50, 100] }, {
+function makeContext(
+    series: ResolvedSeries[],
+    overrides: OverlayContextOverrides & { scales?: ChartScales } = {}
+): BaseChartContext {
+    const { scales, ...rest } = overrides
+    return makeOverlayContext(scales ?? { x: xScale, y: yScale, yTicks: () => [0, 50, 100] }, {
         dimensions: DIMENSIONS,
         labels: LABELS,
         series,
-        ...overrides,
+        ...rest,
     })
 }
 
