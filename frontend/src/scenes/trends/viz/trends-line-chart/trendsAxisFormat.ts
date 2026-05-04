@@ -1,15 +1,21 @@
-import { formatPercentStackAxisValue } from 'scenes/insights/aggregationAxisFormat'
+import { YFormatterConfig } from 'lib/hog-charts/charts/TimeSeriesLineChart/utils/y-formatters'
 
 import { CurrencyCode, TrendsFilter } from '~/queries/schema/schema-general'
 
-/** Build the y-axis tick formatter for the trends chart from the same inputs the
- *  legacy chart.js path consumes (`trendsFilter` + percent-stack flag + project currency).
- *  `formatPercentStackAxisValue` honors `aggregationAxisFormat`, `aggregationAxisPrefix`,
- *  and `aggregationAxisPostfix`, so currency / percent / duration / numeric all flow through. */
-export function buildTrendsYTickFormatter(
+export function trendsFilterToYFormatterConfig(
     trendsFilter: TrendsFilter | null | undefined,
     isPercentStackView: boolean,
     baseCurrency?: CurrencyCode
-): (value: number) => string {
-    return (value: number): string => formatPercentStackAxisValue(trendsFilter, value, isPercentStackView, baseCurrency)
+): YFormatterConfig {
+    if (isPercentStackView) {
+        return { format: 'percentage' }
+    }
+    return {
+        format: trendsFilter?.aggregationAxisFormat ?? 'numeric',
+        prefix: trendsFilter?.aggregationAxisPrefix,
+        suffix: trendsFilter?.aggregationAxisPostfix,
+        decimalPlaces: trendsFilter?.decimalPlaces,
+        minDecimalPlaces: trendsFilter?.minDecimalPlaces,
+        currency: baseCurrency,
+    }
 }

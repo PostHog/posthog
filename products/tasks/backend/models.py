@@ -294,33 +294,34 @@ class Task(DeletedMetaFields, models.Model):
             RunSource,
             get_pr_authorship_mode,
             resolve_user_github_integration_for_task,
+            user_github_integration_is_usable,
         )
 
-        github_integration = None
+        github_integration = Integration.objects.filter(team=team, kind="github").first()
         github_user_integration = None
-        if repository:
-            github_integration = Integration.objects.filter(team=team, kind="github").first()
-            task_stub = Task(
-                team=team,
-                origin_product=origin_product,
-                created_by=created_by,
-                repository=repository,
-                github_integration=github_integration,
-            )
-            authorship_mode = get_pr_authorship_mode(
+        task_stub = Task(
+            team=team,
+            origin_product=origin_product,
+            created_by=created_by,
+            repository=repository,
+            github_integration=github_integration,
+        )
+        authorship_mode = get_pr_authorship_mode(
+            task_stub,
+            {"run_source": RunSource.SIGNAL_REPORT.value}
+            if origin_product == Task.OriginProduct.SIGNAL_REPORT
+            else None,
+        )
+        if authorship_mode == PrAuthorshipMode.USER:
+            user_github_integration = resolve_user_github_integration_for_task(
                 task_stub,
-                {"run_source": RunSource.SIGNAL_REPORT.value}
-                if origin_product == Task.OriginProduct.SIGNAL_REPORT
-                else None,
+                repository=repository,
+                allow_refresh=True,
             )
-            if authorship_mode == PrAuthorshipMode.USER:
-                user_github_integration = resolve_user_github_integration_for_task(
-                    task_stub,
-                    repository=repository,
-                    allow_refresh=True,
-                )
+            if user_github_integration_is_usable(user_github_integration):
                 github_user_integration = user_github_integration.integration if user_github_integration else None
 
+        if repository:
             if not github_integration and github_user_integration is None and not is_public_sandbox_repo(repository):
                 raise ValueError(f"Team {team.id} does not have a GitHub integration")
 
@@ -359,7 +360,9 @@ class Task(DeletedMetaFields, models.Model):
             extra_state["run_source"] = RunSource.SIGNAL_REPORT.value
             extra_state["pr_authorship_mode"] = PrAuthorshipMode.BOT.value
         elif origin_product in (Task.OriginProduct.USER_CREATED, Task.OriginProduct.SLACK):
-            extra_state["pr_authorship_mode"] = PrAuthorshipMode.USER.value
+            extra_state["pr_authorship_mode"] = (
+                PrAuthorshipMode.USER.value if github_user_integration is not None else PrAuthorshipMode.BOT.value
+            )
 
         if sandbox_env is not None:
             extra_state["sandbox_environment_id"] = str(sandbox_env.id)

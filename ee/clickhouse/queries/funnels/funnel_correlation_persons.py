@@ -47,7 +47,7 @@ class FunnelCorrelationActors(ActorBaseQuery):
     def get_actors(
         self,
     ) -> tuple[
-        Union[QuerySet[Person], QuerySet[Group], list[Person]],
+        Union[QuerySet[Person], QuerySet[Group], list[Person], list[Group]],
         Union[list[SerializedGroup], list[SerializedPerson]],
         int,
     ]:

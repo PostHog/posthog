@@ -3,7 +3,7 @@ import asyncio
 import json
 from functools import partial
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4, uuid5
 
 import structlog
 from posthoganalytics import Posthog
@@ -52,6 +52,32 @@ _MIN_FIELD_SIZE_TO_TRUNCATE = 10 * 1024
 _TRUNCATION_MARKER = "[truncated: content too large for capture]"
 _TRUNCATABLE_FIELDS = ("$ai_output_choices", "$ai_input")
 
+# Stable namespace for hashing non-UUID trace identifiers (e.g. Claude Code's
+# JSON-encoded session blobs sent via Anthropic's metadata.user_id) into a
+# deterministic UUID. Generated once and frozen so the same input always maps
+# to the same trace UUID across runs and processes.
+_TRACE_ID_NAMESPACE = UUID("8d4f6b7e-6a3e-4f3a-9f3b-3b6f4d2e8a1a")
+
+
+def _normalize_trace_id(raw: Any) -> str:
+    """Normalize an incoming trace identifier into a UUID string.
+
+    LLM Analytics renders trace links as `/llm-observability/traces/<id>`, so
+    `$ai_trace_id` must be a URL-safe identifier. Anthropic's
+    `metadata.user_id` is a free-form string that Claude Code populates with a
+    serialized JSON session blob — passing that through verbatim produces
+    unopenable trace links. We hash anything that isn't already a UUID into a
+    deterministic UUID5 so identical inputs continue to share the same trace.
+    """
+    if not raw:
+        return str(uuid4())
+    if not isinstance(raw, str):
+        raw = json.dumps(raw, default=str, sort_keys=True)
+    try:
+        return str(UUID(raw))
+    except ValueError:
+        return str(uuid5(_TRACE_ID_NAMESPACE, raw))
+
 
 def _truncate_for_capture(properties: dict[str, Any]) -> dict[str, Any]:
     serialized = json.dumps(properties, default=str)
@@ -89,9 +115,9 @@ class PostHogCallback(InstrumentedCallback):
         auth_user = get_auth_user()
         product = get_product()
 
-        trace_id = (
-            metadata.get("user_id") or str(uuid4())
-        )  # anthropic stores user_id in metadata, but it actually refers to the trace_id rather than the user for claude code.
+        # Anthropic's metadata.user_id is co-opted as a trace id by Claude Code
+        # (see _normalize_trace_id), and Claude Code sends a JSON blob there.
+        trace_id = _normalize_trace_id(metadata.get("user_id"))
         if auth_user and auth_user.auth_method == "oauth_access_token":
             distinct_id = auth_user.distinct_id
         else:
@@ -175,9 +201,9 @@ class PostHogCallback(InstrumentedCallback):
         auth_user = get_auth_user()
         product = get_product()
 
-        trace_id = (
-            metadata.get("user_id") or str(uuid4())
-        )  # anthropic stores user_id in metadata, but it actually refers to the trace_id rather than the user for claude code.
+        # Anthropic's metadata.user_id is co-opted as a trace id by Claude Code
+        # (see _normalize_trace_id), and Claude Code sends a JSON blob there.
+        trace_id = _normalize_trace_id(metadata.get("user_id"))
         if auth_user and auth_user.auth_method == "oauth_access_token":
             distinct_id = auth_user.distinct_id
         else:

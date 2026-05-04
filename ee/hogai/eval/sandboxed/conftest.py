@@ -17,7 +17,7 @@ from django.conf import settings
 
 from posthog.temporal.common.worker import create_worker
 
-from products.tasks.backend.services.custom_prompt_runner import CustomPromptSandboxContext
+from products.tasks.backend.services.custom_prompt_internals import CustomPromptSandboxContext
 from products.tasks.backend.services.local_skills import ENV_LOCAL_SKILLS_HOST_PATH, LocalSkillsCache
 from products.tasks.backend.temporal import (
     ACTIVITIES as TASKS_ACTIVITIES,

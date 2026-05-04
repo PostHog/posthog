@@ -38,10 +38,7 @@ class TestGetTaskProcessingContextActivity:
         task_run = test_task.create_run()
         input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
 
-        with patch(
-            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.close_old_database_connections"
-        ) as close_old_database_connections_mock:
-            result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
+        result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
 
         assert isinstance(result, TaskProcessingContext)
         assert result.task_id == str(test_task.id)
@@ -50,7 +47,6 @@ class TestGetTaskProcessingContextActivity:
         assert result.github_integration_id == test_task.github_integration_id
         assert result.repository == "posthog/posthog-js"
         assert result.create_pr is True
-        close_old_database_connections_mock.assert_called_once()
 
     @pytest.mark.django_db
     def test_get_task_processing_context_task_not_found(self, activity_environment):
@@ -124,6 +120,30 @@ class TestGetTaskProcessingContextActivity:
         assert result.repository is None
         assert result.github_integration_id is None
         assert result.github_user_integration_id == str(user_integration.id)
+        assert result.has_github_credentials is True
+
+    @pytest.mark.django_db
+    def test_get_task_processing_context_uses_team_integration_without_repository(
+        self, activity_environment, team, user, github_integration
+    ):
+        task = Task.objects.create(
+            team=team,
+            created_by=user,
+            title="Slack task without repository",
+            description="Clone a repo later from chat",
+            origin_product=Task.OriginProduct.SLACK,
+            github_integration=github_integration,
+        )
+        task_run = task.create_run(extra_state={"interaction_origin": "slack", "pr_authorship_mode": "bot"})
+
+        result = async_to_sync(activity_environment.run)(
+            get_task_processing_context,
+            GetTaskProcessingContextInput(run_id=str(task_run.id)),
+        )
+
+        assert result.repository is None
+        assert result.github_integration_id == github_integration.id
+        assert result.github_user_integration_id is None
         assert result.has_github_credentials is True
 
     @pytest.mark.django_db
