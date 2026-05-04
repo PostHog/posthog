@@ -86,6 +86,12 @@ const getYAxisSettings = (
         stacked: stacked,
         grid: mixedGridOptions,
         position,
+        title: {
+            display: !!settings?.label,
+            text: settings?.label ?? '',
+            color: tickOptions.color,
+            font: tickOptions.font,
+        },
         border: {
             display: chartSettings.showYAxisBorder ?? true,
         },
@@ -650,6 +656,12 @@ export const LineGraph = ({
                         },
                         border: {
                             display: chartSettings.showXAxisBorder ?? true,
+                        },
+                        title: {
+                            display: !!chartSettings.xAxisLabel,
+                            text: chartSettings.xAxisLabel ?? '',
+                            color: tickOptions.color,
+                            font: tickOptions.font,
                         },
                     },
                     ...(hasLeftYAxis

@@ -10163,6 +10163,9 @@
                 "xAxis": {
                     "$ref": "#/definitions/ChartAxis"
                 },
+                "xAxisLabel": {
+                    "type": "string"
+                },
                 "yAxis": {
                     "items": {
                         "$ref": "#/definitions/ChartAxis"
@@ -40050,6 +40053,9 @@
         "YAxisSettings": {
             "additionalProperties": false,
             "properties": {
+                "label": {
+                    "type": "string"
+                },
                 "scale": {
                     "enum": ["linear", "logarithmic"],
                     "type": "string"

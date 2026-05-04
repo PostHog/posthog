@@ -5129,6 +5129,7 @@ class YAxisSettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    label: str | None = None
     scale: Scale | None = None
     showGridLines: bool | None = None
     showTicks: bool | None = None
@@ -12417,6 +12418,7 @@ class ChartSettings(BaseModel):
     showYAxisBorder: bool | None = None
     stackBars100: bool | None = Field(default=None, description="Whether we fill the bars to 100% in stacked mode")
     xAxis: ChartAxis | None = None
+    xAxisLabel: str | None = None
     yAxis: list[ChartAxis] | None = None
     yAxisAtZero: bool | None = Field(
         default=None,

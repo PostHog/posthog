@@ -1120,6 +1120,7 @@ export interface HeatmapSettings {
 }
 
 export interface YAxisSettings {
+    label?: string
     scale?: 'linear' | 'logarithmic'
     /** Whether the Y axis should start at zero */
     startAtZero?: boolean
@@ -1129,6 +1130,7 @@ export interface YAxisSettings {
 
 export interface ChartSettings {
     xAxis?: ChartAxis
+    xAxisLabel?: string
     yAxis?: ChartAxis[]
     goalLines?: GoalLine[]
     /** Deprecated: use `[left|right]YAxisSettings`. Whether the Y axis should start at zero */
