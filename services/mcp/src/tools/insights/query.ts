@@ -15,10 +15,17 @@ type Params = z.infer<typeof schema>
 type Result = WithPostHogUrl<{ query: unknown; insight: Insight & { url: string }; results: unknown }>
 
 export const queryHandler: ToolBase<typeof schema, Result>['handler'] = async (context: Context, params: Params) => {
-    const { insightId, output_format } = params
+    const { insightId, output_format, variables_override, filters_override } = params
     const projectId = await context.stateManager.getProjectId()
 
-    const insightResult = await context.api.insights({ projectId }).get({ insightId })
+    // Threading overrides through the .get() call lets the Django retrieve endpoint
+    // merge them server-side (via apply_dashboard_variables_to_dict /
+    // apply_dashboard_filters_to_dict). The merged query is then POSTed to /query/
+    // as-is, so insight-query results reflect the overridden values without
+    // mutating the saved insight.
+    const insightResult = await context.api
+        .insights({ projectId })
+        .get({ insightId, variables_override, filters_override })
 
     if (!insightResult.success) {
         throw new Error(`Failed to get insight: ${insightResult.error.message}`)

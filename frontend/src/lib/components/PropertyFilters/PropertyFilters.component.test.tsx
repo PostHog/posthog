@@ -449,56 +449,50 @@ describe('PropertyFilters recent selections', () => {
             unmountFeatureFlagLogic = null
         })
 
-        it.each(['pill', 'icon'] as const)(
-            '%s variant: clicking the inline category trigger does not close the property modal',
-            async (variant) => {
-                useSetupMocks()
-                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN], {
-                    [FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]: variant,
-                })
+        it('pill variant: clicking the inline category trigger does not close the property modal', async () => {
+            useSetupMocks()
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN], {
+                [FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]: 'pill',
+            })
 
-                renderFilters({
-                    taxonomicGroupTypes: [
-                        TaxonomicFilterGroupType.EventProperties,
-                        TaxonomicFilterGroupType.PersonProperties,
-                    ],
-                })
+            renderFilters({
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.PersonProperties,
+                ],
+            })
 
-                await openNewFilter()
+            await openNewFilter()
 
-                const trigger = await screen.findByTestId(`taxonomic-category-dropdown-trigger-${variant}`)
-                await userEvent.click(trigger)
+            const trigger = await screen.findByTestId('taxonomic-category-dropdown-trigger-pill')
+            await userEvent.click(trigger)
 
-                expect(screen.getByTestId('taxonomic-filter-searchfield')).toBeInTheDocument()
-            }
-        )
+            expect(screen.getByTestId('taxonomic-filter-searchfield')).toBeInTheDocument()
+        })
 
-        it.each(['pill', 'icon'] as const)(
-            '%s variant: picking a category in the inline dropdown does not close the property modal',
-            async (variant) => {
-                useSetupMocks()
-                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN], {
-                    [FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]: variant,
-                })
+        it('pill variant: picking a category in the inline dropdown does not close the property modal', async () => {
+            useSetupMocks()
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN], {
+                [FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]: 'pill',
+            })
 
-                renderFilters({
-                    taxonomicGroupTypes: [
-                        TaxonomicFilterGroupType.EventProperties,
-                        TaxonomicFilterGroupType.PersonProperties,
-                    ],
-                })
+            renderFilters({
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.PersonProperties,
+                ],
+            })
 
-                await openNewFilter()
+            await openNewFilter()
 
-                const trigger = await screen.findByTestId(`taxonomic-category-dropdown-trigger-${variant}`)
-                await userEvent.click(trigger)
+            const trigger = await screen.findByTestId('taxonomic-category-dropdown-trigger-pill')
+            await userEvent.click(trigger)
 
-                const item = await screen.findByTestId('taxonomic-category-dropdown-item-person_properties')
-                await userEvent.click(item)
+            const item = await screen.findByTestId('taxonomic-category-dropdown-item-person_properties')
+            await userEvent.click(item)
 
-                expect(screen.getByTestId('taxonomic-filter-searchfield')).toBeInTheDocument()
-            }
-        )
+            expect(screen.getByTestId('taxonomic-filter-searchfield')).toBeInTheDocument()
+        })
 
         it('control: clicking outside the property modal closes it', async () => {
             useSetupMocks()

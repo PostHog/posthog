@@ -2,6 +2,11 @@
 // external tools (e.g. the dev-env MCP server) can query logs and status
 // without any file-based intermediary.
 //
+// Trust boundary: the socket is chmodded 0600 and assumes a single-user
+// workstation. Anything with read/write access to the socket can spawn
+// arbitrary shells (see add-proc). Do not expose the socket over a
+// network or share it across uids.
+//
 // Protocol: newline-delimited JSON over a stream socket at SocketPath.
 //
 // Requests (one JSON object per line):
@@ -15,6 +20,7 @@
 //	{"cmd":"remove-proc","process":"my-proc"}
 //	{"cmd":"focus","process":"web"}
 //	{"cmd":"toggle-proc","process":"web"}
+//	{"cmd":"quit"}
 //
 // Responses (one JSON object per line):
 //
@@ -98,6 +104,44 @@ func Listen(path string) (net.Listener, error) {
 	return ln, nil
 }
 
+// RemoveOwnedSocket removes the socket at path only if it has the same inode
+// as when it was bound (captured via ownerInode). Prevents a stale defer from
+// wiping a fresh socket bound by a later process at the same path. If inode
+// tracking fails at bind time, callers should pass 0 to skip the guard.
+func RemoveOwnedSocket(path string, ownerInode uint64) {
+	if ownerInode == 0 {
+		_ = os.Remove(path)
+		return
+	}
+	fi, err := os.Lstat(path)
+	if err != nil {
+		return
+	}
+	stat, ok := fi.Sys().(*syscall.Stat_t)
+	if !ok {
+		return
+	}
+	if uint64(stat.Ino) != ownerInode {
+		return
+	}
+	_ = os.Remove(path)
+}
+
+// SocketInode returns the inode number of the socket file at path, or 0 if
+// it cannot be determined. Used with RemoveOwnedSocket to detect whether the
+// file has been replaced since bind.
+func SocketInode(path string) uint64 {
+	fi, err := os.Lstat(path)
+	if err != nil {
+		return 0
+	}
+	stat, ok := fi.Sys().(*syscall.Stat_t)
+	if !ok {
+		return 0
+	}
+	return uint64(stat.Ino)
+}
+
 // Accepts connections on ln and handles requests using mgr.
 // Blocks until the listener is closed; intended to be run in a goroutine.
 func Serve(ln net.Listener, mgr *process.Manager) error {
@@ -120,6 +164,13 @@ func handle(conn net.Conn, mgr *process.Manager) {
 			continue
 		}
 		writeJSON(conn, dispatch(req, mgr))
+		// Quit is the one command whose side effect (teardown) must run
+		// after the reply is flushed, otherwise the detached main loop can
+		// exit before the client reads {"ok":true}.
+		if req.Cmd == "quit" {
+			mgr.Quit()
+			return
+		}
 	}
 }
 
@@ -255,6 +306,11 @@ func dispatch(req request, mgr *process.Manager) any {
 		} else if send := mgr.Send(); send != nil {
 			go func() { _ = p.Start(send) }()
 		}
+		return map[string]any{"ok": true}
+
+	case "quit":
+		// Caller (handle) triggers mgr.Quit() after writing the reply so the
+		// detached main loop can't tear down before the client reads the response.
 		return map[string]any{"ok": true}
 
 	default:
