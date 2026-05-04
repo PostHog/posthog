@@ -397,7 +397,7 @@ class UserAccessControl:
                 resource = filters.get("resource")
                 if isinstance(resource, str):
                     span.set_attribute("rbac.resource", resource)
-                span.set_attribute("rbac.has_resource_id", "resource_id" in filters)
+                span.set_attribute("rbac.has_resource_id", filters.get("resource_id") is not None)
                 self._cache[key] = list(AccessControl.objects.filter(self._filter_options(filters)))
                 span.set_attribute("rbac.row_count", len(self._cache[key]))
 
