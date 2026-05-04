@@ -210,6 +210,14 @@ impl Offset {
     pub fn get_value(&self) -> i64 {
         self.offset
     }
+
+    pub fn topic(&self) -> &str {
+        &self.topic
+    }
+
+    pub fn partition(&self) -> i32 {
+        self.partition
+    }
 }
 
 impl fmt::Debug for Offset {

@@ -12,6 +12,7 @@ common-alloc = { path = "../common/alloc" }
 common-kafka = { path = "../common/kafka" }
 envconfig = { workspace = true }
 lifecycle = { path = "../common/lifecycle" }
+rand = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true, features = ["raw_value"] }
