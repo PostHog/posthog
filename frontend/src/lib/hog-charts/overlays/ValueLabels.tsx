@@ -8,20 +8,12 @@ import type { ChartScales, ResolvedSeries, ResolveValueFn } from '../core/types'
 export type ValueLabelsMode = 'per-segment' | 'stack-total'
 
 export interface ValueLabelsProps {
-    /** Receives the raw `series.data[dataIndex]` value (or the band sum in stack-total mode).
-     *  Defaults to `value.toLocaleString()`. `seriesIndex` is `-1` for stack-total labels.
-     *  Consumers in percent layouts should supply their own formatter — the raw count isn't
-     *  a percentage and `isPercent` on context is informational, not auto-applied. */
+    /** `seriesIndex` is `-1` for stack-total labels. */
     valueFormatter?: (value: number, seriesIndex: number, dataIndex: number) => string
     minGap?: number
-    /** Series with more than this many data points are skipped entirely to avoid
-     *  rendering hundreds of DOM nodes on dense charts. Defaults to 100. */
     maxPointsPerSeries?: number
-    /** `stack-total`: one label per band placed at the topmost cap, summing visible series.
-     *  No effect on non-stacked layouts. Defaults to `per-segment`. */
     mode?: ValueLabelsMode
-    /** On bar charts, skip labels whose bar size on the value axis is smaller than this
-     *  (CSS pixels). Defaults to 16; ignored on non-bar charts. */
+    /** Bar charts only; CSS pixels. Defaults to 16. */
     minBarSize?: number
 }
 
@@ -70,6 +62,7 @@ interface BuildCandidatesArgs {
     mode: ValueLabelsMode
     minBarSize: number
     isBarChart: boolean
+    isPercent: boolean
 }
 
 function pushCandidate(
@@ -122,29 +115,22 @@ function bandTotal(visible: ResolvedSeries[], dIdx: number): number | null {
             }
         }
     }
-    if (count === 0 || total === 0 || !isFinite(total)) {
-        return null
-    }
-    // Mixed-sign bands have no single visual stack apex (d3 splits +/− across the baseline),
-    // so the arithmetic sum doesn't correspond to a meaningful pixel position.
-    if (hasPositive && hasNegative) {
+    if (count === 0 || total === 0 || !isFinite(total) || (hasPositive && hasNegative)) {
         return null
     }
     return total
 }
 
 function buildStackTotal(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2D | null): Candidate[] {
-    const { series, labels, scales, valueFormatter, isHorizontal, isBarChart, minBarSize } = args
+    const { series, labels, scales, valueFormatter, isHorizontal, isBarChart, minBarSize, isPercent } = args
     const out: Candidate[] = []
-    if (labels.length > args.maxPointsPerSeries) {
+    if (isPercent || labels.length > args.maxPointsPerSeries) {
         return out
     }
     const visible = series.filter((s) => !s.visibility?.excluded && !s.visibility?.fromValueLabels)
     if (visible.length === 0) {
         return out
     }
-    // Match the topmost visible series — its color is what we draw, and on the rare chart
-    // that mixes y-axes, this puts the total on the same scale as the cap segment.
     const topSeries = visible[visible.length - 1]
     const yScale = resolveYScale(topSeries, scales)
     const topColor = topSeries.color
@@ -180,8 +166,10 @@ function buildStackTotal(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
 }
 
 function buildPerSegment(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2D | null): Candidate[] {
-    const { series, labels, scales, resolveValue, valueFormatter, isHorizontal, isBarChart, minBarSize } = args
+    const { series, labels, scales, resolveValue, valueFormatter, isHorizontal, isBarChart, minBarSize, isPercent } =
+        args
     const out: Candidate[] = []
+    const filterNarrow = isBarChart && minBarSize > 0 && !isPercent
 
     for (let sIdx = 0; sIdx < series.length; sIdx++) {
         const s = series[sIdx]
@@ -203,9 +191,7 @@ function buildPerSegment(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
             if (categoricalCoord == null || !isFinite(categoricalCoord) || !isFinite(valueCoord)) {
                 continue
             }
-            if (isBarChart && minBarSize > 0) {
-                // For stacked: yValue is the segment top; bottom = top - rawValue.
-                // For grouped (no stacking): bottom = 0. Either way: |yScale(top) - yScale(top - raw)|.
+            if (filterNarrow) {
                 const segmentBottom = yScale(yValue - rawValue)
                 if (isFinite(segmentBottom) && Math.abs(valueCoord - segmentBottom) < minBarSize) {
                     continue
@@ -329,7 +315,7 @@ export function ValueLabels({
     mode = 'per-segment',
     minBarSize = DEFAULT_MIN_BAR_SIZE,
 }: ValueLabelsProps): React.ReactElement | null {
-    const { series, scales, labels, theme, resolveValue, axisOrientation } = useChartLayout()
+    const { series, scales, labels, theme, resolveValue, axisOrientation, isPercent } = useChartLayout()
     const isHorizontal = axisOrientation === 'horizontal'
     const isBarChart = !!getBarChartPrivate(scales)
 
@@ -349,6 +335,7 @@ export function ValueLabels({
                     mode,
                     minBarSize,
                     isBarChart,
+                    isPercent,
                 }),
                 minGap,
                 isHorizontal
@@ -365,6 +352,7 @@ export function ValueLabels({
             mode,
             minBarSize,
             isBarChart,
+            isPercent,
         ]
     )
 
