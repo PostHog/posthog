@@ -528,7 +528,7 @@ export function VisualImageDiffViewer({
                          * the underlying image (mismatch case has bboxes
                          * in padded coords that don't align with either
                          * baseline or current). */}
-                        {mode === 'blend' &&
+                        {(mode === 'blend' || mode === 'split') &&
                             !!overlayBoxesIfShown &&
                             overlayBoxesIfShown.length > 0 &&
                             !!overlayCoordWidth &&
@@ -575,13 +575,31 @@ export function VisualImageDiffViewer({
                             <div className="flex items-center justify-end px-2 py-1 border-b bg-bg-3000 text-[11px] font-semibold uppercase tracking-wide">
                                 <span>After</span>
                             </div>
-                            <img
-                                src={activeOverlayUrl}
-                                alt="After snapshot"
-                                className="w-full h-auto bg-black/5 block"
-                                // eslint-disable-next-line react/forbid-dom-props
-                                style={isSmallImage ? { imageRendering: 'pixelated' as const } : undefined}
-                            />
+                            <div className="relative">
+                                <img
+                                    src={activeOverlayUrl}
+                                    alt="After snapshot"
+                                    className="w-full h-auto bg-black/5 block"
+                                    // eslint-disable-next-line react/forbid-dom-props
+                                    style={isSmallImage ? { imageRendering: 'pixelated' as const } : undefined}
+                                />
+                                {/* Second copy of the bbox overlay inside the
+                                 * clipped After half so the boxes stay visible
+                                 * regardless of where the user drags the split. */}
+                                {!!overlayBoxesIfShown &&
+                                    overlayBoxesIfShown.length > 0 &&
+                                    !!overlayCoordWidth &&
+                                    !!overlayCoordHeight &&
+                                    overlayCoordWidth === imageWidth &&
+                                    overlayCoordHeight === imageHeight && (
+                                        <BboxOverlay
+                                            boxes={overlayBoxesIfShown}
+                                            width={overlayCoordWidth}
+                                            height={overlayCoordHeight}
+                                            highlightedIndex={highlightedOverlayIndex ?? null}
+                                        />
+                                    )}
+                            </div>
                         </div>
                     )}
 

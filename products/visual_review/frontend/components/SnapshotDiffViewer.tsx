@@ -232,15 +232,48 @@ export function SnapshotDiffViewer({
     const height = snapshot.current_artifact?.height || snapshot.baseline_artifact?.height
 
     const [highlightedClusterIndex, setHighlightedClusterIndex] = useState<number | null>(null)
+
+    // Cap visible clusters at the top-N by pixel count. Backend stores
+    // up to CLUSTER_MAX (currently 20) for completeness; the UI is more
+    // useful with a tighter list — N+1 numbered chips on the image
+    // crowd each other and the sidebar runs out of vertical space.
+    // `cluster_summary.total` keeps the true count regardless.
+    const VISIBLE_CLUSTER_CAP = 5
+    // When a single cluster covers most of the image, the bbox overlay
+    // adds no information beyond the diff% tag — full inversions or
+    // wholesale changes show as "1 region · 99%". Skip the overlay and
+    // panel in that regime so the user sees the underlying diff cleanly.
+    const DOMINANT_CLUSTER_PCT_THRESHOLD = 80
+    const clusterSummary = snapshot.cluster_summary
+    const isClusterDominant =
+        !!clusterSummary &&
+        clusterSummary.total === 1 &&
+        snapshot.diff_percentage != null &&
+        snapshot.diff_percentage >= DOMINANT_CLUSTER_PCT_THRESHOLD
+    const visibleClusterSummary = useMemo(() => {
+        if (!clusterSummary || isClusterDominant) {
+            return null
+        }
+        if (clusterSummary.items.length <= VISIBLE_CLUSTER_CAP) {
+            return clusterSummary
+        }
+        return {
+            ...clusterSummary,
+            items: clusterSummary.items.slice(0, VISIBLE_CLUSTER_CAP),
+            // Force the truncation flag so the panel header reads
+            // "top 5 of 21" instead of "21 regions" when we trim.
+            truncated: true,
+        }
+    }, [clusterSummary, isClusterDominant])
     const overlayBoxes = useMemo(
         () =>
-            snapshot.cluster_summary?.items.map((c) => ({
+            visibleClusterSummary?.items.map((c) => ({
                 x: c.x,
                 y: c.y,
                 width: c.width,
                 height: c.height,
             })),
-        [snapshot.cluster_summary]
+        [visibleClusterSummary]
     )
     const diffPixelTotal =
         snapshot.diff_artifact?.width && snapshot.diff_artifact?.height
@@ -375,9 +408,9 @@ export function SnapshotDiffViewer({
                     )}
 
                     {/* === Change clusters === */}
-                    {snapshot.cluster_summary && snapshot.cluster_summary.items.length > 0 && (
+                    {visibleClusterSummary && visibleClusterSummary.items.length > 0 && (
                         <SnapshotClusterPanel
-                            clusterSummary={snapshot.cluster_summary}
+                            clusterSummary={visibleClusterSummary}
                             totalPixels={diffPixelTotal}
                             highlightedIndex={highlightedClusterIndex}
                             onHighlight={setHighlightedClusterIndex}
