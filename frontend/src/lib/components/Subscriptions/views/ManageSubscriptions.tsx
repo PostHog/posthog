@@ -48,7 +48,7 @@ export function SubscriptionListItem({
                 dropdown: {
                     overlay: (
                         <>
-                            {onDeliver && (
+                            {onDeliver && enabled && (
                                 <LemonButton
                                     onClick={onDeliver}
                                     data-attr="subscription-list-item-manual-deliver"
