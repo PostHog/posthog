@@ -132,6 +132,7 @@ tracer = trace.get_tracer(__name__)
 
 MIN_NAME_TRIGRAM_SIMILARITY = 0.3
 MIN_DESCRIPTION_TRIGRAM_SIMILARITY = 0.4
+DESCRIPTION_SCORE_WEIGHT = 0.5
 MAX_SEARCH_LENGTH = 200
 
 LEGACY_INSIGHT_ENDPOINTS_BLOCKED_FLAG = "legacy-insight-endpoints-disabled"
@@ -1536,7 +1537,7 @@ class InsightViewSet(
         derived_name_word_score = Coalesce(TrigramWordSimilarity(search, "derived_name"), zero)
         description_word_score = Coalesce(TrigramWordSimilarity(search, "description"), zero)
 
-        tag_match = queryset.filter(tagged_items__tag__name__icontains=search).values("id")
+        matching_tag_ids = queryset.filter(tagged_items__tag__name__icontains=search).values("id")
 
         return (
             queryset.annotate(
@@ -1549,7 +1550,7 @@ class InsightViewSet(
                 Q(_name_word__gt=MIN_NAME_TRIGRAM_SIMILARITY)
                 | Q(_derived_name_word__gt=MIN_NAME_TRIGRAM_SIMILARITY)
                 | Q(_description_word__gt=MIN_DESCRIPTION_TRIGRAM_SIMILARITY)
-                | Q(id__in=tag_match)
+                | Q(id__in=matching_tag_ids)
             )
             .annotate(
                 _name_match_score=F("_name_word") + F("_name_full"),
@@ -1559,7 +1560,7 @@ class InsightViewSet(
             .annotate(
                 _search_score=F("_name_match_score")
                 + F("_derived_name_match_score")
-                + F("_description_match_score") * 0.5
+                + F("_description_match_score") * DESCRIPTION_SCORE_WEIGHT
             )
             .order_by("-_search_score", "name")
             .distinct()

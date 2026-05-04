@@ -868,6 +868,22 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             assert body["attr"] == "search", f"expected error scoped to 'search', got {body}"
             assert "200 characters" in body["detail"], f"expected error detail to mention the cap, got {body['detail']}"
 
+    def test_list_filter_by_search_nul_bytes_do_not_500(self):
+        Insight.objects.create(name="Alpha", team=self.team, filters={"events": [{"id": "$pageview"}]})
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/", {"search": "\x00\x00\x00"})
+        assert response.status_code == status.HTTP_200_OK
+
+    def test_list_filter_by_search_explicit_order_overrides_relevance(self):
+        older = Insight.objects.create(name="revenue funnel", team=self.team, filters={"events": [{"id": "$pageview"}]})
+        newer = Insight.objects.create(name="revenue trends", team=self.team, filters={"events": [{"id": "$pageview"}]})
+
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/", {"search": "revenue", "order": "-id"})
+        assert response.status_code == status.HTTP_200_OK
+        result_ids = [r["id"] for r in response.json()["results"]]
+        assert result_ids.index(newer.id) < result_ids.index(older.id), (
+            "explicit order=-id should override relevance ranking and put newer insight first"
+        )
+
     # :KLUDGE: avoid making extra queries that are explicitly not cached in tests. Avoids false N+1-s.
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     @snapshot_postgres_queries
