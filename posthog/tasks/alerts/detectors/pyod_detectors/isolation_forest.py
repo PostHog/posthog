@@ -14,7 +14,7 @@ class IsolationForestDetector(BasePyODDetector):
 
     def _build_model(self, n_samples: int) -> IForest:
         return IForest(
-            n_estimators=self.config.get("n_estimators", 100),
+            n_estimators=self._config_get("n_estimators", 100),
             random_state=42,
         )
 

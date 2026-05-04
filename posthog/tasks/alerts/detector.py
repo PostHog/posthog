@@ -10,7 +10,7 @@ from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.models import AlertConfiguration, Insight
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.tasks.alerts.detectors import get_detector
-from posthog.tasks.alerts.detectors.base import DetectionResult
+from posthog.tasks.alerts.detectors.base import BaseDetector, DetectionResult
 from posthog.tasks.alerts.trends import (
     TrendResult,
     _drop_incomplete_current_interval,
@@ -38,8 +38,8 @@ DETECTOR_MIN_SAMPLES: dict[DetectorType, int] = {
 }
 
 # Fallback window size used when no explicit window is set in the detector config
-# (e.g. alerts saved before this field was introduced).
-DETECTOR_DEFAULT_WINDOW = 30
+# (e.g. alerts saved before this field was introduced). Mirrors BaseDetector.DEFAULT_WINDOW.
+DETECTOR_DEFAULT_WINDOW = BaseDetector.DEFAULT_WINDOW
 
 # Maximum number of breakdown values to evaluate with a detector.
 # Matches the default breakdown_limit in the query layer (25).
@@ -118,7 +118,7 @@ def _compute_min_samples_for_detector(detector_config: dict[str, Any]) -> int:
         sub_detectors = detector_config.get("detectors", [])
         return max(
             (_compute_min_samples_for_detector(d) for d in sub_detectors),
-            default=31,
+            default=DETECTOR_DEFAULT_WINDOW + 1,
         )
 
     detector_type = DetectorType(detector_type_str)

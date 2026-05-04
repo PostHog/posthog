@@ -13,7 +13,7 @@ class HBOSDetector(BasePyODDetector):
     """Histogram-based outlier score — very fast, good for high-volume alerting."""
 
     def _build_model(self, n_samples: int) -> HBOS:
-        return HBOS(n_bins=self.config.get("n_bins", 10))
+        return HBOS(n_bins=self._config_get("n_bins", 10))
 
     @classmethod
     def get_default_config(cls) -> dict[str, Any]:

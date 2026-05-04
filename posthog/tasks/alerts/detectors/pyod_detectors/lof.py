@@ -15,7 +15,7 @@ class LOFDetector(BasePyODDetector):
     MIN_SAMPLES = 20
 
     def _build_model(self, n_samples: int) -> LOF:
-        n_neighbors = min(self.config.get("n_neighbors", 20), n_samples - 1)
+        n_neighbors = min(self._config_get("n_neighbors", 20), n_samples - 1)
         return LOF(n_neighbors=n_neighbors, novelty=True)
 
     @classmethod

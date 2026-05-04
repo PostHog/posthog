@@ -49,13 +49,13 @@ class IQRDetector(BaseDetector):
     Config:
         threshold: float - Anomaly probability threshold (default: 0.95)
         multiplier: float - IQR multiplier for fences (default: 1.5)
-        window: int - Rolling window size (default: 30)
+        window: int - Rolling window size (default: 90)
     """
 
     def detect(self, data: np.ndarray) -> DetectionResult:
-        threshold = self.config.get("threshold", self.DEFAULT_THRESHOLD)
-        multiplier = self.config.get("multiplier", 1.5)
-        window = self.config.get("window", 30)
+        threshold = self._config_get("threshold", self.DEFAULT_THRESHOLD)
+        multiplier = self._config_get("multiplier", 1.5)
+        window = self._config_get("window", self.DEFAULT_WINDOW)
 
         if not self._validate_data(data, min_length=window + 1):
             return DetectionResult(is_anomaly=False)
@@ -105,9 +105,9 @@ class IQRDetector(BaseDetector):
         )
 
     def detect_batch(self, data: np.ndarray) -> DetectionResult:
-        threshold = self.config.get("threshold", self.DEFAULT_THRESHOLD)
-        multiplier = self.config.get("multiplier", 1.5)
-        window = self.config.get("window", 30)
+        threshold = self._config_get("threshold", self.DEFAULT_THRESHOLD)
+        multiplier = self._config_get("multiplier", 1.5)
+        window = self._config_get("window", self.DEFAULT_WINDOW)
 
         if not self._validate_data(data, min_length=window + 1):
             return DetectionResult(is_anomaly=False)
@@ -162,5 +162,5 @@ class IQRDetector(BaseDetector):
             "type": DetectorType.IQR.value,
             "threshold": cls.DEFAULT_THRESHOLD,
             "multiplier": 1.5,
-            "window": 30,
+            "window": cls.DEFAULT_WINDOW,
         }

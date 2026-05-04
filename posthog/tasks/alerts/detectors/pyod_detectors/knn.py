@@ -13,8 +13,8 @@ class KNNDetector(BasePyODDetector):
     """K-nearest neighbors — points far from others are anomalies."""
 
     def _build_model(self, n_samples: int) -> KNN:
-        n_neighbors = min(self.config.get("n_neighbors", 5), n_samples - 1)
-        method = self.config.get("method", "largest")
+        n_neighbors = min(self._config_get("n_neighbors", 5), n_samples - 1)
+        method = self._config_get("method", "largest")
         return KNN(n_neighbors=n_neighbors, method=method)
 
     @classmethod

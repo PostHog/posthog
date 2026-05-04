@@ -24,6 +24,11 @@ class BaseDetector(ABC):
     # Default anomaly probability threshold. Higher = fewer alerts.
     DEFAULT_THRESHOLD = 0.95
 
+    # Default rolling window size for statistical detectors (zscore, mad, iqr).
+    # PyOD detectors compute over the full train slice and don't use this.
+    # 90 is the LLMA usage-report standard; hourly alerts typically override (e.g. 336).
+    DEFAULT_WINDOW = 90
+
     # Default number of recent points to exclude from training data.
     # Prevents the model from fitting on the points it's about to score.
     # Higher values make the model slower to adapt to recent distribution shifts.
@@ -31,8 +36,20 @@ class BaseDetector(ABC):
 
     def __init__(self, config: dict[str, Any]):
         self.config = config
-        self.preprocessing_config = config.get("preprocessing", {})
-        self.training_offset: int = config.get("training_offset_n", self.DEFAULT_TRAINING_OFFSET)
+        self.preprocessing_config = config.get("preprocessing") or {}
+        self.training_offset: int = self._config_get("training_offset_n", self.DEFAULT_TRAINING_OFFSET)
+
+    def _config_get(self, key: str, default: Any) -> Any:
+        """Return the configured value for ``key`` or ``default`` if it is missing or null.
+
+        ``dict.get(key, default)`` only falls back to the default when the key is absent —
+        explicit ``null`` values pass through. Detector configs originate from the API
+        schema where most numeric/enum fields are ``Optional`` (``anyOf: [type, null]``),
+        so the frontend routinely sends ``null`` for fields the user did not fill in.
+        Treat those nulls as "not provided" so each detector's documented default applies.
+        """
+        value = self.config.get(key)
+        return default if value is None else value
 
     @abstractmethod
     def detect(self, data: np.ndarray) -> DetectionResult:

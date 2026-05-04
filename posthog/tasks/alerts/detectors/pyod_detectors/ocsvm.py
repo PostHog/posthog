@@ -14,8 +14,8 @@ class OCSVMDetector(BasePyODDetector):
 
     def _build_model(self, n_samples: int) -> OCSVM:
         return OCSVM(
-            kernel=self.config.get("kernel", "rbf"),
-            nu=self.config.get("nu", 0.1),
+            kernel=self._config_get("kernel", "rbf"),
+            nu=self._config_get("nu", 0.1),
         )
 
     @classmethod

@@ -527,10 +527,10 @@ class TestComputeMinSamplesForDetector:
                 {"type": "isolation_forest", "window": 168, "preprocessing": {"diffs_n": 1, "lags_n": 3}},
                 173,
             ),
-            ("iforest_no_window", {"type": "isolation_forest", "preprocessing": {"diffs_n": 1, "lags_n": 3}}, 35),
+            ("iforest_no_window", {"type": "isolation_forest", "preprocessing": {"diffs_n": 1, "lags_n": 3}}, 95),
             ("threshold", {"type": "threshold"}, 1),
-            ("ecod_no_window", {"type": "ecod"}, 31),
-            ("lof_no_window", {"type": "lof"}, 31),
+            ("ecod_no_window", {"type": "ecod"}, 91),
+            ("lof_no_window", {"type": "lof"}, 91),
             (
                 "ensemble_picks_max",
                 {
@@ -542,7 +542,7 @@ class TestComputeMinSamplesForDetector:
                 },
                 173,
             ),
-            ("ensemble_empty", {"type": "ensemble", "detectors": []}, 31),
+            ("ensemble_empty", {"type": "ensemble", "detectors": []}, 91),
         ]
     )
     def test_compute_min_samples(self, _name: str, config: dict[str, Any], expected: int) -> None:
@@ -664,3 +664,88 @@ class TestRealisticScoreBehavior:
             f"Ensemble OR fired on stable data (score={result.score:.4f}, "
             f"sub_results={result.metadata.get('sub_results')})"
         )
+
+
+class TestNullConfigValuesUseDefaults:
+    """Frontend forms send `null` for fields the user didn't fill in. The schema
+    allows None on most numeric/enum fields. Detectors must treat None as 'use
+    the default' rather than passing None through to numpy / pyod where it
+    crashes (TypeError on None+1, IForest(n_estimators=None), etc).
+    """
+
+    # One null-config-permutation per detector — every defaultable field
+    # the detector reads should round-trip without raising.
+    @parameterized.expand(
+        [
+            ("zscore_null_window", {"type": "zscore", "window": None}),
+            ("zscore_null_threshold", {"type": "zscore", "threshold": None, "window": 30}),
+            ("zscore_all_null", {"type": "zscore", "window": None, "threshold": None}),
+            ("mad_null_window", {"type": "mad", "window": None}),
+            ("mad_all_null", {"type": "mad", "window": None, "threshold": None}),
+            ("iqr_null_window", {"type": "iqr", "window": None}),
+            ("iqr_null_multiplier", {"type": "iqr", "window": 30, "multiplier": None}),
+            ("iqr_all_null", {"type": "iqr", "window": None, "threshold": None, "multiplier": None}),
+            ("isolation_forest_null_n_estimators", {"type": "isolation_forest", "n_estimators": None}),
+            ("isolation_forest_all_null", {"type": "isolation_forest", "n_estimators": None, "threshold": None}),
+            ("hbos_null_n_bins", {"type": "hbos", "n_bins": None}),
+            ("knn_null_n_neighbors", {"type": "knn", "n_neighbors": None}),
+            ("knn_null_method", {"type": "knn", "method": None, "n_neighbors": 5}),
+            ("knn_all_null", {"type": "knn", "n_neighbors": None, "method": None, "threshold": None}),
+            ("lof_null_n_neighbors", {"type": "lof", "n_neighbors": None}),
+            ("ocsvm_null_kernel", {"type": "ocsvm", "kernel": None}),
+            ("ocsvm_null_nu", {"type": "ocsvm", "nu": None}),
+            ("ocsvm_all_null", {"type": "ocsvm", "kernel": None, "nu": None, "threshold": None}),
+        ]
+    )
+    def test_detector_with_null_config_values_does_not_raise(self, _name: str, config: dict[str, Any]) -> None:
+        """A detector built from a config containing explicit None values should
+        run cleanly using its documented defaults instead of crashing.
+
+        Whether a detector flags the data is detector-specific (some over-fire
+        on perfectly periodic synthetic input — that's a separate concern); the
+        point here is just that None values don't propagate into numpy / pyod
+        and crash the call.
+        """
+        detector = get_detector(config)
+        # Use a dataset large enough for any detector's MIN_SAMPLES + default window.
+        # Default window is 90, LOF.MIN_SAMPLES is 20, so 200 covers both.
+        data = np.tile(np.array([10, 11, 10, 9, 10]), 40)  # 200 stable points
+        result = detector.detect(data)
+        assert isinstance(result, DetectionResult)
+
+    def test_ensemble_with_null_sub_detector_windows_does_not_500(self) -> None:
+        """Reproducer for the production bug: alert UI created an ensemble whose
+        sub-detectors had `window: null` and `n_estimators: null`. The evaluation
+        path crashed (HTTP 500), leaving the alert in an Errored state. Defaults
+        must apply per-sub-detector inside the ensemble too.
+        """
+        detector = EnsembleDetector(
+            {
+                "type": "ensemble",
+                "operator": "or",
+                "detectors": [
+                    {"type": "zscore", "window": None, "threshold": None, "preprocessing": {"diffs_n": 1}},
+                    {
+                        "type": "isolation_forest",
+                        "window": None,
+                        "threshold": None,
+                        "n_estimators": None,
+                        "preprocessing": None,
+                    },
+                ],
+            }
+        )
+        # Stable diurnal data, longer than any default window
+        data = np.tile(np.array([10, 11, 10, 9, 10]), 40)
+        result = detector.detect(data)
+        assert isinstance(result, DetectionResult)
+
+    def test_null_window_matches_missing_window_behavior(self) -> None:
+        """`window: None` should produce identical results to omitting the key."""
+        data = np.tile(np.array([10, 11, 10, 9, 10]), 40)
+        explicit_null = ZScoreDetector({"type": "zscore", "window": None, "threshold": 0.95}).detect(data)
+        key_omitted = ZScoreDetector({"type": "zscore", "threshold": 0.95}).detect(data)
+
+        assert explicit_null.is_anomaly == key_omitted.is_anomaly
+        assert explicit_null.score == key_omitted.score
+        assert explicit_null.triggered_indices == key_omitted.triggered_indices
