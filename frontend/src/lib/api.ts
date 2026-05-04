@@ -2954,13 +2954,13 @@ const api = {
                 .withQueryString(toParams({ limit, ...params }))
                 .get()
         },
-        async promotedProperties({
+        async primaryProperties({
             names,
         }: {
             names?: string[]
-        } = {}): Promise<{ promoted_properties: Record<string, string> }> {
+        } = {}): Promise<{ primary_properties: Record<string, string> }> {
             const params = names && names.length > 0 ? toParams({ names }, true) : ''
-            return new ApiRequest().eventDefinitions().withAction('promoted_properties').withQueryString(params).get()
+            return new ApiRequest().eventDefinitions().withAction('primary_properties').withQueryString(params).get()
         },
         async getMetrics({
             eventDefinitionId,
@@ -4093,8 +4093,15 @@ const api = {
             return await new ApiRequest().errorTrackingRecommendation(id).withAction('restore').create()
         },
 
-        async refreshRecommendation(id: string): Promise<ErrorTrackingRecommendation> {
-            return await new ApiRequest().errorTrackingRecommendation(id).withAction('refresh').create()
+        async refreshRecommendation(
+            id: string,
+            { force = true }: { force?: boolean } = {}
+        ): Promise<ErrorTrackingRecommendation> {
+            return await new ApiRequest()
+                .errorTrackingRecommendation(id)
+                .withAction('refresh')
+                .withQueryString({ force })
+                .create()
         },
 
         async createRule(
@@ -5683,6 +5690,9 @@ const api = {
         },
         async testDelivery(subscriptionId: SubscriptionType['id']): Promise<void> {
             await new ApiRequest().subscription(subscriptionId).withAction('test-delivery').create()
+        },
+        async summaryQuota(): Promise<{ active_count: number; limit: number | null; at_limit: boolean }> {
+            return await new ApiRequest().subscriptions().withAction('summary_quota').get()
         },
     },
 

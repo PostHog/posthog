@@ -615,7 +615,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             )
 
         can_clone_without_integration = is_public_sandbox_repo(prepared.repository)
-        has_clone_credentials = self.context.github_integration_id is not None or can_clone_without_integration
+        has_clone_credentials = self.context.has_github_credentials or can_clone_without_integration
 
         will_clone = bool(prepared.repository and not prepared.used_snapshot and has_clone_credentials)
         will_checkout = bool(prepared.repository and prepared.branch and has_clone_credentials)
@@ -939,7 +939,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 run_id=self.context.run_id,
                 error=str(e),
             )
-            # Mark the run as failed so _poll_for_turn sees a terminal status
+            # Mark the run as failed so poll_for_turn sees a terminal status
             # immediately instead of waiting for the inactivity timeout.
             self._completion_status = "failed"
             self._completion_error = f"Follow-up delivery failed: {e}"

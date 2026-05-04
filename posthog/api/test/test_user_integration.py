@@ -144,6 +144,24 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         self.assertEqual(data.get("connect_flow"), "app_install")
         self.assertIn("github.com/apps/posthog-dev/installations/new", data["install_url"])
 
+    @override_settings(
+        GITHUB_APP_CLIENT_ID="gh_client_123", SITE_URL="https://us.posthog.com", GITHUB_APP_CLIENT_SECRET="s"
+    )
+    def test_github_start_returns_oauth_discover_url_for_posthog_code_without_team_github(self):
+        response = self.client.post(
+            "/api/users/@me/integrations/github/start/",
+            {"team_id": self.team.id, "connect_from": "posthog_code"},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertIn("install_url", data)
+        self.assertEqual(data.get("connect_flow"), "oauth_discover")
+        url = data["install_url"]
+        self.assertIn("github.com/login/oauth/authorize", url)
+        self.assertIn("client_id=gh_client_123", url)
+        self.assertIn("redirect_uri=https%3A%2F%2Fus.posthog.com%2Fcomplete%2Fgithub-link%2F", url)
+
     @override_settings(GITHUB_APP_CLIENT_ID="gh_client_123")
     @patch(
         "posthog.api.user_integration.get_instance_settings",
@@ -309,6 +327,90 @@ class TestUserIntegrationEndpoints(APIBaseTest):
 
         integration = UserIntegration.objects.get(user=self.user, kind="github")
         self.assertEqual(integration.integration_id, "12345")
+
+    @override_settings(
+        GITHUB_APP_CLIENT_ID="client_id",
+        GITHUB_APP_CLIENT_SECRET="client_secret",
+        SITE_URL="https://us.posthog.com",
+    )
+    @patch("posthog.api.user_integration.requests.get")
+    @patch("posthog.models.integration.GitHubIntegration.client_request")
+    @patch("posthog.models.integration.GitHubIntegration.github_user_from_code")
+    def test_github_link_oauth_discover_creates_user_integration_from_visible_installation(
+        self, mock_user_from_code, mock_client_request, mock_requests_get
+    ):
+        mock_user_from_code.return_value = _authorization()
+        mock_requests_get.return_value = MagicMock(
+            status_code=200,
+            json=lambda: {"installations": [{"id": 12345}]},
+        )
+        mock_install_info = MagicMock()
+        mock_install_info.json.return_value = {
+            "account": {"type": "User", "login": "octocat"},
+        }
+        mock_access_token = MagicMock()
+        mock_access_token.json.return_value = {
+            "token": "ghs_install_token",
+            "expires_at": "2099-01-01T00:00:00Z",
+            "repository_selection": "selected",
+        }
+        mock_client_request.side_effect = [mock_install_info, mock_access_token]
+
+        state = "tok_oauth_discover_123"
+        cache.set(
+            f"github_user_install_state:{state}",
+            {"user_id": self.user.id, "connect_from": "posthog_code", "flow": "oauth_discover"},
+            timeout=600,
+        )
+
+        response = self.client.get(
+            "/complete/github-link/",
+            {"code": "test_code", "state": state},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("/account-connected/github-integration", response["Location"])
+        mock_user_from_code.assert_called_once_with(
+            "test_code", redirect_uri="https://us.posthog.com/complete/github-link/"
+        )
+
+        integration = UserIntegration.objects.get(user=self.user, kind="github")
+        self.assertEqual(integration.integration_id, "12345")
+
+    @override_settings(
+        GITHUB_APP_CLIENT_ID="client_id",
+        GITHUB_APP_CLIENT_SECRET="client_secret",
+        SITE_URL="https://us.posthog.com",
+    )
+    @patch(
+        "posthog.api.user_integration.get_instance_settings",
+        return_value={"GITHUB_APP_SLUG": "posthog-dev"},
+    )
+    @patch("posthog.api.user_integration.requests.get")
+    @patch("posthog.models.integration.GitHubIntegration.github_user_from_code")
+    def test_github_link_oauth_discover_redirects_to_app_install_when_no_installations(
+        self, mock_user_from_code, mock_requests_get, _mock_settings
+    ):
+        mock_user_from_code.return_value = _authorization()
+        mock_requests_get.return_value = MagicMock(
+            status_code=200,
+            json=lambda: {"installations": []},
+        )
+
+        state = "tok_oauth_discover_empty"
+        cache.set(
+            f"github_user_install_state:{state}",
+            {"user_id": self.user.id, "connect_from": "posthog_code", "flow": "oauth_discover"},
+            timeout=600,
+        )
+
+        response = self.client.get(
+            "/complete/github-link/",
+            {"code": "test_code", "state": state},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("github.com/apps/posthog-dev/installations/new", response["Location"])
 
     @override_settings(GITHUB_APP_CLIENT_ID="client_id", GITHUB_APP_CLIENT_SECRET="client_secret")
     @patch("posthog.api.user_integration.requests.get")
