@@ -64,14 +64,14 @@ export const calculateOutputCost = (event: PluginEvent, cost: ResolvedModelCost)
     const imageOutputCost = computeImageOutputCost(event, cost, imageOutputTokens)
     const modalityOutputCost = bigDecimal.add(audioOutputCost, imageOutputCost)
 
-    const explicitTextOutputTokens = event.properties['$ai_text_output_tokens']
+    const rawTextOutputTokens = event.properties['$ai_text_output_tokens']
+    const hasExplicitText = rawTextOutputTokens !== undefined && rawTextOutputTokens !== null
 
     let textOutputTokens: number | string
-    if (explicitTextOutputTokens !== undefined && explicitTextOutputTokens !== null) {
-        // Trust caller-supplied value (number or numeric string). Mirrors the
-        // pre-existing accept-anything-non-undefined behavior so SDK payloads
-        // that serialise token counts as strings continue to work.
-        textOutputTokens = explicitTextOutputTokens
+    if (hasExplicitText) {
+        // Route through numericProperty so numeric strings ("100") still parse
+        // but garbage ("abc") yields 0 instead of poisoning bigDecimal with NaN.
+        textOutputTokens = numericProperty(event, '$ai_text_output_tokens')
     } else {
         const totalOutputTokens = numericProperty(event, '$ai_output_tokens')
         const derived = totalOutputTokens - audioOutputTokens - imageOutputTokens

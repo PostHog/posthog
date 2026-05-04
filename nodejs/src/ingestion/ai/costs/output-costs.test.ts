@@ -651,5 +651,18 @@ describe('calculateOutputCost()', () => {
             // Derived = 100; cost = 100 × 0.000002 = 0.0002
             expectCost(calculateOutputCost(event, basicModel), 0.0002)
         })
+
+        it('treats unparseable $ai_text_output_tokens as zero rather than poisoning the total', () => {
+            const event = createAIEvent({
+                $ai_provider: 'openai',
+                $ai_model: 'test-model',
+                $ai_output_tokens: 100,
+                $ai_text_output_tokens: 'abc' as any, // garbage from a malformed SDK payload
+            })
+
+            // numericProperty returns 0 for non-numeric strings, so text cost is 0.
+            // No NaN propagation through bigDecimal.
+            expectCost(calculateOutputCost(event, basicModel), 0)
+        })
     })
 })

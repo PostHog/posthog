@@ -75,7 +75,7 @@ const clampTextTokens = (value: string | number, hasModalityTokens: boolean): st
         return value
     }
     const num = Number(value)
-    return Number.isFinite(num) && num < 0 ? 0 : value
+    return Number.isFinite(num) && num < 0 ? '0' : value
 }
 
 const warnMissingModalityRate = (
