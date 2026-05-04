@@ -5763,6 +5763,8 @@ export interface WebhookExternalStatus {
     error?: string
 }
 
+export type WebhookInputValue = { secret: true } | { value: unknown }
+
 export interface WebhookInfo {
     supports_webhooks: boolean
     exists: boolean
@@ -5775,6 +5777,7 @@ export interface WebhookInfo {
     }
     webhook_url?: string
     schema_mapping?: Record<string, string>
+    inputs?: Record<string, WebhookInputValue>
     external_status?: WebhookExternalStatus | null
 }
 
