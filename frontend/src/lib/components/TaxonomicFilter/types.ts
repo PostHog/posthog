@@ -61,6 +61,21 @@ export type TaxonomicFilterGroupValueMap = { [key in TaxonomicFilterGroupType]?:
 export type ExcludedProperties = TaxonomicFilterGroupValueMap
 export type SelectedProperties = TaxonomicFilterGroupValueMap
 export type AllowedProperties = TaxonomicFilterGroupValueMap
+
+/**
+ * Per-group-type **denylist of property-filter operators** that the host picker
+ * cannot represent. Hides matching items from the Recent tab and tells
+ * `TaxonomicPropertyFilter` to drop the operator dropdown for that filter type.
+ *
+ * NOT the same as `operatorAllowlist` on `OperatorValueSelect`:
+ * - `operatorAllowlist` is a flat list that narrows the *options inside* the
+ *   operator dropdown for the active filter (e.g. survey trigger surfaces only
+ *   `=` / `contains` regardless of filter type).
+ * - `excludedOperators` is keyed by source group type and acts on the picker
+ *   surface (recents + dropdown visibility) — used when only certain operators
+ *   are valid *for a specific filter type* (e.g. feature flag release conditions
+ *   accept any operator on event properties but only `in` on cohorts).
+ */
 export type ExcludedOperators = { [key in TaxonomicFilterGroupType]?: PropertyOperator[] }
 
 export interface TaxonomicFilterProps {
@@ -116,9 +131,9 @@ export interface TaxonomicFilterProps {
      *  query matches a known autocapture interaction keyword. Consumers must handle
      *  `isQuickFilterItem(item)` in their onChange to avoid mis-selecting as an event name. */
     enableKeywordShortcuts?: boolean
-    /** Hide recent filters whose operator matches any of these per-group exclusions, so the host
-     *  picker never surfaces a value the surrounding UI can't represent. e.g. feature flag release
-     *  conditions only support `in` for cohorts and pass `{ cohort: [PropertyOperator.NotIn] }`. */
+    /** Hide recent property filters whose operator is denylisted for their source group, so the
+     *  picker never surfaces a value the surrounding UI can't represent. See `ExcludedOperators`
+     *  above for how this differs from `operatorAllowlist` on `OperatorValueSelect`. */
     excludedOperators?: ExcludedOperators
 }
 
