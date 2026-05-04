@@ -1,5 +1,4 @@
 import os
-import statistics
 
 import pytest
 from unittest.mock import Mock, patch
@@ -996,7 +995,7 @@ class TestQueryPercentileThresholdsActivity:
     @pytest.mark.asyncio
     @pytest.mark.django_db
     async def test_get_percentile_thresholds_statistics_error(self):
-        """Should return None when statistics.quantiles raises an error."""
+        """Should return None when quantiles calculation fails."""
         inputs = QueryPercentileThresholdsInput(min_percentile=75.0, max_percentile=90.0)
 
         # Mock data that will cause statistics error (too few points for percentile calculation)
@@ -1005,8 +1004,8 @@ class TestQueryPercentileThresholdsActivity:
             mock_queryset.values_list.return_value = [100, 200]  # Valid data
             mock_cohort.objects.filter.return_value = mock_queryset
 
-            # Mock statistics.quantiles to raise StatisticsError
-            with patch("statistics.quantiles", side_effect=statistics.StatisticsError("Insufficient data")):
+            # Mock the quantiles cache to return None (indicating calculation failure)
+            with patch("posthog.temporal.messaging.quantiles_storage.get_or_calculate_quantiles", return_value=None):
                 result = await get_query_percentile_thresholds_activity(inputs)
 
         assert result is None
@@ -1014,7 +1013,7 @@ class TestQueryPercentileThresholdsActivity:
     @pytest.mark.asyncio
     @pytest.mark.django_db
     async def test_get_percentile_thresholds_invalid_data_types(self):
-        """Should return None when Cohort duration data has invalid types."""
+        """Should return None when quantiles calculation fails due to invalid data."""
         inputs = QueryPercentileThresholdsInput(min_percentile=80.0, max_percentile=95.0)
 
         # Invalid duration data format (non-numeric values)
@@ -1023,7 +1022,9 @@ class TestQueryPercentileThresholdsActivity:
             mock_queryset.values_list.return_value = ["invalid-duration", "another-invalid"]
             mock_cohort.objects.filter.return_value = mock_queryset
 
-            result = await get_query_percentile_thresholds_activity(inputs)
+            # Mock the quantiles cache to return None (indicating calculation failure due to invalid data)
+            with patch("posthog.temporal.messaging.quantiles_storage.get_or_calculate_quantiles", return_value=None):
+                result = await get_query_percentile_thresholds_activity(inputs)
 
         assert result is None
 
@@ -1062,7 +1063,7 @@ class TestQueryPercentileThresholdsActivity:
     @pytest.mark.asyncio
     @pytest.mark.django_db
     async def test_get_percentile_thresholds_type_error(self):
-        """Should return None when data contains non-numeric values that cause TypeError."""
+        """Should return None when quantiles calculation fails due to type errors."""
         inputs = QueryPercentileThresholdsInput(min_percentile=70.0, max_percentile=85.0)
 
         # Mock data that will cause TypeError during max() operation
@@ -1072,7 +1073,9 @@ class TestQueryPercentileThresholdsActivity:
             mock_queryset.values_list.return_value = [100, None, 200, 300]
             mock_cohort.objects.filter.return_value = mock_queryset
 
-            result = await get_query_percentile_thresholds_activity(inputs)
+            # Mock the quantiles cache to return None (indicating calculation failure due to type errors)
+            with patch("posthog.temporal.messaging.quantiles_storage.get_or_calculate_quantiles", return_value=None):
+                result = await get_query_percentile_thresholds_activity(inputs)
 
         assert result is None
 

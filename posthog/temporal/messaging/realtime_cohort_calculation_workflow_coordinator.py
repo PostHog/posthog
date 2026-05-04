@@ -168,11 +168,11 @@ class RealtimeCohortSelectionResult:
 async def calculate_percentile_thresholds(
     inputs: QueryPercentileThresholdsInput,
 ) -> QueryPercentileThresholds | None:
-    """Calculate percentile thresholds directly from duration data."""
+    """Calculate percentile thresholds using cached quantiles to ensure consistency across workflows."""
 
     @database_sync_to_async
     def get_thresholds():
-        import statistics
+        from posthog.temporal.messaging.quantiles_storage import get_or_calculate_quantiles
 
         try:
             # Get cohorts with recent duration data (past 24 hours)
@@ -195,13 +195,22 @@ async def calculate_percentile_thresholds(
             min_percentile = inputs.min_percentile
             max_percentile = inputs.max_percentile
 
-            # Compute quantiles once to avoid duplicate allocation and sorting
-            quantiles = statistics.quantiles(durations_list, n=100, method="inclusive")
+            # Get quantiles from cache or calculate atomically
+            # This ensures all workflows use the same percentile boundaries
+            quantiles = get_or_calculate_quantiles(durations_list)
+
+            if quantiles is None:
+                LOGGER.warning("Failed to get or calculate quantiles")
+                return None
 
             # Special handling for p0: use 0 instead of calculating from data
             if min_percentile is None or min_percentile <= 0.0:
                 min_threshold = 0
+            elif min_percentile >= 99.9:
+                # p100 case - use actual maximum from data
+                min_threshold = int(max(durations_list))
             else:
+                # For percentiles 1-99, quantiles[0] is p1, quantiles[1] is p2, etc.
                 min_threshold = int(quantiles[int(min_percentile) - 1])
 
             # Calculate max threshold
@@ -209,6 +218,7 @@ async def calculate_percentile_thresholds(
                 # p100 case - use actual maximum from data
                 max_threshold = int(max(durations_list))
             else:
+                # For percentiles 1-99, quantiles[0] is p1, quantiles[1] is p2, etc.
                 max_threshold = int(quantiles[int(max_percentile) - 1])
 
             return QueryPercentileThresholds(
@@ -216,9 +226,9 @@ async def calculate_percentile_thresholds(
                 max_threshold_ms=max_threshold,
             )
 
-        except (statistics.StatisticsError, TypeError, ValueError) as e:
+        except (TypeError, ValueError, IndexError) as e:
             LOGGER.warning(
-                "Failed to calculate percentile thresholds from duration data",
+                "Failed to calculate percentile thresholds from cached quantiles",
                 error=str(e),
                 error_type=type(e).__name__,
             )
