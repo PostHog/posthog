@@ -91,7 +91,6 @@ PARTNER_RATE_LIMIT_EVENT_NAMES: dict[str, str] = {
 _SAFE_STATE_RE = re.compile(r"^[A-Za-z0-9_\-]{1,256}$")
 
 LEGACY_STRIPE_APP_NAME = "PostHog Stripe App"
-PROVISIONED_PAT_LABEL_PREFIX = "Stripe Projects"
 # Mirrors PersonalAPIKey.label's CharField(max_length=40) - keep in sync if that ever changes.
 PROVISIONED_PAT_LABEL_MAX_LENGTH = 40
 # Cap partner-supplied prefix below the full label length so " - {team_name}" still
@@ -1178,10 +1177,10 @@ class _InvalidLabelPrefixError(Exception):
 def _extract_label_prefix(request: Request) -> str | None:
     """Extract and validate the optional ``label_prefix`` from the request body.
 
-    Returns ``None`` when the field is absent or empty (caller falls back to the
-    default partner label). Raises ``_InvalidLabelPrefixError`` when the field
-    is present but malformed (wrong type, too long, or contains control or
-    format characters that would render badly in the user's PAT list).
+    Returns ``None`` when the field is absent or empty (caller creates an
+    unprefixed label). Raises ``_InvalidLabelPrefixError`` when the field is
+    present but malformed (wrong type, too long, or contains control or format
+    characters that would render badly in the user's PAT list).
     """
     raw = request.data.get("label_prefix")
     if raw is None:
@@ -1221,14 +1220,14 @@ def _create_provisioned_pat(user: User, team: Team, label_prefix: str | None = N
     return a PAT that reaches across every team the user already belongs to.
 
     ``label_prefix`` should be pre-validated by ``_extract_label_prefix``; pass
-    ``None`` (or any falsy value) to use the default ``PROVISIONED_PAT_LABEL_PREFIX``.
+    ``None`` (or any falsy value) to label the key with just the team name.
     """
     try:
         api_key_value = generate_random_token_personal()
-        prefix = label_prefix or PROVISIONED_PAT_LABEL_PREFIX
+        label_base = f"{label_prefix} - {team.name}" if label_prefix else team.name
         # PersonalAPIKey.label is stored as a CharField(max_length=40); cap the
         # final string to match so we never violate the column constraint.
-        label = f"{prefix} - {team.name}"[:PROVISIONED_PAT_LABEL_MAX_LENGTH]
+        label = label_base[:PROVISIONED_PAT_LABEL_MAX_LENGTH]
 
         PersonalAPIKey.objects.create(
             user=user,
