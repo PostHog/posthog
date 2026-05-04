@@ -136,26 +136,33 @@ class Manifest:
     def commands_dir(self) -> Path | None:
         """Get custom commands directory path.
 
-        Resolution order:
-        1. config.commands_dir in hogli.yaml (relative to repo root)
-        2. Default: hogli/ next to hogli.yaml
-
-        Returns None if no commands directory exists.
+        ``config.commands_dir`` is optional. When present, it is resolved
+        relative to the repo root and its parent directory is added to
+        ``sys.path`` before resolving lazy command imports.
         """
+        if "commands_dir" not in self.config:
+            return None
+
         configured = self.config.get("commands_dir")
-        if configured:
-            path = (REPO_ROOT / configured).resolve()
-            try:
-                path.relative_to(REPO_ROOT.resolve())
-            except ValueError:
-                raise ValueError(f"config.commands_dir '{configured}' resolves outside the repo root")
-            if path.exists():
-                return path
-        # Default: hogli/ next to manifest
-        default_path = MANIFEST_FILE.parent / "hogli"
-        if default_path.exists():
-            return default_path
-        return None
+        if not isinstance(configured, str) or not configured:
+            raise ValueError("config.commands_dir must be a non-empty relative path")
+
+        configured_path = Path(configured)
+        if configured_path.is_absolute():
+            raise ValueError(f"config.commands_dir '{configured}' must be relative to the repo root")
+
+        path = (REPO_ROOT / configured_path).resolve()
+        try:
+            path.relative_to(REPO_ROOT.resolve())
+        except ValueError:
+            raise ValueError(f"config.commands_dir '{configured}' resolves outside the repo root")
+
+        if not path.exists():
+            raise ValueError(f"config.commands_dir '{configured}' does not exist")
+        if not path.is_dir():
+            raise ValueError(f"config.commands_dir '{configured}' must resolve to a directory")
+
+        return path
 
     @property
     def scripts_dir(self) -> Path:

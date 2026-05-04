@@ -11,7 +11,6 @@ import sys
 import time as _time
 import shutil
 import platform
-import importlib
 from collections import defaultdict
 from typing import Any
 
@@ -20,6 +19,7 @@ import click
 from hogli import telemetry
 from hogli.command_types import BinScriptCommand, CompositeCommand, DirectCommand, HogliCommand
 from hogli.hooks import post_command_hooks, telemetry_property_hooks
+from hogli.lazy_commands import LazyCommandError, add_commands_dir_to_path, resolve_boot_module, resolve_click_command
 from hogli.manifest import get_category_for_command, get_manifest, get_services_for_command, load_manifest
 from hogli.validate import auto_update_manifest, find_manifest_validation_errors, find_missing_manifest_entries
 
@@ -163,44 +163,10 @@ class CategorizedGroup(click.Group):
         return bool(command.hidden or hogli_config.get("hidden", False))
 
     def _load_click_command(self, cmd_name: str, import_string: Any) -> click.Command:
-        if not isinstance(import_string, str) or import_string.count(":") != 1:
-            raise click.ClickException(
-                f"hogli: command {cmd_name!r} has invalid click import string "
-                f"{import_string!r}; expected 'module.path:attr'"
-            )
-
-        module_path, attr = import_string.split(":", 1)
-        if not module_path or not attr:
-            raise click.ClickException(
-                f"hogli: command {cmd_name!r} has invalid click import string "
-                f"{import_string!r}; expected 'module.path:attr'"
-            )
-
         try:
-            module = importlib.import_module(module_path)
-        except Exception as exc:
-            raise click.ClickException(f"hogli: command {cmd_name!r} could not import {module_path!r}: {exc}") from exc
-
-        try:
-            command = getattr(module, attr)
-        except AttributeError as exc:
-            raise click.ClickException(
-                f"hogli: command {cmd_name!r} could not resolve {import_string!r}: {exc}"
-            ) from exc
-
-        if not isinstance(command, click.Command):
-            raise click.ClickException(
-                f"hogli: command {cmd_name!r} resolved {import_string!r} to "
-                f"{type(command).__name__}, expected click.Command"
-            )
-
-        if command.name != cmd_name:
-            raise click.ClickException(
-                f"hogli: command {cmd_name!r} resolved {import_string!r} with Click name {command.name!r}; "
-                "the names must match"
-            )
-
-        return command
+            return resolve_click_command(cmd_name, import_string)
+        except LazyCommandError as exc:
+            raise click.ClickException(f"hogli: {exc}") from exc
 
 
 def _auto_update_manifest() -> None:
@@ -238,7 +204,7 @@ def cli(ctx: click.Context) -> None:
         )
 
 
-@cli.command(name="meta:check", help="Validate manifest against bin scripts (for CI)")
+@cli.command(name="meta:check", help="Validate manifest scripts, lazy commands, and boot modules")
 def meta_check() -> None:
     """Validate manifest script coverage and lazy Python references."""
     missing = find_missing_manifest_entries()
@@ -366,17 +332,12 @@ def _load_boot_modules() -> None:
     manifest = get_manifest()
     commands_dir = manifest.commands_dir
 
-    if commands_dir:
-        parent_dir = str(commands_dir.parent)
-        if parent_dir not in sys.path:
-            sys.path.insert(0, parent_dir)
+    add_commands_dir_to_path(commands_dir)
 
     for module_path in manifest.config.get("boot_modules", []):
-        if not isinstance(module_path, str) or not module_path:
-            continue
         if module_path in sys.modules:
             continue
-        importlib.import_module(module_path)
+        resolve_boot_module(module_path)
 
 
 # Register all script commands from manifest, then trigger boot modules so

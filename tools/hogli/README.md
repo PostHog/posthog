@@ -158,7 +158,7 @@ def db_migrate(dry_run: bool) -> None:
         pass
 ```
 
-`commands_dir` is used to put the package's parent directory on `sys.path`. It must point at an importable package or module tree, and it must not be named `hogli`, since that shadows the installed framework.
+`commands_dir` is optional and explicit: hogli only uses it when configured. It must be a relative path to an existing directory. hogli puts that directory's parent on `sys.path`, so the directory should be an importable package or module tree. It must not be named `hogli`, since that shadows the installed framework.
 
 ### Full: project package with submodules
 
@@ -253,7 +253,7 @@ register_post_command_hook(maybe_show_hint)
 
 ```yaml
 config:
-  commands_dir: path/to/commands # Python commands directory (default: hogli/)
+  commands_dir: path/to/commands # Optional local Python command package
   boot_modules:
     - package.boot # Optional eager hook registration modules
   scripts_dir: scripts # For bin_script resolution (default: bin/)
