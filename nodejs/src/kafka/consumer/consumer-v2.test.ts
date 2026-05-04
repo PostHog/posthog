@@ -7,7 +7,7 @@ import { KafkaConsumerV2 } from './consumer-v2'
 jest.mock('../admin', () => ({ ensureTopicExists: jest.fn().mockResolvedValue(undefined) }))
 
 // Spy on captureException to assert that the IDLE-keepalive invariant fires when violated.
-jest.mock('../utils/posthog', () => ({
+jest.mock('../../utils/posthog', () => ({
     captureException: jest.fn(),
 }))
 
