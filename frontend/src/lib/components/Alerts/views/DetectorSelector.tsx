@@ -53,7 +53,7 @@ const DETECTOR_OPTIONS: Array<{ value: string; label: string; tooltip: string }>
         value: DetectorType.COPOD,
         label: 'COPOD',
         tooltip:
-            'Scores each point against the historical distribution using copulas. Parameter-free — pick this if you want a sensible default with no tuning.',
+            'Scores each point against the historical distribution using copulas. Parameter-free, so it works without tuning a sensitivity threshold.',
     },
     {
         value: DetectorType.ECOD,
