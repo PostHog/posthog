@@ -413,7 +413,7 @@ procs:
             tech: Python
 
     migrate-postgres:
-        shell: 'bin/wait-for-docker && bin/migrate --scope=postgres'
+        shell: 'bin/wait-for-docker && hogli db:prime-from-schema; bin/migrate --scope=postgres'
         capability: core_infra
         ready_pattern: 'All migrations completed successfully'
         groups:
