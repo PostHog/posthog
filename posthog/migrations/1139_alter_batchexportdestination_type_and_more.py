@@ -7,7 +7,7 @@ import posthog.models.utils
 
 
 class Migration(migrations.Migration):
-    dependencies = [("posthog", "1133_alter_integration_kind")]
+    dependencies = [("posthog", "1138_onboarding_delegated_to_invite_index")]
 
     operations = [
         migrations.AlterField(
