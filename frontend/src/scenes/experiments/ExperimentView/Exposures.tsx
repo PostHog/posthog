@@ -159,7 +159,7 @@ function ExposuresChart({ exposures, axisLineColor }: ExposuresChartProps): JSX.
                 const previousDay = firstDay.subtract(1, 'day').format('MM/DD')
 
                 labels = [previousDay, ...labels]
-                datasets = datasets.map((dataset: ChartDataset) => ({
+                datasets = datasets.map((dataset) => ({
                     ...dataset,
                     data: [0, ...dataset.data],
                 }))
