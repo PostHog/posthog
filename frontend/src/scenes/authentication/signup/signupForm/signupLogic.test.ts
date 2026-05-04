@@ -6,7 +6,7 @@ import { initKeaTests } from '~/test/init'
 
 import { signupLogic } from './signupLogic'
 
-describe('signupLogic — pending invite redirect', () => {
+describe('signupLogic — pending invite banner', () => {
     let logic: ReturnType<typeof signupLogic.build>
 
     beforeEach(() => {
@@ -16,12 +16,10 @@ describe('signupLogic — pending invite redirect', () => {
                     200,
                     {
                         email_exists: false,
-                        pending_invite: {
-                            id: 'invite-123',
-                            organization_name: 'Acme Corp',
-                        },
+                        pending_invite: { organization_name: 'Acme Corp' },
                     },
                 ],
+                '/api/signup/resend-invite': () => [200, { sent: true }],
             },
         })
         initKeaTests()
@@ -34,24 +32,15 @@ describe('signupLogic — pending invite redirect', () => {
         logic.unmount()
     })
 
-    it('redirects to invite signup when pending_invite is returned', async () => {
+    it('shows the pending invite banner instead of advancing the panel', async () => {
         logic.actions.setSignupPanelEmailValue('email', 'alice@acme.com')
         logic.actions.submitSignupPanelEmail()
         await expectLogic(logic).toFinishAllListeners()
-        expect(router.values.location.pathname).toEqual('/signup/invite-123/')
-        expect(router.values.searchParams).toEqual(expect.objectContaining({ from_signup_redirect: '1' }))
+        expect(logic.values.pendingInvite).toEqual({ organization_name: 'Acme Corp' })
+        expect(logic.values.panel).toBe(0)
     })
 
-    it('does not redirect when skip_invite_check is set on the URL', async () => {
-        router.actions.push('/signup', { skip_invite_check: '1' })
-        logic.actions.setSignupPanelEmailValue('email', 'alice@acme.com')
-        logic.actions.submitSignupPanelEmail()
-        await expectLogic(logic).toFinishAllListeners()
-        expect(router.values.location.pathname).toEqual('/signup')
-        expect(router.values.searchParams).toEqual({ skip_invite_check: '1' })
-    })
-
-    it('does not redirect when pending_invite is null', async () => {
+    it('advances the panel and clears the banner when no invite is returned', async () => {
         useMocks({
             post: {
                 '/api/signup/precheck': () => [200, { email_exists: false, pending_invite: null }],
@@ -60,18 +49,43 @@ describe('signupLogic — pending invite redirect', () => {
         logic.actions.setSignupPanelEmailValue('email', 'stranger@nowhere.com')
         logic.actions.submitSignupPanelEmail()
         await expectLogic(logic).toFinishAllListeners()
-        expect(router.values.location.pathname).toEqual('/signup')
+        expect(logic.values.pendingInvite).toBeNull()
+        expect(logic.values.panel).toBe(1)
     })
 
-    it('preserves existing search params (e.g. next) on the invite redirect', async () => {
-        router.actions.push('/signup', { next: '/insights' })
+    it('advances the panel when the user dismisses the banner', async () => {
         logic.actions.setSignupPanelEmailValue('email', 'alice@acme.com')
         logic.actions.submitSignupPanelEmail()
         await expectLogic(logic).toFinishAllListeners()
-        expect(router.values.location.pathname).toEqual('/signup/invite-123/')
-        expect(router.values.searchParams).toEqual({
-            next: '/insights',
-            from_signup_redirect: '1',
-        })
+        expect(logic.values.pendingInvite).not.toBeNull()
+        logic.actions.dismissPendingInvite()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.pendingInvite).toBeNull()
+        expect(logic.values.panel).toBe(1)
+    })
+
+    it('skips the banner when skip_invite_check=1 is on the URL', async () => {
+        router.actions.push('/signup', { skip_invite_check: '1' })
+        logic.actions.setSignupPanelEmailValue('email', 'alice@acme.com')
+        logic.actions.submitSignupPanelEmail()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.pendingInvite).toBeNull()
+        expect(logic.values.panel).toBe(1)
+    })
+
+    it('marks the invite as resent after resendPendingInvite succeeds', async () => {
+        logic.actions.setPendingInvite({ organization_name: 'Acme Corp' })
+        logic.actions.resendPendingInvite('alice@acme.com')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.pendingInviteResent).toBe(true)
+        expect(logic.values.isPendingInviteResending).toBe(false)
+    })
+
+    it('clears the resent state when a new invite banner is shown', async () => {
+        logic.actions.setPendingInvite({ organization_name: 'Acme Corp' })
+        logic.actions.setPendingInviteResent(true)
+        logic.actions.setPendingInvite({ organization_name: 'Other Corp' })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.pendingInviteResent).toBe(false)
     })
 })

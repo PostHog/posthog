@@ -2,7 +2,7 @@ import { startRegistration } from '@simplewebauthn/browser'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { combineUrl, router, urlToAction } from 'kea-router'
+import { urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
@@ -50,7 +50,6 @@ export const inviteSignupLogic = kea<inviteSignupLogicType>([
         setTurnstileSiteKey: (siteKey: string | null) => ({ siteKey }),
         setTurnstileToken: (token: string | null) => ({ token }),
         resetChallenge: true,
-        setFromSignupRedirect: (fromSignupRedirect: boolean) => ({ fromSignupRedirect }),
     }),
     reducers({
         error: [
@@ -103,12 +102,6 @@ export const inviteSignupLogic = kea<inviteSignupLogicType>([
             {
                 setTurnstileToken: (_, { token }) => token,
                 resetChallenge: () => null,
-            },
-        ],
-        fromSignupRedirect: [
-            false,
-            {
-                setFromSignupRedirect: (_, { fromSignupRedirect }) => fromSignupRedirect,
             },
         ],
     }),
@@ -222,13 +215,6 @@ export const inviteSignupLogic = kea<inviteSignupLogicType>([
                 return !!featureFlags[FEATURE_FLAGS.PASSKEY_SIGNUP_ENABLED]
             },
         ],
-        skipInviteUrl: [
-            () => [router.selectors.searchParams],
-            (searchParams: Record<string, string>): string => {
-                const { from_signup_redirect: _omitted, ...preserved } = searchParams
-                return combineUrl('/signup', { ...preserved, skip_invite_check: '1' }).url
-            },
-        ],
     }),
     listeners(({ actions, values }) => ({
         setTurnstileToken: ({ token }) => {
@@ -293,8 +279,7 @@ export const inviteSignupLogic = kea<inviteSignupLogicType>([
         },
     })),
     urlToAction(({ actions }) => ({
-        '/signup/*': ({ _: id }, { error_code, error_detail, from_signup_redirect }) => {
-            actions.setFromSignupRedirect(from_signup_redirect === '1')
+        '/signup/*': ({ _: id }, { error_code, error_detail }) => {
             if (error_code) {
                 if ((Object.values(ErrorCodes) as string[]).includes(error_code)) {
                     actions.setError({ code: error_code as ErrorCodes, detail: error_detail })

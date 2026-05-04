@@ -343,11 +343,10 @@ class SignupEmailPrecheckSerializer(serializers.Serializer):
 
 
 class PendingInvitePayload(TypedDict):
-    id: str
     organization_name: str
 
 
-def _get_pending_invite_for_email(email: str) -> Optional[PendingInvitePayload]:
+def _get_pending_invite_for_email(email: str) -> Optional[OrganizationInvite]:
     # Pre-filter in SQL to a generous validity window for efficiency, then defer to the
     # model's `is_expired` for the authoritative check so any future expansion of that
     # method (e.g. revocation flag) automatically applies here.
@@ -359,10 +358,7 @@ def _get_pending_invite_for_email(email: str) -> Optional[PendingInvitePayload]:
         .select_related("organization")
         .order_by("-created_at")
     )
-    invite = next((i for i in invites if not i.is_expired()), None)
-    if invite is None:
-        return None
-    return {"id": str(invite.id), "organization_name": invite.organization.name}
+    return next((i for i in invites if not i.is_expired()), None)
 
 
 class SignupEmailPrecheckViewset(generics.GenericAPIView):
@@ -384,11 +380,47 @@ class SignupEmailPrecheckViewset(generics.GenericAPIView):
                 },
                 status=status.HTTP_409_CONFLICT,
             )
-        pending_invite = _get_pending_invite_for_email(email)
+        invite = _get_pending_invite_for_email(email)
+        pending_invite: Optional[PendingInvitePayload] = None
+        if invite is not None:
+            # We deliberately do NOT return the invite UUID here. The signup form shows a
+            # nudge banner, and the user has to round-trip through the invite email to
+            # actually accept — preserving the pre-PR security property that only the
+            # mailbox owner can consume the invite.
+            pending_invite = {"organization_name": invite.organization.name}
         return response.Response(
             {"email_exists": False, "pending_invite": pending_invite},
             status=status.HTTP_200_OK,
         )
+
+
+class SignupResendInviteSerializer(serializers.Serializer):
+    email: serializers.Field = serializers.EmailField()
+
+
+class SignupResendInviteViewset(generics.GenericAPIView):
+    """Re-send the existing invite email for a given address, if one exists.
+
+    Pairs with the precheck nudge banner: a user who landed on /signup with a pending invite
+    can ask PostHog to re-deliver the original invite email. Returns the same shape whether
+    or not an invite exists, but precheck has already disclosed the existence — this endpoint
+    just makes the round-trip via email easier.
+    """
+
+    serializer_class = SignupResendInviteSerializer
+    permission_classes = (permissions.AllowAny,)
+    throttle_classes = [] if settings.E2E_TESTING else [SignupEmailPrecheckThrottle]
+
+    def post(self, request: Request, *args: Any, **kwargs: Any) -> response.Response:
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        email = serializer.validated_data["email"]
+        invite = _get_pending_invite_for_email(email)
+        if invite is not None and is_email_available():
+            from posthog.tasks.email import send_invite
+
+            send_invite.apply_async(kwargs={"invite_id": str(invite.id)})
+        return response.Response({"sent": invite is not None}, status=status.HTTP_200_OK)
 
 
 class SignupViewset(generics.CreateAPIView):
