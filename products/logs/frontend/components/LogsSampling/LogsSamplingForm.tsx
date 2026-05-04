@@ -121,33 +121,45 @@ export function LogsSamplingForm(): JSX.Element {
                 </LemonField.Pure>
             )}
             {isRateLimit ? (
-                <LemonField.Pure
-                    label="Service"
-                    info="Must match the OpenTelemetry service.name on log lines. Pick from recent values or type the exact name."
-                    error={samplingFormErrors.scope_service}
-                >
-                    <div className="flex flex-col gap-2">
-                        <ServiceFilter
-                            selectionMode="single"
-                            value={samplingForm.scope_service ? [samplingForm.scope_service] : []}
-                            onChange={(names) => setSamplingFormValue('scope_service', names[0] ?? '')}
-                            dateRange={{ date_from: '-24h', date_to: null }}
-                        />
-                        <LemonInput
-                            value={samplingForm.scope_service}
-                            onChange={(v) => setSamplingFormValue('scope_service', v)}
-                            placeholder="Or type service.name exactly"
-                        />
-                        {serviceTrafficLoading ? (
-                            <span className="text-muted text-sm">Loading recent volume…</span>
-                        ) : serviceTraffic && samplingForm.scope_service.trim() ? (
-                            <span className="text-muted text-sm">
-                                ~{serviceTraffic.avg_logs_per_sec.toFixed(2)} logs/sec average over the last 24h (
-                                {serviceTraffic.log_count.toLocaleString()} lines).
-                            </span>
-                        ) : null}
-                    </div>
-                </LemonField.Pure>
+                <>
+                    <LemonBanner type="info">
+                        <div className="text-sm">
+                            <strong>Which service?</strong> This must match the log&apos;s OpenTelemetry{' '}
+                            <code className="text-xs font-mono bg-bg-mid rounded px-1 py-0.5">service.name</code>{' '}
+                            exactly (same string as the Service column or log details—no wildcards, case-sensitive).
+                            Example:{' '}
+                            <code className="text-xs font-mono bg-bg-mid rounded px-1 py-0.5">payment-api</code>.
+                        </div>
+                    </LemonBanner>
+                    <LemonField.Pure
+                        label="Service"
+                        help="Pick from names seen in the last 24h, or type the full name in the field below if it does not appear in the list."
+                        error={samplingFormErrors.scope_service}
+                    >
+                        <div className="flex flex-col gap-2">
+                            <ServiceFilter
+                                selectionMode="single"
+                                emptyButtonLabel="Pick from last 24h…"
+                                value={samplingForm.scope_service ? [samplingForm.scope_service] : []}
+                                onChange={(names) => setSamplingFormValue('scope_service', names[0] ?? '')}
+                                dateRange={{ date_from: '-24h', date_to: null }}
+                            />
+                            <LemonInput
+                                value={samplingForm.scope_service}
+                                onChange={(v) => setSamplingFormValue('scope_service', v)}
+                                placeholder="Type exact service.name (required)"
+                            />
+                            {serviceTrafficLoading ? (
+                                <span className="text-muted text-sm">Loading recent volume…</span>
+                            ) : serviceTraffic && samplingForm.scope_service.trim() ? (
+                                <span className="text-muted text-sm">
+                                    ~{serviceTraffic.avg_logs_per_sec.toFixed(2)} logs/sec average over the last 24h (
+                                    {serviceTraffic.log_count.toLocaleString()} lines).
+                                </span>
+                            ) : null}
+                        </div>
+                    </LemonField.Pure>
+                </>
             ) : (
                 <LemonField.Pure
                     label="Scope: service name (optional)"
@@ -266,13 +278,17 @@ export function LogsSamplingForm(): JSX.Element {
                 <>
                     <LemonBanner type="info">
                         <div className="text-sm">
-                            Excess log lines over your sustained limit are dropped at ingestion (same as other drop
-                            rules). Burst allows short spikes above the sustained rate.
+                            <strong>How limits work:</strong> lines above your sustained cap are dropped at ingestion.
+                            Optional <strong>burst</strong> is how many lines can be stored in a short spike before the
+                            limiter pulls you back toward the sustained rate. Example: sustained{' '}
+                            <code className="text-xs font-mono bg-bg-mid rounded px-1 py-0.5">100</code>, burst{' '}
+                            <code className="text-xs font-mono bg-bg-mid rounded px-1 py-0.5">300</code> — you can admit
+                            up to 300 lines quickly, then stored volume trends toward ~100/sec for this service.
                         </div>
                     </LemonBanner>
                     <LemonField.Pure
-                        label="Sustained limit (logs per second)"
-                        info="Token bucket refill rate: average log lines per second allowed for this service while this rule matches first."
+                        label="Sustained limit (lines per second)"
+                        help="Whole number from 1 to 1,000,000. Average stored lines/sec for this service while this rule is the first match."
                         error={samplingFormErrors.rate_limit_logs_per_second}
                     >
                         <LemonInput
@@ -282,14 +298,14 @@ export function LogsSamplingForm(): JSX.Element {
                         />
                     </LemonField.Pure>
                     <LemonField.Pure
-                        label="Burst (max lines in flight, optional)"
-                        info="Bucket capacity in lines. Leave empty to default to three times the sustained limit (capped by ingestion)."
+                        label="Burst capacity (optional)"
+                        help="Whole number at least equal to sustained, up to 60,000,000, or leave empty for 3× sustained. Larger burst allows a bigger one-off spike before extra lines drop."
                         error={samplingFormErrors.rate_limit_burst_logs}
                     >
                         <LemonInput
                             value={samplingForm.rate_limit_burst_logs}
                             onChange={(v) => setSamplingFormValue('rate_limit_burst_logs', v)}
-                            placeholder="Defaults to 3× sustained if empty"
+                            placeholder="Empty = 3× sustained"
                         />
                     </LemonField.Pure>
                 </>
