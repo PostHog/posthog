@@ -63,6 +63,12 @@ export const rateLimitConfigLogic = kea<rateLimitConfigLogicType>([
                 loadConfigSuccess: () => true,
             },
         ],
+        volumeBucketMinutes: [
+            DEFAULT_BUCKET_MINUTES,
+            {
+                loadVolumeSuccess: (state, { payload }: { payload?: number }) => payload ?? state,
+            },
+        ],
     }),
 
     loaders({
@@ -133,17 +139,18 @@ export const rateLimitConfigLogic = kea<rateLimitConfigLogicType>([
 
     listeners(({ actions }) => ({
         loadConfigSuccess: ({ config }) => {
+            const bucket = config?.project_rate_limit_bucket_size_minutes ?? DEFAULT_BUCKET_MINUTES
             if (config) {
-                const bucket = config.project_rate_limit_bucket_size_minutes ?? DEFAULT_BUCKET_MINUTES
                 actions.resetConfigForm({
                     project_rate_limit_value: config.project_rate_limit_value,
                     project_rate_limit_bucket_size_minutes: bucket,
                 })
-                actions.loadVolume(bucket)
             }
+            actions.loadVolume(bucket)
         },
         setConfigFormValue: ({ name, value }) => {
-            if (name === 'project_rate_limit_bucket_size_minutes' && typeof value === 'number') {
+            const fieldName = Array.isArray(name) ? name[name.length - 1] : name
+            if (fieldName === 'project_rate_limit_bucket_size_minutes' && typeof value === 'number') {
                 actions.loadVolume(value)
             }
         },
@@ -153,6 +160,5 @@ export const rateLimitConfigLogic = kea<rateLimitConfigLogicType>([
         if (!values.hasLoadedConfig) {
             actions.loadConfig()
         }
-        actions.loadVolume(DEFAULT_BUCKET_MINUTES)
     }),
 ])

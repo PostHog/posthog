@@ -17,8 +17,15 @@ import { ChartDisplayType } from '~/types'
 import { BUCKET_OPTIONS, ExceptionVolumeBucket, getBucketOption, rateLimitConfigLogic } from './rateLimitConfigLogic'
 
 export function RateLimitSettings(): JSX.Element {
-    const { configLoading, configFormChanged, isConfigFormSubmitting, configForm, volume, volumeLoading } =
-        useValues(rateLimitConfigLogic)
+    const {
+        configLoading,
+        configFormChanged,
+        isConfigFormSubmitting,
+        configForm,
+        volume,
+        volumeLoading,
+        volumeBucketMinutes,
+    } = useValues(rateLimitConfigLogic)
 
     if (configLoading) {
         return (
@@ -87,16 +94,15 @@ export function RateLimitSettings(): JSX.Element {
 
                     <div className="md:col-span-7">
                         <div className="text-sm font-medium mb-1">
-                            Exception volume — past{' '}
-                            {formatTotalDuration(configForm.project_rate_limit_bucket_size_minutes)}
+                            Exception volume — past {formatTotalDuration(volumeBucketMinutes)}
                         </div>
                         {volumeLoading ? (
-                            <LemonSkeleton className="w-full h-64" />
+                            <LemonSkeleton className="w-full h-80" />
                         ) : (
                             <RateLimitSimulationChart
                                 volume={volume}
                                 rateLimit={configForm.project_rate_limit_value}
-                                bucketMinutes={configForm.project_rate_limit_bucket_size_minutes}
+                                bucketMinutes={volumeBucketMinutes}
                             />
                         )}
                     </div>
