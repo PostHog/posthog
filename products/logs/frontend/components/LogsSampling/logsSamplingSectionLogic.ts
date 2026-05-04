@@ -13,6 +13,7 @@ import {
 import { LogsSamplingRuleApi } from 'products/logs/frontend/generated/api.schemas'
 
 import type { logsSamplingSectionLogicType } from './logsSamplingSectionLogicType'
+import { fetchSamplingRuleDropTotalsLast24h } from './samplingRuleDropImpact'
 
 export const logsSamplingSectionLogic = kea<logsSamplingSectionLogicType>([
     path(['products', 'logs', 'frontend', 'components', 'LogsSampling', 'logsSamplingSectionLogic']),
@@ -56,9 +57,26 @@ export const logsSamplingSectionLogic = kea<logsSamplingSectionLogicType>([
                 },
             },
         ],
+        ruleDropImpact: [
+            {} as Record<string, number>,
+            {
+                loadRuleDropImpact: async (_, breakpoint) => {
+                    const rules = values.rules
+                    const ids = rules.map((r) => r.id)
+                    if (ids.length === 0) {
+                        return {}
+                    }
+                    await breakpoint(1)
+                    return await fetchSamplingRuleDropTotalsLast24h(ids)
+                },
+            },
+        ],
     })),
 
     listeners(({ actions, values }) => ({
+        loadRulesSuccess: () => {
+            actions.loadRuleDropImpact()
+        },
         saveRulesOrder: async ({ orderedIds }) => {
             const projectId = values.currentTeamId
             if (projectId === null) {
