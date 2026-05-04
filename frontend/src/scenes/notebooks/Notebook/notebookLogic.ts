@@ -101,6 +101,21 @@ async function runWhenEditorIsReady(waitForEditor: () => boolean, fn: () => any)
     return fn()
 }
 
+function buildCommentContexts(editor: NotebookEditor, comments: CommentType[]): Record<string, string> {
+    const markTexts = editor.getAllCommentTexts()
+    const contexts: Record<string, string> = {}
+    for (const comment of comments) {
+        if (comment.source_comment || comment.item_context?.type !== 'mark') {
+            continue
+        }
+        const text = markTexts[comment.item_context.id]
+        if (text) {
+            contexts[comment.id] = text
+        }
+    }
+    return contexts
+}
+
 export const notebookLogic = kea<notebookLogicType>([
     props({} as NotebookLogicProps),
     path((key) => ['scenes', 'notebooks', 'Notebook', 'notebookLogic', key]),
@@ -116,7 +131,7 @@ export const notebookLogic = kea<notebookLogicType>([
                 scope: ActivityScope.NOTEBOOK,
                 item_id: props.shortId,
             }),
-            ['comments', 'itemContext', 'selectedCommentId'],
+            ['comments', 'itemContext', 'selectedCommentId', 'commentContexts'],
             notebookKernelInfoLogic({ shortId: props.shortId }),
             ['kernelInfo'],
             notebookSettingsLogic,
@@ -133,7 +148,7 @@ export const notebookLogic = kea<notebookLogicType>([
                 scope: ActivityScope.NOTEBOOK,
                 item_id: props.shortId,
             }),
-            ['setItemContext', 'maybeLoadComments', 'setSelectedComment'],
+            ['setItemContext', 'maybeLoadComments', 'setSelectedComment', 'setCommentContexts'],
             notebookCollabLogic({ shortId: props.shortId }),
             ['ackLocalSteps', 'applyRemoteSteps'],
         ],
@@ -884,7 +899,26 @@ export const notebookLogic = kea<notebookLogicType>([
                 cache.throttledOnUpdateEditorTimeout = null
             }, 16) // ~60fps throttling
         },
-        setEditor: () => {},
+        setEditor: () => {
+            // Compute contexts immediately if comments are already loaded when the editor mounts
+            if (values.editor && values.comments) {
+                actions.setCommentContexts(buildCommentContexts(values.editor, values.comments))
+            }
+        },
+        onUpdateEditor: () => {
+            // Re-sync previews so they track edits to text under comment marks.
+            // Skip the dispatch when nothing changed to avoid re-rendering every Comment per keystroke.
+            if (!values.editor || !values.comments) {
+                return
+            }
+            const next = buildCommentContexts(values.editor, values.comments)
+            const prev = values.commentContexts
+            const nextKeys = Object.keys(next)
+            if (nextKeys.length === Object.keys(prev).length && nextKeys.every((k) => prev[k] === next[k])) {
+                return
+            }
+            actions.setCommentContexts(next)
+        },
 
         saveNotebookSuccess: actions.scheduleNotebookRefresh,
         loadNotebookSuccess: () => {
@@ -1014,6 +1048,8 @@ export const notebookLogic = kea<notebookLogicType>([
                         editor.removeComment(mark.pos)
                     }
                 })
+
+                actions.setCommentContexts(buildCommentContexts(editor, comments))
             }
         },
         activeCommentMarkId: (markId: string | null) => {
