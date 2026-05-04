@@ -7,13 +7,6 @@ from django.test import override_settings
 
 from posthog.models.hog_flow.hog_flow import HogFlow
 
-from products.notifications.backend.facade.enums import (
-    NotificationOnlyResourceType,
-    NotificationType,
-    Priority,
-    SourceType,
-    TargetType,
-)
 from products.workflows.backend.services.notifications import handle_workflow_rate_limited
 
 
@@ -39,15 +32,15 @@ class TestHandleWorkflowRateLimited(APIBaseTest):
         mock_create.assert_called_once()
         data = mock_create.call_args[0][0]
         assert data.team_id == self.team.id
-        assert data.notification_type == NotificationType.WORKFLOW_RATE_LIMITED
-        assert data.priority == Priority.NORMAL
+        assert data.notification_type == "workflow_rate_limited"
+        assert data.priority == "normal"
         assert data.title == "Workflow 'My Workflow' is being rate limited"
-        assert data.target_type == TargetType.USER
+        assert data.target_type == "user"
         assert data.target_id == str(self.user.id)
-        assert data.resource_type == NotificationOnlyResourceType.WORKFLOW
+        assert data.resource_type == "workflow"
         assert data.resource_id == str(hog_flow.id)
         assert data.source_url == f"/workflows/{hog_flow.id}/workflow"
-        assert data.source_type == SourceType.WORKFLOW
+        assert data.source_type == "workflow"
 
     @patch("products.workflows.backend.services.notifications.create_notification")
     def test_resolves_created_by_from_db_when_not_provided(self, mock_create):
@@ -122,7 +115,7 @@ class TestHandleWorkflowRateLimited(APIBaseTest):
         )
 
         data = mock_create.call_args[0][0]
-        assert data.priority == Priority.NORMAL
+        assert data.priority == "normal"
 
     @patch("products.workflows.backend.services.notifications.create_notification")
     def test_targets_team_when_requested(self, mock_create):
@@ -144,7 +137,7 @@ class TestHandleWorkflowRateLimited(APIBaseTest):
         )
 
         data = mock_create.call_args[0][0]
-        assert data.target_type == TargetType.TEAM
+        assert data.target_type == "team"
         assert data.target_id == str(self.team.id)
 
 
