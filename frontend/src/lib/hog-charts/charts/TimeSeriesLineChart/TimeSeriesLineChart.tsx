@@ -65,6 +65,9 @@ export function TimeSeriesLineChart<Meta = unknown>({
         [series, inProgress?.fromIndex]
     )
 
+    // Stable primitive key so callers can pass `valueLabels: { seriesKeys: ['a'] }` inline
+    // without re-running the transform on every render.
+    const seriesKeysSignature = valueLabelsConfig?.seriesKeys?.join(' ')
     const transformedSeries = useMemo(() => {
         const seriesKeys = valueLabelsConfig?.seriesKeys
         if (!seriesKeys) {
@@ -74,7 +77,8 @@ export function TimeSeriesLineChart<Meta = unknown>({
         return seriesWithInProgress.map((s) =>
             allowed.has(s.key) ? s : { ...s, visibility: { ...s.visibility, fromValueLabels: true } }
         )
-    }, [seriesWithInProgress, valueLabelsConfig?.seriesKeys])
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [seriesWithInProgress, seriesKeysSignature])
 
     const valueLabelFormatter = valueLabelsConfig ? (valueLabelsConfig.formatter ?? yTickFormatter) : undefined
 
