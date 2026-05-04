@@ -368,10 +368,6 @@ class TestSubChunking:
         sub_filters = [sub_chunk_where_fn(0, sub_i, 4) for sub_i in range(4)]
         assert all("cityHash64(distinct_id)" in f for f in sub_filters)
 
-    def test_oom_sub_chunk_count_is_32(self):
-        # Bumped from 10 to 32 to give more headroom when a chunk individually OOMs
-        assert OOM_RETRY_SUB_CHUNKS == 32
-
     def test_oom_retry_executes_sub_chunks_within_parent_range(self):
         config = ExperimentalSessionsBackfillConfig(distinct_id_chunks=4, client_overrides={})
         context = _make_context()

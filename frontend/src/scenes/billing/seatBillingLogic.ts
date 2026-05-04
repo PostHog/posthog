@@ -27,7 +27,7 @@ export function seatPriceFromPlanKey(planKey: string): number {
     if (isFreePlanKey(planKey)) {
         return 0
     }
-    const match = planKey.match(/posthog-code-(\d+)/)
+    const match = planKey.match(/posthog-code-pro-(\d+)/)
     return match ? parseInt(match[1], 10) : 0
 }
 

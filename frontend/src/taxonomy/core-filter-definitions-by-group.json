@@ -597,6 +597,67 @@
             ],
             "label": "AI stream (LLM)"
         },
+        "$ai_tag_count": {
+            "description": "The number of tags assigned to the AI event.",
+            "examples": [
+                1,
+                3
+            ],
+            "label": "AI Tag Count (LLM)"
+        },
+        "$ai_tag_reasoning": {
+            "description": "The LLM's explanation for why it assigned the selected tags.",
+            "examples": [
+                "The generation discussed billing and feature flag configuration"
+            ],
+            "label": "AI Tag Reasoning (LLM)"
+        },
+        "$ai_tagger_id": {
+            "description": "The unique identifier of the tagger configuration used to classify the AI event.",
+            "examples": [
+                "550e8400-e29b-41d4-a716-446655440000"
+            ],
+            "label": "AI Tagger ID (LLM)"
+        },
+        "$ai_tagger_key_id": {
+            "description": "The ID of the LLM provider key used for the tagger.",
+            "examples": [
+                "550e8400-e29b-41d4-a716-446655440000"
+            ],
+            "label": "AI Tagger Key ID (LLM)"
+        },
+        "$ai_tagger_key_type": {
+            "description": "The type of API key used for the tagger (byok = user's own key, posthog = PostHog default).",
+            "examples": [
+                "byok",
+                "posthog"
+            ],
+            "label": "AI Tagger Key Type (LLM)"
+        },
+        "$ai_tagger_name": {
+            "description": "The name of the tagger configuration used.",
+            "examples": [
+                "Product feature tagger",
+                "Intent classifier"
+            ],
+            "label": "AI Tagger Name (LLM)"
+        },
+        "$ai_tagger_start_time": {
+            "description": "The timestamp when the tagger started executing.",
+            "examples": [
+                "2025-01-15T10:30:00Z"
+            ],
+            "label": "AI Tagger Start Time (LLM)"
+        },
+        "$ai_tags": {
+            "description": "The list of tags assigned to the AI event by the tagger.",
+            "examples": [
+                "billing",
+                "feature-flags",
+                "onboarding"
+            ],
+            "label": "AI Tags (LLM)"
+        },
         "$ai_target_event_id": {
             "description": "The unique identifier of the event being evaluated.",
             "examples": [
@@ -1061,6 +1122,16 @@
             "label": "Dead click selection changed timeout",
             "system": true
         },
+        "$dead_click_visibility_changed_delay_ms": {
+            "description": "the delay between a click and the next visibility change event",
+            "label": "Dead click visibility changed delay in milliseconds",
+            "system": true
+        },
+        "$dead_click_visibility_changed_timeout": {
+            "description": "whether the dead click autocapture passed the threshold for waiting for a visibility change event",
+            "label": "Dead click visibility changed timeout",
+            "system": true
+        },
         "$dead_clicks_enabled_server_side": {
             "description": "Whether dead clicks were enabled in remote config",
             "label": "Dead clicks enabled server side",
@@ -1136,6 +1207,18 @@
             ],
             "label": "Enabled feature flags"
         },
+        "$event_time_override_provided": {
+            "description": "Whether the SDK had to override the event timestamp because the value provided by the caller could not be used as-is.",
+            "label": "Event time was overridden",
+            "system": true,
+            "used_for_debug": true
+        },
+        "$event_time_override_system_time": {
+            "description": "The system time that the SDK fell back to when overriding the event timestamp.",
+            "label": "Event time override system time",
+            "system": true,
+            "used_for_debug": true
+        },
         "$event_type": {
             "description": "When the event is an $autocapture event, this specifies what the action was against the element.",
             "examples": [
@@ -1174,6 +1257,10 @@
         "$exception_fingerprint": {
             "description": "A fingerprint used to group issues, can be set clientside.",
             "label": "Exception fingerprint"
+        },
+        "$exception_fingerprint_record": {
+            "description": "The structured fingerprint pieces used to group issues, captured per exception in a chain. Each entry records the type, id, and contributing pieces.",
+            "label": "Exception fingerprint record"
         },
         "$exception_functions": {
             "description": "A function contained in the exception.",
@@ -1248,6 +1335,13 @@
             "description": "The description of the exception.",
             "label": "Exception message"
         },
+        "$external_click_url": {
+            "description": "The URL of an external link that was clicked during autocapture. External meaning the URL points to a different host than the page the user was on.",
+            "examples": [
+                "https://example.com/some-article"
+            ],
+            "label": "External click URL"
+        },
         "$feature_flag": {
             "description": "The feature flag that was called.\n\nWarning! This only works in combination with the $feature_flag_called event. If you want to filter other events, try \"Active feature flags\".",
             "examples": [
@@ -1255,12 +1349,36 @@
             ],
             "label": "Feature flag"
         },
+        "$feature_flag_bootstrapped_payload": {
+            "description": "The payload value provided to the SDK at initialization via the bootstrap option, before evaluation against PostHog.",
+            "label": "Feature flag bootstrapped payload"
+        },
+        "$feature_flag_bootstrapped_response": {
+            "description": "The response value provided to the SDK at initialization via the bootstrap option, before evaluation against PostHog.",
+            "label": "Feature flag bootstrapped response"
+        },
+        "$feature_flag_error": {
+            "description": "The error encountered while evaluating the feature flag, if any.",
+            "label": "Feature flag error",
+            "system": true
+        },
         "$feature_flag_evaluated_at": {
             "description": "The timestamp (in milliseconds since Unix epoch) when the feature flag was evaluated.",
             "examples": [
                 "1732051200000"
             ],
             "label": "Feature flag evaluated at"
+        },
+        "$feature_flag_id": {
+            "description": "The numeric identifier of the feature flag that was called.",
+            "examples": [
+                "1234"
+            ],
+            "label": "Feature flag ID"
+        },
+        "$feature_flag_original_response": {
+            "description": "The original feature flag response from PostHog, before any local override was applied.",
+            "label": "Feature flag original response"
         },
         "$feature_flag_payload": {
             "description": "The JSON payload that the call to feature flag responded with (if any)",
@@ -1534,10 +1652,26 @@
             ],
             "label": "Host"
         },
+        "$initial_host": {
+            "description": "Hostname of the URL the user first visited.",
+            "examples": [
+                "example.com",
+                "localhost:8000"
+            ],
+            "label": "Initial host"
+        },
         "$initial_person_info": {
             "description": "posthog-js initial person information. used in the $set_once flow",
             "label": "Initial person info",
             "system": true
+        },
+        "$initial_search_engine": {
+            "description": "Search engine the user came from on their first visit, if any.",
+            "examples": [
+                "Google",
+                "DuckDuckGo"
+            ],
+            "label": "Initial search engine"
         },
         "$initial_utm_source": {
             "description": "UTM source tag.",
@@ -1732,6 +1866,11 @@
                 "15.5"
             ],
             "label": "OS version"
+        },
+        "$override_feature_flags": {
+            "description": "Locally overridden feature flag values, typically set via the toolbar or SDK override APIs.",
+            "label": "Override feature flags",
+            "system": true
         },
         "$pageview_id": {
             "description": "PostHog's internal ID for matching events to a pageview.",
@@ -2056,6 +2195,11 @@
             "type": "String",
             "used_for_debug": true
         },
+        "$sdk_debug_replay_rrweb_error": {
+            "description": "An error reported by the rrweb session recording library while capturing the replay.",
+            "label": "Replay rrweb error",
+            "used_for_debug": true
+        },
         "$sdk_debug_replay_url_trigger_status": {
             "description": "The status of the recording url trigger.",
             "examples": [
@@ -2206,6 +2350,11 @@
             ],
             "ignored_in_assistant": true,
             "label": "Session entry Path name"
+        },
+        "$session_entry_ph_keyword": {
+            "description": "PostHog keyword tracking parameter. Captured at the start of the session and remains constant for the duration of the session.",
+            "ignored_in_assistant": true,
+            "label": "Session entry ph_keyword"
         },
         "$session_entry_qclid": {
             "description": "Quora Click ID Captured at the start of the session and remains constant for the duration of the session.",
@@ -2866,6 +3015,10 @@
         "$ai_span": {
             "description": "A generative AI span. Usually a span tracks a unit of work for a trace of generative AI models (LLMs).",
             "label": "AI span (LLM)"
+        },
+        "$ai_tag": {
+            "description": "A tag classification of an AI event. Contains the assigned tags, reasoning, and tagger metadata.",
+            "label": "AI tag (LLM)"
         },
         "$ai_trace": {
             "description": "A generative AI trace. Usually a trace tracks a single user interaction and contains one or more AI generation calls.",
@@ -3598,6 +3751,67 @@
             ],
             "label": "AI stream (LLM)"
         },
+        "$ai_tag_count": {
+            "description": "The number of tags assigned to the AI event.",
+            "examples": [
+                1,
+                3
+            ],
+            "label": "AI Tag Count (LLM)"
+        },
+        "$ai_tag_reasoning": {
+            "description": "The LLM's explanation for why it assigned the selected tags.",
+            "examples": [
+                "The generation discussed billing and feature flag configuration"
+            ],
+            "label": "AI Tag Reasoning (LLM)"
+        },
+        "$ai_tagger_id": {
+            "description": "The unique identifier of the tagger configuration used to classify the AI event.",
+            "examples": [
+                "550e8400-e29b-41d4-a716-446655440000"
+            ],
+            "label": "AI Tagger ID (LLM)"
+        },
+        "$ai_tagger_key_id": {
+            "description": "The ID of the LLM provider key used for the tagger.",
+            "examples": [
+                "550e8400-e29b-41d4-a716-446655440000"
+            ],
+            "label": "AI Tagger Key ID (LLM)"
+        },
+        "$ai_tagger_key_type": {
+            "description": "The type of API key used for the tagger (byok = user's own key, posthog = PostHog default).",
+            "examples": [
+                "byok",
+                "posthog"
+            ],
+            "label": "AI Tagger Key Type (LLM)"
+        },
+        "$ai_tagger_name": {
+            "description": "The name of the tagger configuration used.",
+            "examples": [
+                "Product feature tagger",
+                "Intent classifier"
+            ],
+            "label": "AI Tagger Name (LLM)"
+        },
+        "$ai_tagger_start_time": {
+            "description": "The timestamp when the tagger started executing.",
+            "examples": [
+                "2025-01-15T10:30:00Z"
+            ],
+            "label": "AI Tagger Start Time (LLM)"
+        },
+        "$ai_tags": {
+            "description": "The list of tags assigned to the AI event by the tagger.",
+            "examples": [
+                "billing",
+                "feature-flags",
+                "onboarding"
+            ],
+            "label": "AI Tags (LLM)"
+        },
         "$ai_target_event_id": {
             "description": "The unique identifier of the event being evaluated.",
             "examples": [
@@ -4062,6 +4276,16 @@
             "label": "Dead click selection changed timeout",
             "system": true
         },
+        "$dead_click_visibility_changed_delay_ms": {
+            "description": "the delay between a click and the next visibility change event",
+            "label": "Dead click visibility changed delay in milliseconds",
+            "system": true
+        },
+        "$dead_click_visibility_changed_timeout": {
+            "description": "whether the dead click autocapture passed the threshold for waiting for a visibility change event",
+            "label": "Dead click visibility changed timeout",
+            "system": true
+        },
         "$dead_clicks_enabled_server_side": {
             "description": "Whether dead clicks were enabled in remote config",
             "label": "Dead clicks enabled server side",
@@ -4137,6 +4361,18 @@
             ],
             "label": "Enabled feature flags"
         },
+        "$event_time_override_provided": {
+            "description": "Whether the SDK had to override the event timestamp because the value provided by the caller could not be used as-is.",
+            "label": "Event time was overridden",
+            "system": true,
+            "used_for_debug": true
+        },
+        "$event_time_override_system_time": {
+            "description": "The system time that the SDK fell back to when overriding the event timestamp.",
+            "label": "Event time override system time",
+            "system": true,
+            "used_for_debug": true
+        },
         "$event_type": {
             "description": "When the event is an $autocapture event, this specifies what the action was against the element.",
             "examples": [
@@ -4175,6 +4411,10 @@
         "$exception_fingerprint": {
             "description": "A fingerprint used to group issues, can be set clientside.",
             "label": "Exception fingerprint"
+        },
+        "$exception_fingerprint_record": {
+            "description": "The structured fingerprint pieces used to group issues, captured per exception in a chain. Each entry records the type, id, and contributing pieces.",
+            "label": "Exception fingerprint record"
         },
         "$exception_functions": {
             "description": "A function contained in the exception.",
@@ -4249,6 +4489,13 @@
             "description": "The description of the exception.",
             "label": "Exception message"
         },
+        "$external_click_url": {
+            "description": "The URL of an external link that was clicked during autocapture. External meaning the URL points to a different host than the page the user was on.",
+            "examples": [
+                "https://example.com/some-article"
+            ],
+            "label": "External click URL"
+        },
         "$feature_flag": {
             "description": "The feature flag that was called.\n\nWarning! This only works in combination with the $feature_flag_called event. If you want to filter other events, try \"Active feature flags\".",
             "examples": [
@@ -4256,12 +4503,36 @@
             ],
             "label": "Feature flag"
         },
+        "$feature_flag_bootstrapped_payload": {
+            "description": "The payload value provided to the SDK at initialization via the bootstrap option, before evaluation against PostHog.",
+            "label": "Feature flag bootstrapped payload"
+        },
+        "$feature_flag_bootstrapped_response": {
+            "description": "The response value provided to the SDK at initialization via the bootstrap option, before evaluation against PostHog.",
+            "label": "Feature flag bootstrapped response"
+        },
+        "$feature_flag_error": {
+            "description": "The error encountered while evaluating the feature flag, if any.",
+            "label": "Feature flag error",
+            "system": true
+        },
         "$feature_flag_evaluated_at": {
             "description": "The timestamp (in milliseconds since Unix epoch) when the feature flag was evaluated.",
             "examples": [
                 "1732051200000"
             ],
             "label": "Feature flag evaluated at"
+        },
+        "$feature_flag_id": {
+            "description": "The numeric identifier of the feature flag that was called.",
+            "examples": [
+                "1234"
+            ],
+            "label": "Feature flag ID"
+        },
+        "$feature_flag_original_response": {
+            "description": "The original feature flag response from PostHog, before any local override was applied.",
+            "label": "Feature flag original response"
         },
         "$feature_flag_payload": {
             "description": "The JSON payload that the call to feature flag responded with (if any)",
@@ -4785,6 +5056,14 @@
             ],
             "label": "Initial timezone"
         },
+        "$initial_host": {
+            "description": "Hostname of the URL the user first visited.",
+            "examples": [
+                "example.com",
+                "localhost:8000"
+            ],
+            "label": "Initial host"
+        },
         "$initial_igshid": {
             "description": "Instagram Share ID Data from the first time this user was seen.",
             "label": "Initial igshid"
@@ -4882,6 +5161,14 @@
                 "1920"
             ],
             "label": "Initial screen width"
+        },
+        "$initial_search_engine": {
+            "description": "Search engine the user came from on their first visit, if any.",
+            "examples": [
+                "Google",
+                "DuckDuckGo"
+            ],
+            "label": "Initial search engine"
         },
         "$initial_ttclid": {
             "description": "TikTok Click ID Data from the first time this user was seen.",
@@ -5137,6 +5424,11 @@
                 "15.5"
             ],
             "label": "Latest OS version"
+        },
+        "$override_feature_flags": {
+            "description": "Locally overridden feature flag values, typically set via the toolbar or SDK override APIs.",
+            "label": "Override feature flags",
+            "system": true
         },
         "$pageview_id": {
             "description": "PostHog's internal ID for matching events to a pageview.",
@@ -5461,6 +5753,11 @@
             "type": "String",
             "used_for_debug": true
         },
+        "$sdk_debug_replay_rrweb_error": {
+            "description": "An error reported by the rrweb session recording library while capturing the replay.",
+            "label": "Replay rrweb error",
+            "used_for_debug": true
+        },
         "$sdk_debug_replay_url_trigger_status": {
             "description": "The status of the recording url trigger.",
             "examples": [
@@ -5611,6 +5908,11 @@
             ],
             "ignored_in_assistant": true,
             "label": "Session entry Path name"
+        },
+        "$session_entry_ph_keyword": {
+            "description": "PostHog keyword tracking parameter. Captured at the start of the session and remains constant for the duration of the session.",
+            "ignored_in_assistant": true,
+            "label": "Session entry ph_keyword"
         },
         "$session_entry_qclid": {
             "description": "Quora Click ID Captured at the start of the session and remains constant for the duration of the session.",
@@ -6402,6 +6704,14 @@
             "label": "End URL",
             "type": "String"
         },
+        "$end_hostname": {
+            "description": "The hostname of the last URL visited in this session.",
+            "examples": [
+                "example.com"
+            ],
+            "label": "End hostname",
+            "type": "String"
+        },
         "$end_pathname": {
             "description": "The last pathname visited in this session.",
             "examples": [
@@ -6457,6 +6767,14 @@
         "$entry_gclsrc": {
             "description": "Google Click Source Data from the first event in this session.",
             "label": "Entry gclsrc"
+        },
+        "$entry_hostname": {
+            "description": "The hostname of the first URL visited in this session.",
+            "examples": [
+                "example.com"
+            ],
+            "label": "Entry hostname",
+            "type": "String"
         },
         "$entry_igshid": {
             "description": "Instagram Share ID Data from the first event in this session.",

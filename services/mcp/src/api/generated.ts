@@ -6467,15 +6467,7 @@ export namespace Schemas {
       Zmw: 'ZMW',
     } as const;
 
-    export interface BaselineSparklineDay {
-      clean: number;
-      tolerated: number;
-      changed: number;
-      quarantined: number;
-    }
-
     export interface BaselineEntry {
-      sparkline: BaselineSparklineDay[];
       identifier: string;
       run_type: string;
       /** @nullable */
@@ -6490,8 +6482,9 @@ export namespace Schemas {
       tolerate_count_90d: number;
       is_quarantined: boolean;
       last_run_at: string;
+      baseline_change_count: number;
       /** @nullable */
-      recent_diff_avg: number | null;
+      recent_drift_avg: number | null;
     }
 
     export type BaselineTotalsByRunType = {[key: string]: number};
@@ -6926,10 +6919,10 @@ export namespace Schemas {
       readonly state: unknown | null;
       /** @nullable */
       readonly created_by: BatchImportCreatedBy;
-      status?: BatchImportStatusEnum;
+      readonly status: BatchImportStatusEnum;
       /** @nullable */
       readonly display_status_message: string | null;
-      import_config: unknown;
+      readonly import_config: unknown;
     }
 
     export type BehavioralFilterType = typeof BehavioralFilterType[keyof typeof BehavioralFilterType];
@@ -7525,6 +7518,7 @@ export namespace Schemas {
     * `teams_bot_mention` - Teams bot mention
     * `widget_embedded` - Widget
     * `widget_api` - API
+    * `github_issue` - GitHub issue
      */
     export type ChannelDetailEnum = typeof ChannelDetailEnum[keyof typeof ChannelDetailEnum];
 
@@ -7537,6 +7531,7 @@ export namespace Schemas {
       TeamsBotMention: 'teams_bot_mention',
       WidgetEmbedded: 'widget_embedded',
       WidgetApi: 'widget_api',
+      GithubIssue: 'github_issue',
     } as const;
 
     /**
@@ -7544,6 +7539,7 @@ export namespace Schemas {
     * `email` - Email
     * `slack` - Slack
     * `teams` - Microsoft Teams
+    * `github` - GitHub
      */
     export type ChannelSourceEnum = typeof ChannelSourceEnum[keyof typeof ChannelSourceEnum];
 
@@ -7553,6 +7549,7 @@ export namespace Schemas {
       Email: 'email',
       Slack: 'slack',
       Teams: 'teams',
+      Github: 'github',
     } as const;
 
     export type DisplayType = typeof DisplayType[keyof typeof DisplayType];
@@ -7856,7 +7853,7 @@ export namespace Schemas {
     * `xhigh` - xhigh
     * `max` - max */
       reasoning_effort?: ReasoningEffortEnum;
-      /** Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests. */
+      /** Optional GitHub user token from PostHog Code for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens. */
       github_user_token?: string;
       /** Initial permission mode for Claude runtimes.
 
@@ -8171,7 +8168,7 @@ export namespace Schemas {
     * `xhigh` - xhigh
     * `max` - max */
       reasoning_effort?: ReasoningEffortEnum;
-      /** Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests. */
+      /** Optional GitHub user token from PostHog Code for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens. */
       github_user_token?: string;
       /** Initial permission mode for Codex runtimes.
 
@@ -9113,6 +9110,20 @@ export namespace Schemas {
       run_id: string;
       uploads: UploadTarget[];
     }
+
+    /**
+     * * `web` - web
+    * `api` - api
+    * `mcp` - mcp
+     */
+    export type CreatedViaEnum = typeof CreatedViaEnum[keyof typeof CreatedViaEnum];
+
+
+    export const CreatedViaEnum = {
+      Web: 'web',
+      Api: 'api',
+      Mcp: 'mcp',
+    } as const;
 
     /**
      * * `default` - Default
@@ -10228,6 +10239,7 @@ export namespace Schemas {
       GoogleSheets: 'google-sheets',
       LinkedinAds: 'linkedin-ads',
       Snapchat: 'snapchat',
+      Stripe: 'stripe',
       Intercom: 'intercom',
       Email: 'email',
       Twilio: 'twilio',
@@ -13128,6 +13140,11 @@ export namespace Schemas {
        * @nullable
        */
       readonly expires_at: string | null;
+      /**
+       * The effective access level the user has for this object
+       * @nullable
+       */
+      readonly user_access_level: string | null;
     }
 
     export interface DataWarehouseSavedQueryDraft {
@@ -13149,6 +13166,9 @@ export namespace Schemas {
       edited_history_id?: string | null;
     }
 
+    /**
+     * Mixin for serializers to add user access control fields
+     */
     export interface DataWarehouseSavedQueryFolder {
       readonly id: string;
       /**
@@ -13159,6 +13179,11 @@ export namespace Schemas {
       readonly created_at: string;
       readonly created_by: UserBasic;
       readonly view_count: number;
+      /**
+       * The effective access level the user has for this object
+       * @nullable
+       */
+      readonly user_access_level: string | null;
     }
 
     export type DataWarehouseSavedQueryMinimalColumnsItem = { [key: string]: unknown };
@@ -13209,6 +13234,11 @@ export namespace Schemas {
        * @nullable
        */
       readonly expires_at: string | null;
+      /**
+       * The effective access level the user has for this object
+       * @nullable
+       */
+      readonly user_access_level: string | null;
     }
 
     export type HedgehogActorAccessoryOption = typeof HedgehogActorAccessoryOption[keyof typeof HedgehogActorAccessoryOption];
@@ -15483,16 +15513,17 @@ export namespace Schemas {
       new_issue_ids: string[];
     }
 
+    export type ErrorTrackingRecommendationMeta = { [key: string]: unknown };
+
     export interface ErrorTrackingRecommendation {
       readonly id: string;
       readonly type: string;
-      readonly meta: unknown;
+      readonly meta: ErrorTrackingRecommendationMeta;
+      readonly completed: boolean;
       /** @nullable */
       readonly computed_at: string | null;
       /** @nullable */
       readonly dismissed_at: string | null;
-      /** @nullable */
-      readonly next_refresh_at: string | null;
       readonly created_at: string;
       readonly updated_at: string;
     }
@@ -17198,6 +17229,12 @@ export namespace Schemas {
     * `warehouse` - warehouse
     * `direct` - direct */
       access_method?: AccessMethodEnum;
+      /** Where the request came from
+
+    * `web` - web
+    * `api` - api
+    * `mcp` - mcp */
+      created_via?: CreatedViaEnum;
     }
 
     export interface ExternalDataSourceRevenueAnalyticsConfig {
@@ -17215,6 +17252,12 @@ export namespace Schemas {
       readonly created_at: string;
       /** @nullable */
       readonly created_by: string | null;
+      /** How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. Ignored on update.
+
+    * `web` - web
+    * `api` - api
+    * `mcp` - mcp */
+      created_via?: CreatedViaEnum;
       readonly status: string;
       client_secret: string;
       account_id: string;
@@ -21272,19 +21315,19 @@ export namespace Schemas {
       /** Unique identifier for this alert. */
       readonly id: string;
       /**
-       * Human-readable name for this alert.
+       * Human-readable name for this alert. Defaults to 'Untitled alert' on create when omitted.
        * @maxLength 255
        */
-      name: string;
+      name?: string;
       /** Whether the alert is actively being evaluated. Disabling resets the state to not_firing. */
       enabled?: boolean;
-      /** Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). */
-      filters: unknown;
+      /** Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). May be empty on draft alerts (enabled=false). */
+      filters?: unknown;
       /**
-       * Number of matching log entries that constitutes a threshold breach within the evaluation window.
+       * Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100.
        * @minimum 1
        */
-      threshold_count: number;
+      threshold_count?: number;
       /** Whether the alert fires when the count is above or below the threshold.
 
     * `above` - Above
@@ -21351,6 +21394,11 @@ export namespace Schemas {
       readonly state_timeline: readonly LogsAlertStateInterval[];
       /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
       readonly destination_types: readonly NotificationDestinationTypeEnum[];
+      /**
+       * When the alert was first enabled. Null means the alert is still in draft state.
+       * @nullable
+       */
+      readonly first_enabled_at: string | null;
       /** When the alert was created. */
       readonly created_at: string;
       readonly created_by: UserBasic;
@@ -21457,6 +21505,12 @@ export namespace Schemas {
       /** Window size in minutes — determines bucket interval. */
       window_minutes: number;
       /**
+       * How often the alert is evaluated, in minutes.
+       * @minimum 1
+       * @maximum 60
+       */
+      check_interval_minutes?: number;
+      /**
        * Total check periods in the N-of-M evaluation window (M).
        * @minimum 1
        * @maximum 10
@@ -21490,6 +21544,80 @@ export namespace Schemas {
       threshold_count: number;
       /** Threshold operator used for evaluation. */
       threshold_operator: string;
+    }
+
+    export type LogsSamplingRuleScopeAttributeFiltersItem = { [key: string]: unknown };
+
+    /**
+     * * `severity_sampling` - Severity-based reduction
+    * `path_drop` - Path exclusion
+    * `rate_limit` - Rate limit
+     */
+    export type RuleTypeEnum = typeof RuleTypeEnum[keyof typeof RuleTypeEnum];
+
+
+    export const RuleTypeEnum = {
+      SeveritySampling: 'severity_sampling',
+      PathDrop: 'path_drop',
+      RateLimit: 'rate_limit',
+    } as const;
+
+    export interface LogsSamplingRule {
+      /** Unique identifier for this sampling rule. */
+      readonly id: string;
+      /**
+       * User-visible label for this rule.
+       * @maxLength 255
+       */
+      name: string;
+      /** When false, the rule is ignored by ingestion and listing UIs that show active rules only. */
+      enabled?: boolean;
+      /**
+       * Lower numbers are evaluated first; the first matching rule wins. Omit to append after existing rules.
+       * @minimum 0
+       * @nullable
+       */
+      priority?: number | null;
+      /** Rule kind: severity_sampling, path_drop, or rate_limit (rate_limit reserved for a future release).
+
+    * `severity_sampling` - Severity-based reduction
+    * `path_drop` - Path exclusion
+    * `rate_limit` - Rate limit */
+      rule_type: RuleTypeEnum;
+      /**
+       * If set, the rule applies only to this service name; null means all services.
+       * @maxLength 512
+       * @nullable
+       */
+      scope_service?: string | null;
+      /**
+       * Optional regex matched against a path-like log attribute when present.
+       * @maxLength 1024
+       * @nullable
+       */
+      scope_path_pattern?: string | null;
+      /** Optional list of predicates over string attributes, e.g. [{"key":"http.route","op":"eq","value":"/api"}]. */
+      scope_attribute_filters?: LogsSamplingRuleScopeAttributeFiltersItem[];
+      /** Type-specific JSON. For path_drop: object with required `patterns` (list of regex strings) and optional `match_attribute_key` (string). When `match_attribute_key` is omitted or empty, patterns match the same virtual path string as ingestion (url.path, http.path, http.route, path). When set, each pattern is tested only against that string attribute on the log record. For severity_sampling: object with `actions` per severity level and optional `always_keep`. rate_limit is reserved. */
+      config: unknown;
+      /** Incremented on each update for worker cache coherency. */
+      readonly version: number;
+      readonly created_by: number;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+    }
+
+    export interface LogsSamplingRuleReorder {
+      /** Rule IDs in the desired evaluation order (first element is highest priority / lowest order index). */
+      ordered_ids: string[];
+    }
+
+    export interface LogsSamplingRuleSimulateResponse {
+      /** Rough percent of log volume this rule would drop (0–100). Stub until ClickHouse-backed estimate ships. */
+      estimated_reduction_pct: number;
+      /** Human-readable caveats for the estimate. */
+      notes: string;
     }
 
     /**
@@ -22259,6 +22387,52 @@ export namespace Schemas {
     }
 
     /**
+     * * `later` - Later
+    * `other` - Other
+     */
+    export type OnboardingSkipRequestReasonEnum = typeof OnboardingSkipRequestReasonEnum[keyof typeof OnboardingSkipRequestReasonEnum];
+
+
+    export const OnboardingSkipRequestReasonEnum = {
+      Later: 'later',
+      Other: 'other',
+    } as const;
+
+    /**
+     * Request body for POST /api/users/{id}/onboarding/skip/.
+
+    Source of truth for OpenAPI / generated TS / zod / MCP — bind this serializer at
+    runtime so the contract clients believe is enforced (length cap, choice validation,
+    no extra fields) is actually enforced server-side.
+     */
+    export interface OnboardingSkipRequest {
+      /** Why the user is leaving onboarding. 'later' keeps them able to return; 'other' is a catch-all. 'delegated' is rejected here — use the delegate endpoint so the delegation invite is created atomically.
+
+    * `later` - Later
+    * `other` - Other */
+      reason: OnboardingSkipRequestReasonEnum;
+      /**
+       * Onboarding step key the user was on when skipping, for analytics only.
+       * @maxLength 64
+       */
+      step_at_skip?: string;
+    }
+
+    /**
+     * * `delegated` - Delegated to teammate
+    * `later` - Skipped for later
+    * `other` - Other
+     */
+    export type OnboardingSkippedReasonEnum = typeof OnboardingSkippedReasonEnum[keyof typeof OnboardingSkippedReasonEnum];
+
+
+    export const OnboardingSkippedReasonEnum = {
+      Delegated: 'delegated',
+      Later: 'later',
+      Other: 'other',
+    } as const;
+
+    /**
      * * `latest` - latest
     * `earliest` - earliest
      */
@@ -22478,6 +22652,21 @@ export namespace Schemas {
       private_project_access?: unknown | null;
       send_email?: boolean;
       combine_pending_invites?: boolean;
+    }
+
+    export interface OrganizationInviteDelegate {
+      /** Email of the teammate who should complete setup on the inviter's behalf. Receives a PostHog-branded delegation invite granting admin-level membership on accept. */
+      target_email: string;
+      /**
+       * Optional personal message included in the delegation email (up to 1000 characters).
+       * @maxLength 1000
+       */
+      message?: string;
+      /**
+       * Onboarding step key the delegator was on when delegating, for analytics only.
+       * @maxLength 64
+       */
+      step_at_delegation?: string;
     }
 
     export interface OrganizationMember {
@@ -23292,6 +23481,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: LogsAlertEvent[];
+    }
+
+    export interface PaginatedLogsSamplingRuleList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: LogsSamplingRule[];
     }
 
     export interface PaginatedLogsViewList {
@@ -24940,6 +25138,9 @@ export namespace Schemas {
 
     export type TableOptions = { [key: string]: unknown };
 
+    /**
+     * Mixin for serializers to add user access control fields
+     */
     export interface Table {
       readonly id: string;
       /** @nullable */
@@ -24957,6 +25158,11 @@ export namespace Schemas {
       /** @nullable */
       readonly external_schema: TableExternalSchema;
       options?: TableOptions;
+      /**
+       * The effective access level the user has for this object
+       * @nullable
+       */
+      readonly user_access_level: string | null;
     }
 
     export interface PaginatedTableList {
@@ -25129,6 +25335,11 @@ export namespace Schemas {
        * @nullable
        */
       github_integration?: number | null;
+      /**
+       * User-scoped GitHub integration to use for user-authored cloud runs.
+       * @nullable
+       */
+      github_user_integration?: string | null;
       /** @nullable */
       signal_report?: string | null;
       signal_report_task_relationship?: SignalReportTaskRelationshipEnum;
@@ -25474,6 +25685,10 @@ export namespace Schemas {
       /** @nullable */
       readonly email_to: string | null;
       readonly cc_participants: unknown;
+      /** @nullable */
+      readonly github_repo: string | null;
+      /** @nullable */
+      readonly github_issue_number: number | null;
       readonly person: TicketPerson | null;
       tags?: unknown[];
     }
@@ -25609,6 +25824,8 @@ export namespace Schemas {
     }
 
     export interface UserGitHubIntegrationItem {
+      /** PostHog UserIntegration row id. */
+      id: string;
       /** Integration kind; always `github` for this API. */
       kind: string;
       /** GitHub App installation id. */
@@ -25786,6 +26003,20 @@ export namespace Schemas {
        */
       passkeys_enabled_for_2fa?: boolean | null;
       /** @nullable */
+      readonly onboarding_skipped_at: string | null;
+      readonly onboarding_skipped_reason: OnboardingSkippedReasonEnum | NullEnum | null;
+      /** @nullable */
+      readonly onboarding_skipped_organization_id: string | null;
+      /** @nullable */
+      readonly onboarding_delegated_to_invite: string | null;
+      /**
+       * Organization ID of the pending delegation invite, if any. Used by the frontend to scope the 'waiting for teammate' UI to the org where delegation was initiated.
+       * @nullable
+       */
+      readonly onboarding_delegated_to_organization_id: string | null;
+      /** @nullable */
+      readonly onboarding_delegation_accepted_at: string | null;
+      /** @nullable */
       readonly is_organization_first_user: boolean | null;
       readonly pending_invites: readonly PendingInvite[];
     }
@@ -25807,11 +26038,12 @@ export namespace Schemas {
     * `used_on_separate_team` - Used on Separate Team
     * `new_product` - New Product
     * `sales_led` - Sales Led
+    * `onboarding_delegated` - Onboarding Delegated
      */
-    export type ReasonEnum = typeof ReasonEnum[keyof typeof ReasonEnum];
+    export type UserProductListReasonEnum = typeof UserProductListReasonEnum[keyof typeof UserProductListReasonEnum];
 
 
-    export const ReasonEnum = {
+    export const UserProductListReasonEnum = {
       Onboarding: 'onboarding',
       ProductIntent: 'product_intent',
       UsedByColleagues: 'used_by_colleagues',
@@ -25819,13 +26051,14 @@ export namespace Schemas {
       UsedOnSeparateTeam: 'used_on_separate_team',
       NewProduct: 'new_product',
       SalesLed: 'sales_led',
+      OnboardingDelegated: 'onboarding_delegated',
     } as const;
 
     export interface UserProductList {
       readonly id: string;
       readonly product_path: string;
       enabled?: boolean;
-      readonly reason: ReasonEnum | NullEnum | null;
+      readonly reason: UserProductListReasonEnum | NullEnum | null;
       /** @nullable */
       readonly reason_text: string | null;
       readonly created_at: string;
@@ -26189,10 +26422,10 @@ export namespace Schemas {
       readonly state?: unknown | null;
       /** @nullable */
       readonly created_by?: PatchedBatchImportCreatedBy;
-      status?: BatchImportStatusEnum;
+      readonly status?: BatchImportStatusEnum;
       /** @nullable */
       readonly display_status_message?: string | null;
-      import_config?: unknown;
+      readonly import_config?: unknown;
     }
 
     export interface PatchedClusteringJob {
@@ -26616,6 +26849,11 @@ export namespace Schemas {
        * @nullable
        */
       readonly expires_at?: string | null;
+      /**
+       * The effective access level the user has for this object
+       * @nullable
+       */
+      readonly user_access_level?: string | null;
     }
 
     export interface PatchedDataWarehouseSavedQueryDraft {
@@ -26637,6 +26875,9 @@ export namespace Schemas {
       edited_history_id?: string | null;
     }
 
+    /**
+     * Mixin for serializers to add user access control fields
+     */
     export interface PatchedDataWarehouseSavedQueryFolder {
       readonly id?: string;
       /**
@@ -26647,6 +26888,11 @@ export namespace Schemas {
       readonly created_at?: string;
       readonly created_by?: UserBasic;
       readonly view_count?: number;
+      /**
+       * The effective access level the user has for this object
+       * @nullable
+       */
+      readonly user_access_level?: string | null;
     }
 
     export interface PatchedDataset {
@@ -27479,6 +27725,12 @@ export namespace Schemas {
       readonly created_at?: string;
       /** @nullable */
       readonly created_by?: string | null;
+      /** How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. Ignored on update.
+
+    * `web` - web
+    * `api` - api
+    * `mcp` - mcp */
+      created_via?: CreatedViaEnum;
       readonly status?: string;
       client_secret?: string;
       account_id?: string;
@@ -28108,16 +28360,16 @@ export namespace Schemas {
       /** Unique identifier for this alert. */
       readonly id?: string;
       /**
-       * Human-readable name for this alert.
+       * Human-readable name for this alert. Defaults to 'Untitled alert' on create when omitted.
        * @maxLength 255
        */
       name?: string;
       /** Whether the alert is actively being evaluated. Disabling resets the state to not_firing. */
       enabled?: boolean;
-      /** Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). */
+      /** Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). May be empty on draft alerts (enabled=false). */
       filters?: unknown;
       /**
-       * Number of matching log entries that constitutes a threshold breach within the evaluation window.
+       * Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100.
        * @minimum 1
        */
       threshold_count?: number;
@@ -28187,6 +28439,11 @@ export namespace Schemas {
       readonly state_timeline?: readonly LogsAlertStateInterval[];
       /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
       readonly destination_types?: readonly NotificationDestinationTypeEnum[];
+      /**
+       * When the alert was first enabled. Null means the alert is still in draft state.
+       * @nullable
+       */
+      readonly first_enabled_at?: string | null;
       /** When the alert was created. */
       readonly created_at?: string;
       readonly created_by?: UserBasic;
@@ -28194,6 +28451,54 @@ export namespace Schemas {
        * When the alert was last modified.
        * @nullable
        */
+      readonly updated_at?: string | null;
+    }
+
+    export type PatchedLogsSamplingRuleScopeAttributeFiltersItem = { [key: string]: unknown };
+
+    export interface PatchedLogsSamplingRule {
+      /** Unique identifier for this sampling rule. */
+      readonly id?: string;
+      /**
+       * User-visible label for this rule.
+       * @maxLength 255
+       */
+      name?: string;
+      /** When false, the rule is ignored by ingestion and listing UIs that show active rules only. */
+      enabled?: boolean;
+      /**
+       * Lower numbers are evaluated first; the first matching rule wins. Omit to append after existing rules.
+       * @minimum 0
+       * @nullable
+       */
+      priority?: number | null;
+      /** Rule kind: severity_sampling, path_drop, or rate_limit (rate_limit reserved for a future release).
+
+    * `severity_sampling` - Severity-based reduction
+    * `path_drop` - Path exclusion
+    * `rate_limit` - Rate limit */
+      rule_type?: RuleTypeEnum;
+      /**
+       * If set, the rule applies only to this service name; null means all services.
+       * @maxLength 512
+       * @nullable
+       */
+      scope_service?: string | null;
+      /**
+       * Optional regex matched against a path-like log attribute when present.
+       * @maxLength 1024
+       * @nullable
+       */
+      scope_path_pattern?: string | null;
+      /** Optional list of predicates over string attributes, e.g. [{"key":"http.route","op":"eq","value":"/api"}]. */
+      scope_attribute_filters?: PatchedLogsSamplingRuleScopeAttributeFiltersItem[];
+      /** Type-specific JSON. For path_drop: object with required `patterns` (list of regex strings) and optional `match_attribute_key` (string). When `match_attribute_key` is omitted or empty, patterns match the same virtual path string as ingestion (url.path, http.path, http.route, path). When set, each pattern is tested only against that string attribute on the log record. For severity_sampling: object with `actions` per severity level and optional `always_keep`. rate_limit is reserved. */
+      config?: unknown;
+      /** Incremented on each update for worker cache coherency. */
+      readonly version?: number;
+      readonly created_by?: number;
+      readonly created_at?: string;
+      /** @nullable */
       readonly updated_at?: string | null;
     }
 
@@ -30465,6 +30770,9 @@ export namespace Schemas {
 
     export type PatchedTableOptions = { [key: string]: unknown };
 
+    /**
+     * Mixin for serializers to add user access control fields
+     */
     export interface PatchedTable {
       readonly id?: string;
       /** @nullable */
@@ -30482,6 +30790,11 @@ export namespace Schemas {
       /** @nullable */
       readonly external_schema?: PatchedTableExternalSchema;
       options?: PatchedTableOptions;
+      /**
+       * The effective access level the user has for this object
+       * @nullable
+       */
+      readonly user_access_level?: string | null;
     }
 
     export interface PatchedTagger {
@@ -30528,6 +30841,11 @@ export namespace Schemas {
        * @nullable
        */
       github_integration?: number | null;
+      /**
+       * User-scoped GitHub integration to use for user-authored cloud runs.
+       * @nullable
+       */
+      github_user_integration?: string | null;
       /** @nullable */
       signal_report?: string | null;
       signal_report_task_relationship?: SignalReportTaskRelationshipEnum;
@@ -30913,6 +31231,10 @@ export namespace Schemas {
       /** @nullable */
       readonly email_to?: string | null;
       readonly cc_participants?: unknown;
+      /** @nullable */
+      readonly github_repo?: string | null;
+      /** @nullable */
+      readonly github_issue_number?: number | null;
       readonly person?: TicketPerson | null;
       tags?: unknown[];
     }
@@ -31063,6 +31385,20 @@ export namespace Schemas {
        */
       passkeys_enabled_for_2fa?: boolean | null;
       /** @nullable */
+      readonly onboarding_skipped_at?: string | null;
+      readonly onboarding_skipped_reason?: OnboardingSkippedReasonEnum | NullEnum | null;
+      /** @nullable */
+      readonly onboarding_skipped_organization_id?: string | null;
+      /** @nullable */
+      readonly onboarding_delegated_to_invite?: string | null;
+      /**
+       * Organization ID of the pending delegation invite, if any. Used by the frontend to scope the 'waiting for teammate' UI to the org where delegation was initiated.
+       * @nullable
+       */
+      readonly onboarding_delegated_to_organization_id?: string | null;
+      /** @nullable */
+      readonly onboarding_delegation_accepted_at?: string | null;
+      /** @nullable */
       readonly is_organization_first_user?: boolean | null;
       readonly pending_invites?: readonly PendingInvite[];
     }
@@ -31081,7 +31417,7 @@ export namespace Schemas {
       readonly id?: string;
       readonly product_path?: string;
       enabled?: boolean;
-      readonly reason?: ReasonEnum | NullEnum | null;
+      readonly reason?: UserProductListReasonEnum | NullEnum | null;
       /** @nullable */
       readonly reason_text?: string | null;
       readonly created_at?: string;
@@ -36590,7 +36926,7 @@ export namespace Schemas {
       run_source?: RunSourceEnum;
       /** Optional signal report identifier when this run was started from Inbox. */
       signal_report_id?: string;
-      /** Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests. */
+      /** Optional GitHub user token from PostHog Code for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens. */
       github_user_token?: string;
     }
 
@@ -37105,7 +37441,7 @@ export namespace Schemas {
     export interface UserGitHubLinkStartResponse {
       /** URL to open in the browser to install or authorize the GitHub App for this user. */
       install_url: string;
-      /** oauth_authorize when using user OAuth against an existing team installation; app_install for the GitHub App installation UI. */
+      /** OAuth or install flow used for this GitHub connection. */
       connect_flow: string;
     }
 
@@ -37531,6 +37867,19 @@ export namespace Schemas {
       maxExportableLogs: number;
     }
 
+    export interface _LogsServiceActiveRule {
+      rule_id: string;
+      rule_name: string;
+      summary_string: string;
+    }
+
+    export interface _LogsServiceSeverityBreakdown {
+      debug: number;
+      info: number;
+      warn: number;
+      error: number;
+    }
+
     export interface _LogsServiceAggregate {
       /** Service name, or "(no value)" / "(no service)" placeholder for unset entries. */
       service_name: string;
@@ -37540,6 +37889,12 @@ export namespace Schemas {
       error_count: number;
       /** Pre-computed error_count / log_count, rounded to 4 decimals. Useful for ranking noisy services. */
       error_rate: number;
+      /** Share of total log volume in the window for this service (0–100). */
+      volume_share_pct?: number;
+      /** Counts by coarse severity bucket (debug, info, warn, error+fatal). */
+      severity_breakdown?: _LogsServiceSeverityBreakdown;
+      /** Enabled sampling rules whose scope includes this service. */
+      active_rules?: _LogsServiceActiveRule[];
     }
 
     export interface _LogsServicesBody {
@@ -37567,11 +37922,20 @@ export namespace Schemas {
       count: number;
     }
 
+    export interface _LogsServicesSummary {
+      /** Number of top services included in the volume_share aggregate (up to 5). */
+      top_services_count: number;
+      /** Combined volume share (percent) of the top services by log_count. */
+      top_services_volume_share_pct: number;
+    }
+
     export interface _LogsServicesResponse {
       /** Per-service aggregates, ordered by log_count descending. Capped at 25 services. */
       services: _LogsServiceAggregate[];
       /** Time-bucketed counts broken down by service, for plotting volume over time. */
       sparkline: _LogsServicesSparklineBucket[];
+      /** Roll-up stats for the Services tab header. */
+      summary?: _LogsServicesSummary;
     }
 
     export interface _LogsSparklineBody {
@@ -37761,6 +38125,10 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Optional. Fuzzy match against dashboard `name` and `description` using Postgres trigram word similarity (handles typos, transpositions, and prefix-as-you-type). `name` matches rank above `description` matches. Results are ordered by relevance, then pinned status, then name. When omitted, dashboards are ordered by pinned status then alphabetical name. Capped at 200 characters; longer queries return a 400 error.
+     */
+    search?: string;
     };
 
     export type EnvironmentsDashboardsListFormat = typeof EnvironmentsDashboardsListFormat[keyof typeof EnvironmentsDashboardsListFormat];
@@ -37784,7 +38152,15 @@ export namespace Schemas {
     } as const;
 
     export type EnvironmentsDashboardsRetrieveParams = {
+    /**
+     * JSON object to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
+     */
+    filters_override?: string;
     format?: EnvironmentsDashboardsRetrieveFormat;
+    /**
+     * JSON object to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
+     */
+    variables_override?: string;
     };
 
     export type EnvironmentsDashboardsRetrieveFormat = typeof EnvironmentsDashboardsRetrieveFormat[keyof typeof EnvironmentsDashboardsRetrieveFormat];
@@ -37880,6 +38256,10 @@ export namespace Schemas {
     } as const;
 
     export type EnvironmentsDashboardsRunInsightsRetrieveParams = {
+    /**
+     * JSON object to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
+     */
+    filters_override?: string;
     format?: EnvironmentsDashboardsRunInsightsRetrieveFormat;
     /**
      * 'optimized' (default) returns LLM-friendly formatted text per insight. 'json' returns the raw query result objects.
@@ -37889,6 +38269,10 @@ export namespace Schemas {
      * Cache behavior. 'force_cache' (default) serves from cache even if stale. 'blocking' uses cache if fresh, otherwise recalculates. 'force_blocking' always recalculates.
      */
     refresh?: EnvironmentsDashboardsRunInsightsRetrieveRefresh;
+    /**
+     * JSON object to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
+     */
+    variables_override?: string;
     };
 
     export type EnvironmentsDashboardsRunInsightsRetrieveFormat = typeof EnvironmentsDashboardsRunInsightsRetrieveFormat[keyof typeof EnvironmentsDashboardsRunInsightsRetrieveFormat];
@@ -37929,7 +38313,19 @@ export namespace Schemas {
     } as const;
 
     export type EnvironmentsDashboardsStreamTilesRetrieveParams = {
+    /**
+     * JSON object to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
+     */
+    filters_override?: string;
     format?: EnvironmentsDashboardsStreamTilesRetrieveFormat;
+    /**
+     * Layout size for tile positioning. 'sm' (default) for standard, 'xs' for mobile. The snake_case alias `layout_size` is also accepted for backward compatibility.
+     */
+    layoutSize?: EnvironmentsDashboardsStreamTilesRetrieveLayoutSize;
+    /**
+     * JSON object to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
+     */
+    variables_override?: string;
     };
 
     export type EnvironmentsDashboardsStreamTilesRetrieveFormat = typeof EnvironmentsDashboardsStreamTilesRetrieveFormat[keyof typeof EnvironmentsDashboardsStreamTilesRetrieveFormat];
@@ -37938,6 +38334,14 @@ export namespace Schemas {
     export const EnvironmentsDashboardsStreamTilesRetrieveFormat = {
       Json: 'json',
       Txt: 'txt',
+    } as const;
+
+    export type EnvironmentsDashboardsStreamTilesRetrieveLayoutSize = typeof EnvironmentsDashboardsStreamTilesRetrieveLayoutSize[keyof typeof EnvironmentsDashboardsStreamTilesRetrieveLayoutSize];
+
+
+    export const EnvironmentsDashboardsStreamTilesRetrieveLayoutSize = {
+      Sm: 'sm',
+      Xs: 'xs',
     } as const;
 
     export type EnvironmentsDashboardsBulkUpdateTagsCreateParams = {
@@ -38954,6 +39358,10 @@ export namespace Schemas {
     };
 
     export type EnvironmentsInsightsRetrieveParams = {
+    /**
+     * JSON object to override the insight's filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
+     */
+    filters_override?: string;
     format?: EnvironmentsInsightsRetrieveFormat;
     /**
      * 
@@ -38973,6 +39381,10 @@ export namespace Schemas {
     Background calculation can be tracked using the `query_status` response field.
      */
     refresh?: EnvironmentsInsightsRetrieveRefresh;
+    /**
+     * JSON object to override the insight's HogQL variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `insight-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
+     */
+    variables_override?: string;
     };
 
     export type EnvironmentsInsightsRetrieveFormat = typeof EnvironmentsInsightsRetrieveFormat[keyof typeof EnvironmentsInsightsRetrieveFormat];
@@ -39292,6 +39704,28 @@ export namespace Schemas {
     export type EnvironmentsLogsExportCreate201 = { [key: string]: unknown };
 
     export type EnvironmentsLogsHasLogsRetrieve200 = { [key: string]: unknown };
+
+    export type EnvironmentsLogsSamplingRulesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type EnvironmentsLogsSamplingRulesReorderCreateParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
 
     export type EnvironmentsLogsValuesRetrieveParams = {
     /**
@@ -41265,6 +41699,7 @@ export namespace Schemas {
     * `CustomerProfileConfig` - CustomerProfileConfig
     * `Log` - Log
     * `LogsAlertConfiguration` - LogsAlertConfiguration
+    * `LogsExclusionRule` - LogsExclusionRule
     * `ProductTour` - ProductTour
     * `Ticket` - Ticket
      * @minLength 1
@@ -41339,6 +41774,7 @@ export namespace Schemas {
       CustomerProfileConfig: 'CustomerProfileConfig',
       Log: 'Log',
       LogsAlertConfiguration: 'LogsAlertConfiguration',
+      LogsExclusionRule: 'LogsExclusionRule',
       ProductTour: 'ProductTour',
       Ticket: 'Ticket',
     } as const;
@@ -41399,6 +41835,7 @@ export namespace Schemas {
     * `CustomerProfileConfig` - CustomerProfileConfig
     * `Log` - Log
     * `LogsAlertConfiguration` - LogsAlertConfiguration
+    * `LogsExclusionRule` - LogsExclusionRule
     * `ProductTour` - ProductTour
     * `Ticket` - Ticket
      */
@@ -41461,6 +41898,7 @@ export namespace Schemas {
       CustomerProfileConfig: 'CustomerProfileConfig',
       Log: 'Log',
       LogsAlertConfiguration: 'LogsAlertConfiguration',
+      LogsExclusionRule: 'LogsExclusionRule',
       ProductTour: 'ProductTour',
       Ticket: 'Ticket',
     } as const;
@@ -41760,6 +42198,7 @@ export namespace Schemas {
 
 
     export const ConversationsTicketsListChannelDetail = {
+      GithubIssue: 'github_issue',
       SlackBotMention: 'slack_bot_mention',
       SlackChannelMessage: 'slack_channel_message',
       SlackEmojiReaction: 'slack_emoji_reaction',
@@ -41774,6 +42213,7 @@ export namespace Schemas {
 
     export const ConversationsTicketsListChannelSource = {
       Email: 'email',
+      Github: 'github',
       Slack: 'slack',
       Teams: 'teams',
       Widget: 'widget',
@@ -41830,6 +42270,10 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Optional. Fuzzy match against dashboard `name` and `description` using Postgres trigram word similarity (handles typos, transpositions, and prefix-as-you-type). `name` matches rank above `description` matches. Results are ordered by relevance, then pinned status, then name. When omitted, dashboards are ordered by pinned status then alphabetical name. Capped at 200 characters; longer queries return a 400 error.
+     */
+    search?: string;
     };
 
     export type DashboardsListFormat = typeof DashboardsListFormat[keyof typeof DashboardsListFormat];
@@ -41853,7 +42297,15 @@ export namespace Schemas {
     } as const;
 
     export type DashboardsRetrieveParams = {
+    /**
+     * JSON object to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
+     */
+    filters_override?: string;
     format?: DashboardsRetrieveFormat;
+    /**
+     * JSON object to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
+     */
+    variables_override?: string;
     };
 
     export type DashboardsRetrieveFormat = typeof DashboardsRetrieveFormat[keyof typeof DashboardsRetrieveFormat];
@@ -41949,6 +42401,10 @@ export namespace Schemas {
     } as const;
 
     export type DashboardsRunInsightsRetrieveParams = {
+    /**
+     * JSON object to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
+     */
+    filters_override?: string;
     format?: DashboardsRunInsightsRetrieveFormat;
     /**
      * 'optimized' (default) returns LLM-friendly formatted text per insight. 'json' returns the raw query result objects.
@@ -41958,6 +42414,10 @@ export namespace Schemas {
      * Cache behavior. 'force_cache' (default) serves from cache even if stale. 'blocking' uses cache if fresh, otherwise recalculates. 'force_blocking' always recalculates.
      */
     refresh?: DashboardsRunInsightsRetrieveRefresh;
+    /**
+     * JSON object to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
+     */
+    variables_override?: string;
     };
 
     export type DashboardsRunInsightsRetrieveFormat = typeof DashboardsRunInsightsRetrieveFormat[keyof typeof DashboardsRunInsightsRetrieveFormat];
@@ -41998,7 +42458,19 @@ export namespace Schemas {
     } as const;
 
     export type DashboardsStreamTilesRetrieveParams = {
+    /**
+     * JSON object to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
+     */
+    filters_override?: string;
     format?: DashboardsStreamTilesRetrieveFormat;
+    /**
+     * Layout size for tile positioning. 'sm' (default) for standard, 'xs' for mobile. The snake_case alias `layout_size` is also accepted for backward compatibility.
+     */
+    layoutSize?: DashboardsStreamTilesRetrieveLayoutSize;
+    /**
+     * JSON object to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
+     */
+    variables_override?: string;
     };
 
     export type DashboardsStreamTilesRetrieveFormat = typeof DashboardsStreamTilesRetrieveFormat[keyof typeof DashboardsStreamTilesRetrieveFormat];
@@ -42007,6 +42479,14 @@ export namespace Schemas {
     export const DashboardsStreamTilesRetrieveFormat = {
       Json: 'json',
       Txt: 'txt',
+    } as const;
+
+    export type DashboardsStreamTilesRetrieveLayoutSize = typeof DashboardsStreamTilesRetrieveLayoutSize[keyof typeof DashboardsStreamTilesRetrieveLayoutSize];
+
+
+    export const DashboardsStreamTilesRetrieveLayoutSize = {
+      Sm: 'sm',
+      Xs: 'xs',
     } as const;
 
     export type DashboardsBulkUpdateTagsCreateParams = {
@@ -43328,6 +43808,10 @@ export namespace Schemas {
     };
 
     export type InsightsRetrieveParams = {
+    /**
+     * JSON object to override the insight's filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
+     */
+    filters_override?: string;
     format?: InsightsRetrieveFormat;
     /**
      * 
@@ -43347,6 +43831,10 @@ export namespace Schemas {
     Background calculation can be tracked using the `query_status` response field.
      */
     refresh?: InsightsRetrieveRefresh;
+    /**
+     * JSON object to override the insight's HogQL variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `insight-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
+     */
+    variables_override?: string;
     };
 
     export type InsightsRetrieveFormat = typeof InsightsRetrieveFormat[keyof typeof InsightsRetrieveFormat];
@@ -43715,6 +44203,28 @@ export namespace Schemas {
     export type LogsExportCreate201 = { [key: string]: unknown };
 
     export type LogsHasLogsRetrieve200 = { [key: string]: unknown };
+
+    export type LogsSamplingRulesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type LogsSamplingRulesReorderCreateParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
 
     export type LogsValuesRetrieveParams = {
     /**
@@ -44996,6 +45506,29 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type UsersIntegrationsGithubBranchesRetrieveParams = {
+    /**
+     * Maximum number of branches to return
+     * @minimum 1
+     * @maximum 1000
+     */
+    limit?: number;
+    /**
+     * Number of branches to skip
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Repository in owner/repo format
+     * @minLength 1
+     */
+    repo: string;
+    /**
+     * Optional case-insensitive branch name search query.
+     */
+    search?: string;
     };
 
     export type UsersIntegrationsGithubReposRetrieveParams = {
