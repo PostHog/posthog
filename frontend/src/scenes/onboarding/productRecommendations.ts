@@ -32,7 +32,7 @@ export const USE_CASE_OPTIONS: ReadonlyArray<UseCaseDefinition> = [
     {
         key: 'fix_issues',
         title: 'Find and fix issues',
-        description: 'Watch session recordings and monitor errors to debug issues',
+        description: 'Watch session recordings, monitor errors, and search application logs to debug issues',
         iconKey: 'IconWarning',
         iconColor: 'rgb(235 157 42)',
         products: [ProductKey.SESSION_REPLAY, ProductKey.ERROR_TRACKING, ProductKey.LOGS],

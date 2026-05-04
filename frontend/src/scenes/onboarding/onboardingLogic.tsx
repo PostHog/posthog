@@ -136,6 +136,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
         setAwaitingPostOnboardingModal: (awaiting: boolean) => ({ awaiting }),
         setSessionSecondaryProductKeys: (keys: ProductKey[]) => ({ keys }),
         setFromProductKey: (key: ProductKey | null) => ({ key }),
+        setResumeStep: (step: OnboardingStepKey | null) => ({ step }),
     }),
     reducers(() => ({
         isAwaitingPostOnboardingModal: [
@@ -196,6 +197,12 @@ export const onboardingLogic = kea<onboardingLogicType>([
             null as ProductKey | null,
             {
                 setFromProductKey: (_, { key }) => key,
+            },
+        ],
+        resumeStep: [
+            null as OnboardingStepKey | null,
+            {
+                setResumeStep: (_, { step }) => step,
             },
         ],
     })),
@@ -404,53 +411,76 @@ export const onboardingLogic = kea<onboardingLogicType>([
         goToNextStep: ({ numStepsToAdvance }) => {
             const currentStepIndex = values.allOnboardingSteps.findIndex((step) => getStepKey(step) === values.stepKey)
             const nextStep = values.allOnboardingSteps[currentStepIndex + (numStepsToAdvance || 1)]
-            // If the user is leaving the Install step of a non-Logs onboarding while
-            // Logs was selected in this session, divert them to the Logs install step.
-            // Uses sessionSecondaryProductKeys (from URL) rather than the persistent
-            // product_intents so that Logs from a prior session doesn't trigger this.
+            const baseParams = { ...router.values.searchParams }
+
+            // Divert into Logs install when leaving the primary product's Install step with
+            // Logs selected as a secondary intent. Strip LOGS from `secondary` so that if the
+            // user later returns to this step, the divert won't fire again (no ping-pong).
+            // The primary's next-step key is captured as `resumeStep` so completion of the
+            // Logs install can return the user to the correct point in the primary flow.
             if (
                 values.stepKey === OnboardingStepKey.INSTALL &&
                 values.productKey !== ProductKey.LOGS &&
                 values.sessionSecondaryProductKeys.includes(ProductKey.LOGS)
             ) {
+                const remainingSecondary = values.sessionSecondaryProductKeys.filter((k) => k !== ProductKey.LOGS)
+                const resumeStepKey = nextStep ? getStepKey(nextStep) : null
                 return [
-                    `/onboarding/${ProductKey.LOGS}`,
-                    {
-                        step: OnboardingStepKey.INSTALL,
-                        secondary: router.values.searchParams.secondary,
-                        from: values.productKey,
-                    },
+                    urls.onboarding({
+                        productKey: ProductKey.LOGS,
+                        stepKey: OnboardingStepKey.INSTALL,
+                        secondary: remainingSecondary.length ? remainingSecondary : undefined,
+                        from: values.productKey ?? undefined,
+                        resumeStep: resumeStepKey ?? undefined,
+                    }),
+                    {},
                 ]
             }
+
+            // Returning from a Logs divert: route to the original product at its captured
+            // resume step. If no resume step was captured, the primary had no further steps
+            // and completion is handled by the install step's NextButton (completeOnboarding).
+            if (values.productKey === ProductKey.LOGS && values.fromProductKey && values.resumeStep && !nextStep) {
+                return [
+                    urls.onboarding({
+                        productKey: values.fromProductKey,
+                        stepKey: values.resumeStep,
+                        secondary: values.sessionSecondaryProductKeys.length
+                            ? values.sessionSecondaryProductKeys
+                            : undefined,
+                    }),
+                    {},
+                ]
+            }
+
             if (nextStep) {
-                return [
-                    `/onboarding/${values.productKey}`,
-                    { ...router.values.searchParams, step: getStepKey(nextStep) },
-                ]
+                return [`/onboarding/${values.productKey}`, { ...baseParams, step: getStepKey(nextStep) }]
             }
-            return [`/onboarding/${values.productKey}`, router.values.searchParams]
+            return [`/onboarding/${values.productKey}`, baseParams]
         },
         goToPreviousStep: () => {
             const currentStepIndex = values.allOnboardingSteps.findIndex((step) => getStepKey(step) === values.stepKey)
             const previousStep = values.allOnboardingSteps[currentStepIndex - 1]
+            const baseParams = { ...router.values.searchParams }
             if (previousStep) {
-                return [
-                    `/onboarding/${values.productKey}`,
-                    { ...router.values.searchParams, step: getStepKey(previousStep) },
-                ]
+                return [`/onboarding/${values.productKey}`, { ...baseParams, step: getStepKey(previousStep) }]
             }
-            // No previous step within this product: if we were diverted here from
-            // another product's install step, navigate back to it.
+            // No previous step within this product: if we were diverted here from another
+            // product's install step, navigate back to it. Strip LOGS from secondary so the
+            // primary's "Continue" doesn't re-divert (back implies "I don't want this divert");
+            // other secondary selections are preserved.
             if (values.fromProductKey) {
+                const remainingSecondary = values.sessionSecondaryProductKeys.filter((k) => k !== ProductKey.LOGS)
                 return [
-                    `/onboarding/${values.fromProductKey}`,
-                    {
-                        step: OnboardingStepKey.INSTALL,
-                        secondary: router.values.searchParams.secondary,
-                    },
+                    urls.onboarding({
+                        productKey: values.fromProductKey,
+                        stepKey: OnboardingStepKey.INSTALL,
+                        secondary: remainingSecondary.length ? remainingSecondary : undefined,
+                    }),
+                    {},
                 ]
             }
-            return [`/onboarding/${values.productKey}`, router.values.searchParams]
+            return [`/onboarding/${values.productKey}`, baseParams]
         },
         updateCurrentTeamSuccess(val) {
             if (values.productKey && val.payload?.has_completed_onboarding_for?.[values.productKey]) {
@@ -462,8 +492,8 @@ export const onboardingLogic = kea<onboardingLogicType>([
         },
     })),
     urlToAction(({ actions, values }) => ({
-        '/onboarding/:productKey': ({ productKey }, { success, upgraded, step, secondary, from }) => {
-            if (!productKey || !(productKey in availableOnboardingProducts)) {
+        '/onboarding/:productKey': ({ productKey }, { success, upgraded, step, secondary, from, resumeStep }) => {
+            if (!productKey || !Object.hasOwn(availableOnboardingProducts, productKey)) {
                 return
             }
 
@@ -476,13 +506,26 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 actions.setAllOnboardingSteps([])
             }
 
-            if (secondary !== undefined) {
-                const keys = secondary
-                    ? (secondary.split(',').filter((k: string) => k in availableOnboardingProducts) as ProductKey[])
-                    : []
-                actions.setSessionSecondaryProductKeys(keys)
-            }
-            actions.setFromProductKey(from && from in availableOnboardingProducts ? (from as ProductKey) : null)
+            // `secondary`/`from`/`resumeStep` are always sourced from the URL on every
+            // route hit so navigating away from a URL without these params clears the
+            // state — preventing leakage across separate onboardings in the same tab.
+            // Defensive coercion: kea-router auto-coerces "true"/"42" to bool/number,
+            // so we must guard against non-string values before splitting.
+            const secondaryStr = typeof secondary === 'string' ? secondary : ''
+            const secondaryKeys = secondaryStr
+                ? (secondaryStr
+                      .split(',', 32)
+                      .filter((k: string) => Object.hasOwn(availableOnboardingProducts, k)) as ProductKey[])
+                : []
+            actions.setSessionSecondaryProductKeys(Array.from(new Set(secondaryKeys)))
+
+            const fromValid =
+                typeof from === 'string' && Object.hasOwn(availableOnboardingProducts, from) && from !== productKey
+            actions.setFromProductKey(fromValid ? (from as ProductKey) : null)
+
+            actions.setResumeStep(
+                typeof resumeStep === 'string' && resumeStep ? (resumeStep as OnboardingStepKey) : null
+            )
 
             if (step) {
                 // when loading specific steps, like plans, we need to make sure we have a billing response before we can continue

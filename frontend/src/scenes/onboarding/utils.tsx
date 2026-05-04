@@ -312,6 +312,5 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
         url: urls.logs(),
         scene: Scene.Logs,
         setupEffort: 'low',
-        socialProof: 'Used by 10K+ teams',
     },
 }

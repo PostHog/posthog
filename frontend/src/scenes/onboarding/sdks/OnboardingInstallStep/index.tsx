@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { isMobile } from 'lib/utils'
@@ -14,12 +14,11 @@ import { OnboardingStep } from '../../OnboardingStep'
 import { availableOnboardingProducts } from '../../utils'
 import { useAdblockDetection } from '../hooks/useAdblockDetection'
 import { useInstallationComplete } from '../hooks/useInstallationComplete'
-import { LogsSDKInstructions } from '../logs/LogsSDKInstructions'
 import { AdblockWarning, RealtimeCheckIndicator } from '../RealtimeCheckIndicator'
 import { sdksLogic } from '../sdksLogic'
 import { MobileInstallHandoff } from './MobileInstallHandoff'
 import { SDKGrid } from './SDKGrid'
-import { AdditionalSdkInstructions, SDKInstructionsModal } from './SDKInstructionsModal'
+import { SDKInstructionsModal } from './SDKInstructionsModal'
 import { SDKGridProps, VariantProps } from './types'
 import { WizardHeroVariant } from './variants/WizardHeroVariant'
 import { WizardOnlyVariant } from './variants/WizardOnlyVariant'
@@ -78,11 +77,11 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
     const [mobileHandoffDismissed, setMobileHandoffDismissed] = useState(false)
     const linkOpenedCapturedRef = useRef(false)
     const { currentTeam } = useValues(teamLogic)
-    const { productKey, sessionSecondaryProductKeys } = useValues(onboardingLogic)
+    const { productKey } = useValues(onboardingLogic)
     const productName = productKey
         ? availableOnboardingProducts[productKey as keyof typeof availableOnboardingProducts]?.name
         : undefined
-    const installTitle = productName ? `Install ${productName}` : 'Install'
+    const installTitle = productName ? `Install ${productName}` : 'Install your SDK'
 
     const installationCompleteFromTeam = useInstallationComplete(teamPropertyToVerify)
     const installationComplete = hideInstallationCheck || installationCompleteFromTeam
@@ -136,17 +135,6 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
     const showSkipAtBottom = isSkipButtonExperiment && !installationComplete
     const showTopSkipButton = !isSkipButtonExperiment || installationComplete
 
-    // When Logs is a secondary product intent (e.g. "Find and fix issues"
-    // includes Session Replay + Error Tracking + Logs), surface the Logs OTel
-    // setup inside this step's SDK modal so users don't miss it.
-    const additionalInstructions = useMemo<AdditionalSdkInstructions[]>(() => {
-        const hasLogsSecondary = sessionSecondaryProductKeys.includes(ProductKey.LOGS)
-        if (!hasLogsSecondary || sdkInstructionMap === LogsSDKInstructions) {
-            return []
-        }
-        return [{ title: 'Set up Logs', instructionMap: LogsSDKInstructions }]
-    }, [sessionSecondaryProductKeys, sdkInstructionMap])
-
     const handleSDKClick = (sdk: SDK): void => {
         selectSDK(sdk)
         setInstructionsModalOpen(true)
@@ -191,13 +179,15 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
             verifyingProperty={teamPropertyToVerify}
             verifyingName={listeningForName}
             hideInstallationCheck={hideInstallationCheck}
-            additionalInstructions={additionalInstructions}
         />
     )
 
     // Mobile users in the test arm get the handoff screen instead of the regular
     // variant dispatch. "Continue on this device" dismisses and falls through below.
-    if (showMobileHandoff) {
+    // Logs onboarding uses OpenTelemetry, which has no `ingested_event` signal — the
+    // mobile handoff would render a RealtimeCheckIndicator that never resolves and
+    // leave Continue disabled forever, so we skip the handoff for Logs entirely.
+    if (showMobileHandoff && !isLogsProduct) {
         return (
             <MobileInstallHandoff
                 listeningForName={listeningForName}

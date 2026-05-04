@@ -9,11 +9,6 @@ import { AdblockWarning, RealtimeCheckIndicator } from '../RealtimeCheckIndicato
 import { SDKSnippet } from '../SDKSnippet'
 import { NextButton } from './NextButton'
 
-export interface AdditionalSdkInstructions {
-    title: string
-    instructionMap: SDKInstructionsMap
-}
-
 interface SDKInstructionsModalProps {
     isOpen: boolean
     onClose: () => void
@@ -23,7 +18,6 @@ interface SDKInstructionsModalProps {
     verifyingProperty?: string
     verifyingName?: string
     hideInstallationCheck?: boolean
-    additionalInstructions?: AdditionalSdkInstructions[]
 }
 
 export function SDKInstructionsModal({
@@ -35,7 +29,6 @@ export function SDKInstructionsModal({
     verifyingProperty = 'ingested_event',
     verifyingName = 'event',
     hideInstallationCheck = false,
-    additionalInstructions,
 }: SDKInstructionsModalProps): JSX.Element {
     const installationCompleteFromTeam = useInstallationComplete(verifyingProperty)
     const installationComplete = hideInstallationCheck || installationCompleteFromTeam
@@ -44,15 +37,8 @@ export function SDKInstructionsModal({
         | (() => JSX.Element)
         | undefined
 
-    const extraInstructions = (additionalInstructions ?? [])
-        .map(({ title, instructionMap }) => ({
-            title,
-            Component: instructionMap[sdk?.key as keyof typeof instructionMap] as (() => JSX.Element) | undefined,
-        }))
-        .filter((entry): entry is { title: string; Component: () => JSX.Element } => Boolean(entry.Component))
-
     return (
-        <LemonModal isOpen={isOpen} onClose={onClose} simple title="">
+        <LemonModal isOpen={isOpen} onClose={onClose} simple title={sdk?.name ? `Install ${sdk.name}` : 'Install SDK'}>
             {!sdk?.key || !sdkInstructions ? (
                 <SpinnerOverlay />
             ) : (
@@ -64,14 +50,6 @@ export function SDKInstructionsModal({
                     </header>
                     <div className="flex-grow overflow-y-auto px-4 py-2">
                         <SDKSnippet sdk={sdk} sdkInstructions={sdkInstructions} />
-                        {extraInstructions.map(({ title, Component }) => (
-                            <div key={title} className="mt-8 pt-8 border-t border-border">
-                                <h3 className="text-xl font-bold mb-4">{title}</h3>
-                                <div className="deprecated-space-y-4">
-                                    <Component />
-                                </div>
-                            </div>
-                        ))}
                     </div>
                     {!hideInstallationCheck && !installationComplete && (
                         <div className="px-4 py-2">
