@@ -685,7 +685,9 @@ class DashboardSerializer(DashboardMetadataSerializer):
             ).update(primary_dashboard=None)
             from posthog.models.group_type_mapping import clear_dashboard_from_group_type_mapping
 
-            clear_dashboard_from_group_type_mapping(team_id=instance.team_id, dashboard_id=instance.id)
+            clear_dashboard_from_group_type_mapping(
+                team_id=instance.team_id, dashboard_id=instance.id, project_id=instance.team.project_id
+            )
 
         request_filters = initial_data.get("filters")
         if request_filters:
