@@ -183,7 +183,10 @@ class TestFetchContactsForList:
     ) -> None:
         manager = _fake_manager()
         get_mock = MagicMock(side_effect=[_build_response(members, total_items=total_items)])
-        monkeypatch.setattr("posthog.temporal.data_imports.sources.mailchimp.mailchimp.requests.get", get_mock)
+        monkeypatch.setattr(
+            "posthog.temporal.data_imports.sources.mailchimp.mailchimp.make_tracked_session",
+            lambda *a, **k: type("_S", (), {"get": staticmethod(get_mock)})(),
+        )
 
         emitted = list(
             _fetch_contacts_for_list(
@@ -211,7 +214,10 @@ class TestFetchContactsForList:
         manager = _fake_manager()
         responses = [_build_response([{"id": f"m{i}"}], total_items=2001) for i in range(3)]
         get_mock = MagicMock(side_effect=responses)
-        monkeypatch.setattr("posthog.temporal.data_imports.sources.mailchimp.mailchimp.requests.get", get_mock)
+        monkeypatch.setattr(
+            "posthog.temporal.data_imports.sources.mailchimp.mailchimp.make_tracked_session",
+            lambda *a, **k: type("_S", (), {"get": staticmethod(get_mock)})(),
+        )
 
         emitted = list(
             _fetch_contacts_for_list(
@@ -325,7 +331,10 @@ class TestGetContactsIterator:
                     return _build_response(members, total_items=total_items)
             raise AssertionError(f"unexpected url={url}")
 
-        monkeypatch.setattr("posthog.temporal.data_imports.sources.mailchimp.mailchimp.requests.get", fake_get)
+        monkeypatch.setattr(
+            "posthog.temporal.data_imports.sources.mailchimp.mailchimp.make_tracked_session",
+            lambda *a, **k: type("_S", (), {"get": staticmethod(fake_get)})(),
+        )
 
         emitted = list(_get_contacts_iterator(api_key="key-us6", resumable_source_manager=manager))
 
@@ -368,7 +377,7 @@ class TestRestEndpointResumeBehavior:
             return next(response_iter)
 
         with patch(
-            "posthog.temporal.data_imports.sources.common.rest_source.rest_client.requests.Session"
+            "posthog.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
         ) as MockSession:
             mock_session = MockSession.return_value
             mock_session.headers = {}

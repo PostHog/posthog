@@ -1,7 +1,13 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
-import { canonicalizeUiHost, toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
+import {
+    canonicalizeApiHost,
+    canonicalizeUiHost,
+    toolbarConfigLogic,
+    toolbarFetch,
+    toolbarUploadMedia,
+} from '~/toolbar/toolbarConfigLogic'
 import { cleanToolbarAuthHash, OAUTH_LOCALSTORAGE_KEY, PKCE_STORAGE_KEY, readToolbarAuthHash } from '~/toolbar/utils'
 
 global.fetch = jest.fn(() =>
@@ -1217,6 +1223,160 @@ describe('toolbar toolbarConfigLogic', () => {
             window.history.pushState({}, '', '/page?q=search#__posthog_toolbar=code:abc,client_id:xyz')
             cleanToolbarAuthHash()
             expect(replaceStateSpy).toHaveBeenCalledWith(null, '', '/page?q=search')
+        })
+    })
+
+    describe('apiHost validation', () => {
+        it('prefers posthog.config.api_host over apiURL', () => {
+            const logic = toolbarConfigLogic.build({
+                apiURL: 'https://should-not-be-used.example.com',
+                posthog: { config: { api_host: 'https://us.i.posthog.com' } } as any,
+            } as any)
+            logic.mount()
+            expect(logic.values.apiHost).toBe('https://us.i.posthog.com')
+        })
+
+        it('falls back to apiURL when no posthog config', () => {
+            const logic = toolbarConfigLogic.build({ apiURL: 'https://selfhosted.example.com' } as any)
+            logic.mount()
+            expect(logic.values.apiHost).toBe('https://selfhosted.example.com')
+        })
+
+        it('normalizes apiHost to not end with a slash', () => {
+            const logic = toolbarConfigLogic.build({
+                posthog: { config: { api_host: 'https://us.i.posthog.com/' } } as any,
+            } as any)
+            logic.mount()
+            expect(logic.values.apiHost).toBe('https://us.i.posthog.com')
+        })
+
+        it('preserves the URL path for reverse-proxy deployments', () => {
+            // Self-hosted customers routing PostHog through a reverse proxy at a
+            // sub-path like /ingest rely on apiHost keeping that prefix — it gets
+            // concatenated with /static/toolbar.css and /i/v1/logs.
+            const logic = toolbarConfigLogic.build({ apiURL: 'https://proxy.example.com/ingest/' } as any)
+            logic.mount()
+            expect(logic.values.apiHost).toBe('https://proxy.example.com/ingest')
+        })
+
+        it.each([
+            ['apiURL', { apiURL: '' }],
+            ['api_host', { apiURL: '', posthog: { config: { api_host: '' } } as any }],
+        ])('rejects dangerous schemes supplied via %s and falls back', (field, baseProps) => {
+            const malicious = 'javascript:alert(1)//'
+            const logic = toolbarConfigLogic.build({
+                ...(baseProps as any),
+                ...(field === 'apiURL'
+                    ? { apiURL: malicious }
+                    : { posthog: { config: { api_host: malicious } } as any }),
+            })
+            logic.mount()
+            expect(logic.values.apiHost).toBe(window.location.origin)
+            expect(logic.values.apiHostResolution.source).toBe('fallback_rejected')
+        })
+
+        it.each(['data:text/html,<script>alert(1)</script>', 'vbscript:msgbox'])(
+            'rejects apiHost with dangerous scheme: %s',
+            (maliciousHost) => {
+                const logic = toolbarConfigLogic.build({
+                    apiURL: maliciousHost,
+                    posthog: { config: { api_host: maliciousHost } } as any,
+                } as any)
+                logic.mount()
+                expect(logic.values.apiHost).toBe(window.location.origin)
+            }
+        )
+
+        it('rejects apiHost with userinfo on either branch (visual spoof protection)', () => {
+            const logic = toolbarConfigLogic.build({
+                apiURL: 'https://us.posthog.com@evil.com',
+                posthog: { config: { api_host: 'https://app.posthog.com@attacker.com' } } as any,
+            } as any)
+            logic.mount()
+            expect(logic.values.apiHost).toBe(window.location.origin)
+            expect(logic.values.apiHostResolution.source).toBe('fallback_rejected')
+        })
+
+        it('labels the fallback as "absent" when no candidate was supplied', () => {
+            const logic = toolbarConfigLogic.build({} as any)
+            logic.mount()
+            expect(logic.values.apiHostResolution.source).toBe('fallback_absent')
+        })
+    })
+
+    describe('canonicalizeApiHost', () => {
+        it.each([
+            // preserves path
+            ['https://proxy.example.com/ingest', 'https://proxy.example.com/ingest'],
+            ['https://proxy.example.com/ingest/', 'https://proxy.example.com/ingest'],
+            ['https://us.i.posthog.com', 'https://us.i.posthog.com'],
+            ['https://us.i.posthog.com/', 'https://us.i.posthog.com'],
+            // rejected
+            ['javascript:alert(1)', null],
+            ['https://user:pass@host/path', null],
+            ['https://host@evil.com/path', null],
+            ['', null],
+            [undefined, null],
+            ['not a url', null],
+        ])('canonicalizeApiHost(%p) === %p', (input, expected) => {
+            expect(canonicalizeApiHost(input as any)).toBe(expected)
+        })
+    })
+
+    describe('toolbarUploadMedia uses uiHost, not apiHost', () => {
+        // Regression: an attacker-crafted link with a legitimate uiHost but an
+        // attacker-controlled apiURL must not receive the bearer token.
+        it('POSTs to uiHost and never sends the bearer to the attacker host', async () => {
+            const logic = toolbarConfigLogic.build({
+                uiHost: 'https://us.posthog.com',
+                apiURL: 'https://evil.example.com',
+                accessToken: 'pha_secret',
+                refreshToken: 'phr_secret',
+                clientId: 'client',
+            } as any)
+            logic.mount()
+
+            ;(global.fetch as jest.Mock).mockImplementation((url: string) => {
+                if (url.endsWith('/toolbar_oauth/check')) {
+                    return Promise.resolve({ ok: true, status: 200 })
+                }
+                return Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    json: () => Promise.resolve({ id: 'm1', image_location: 'https://cdn/x.png', name: 'x.png' }),
+                } as any)
+            })
+            ;(global.fetch as jest.Mock).mockClear()
+
+            const file = new File(['data'], 'x.png', { type: 'image/png' })
+            await toolbarUploadMedia(file)
+
+            const uploadCalls = (global.fetch as jest.Mock).mock.calls.filter(
+                (c) => typeof c[0] === 'string' && c[0].includes('/uploaded_media/')
+            )
+            expect(uploadCalls).toHaveLength(1)
+            expect(uploadCalls[0][0]).toBe('https://us.posthog.com/api/projects/@current/uploaded_media/')
+
+            // Strong regression guard: no fetch (auth or otherwise) may target attacker host.
+            const callsToAttacker = (global.fetch as jest.Mock).mock.calls.filter(
+                ([url]) => typeof url === 'string' && url.includes('evil.example.com')
+            )
+            expect(callsToAttacker).toHaveLength(0)
+        })
+
+        it('throws "Toolbar not authenticated" when no session exists, without firing tokenExpired', async () => {
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://us.posthog.com' } as any)
+            logic.mount()
+            ;(global.fetch as jest.Mock).mockClear()
+
+            const file = new File(['data'], 'x.png', { type: 'image/png' })
+            await expect(toolbarUploadMedia(file)).rejects.toThrow('Toolbar not authenticated')
+
+            // Should not have attempted any fetch (we bailed before toolbarFetch).
+            const uploadAttempts = (global.fetch as jest.Mock).mock.calls.filter(
+                (c) => typeof c[0] === 'string' && c[0].includes('/uploaded_media/')
+            )
+            expect(uploadAttempts).toHaveLength(0)
         })
     })
 })

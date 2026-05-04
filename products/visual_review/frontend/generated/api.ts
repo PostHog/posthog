@@ -36,6 +36,8 @@ import type {
     VisualReviewReposQuarantineListParams,
     VisualReviewReposRunsListParams,
     VisualReviewReposSnapshotsListParams,
+    VisualReviewRunsListParams,
+    VisualReviewRunsSnapshotHistoryListParams,
     VisualReviewRunsSnapshotsListParams,
     VisualReviewRunsToleratedHashesListParams,
 } from './api.schemas'
@@ -344,6 +346,36 @@ export const visualReviewReposSnapshotsList = async (
 }
 
 /**
+ * List runs for the team, optionally filtered by review state, PR number, commit SHA, or branch.
+ */
+export const getVisualReviewRunsListUrl = (projectId: string, params?: VisualReviewRunsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/visual_review/runs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/visual_review/runs/`
+}
+
+export const visualReviewRunsList = async (
+    projectId: string,
+    params?: VisualReviewRunsListParams,
+    options?: RequestInit
+): Promise<PaginatedRunListApi> => {
+    return apiMutator<PaginatedRunListApi>(getVisualReviewRunsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
  * Create a new run from a CI manifest.
  */
 export const getVisualReviewRunsCreateUrl = (projectId: string) => {
@@ -463,6 +495,44 @@ export const visualReviewRunsRecomputeCreate = async (
 }
 
 /**
+ * Recent change history for a snapshot identifier across runs.
+ */
+export const getVisualReviewRunsSnapshotHistoryListUrl = (
+    projectId: string,
+    id: string,
+    params: VisualReviewRunsSnapshotHistoryListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/visual_review/runs/${id}/snapshot-history/?${stringifiedParams}`
+        : `/api/projects/${projectId}/visual_review/runs/${id}/snapshot-history/`
+}
+
+export const visualReviewRunsSnapshotHistoryList = async (
+    projectId: string,
+    id: string,
+    params: VisualReviewRunsSnapshotHistoryListParams,
+    options?: RequestInit
+): Promise<PaginatedSnapshotHistoryEntryListApi> => {
+    return apiMutator<PaginatedSnapshotHistoryEntryListApi>(
+        getVisualReviewRunsSnapshotHistoryListUrl(projectId, id, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+/**
  * Get all snapshots for a run with diff results.
  */
 export const getVisualReviewRunsSnapshotsListUrl = (
@@ -554,4 +624,21 @@ export const visualReviewRunsToleratedHashesList = async (
             method: 'GET',
         }
     )
+}
+
+/**
+ * Review state counts for the runs list.
+ */
+export const getVisualReviewRunsCountsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/visual_review/runs/counts/`
+}
+
+export const visualReviewRunsCountsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ReviewStateCountsApi> => {
+    return apiMutator<ReviewStateCountsApi>(getVisualReviewRunsCountsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
 }

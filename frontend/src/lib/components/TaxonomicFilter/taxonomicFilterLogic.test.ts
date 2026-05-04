@@ -571,7 +571,7 @@ describe('taxonomicFilterLogic', () => {
             },
             {
                 description:
-                    "SuggestedFilters surfaces the event's taxonomy-default promoted property when eventNames=['$pageview']",
+                    "SuggestedFilters surfaces the event's taxonomy-default primary property when eventNames=['$pageview']",
                 eventNames: ['$pageview'],
                 expectedOptions: [{ name: '$pathname', group: TaxonomicFilterGroupType.EventProperties }],
             },

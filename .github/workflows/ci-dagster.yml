@@ -270,23 +270,54 @@ jobs:
                     docker compose -f docker-compose.dev.yml exec -T db \
                       psql -U posthog -c "CREATE DATABASE test_dagster;"
 
-            - name: Run migrations
+            - name: Restore schema cache from master
+              if: ${{ github.event_name == 'pull_request' }}
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
+              id: schema-cache
+              with:
+                  path: schema.sql.gz
+                  key: posthog-schema-master-${{ github.sha }}
+                  restore-keys: posthog-schema-master-
+
+            - name: Prime test_posthog and posthog from cached schema (PR)
+              # Primes both test_posthog (used by pytest --reuse-db) and the prod-style
+              # posthog db (read by migrate_clickhouse → InstanceSetting). pytest's
+              # keepdb=True path layers any PR-added migrations on top.
+              # On cache miss, fall through to a full migrate so migrate_clickhouse works.
+              if: ${{ github.event_name == 'pull_request' }}
               run: |
-                  # Run Django migrations first
-                  python manage.py migrate
-                  # Then run persons migrations using sqlx
+                  if [ ! -f schema.sql.gz ]; then
+                      echo "::notice::Schema cache miss — falling through to full migrate"
+                      python manage.py migrate
+                      exit 0
+                  fi
+                  mkdir -p .postgres-backups
+                  mv schema.sql.gz .postgres-backups/schema-latest.sql.gz
+                  ./bin/hogli db:restore-test-db
+                  gunzip -c .postgres-backups/schema-latest.sql.gz | \
+                    docker compose -f docker-compose.dev.yml exec -T db psql -q -U posthog posthog
+
+            - name: Run Django migrations (master)
+              # Master pushes don't restore from cache (the artifact-producing run
+              # is in ci-backend, not here). Run a full migrate so migrate_clickhouse
+              # can read posthog_instancesetting from a populated posthog db.
+              if: ${{ github.event_name != 'pull_request' }}
+              run: python manage.py migrate
+
+            - name: Run persons migrations
+              run: |
                   DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" \
                     sqlx database create
                   DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" \
                     sqlx migrate run --source rust/persons_migrations/
 
             - name: Run clickhouse migrations
-              run: |
-                  python manage.py migrate_clickhouse
+              run: python manage.py migrate_clickhouse
 
             - name: Run Dagster tests
               run: |
                   pytest posthog/dags products/**/dags \
+                      --reuse-db \
                       --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                       --durations=100 --durations-min=1.0 --store-durations \
                       --splitting-algorithm=duration_based_chunks \
