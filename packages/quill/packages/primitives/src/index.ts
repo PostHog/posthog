@@ -1,6 +1,23 @@
 import './styles/layers.css'
 
 export { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from './accordion'
+export {
+    Autocomplete,
+    AutocompleteClear,
+    AutocompleteCollection,
+    AutocompleteContent,
+    AutocompleteEmpty,
+    AutocompleteGroup,
+    AutocompleteInput,
+    AutocompleteItem,
+    AutocompleteLabel,
+    AutocompleteList,
+    AutocompleteSeparator,
+    AutocompleteStatus,
+    AutocompleteTrigger,
+    AutocompleteValue,
+    useAutocompleteAnchor,
+} from './autocomplete'
 export { Badge, badgeVariants } from './badge'
 export { Button, buttonVariants, type ButtonProps } from './button'
 export { ButtonGroup, ButtonGroupSeparator, ButtonGroupText, buttonGroupVariants } from './button-group'
@@ -29,17 +46,6 @@ export {
     ComboboxValue,
     useComboboxAnchor,
 } from './combobox'
-export {
-    Command,
-    CommandDialog,
-    CommandInput,
-    CommandList,
-    CommandEmpty,
-    CommandGroup,
-    CommandItem,
-    CommandShortcut,
-    CommandSeparator,
-} from './command'
 export {
     ContextMenu,
     ContextMenuTrigger,
