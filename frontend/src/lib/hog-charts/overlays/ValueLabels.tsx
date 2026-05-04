@@ -108,14 +108,29 @@ function buildCandidates(args: BuildCandidatesArgs): Candidate[] {
 function bandTotal(visible: ResolvedSeries[], dIdx: number): number | null {
     let total = 0
     let count = 0
+    let hasPositive = false
+    let hasNegative = false
     for (const s of visible) {
         const v = s.data[dIdx]
         if (typeof v === 'number' && isFinite(v)) {
             total += v
             count++
+            if (v > 0) {
+                hasPositive = true
+            } else if (v < 0) {
+                hasNegative = true
+            }
         }
     }
-    return count === 0 || total === 0 || !isFinite(total) ? null : total
+    if (count === 0 || total === 0 || !isFinite(total)) {
+        return null
+    }
+    // Mixed-sign bands have no single visual stack apex (d3 splits +/− across the baseline),
+    // so the arithmetic sum doesn't correspond to a meaningful pixel position.
+    if (hasPositive && hasNegative) {
+        return null
+    }
+    return total
 }
 
 function buildStackTotal(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2D | null): Candidate[] {

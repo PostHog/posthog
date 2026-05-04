@@ -285,6 +285,17 @@ describe('ValueLabels', () => {
             expect(labelDivs(container)).toHaveLength(0)
         })
 
+        it('skips mixed-sign bands (no single visual stack apex)', () => {
+            const series: ResolvedSeries[] = [
+                { key: 'a', label: 'A', color: '#a00', data: [30, 30] },
+                { key: 'b', label: 'B', color: '#0a0', data: [-10, 5] },
+            ]
+            const ctx = makeContext(series, { labels: ['Mon', 'Tue'] })
+            const divs = labelDivs(renderInChart(ctx, <ValueLabels mode="stack-total" />).container)
+            // Mon is mixed-sign (skipped); Tue is all-positive total=35.
+            expect(divs.map((d) => d.textContent)).toEqual(['35'])
+        })
+
         it('sums visible series per band, skips zero totals and excluded series', () => {
             const series: ResolvedSeries[] = [
                 { key: 'a', label: 'A', color: '#112233', data: [10, 0, 30] },
