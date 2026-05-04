@@ -37,8 +37,7 @@ export default defineWorkersProject({
                         POSTHOG_UI_APPS_TOKEN: '',
                         MCP_CAT_PROJECT_ID: '',
                         // Generic test marker. Code can short-circuit features
-                        // that need real network (e.g. context-mill GitHub
-                        // fetch in src/resources/index.ts).
+                        // that need real network.
                         TEST: '1',
                     },
                     outboundService: dispatchHandlers,

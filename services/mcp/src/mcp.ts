@@ -31,8 +31,6 @@ import { initMcpCatObservability } from '@/lib/mcpcat'
 import { SessionManager } from '@/lib/SessionManager'
 import { StateManager } from '@/lib/StateManager'
 import { formatPrompt, type McpMode, sanitizeHeaderValue } from '@/lib/utils'
-import { registerPrompts } from '@/prompts'
-import { registerResources } from '@/resources'
 import { registerUiAppResources } from '@/resources/ui-apps'
 import CLI_PROXY_COMMAND from '@/templates/cli-proxy-command.md'
 import CLI_PROXY_TOOL from '@/templates/cli-proxy-tool.md'
@@ -645,12 +643,7 @@ export class MCP extends McpAgent<Env> {
 
         this.server = new McpServer({ name: 'PostHog', version: '1.0.0' }, { instructions })
 
-        // Register prompts and resources
-        await Promise.all([
-            registerPrompts(this.server),
-            registerResources(this.server, context),
-            registerUiAppResources(this.server, context),
-        ])
+        await registerUiAppResources(this.server, context)
 
         // execute-sql is v2-only. Swap its description with the rich SQL prompt
         // (visible via `info execute-sql` in single-exec, and as the tool's own
