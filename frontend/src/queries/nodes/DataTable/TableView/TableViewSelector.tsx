@@ -94,7 +94,7 @@ export function TableViewSelector({ contextKey, query, setQuery }: TableViewSele
                 {currentView ? (
                     <LemonMenu items={menuItems} closeOnClickInside={true}>
                         <LemonButton type="secondary" size="small" sideIcon={<IconChevronDown />}>
-                            {currentView != null ? (
+                            {currentView.name ? (
                                 <>
                                     <ViewVisibilityIcon view={currentView} />{' '}
                                     <span className="ml-2">{currentView.name}</span>
