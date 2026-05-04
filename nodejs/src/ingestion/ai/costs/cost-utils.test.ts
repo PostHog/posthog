@@ -1,20 +1,7 @@
 import { PluginEvent } from '~/plugin-scaffold'
 
 import { numericProperty } from './cost-utils'
-
-function createAIEvent(properties?: Record<string, any>): PluginEvent {
-    return {
-        event: '$ai_generation',
-        properties: properties ?? {},
-        ip: '',
-        site_url: '',
-        team_id: 0,
-        now: '',
-        distinct_id: '',
-        uuid: '',
-        timestamp: '',
-    }
-}
+import { createAIEvent } from './test-helpers'
 
 describe('numericProperty()', () => {
     it.each<{ description: string; value: unknown; expected: number }>([

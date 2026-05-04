@@ -1,19 +1,6 @@
 import { aiCostModalityExtractionCounter } from '../metrics'
-import { EventWithProperties, extractModalityTokens } from './modality-tokens'
-
-function createAIEvent(properties?: Record<string, any>): EventWithProperties {
-    return {
-        event: '$ai_generation',
-        properties: properties || {},
-        ip: '',
-        site_url: '',
-        team_id: 0,
-        now: '',
-        distinct_id: '',
-        uuid: '',
-        timestamp: '',
-    }
-}
+import { extractModalityTokens } from './modality-tokens'
+import { createAIEvent } from './test-helpers'
 
 describe('extractModalityTokens()', () => {
     describe('Gemini direct usage metadata', () => {

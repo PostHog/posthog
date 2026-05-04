@@ -2,22 +2,7 @@ import { PluginEvent } from '~/plugin-scaffold'
 
 import { calculateInputCost, resolveCacheReportingExclusive } from './input-costs'
 import { ResolvedModelCost } from './providers/types'
-
-// Test helper functions
-function createTestEvent(overrides: Partial<PluginEvent> = {}): PluginEvent {
-    return {
-        event: '$ai_generation',
-        properties: {},
-        ip: '',
-        site_url: '',
-        team_id: 0,
-        now: '',
-        distinct_id: '',
-        uuid: '',
-        timestamp: '',
-        ...overrides,
-    }
-}
+import { createAIEvent } from './test-helpers'
 
 function createTestModel(overrides: Partial<ResolvedModelCost> = {}): ResolvedModelCost {
     return {
@@ -37,15 +22,13 @@ function createAnthropicTestEvent(
     cacheWriteTokens?: number,
     additionalProps: Record<string, any> = {}
 ): PluginEvent {
-    return createTestEvent({
-        properties: {
-            $ai_provider: 'anthropic',
-            $ai_model: 'claude-3-5-sonnet',
-            $ai_input_tokens: inputTokens,
-            ...(cacheReadTokens !== undefined && { $ai_cache_read_input_tokens: cacheReadTokens }),
-            ...(cacheWriteTokens !== undefined && { $ai_cache_creation_input_tokens: cacheWriteTokens }),
-            ...additionalProps,
-        },
+    return createAIEvent({
+        $ai_provider: 'anthropic',
+        $ai_model: 'claude-3-5-sonnet',
+        $ai_input_tokens: inputTokens,
+        ...(cacheReadTokens !== undefined && { $ai_cache_read_input_tokens: cacheReadTokens }),
+        ...(cacheWriteTokens !== undefined && { $ai_cache_creation_input_tokens: cacheWriteTokens }),
+        ...additionalProps,
     })
 }
 
@@ -54,14 +37,12 @@ function createOpenAITestEvent(
     cacheReadTokens?: number,
     additionalProps: Record<string, any> = {}
 ): PluginEvent {
-    return createTestEvent({
-        properties: {
-            $ai_provider: 'openai',
-            $ai_model: 'gpt-4o',
-            $ai_input_tokens: inputTokens,
-            ...(cacheReadTokens !== undefined && { $ai_cache_read_input_tokens: cacheReadTokens }),
-            ...additionalProps,
-        },
+    return createAIEvent({
+        $ai_provider: 'openai',
+        $ai_model: 'gpt-4o',
+        $ai_input_tokens: inputTokens,
+        ...(cacheReadTokens !== undefined && { $ai_cache_read_input_tokens: cacheReadTokens }),
+        ...additionalProps,
     })
 }
 
@@ -70,14 +51,12 @@ function createGeminiTestEvent(
     cacheReadTokens?: number,
     additionalProps: Record<string, any> = {}
 ): PluginEvent {
-    return createTestEvent({
-        properties: {
-            $ai_provider: 'google',
-            $ai_model: 'gemini-2.5-pro',
-            $ai_input_tokens: inputTokens,
-            ...(cacheReadTokens !== undefined && { $ai_cache_read_input_tokens: cacheReadTokens }),
-            ...additionalProps,
-        },
+    return createAIEvent({
+        $ai_provider: 'google',
+        $ai_model: 'gemini-2.5-pro',
+        $ai_input_tokens: inputTokens,
+        ...(cacheReadTokens !== undefined && { $ai_cache_read_input_tokens: cacheReadTokens }),
+        ...additionalProps,
     })
 }
 
@@ -186,7 +165,17 @@ describe('resolveCacheReportingExclusive()', () => {
             expected: false,
         },
     ])('$name', ({ properties, expected }) => {
-        const event = createTestEvent({ properties } as any)
+        const event = {
+            event: '$ai_generation',
+            properties,
+            ip: '',
+            site_url: '',
+            team_id: 0,
+            now: '',
+            distinct_id: '',
+            uuid: '',
+            timestamp: '',
+        } as PluginEvent
         expect(resolveCacheReportingExclusive(event)).toBe(expected)
     })
 })
@@ -299,13 +288,11 @@ describe('calculateInputCost()', () => {
         })
 
         it('matches provider in model string', () => {
-            const event = createTestEvent({
-                properties: {
-                    $ai_provider: 'gateway',
-                    $ai_model: 'anthropic/claude-3-5-sonnet',
-                    $ai_input_tokens: 1000,
-                    $ai_cache_creation_input_tokens: 200,
-                },
+            const event = createAIEvent({
+                $ai_provider: 'gateway',
+                $ai_model: 'anthropic/claude-3-5-sonnet',
+                $ai_input_tokens: 1000,
+                $ai_cache_creation_input_tokens: 200,
             })
 
             const result = calculateInputCost(event, ANTHROPIC_MODEL)
@@ -318,15 +305,13 @@ describe('calculateInputCost()', () => {
         })
 
         it('uses inclusive token accounting for Vercel gateway Anthropic events', () => {
-            const event = createTestEvent({
-                properties: {
-                    $ai_provider: 'gateway',
-                    $ai_framework: 'vercel',
-                    $ai_model: 'anthropic/claude-sonnet-4.5',
-                    $ai_input_tokens: 14013,
-                    $ai_cache_read_input_tokens: 13306,
-                    $ai_cache_creation_input_tokens: 701,
-                },
+            const event = createAIEvent({
+                $ai_provider: 'gateway',
+                $ai_framework: 'vercel',
+                $ai_model: 'anthropic/claude-sonnet-4.5',
+                $ai_input_tokens: 14013,
+                $ai_cache_read_input_tokens: 13306,
+                $ai_cache_creation_input_tokens: 701,
             })
 
             const result = calculateInputCost(event, ANTHROPIC_MODEL)
@@ -339,15 +324,13 @@ describe('calculateInputCost()', () => {
         })
 
         it('handles string token values correctly for inclusive accounting', () => {
-            const event = createTestEvent({
-                properties: {
-                    $ai_provider: 'gateway',
-                    $ai_framework: 'vercel',
-                    $ai_model: 'anthropic/claude-sonnet-4.5',
-                    $ai_input_tokens: '14013',
-                    $ai_cache_read_input_tokens: '13306',
-                    $ai_cache_creation_input_tokens: '701',
-                },
+            const event = createAIEvent({
+                $ai_provider: 'gateway',
+                $ai_framework: 'vercel',
+                $ai_model: 'anthropic/claude-sonnet-4.5',
+                $ai_input_tokens: '14013',
+                $ai_cache_read_input_tokens: '13306',
+                $ai_cache_creation_input_tokens: '701',
             })
 
             const result = calculateInputCost(event, ANTHROPIC_MODEL)
@@ -360,14 +343,12 @@ describe('calculateInputCost()', () => {
             // When inputTokens < cacheReadTokens + cacheWriteTokens, the tokens can't be inclusive.
             // This happens when SDKs (e.g., posthog-ai) report Anthropic-style exclusive counts
             // through the Vercel gateway. Without this guard, uncachedTokens goes negative.
-            const event = createTestEvent({
-                properties: {
-                    $ai_provider: 'gateway',
-                    $ai_framework: 'vercel',
-                    $ai_model: 'anthropic/claude-opus-4.6',
-                    $ai_input_tokens: 247,
-                    $ai_cache_read_input_tokens: 6287,
-                },
+            const event = createAIEvent({
+                $ai_provider: 'gateway',
+                $ai_framework: 'vercel',
+                $ai_model: 'anthropic/claude-opus-4.6',
+                $ai_input_tokens: 247,
+                $ai_cache_read_input_tokens: 6287,
             })
 
             const result = calculateInputCost(event, ANTHROPIC_MODEL)
@@ -428,13 +409,11 @@ describe('calculateInputCost()', () => {
         })
 
         it('matches provider in model string for gateway', () => {
-            const event = createTestEvent({
-                properties: {
-                    $ai_provider: 'gateway',
-                    $ai_model: 'openai/gpt-4o',
-                    $ai_input_tokens: 1000,
-                    $ai_cache_read_input_tokens: 400,
-                },
+            const event = createAIEvent({
+                $ai_provider: 'gateway',
+                $ai_model: 'openai/gpt-4o',
+                $ai_input_tokens: 1000,
+                $ai_cache_read_input_tokens: 400,
             })
 
             const result = calculateInputCost(event, OPENAI_MODEL)
@@ -471,13 +450,11 @@ describe('calculateInputCost()', () => {
         const customModel = createTestModel()
 
         it('uses 0.5x multiplier for cache read when provider unknown', () => {
-            const event = createTestEvent({
-                properties: {
-                    $ai_provider: 'custom-provider',
-                    $ai_model: 'custom-model',
-                    $ai_input_tokens: 1000,
-                    $ai_cache_read_input_tokens: 400,
-                },
+            const event = createAIEvent({
+                $ai_provider: 'custom-provider',
+                $ai_model: 'custom-model',
+                $ai_input_tokens: 1000,
+                $ai_cache_read_input_tokens: 400,
             })
 
             const result = calculateInputCost(event, customModel)
@@ -489,12 +466,10 @@ describe('calculateInputCost()', () => {
         })
 
         it('handles no provider field', () => {
-            const event = createTestEvent({
-                properties: {
-                    $ai_model: 'custom-model',
-                    $ai_input_tokens: 1000,
-                    $ai_cache_read_input_tokens: 400,
-                },
+            const event = createAIEvent({
+                $ai_model: 'custom-model',
+                $ai_input_tokens: 1000,
+                $ai_cache_read_input_tokens: 400,
             })
 
             const result = calculateInputCost(event, customModel)
@@ -511,16 +486,14 @@ describe('calculateInputCost()', () => {
         const testModel = createTestModel()
 
         it('returns 0 when properties is undefined', () => {
-            const event = createTestEvent()
+            const event = createAIEvent()
             const result = calculateInputCost(event, testModel)
 
             expect(result).toBe('0')
         })
 
         it('returns 0 when input tokens is 0', () => {
-            const event = createTestEvent({
-                properties: { $ai_input_tokens: 0 },
-            })
+            const event = createAIEvent({ $ai_input_tokens: 0 })
 
             const result = calculateInputCost(event, testModel)
 
@@ -528,9 +501,7 @@ describe('calculateInputCost()', () => {
         })
 
         it('handles undefined input tokens', () => {
-            const event = createTestEvent({
-                properties: { $ai_model: 'test-model' },
-            })
+            const event = createAIEvent({ $ai_model: 'test-model' })
 
             const result = calculateInputCost(event, testModel)
 
@@ -564,14 +535,12 @@ describe('calculateInputCost()', () => {
         })
 
         it('handles null cache token values', () => {
-            const event = createTestEvent({
-                properties: {
-                    $ai_provider: 'anthropic',
-                    $ai_model: 'claude-3-5-sonnet',
-                    $ai_input_tokens: 1000,
-                    $ai_cache_read_input_tokens: null as any,
-                    $ai_cache_creation_input_tokens: null as any,
-                },
+            const event = createAIEvent({
+                $ai_provider: 'anthropic',
+                $ai_model: 'claude-3-5-sonnet',
+                $ai_input_tokens: 1000,
+                $ai_cache_read_input_tokens: null as any,
+                $ai_cache_creation_input_tokens: null as any,
             })
 
             const result = calculateInputCost(event, testModel)
@@ -585,9 +554,7 @@ describe('calculateInputCost()', () => {
         const testModel = createTestModel()
 
         it('handles undefined provider and model', () => {
-            const event = createTestEvent({
-                properties: { $ai_input_tokens: 1000 },
-            })
+            const event = createAIEvent({ $ai_input_tokens: 1000 })
 
             const result = calculateInputCost(event, testModel)
 
@@ -596,12 +563,10 @@ describe('calculateInputCost()', () => {
         })
 
         it('matches provider when only model contains provider name', () => {
-            const event = createTestEvent({
-                properties: {
-                    $ai_model: 'anthropic-claude-sonnet',
-                    $ai_input_tokens: 1000,
-                    $ai_cache_creation_input_tokens: 200,
-                },
+            const event = createAIEvent({
+                $ai_model: 'anthropic-claude-sonnet',
+                $ai_input_tokens: 1000,
+                $ai_cache_creation_input_tokens: 200,
             })
 
             const result = calculateInputCost(event, ANTHROPIC_MODEL)
@@ -623,13 +588,11 @@ describe('calculateInputCost()', () => {
                 },
             })
 
-            const event = createTestEvent({
-                properties: {
-                    $ai_provider: 'custom',
-                    $ai_model: 'my-anthro-model',
-                    $ai_input_tokens: 1000,
-                    $ai_cache_read_input_tokens: 400,
-                },
+            const event = createAIEvent({
+                $ai_provider: 'custom',
+                $ai_model: 'my-anthro-model',
+                $ai_input_tokens: 1000,
+                $ai_cache_read_input_tokens: 400,
             })
 
             const result = calculateInputCost(event, anthropicModel)
@@ -650,13 +613,11 @@ describe('calculateInputCost()', () => {
                 },
             })
 
-            const event = createTestEvent({
-                properties: {
-                    $ai_provider: 'gateway',
-                    $ai_model: 'ANTHROPIC/claude-sonnet',
-                    $ai_input_tokens: 1000,
-                    $ai_cache_creation_input_tokens: 200,
-                },
+            const event = createAIEvent({
+                $ai_provider: 'gateway',
+                $ai_model: 'ANTHROPIC/claude-sonnet',
+                $ai_input_tokens: 1000,
+                $ai_cache_creation_input_tokens: 200,
             })
 
             const result = calculateInputCost(event, anthropicModel)
@@ -671,13 +632,11 @@ describe('calculateInputCost()', () => {
         it('matches Anthropic path for Claude models via Vertex provider', () => {
             // This tests the fix for negative costs when Claude models are accessed via Vertex
             // Vertex reports inputTokens excluding cache tokens (like Anthropic), not including them
-            const event = createTestEvent({
-                properties: {
-                    $ai_provider: 'vertex',
-                    $ai_model: 'claude-haiku-4-5',
-                    $ai_input_tokens: 457,
-                    $ai_cache_read_input_tokens: 36216,
-                },
+            const event = createAIEvent({
+                $ai_provider: 'vertex',
+                $ai_model: 'claude-haiku-4-5',
+                $ai_input_tokens: 457,
+                $ai_cache_read_input_tokens: 36216,
             })
 
             const result = calculateInputCost(event, ANTHROPIC_MODEL)
@@ -690,13 +649,11 @@ describe('calculateInputCost()', () => {
         })
 
         it('matches Anthropic path for Claude models via Google provider', () => {
-            const event = createTestEvent({
-                properties: {
-                    $ai_provider: 'google',
-                    $ai_model: 'claude-3-5-sonnet',
-                    $ai_input_tokens: 1000,
-                    $ai_cache_read_input_tokens: 500,
-                },
+            const event = createAIEvent({
+                $ai_provider: 'google',
+                $ai_model: 'claude-3-5-sonnet',
+                $ai_input_tokens: 1000,
+                $ai_cache_read_input_tokens: 500,
             })
 
             const result = calculateInputCost(event, ANTHROPIC_MODEL)
@@ -709,13 +666,11 @@ describe('calculateInputCost()', () => {
         })
 
         it('matches Anthropic path for Claude models with uppercase via non-Anthropic provider', () => {
-            const event = createTestEvent({
-                properties: {
-                    $ai_provider: 'bedrock',
-                    $ai_model: 'Claude-3-Opus',
-                    $ai_input_tokens: 1000,
-                    $ai_cache_read_input_tokens: 400,
-                },
+            const event = createAIEvent({
+                $ai_provider: 'bedrock',
+                $ai_model: 'Claude-3-Opus',
+                $ai_input_tokens: 1000,
+                $ai_cache_read_input_tokens: 400,
             })
 
             const result = calculateInputCost(event, ANTHROPIC_MODEL)
@@ -777,13 +732,11 @@ describe('calculateInputCost()', () => {
         }
 
         it('bills audio input tokens at the audio rate, not the prompt rate', () => {
-            const event = createTestEvent({
-                properties: {
-                    $ai_provider: 'openai',
-                    $ai_model: 'gpt-4o-audio-preview',
-                    $ai_input_tokens: 1000, // 800 text + 200 audio
-                    $ai_audio_input_tokens: 200,
-                },
+            const event = createAIEvent({
+                $ai_provider: 'openai',
+                $ai_model: 'gpt-4o-audio-preview',
+                $ai_input_tokens: 1000, // 800 text + 200 audio
+                $ai_audio_input_tokens: 200,
             })
 
             const result = calculateInputCost(event, audioModel)
@@ -800,13 +753,11 @@ describe('calculateInputCost()', () => {
                 provider: 'openai',
                 cost: { prompt_token: 0.000001, completion_token: 0.000002 },
             }
-            const event = createTestEvent({
-                properties: {
-                    $ai_provider: 'openai',
-                    $ai_model: 'some-text-model',
-                    $ai_input_tokens: 1000,
-                    $ai_audio_input_tokens: 200,
-                },
+            const event = createAIEvent({
+                $ai_provider: 'openai',
+                $ai_model: 'some-text-model',
+                $ai_input_tokens: 1000,
+                $ai_audio_input_tokens: 200,
             })
 
             const result = calculateInputCost(event, modelWithoutAudioRate)
@@ -816,14 +767,12 @@ describe('calculateInputCost()', () => {
         })
 
         it('handles audio input combined with cache read tokens', () => {
-            const event = createTestEvent({
-                properties: {
-                    $ai_provider: 'openai',
-                    $ai_model: 'gpt-4o-audio-preview',
-                    $ai_input_tokens: 1000, // 500 text + 200 audio + 300 cached (inclusive)
-                    $ai_cache_read_input_tokens: 300,
-                    $ai_audio_input_tokens: 200,
-                },
+            const event = createAIEvent({
+                $ai_provider: 'openai',
+                $ai_model: 'gpt-4o-audio-preview',
+                $ai_input_tokens: 1000, // 500 text + 200 audio + 300 cached (inclusive)
+                $ai_cache_read_input_tokens: 300,
+                $ai_audio_input_tokens: 200,
             })
 
             const result = calculateInputCost(event, {
@@ -851,13 +800,11 @@ describe('calculateInputCost()', () => {
         }
 
         it('bills image input tokens separately when image rate is defined', () => {
-            const event = createTestEvent({
-                properties: {
-                    $ai_provider: 'google',
-                    $ai_model: 'gemini-2.5-flash',
-                    $ai_input_tokens: 1000,
-                    $ai_image_input_tokens: 400,
-                },
+            const event = createAIEvent({
+                $ai_provider: 'google',
+                $ai_model: 'gemini-2.5-flash',
+                $ai_input_tokens: 1000,
+                $ai_image_input_tokens: 400,
             })
 
             const result = calculateInputCost(event, imageInputModel)
@@ -872,14 +819,12 @@ describe('calculateInputCost()', () => {
             // 500 input total, 400 cache read, 200 audio — the residual text pool
             // would be 500 - 400 - 200 = -100; clamp to 0 so we don't silently
             // understate the audio-billed cost via a negative text contribution.
-            const event = createTestEvent({
-                properties: {
-                    $ai_provider: 'openai',
-                    $ai_model: 'gpt-4o-audio-preview',
-                    $ai_input_tokens: 500,
-                    $ai_cache_read_input_tokens: 400,
-                    $ai_audio_input_tokens: 200,
-                },
+            const event = createAIEvent({
+                $ai_provider: 'openai',
+                $ai_model: 'gpt-4o-audio-preview',
+                $ai_input_tokens: 500,
+                $ai_cache_read_input_tokens: 400,
+                $ai_audio_input_tokens: 200,
             })
 
             const result = calculateInputCost(event, {
@@ -901,13 +846,11 @@ describe('calculateInputCost()', () => {
         })
 
         it('clamps the Anthropic uncached text pool to zero when modality tokens exceed it', () => {
-            const event = createTestEvent({
-                properties: {
-                    $ai_provider: 'anthropic',
-                    $ai_model: 'claude-3-5-sonnet',
-                    $ai_input_tokens: 100,
-                    $ai_image_input_tokens: 200, // exceeds inputTokens
-                },
+            const event = createAIEvent({
+                $ai_provider: 'anthropic',
+                $ai_model: 'claude-3-5-sonnet',
+                $ai_input_tokens: 100,
+                $ai_image_input_tokens: 200, // exceeds inputTokens
             })
             const anthropicWithImage: ResolvedModelCost = {
                 ...ANTHROPIC_MODEL,
@@ -934,14 +877,12 @@ describe('calculateInputCost()', () => {
                     audio: 0.000001,
                 },
             }
-            const event = createTestEvent({
-                properties: {
-                    $ai_provider: 'google',
-                    $ai_model: 'gemini-2.5-flash',
-                    $ai_input_tokens: 1000, // 400 text + 200 audio + 400 image
-                    $ai_audio_input_tokens: 200,
-                    $ai_image_input_tokens: 400,
-                },
+            const event = createAIEvent({
+                $ai_provider: 'google',
+                $ai_model: 'gemini-2.5-flash',
+                $ai_input_tokens: 1000, // 400 text + 200 audio + 400 image
+                $ai_audio_input_tokens: 200,
+                $ai_image_input_tokens: 400,
             })
 
             const result = calculateInputCost(event, multiModalCost)
@@ -974,15 +915,13 @@ describe('calculateInputCost()', () => {
 
         it('bills cached audio at the cache rate and uncached audio at the audio rate', () => {
             // 1000 input total: 500 text uncached, 250 text cached, 50 audio cached, 150 audio uncached, 50 image
-            const event = createTestEvent({
-                properties: {
-                    $ai_provider: 'openai',
-                    $ai_model: 'gpt-audio-mini',
-                    $ai_input_tokens: 1000,
-                    $ai_cache_read_input_tokens: 300, // 250 text + 50 audio
-                    $ai_audio_input_tokens: 200, // 150 uncached + 50 cached
-                    $ai_cache_read_audio_tokens: 50,
-                },
+            const event = createAIEvent({
+                $ai_provider: 'openai',
+                $ai_model: 'gpt-audio-mini',
+                $ai_input_tokens: 1000,
+                $ai_cache_read_input_tokens: 300, // 250 text + 50 audio
+                $ai_audio_input_tokens: 200, // 150 uncached + 50 cached
+                $ai_cache_read_audio_tokens: 50,
             })
 
             const result = calculateInputCost(event, audioCacheModel)
@@ -1007,15 +946,13 @@ describe('calculateInputCost()', () => {
                     // no input_audio_cache
                 },
             }
-            const event = createTestEvent({
-                properties: {
-                    $ai_provider: 'openai',
-                    $ai_model: 'mystery-audio-model',
-                    $ai_input_tokens: 1000,
-                    $ai_cache_read_input_tokens: 300,
-                    $ai_audio_input_tokens: 200,
-                    $ai_cache_read_audio_tokens: 50,
-                },
+            const event = createAIEvent({
+                $ai_provider: 'openai',
+                $ai_model: 'mystery-audio-model',
+                $ai_input_tokens: 1000,
+                $ai_cache_read_input_tokens: 300,
+                $ai_audio_input_tokens: 200,
+                $ai_cache_read_audio_tokens: 50,
             })
 
             const result = calculateInputCost(event, modelWithoutAudioCacheRate)
@@ -1039,15 +976,13 @@ describe('calculateInputCost()', () => {
                     // no cache_read_token, no input_audio_cache
                 },
             }
-            const event = createTestEvent({
-                properties: {
-                    $ai_provider: 'openai',
-                    $ai_model: 'no-cache-model',
-                    $ai_input_tokens: 1000,
-                    $ai_cache_read_input_tokens: 300,
-                    $ai_audio_input_tokens: 200,
-                    $ai_cache_read_audio_tokens: 50,
-                },
+            const event = createAIEvent({
+                $ai_provider: 'openai',
+                $ai_model: 'no-cache-model',
+                $ai_input_tokens: 1000,
+                $ai_cache_read_input_tokens: 300,
+                $ai_audio_input_tokens: 200,
+                $ai_cache_read_audio_tokens: 50,
             })
 
             const result = calculateInputCost(event, modelWithNoCacheRates)
@@ -1063,15 +998,13 @@ describe('calculateInputCost()', () => {
         it('clamps cached_audio when it exceeds audio_input', () => {
             // Malformed event: cached_audio claims to be 300 but audio_input is only 100.
             // Bound it at 100 so we don't subtract more audio than we have.
-            const event = createTestEvent({
-                properties: {
-                    $ai_provider: 'openai',
-                    $ai_model: 'gpt-audio-mini',
-                    $ai_input_tokens: 500,
-                    $ai_cache_read_input_tokens: 400,
-                    $ai_audio_input_tokens: 100,
-                    $ai_cache_read_audio_tokens: 300, // > audio_input
-                },
+            const event = createAIEvent({
+                $ai_provider: 'openai',
+                $ai_model: 'gpt-audio-mini',
+                $ai_input_tokens: 500,
+                $ai_cache_read_input_tokens: 400,
+                $ai_audio_input_tokens: 100,
+                $ai_cache_read_audio_tokens: 300, // > audio_input
             })
 
             const result = calculateInputCost(event, audioCacheModel)
@@ -1086,15 +1019,13 @@ describe('calculateInputCost()', () => {
         })
 
         it('clamps cached_audio when it exceeds cache_read total', () => {
-            const event = createTestEvent({
-                properties: {
-                    $ai_provider: 'openai',
-                    $ai_model: 'gpt-audio-mini',
-                    $ai_input_tokens: 1000,
-                    $ai_cache_read_input_tokens: 50, // smaller than claimed cached_audio
-                    $ai_audio_input_tokens: 200,
-                    $ai_cache_read_audio_tokens: 200, // > cache_read total
-                },
+            const event = createAIEvent({
+                $ai_provider: 'openai',
+                $ai_model: 'gpt-audio-mini',
+                $ai_input_tokens: 1000,
+                $ai_cache_read_input_tokens: 50, // smaller than claimed cached_audio
+                $ai_audio_input_tokens: 200,
+                $ai_cache_read_audio_tokens: 200, // > cache_read total
             })
 
             const result = calculateInputCost(event, audioCacheModel)
@@ -1109,15 +1040,13 @@ describe('calculateInputCost()', () => {
         })
 
         it('handles cached_audio = 0 (no-op)', () => {
-            const event = createTestEvent({
-                properties: {
-                    $ai_provider: 'openai',
-                    $ai_model: 'gpt-audio-mini',
-                    $ai_input_tokens: 1000,
-                    $ai_cache_read_input_tokens: 300,
-                    $ai_audio_input_tokens: 200,
-                    $ai_cache_read_audio_tokens: 0,
-                },
+            const event = createAIEvent({
+                $ai_provider: 'openai',
+                $ai_model: 'gpt-audio-mini',
+                $ai_input_tokens: 1000,
+                $ai_cache_read_input_tokens: 300,
+                $ai_audio_input_tokens: 200,
+                $ai_cache_read_audio_tokens: 0,
             })
 
             const result = calculateInputCost(event, audioCacheModel)
@@ -1145,15 +1074,13 @@ describe('calculateInputCost()', () => {
                     input_audio_cache: 5e-7,
                 },
             }
-            const event = createTestEvent({
-                properties: {
-                    $ai_provider: 'anthropic',
-                    $ai_model: 'claude-with-audio',
-                    $ai_input_tokens: 800, // text + audio (cache is separate in exclusive mode)
-                    $ai_cache_read_input_tokens: 200,
-                    $ai_audio_input_tokens: 100,
-                    $ai_cache_read_audio_tokens: 30,
-                },
+            const event = createAIEvent({
+                $ai_provider: 'anthropic',
+                $ai_model: 'claude-with-audio',
+                $ai_input_tokens: 800, // text + audio (cache is separate in exclusive mode)
+                $ai_cache_read_input_tokens: 200,
+                $ai_audio_input_tokens: 100,
+                $ai_cache_read_audio_tokens: 30,
             })
 
             const result = calculateInputCost(event, anthropicWithAudioCache)
@@ -1169,15 +1096,13 @@ describe('calculateInputCost()', () => {
         })
 
         it('clamps negative $ai_cache_read_audio_tokens to zero', () => {
-            const event = createTestEvent({
-                properties: {
-                    $ai_provider: 'openai',
-                    $ai_model: 'gpt-audio-mini',
-                    $ai_input_tokens: 1000,
-                    $ai_cache_read_input_tokens: 300,
-                    $ai_audio_input_tokens: 200,
-                    $ai_cache_read_audio_tokens: -50, // malformed
-                },
+            const event = createAIEvent({
+                $ai_provider: 'openai',
+                $ai_model: 'gpt-audio-mini',
+                $ai_input_tokens: 1000,
+                $ai_cache_read_input_tokens: 300,
+                $ai_audio_input_tokens: 200,
+                $ai_cache_read_audio_tokens: -50, // malformed
             })
 
             const result = calculateInputCost(event, audioCacheModel)
@@ -1203,16 +1128,14 @@ describe('calculateInputCost()', () => {
                     input_audio_cache: 5e-7,
                 },
             }
-            const event = createTestEvent({
-                properties: {
-                    $ai_provider: 'anthropic',
-                    $ai_model: 'claude-with-audio',
-                    $ai_input_tokens: 800,
-                    $ai_cache_read_input_tokens: 200,
-                    $ai_cache_creation_input_tokens: 100, // cache write
-                    $ai_audio_input_tokens: 100,
-                    $ai_cache_read_audio_tokens: 30,
-                },
+            const event = createAIEvent({
+                $ai_provider: 'anthropic',
+                $ai_model: 'claude-with-audio',
+                $ai_input_tokens: 800,
+                $ai_cache_read_input_tokens: 200,
+                $ai_cache_creation_input_tokens: 100, // cache write
+                $ai_audio_input_tokens: 100,
+                $ai_cache_read_audio_tokens: 30,
             })
 
             const result = calculateInputCost(event, anthropicAudioCacheModel)
@@ -1242,19 +1165,17 @@ describe('calculateInputCost()', () => {
                     input_audio_cache: 5e-7,
                 },
             }
-            const event = createTestEvent({
-                properties: {
-                    $ai_provider: 'gateway',
-                    $ai_framework: 'vercel',
-                    $ai_model: 'anthropic/claude-with-audio',
-                    // Token totals consistent with inclusive reporting:
-                    // input_tokens already includes cache_read + cache_creation.
-                    $ai_input_tokens: 1100, // 800 text + 100 audio + 200 cache_read
-                    $ai_cache_read_input_tokens: 200,
-                    $ai_cache_creation_input_tokens: 0,
-                    $ai_audio_input_tokens: 100,
-                    $ai_cache_read_audio_tokens: 30,
-                },
+            const event = createAIEvent({
+                $ai_provider: 'gateway',
+                $ai_framework: 'vercel',
+                $ai_model: 'anthropic/claude-with-audio',
+                // Token totals consistent with inclusive reporting:
+                // input_tokens already includes cache_read + cache_creation.
+                $ai_input_tokens: 1100, // 800 text + 100 audio + 200 cache_read
+                $ai_cache_read_input_tokens: 200,
+                $ai_cache_creation_input_tokens: 0,
+                $ai_audio_input_tokens: 100,
+                $ai_cache_read_audio_tokens: 30,
             })
 
             const result = calculateInputCost(event, vercelAnthropicAudioModel)

@@ -1,22 +1,6 @@
-import { PluginEvent } from '~/plugin-scaffold'
-
 import { calculateOutputCost } from './output-costs'
 import { ResolvedModelCost } from './providers/types'
-
-// Helper function to create a PluginEvent with default values
-function createAIEvent(properties?: Record<string, any>): PluginEvent {
-    return {
-        event: '$ai_generation',
-        properties: properties || {},
-        ip: '',
-        site_url: '',
-        team_id: 0,
-        now: '',
-        distinct_id: '',
-        uuid: '',
-        timestamp: '',
-    }
-}
+import { createAIEvent } from './test-helpers'
 
 // Helper function to create a ModelRow with defaults
 function createModel(
