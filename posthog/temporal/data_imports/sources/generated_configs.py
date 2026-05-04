@@ -379,6 +379,12 @@ class GoogleDriveSourceConfig(config.Config):
 
 
 @config.config
+class GoogleSearchConsoleSourceConfig(config.Config):
+    site_url: str
+    google_search_console_integration_id: int = config.value(converter=config.str_to_int)
+
+
+@config.config
 class GoogleSheetsSourceConfig(config.Config):
     spreadsheet_url: str
 
@@ -949,6 +955,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.GOOGLEADS: GoogleAdsSourceConfig,
         ExternalDataSourceType.GOOGLEANALYTICS: GoogleAnalyticsSourceConfig,
         ExternalDataSourceType.GOOGLEDRIVE: GoogleDriveSourceConfig,
+        ExternalDataSourceType.GOOGLESEARCHCONSOLE: GoogleSearchConsoleSourceConfig,
         ExternalDataSourceType.GOOGLESHEETS: GoogleSheetsSourceConfig,
         ExternalDataSourceType.GORGIAS: GorgiasSourceConfig,
         ExternalDataSourceType.GRANOLA: GranolaSourceConfig,

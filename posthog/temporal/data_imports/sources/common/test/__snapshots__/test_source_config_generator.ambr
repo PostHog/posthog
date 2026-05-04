@@ -98,6 +98,7 @@
           ExternalDataSourceType.GOOGLEADS: GoogleAdsSourceConfig,
           ExternalDataSourceType.GOOGLEANALYTICS: GoogleAnalyticsSourceConfig,
           ExternalDataSourceType.GOOGLEDRIVE: GoogleDriveSourceConfig,
+          ExternalDataSourceType.GOOGLESEARCHCONSOLE: GoogleSearchConsoleSourceConfig,
           ExternalDataSourceType.GOOGLESHEETS: GoogleSheetsSourceConfig,
           ExternalDataSourceType.GORGIAS: GorgiasSourceConfig,
           ExternalDataSourceType.GRANOLA: GranolaSourceConfig,
