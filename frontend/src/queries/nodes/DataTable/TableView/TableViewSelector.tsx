@@ -33,51 +33,55 @@ export function TableViewSelector({ contextKey, query, setQuery }: TableViewSele
     const { applyView, updateView, setShowDeleteConfirm, setIsCreating, resetToDefaults } = useActions(logic)
 
     const menuItems: LemonMenuItems = [
-        {
-            items: views.map((view) => {
-                const canEditView = view.created_by === user?.id
-                return {
-                    label: view.name,
-                    icon: <ViewVisibilityIcon view={view} />,
-                    active: currentView?.id === view.id,
-                    onClick: () => applyView(view),
-                    ...(canEditView && {
-                        sideAction: {
-                            icon: <IconGear />,
-                            tooltip: 'Manage view',
-                            dropdown: {
-                                overlay: (
-                                    <>
-                                        <LemonButton
-                                            size="small"
-                                            fullWidth
-                                            onClick={() => {
-                                                const newName = prompt('Rename view', view.name)
-                                                if (newName && newName !== view.name) {
-                                                    updateView(view.id, { name: newName })
-                                                }
-                                            }}
-                                        >
-                                            Rename
-                                        </LemonButton>
-                                        <LemonButton
-                                            size="small"
-                                            fullWidth
-                                            status="danger"
-                                            onClick={() => {
-                                                setShowDeleteConfirm(view.id)
-                                            }}
-                                        >
-                                            Delete
-                                        </LemonButton>
-                                    </>
-                                ),
-                            },
-                        },
-                    }),
-                } as LemonMenuItem
-            }),
-        },
+        ...(views.length > 0
+            ? [
+                  {
+                      items: views.map((view) => {
+                          const canEditView = view.created_by === user?.id
+                          return {
+                              label: view.name,
+                              icon: <ViewVisibilityIcon view={view} />,
+                              active: currentView?.id === view.id,
+                              onClick: () => applyView(view),
+                              ...(canEditView && {
+                                  sideAction: {
+                                      icon: <IconGear />,
+                                      tooltip: 'Manage view',
+                                      dropdown: {
+                                          overlay: (
+                                              <>
+                                                  <LemonButton
+                                                      size="small"
+                                                      fullWidth
+                                                      onClick={() => {
+                                                          const newName = prompt('Rename view', view.name)
+                                                          if (newName && newName !== view.name) {
+                                                              updateView(view.id, { name: newName })
+                                                          }
+                                                      }}
+                                                  >
+                                                      Rename
+                                                  </LemonButton>
+                                                  <LemonButton
+                                                      size="small"
+                                                      fullWidth
+                                                      status="danger"
+                                                      onClick={() => {
+                                                          setShowDeleteConfirm(view.id)
+                                                      }}
+                                                  >
+                                                      Delete
+                                                  </LemonButton>
+                                              </>
+                                          ),
+                                      },
+                                  },
+                              }),
+                          } as LemonMenuItem
+                      }),
+                  },
+              ]
+            : []),
         ...(hasDefaultsForContext
             ? [
                   {
