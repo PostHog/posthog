@@ -800,18 +800,21 @@ export const errorTrackingIssuesValuesRetrieve = async (projectId: string, optio
     })
 }
 
-export const getErrorTrackingRateLimitConfigListUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/error_tracking/rate_limit_config/`
+export const getErrorTrackingRateLimitConfigRetrieveConfigRetrieveUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/error_tracking/rate_limit_config/retrieve_config/`
 }
 
-export const errorTrackingRateLimitConfigList = async (
+export const errorTrackingRateLimitConfigRetrieveConfigRetrieve = async (
     projectId: string,
     options?: RequestInit
-): Promise<ErrorTrackingRateLimitConfigApi[]> => {
-    return apiMutator<ErrorTrackingRateLimitConfigApi[]>(getErrorTrackingRateLimitConfigListUrl(projectId), {
-        ...options,
-        method: 'GET',
-    })
+): Promise<ErrorTrackingRateLimitConfigApi> => {
+    return apiMutator<ErrorTrackingRateLimitConfigApi>(
+        getErrorTrackingRateLimitConfigRetrieveConfigRetrieveUrl(projectId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getErrorTrackingRateLimitConfigUpdateConfigPartialUpdateUrl = (projectId: string) => {
