@@ -949,11 +949,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                 </LemonBanner>
             )}
 
-            <FeatureFlagConditionWarning
-                properties={properties}
-                filterGroups={filterGroups}
-                evaluationRuntime={evaluationRuntime}
-            />
+            <FeatureFlagConditionWarning properties={properties} evaluationRuntime={evaluationRuntime} />
 
             {flagId && <IntentWarningsBanner flagId={flagId} />}
 
