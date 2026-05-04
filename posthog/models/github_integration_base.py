@@ -642,7 +642,11 @@ class GitHubIntegrationBase:
         comment_id = item.get("id")
         if not isinstance(comment_id, int):
             return None
-        user = item.get("user") if isinstance(item.get("user"), dict) else {}
+        # Narrow `user` once on a local — calling `item.get("user")` twice
+        # gives the type checker no guarantee the two calls returned the
+        # same value, so it can't know `user` is non-None on the .get below.
+        user_raw = item.get("user")
+        user: dict[Any, Any] = user_raw if isinstance(user_raw, dict) else {}
         login = user.get("login")
         return GitHubPullRequestComment(
             kind=kind,
