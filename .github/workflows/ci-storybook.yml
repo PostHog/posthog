@@ -34,6 +34,7 @@ jobs:
                         && fromJSON(steps.filter.outputs.frontend_count || '0')
                            > fromJSON(steps.filter.outputs.frontend_generated_count || '0'))
                 }}
+            matrix: ${{ steps.matrix.outputs.matrix }}
         steps:
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
@@ -60,6 +61,32 @@ jobs:
                       frontend_generated:
                         - 'frontend/src/generated/**'
                         - 'products/**/frontend/generated/**'
+
+            # Build the visual-regression matrix.
+            # On PRs, only run chromium shards — no story currently opts into webkit snapshots
+            # (see common/storybook/.storybook/test-runner.ts), so webkit shards consume CI
+            # minutes without producing snapshot diffs. WebKit render-error coverage is
+            # preserved on master pushes.
+            - name: Build matrix
+              id: matrix
+              run: |
+                  # Shard counts — change here to resize the matrix.
+                  CHROMIUM_SHARDS=16
+                  WEBKIT_SHARDS=4
+
+                  shards() {
+                    jq -cn --arg browser "$1" --argjson count "$2" \
+                      '[range(1; $count + 1) | {browser: $browser, shard_count: $count, shard: .}]'
+                  }
+
+                  CHROMIUM=$(shards chromium "$CHROMIUM_SHARDS")
+                  if [ "${{ github.event_name }}" = "pull_request" ]; then
+                    MATRIX=$(jq -cn --argjson c "$CHROMIUM" '{include: $c}')
+                  else
+                    WEBKIT=$(shards webkit "$WEBKIT_SHARDS")
+                    MATRIX=$(jq -cn --argjson c "$CHROMIUM" --argjson w "$WEBKIT" '{include: $c + $w}')
+                  fi
+                  echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
 
     build-storybook:
         name: Build Storybook (${{ matrix.runner }})
@@ -197,70 +224,12 @@ jobs:
             image: ghcr.io/posthog/playwright:v1.45.0
         strategy:
             fail-fast: false
-            matrix:
-                # Shard counts and worker config (maxWorkers in common/storybook/package.json)
-                # are tuned for runner CPU — consult #team-devex before changing
-                include:
-                    - browser: chromium
-                      shard_count: 16
-                      shard: 1
-                    - browser: chromium
-                      shard_count: 16
-                      shard: 2
-                    - browser: chromium
-                      shard_count: 16
-                      shard: 3
-                    - browser: chromium
-                      shard_count: 16
-                      shard: 4
-                    - browser: chromium
-                      shard_count: 16
-                      shard: 5
-                    - browser: chromium
-                      shard_count: 16
-                      shard: 6
-                    - browser: chromium
-                      shard_count: 16
-                      shard: 7
-                    - browser: chromium
-                      shard_count: 16
-                      shard: 8
-                    - browser: chromium
-                      shard_count: 16
-                      shard: 9
-                    - browser: chromium
-                      shard_count: 16
-                      shard: 10
-                    - browser: chromium
-                      shard_count: 16
-                      shard: 11
-                    - browser: chromium
-                      shard_count: 16
-                      shard: 12
-                    - browser: chromium
-                      shard_count: 16
-                      shard: 13
-                    - browser: chromium
-                      shard_count: 16
-                      shard: 14
-                    - browser: chromium
-                      shard_count: 16
-                      shard: 15
-                    - browser: chromium
-                      shard_count: 16
-                      shard: 16
-                    - browser: webkit
-                      shard_count: 4
-                      shard: 1
-                    - browser: webkit
-                      shard_count: 4
-                      shard: 2
-                    - browser: webkit
-                      shard_count: 4
-                      shard: 3
-                    - browser: webkit
-                      shard_count: 4
-                      shard: 4
+            # Shard counts and worker config (maxWorkers in common/storybook/package.json)
+            # are tuned for runner CPU — consult #team-devex before changing.
+            # Matrix is built dynamically in the `changes` job: chromium-only on PRs,
+            # chromium + webkit on master pushes. Storybook CI is skipped entirely on
+            # merge_group (the `changes` job gates on event_name != 'merge_group').
+            matrix: ${{ fromJson(needs.changes.outputs.matrix) }}
         env:
             NODE_OPTIONS: --max-old-space-size=16384
             OPT_OUT_CAPTURE: 1
@@ -289,9 +258,6 @@ jobs:
             - name: Install package.json dependencies with pnpm
               run: pnpm --filter=@posthog/storybook... install --frozen-lockfile
 
-            - name: Install CI utilities with pnpm
-              run: pnpm install http-server wait-on -g
-
             - name: Download Storybook build artifact
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
               with:
@@ -299,10 +265,13 @@ jobs:
                   path: common/storybook/dist
 
             - name: Serve Storybook in the background
+              # http-server and wait-on are devDependencies of @posthog/storybook.
+              # Run via `pnpm --filter` so pnpm resolves them from common/storybook/node_modules/.bin
+              # (no global install) and cd's into the package — `dist` is relative to common/storybook.
               run: |
                   retries=5
                   max_timeout=30
-                  pnpm exec http-server common/storybook/dist --port 6006 --silent &
+                  pnpm --filter=@posthog/storybook exec http-server dist --port 6006 --silent &
                   server_pid=$!
                   echo "Started http-server with PID: $server_pid"
 
@@ -311,7 +280,7 @@ jobs:
 
                   while [ $retries -gt 0 ]; do
                       echo "Checking if Storybook is available (retries left: $retries, timeout: ${max_timeout}s)..."
-                      if pnpm wait-on http://127.0.0.1:6006 --timeout $max_timeout; then
+                      if pnpm --filter=@posthog/storybook exec wait-on http://127.0.0.1:6006 --timeout $max_timeout; then
                           echo "✅ Storybook is available at http://127.0.0.1:6006"
                           break
                       fi
@@ -321,7 +290,7 @@ jobs:
                           # Check if server is still running
                           if ! kill -0 $server_pid 2>/dev/null; then
                               echo "❌ http-server process is no longer running, restarting it..."
-                              pnpm exec http-server common/storybook/dist --port 6006 --silent &
+                              pnpm --filter=@posthog/storybook exec http-server dist --port 6006 --silent &
                               server_pid=$!
                               echo "Restarted http-server with PID: $server_pid"
                               sleep 2
@@ -417,9 +386,6 @@ jobs:
             - name: Install dependencies
               run: pnpm --filter=@posthog/storybook... install --frozen-lockfile
 
-            - name: Install CI utilities
-              run: pnpm install http-server wait-on -g
-
             - name: Download Storybook build artifact
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
               with:
@@ -427,10 +393,11 @@ jobs:
                   path: common/storybook/dist
 
             - name: Serve Storybook
+              # Resolve http-server/wait-on from common/storybook's devDependencies (no global install).
               run: |
-                  pnpm exec http-server common/storybook/dist --port 6006 --silent &
+                  pnpm --filter=@posthog/storybook exec http-server dist --port 6006 --silent &
                   sleep 2
-                  pnpm wait-on http://127.0.0.1:6006 --timeout 30
+                  pnpm --filter=@posthog/storybook exec wait-on http://127.0.0.1:6006 --timeout 30
 
             - name: Verify changed stories are stable
               id: flake-verify
