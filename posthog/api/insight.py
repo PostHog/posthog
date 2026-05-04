@@ -67,6 +67,13 @@ from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import get_request_analytics_properties, report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.multi_property_breakdown import protect_old_clients_from_multi_property_default
+from posthog.helpers.trigram_search import (
+    DESCRIPTION_SCORE_WEIGHT,
+    MAX_SEARCH_LENGTH,
+    MIN_DESCRIPTION_TRIGRAM_SIMILARITY,
+    MIN_NAME_TRIGRAM_SIMILARITY,
+    normalize_search_term,
+)
 from posthog.hogql_queries.apply_dashboard_filters import (
     WRAPPER_NODE_KINDS,
     apply_dashboard_filters_to_dict,
@@ -129,11 +136,6 @@ from common.hogvm.python.utils import HogVMException
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
-
-MIN_NAME_TRIGRAM_SIMILARITY = 0.3
-MIN_DESCRIPTION_TRIGRAM_SIMILARITY = 0.4
-DESCRIPTION_SCORE_WEIGHT = 0.5
-MAX_SEARCH_LENGTH = 200
 
 LEGACY_INSIGHT_ENDPOINTS_BLOCKED_FLAG = "legacy-insight-endpoints-disabled"
 LEGACY_INSIGHT_FILTERS_BLOCKED_FLAG = "legacy-insight-filters-disabled"
@@ -1534,7 +1536,7 @@ class InsightViewSet(
     @staticmethod
     @tracer.start_as_current_span("InsightViewSet._apply_search")
     def _apply_search(queryset: QuerySet, search: str) -> QuerySet:
-        search = search.replace("\x00", "").strip()
+        search = normalize_search_term(search)
         span = trace.get_current_span()
         span.set_attribute("insight.search.length", len(search))
         if not search:

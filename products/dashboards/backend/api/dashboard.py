@@ -48,6 +48,13 @@ from posthog.constants import GENERATED_DASHBOARD_PREFIX
 from posthog.event_usage import get_request_analytics_properties, report_user_action
 from posthog.helpers import create_dashboard_from_template
 from posthog.helpers.dashboard_templates import create_from_template, dashboard_template_from_creation_payload
+from posthog.helpers.trigram_search import (
+    DESCRIPTION_SCORE_WEIGHT,
+    MAX_SEARCH_LENGTH,
+    MIN_DESCRIPTION_TRIGRAM_SIMILARITY,
+    MIN_NAME_TRIGRAM_SIMILARITY,
+    normalize_search_term,
+)
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Insight
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
@@ -140,18 +147,6 @@ FILTERS_OVERRIDE_PARAM = OpenApiParameter(
 
 
 tracer = trace.get_tracer(__name__)
-
-# Minimum trigram word similarity for a name match. Calibrated against the
-# `test_list_filter_by_search_*` tests in posthog/api/test/dashboards/test_dashboard.py.
-# Tighten it and typo cases stop matching, loosen it and unrelated rows leak in.
-MIN_NAME_TRIGRAM_SIMILARITY = 0.3
-# Description thresholds run higher because descriptions are freeform prose where short
-# queries (3-5 chars) can clear a 0.3 threshold against any sufficiently long passage.
-MIN_DESCRIPTION_TRIGRAM_SIMILARITY = 0.4
-# Hard cap on the `?search=` query parameter — protects against pathological inputs
-# burning CPU on trigram comparisons against a long string (and against operational
-# `dashboard.name` is bounded at 400 chars so 200 covers any realistic prefix-as-you-type).
-MAX_SEARCH_LENGTH = 200
 
 
 def serialize_tile_with_context(tile, order: int, context: dict) -> tuple[int, dict]:
@@ -1118,8 +1113,7 @@ class DashboardsViewSet(
     @staticmethod
     @tracer.start_as_current_span("DashboardViewSet._apply_search")
     def _apply_search(queryset: QuerySet, search: str) -> QuerySet:
-        # Postgres rejects NUL bytes in text parameters; strip before they hit the query.
-        search = search.replace("\x00", "").strip()
+        search = normalize_search_term(search)
         span = trace.get_current_span()
         span.set_attribute("dashboard.search.length", len(search))
         if not search:
@@ -1150,7 +1144,7 @@ class DashboardsViewSet(
                 _name_match_score=F("_name_word") + F("_name_full"),
                 _description_match_score=F("_description_word"),
             )
-            .annotate(_search_score=F("_name_match_score") + F("_description_match_score") * 0.5)
+            .annotate(_search_score=F("_name_match_score") + F("_description_match_score") * DESCRIPTION_SCORE_WEIGHT)
             .order_by("-_search_score", "-pinned", "name")
         )
 
