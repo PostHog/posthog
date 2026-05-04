@@ -7254,6 +7254,7 @@ dependencies = [
  "futures",
  "lifecycle",
  "metrics",
+ "metrics-util",
  "personhog-proto",
  "quick_cache",
  "rand 0.8.5",
