@@ -5,15 +5,12 @@ import { ReferenceLines } from '../../overlays/ReferenceLine'
 import { ValueLabels } from '../../overlays/ValueLabels'
 import { LineChart } from '../LineChart'
 import { buildGoalLineReferenceLines, type GoalLineConfig } from './utils/goal-lines'
+import { applyInProgressToSeries, type InProgressConfig } from './utils/in-progress'
 import { useXTickFormatter, useYTickFormatter, type XAxisConfig, type YAxisConfig } from './utils/use-axis-formatters'
 
 export interface ValueLabelsConfig {
     seriesKeys?: string[]
     formatter?: (value: number) => string
-}
-
-export interface InProgressConfig {
-    fromIndex: number
 }
 
 export interface TimeSeriesLineChartConfig {
@@ -63,15 +60,10 @@ export function TimeSeriesLineChart<Meta = unknown>({
 
     const valueLabelsConfig = resolveValueLabelsConfig(valueLabels)
 
-    const seriesWithInProgress = useMemo(() => {
-        if (inProgress?.fromIndex === undefined) {
-            return series
-        }
-        const fromIndex = inProgress.fromIndex
-        return series.map((s) =>
-            s.stroke?.partial !== undefined ? s : { ...s, stroke: { ...s.stroke, partial: { fromIndex } } }
-        )
-    }, [series, inProgress?.fromIndex])
+    const seriesWithInProgress = useMemo(
+        () => applyInProgressToSeries(series, inProgress),
+        [series, inProgress?.fromIndex]
+    )
 
     const transformedSeries = useMemo(() => {
         const seriesKeys = valueLabelsConfig?.seriesKeys
