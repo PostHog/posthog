@@ -5,6 +5,8 @@ export { LineChart } from './charts/LineChart'
 export type { LineChartProps } from './charts/LineChart'
 export { TimeSeriesLineChart } from './charts/TimeSeriesLineChart/TimeSeriesLineChart'
 export type {
+    ConfidenceIntervalConfig,
+    MovingAverageConfig,
     TimeSeriesLineChartConfig,
     TimeSeriesLineChartProps,
     ValueLabelsConfig,
@@ -59,6 +61,10 @@ export type { ValueLabelsProps } from './overlays/ValueLabels'
 
 // Helper for adapters that need to align with the same x-axis tick selection the chart draws.
 export { computeVisibleXLabels } from './overlays/AxisLabels'
+
+// Timeseries overlays
+export { AnomalyPointsLayer } from './charts/TimeSeriesLineChart/overlays/AnomalyPointsLayer'
+export type { AnomalyMarker } from './charts/TimeSeriesLineChart/overlays/AnomalyPointsLayer'
 
 // Timeseries utils
 export { createXAxisTickCallback, parseDateForAxis } from './charts/TimeSeriesLineChart/utils/dates'
