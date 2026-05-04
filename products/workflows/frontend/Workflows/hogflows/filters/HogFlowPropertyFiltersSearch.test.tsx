@@ -1,7 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { Provider } from 'kea'
 
 import { recentTaxonomicFiltersLogic } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
@@ -81,14 +80,14 @@ describe('HogFlowPropertyFilters search', () => {
     }
 
     async function openTaxonomicFilter(): Promise<void> {
-        await userEvent.click(screen.getByTestId('new-prop-filter-HogFlowPropertyFilters.search-test'))
+        fireEvent.click(screen.getByTestId('new-prop-filter-HogFlowPropertyFilters.search-test'))
         await waitFor(() => {
             expect(screen.getByTestId('taxonomic-filter-searchfield')).toBeInTheDocument()
         })
     }
 
-    async function search(query: string): Promise<void> {
-        await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), query)
+    function search(query: string): void {
+        fireEvent.change(screen.getByTestId('taxonomic-filter-searchfield'), { target: { value: query } })
     }
 
     it('shows workflow variables in the dedicated tab', async () => {
@@ -96,7 +95,7 @@ describe('HogFlowPropertyFilters search', () => {
         renderFilters()
 
         await openTaxonomicFilter()
-        await userEvent.click(screen.getByTestId('taxonomic-tab-workflow_variables'))
+        fireEvent.click(screen.getByTestId('taxonomic-tab-workflow_variables'))
 
         await waitFor(() => {
             expect(screen.getAllByRole('button', { name: 'order_id' }).length).toBeGreaterThan(0)
@@ -109,8 +108,8 @@ describe('HogFlowPropertyFilters search', () => {
         renderFilters()
 
         await openTaxonomicFilter()
-        await userEvent.click(screen.getByTestId('taxonomic-tab-workflow_variables'))
-        await search('cart')
+        fireEvent.click(screen.getByTestId('taxonomic-tab-workflow_variables'))
+        search('cart')
 
         await waitFor(() => {
             expect(screen.getAllByRole('button', { name: 'cart_total' }).length).toBeGreaterThan(0)
@@ -124,7 +123,7 @@ describe('HogFlowPropertyFilters search', () => {
         renderFilters()
 
         await openTaxonomicFilter()
-        await search('order')
+        search('order')
 
         await waitFor(() => {
             expect(screen.getByTestId('prop-filter-workflow_variables-0')).toBeInTheDocument()
@@ -137,8 +136,8 @@ describe('HogFlowPropertyFilters search', () => {
         renderFilters()
 
         await openTaxonomicFilter()
-        await userEvent.click(screen.getByTestId('taxonomic-tab-workflow_variables'))
-        await search('zzznonexistent')
+        fireEvent.click(screen.getByTestId('taxonomic-tab-workflow_variables'))
+        search('zzznonexistent')
 
         await waitFor(() => {
             expect(screen.getAllByText('No workflow variables match your search.').length).toBeGreaterThan(0)
