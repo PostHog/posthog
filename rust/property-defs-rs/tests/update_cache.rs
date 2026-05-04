@@ -222,10 +222,7 @@ fn assert_miss_then_hit(label: &'static str, update: Update) {
     make_event_prop("hit_miss_eventprops_evt", "hit_miss_eventprops_prop")
 )]
 #[case::propdefs("propdefs", make_prop_def("hit_miss_propdefs"))]
-fn test_contains_key_emits_hit_miss_metrics(
-    #[case] label: &'static str,
-    #[case] update: Update,
-) {
+fn test_contains_key_emits_hit_miss_metrics(#[case] label: &'static str, #[case] update: Update) {
     assert_miss_then_hit(label, update);
 }
 
