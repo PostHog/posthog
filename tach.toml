@@ -58,6 +58,7 @@ layer = "modules"
 path = "posthog"
 depends_on = [
     "ee",
+    "products.access_control",
     "products.analytics_platform",
     "products.batch_exports",
     "products.conversations",
@@ -539,3 +540,20 @@ depends_on = [
     "posthog",
 ]
 layer = "modules"
+
+[[modules]]
+path = "products.access_control"
+depends_on = [
+    "posthog",
+    "ee",
+]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.models.*",
+    "backend\\.property_access_control.*",
+]
+from = [
+    "products.access_control",
+]

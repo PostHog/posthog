@@ -12,6 +12,7 @@ import { GENERATED_TOOLS as core } from './core'
 import { GENERATED_TOOLS as customer_analytics } from './customer_analytics'
 import { GENERATED_TOOLS as dashboards } from './dashboards'
 import { GENERATED_TOOLS as data_warehouse } from './data_warehouse'
+import { GENERATED_TOOLS as docs } from './docs'
 import { GENERATED_TOOLS as early_access_features } from './early_access_features'
 import { GENERATED_TOOLS as endpoints } from './endpoints'
 import { GENERATED_TOOLS as error_tracking } from './error_tracking'
@@ -30,6 +31,7 @@ import { GENERATED_TOOLS as replay } from './replay'
 import { GENERATED_TOOLS as sdk_doctor } from './sdk_doctor'
 import { GENERATED_TOOLS as signals } from './signals'
 import { GENERATED_TOOLS as surveys } from './surveys'
+import { GENERATED_TOOLS as visual_review } from './visual_review'
 import { GENERATED_TOOLS as web_analytics } from './web_analytics'
 import { GENERATED_TOOLS as workflows } from './workflows'
 
@@ -45,6 +47,7 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...customer_analytics,
     ...dashboards,
     ...data_warehouse,
+    ...docs,
     ...early_access_features,
     ...endpoints,
     ...error_tracking,
@@ -63,6 +66,7 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...sdk_doctor,
     ...signals,
     ...surveys,
+    ...visual_review,
     ...web_analytics,
     ...workflows,
 }

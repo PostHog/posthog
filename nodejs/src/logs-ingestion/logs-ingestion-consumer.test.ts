@@ -19,6 +19,7 @@ import { LogRecord, encodeLogRecords } from './log-record-avro'
 import {
     DEFAULT_LOGS_RETENTION_DAYS,
     LogsIngestionConsumer,
+    type LogsIngestionConsumerDeps,
     logMessageDlqCounter,
     logMessageDroppedCounter,
     logsBytesAllowedCounter,
@@ -29,6 +30,8 @@ import {
     logsRecordsReceivedCounter,
 } from './logs-ingestion-consumer'
 import { LOGS_DLQ_OUTPUT, LOGS_OUTPUT, LogsDlqOutput, LogsOutput } from './outputs/outputs'
+import { compileRuleSet } from './sampling/compile-rules'
+import type { SamplingRulesCache } from './sampling/sampling-rules-cache'
 import { BASE_REDIS_KEY } from './services/logs-rate-limiter.service'
 
 const DEFAULT_TEST_TIMEOUT = 5000
@@ -114,7 +117,11 @@ describe('LogsIngestionConsumer', () => {
     let fixedTime: DateTime
     let logMessageDroppedCounterSpy: jest.SpyInstance
 
-    const createLogsIngestionConsumer = async (hub: Hub, overrides: any = {}) => {
+    const createLogsIngestionConsumer = async (
+        hub: Hub,
+        overrides: any = {},
+        depsPartial: Partial<Pick<LogsIngestionConsumerDeps, 'samplingRulesCache'>> = {}
+    ) => {
         const consumer = new LogsIngestionConsumer(
             hub,
             {
@@ -134,6 +141,7 @@ describe('LogsIngestionConsumer', () => {
                         'test'
                     ),
                 }),
+                ...depsPartial,
             },
             overrides
         )
@@ -981,6 +989,7 @@ describe('LogsIngestionConsumer', () => {
             expect(stats!.bytesDropped).toBe(0)
             expect(stats!.recordsDropped).toBe(0)
             expect(stats!.piiReplacements).toBe(0)
+            expect(stats!.samplingRecordsDropped).toBe(0)
         })
 
         it('should aggregate stats for multiple messages from same team', async () => {
@@ -1123,6 +1132,7 @@ describe('LogsIngestionConsumer', () => {
                         bytesDropped: 200,
                         recordsDropped: 2,
                         piiReplacements: 0,
+                        samplingRecordsDropped: 3,
                     },
                 ],
             ])
@@ -1131,7 +1141,7 @@ describe('LogsIngestionConsumer', () => {
 
             const messages = getProducedKafkaMessages().filter((m) => m.topic === KAFKA_APP_METRICS_2)
 
-            expect(messages).toHaveLength(6)
+            expect(messages).toHaveLength(7)
 
             const metricNames = messages.map((m) => parseMetricValue(m.value)?.metric_name)
             expect(metricNames).toContain('bytes_received')
@@ -1140,6 +1150,7 @@ describe('LogsIngestionConsumer', () => {
             expect(metricNames).toContain('records_ingested')
             expect(metricNames).toContain('bytes_dropped')
             expect(metricNames).toContain('records_dropped')
+            expect(metricNames).toContain('sampling_records_dropped')
         })
 
         it('should skip zero-count metrics', async () => {
@@ -1154,6 +1165,7 @@ describe('LogsIngestionConsumer', () => {
                         bytesDropped: 0,
                         recordsDropped: 0,
                         piiReplacements: 0,
+                        samplingRecordsDropped: 0,
                     },
                 ],
             ])
@@ -1191,6 +1203,7 @@ describe('LogsIngestionConsumer', () => {
                         bytesDropped: 0,
                         recordsDropped: 0,
                         piiReplacements: 0,
+                        samplingRecordsDropped: 0,
                     },
                 ],
                 [
@@ -1203,6 +1216,7 @@ describe('LogsIngestionConsumer', () => {
                         bytesDropped: 0,
                         recordsDropped: 0,
                         piiReplacements: 0,
+                        samplingRecordsDropped: 0,
                     },
                 ],
             ])
@@ -1429,13 +1443,77 @@ describe('LogsIngestionConsumer', () => {
 
             const appMetricsMessages = getProducedKafkaMessages().filter((m) => m.topic === KAFKA_APP_METRICS_2)
 
-            // Should not have bytes_dropped or records_dropped since nothing was dropped
+            // Should not have drop metrics since nothing was dropped or sampled out
             const droppedMetrics = appMetricsMessages.filter((m) => {
                 const value = parseMetricValue(m.value)
-                return value.metric_name === 'bytes_dropped' || value.metric_name === 'records_dropped'
+                return (
+                    value.metric_name === 'bytes_dropped' ||
+                    value.metric_name === 'records_dropped' ||
+                    value.metric_name === 'sampling_records_dropped' ||
+                    value.metric_name === 'sampling_records_dropped_by_rule'
+                )
             })
 
             expect(droppedMetrics).toHaveLength(0)
+        })
+
+        describe('sampling usage to app_metrics2', () => {
+            beforeEach(async () => {
+                await consumer.stop()
+                const mockSamplingCache: Pick<SamplingRulesCache, 'getCompiledRuleSet'> = {
+                    getCompiledRuleSet: (teamId: number) =>
+                        Promise.resolve(
+                            teamId === team.id
+                                ? compileRuleSet([
+                                      {
+                                          id: '00000000-0000-0000-0000-0000000000aa',
+                                          rule_type: 'severity_sampling',
+                                          scope_service: 'test-service',
+                                          scope_path_pattern: null,
+                                          scope_attribute_filters: [],
+                                          config: { actions: { INFO: { type: 'drop' } } },
+                                      },
+                                  ])
+                                : { rules: [] }
+                        ),
+                }
+                consumer = await createLogsIngestionConsumer(
+                    hub,
+                    {},
+                    { samplingRulesCache: mockSamplingCache as SamplingRulesCache }
+                )
+                await deleteKeysWithPrefix(consumer['redis'], BASE_REDIS_KEY)
+            })
+
+            it('should emit sampling_records_dropped when head sampling drops log lines', async () => {
+                const logData = createLogMessage({ level: 'info' })
+                const messages = await createKafkaMessages([logData], {
+                    token: team.api_token,
+                    bytes_uncompressed: '400',
+                    record_count: '1',
+                })
+
+                await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
+
+                const appMetricsMessages = getProducedKafkaMessages().filter((m) => m.topic === KAFKA_APP_METRICS_2)
+                const samplingDropped = appMetricsMessages.find((m) => {
+                    const value = parseMetricValue(m.value)
+                    return value.metric_name === 'sampling_records_dropped' && value.team_id === team.id
+                })
+                expect(samplingDropped).toBeDefined()
+                expect(parseMetricValue(samplingDropped!.value).count).toBe(1)
+
+                const byRule = appMetricsMessages.find((m) => {
+                    const value = parseMetricValue(m.value)
+                    return (
+                        value.metric_name === 'sampling_records_dropped_by_rule' &&
+                        value.team_id === team.id &&
+                        value.instance_id === '00000000-0000-0000-0000-0000000000aa'
+                    )
+                })
+                expect(byRule).toBeDefined()
+                expect(parseMetricValue(byRule!.value).count).toBe(1)
+            })
         })
     })
 
