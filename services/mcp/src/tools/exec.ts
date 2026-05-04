@@ -19,14 +19,20 @@ export interface ExecInnerCallProperties {
 export type ExecInnerCallTracker = (toolName: string, properties: ExecInnerCallProperties) => void
 
 const INPUT_FIELD_DESCRIPTION =
-    "Structured payload for `call <tool>`. Pass the inner tool's arguments as a native JSON object here instead of inline JSON in `command` to skip double-escaping. Recommended for any payload over a few hundred characters or containing quotes/newlines (saving skills, multi-line strings, nested filters, embedded code or markdown). Ignored for `tools`, `search`, `info`, `schema`. Mutually exclusive with inline JSON in `command`."
+    'Arguments for `call <tool>` as a native JSON object. This is the only supported way to pass arguments — inline JSON in `command` is rejected. Omit for tools that take no arguments. Only used for `call`.'
 
-function makeExecSchema(
-    commandReference: string
-): z.ZodObject<{ command: z.ZodString; input: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>> }> {
+const OUTPUT_FORMAT_DESCRIPTION =
+    "Output format for `call <tool>`. `optimized` (default) returns a token-efficient view; `json` returns the inner tool's raw JSON result. Some tools force `json` regardless via their own metadata. Only used for `call`."
+
+function makeExecSchema(commandReference: string): z.ZodObject<{
+    command: z.ZodString
+    input: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>
+    output_format: z.ZodOptional<z.ZodEnum<{ optimized: 'optimized'; json: 'json' }>>
+}> {
     return z.object({
         command: z.string().describe(commandReference),
         input: z.record(z.string(), z.unknown()).optional().describe(INPUT_FIELD_DESCRIPTION),
+        output_format: z.enum(['optimized', 'json']).optional().describe(OUTPUT_FORMAT_DESCRIPTION),
     })
 }
 
@@ -193,39 +199,26 @@ export function createExecTool(
 
                 case 'call': {
                     if (!rest) {
-                        throw new Error('Usage: call [--json] <tool_name> <json_input>')
+                        throw new Error(
+                            'Usage: call <tool_name>  (pass arguments via the `input` parameter, output format via `output_format`)'
+                        )
                     }
-                    const forceJson = rest.startsWith('--json ') || rest === '--json'
-                    const callArgs = forceJson ? rest.slice('--json'.length).trim() : rest
-                    if (!callArgs) {
-                        throw new Error('Usage: call [--json] <tool_name> <json_input>')
+                    if (rest.startsWith('--json ') || rest === '--json') {
+                        throw new Error(
+                            'The `--json` flag in `command` is no longer supported. Pass `output_format: "json"` as a sibling parameter instead.'
+                        )
                     }
-                    const { verb: toolName, rest: jsonBody } = parseCommand(callArgs)
+                    const { verb: toolName, rest: trailing } = parseCommand(rest)
                     const tool = findTool(allTools, toolName)
-                    const structuredInput = params.input
-
-                    let input: Record<string, unknown>
-                    if (structuredInput !== undefined) {
-                        if (jsonBody) {
-                            throw new Error(
-                                'Provide either inline JSON in `command` or the `input` parameter, not both.'
-                            )
-                        }
-                        input = structuredInput
-                    } else if (!jsonBody) {
-                        input = {}
-                    } else {
-                        try {
-                            input = JSON.parse(jsonBody) as Record<string, unknown>
-                        } catch (err) {
-                            const detail = err instanceof Error ? err.message : String(err)
-                            throw new Error(
-                                `Invalid JSON input: ${detail}. Tip: for long or quote-heavy payloads, pass the structured \`input\` parameter instead of inline JSON to avoid double-escaping. Body received: ${jsonBody}`
-                            )
-                        }
+                    if (trailing) {
+                        throw new Error(
+                            'Inline JSON in `command` is no longer supported. Pass arguments via the `input` parameter, e.g. { "command": "call <tool>", "input": { ... } }.'
+                        )
                     }
+                    const input: Record<string, unknown> = params.input ?? {}
 
-                    const useJson = forceJson || tool._meta?.[POSTHOG_META_KEY]?.outputFormat === 'json'
+                    const useJson =
+                        params.output_format === 'json' || tool._meta?.[POSTHOG_META_KEY]?.outputFormat === 'json'
                     const startedAt = Date.now()
                     let result: unknown
                     try {
@@ -261,7 +254,7 @@ export function createExecTool(
                                 handlerResult: result,
                                 toolMeta: tool._meta,
                                 toolName: tool.name,
-                                params: forceJson ? { ...input, output_format: 'json' } : input,
+                                params: useJson ? { ...input, output_format: 'json' } : input,
                                 // Consumer is the UI-apps host; keep `structuredContent` for the UI.
                                 // Passing `undefined` bypasses the coding-agent suppression in
                                 // `buildToolResultPayload` because this path explicitly wants it.
