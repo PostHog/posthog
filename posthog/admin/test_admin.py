@@ -150,21 +150,19 @@ class TestPluginAttachmentInline(BaseTest):
 
 
 class TestEventIngestionRestrictionConfigAdmin(BaseTest):
-    def test_display_team_id_returns_team_id_for_matching_token(self):
-        config = EventIngestionRestrictionConfig.objects.create(
-            token=self.team.api_token,
-            restriction_type=RestrictionType.DROP_EVENT_FROM_INGESTION,
-        )
+    def test_display_team_id_resolves_token_to_team_id(self):
         admin_instance = EventIngestionRestrictionConfigAdmin(EventIngestionRestrictionConfig, AdminSite())
-        assert admin_instance.display_team_id(config) == self.team.id
-
-    def test_display_team_id_returns_none_for_unknown_token(self):
-        config = EventIngestionRestrictionConfig.objects.create(
-            token="phc_nonexistent_token",
-            restriction_type=RestrictionType.DROP_EVENT_FROM_INGESTION,
-        )
-        admin_instance = EventIngestionRestrictionConfigAdmin(EventIngestionRestrictionConfig, AdminSite())
-        assert admin_instance.display_team_id(config) is None
+        cases = [
+            ("matching token", self.team.api_token, self.team.id),
+            ("unknown token", "phc_nonexistent_token", None),
+        ]
+        for label, token, expected in cases:
+            with self.subTest(label):
+                config = EventIngestionRestrictionConfig.objects.create(
+                    token=token,
+                    restriction_type=RestrictionType.DROP_EVENT_FROM_INGESTION,
+                )
+                assert admin_instance.display_team_id(config) == expected
 
 
 class TestEventIngestionRestrictionConfigAdminConfig:

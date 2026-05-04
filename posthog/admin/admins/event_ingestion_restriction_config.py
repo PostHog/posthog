@@ -1,5 +1,6 @@
 from django import forms
 from django.contrib import admin
+from django.db.models import OuterRef, Subquery
 
 from posthog.models.event_ingestion_restriction_config import (
     INGESTION_PIPELINES,
@@ -105,12 +106,17 @@ class EventIngestionRestrictionConfigAdmin(admin.ModelAdmin):
     readonly_fields = ("display_team_id",)
     search_fields = ("token", "distinct_ids", "session_ids", "event_names", "event_uuids")
 
-    @admin.display(description="Team ID")
-    def display_team_id(self, obj):
+    def get_queryset(self, request):
         from posthog.models.team.team import Team
 
-        team = Team.objects.filter(api_token=obj.token).values_list("id", flat=True).first()
-        return team
+        qs = super().get_queryset(request)
+        return qs.annotate(
+            team_id_from_token=Subquery(Team.objects.filter(api_token=OuterRef("token")).values("id")[:1])
+        )
+
+    @admin.display(description="Team ID")
+    def display_team_id(self, obj):
+        return getattr(obj, "team_id_from_token", None)
 
     @admin.display(description="Topic")
     def display_topic(self, obj):
