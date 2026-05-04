@@ -1,6 +1,10 @@
 import { DEFAULT_Y_AXIS_ID } from 'lib/hog-charts'
 import type { LineChartConfig, Series } from 'lib/hog-charts'
-import { ciRanges, movingAverage, trendLine } from 'lib/statistics'
+import {
+    buildConfidenceIntervalSeries,
+    buildMovingAverageSeries,
+} from 'lib/hog-charts/charts/TimeSeriesLineChart/utils/derived-series'
+import { ciRanges, trendLine } from 'lib/statistics'
 import { hexToRGBA } from 'lib/utils'
 
 import { ChartDisplayType } from '~/types'
@@ -82,45 +86,44 @@ function buildDerivedTrendsSeries<R extends TrendsResultLike, M = unknown>(
     opts: BuildTrendsSeriesOpts<R, M>
 ): Series<M>[] {
     const { main, baseColor, dashedFromIndex, excluded } = built
+    const label = r.label ?? ''
     const out: Series<M>[] = []
 
     if (opts.showConfidenceIntervals) {
         const ci = (opts.confidenceLevel ?? 95) / 100
         const [lower, upper] = ciRanges(r.data, ci)
-        out.push({
-            key: `${r.id}__ci`,
-            label: `${r.label ?? ''} (CI)`,
-            data: upper,
-            color: main.color,
-            yAxisId: main.yAxisId,
-            meta: main.meta,
-            fill: { opacity: 0.2, lowerData: lower },
-            visibility: { excluded, fromTooltip: true, fromValueLabels: true },
-        })
+        out.push(
+            buildConfidenceIntervalSeries<M>({
+                seriesKey: main.key,
+                label,
+                baseColor: main.color,
+                lower,
+                upper,
+                yAxisId: main.yAxisId,
+                meta: main.meta,
+                excluded,
+            })
+        )
     }
 
+    let maSeries: Series<M> | undefined
     if (
         opts.showMovingAverage &&
         opts.movingAverageIntervals !== undefined &&
         r.data.length >= opts.movingAverageIntervals
     ) {
-        const maData = movingAverage(r.data, opts.movingAverageIntervals)
-        out.push({
-            key: `${r.id}-ma`,
-            label: `${r.label ?? ''} (Moving avg)`,
-            data: maData,
-            color: main.color,
-            yAxisId: main.yAxisId,
-            meta: main.meta,
-            stroke: { pattern: [10, 3] },
-            visibility: { fromTooltip: true, fromStack: true },
+        maSeries = buildMovingAverageSeries<M>({
+            sourceSeries: main,
+            window: opts.movingAverageIntervals,
+            label: `${label} (Moving avg)`,
         })
+        out.push(maSeries)
 
         if (opts.showTrendLines && !excluded) {
             out.push({
                 key: `${r.id}-ma__trendline`,
-                label: `${r.label ?? ''} (Moving avg)`,
-                data: trendLine(maData),
+                label: `${label} (Moving avg)`,
+                data: trendLine(maSeries.data),
                 color: hexToRGBA(baseColor, TRENDLINE_DIM_OPACITY),
                 yAxisId: main.yAxisId,
                 stroke: { pattern: [1, 3] },
@@ -136,7 +139,7 @@ function buildDerivedTrendsSeries<R extends TrendsResultLike, M = unknown>(
     if (opts.showTrendLines && !excluded) {
         out.push({
             key: `${r.id}__trendline`,
-            label: r.label ?? '',
+            label,
             data: trendLine(r.data, dashedFromIndex),
             color: hexToRGBA(baseColor, TRENDLINE_DIM_OPACITY),
             yAxisId: main.yAxisId,
