@@ -2,6 +2,7 @@ import typing
 import datetime as dt
 import collections.abc
 from dataclasses import dataclass
+from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from requests import Response
@@ -334,14 +335,14 @@ def instagram_source(
         kind = schema_def["kind"]
 
         if kind == "single":
-            params = {"fields": ",".join(schema_def["field_names"])}
-            response = _fetch_url(formatted_url, access_token, params)
+            single_params: dict[str, Any] = {"fields": ",".join(schema_def["field_names"])}
+            response = _fetch_url(formatted_url, access_token, single_params)
             payload = _check_response(response)
             yield [payload]
             return
 
         if kind == "list":
-            params = {
+            params: dict[str, Any] = {
                 "fields": ",".join(schema_def["field_names"]),
                 "limit": DEFAULT_PAGE_LIMIT,
                 **schema_def["extra_params"],
