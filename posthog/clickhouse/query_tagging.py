@@ -95,6 +95,8 @@ class Feature(StrEnum):
     ENDPOINT_EXECUTION = "endpoint_execution"  # external API callers (personal_api_key or oauth)
     ENDPOINT_PLAYGROUND = "endpoint_playground"  # frontend Playground tab (browser session auth)
     ENDPOINT_LAST_EXECUTION = "endpoint_last_execution"  # Usage tab query_log lookup
+    POSTHOG_AI = "posthog_ai"
+    MCP = "mcp"
 
 
 class TemporalTags(BaseModel):

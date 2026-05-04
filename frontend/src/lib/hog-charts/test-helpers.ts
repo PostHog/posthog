@@ -1,6 +1,6 @@
 import { fireEvent, waitFor } from '@testing-library/react'
 
-import { DEFAULT_MARGINS } from './core/Chart'
+import { DEFAULT_MARGINS } from './core/hooks/useChartMargins'
 import type { ChartDimensions, ResolvedSeries, Series } from './core/types'
 
 export const dimensions: ChartDimensions = {

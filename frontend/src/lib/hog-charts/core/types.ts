@@ -191,6 +191,11 @@ export interface ChartDrawArgs {
 /** Resolves the y-value for a series at a given data index. Used by interaction/tooltip layer. */
 export type ResolveValueFn = (series: Series, dataIndex: number) => number
 
+export const defaultResolveValue: ResolveValueFn = (series, dataIndex) => {
+    const v = series.data[dataIndex]
+    return typeof v === 'number' && Number.isFinite(v) ? v : 0
+}
+
 /** Factory function that chart types provide to create their scales from dimensions and data. */
 export type CreateScalesFn = (series: ResolvedSeries[], labels: string[], dimensions: ChartDimensions) => ChartScales
 

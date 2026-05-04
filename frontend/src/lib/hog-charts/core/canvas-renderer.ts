@@ -1,7 +1,7 @@
 import * as d3 from 'd3'
 
 import { yTickCountForHeight } from './scales'
-import type { ChartDimensions, ResolvedSeries } from './types'
+import type { ChartDimensions, ChartDrawArgs, ResolvedSeries } from './types'
 
 export interface DrawContext {
     ctx: CanvasRenderingContext2D
@@ -349,4 +349,23 @@ export function drawHighlightPoint(
     ctx.beginPath()
     ctx.arc(x, y, radius, 0, Math.PI * 2)
     ctx.fill()
+}
+
+type DrawHoverFn = (args: ChartDrawArgs) => void
+
+// Crosshair drawn first so the chart-type's highlight rings render on top.
+export function composeDrawHoverWithCrosshair(
+    getDrawHover: () => DrawHoverFn,
+    crosshairColor: string | undefined,
+    showCrosshair: boolean
+): DrawHoverFn {
+    return (args) => {
+        if (showCrosshair && crosshairColor && args.hoverIndex >= 0) {
+            const x = args.scales.x(args.labels[args.hoverIndex])
+            if (x != null && isFinite(x)) {
+                drawCrosshair(args.ctx, args.dimensions, x, crosshairColor)
+            }
+        }
+        getDrawHover()(args)
+    }
 }
