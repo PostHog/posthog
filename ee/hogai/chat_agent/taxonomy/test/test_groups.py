@@ -3,6 +3,7 @@ from datetime import datetime
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest
 
 from posthog.models.group.util import raw_create_group_ch
+from posthog.models.group_type_mapping import invalidate_group_types_cache
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
@@ -24,6 +25,7 @@ class TestGroups(ClickhouseTestMixin, NonAtomicBaseTest):
             create_group_type_mapping_without_created_at(
                 team=self.team, project_id=self.team.project_id, group_type_index=i, group_type=group_type
             )
+        invalidate_group_types_cache(self.team.project_id)
 
         # Create property definitions for organization (group_type_index=0)
         PropertyDefinition.objects.create(

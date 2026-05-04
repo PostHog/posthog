@@ -5,7 +5,6 @@ import { IconCheckCircle, IconCorrelationAnalysis, IconInfo, IconPencil, IconWar
 import { LemonButton, LemonCollapse, LemonTable, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { getSeriesBackgroundColor, getSeriesColor } from 'lib/colors'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { useChart } from 'lib/hooks/useChart'
 import { humanFriendlyLargeNumber, humanFriendlyNumber } from 'lib/utils'
@@ -30,15 +29,33 @@ interface MicroChartProps {
     exposures: ExperimentExposureQueryResponse
 }
 
-interface ChartDataset {
+interface ExposureSeries {
+    variant: string
     data: number[]
-    borderColor: string
-    fill: boolean
-    tension: number
-    borderWidth: number
-    pointRadius: number
-    label?: string
-    backgroundColor?: string
+}
+
+// Single-day timeseries get a synthetic prior day with 0 exposures so the chart
+// can draw a line instead of a single point.
+function buildExposureDatasets(timeseries: ExperimentExposureTimeSeries[]): {
+    labels: string[]
+    datasets: ExposureSeries[]
+} {
+    let labels = timeseries[0].days.map((day: string) => dayjs(day).format('MM/DD'))
+    let datasets: ExposureSeries[] = timeseries.map((series: ExperimentExposureTimeSeries) => ({
+        variant: series.variant,
+        data: series.exposure_counts,
+    }))
+
+    if (timeseries[0].days.length === 1) {
+        const previousDay = dayjs(timeseries[0].days[0]).subtract(1, 'day').format('MM/DD')
+        labels = [previousDay, ...labels]
+        datasets = datasets.map((dataset) => ({
+            ...dataset,
+            data: [0, ...dataset.data],
+        }))
+    }
+
+    return { labels, datasets }
 }
 
 function MicroChart({ exposures }: MicroChartProps): JSX.Element | null {
@@ -48,10 +65,9 @@ function MicroChart({ exposures }: MicroChartProps): JSX.Element | null {
                 return null
             }
 
-            const timeseries = exposures.timeseries
-
-            let datasets = timeseries.map((series: ExperimentExposureTimeSeries, index: number) => ({
-                data: series.exposure_counts,
+            const { datasets: rawDatasets } = buildExposureDatasets(exposures.timeseries)
+            const datasets = rawDatasets.map((series, index) => ({
+                data: series.data,
                 borderColor: getSeriesColor(index),
                 fill: false,
                 tension: 0.3,
@@ -59,17 +75,10 @@ function MicroChart({ exposures }: MicroChartProps): JSX.Element | null {
                 pointRadius: 0,
             }))
 
-            if (timeseries[0].days.length === 1) {
-                datasets = datasets.map((dataset: ChartDataset) => ({
-                    ...dataset,
-                    data: [0, ...dataset.data],
-                }))
-            }
-
             return {
                 type: 'line' as const,
                 data: {
-                    labels: datasets[0].data.map((_: any, i: number) => i),
+                    labels: datasets[0].data.map((_, i) => i),
                     datasets,
                 },
                 options: {
@@ -130,6 +139,86 @@ function MicroChart({ exposures }: MicroChartProps): JSX.Element | null {
     )
 }
 
+interface ExposuresChartProps {
+    exposures: ExperimentExposureQueryResponse
+    axisLineColor: string
+}
+
+function ExposuresChart({ exposures, axisLineColor }: ExposuresChartProps): JSX.Element {
+    const { canvasRef } = useChart({
+        getConfig: () => {
+            if (!exposures?.timeseries?.length) {
+                return null
+            }
+
+            const { labels, datasets: rawDatasets } = buildExposureDatasets(exposures.timeseries)
+            const datasets = rawDatasets.map((series, index) => ({
+                label: series.variant,
+                data: series.data,
+                borderColor: getSeriesColor(index),
+                backgroundColor: getSeriesBackgroundColor(index),
+                fill: false,
+                tension: 0,
+                borderWidth: 2,
+                pointRadius: 0,
+            }))
+
+            return {
+                type: 'line' as const,
+                data: { labels, datasets },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: {
+                        intersect: false,
+                        mode: 'nearest',
+                        axis: 'x',
+                    },
+                    scales: {
+                        x: {
+                            ticks: {
+                                maxTicksLimit: 8,
+                                autoSkip: true,
+                                maxRotation: 0,
+                                minRotation: 0,
+                            },
+                            grid: {
+                                display: true,
+                                color: axisLineColor,
+                            },
+                        },
+                        y: {
+                            beginAtZero: true,
+                            grid: {
+                                display: true,
+                                color: axisLineColor,
+                            },
+                        },
+                    },
+                    plugins: {
+                        legend: {
+                            display: false,
+                            labels: {
+                                boxWidth: 4,
+                                boxPadding: 20,
+                                pointStyle: 'dash',
+                            },
+                        },
+                        crosshair: false,
+                    },
+                },
+            }
+        },
+        deps: [exposures, axisLineColor],
+    })
+
+    return (
+        <div className="relative h-[200px]">
+            <canvas ref={canvasRef} />
+        </div>
+    )
+}
+
 function getExposureCriteriaLabel(exposureCriteria: ExperimentExposureCriteria | undefined): string {
     const exposureConfig = exposureCriteria?.exposure_config
     if (!exposureConfig) {
@@ -141,8 +230,7 @@ function getExposureCriteriaLabel(exposureCriteria: ExperimentExposureCriteria |
 }
 
 export function Exposures(): JSX.Element {
-    const { exposures, exposuresLoading, exposureCriteria, isExperimentDraft, featureFlags } =
-        useValues(experimentLogic)
+    const { exposures, exposuresLoading, exposureCriteria, isExperimentDraft } = useValues(experimentLogic)
     const { openExposureCriteriaModal } = useActions(exposureCriteriaModalLogic)
     const colors = useChartColors()
 
@@ -177,87 +265,6 @@ export function Exposures(): JSX.Element {
 
     // Detect sample ratio mismatch (p < 0.001 is significant)
     const hasSRM = exposures?.sample_ratio_mismatch != null && exposures.sample_ratio_mismatch.p_value < 0.001
-
-    const { canvasRef } = useChart({
-        getConfig: () => {
-            if (isCollapsed || !exposures?.timeseries?.length) {
-                return null
-            }
-
-            let labels = exposures.timeseries[0].days.map((day: string) => dayjs(day).format('MM/DD'))
-            let datasets = exposures.timeseries.map((series: ExperimentExposureTimeSeries, index: number) => ({
-                label: series.variant,
-                data: series.exposure_counts,
-                borderColor: getSeriesColor(index),
-                backgroundColor: getSeriesBackgroundColor(index),
-                fill: false,
-                tension: 0,
-                borderWidth: 2,
-                pointRadius: 0,
-            }))
-
-            if (exposures.timeseries[0].days.length === 1) {
-                const firstDay = dayjs(exposures.timeseries[0].days[0])
-                const previousDay = firstDay.subtract(1, 'day').format('MM/DD')
-
-                labels = [previousDay, ...labels]
-                datasets = datasets.map((dataset: ChartDataset) => ({
-                    ...dataset,
-                    data: [0, ...dataset.data],
-                }))
-            }
-
-            return {
-                type: 'line' as const,
-                data: {
-                    labels,
-                    datasets,
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    interaction: {
-                        intersect: false,
-                        mode: 'nearest',
-                        axis: 'x',
-                    },
-                    scales: {
-                        x: {
-                            ticks: {
-                                maxTicksLimit: 8,
-                                autoSkip: true,
-                                maxRotation: 0,
-                                minRotation: 0,
-                            },
-                            grid: {
-                                display: true,
-                                color: colors.EXPOSURES_AXIS_LINES,
-                            },
-                        },
-                        y: {
-                            beginAtZero: true,
-                            grid: {
-                                display: true,
-                                color: colors.EXPOSURES_AXIS_LINES,
-                            },
-                        },
-                    },
-                    plugins: {
-                        legend: {
-                            display: false,
-                            labels: {
-                                boxWidth: 4,
-                                boxPadding: 20,
-                                pointStyle: 'dash',
-                            },
-                        },
-                        crosshair: false,
-                    },
-                },
-            }
-        },
-        deps: [exposures, colors.EXPOSURES_AXIS_LINES, isCollapsed],
-    })
 
     const handleCollapseChange = useCallback((activeKey: string | null) => {
         const isOpen = activeKey === 'cumulative-exposures'
@@ -307,7 +314,7 @@ export function Exposures(): JSX.Element {
                                         ))}
                                     </div>
                                 )}
-                                {featureFlags[FEATURE_FLAGS.EXPERIMENTS_SAMPLE_RATIO_MISMATCH] && hasSRM && (
+                                {hasSRM && (
                                     <Tooltip title={srmFailureTooltipText}>
                                         <IconWarning className="text-warning text-lg" />
                                     </Tooltip>
@@ -356,9 +363,7 @@ export function Exposures(): JSX.Element {
                                     </div>
                                 </div>
                             ) : (
-                                <div className="relative h-[200px]">
-                                    <canvas ref={canvasRef} />
-                                </div>
+                                <ExposuresChart exposures={exposures} axisLineColor={colors.EXPOSURES_AXIS_LINES} />
                             )}
 
                             {/* Exposure Criteria Section */}
@@ -438,27 +443,9 @@ export function Exposures(): JSX.Element {
                                                 key: 'percentage',
                                                 render: function Percentage(_, series) {
                                                     if (series.isTotal) {
-                                                        let totalPercentage = 0
-                                                        let total = 0
-                                                        if (exposures?.total_exposures) {
-                                                            for (const [_, value] of Object.entries(
-                                                                exposures.total_exposures
-                                                            )) {
-                                                                total += Number(value)
-                                                            }
-                                                            if (total > 0) {
-                                                                for (const [_, count] of Object.entries(
-                                                                    exposures.total_exposures
-                                                                )) {
-                                                                    totalPercentage += (Number(count) / total) * 100
-                                                                }
-                                                            }
-                                                        }
                                                         return (
                                                             <span className="font-semibold">
-                                                                {totalPercentage
-                                                                    ? `${totalPercentage.toFixed(1)}%`
-                                                                    : '-%'}
+                                                                {totalExposures > 0 ? '100.0%' : '-%'}
                                                             </span>
                                                         )
                                                     }
@@ -490,41 +477,39 @@ export function Exposures(): JSX.Element {
                                             },
                                         ]}
                                     />
-                                    {featureFlags[FEATURE_FLAGS.EXPERIMENTS_SAMPLE_RATIO_MISMATCH] &&
-                                        exposures?.sample_ratio_mismatch != null && (
-                                            <div className="flex items-center gap-1 text-xs mt-2">
-                                                {hasSRM ? (
-                                                    <>
-                                                        <Tooltip title={srmFailureTooltipText}>
-                                                            <span className="flex items-center gap-1 text-warning cursor-pointer">
-                                                                <IconWarning className="text-sm" />
-                                                                <span className="font-semibold">
-                                                                    Sample ratio mismatch detected
-                                                                </span>
+                                    {exposures?.sample_ratio_mismatch != null && (
+                                        <div className="flex items-center gap-1 text-xs mt-2">
+                                            {hasSRM ? (
+                                                <>
+                                                    <Tooltip title={srmFailureTooltipText}>
+                                                        <span className="flex items-center gap-1 text-warning cursor-pointer">
+                                                            <IconWarning className="text-sm" />
+                                                            <span className="font-semibold">
+                                                                Sample ratio mismatch detected
                                                             </span>
-                                                        </Tooltip>
-                                                        <span className="text-muted">
-                                                            (p ={' '}
-                                                            {exposures.sample_ratio_mismatch.p_value.toExponential(2)})
                                                         </span>
-                                                    </>
-                                                ) : (
-                                                    <>
-                                                        <Tooltip title="No sample ratio mismatch detected. The difference between actual and expected exposures is within normal random variation.">
-                                                            <span className="flex items-center gap-1 text-success cursor-pointer">
-                                                                <IconCheckCircle className="text-sm" />
-                                                                <span>
-                                                                    Exposure distribution matches rollout percentages
-                                                                </span>
+                                                    </Tooltip>
+                                                    <span className="text-muted">
+                                                        (p = {exposures.sample_ratio_mismatch.p_value.toExponential(2)})
+                                                    </span>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <Tooltip title="No sample ratio mismatch detected. The difference between actual and expected exposures is within normal random variation.">
+                                                        <span className="flex items-center gap-1 text-success cursor-pointer">
+                                                            <IconCheckCircle className="text-sm" />
+                                                            <span>
+                                                                Exposure distribution matches rollout percentages
                                                             </span>
-                                                        </Tooltip>
-                                                        <span className="text-muted">
-                                                            (p = {exposures.sample_ratio_mismatch.p_value.toFixed(3)})
                                                         </span>
-                                                    </>
-                                                )}
-                                            </div>
-                                        )}
+                                                    </Tooltip>
+                                                    <span className="text-muted">
+                                                        (p = {exposures.sample_ratio_mismatch.p_value.toFixed(3)})
+                                                    </span>
+                                                </>
+                                            )}
+                                        </div>
+                                    )}
                                 </div>
                             )}
                         </div>

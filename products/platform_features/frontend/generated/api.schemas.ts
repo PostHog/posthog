@@ -860,6 +860,7 @@ export type ActivityLogListParams = {
 * `CustomerProfileConfig` - CustomerProfileConfig
 * `Log` - Log
 * `LogsAlertConfiguration` - LogsAlertConfiguration
+* `LogsExclusionRule` - LogsExclusionRule
 * `ProductTour` - ProductTour
 * `Ticket` - Ticket
  * @minLength 1
@@ -933,6 +934,7 @@ export const ActivityLogListScope = {
     CustomerProfileConfig: 'CustomerProfileConfig',
     Log: 'Log',
     LogsAlertConfiguration: 'LogsAlertConfiguration',
+    LogsExclusionRule: 'LogsExclusionRule',
     ProductTour: 'ProductTour',
     Ticket: 'Ticket',
 } as const
@@ -993,6 +995,7 @@ export const ActivityLogListScope = {
  * `CustomerProfileConfig` - CustomerProfileConfig
  * `Log` - Log
  * `LogsAlertConfiguration` - LogsAlertConfiguration
+ * `LogsExclusionRule` - LogsExclusionRule
  * `ProductTour` - ProductTour
  * `Ticket` - Ticket
  */
@@ -1054,6 +1057,7 @@ export const ActivityLogListScopesItem = {
     CustomerProfileConfig: 'CustomerProfileConfig',
     Log: 'Log',
     LogsAlertConfiguration: 'LogsAlertConfiguration',
+    LogsExclusionRule: 'LogsExclusionRule',
     ProductTour: 'ProductTour',
     Ticket: 'Ticket',
 } as const

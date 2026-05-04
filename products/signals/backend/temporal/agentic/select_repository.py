@@ -9,6 +9,7 @@ from posthog.models import Organization
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
+from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.signals.backend.models import SignalReportArtefact
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult, select_repository_for_report
@@ -107,50 +108,53 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
         input.report_id,
     )
     try:
-        # Check for a previous selection from an earlier run, if any
-        previous = await database_sync_to_async(_load_previous_repo_selection, thread_sensitive=False)(input.report_id)
-        if previous is not None and previous.repository is not None:
+        async with Heartbeater():
+            # Check for a previous selection from an earlier run, if any
+            previous = await database_sync_to_async(_load_previous_repo_selection, thread_sensitive=False)(
+                input.report_id
+            )
+            if previous is not None and previous.repository is not None:
+                logger.info(
+                    "signals repo selection reused from previous run",
+                    report_id=input.report_id,
+                    repository=previous.repository,
+                )
+                _capture_repo_research_event(
+                    "signals_repo_research_completed",
+                    team,
+                    team.organization,
+                    input.report_id,
+                    result="reused",
+                )
+                return previous
+
+            user_id = await database_sync_to_async(_resolve_team_repo_context, thread_sensitive=False)(input.team_id)
+            sandbox_env_id = await database_sync_to_async(get_or_create_signals_sandbox_env, thread_sensitive=False)(
+                input.team_id,
+                SIGNALS_REPO_DISCOVERY_ENV_NAME,
+                SandboxEnvironment.NetworkAccessLevel.CUSTOM,
+                allowed_domains=GITHUB_ONLY_DOMAINS,
+            )
+            result = await select_repository_for_report(
+                team_id=input.team_id,
+                user_id=user_id,
+                signals=input.signals,
+                sandbox_environment_id=sandbox_env_id,
+            )
             logger.info(
-                "signals repo selection reused from previous run",
+                "signals repo selection completed",
                 report_id=input.report_id,
-                repository=previous.repository,
+                repository=result.repository,
+                reason=result.reason,
             )
             _capture_repo_research_event(
                 "signals_repo_research_completed",
                 team,
                 team.organization,
                 input.report_id,
-                result="reused",
+                result="selected" if result.repository is not None else "no_repo",
             )
-            return previous
-
-        user_id = await database_sync_to_async(_resolve_team_repo_context, thread_sensitive=False)(input.team_id)
-        sandbox_env_id = await database_sync_to_async(get_or_create_signals_sandbox_env, thread_sensitive=False)(
-            input.team_id,
-            SIGNALS_REPO_DISCOVERY_ENV_NAME,
-            SandboxEnvironment.NetworkAccessLevel.CUSTOM,
-            allowed_domains=GITHUB_ONLY_DOMAINS,
-        )
-        result = await select_repository_for_report(
-            team_id=input.team_id,
-            user_id=user_id,
-            signals=input.signals,
-            sandbox_environment_id=sandbox_env_id,
-        )
-        logger.info(
-            "signals repo selection completed",
-            report_id=input.report_id,
-            repository=result.repository,
-            reason=result.reason,
-        )
-        _capture_repo_research_event(
-            "signals_repo_research_completed",
-            team,
-            team.organization,
-            input.report_id,
-            result="selected" if result.repository is not None else "no_repo",
-        )
-        return result
+            return result
     except Exception as e:
         failure_reason = "no_github_integration" if isinstance(e, RuntimeError) else "agentic_activity_error"
         _capture_repo_research_event(
