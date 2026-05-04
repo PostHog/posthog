@@ -2004,6 +2004,10 @@ export type SurveysListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Fuzzy match against survey `name` and `description` using Postgres trigram word similarity. Supports typos and prefix-as-you-type.
+     */
+    search?: string
 }
 
 export type SurveysStatsRetrieveParams = {
