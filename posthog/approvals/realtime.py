@@ -2,8 +2,6 @@ from typing import TYPE_CHECKING
 
 from structlog import get_logger
 
-from posthog.utils import absolute_uri
-
 from products.notifications.backend.facade.api import (
     NotificationData,
     NotificationType,
@@ -17,10 +15,6 @@ if TYPE_CHECKING:
     from posthog.approvals.models import ChangeRequest
 
 logger = get_logger(__name__)
-
-
-def _build_change_request_url(change_request: "ChangeRequest") -> str:
-    return absolute_uri(f"/project/{change_request.team.project_id}/approvals/{change_request.id}")
 
 
 def dispatch_approval_resolved_realtime(change_request: "ChangeRequest", *, title: str, body: str) -> None:
@@ -38,7 +32,7 @@ def dispatch_approval_resolved_realtime(change_request: "ChangeRequest", *, titl
                 target_id=str(change_request.created_by_id),
                 resource_type=NotificationOnlyResourceType.APPROVAL,
                 resource_id=str(change_request.id),
-                source_url=_build_change_request_url(change_request),
+                source_url=f"/project/{change_request.team.project_id}/approvals/{change_request.id}",
             )
         )
     except Exception as e:
