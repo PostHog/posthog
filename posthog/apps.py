@@ -10,7 +10,13 @@ from posthoganalytics.client import Client
 
 from posthog.git import get_git_branch, get_git_commit_short
 from posthog.tasks.tasks import sync_all_organization_available_product_features
-from posthog.utils import get_instance_region, get_machine_id, initialize_self_capture_api_token, str_to_bool
+from posthog.utils import (
+    get_available_timezones_with_offsets,
+    get_instance_region,
+    get_machine_id,
+    initialize_self_capture_api_token,
+    str_to_bool,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -23,6 +29,7 @@ class PostHogConfig(AppConfig):
         import posthog.storage.team_access_cache_signal_handlers  # noqa: F401
 
         self._setup_lazy_admin()
+        self._prewarm_timezone_offsets_cache()
         posthoganalytics.api_key = "sTMFPsFhdP1Ssg"  # ty: ignore[invalid-assignment]
         # Fall back to DEV_API_KEY in debug so feature flags work locally without manual env setup.
         # DEV_API_KEY lives in ee/settings.py — getattr returns None in OSS mode.
@@ -107,6 +114,19 @@ class PostHogConfig(AppConfig):
             queue_sync_hog_function_templates()
 
         file_system_registrations.register_core_file_system_types()
+
+    def _prewarm_timezone_offsets_cache(self):
+        # The pytz walk in get_available_timezones_with_offsets is hourly-cached but
+        # the cache is per-process. Without pre-warming, every fresh pod pays ~580ms
+        # on its first preflight (the home view). Run it once at startup so the cache
+        # is hot before any request lands. Skip during tests / static collection where
+        # this would just slow setup with no benefit.
+        if settings.TEST or settings.STATIC_COLLECTION:
+            return
+        try:
+            get_available_timezones_with_offsets()
+        except Exception:
+            logger.warning("prewarm_timezone_offsets_cache_failure", exc_info=True)
 
     def _setup_lazy_admin(self):
         """Set up lazy loading of admin classes to avoid importing all at startup."""

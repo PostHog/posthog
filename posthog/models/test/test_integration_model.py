@@ -193,6 +193,57 @@ class TestOauthIntegrationModel(BaseTest):
                 "id_token": None,
             }
 
+    @parameterized.expand(
+        [
+            (
+                "json_error_body",
+                400,
+                {
+                    "error": "invalid_grant",
+                    "error_description": "Authorization code does not exist or has expired.",
+                },
+                None,
+                '{"error":"invalid_grant","error_description":"Authorization code does not exist or has expired."}',
+                ["invalid_grant", "Authorization code does not exist"],
+            ),
+            (
+                "non_json_error_body",
+                502,
+                None,
+                ValueError("not json"),
+                "<html>Bad Gateway</html>",
+                ["salesforce"],
+            ),
+        ]
+    )
+    @patch("posthog.models.integration.requests.post")
+    def test_oauth_token_exchange_failure_raises_validation_error(
+        self, _name, status_code, json_return, json_side_effect, body_text, expected_in_message, mock_post
+    ):
+        """A failed token exchange must surface a ValidationError (→ DRF 400 with `detail`) so the
+        frontend toast renders something useful. Covers both well-formed JSON error bodies (where
+        we extract `error_description`) and non-JSON bodies (where the helper falls back to the
+        raw text or a status-only message)."""
+        with self.settings(**self.mock_settings):
+            mock_post.return_value.status_code = status_code
+            if json_side_effect is not None:
+                mock_post.return_value.json.side_effect = json_side_effect
+            else:
+                mock_post.return_value.json.return_value = json_return
+            mock_post.return_value.text = body_text
+
+            with pytest.raises(ValidationError) as e:
+                OauthIntegration.integration_from_oauth_response(
+                    "salesforce",
+                    self.team.id,
+                    self.user,
+                    {"code": "code", "state": "next=/projects/test"},
+                )
+
+            message = str(e.value).lower()
+            for fragment in expected_in_message:
+                assert fragment.lower() in message
+
     @patch("posthog.models.integration.requests.post")
     def test_integration_errors_if_id_cannot_be_generated(self, mock_post):
         with self.settings(**self.mock_settings):
@@ -699,7 +750,7 @@ class TestOauthIntegrationModel(BaseTest):
             STRIPE_APP_SECRET_KEY="sk_live_secret",
             STRIPE_APP_SANDBOX_SECRET_KEY="",
         ):
-            with pytest.raises(Exception, match="Oauth error"):
+            with pytest.raises(ValidationError, match="OAuth failed"):
                 OauthIntegration.integration_from_oauth_response(
                     "stripe",
                     self.team.id,
@@ -727,7 +778,7 @@ class TestOauthIntegrationModel(BaseTest):
             STRIPE_APP_SECRET_KEY="sk_live_secret",
             STRIPE_APP_SANDBOX_SECRET_KEY="sk_test_sandbox_secret",
         ):
-            with pytest.raises(Exception, match="Oauth error"):
+            with pytest.raises(ValidationError, match="OAuth failed"):
                 OauthIntegration.integration_from_oauth_response(
                     "stripe",
                     self.team.id,
@@ -1212,7 +1263,7 @@ class TestGitHubIntegrationModel(BaseTest):
 
     @patch("posthog.models.github_integration_base.requests.get")
     @patch("posthog.models.integration.GitHubIntegration.access_token_expired", return_value=False)
-    def test_list_repositories_raises_when_follow_up_page_fails(self, _mock_expired, mock_get):
+    def test_list_all_repositories_raises_when_later_page_fails(self, _mock_expired, mock_get):
         integration = self.create_integration(
             {"installation_id": "INSTALL", "account": {"name": "PostHog"}},
             {"access_token": "ACCESS_TOKEN"},
@@ -1228,12 +1279,13 @@ class TestGitHubIntegrationModel(BaseTest):
         second_page.status_code = 502
         second_page.json.return_value = {"message": "bad gateway"}
 
-        mock_get.side_effect = [first_page, second_page]
+        # Page-1 succeeds. Page-2 fetch is retried once after transient 502.
+        mock_get.side_effect = [first_page, second_page, second_page]
 
-        with pytest.raises(GitHubIntegrationError, match="failed to list repositories on page"):
-            GitHubIntegration(integration).list_repositories(limit=150, offset=0)
+        with pytest.raises(GitHubIntegrationError, match="failed to list repositories"):
+            GitHubIntegration(integration).list_all_repositories()
 
-        assert mock_get.call_count == 2
+        assert mock_get.call_count == 3
 
     @patch("posthog.models.integration.GitHubIntegration.list_repositories")
     def test_list_all_repositories_fetches_all_pages(self, mock_list):
@@ -1254,8 +1306,8 @@ class TestGitHubIntegrationModel(BaseTest):
         assert len(repos) == 130
         assert repos == first_page + second_page
         assert mock_list.call_args_list == [
-            call(limit=100, offset=0),
-            call(limit=100, offset=100),
+            call(page=1, per_page=100),
+            call(page=2, per_page=100),
         ]
 
     @patch("posthog.models.integration.GitHubIntegration.list_all_repositories")

@@ -19,7 +19,8 @@ def test_salesforce_refresh_access_token_raises_on_client_failure():
 
     with (
         unittest.mock.patch(
-            "posthog.temporal.data_imports.sources.salesforce.auth.requests.post", return_value=response
+            "posthog.temporal.data_imports.sources.salesforce.auth.make_tracked_session",
+            return_value=type("_S", (), {"post": staticmethod(lambda *a, **k: response)})(),
         ),
         pytest.raises(auth.SalesforceAuthRequestError) as exc,
     ):
@@ -41,7 +42,8 @@ def test_salesforce_refresh_access_token_raises_on_server_failure():
 
     with (
         unittest.mock.patch(
-            "posthog.temporal.data_imports.sources.salesforce.auth.requests.post", return_value=response
+            "posthog.temporal.data_imports.sources.salesforce.auth.make_tracked_session",
+            return_value=type("_S", (), {"post": staticmethod(lambda *a, **k: response)})(),
         ),
         pytest.raises(auth.SalesforceAuthRequestError) as exc,
     ):
@@ -63,7 +65,8 @@ def test_get_salesforce_access_token_from_code_raises_on_client_failure():
 
     with (
         unittest.mock.patch(
-            "posthog.temporal.data_imports.sources.salesforce.auth.requests.post", return_value=response
+            "posthog.temporal.data_imports.sources.salesforce.auth.make_tracked_session",
+            return_value=type("_S", (), {"post": staticmethod(lambda *a, **k: response)})(),
         ),
         pytest.raises(auth.SalesforceAuthRequestError) as exc,
     ):
@@ -85,7 +88,8 @@ def test_get_salesforce_access_token_from_code_raises_on_server_failure():
 
     with (
         unittest.mock.patch(
-            "posthog.temporal.data_imports.sources.salesforce.auth.requests.post", return_value=response
+            "posthog.temporal.data_imports.sources.salesforce.auth.make_tracked_session",
+            return_value=type("_S", (), {"post": staticmethod(lambda *a, **k: response)})(),
         ),
         pytest.raises(auth.SalesforceAuthRequestError) as exc,
     ):

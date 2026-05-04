@@ -65,6 +65,7 @@ from posthog.utils_cors import cors_response
 
 from products.surveys.backend.models import MAX_ITERATION_COUNT, Survey, SurveyResponseArchive, ensure_question_ids
 from products.surveys.backend.summarization import fetch_responses, format_as_markdown, summarize_responses
+from products.surveys.backend.translation import generate_survey_translation
 from products.surveys.backend.util import (
     SurveyEventName,
     SurveyEventProperties,
@@ -98,6 +99,113 @@ FIELDS_NOT_APPLICABLE_TO_EXTERNAL_SURVEYS = [
     "linked_flag_id",
     "targeting_flag_filters",
 ]
+SURVEY_TRANSLATION_DRAFT_FIELDS = ("name", "description", "type", "appearance", "questions", "translations")
+SURVEY_TRANSLATION_DRAFT_APPEARANCE_FIELDS = (
+    "thankYouMessageHeader",
+    "thankYouMessageDescription",
+    "thankYouMessageCloseButtonText",
+)
+SURVEY_TRANSLATION_DRAFT_QUESTION_FIELDS = (
+    "id",
+    "type",
+    "question",
+    "description",
+    "buttonText",
+    "choices",
+    "lowerBoundLabel",
+    "upperBoundLabel",
+    "link",
+    "translations",
+)
+
+
+class GenerateSurveyTranslationsRequestSerializer(serializers.Serializer):
+    target_language = serializers.CharField(help_text="Language code to generate translations for, for example pt-BR.")
+    source_language = serializers.CharField(
+        required=False, default="en", help_text="Source language code for the existing survey copy."
+    )
+    overwrite = serializers.BooleanField(
+        required=False, default=False, help_text="Whether to overwrite existing translations for this language."
+    )
+    survey = serializers.DictField(
+        child=serializers.JSONField(allow_null=True, help_text="Draft survey field value."),
+        required=False,
+        help_text="Optional translation-only draft survey payload to translate instead of the last saved survey.",
+    )
+
+    def validate_survey(self, survey: dict[str, Any]) -> dict[str, Any]:
+        draft = {field: survey[field] for field in SURVEY_TRANSLATION_DRAFT_FIELDS if field in survey}
+
+        appearance = draft.get("appearance")
+        if isinstance(appearance, dict):
+            draft["appearance"] = {
+                field: appearance[field] for field in SURVEY_TRANSLATION_DRAFT_APPEARANCE_FIELDS if field in appearance
+            }
+
+        questions = draft.get("questions")
+        if isinstance(questions, list):
+            draft["questions"] = [
+                {field: question[field] for field in SURVEY_TRANSLATION_DRAFT_QUESTION_FIELDS if field in question}
+                for question in questions
+                if isinstance(question, dict)
+            ]
+
+        return draft
+
+
+class GeneratedSurveyRootTranslationSerializer(serializers.Serializer):
+    name = serializers.CharField(required=False, allow_blank=True, help_text="Translated survey name.")
+    thankYouMessageHeader = serializers.CharField(
+        required=False, allow_blank=True, help_text="Translated thank-you header."
+    )
+    thankYouMessageDescription = serializers.CharField(
+        required=False, allow_blank=True, help_text="Translated thank-you description."
+    )
+    thankYouMessageCloseButtonText = serializers.CharField(
+        required=False, allow_blank=True, help_text="Translated thank-you close button text."
+    )
+
+
+class GeneratedSurveyQuestionTranslationSerializer(serializers.Serializer):
+    question = serializers.CharField(required=False, allow_blank=True, help_text="Translated question text.")
+    description = serializers.CharField(required=False, allow_blank=True, help_text="Translated question description.")
+    buttonText = serializers.CharField(required=False, allow_blank=True, help_text="Translated submit button text.")
+    choices = serializers.ListField(
+        child=serializers.CharField(allow_blank=True),
+        required=False,
+        help_text="Translated choices in the same order as the source choices.",
+    )
+    lowerBoundLabel = serializers.CharField(
+        required=False, allow_blank=True, help_text="Translated lower rating bound label."
+    )
+    upperBoundLabel = serializers.CharField(
+        required=False, allow_blank=True, help_text="Translated upper rating bound label."
+    )
+    link = serializers.CharField(required=False, allow_blank=True, help_text="Translated link text or localized URL.")
+
+
+class GeneratedSurveyQuestionTranslationPatchSerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="Survey question id this patch applies to.")
+    translations = serializers.DictField(
+        child=GeneratedSurveyQuestionTranslationSerializer(),
+        help_text="Question translation patch keyed by target language.",
+    )
+
+
+class GenerateSurveyTranslationsResponseSerializer(serializers.Serializer):
+    translations = serializers.DictField(
+        child=GeneratedSurveyRootTranslationSerializer(),
+        help_text="Survey-level translation patch keyed by language.",
+    )
+    questions = serializers.ListField(
+        child=GeneratedSurveyQuestionTranslationPatchSerializer(),
+        help_text="Question-level translation patches keyed by question id and language.",
+    )
+    generated_field_paths = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Editor field paths generated by AI and safe to highlight as draft content.",
+    )
+    trace_id = serializers.CharField(help_text="LLM trace id for debugging and feedback.")
 
 
 def get_hosted_survey_display_language(request: HttpRequest) -> str | None:
@@ -2419,6 +2527,72 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         if timings_header:
             r.headers["Server-Timing"] = timings_header
         return r
+
+    @extend_schema(
+        request=GenerateSurveyTranslationsRequestSerializer,
+        responses=GenerateSurveyTranslationsResponseSerializer,
+    )
+    @action(methods=["POST"], detail=True, url_path="generate_translations", required_scopes=["survey:write"])
+    def generate_translations(self, request: request.Request, **kwargs):
+        if not request.user.is_authenticated:
+            raise exceptions.NotAuthenticated()
+
+        if not (settings.DEBUG or is_cloud()):
+            raise exceptions.ValidationError(
+                "survey translation generation is only supported in PostHog Cloud or DEBUG mode"
+            )
+
+        if not settings.GEMINI_API_KEY:
+            raise exceptions.ValidationError("GEMINI_API_KEY must be configured to generate translations")
+
+        if not self.team.organization.is_ai_data_processing_approved:
+            return Response(
+                {"error": "AI data processing must be approved to generate translations"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        serializer = GenerateSurveyTranslationsRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        survey = data.get("survey")
+        if survey is None:
+            saved_survey = self.get_object()
+            survey = {
+                "name": saved_survey.name,
+                "description": saved_survey.description,
+                "type": saved_survey.type,
+                "appearance": saved_survey.appearance or {},
+                "questions": saved_survey.questions or [],
+                "translations": saved_survey.translations or {},
+            }
+        user = cast(User, request.user)
+
+        translations, questions, generated_field_paths, trace_id = generate_survey_translation(
+            survey=survey,
+            target_language=data["target_language"],
+            source_language=data["source_language"],
+            overwrite=data["overwrite"],
+            distinct_id=str(user.distinct_id),
+            team_id=self.team.pk,
+        )
+
+        posthoganalytics.capture(
+            event="survey translations generated",
+            distinct_id=str(user.distinct_id),
+            properties={
+                "survey_id": kwargs["pk"],
+                "target_language": data["target_language"],
+                "field_count": len(generated_field_paths),
+            },
+        )
+        return Response(
+            {
+                "translations": translations,
+                "questions": questions,
+                "generated_field_paths": generated_field_paths,
+                "trace_id": trace_id,
+            }
+        )
 
     @action(methods=["POST"], detail=True, required_scopes=["survey:write"])
     def duplicate_to_projects(self, request: request.Request, **kwargs):

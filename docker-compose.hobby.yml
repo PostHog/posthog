@@ -97,6 +97,9 @@ services:
             RECORDING_API_URL: http://recording-api:6738
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
             POSTHOG_SKIP_MIGRATION_CHECKS: '1'
+            PERSONHOG_ADDR: 'http://personhog-router:50052'
+            PERSONHOG_ENABLED: 'true'
+            PERSONHOG_ROLLOUT_PERCENTAGE: '100'
         image: $REGISTRY_URL:$POSTHOG_APP_TAG
         depends_on:
             db:
@@ -108,6 +111,8 @@ services:
             kafka:
                 condition: service_healthy
             web:
+                condition: service_started
+            personhog-router:
                 condition: service_started
     web:
         extends:
@@ -137,6 +142,9 @@ services:
             OTEL_SDK_DISABLED: 'true'
             OPT_OUT_CAPTURE: ${OPT_OUT_CAPTURE:-false}
             DEPLOYMENT: 'hobby'
+            PERSONHOG_ADDR: 'http://personhog-router:50052'
+            PERSONHOG_ENABLED: 'true'
+            PERSONHOG_ROLLOUT_PERCENTAGE: '100'
         depends_on:
             - db
             - redis7
@@ -144,6 +152,7 @@ services:
             - kafka
             - objectstorage
             - seaweedfs
+            - personhog-router
 
     plugins:
         extends:
@@ -435,6 +444,29 @@ services:
             - LIVESTREAM_JWT_SECRET=${POSTHOG_SECRET}
         volumes:
             - ./posthog/docker/livestream/configs-hobby.yml:/configs/configs.yml
+
+    personhog-replica:
+        build:
+            context: ./posthog/rust
+        extends:
+            file: docker-compose.base.yml
+            service: personhog-replica
+        logging: *default-logging
+        environment:
+            PRIMARY_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
+        depends_on:
+            db:
+                condition: service_healthy
+
+    personhog-router:
+        build:
+            context: ./posthog/rust
+        extends:
+            file: docker-compose.base.yml
+            service: personhog-router
+        logging: *default-logging
+        depends_on:
+            - personhog-replica
 
     feature-flags:
         build:

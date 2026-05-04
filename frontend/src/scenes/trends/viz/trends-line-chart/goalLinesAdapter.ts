@@ -1,37 +1,30 @@
-import type { ReferenceLineProps, Series } from 'lib/hog-charts'
+import { buildGoalLineReferenceLines, computeSeriesNonZeroMax } from 'lib/hog-charts'
+import type { GoalLineConfig, ReferenceLineProps, Series } from 'lib/hog-charts'
 
 import type { GoalLine as SchemaGoalLine } from '~/queries/schema/schema-general'
 
-/** Compute the max non-zero, non-NaN value across all series. Used for the
- *  `displayIfCrossed` filter below. Matches the Chart.js LineGraph behavior. */
-export function computeSeriesNonZeroMax(series: Series[]): number {
-    let max = Number.NEGATIVE_INFINITY
-    for (const s of series) {
-        if (s.visibility?.excluded) {
-            continue
-        }
-        for (const raw of s.data) {
-            const value = Number(raw)
-            // `!value` covers both 0 and NaN (since `!NaN === true`).
-            if (!value) {
-                continue
-            }
-            if (value > max) {
-                max = value
-            }
-        }
+// Re-exported so existing call sites importing from this adapter keep working.
+export { computeSeriesNonZeroMax }
+
+function schemaToGoalLineConfig(line: SchemaGoalLine): GoalLineConfig {
+    return {
+        value: line.value,
+        label: line.label,
+        displayLabel: line.displayLabel,
+        color: line.borderColor,
+        labelPosition: line.position,
+        displayIfCrossed: line.displayIfCrossed,
     }
-    return max === Number.NEGATIVE_INFINITY ? 0 : max
 }
 
-function goalLineToReferenceLine(goal: SchemaGoalLine, variant: 'goal' | 'alert'): ReferenceLineProps {
+function schemaToReferenceLine(line: SchemaGoalLine, variant: 'goal' | 'alert'): ReferenceLineProps {
     return {
-        value: goal.value,
+        value: line.value,
         orientation: 'horizontal',
-        label: goal.displayLabel === false ? undefined : goal.label,
-        labelPosition: goal.position ?? 'start',
+        label: line.displayLabel === false ? undefined : line.label,
+        labelPosition: line.position ?? 'start',
         variant,
-        style: goal.borderColor ? { color: goal.borderColor } : undefined,
+        style: line.borderColor ? { color: line.borderColor } : undefined,
     }
 }
 
@@ -46,10 +39,7 @@ export function goalLinesToReferenceLines(
     if (!goalLines?.length) {
         return []
     }
-    const seriesNonZeroMax = computeSeriesNonZeroMax(series)
-    return goalLines
-        .filter((goal) => goal.displayIfCrossed !== false || goal.value >= seriesNonZeroMax)
-        .map((goal) => goalLineToReferenceLine(goal, 'goal'))
+    return buildGoalLineReferenceLines(goalLines.map(schemaToGoalLineConfig), series)
 }
 
 /** Map alert threshold lines (sourced from `insightAlertsLogic.alertThresholdLines`) to
@@ -61,5 +51,5 @@ export function alertThresholdsToReferenceLines(
     if (!alertThresholdLines?.length) {
         return []
     }
-    return alertThresholdLines.map((line) => goalLineToReferenceLine(line, 'alert'))
+    return alertThresholdLines.map((line) => schemaToReferenceLine(line, 'alert'))
 }

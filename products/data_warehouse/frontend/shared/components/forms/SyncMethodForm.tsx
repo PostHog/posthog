@@ -330,6 +330,17 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
                                         null will not be synced.
                                     </LemonBanner>
                                 )}
+                            {radioValue === 'incremental' &&
+                                incrementalFieldValue &&
+                                schema.incremental_fields.find((n) => n.field === incrementalFieldValue)?.is_indexed ===
+                                    false && (
+                                    <LemonBanner type="warning" className="mt-2">
+                                        No index detected on <code>{incrementalFieldValue}</code>. Incremental syncs
+                                        query this column on every run; without an index the source database may scan
+                                        the full table on each sync. Consider adding an index, or pick a different
+                                        incremental field.
+                                    </LemonBanner>
+                                )}
                             {radioValue === 'incremental' && columns.length > 0 && (
                                 <>
                                     <p className="mt-4 mb-2">
@@ -427,6 +438,16 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
                                     <LemonBanner type="warning" className="mt-2">
                                         This field is nullable. Any rows where <code>{appendFieldValue}</code> is null
                                         will not be synced.
+                                    </LemonBanner>
+                                )}
+                            {radioValue === 'append' &&
+                                appendFieldValue &&
+                                schema.incremental_fields.find((n) => n.field === appendFieldValue)?.is_indexed ===
+                                    false && (
+                                    <LemonBanner type="warning" className="mt-2">
+                                        No index detected on <code>{appendFieldValue}</code>. Append only syncs query
+                                        this column on every run; without an index the source database may scan the full
+                                        table on each sync. Consider adding an index, or pick a different field.
                                     </LemonBanner>
                                 )}
                         </>

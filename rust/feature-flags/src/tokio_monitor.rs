@@ -1,6 +1,7 @@
 use std::time::{Duration, Instant};
 
 use common_metrics::gauge;
+use lifecycle::Handle;
 use tokio::runtime::RuntimeMetrics;
 use tokio::time::interval;
 
@@ -29,7 +30,8 @@ impl TokioRuntimeMonitor {
         }
     }
 
-    pub async fn start_monitoring(self) {
+    pub async fn start_monitoring(self, shutdown: Handle) {
+        let _scope = shutdown.process_scope();
         let num_workers = self.metrics.num_workers();
 
         tracing::info!(
@@ -46,6 +48,7 @@ impl TokioRuntimeMonitor {
         let mut unstable_state = UnstableWorkerState::new(num_workers, &self.metrics);
 
         self.run_loop(
+            &shutdown,
             &mut stable_state,
             #[cfg(tokio_unstable)]
             &mut unstable_state,
@@ -55,6 +58,7 @@ impl TokioRuntimeMonitor {
 
     async fn run_loop(
         &self,
+        shutdown: &Handle,
         stable_state: &mut WorkerState,
         #[cfg(tokio_unstable)] unstable_state: &mut UnstableWorkerState,
     ) {
@@ -70,16 +74,22 @@ impl TokioRuntimeMonitor {
         ticker.tick().await;
 
         loop {
-            ticker.tick().await;
+            tokio::select! {
+                _ = shutdown.shutdown_recv() => {
+                    tracing::info!("Tokio runtime monitor shutting down");
+                    break;
+                }
+                _ = ticker.tick() => {
+                    let now = Instant::now();
+                    let elapsed = now.duration_since(stable_state.last_sample);
+                    stable_state.last_sample = now;
 
-            let now = Instant::now();
-            let elapsed = now.duration_since(stable_state.last_sample);
-            stable_state.last_sample = now;
+                    self.report_stable_metrics(stable_state, elapsed);
 
-            self.report_stable_metrics(stable_state, elapsed);
-
-            #[cfg(tokio_unstable)]
-            self.report_unstable_metrics(unstable_state, &stable_state.worker_labels);
+                    #[cfg(tokio_unstable)]
+                    self.report_unstable_metrics(unstable_state, &stable_state.worker_labels);
+                }
+            }
         }
     }
 
