@@ -272,7 +272,7 @@ class RunSnapshot(ProductTeamModel):
         return f"{self.identifier} ({self.result})"
 
 
-class ToleratedHash(models.Model):
+class ToleratedHash(ProductTeamModel):
     """
     Previously seen alternate hashes that were determined acceptable for a
     specific baseline and snapshot identifier, allowing future runs to skip
@@ -285,7 +285,6 @@ class ToleratedHash(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     repo = models.ForeignKey(Repo, on_delete=models.CASCADE, related_name="tolerated_hashes")
-    team_id = models.BigIntegerField(db_index=True)
 
     identifier = models.CharField(max_length=512)
     baseline_hash = models.CharField(max_length=128)
@@ -320,7 +319,7 @@ class ToleratedHash(models.Model):
         return f"{self.identifier} {self.alternate_hash[:12]}... ({self.reason})"
 
 
-class QuarantinedIdentifier(models.Model):
+class QuarantinedIdentifier(ProductTeamModel):
     """
     Tracks quarantine events for snapshot identifiers.
 
@@ -337,7 +336,6 @@ class QuarantinedIdentifier(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     repo = models.ForeignKey(Repo, on_delete=models.CASCADE, related_name="quarantined_identifiers")
-    team_id = models.BigIntegerField(db_index=True)
 
     identifier = models.CharField(max_length=512)
     run_type = models.CharField(max_length=64)

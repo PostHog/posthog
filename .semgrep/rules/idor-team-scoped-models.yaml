@@ -162,9 +162,11 @@ rules:
                               |ProductTour
                               |ProjectSecretAPIKey
                               |PropertyAccessControl
+                              |QuarantinedIdentifier
                               |QueryTabState
                               |QuickFilter
                               |QuickFilterContext
+                              |Repo
                               |RepoRoutingRule
                               |SandboxEnvironment
                               |ScoreDefinition
@@ -196,6 +198,7 @@ rules:
                               |EvaluationReport
                               |Text
                               |Threshold
+                              |ToleratedHash
                               |TeamConversationsTeamsConfig
                               |Ticket
                               |TicketView
@@ -362,9 +365,11 @@ rules:
                         |ProductTour
                         |ProjectSecretAPIKey
                         |PropertyAccessControl
+                        |QuarantinedIdentifier
                         |QueryTabState
                         |QuickFilter
                         |QuickFilterContext
+                        |Repo
                         |RepoRoutingRule
                         |SandboxEnvironment
                         |ScoreDefinition
@@ -396,6 +401,7 @@ rules:
                         |EvaluationReport
                         |Text
                         |Threshold
+                        |ToleratedHash
                         |TeamConversationsTeamsConfig
                         |Ticket
                         |TicketView
