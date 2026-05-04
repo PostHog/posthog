@@ -31,7 +31,7 @@ export function computeSeriesNonZeroMax(series: Series[]): number {
 }
 
 export function buildGoalLineReferenceLines(
-    lines: GoalLineConfig[] | null | undefined,
+    lines: readonly GoalLineConfig[] | null | undefined,
     series: Series[]
 ): ReferenceLineProps[] {
     if (!lines?.length) {
