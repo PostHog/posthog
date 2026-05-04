@@ -482,6 +482,7 @@ export type AssistantTool =
     | 'switch_mode'
     | 'summarize_sessions'
     | 'filter_session_recordings'
+    | 'diagnose_missing_recordings'
     | 'create_insight'
     | 'create_form'
     | 'task'

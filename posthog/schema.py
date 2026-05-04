@@ -690,6 +690,7 @@ class AssistantTool(StrEnum):
     SWITCH_MODE = "switch_mode"
     SUMMARIZE_SESSIONS = "summarize_sessions"
     FILTER_SESSION_RECORDINGS = "filter_session_recordings"
+    DIAGNOSE_MISSING_RECORDINGS = "diagnose_missing_recordings"
     CREATE_INSIGHT = "create_insight"
     CREATE_FORM = "create_form"
     TASK = "task"

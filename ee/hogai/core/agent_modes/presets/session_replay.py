@@ -8,6 +8,7 @@ from ee.hogai.chat_agent.executables import (
     ChatAgentPlanToolsExecutable,
     ChatAgentToolsExecutable,
 )
+from ee.hogai.tools.replay.diagnose_missing_recordings import DiagnoseMissingRecordingsTool
 from ee.hogai.tools.replay.filter_session_recordings import FilterSessionRecordingsTool
 from ee.hogai.tools.replay.summarize_sessions import SummarizeSessionsTool
 from ee.hogai.tools.todo_write import TodoWriteExample
@@ -79,7 +80,23 @@ The assistant used the todo list because:
 5. This approach allows for tracking progress across multiple recording queries and summaries
 """.strip()
 
-SESSION_REPLAY_MODE_DESCRIPTION = "Specialized mode for analyzing session recordings and user behavior. This mode allows you to filter session recordings, and summarize entire sessions or a set of them."
+POSITIVE_EXAMPLE_DIAGNOSE_MISSING_RECORDINGS = """
+User: My session replays are broken — they used to work but now I'm not seeing any recordings.
+Assistant: I'll diagnose why recordings aren't being captured. The diagnose_missing_recordings tool inspects the SDK diagnostic signals on recent events and reports the verdict.
+*Uses diagnose_missing_recordings with no session_id to look at the project-wide pattern across recent sessions*
+After getting the verdict, the assistant explains the root cause (e.g. ad blocker, sample rate, recording disabled, trigger pending) and recommends the specific fix.
+""".strip()
+
+POSITIVE_EXAMPLE_DIAGNOSE_MISSING_RECORDINGS_REASONING = """
+The assistant used diagnose_missing_recordings because:
+1. The user is reporting missing or broken replays — a capture problem, not a search problem
+2. filter_session_recordings only searches existing recordings; it can't explain why they're absent
+3. The diagnose tool reads SDK diagnostic properties ($recording_status, $session_recording_start_reason, $sdk_debug_recording_script_not_loaded, trigger statuses, sample rate, buffer/flush trends) and applies the verdict ladder from the diagnosing-missing-recordings skill
+4. It also reports project replay settings so project-wide misconfigurations (replay disabled, sample rate too low, triggers configured but never matching) are surfaced
+5. This is a single-step diagnosis — no need for a todo list
+""".strip()
+
+SESSION_REPLAY_MODE_DESCRIPTION = "Specialized mode for analyzing session recordings and user behavior. This mode allows you to filter session recordings, summarize entire sessions or a set of them, and diagnose why recordings are missing or weren't captured."
 
 
 class SessionReplayAgentToolkit(AgentToolkit):
@@ -96,11 +113,19 @@ class SessionReplayAgentToolkit(AgentToolkit):
             example=POSITIVE_EXAMPLE_MULTIPLE_RECORDING_ANALYSES,
             reasoning=POSITIVE_EXAMPLE_MULTIPLE_RECORDING_ANALYSES_REASONING,
         ),
+        TodoWriteExample(
+            example=POSITIVE_EXAMPLE_DIAGNOSE_MISSING_RECORDINGS,
+            reasoning=POSITIVE_EXAMPLE_DIAGNOSE_MISSING_RECORDINGS_REASONING,
+        ),
     ]
 
     @property
     def tools(self) -> list[type["MaxTool"]]:
-        tools: list[type[MaxTool]] = [FilterSessionRecordingsTool, SummarizeSessionsTool]
+        tools: list[type[MaxTool]] = [
+            FilterSessionRecordingsTool,
+            SummarizeSessionsTool,
+            DiagnoseMissingRecordingsTool,
+        ]
         return tools
 
 

@@ -529,6 +529,19 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return ['Filtering recordings...', widgetDef]
         },
     },
+    diagnose_missing_recordings: {
+        name: 'Diagnose missing recordings',
+        description: "Diagnose why session recordings aren't being captured",
+        product: Scene.Replay,
+        icon: iconForType('session_replay'),
+        modes: [AgentMode.SessionReplay],
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Diagnosed missing recordings'
+            }
+            return 'Diagnosing missing recordings...'
+        },
+    },
     analyze_user_interviews: {
         name: 'Analyze user interviews',
         description: 'Analyze user interviews, summarizing pages of feedback, and extracting learnings',
