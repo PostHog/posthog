@@ -8,7 +8,10 @@ import type { ChartScales, ResolvedSeries, ResolveValueFn } from '../core/types'
 export type ValueLabelsMode = 'per-segment' | 'stack-total'
 
 export interface ValueLabelsProps {
-    /** `seriesIndex` is `-1` for stack-total labels (no single source series). */
+    /** Receives the raw `series.data[dataIndex]` value (or the band sum in stack-total mode).
+     *  Defaults to `value.toLocaleString()`. `seriesIndex` is `-1` for stack-total labels.
+     *  Consumers in percent layouts should supply their own formatter — the raw count isn't
+     *  a percentage and `isPercent` on context is informational, not auto-applied. */
     valueFormatter?: (value: number, seriesIndex: number, dataIndex: number) => string
     minGap?: number
     /** Series with more than this many data points are skipped entirely to avoid
@@ -52,9 +55,6 @@ function resolveYScale(s: { yAxisId?: string }, scales: ChartScales): (value: nu
     return scales.yAxes?.[axisId]?.scale ?? scales.y
 }
 
-function defaultPercentFormatter(v: number): string {
-    return `${Math.round(v * 100)}%`
-}
 function defaultLocaleFormatter(v: number): string {
     return v.toLocaleString()
 }
@@ -329,11 +329,11 @@ export function ValueLabels({
     mode = 'per-segment',
     minBarSize = DEFAULT_MIN_BAR_SIZE,
 }: ValueLabelsProps): React.ReactElement | null {
-    const { series, scales, labels, theme, resolveValue, axisOrientation, isPercent } = useChartLayout()
+    const { series, scales, labels, theme, resolveValue, axisOrientation } = useChartLayout()
     const isHorizontal = axisOrientation === 'horizontal'
     const isBarChart = !!getBarChartPrivate(scales)
 
-    const formatter = valueFormatter ?? (isPercent ? defaultPercentFormatter : defaultLocaleFormatter)
+    const formatter = valueFormatter ?? defaultLocaleFormatter
 
     const visible = useMemo(
         () =>

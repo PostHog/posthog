@@ -337,13 +337,10 @@ describe('ValueLabels', () => {
         })
     })
 
-    it.each<[string, ((v: number) => string) | undefined, string[]]>([
-        ['default percent formatter', undefined, ['25%', '50%', '75%']],
-        ['consumer can still override', (v) => `${(v * 100).toFixed(1)}%`, ['25.0%', '50.0%', '75.0%']],
-    ])('isPercent: %s', (_name, valueFormatter, expected) => {
+    it('isPercent on context is informational — consumers supply their own formatter', () => {
         const series: ResolvedSeries[] = [{ key: 's', label: 'S', color: '#f00', data: [0.25, 0.5, 0.75] }]
         const ctx = makeContext(series, { isPercent: true, labels: ['Mon', 'Tue', 'Wed'] })
-        const { container } = renderInChart(ctx, <ValueLabels valueFormatter={valueFormatter} />)
-        expect(labelDivs(container).map((d) => d.textContent)).toEqual(expected)
+        const { container } = renderInChart(ctx, <ValueLabels valueFormatter={(v) => `${(v * 100).toFixed(1)}%`} />)
+        expect(labelDivs(container).map((d) => d.textContent)).toEqual(['25.0%', '50.0%', '75.0%'])
     })
 })
