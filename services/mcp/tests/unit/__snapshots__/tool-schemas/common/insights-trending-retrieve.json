@@ -9,6 +9,10 @@
             "description": "Maximum number of insights to return. Defaults to 10. Capped at 100.",
             "type": "number"
         },
+        "offset": {
+            "description": "The initial index from which to return the results.",
+            "type": "number"
+        },
         "short_id": {
             "type": "string"
         }
