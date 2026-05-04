@@ -529,7 +529,7 @@ export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>(
             const jsonAttr = (name: string): Record<string, any> => ({
                 parseHTML: (element: HTMLElement) => {
                     const raw = element.getAttribute(name)
-                    return raw === null ? null : JSON.parse(raw)
+                    return raw ? JSON.parse(raw) : null
                 },
                 renderHTML: (attrs: Record<string, any>) => {
                     const value = attrs[name]
