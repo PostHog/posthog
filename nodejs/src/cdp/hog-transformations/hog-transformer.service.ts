@@ -455,6 +455,28 @@ export function createHogTransformerService(
         poolMinSize: config.REDIS_POOL_MIN_SIZE,
         poolMaxSize: config.REDIS_POOL_MAX_SIZE,
     })
+    let redisReader: RedisV2
+    if (config.CDP_REDIS_READER_HOST) {
+        logger.info(
+            '🔌',
+            `[hog-transformer Redis] writer=${config.CDP_REDIS_HOST}:${config.CDP_REDIS_PORT} reader=${config.CDP_REDIS_READER_HOST}:${config.CDP_REDIS_READER_PORT}`
+        )
+        redisReader = createRedisV2PoolFromConfig({
+            connection: {
+                url: config.CDP_REDIS_READER_HOST,
+                options: { port: config.CDP_REDIS_READER_PORT, password: config.CDP_REDIS_PASSWORD },
+                name: 'hog-transformer-redis-reader',
+            },
+            poolMinSize: config.REDIS_POOL_MIN_SIZE,
+            poolMaxSize: config.REDIS_POOL_MAX_SIZE,
+        })
+    } else {
+        logger.info(
+            '🔌',
+            `[hog-transformer Redis] writer=${config.CDP_REDIS_HOST || config.REDIS_URL}:${config.CDP_REDIS_PORT} reader=<falling back to writer>`
+        )
+        redisReader = redis
+    }
     const hogFunctionManager = new HogFunctionManagerService(deps.postgres, deps.pubSub, deps.encryptedFields)
     const hogInputsService = new HogInputsService(deps.integrationManager, config.ENCRYPTION_SALT_KEYS, config.SITE_URL)
     const emailService = new EmailService(
@@ -503,7 +525,8 @@ export function createHogTransformerService(
             observeResultsBufferTimeMs: config.CDP_WATCHER_OBSERVE_RESULTS_BUFFER_TIME_MS,
             observeResultsBufferMaxResults: config.CDP_WATCHER_OBSERVE_RESULTS_BUFFER_MAX_RESULTS,
         },
-        redis
+        redis,
+        redisReader
     )
 
     return new HogTransformerService(

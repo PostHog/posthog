@@ -6,6 +6,7 @@ import { AppMetricsOutput, LogEntriesOutput } from '../ingestion/common/outputs'
 import { IngestionOutputs } from '../ingestion/outputs/ingestion-outputs'
 import { KafkaProducerRegistry } from '../ingestion/outputs/kafka-producer-registry'
 import { PostgresRouter } from '../utils/db/postgres'
+import { logger } from '../utils/logger'
 import { PubSub } from '../utils/pubsub'
 import { TeamManager } from '../utils/team-manager'
 import type { CdpConfig } from './config'
@@ -51,6 +52,7 @@ export type CdpOutputs = IngestionOutputs<CdpOutput>
 
 export interface CdpCoreServices {
     redis: RedisV2
+    redisReader: RedisV2
     hogFunctionManager: HogFunctionManagerService
     hogFlowManager: HogFlowManagerService
     hogWatcher: HogWatcherService
@@ -79,6 +81,8 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_REDIS_HOST'
         | 'CDP_REDIS_PORT'
         | 'CDP_REDIS_PASSWORD'
+        | 'CDP_REDIS_READER_HOST'
+        | 'CDP_REDIS_READER_PORT'
         | 'CDP_WATCHER_HOG_COST_TIMING_LOWER_MS'
         | 'CDP_WATCHER_HOG_COST_TIMING_UPPER_MS'
         | 'CDP_WATCHER_HOG_COST_TIMING'
@@ -144,6 +148,29 @@ export function createCdpCoreServices(
         poolMaxSize: config.REDIS_POOL_MAX_SIZE,
     })
 
+    let redisReader: RedisV2
+    if (config.CDP_REDIS_READER_HOST) {
+        logger.info(
+            '🔌',
+            `[CDP Redis] writer=${config.CDP_REDIS_HOST}:${config.CDP_REDIS_PORT} reader=${config.CDP_REDIS_READER_HOST}:${config.CDP_REDIS_READER_PORT}`
+        )
+        redisReader = createRedisV2PoolFromConfig({
+            connection: {
+                url: config.CDP_REDIS_READER_HOST,
+                options: { port: config.CDP_REDIS_READER_PORT, password: config.CDP_REDIS_PASSWORD },
+                name: `${redisName}-reader`,
+            },
+            poolMinSize: config.REDIS_POOL_MIN_SIZE,
+            poolMaxSize: config.REDIS_POOL_MAX_SIZE,
+        })
+    } else {
+        logger.info(
+            '🔌',
+            `[CDP Redis] writer=${config.CDP_REDIS_HOST || config.REDIS_URL}:${config.CDP_REDIS_PORT} reader=<falling back to writer>`
+        )
+        redisReader = redis
+    }
+
     const hogFunctionManager = new HogFunctionManagerService(deps.postgres, deps.pubSub, deps.encryptedFields)
     const hogFlowManager = new HogFlowManagerService(deps.postgres, deps.pubSub)
 
@@ -166,7 +193,8 @@ export function createCdpCoreServices(
             observeResultsBufferTimeMs: config.CDP_WATCHER_OBSERVE_RESULTS_BUFFER_TIME_MS,
             observeResultsBufferMaxResults: config.CDP_WATCHER_OBSERVE_RESULTS_BUFFER_MAX_RESULTS,
         },
-        redis
+        redis,
+        redisReader
     )
 
     const hogInputsService = new HogInputsService(deps.integrationManager, config.ENCRYPTION_SALT_KEYS, config.SITE_URL)
@@ -224,6 +252,7 @@ export function createCdpCoreServices(
 
     return {
         redis,
+        redisReader,
         hogFunctionManager,
         hogFlowManager,
         hogWatcher,
