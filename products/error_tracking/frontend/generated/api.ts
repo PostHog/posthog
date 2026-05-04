@@ -28,6 +28,7 @@ import type {
     ErrorTrackingIssueSplitRequestApi,
     ErrorTrackingIssueSplitResponseApi,
     ErrorTrackingIssuesListParams,
+    ErrorTrackingRateLimitConfigApi,
     ErrorTrackingRecommendationApi,
     ErrorTrackingRecommendationsListParams,
     ErrorTrackingReleaseApi,
@@ -56,6 +57,7 @@ import type {
     PatchedErrorTrackingAssignmentRuleUpdateRequestApi,
     PatchedErrorTrackingGroupingRuleApi,
     PatchedErrorTrackingIssueFullApi,
+    PatchedErrorTrackingRateLimitConfigApi,
     PatchedErrorTrackingReleaseApi,
     PatchedErrorTrackingSpikeDetectionConfigApi,
     PatchedErrorTrackingSuppressionRuleApi,
@@ -796,6 +798,40 @@ export const errorTrackingIssuesValuesRetrieve = async (projectId: string, optio
         ...options,
         method: 'GET',
     })
+}
+
+export const getErrorTrackingRateLimitConfigListUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/error_tracking/rate_limit_config/`
+}
+
+export const errorTrackingRateLimitConfigList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ErrorTrackingRateLimitConfigApi[]> => {
+    return apiMutator<ErrorTrackingRateLimitConfigApi[]>(getErrorTrackingRateLimitConfigListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getErrorTrackingRateLimitConfigUpdateConfigPartialUpdateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/error_tracking/rate_limit_config/update_config/`
+}
+
+export const errorTrackingRateLimitConfigUpdateConfigPartialUpdate = async (
+    projectId: string,
+    patchedErrorTrackingRateLimitConfigApi: PatchedErrorTrackingRateLimitConfigApi,
+    options?: RequestInit
+): Promise<ErrorTrackingRateLimitConfigApi> => {
+    return apiMutator<ErrorTrackingRateLimitConfigApi>(
+        getErrorTrackingRateLimitConfigUpdateConfigPartialUpdateUrl(projectId),
+        {
+            ...options,
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(patchedErrorTrackingRateLimitConfigApi),
+        }
+    )
 }
 
 export const getErrorTrackingRecommendationsListUrl = (

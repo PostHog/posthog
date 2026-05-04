@@ -239,6 +239,12 @@ tools:
     error-tracking-issues-values-retrieve:
         operation: error_tracking_issues_values_retrieve
         enabled: false
+    error-tracking-rate-limit-config-list:
+        operation: error_tracking_rate_limit_config_list
+        enabled: false
+    error-tracking-rate-limit-config-update-config-partial-update:
+        operation: error_tracking_rate_limit_config_update_config_partial_update
+        enabled: false
     error-tracking-recommendations-dismiss-create:
         operation: error_tracking_recommendations_dismiss_create
         enabled: false
