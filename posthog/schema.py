@@ -2660,6 +2660,7 @@ class IntegrationKind(StrEnum):
     GOOGLE_SHEETS = "google-sheets"
     LINKEDIN_ADS = "linkedin-ads"
     SNAPCHAT = "snapchat"
+    STRIPE = "stripe"
     INTERCOM = "intercom"
     EMAIL = "email"
     TWILIO = "twilio"
@@ -3650,6 +3651,7 @@ class ProductIntentContext(StrEnum):
     ERROR_TRACKING_DOCS_VIEWED = "error_tracking_docs_viewed"
     ERROR_TRACKING_ISSUE_EXPLAINED = "error_tracking_issue_explained"
     LLM_ANALYTICS_VIEWED = "llm_analytics_viewed"
+    LLM_ANALYTICS_TRACE_VIEWED = "llm_analytics_trace_viewed"
     LLM_ANALYTICS_DOCS_VIEWED = "llm_analytics_docs_viewed"
     LLM_CLUSTER_EXPLORED = "llm_cluster_explored"
     LLM_DATASET_CREATED = "llm_dataset_created"
@@ -4900,6 +4902,7 @@ class UserProductListReason(StrEnum):
     USED_ON_SEPARATE_TEAM = "used_on_separate_team"
     NEW_PRODUCT = "new_product"
     SALES_LED = "sales_led"
+    ONBOARDING_DELEGATED = "onboarding_delegated"
 
 
 class VectorSearchResponseItem(BaseModel):
@@ -10172,6 +10175,48 @@ class AssistantTrendsEventsNode(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
+class AssistantTrendsGroupNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    custom_name: str | None = None
+    kind: Literal["GroupNode"] = "GroupNode"
+    math: (
+        BaseMathType
+        | FunnelMathType
+        | PropertyMathType
+        | CountPerActorMathType
+        | ExperimentMetricMathType
+        | CalendarHeatmapMathType
+        | Literal["unique_group"]
+        | Literal["hogql"]
+        | None
+    ) = Field(
+        default=None,
+        description=(
+            "Math aggregation for the combined series. The engine reads aggregation from here, not from inner nodes."
+        ),
+    )
+    math_group_type_index: MathGroupTypeIndex | None = None
+    math_hogql: str | None = Field(
+        default=None,
+        description="Custom HogQL aggregation. When set, `math` must be `hogql`.",
+    )
+    math_multiplier: float | None = None
+    math_property: str | None = None
+    math_property_type: str | None = None
+    name: str | None = Field(default=None, description="Display name for the combined series.")
+    nodes: list[AssistantTrendsEventsNode | AssistantTrendsActionsNode] = Field(
+        ...,
+        description=(
+            "Events and actions combined into the series. Mirror the group's `math*` on"
+            " each node for UI round-trip; they're ignored at execution time."
+        ),
+        min_length=2,
+    )
+    operator: Literal["OR"] = Field(default="OR", description="Only `OR` is supported.")
+
+
 class AssistantTrendsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -10236,9 +10281,18 @@ class AssistantTrendsQuery(BaseModel):
         default=None,
         description="Sampling rate from 0 to 1 where 1 is 100% of the data.",
     )
-    series: list[AssistantTrendsEventsNode | AssistantTrendsActionsNode] = Field(
+    series: list[AssistantTrendsEventsNode | AssistantTrendsActionsNode | AssistantTrendsGroupNode] = Field(
         ...,
-        description=("Events or actions to include. Prioritize the more popular and fresh events and actions."),
+        description=(
+            "Events, actions, or groups of events/actions to include. Prioritize the"
+            " more popular and fresh events and actions.\n\nUse a top-level"
+            " `EventsNode` or `ActionsNode` entry for each independent series (one line"
+            " per entry on the chart). Use an `AssistantTrendsGroupNode` to combine"
+            " multiple events or actions into a single series joined by `OR` — for"
+            ' example, treating "Pageview OR Pageleave" as one line. Only `OR` grouping'
+            " is supported; pick groups only when the user wants the events counted"
+            " together, otherwise prefer separate series."
+        ),
     )
     trendsFilter: AssistantTrendsFilter | None = Field(
         default=None, description="Properties specific to the trends insight"

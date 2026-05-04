@@ -127,9 +127,10 @@ async def test_select_repository_activity_returns_repo(monkeypatch, ateam):
         fake_select_repo,
     )
 
-    result = await select_repository_activity(
-        SelectRepositoryInput(team_id=ateam.id, report_id="test-report-id", signals=_build_signals())
-    )
+    with patch("products.signals.backend.temporal.agentic.select_repository.Heartbeater"):
+        result = await select_repository_activity(
+            SelectRepositoryInput(team_id=ateam.id, report_id="test-report-id", signals=_build_signals())
+        )
 
     assert result.repository == "posthog/posthog"
     assert "Single repository" in result.reason
@@ -157,9 +158,10 @@ async def test_select_repository_activity_reuses_previous_selection(monkeypatch,
         fake_select_repo,
     )
 
-    result = await select_repository_activity(
-        SelectRepositoryInput(team_id=ateam.id, report_id="test-report-id", signals=_build_signals())
-    )
+    with patch("products.signals.backend.temporal.agentic.select_repository.Heartbeater"):
+        result = await select_repository_activity(
+            SelectRepositoryInput(team_id=ateam.id, report_id="test-report-id", signals=_build_signals())
+        )
 
     assert result is previous
     assert not select_repo_called
@@ -185,9 +187,10 @@ async def test_select_repository_activity_no_repo(monkeypatch, ateam):
         fake_select_repo,
     )
 
-    result = await select_repository_activity(
-        SelectRepositoryInput(team_id=ateam.id, report_id="test-report-id", signals=_build_signals())
-    )
+    with patch("products.signals.backend.temporal.agentic.select_repository.Heartbeater"):
+        result = await select_repository_activity(
+            SelectRepositoryInput(team_id=ateam.id, report_id="test-report-id", signals=_build_signals())
+        )
 
     assert result.repository is None
     assert "No GitHub repositories" in result.reason

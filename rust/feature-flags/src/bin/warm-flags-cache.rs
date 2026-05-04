@@ -277,10 +277,7 @@ async fn run_warm(
         join_set.spawn(async move {
             warm_team(pg, &writer, team_id, ttl_seconds)
                 .await
-                // Debug format walks Box<dyn Error>'s nested chain so SDK errors
-                // (e.g. an S3 PutObject 403) surface their code + message instead
-                // of being collapsed to a top-level "service error" string.
-                .map_err(|e| (team_id, format!("{e:?}")))
+                .map_err(|e| (team_id, e.to_string()))
         });
     }
 

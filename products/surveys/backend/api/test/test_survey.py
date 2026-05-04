@@ -19,6 +19,7 @@ from unittest.mock import ANY, patch
 from django.test import override_settings
 
 from nanoid import generate
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.test.test_personal_api_keys import PersonalAPIKeysBaseTest
@@ -136,6 +137,56 @@ class TestSurvey(APIBaseTest):
         assert questions[0]["translations"]["es"]["question"] == "¿Qué tan satisfecho estás?"
         assert questions[0]["translations"]["fr"]["question"] == "Êtes-vous satisfait?"
         assert questions[1]["translations"]["es"]["choices"] == ["Analítica", "Feature Flags"]
+
+    def test_can_create_survey_with_custom_language_code_translations(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Customer feedback survey",
+                "description": "Help us improve",
+                "type": "popover",
+                "questions": [
+                    {
+                        "type": "single_choice",
+                        "question": "How satisfied are you?",
+                        "choices": ["Happy", "Unhappy"],
+                        "translations": {
+                            "ro-RO": {
+                                "question": "Cat de multumit esti?",
+                                "choices": ["Multumit", "Nemultumit"],
+                            },
+                            "custom-customer-locale": {
+                                "question": "Custom localized question",
+                                "choices": ["Custom happy", "Custom unhappy"],
+                            },
+                        },
+                    }
+                ],
+                "translations": {
+                    "ro-RO": {
+                        "name": "Sondaj de feedback",
+                        "thankYouMessageHeader": "Multumim!",
+                    },
+                    "custom-customer-locale": {
+                        "name": "Custom localized survey",
+                    },
+                },
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        survey = Survey.objects.get(id=response.json()["id"])
+        questions = cast(list[dict[str, Any]], survey.questions)
+
+        assert survey.translations is not None
+        assert survey.translations["ro-RO"]["name"] == "Sondaj de feedback"
+        assert survey.translations["custom-customer-locale"]["name"] == "Custom localized survey"
+        assert questions[0]["translations"]["ro-RO"]["question"] == "Cat de multumit esti?"
+        assert questions[0]["translations"]["custom-customer-locale"]["choices"] == [
+            "Custom happy",
+            "Custom unhappy",
+        ]
 
     @override_settings(CLOUD_DEPLOYMENT="US", GEMINI_API_KEY="test-key")
     @patch("products.surveys.backend.api.survey.generate_survey_translation")
@@ -2878,6 +2929,125 @@ class TestSurvey(APIBaseTest):
 
         activity_response = self.client.get(f"/api/projects/{self.team.pk}/surveys/{survey.id}/activity/")
         self.assertEqual(activity_response.status_code, status.HTTP_403_FORBIDDEN)
+
+    @parameterized.expand(
+        [
+            (
+                "exact match wins over partial matches",
+                ["Ad Sales", "Email Sales", "Sales", "Sales Funnel", "Weekly Sales", "Unrelated"],
+                "Sales",
+                "Sales",
+                ["Unrelated"],
+            ),
+            (
+                "typo / transposition still matches via trigram",
+                ["Customer feedback", "Unrelated"],
+                "feeback",
+                "Customer feedback",
+                ["Unrelated"],
+            ),
+            (
+                "prefix-as-you-type",
+                ["Marketing survey", "Engineering survey"],
+                "Marke",
+                "Marketing survey",
+                ["Engineering survey"],
+            ),
+            (
+                "case-insensitive: lower",
+                ["NPS Survey", "Engineering survey"],
+                "nps",
+                "NPS Survey",
+                ["Engineering survey"],
+            ),
+            (
+                "case-insensitive: upper",
+                ["NPS Survey", "Engineering survey"],
+                "NPS",
+                "NPS Survey",
+                ["Engineering survey"],
+            ),
+        ]
+    )
+    def test_list_filter_by_search_relevance(self, _name, survey_names, search, expected_first, excluded):
+        for name in survey_names:
+            Survey.objects.create(team=self.team, name=name, type="popover", questions=[])
+
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/?search={search}")
+        assert response.status_code == status.HTTP_200_OK
+        result_names = [r["name"] for r in response.json()["results"]]
+
+        assert result_names, f"expected at least one match for {search!r}, got nothing"
+        assert result_names[0] == expected_first, f"expected {expected_first!r} first, got {result_names}"
+        for name in excluded:
+            assert name not in result_names, f"expected {name!r} excluded, got {result_names}"
+
+    def test_list_filter_by_search_matches_description_with_lower_rank_than_name(self):
+        name_match = Survey.objects.create(team=self.team, name="revenue", type="popover", questions=[])
+        description_match = Survey.objects.create(
+            team=self.team,
+            name="Q4 review",
+            description="Quarterly revenue survey",
+            type="popover",
+            questions=[],
+        )
+        Survey.objects.create(team=self.team, name="Unrelated", type="popover", questions=[])
+
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/?search=revenue")
+        assert response.status_code == status.HTTP_200_OK
+        result_ids = [r["id"] for r in response.json()["results"]]
+
+        assert result_ids[:2] == [str(name_match.id), str(description_match.id)]
+        assert all(r["name"] != "Unrelated" for r in response.json()["results"])
+
+    @parameterized.expand(
+        [
+            ("whitespace-only", "   "),
+            ("empty", ""),
+        ]
+    )
+    def test_list_filter_by_search_blank_returns_all(self, _name, search):
+        a = Survey.objects.create(team=self.team, name="Alpha", type="popover", questions=[])
+        b = Survey.objects.create(team=self.team, name="Beta", type="popover", questions=[])
+
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/?search={search}")
+        assert response.status_code == status.HTTP_200_OK
+        result_ids = {r["id"] for r in response.json()["results"]}
+
+        assert {str(a.id), str(b.id)}.issubset(result_ids)
+
+    @parameterized.expand(
+        [
+            ("plain symbols", "&|!"),
+            ("sql-injection-shaped", "'; DROP TABLE--"),
+        ]
+    )
+    def test_list_filter_by_search_pathological_input_does_not_500(self, _name, search):
+        Survey.objects.create(team=self.team, name="Survey overview", type="popover", questions=[])
+
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/", {"search": search})
+        assert response.status_code == status.HTTP_200_OK
+
+    def test_list_filter_by_search_nul_bytes_do_not_500(self):
+        Survey.objects.create(team=self.team, name="Alpha", type="popover", questions=[])
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/", {"search": "\x00\x00\x00"})
+        assert response.status_code == status.HTTP_200_OK
+
+    @parameterized.expand(
+        [
+            ("at cap (200)", 200, status.HTTP_200_OK),
+            ("just over cap (201)", 201, status.HTTP_400_BAD_REQUEST),
+            ("very long (10k)", 10_000, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_list_filter_by_search_enforces_length_cap(self, _name, length, expected_status):
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/", {"search": "a" * length})
+        assert response.status_code == expected_status
+
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            body = response.json()
+            assert body["attr"] == "search", f"expected error scoped to 'search', got {body}"
+            assert "200 characters" in body["detail"], f"expected error detail to mention the cap, got {body['detail']}"
 
 
 class TestMultipleChoiceQuestions(APIBaseTest):
