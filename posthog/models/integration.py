@@ -3133,8 +3133,6 @@ class AnthropicIntegration:
         if after:
             params["after"] = after
         response = self._managed_agents_get(path, params=params)
-        if not isinstance(response, dict):
-            return [], None
         raw_data = response.get("data", [])
         data: list[dict] = [item for item in raw_data if isinstance(item, dict)] if isinstance(raw_data, list) else []
         next_cursor = response.get("next_cursor")
