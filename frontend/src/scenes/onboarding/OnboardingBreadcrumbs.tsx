@@ -7,47 +7,72 @@ import { Link } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
-import { OnboardingStepKey } from '~/types'
-
 import { onboardingLogic, stepKeyToTitle } from './onboardingLogic'
+import { availableOnboardingProducts } from './utils'
 
-interface OnboardingBreadcrumbsProps {
-    stepKey: OnboardingStepKey
-    breadcrumbHighlightName?: OnboardingStepKey
-}
+/**
+ * Lower-case all words except the first to match PostHog's sentence-casing rule for
+ * product names ("Web analytics" not "Web Analytics"). The product registry stores
+ * Title Case names today; rather than touching the global names (a wider change), we
+ * normalize at render time wherever names are interpolated into a sentence.
+ */
+const toSentenceCase = (name: string): string =>
+    name
+        .split(' ')
+        .map((word, idx) => (idx === 0 ? word : word.charAt(0).toLowerCase() + word.slice(1)))
+        .join(' ')
 
-export function OnboardingBreadcrumbs({
-    stepKey,
-    breadcrumbHighlightName,
-}: OnboardingBreadcrumbsProps): JSX.Element | null {
-    const { onboardingStepKeys } = useValues(onboardingLogic)
-    const { setStepKey } = useActions(onboardingLogic)
+export function OnboardingBreadcrumbs(): JSX.Element | null {
+    const { flow, currentFlowStep } = useValues(onboardingLogic)
+    const { setStepId } = useActions(onboardingLogic)
     const hideBreadcrumbs = useFeatureFlag('ONBOARDING_HIDE_BREADCRUMBS', 'test')
 
     if (hideBreadcrumbs) {
         return null
     }
 
-    const stepCount = onboardingStepKeys.length
+    const stepCount = flow.length
+    const activeId = currentFlowStep?.id
+
+    // Disambiguate duplicate step types by appending the product name. This keeps a
+    // flow like `Install (PA) → Install (SR) → Install (WA)` readable instead of three
+    // identical "Install" labels.
+    const stepKeyCounts = flow.reduce<Record<string, number>>((acc, step) => {
+        acc[step.stepKey] = (acc[step.stepKey] ?? 0) + 1
+        return acc
+    }, {})
+    const labelForStep = (step: (typeof flow)[number]): string => {
+        if (step.label) {
+            return step.label
+        }
+        const base = stepKeyToTitle(step.stepKey) ?? step.stepKey
+        if (stepKeyCounts[step.stepKey] > 1) {
+            const productName =
+                availableOnboardingProducts[step.productKey as keyof typeof availableOnboardingProducts]?.name
+            if (productName) {
+                return `${base} ${toSentenceCase(productName)}`
+            }
+        }
+        return base
+    }
 
     return (
         <div
             className="flex items-center justify-start gap-x-3 px-4 sm:px-2 w-full overflow-x-auto [mask-image:linear-gradient(to_right,black_calc(100%-24px),transparent)] sm:[mask-image:none]"
             data-attr="onboarding-breadcrumbs"
         >
-            {onboardingStepKeys.map((stepName, idx) => {
-                const highlightStep = [stepKey, breadcrumbHighlightName].includes(stepName)
+            {flow.map((step, idx) => {
+                const highlightStep = step.id === activeId
+                const label = labelForStep(step)
                 return (
-                    <React.Fragment key={`stepKey-${idx}`}>
+                    <React.Fragment key={`stepId-${step.id}-${idx}`}>
                         <Link
                             className={clsx('text-sm shrink-0 whitespace-nowrap', highlightStep && 'font-bold')}
-                            data-text={stepKeyToTitle(stepName)}
-                            key={stepName}
-                            onClick={() => setStepKey(stepName)}
+                            data-text={label}
+                            key={step.id}
+                            onClick={() => setStepId(step.id)}
                         >
-                            <span className={clsx('text-sm', !highlightStep && 'text-muted')}>
-                                {stepKeyToTitle(stepName)}
-                            </span>
+                            <span className={clsx('text-sm', !highlightStep && 'text-muted')}>{label}</span>
                         </Link>
                         {stepCount > 1 && idx !== stepCount - 1 && <IconChevronRight className="text-xl shrink-0" />}
                     </React.Fragment>

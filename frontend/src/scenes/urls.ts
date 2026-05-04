@@ -169,41 +169,43 @@ export const urls = {
         campaign,
         productKey,
         stepKey,
+        step,
         sdk,
-        secondary,
-        from,
-        resumeStep,
+        withProducts,
     }: {
         campaign?: string
+        /** Primary product the user is onboarding into. Drives the post-completion redirect. */
         productKey?: string
+        /**
+         * Step type (legacy) — produces `?step=<key>`. The flow logic resolves a bare step
+         * type to the primary product's matching descriptor for backwards-compat with
+         * older bookmarks and inbound links (e.g. setup-task `getUrl` callsites).
+         */
         stepKey?: OnboardingStepKey
+        /**
+         * Namespaced step ID for the new flow model (e.g. `install:logs`). Takes precedence
+         * over `stepKey` when both are passed.
+         */
+        step?: string
         sdk?: SDKKey
-        /** Secondary product keys selected in this onboarding session (comma-joined in URL) */
-        secondary?: string[]
-        /** Product key the user navigated from (used for back navigation when diverted) */
-        from?: string
-        /** Step on the from-product to resume after a divert completes */
-        resumeStep?: OnboardingStepKey
+        /** Other products to include in the flow alongside the primary (comma-joined in the URL). */
+        withProducts?: string[]
     } = {}): string => {
         if (campaign) {
             return `/onboarding/coupons/${campaign}`
         }
 
         const params = new URLSearchParams()
-        if (stepKey) {
+        if (step) {
+            params.set('step', step)
+        } else if (stepKey) {
             params.set('step', stepKey)
         }
         if (sdk) {
             params.set('sdk', sdk)
         }
-        if (secondary?.length) {
-            params.set('secondary', secondary.join(','))
-        }
-        if (from) {
-            params.set('from', from)
-        }
-        if (resumeStep) {
-            params.set('resumeStep', resumeStep)
+        if (withProducts?.length) {
+            params.set('with', withProducts.join(','))
         }
 
         const base = `/onboarding${productKey ? `/${productKey}` : ''}`

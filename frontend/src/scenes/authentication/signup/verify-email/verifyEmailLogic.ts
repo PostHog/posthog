@@ -14,6 +14,25 @@ import type { verifyEmailLogicType } from './verifyEmailLogicType'
  * Must stay in sync with the `VerifyEmail__Progress` animation duration in VerifyEmail.scss. */
 export const VERIFY_EMAIL_REDIRECT_DELAY_MS = 2000
 
+/**
+ * Decide where to send a verified user when no `?next=` redirect is present.
+ *
+ * Fresh signups (no completed onboarding for any product) go straight to `/onboarding`,
+ * skipping the brief homepage flash that the legacy `/` redirect produced before
+ * sceneLogic detected they needed onboarding and re-redirected.
+ *
+ * Already-onboarded users (typically refreshing the verify URL after a previous
+ * successful verification) go to `urls.default()` so they don't land on the
+ * product-selection page and accidentally re-run onboarding.
+ */
+const resolvePostVerifyDefault = (values: {
+    user?: { team?: { has_completed_onboarding_for?: Record<string, boolean> } | null } | null
+}): string => {
+    const completedMap = values.user?.team?.has_completed_onboarding_for ?? {}
+    const hasCompletedSomething = Object.values(completedMap).some(Boolean)
+    return hasCompletedSomething ? urls.default() : urls.onboarding()
+}
+
 export interface ResponseType {
     success: boolean
     errorCode?: string
@@ -58,7 +77,7 @@ export const verifyEmailLogic = kea<verifyEmailLogicType>([
                         // this url is validated in getRelativeNextPath as either being relative or on the same origin
                         // this url is also secret and so we can trust it's not attacker controlled
                         // nosemgrep: javascript.browser.security.open-redirect.js-open-redirect
-                        location.href = nextUrl || '/'
+                        location.href = nextUrl || resolvePostVerifyDefault(values)
                         return { success: true, token, uuid }
                     } catch (e: any) {
                         // If the token is invalid but the user is already logged in and verified,
@@ -73,7 +92,7 @@ export const verifyEmailLogic = kea<verifyEmailLogicType>([
                             )
                             // this url is validated in getRelativeNextPath as either being relative or on the same origin
                             // nosemgrep: javascript.browser.security.open-redirect.js-open-redirect
-                            location.href = nextUrl || '/'
+                            location.href = nextUrl || resolvePostVerifyDefault(values)
                             return { success: true, token, uuid }
                         }
                         actions.setView('invalid')

@@ -77,11 +77,20 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
     const [mobileHandoffDismissed, setMobileHandoffDismissed] = useState(false)
     const linkOpenedCapturedRef = useRef(false)
     const { currentTeam } = useValues(teamLogic)
-    const { productKey } = useValues(onboardingLogic)
-    const productName = productKey
-        ? availableOnboardingProducts[productKey as keyof typeof availableOnboardingProducts]?.name
+    const { currentStepProductKey } = useValues(onboardingLogic)
+    const productName = currentStepProductKey
+        ? availableOnboardingProducts[currentStepProductKey as keyof typeof availableOnboardingProducts]?.name
         : undefined
-    const installTitle = productName ? `Install ${productName}` : 'Install your SDK'
+    // Sentence-case the product name to match PostHog's UI convention ("Install web
+    // analytics" rather than "Install Web Analytics"). Single-word names ("Logs",
+    // "Surveys") are unchanged.
+    const sentenceCasedProduct = productName
+        ? productName
+              .split(' ')
+              .map((w, i) => (i === 0 ? w : w.charAt(0).toLowerCase() + w.slice(1)))
+              .join(' ')
+        : undefined
+    const installTitle = sentenceCasedProduct ? `Install ${sentenceCasedProduct}` : 'Install your SDK'
 
     const installationCompleteFromTeam = useInstallationComplete(teamPropertyToVerify)
     const installationComplete = hideInstallationCheck || installationCompleteFromTeam
@@ -93,9 +102,9 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
     const isWizardOnly = useFeatureFlag('ONBOARDING_WIZARD_PROMINENCE', 'wizard-only')
 
     // Logs uses OpenTelemetry, not the PostHog JS wizard. When the Logs install step is
-    // shown (either directly or after diversion from another product's wizard step),
-    // skip all wizard variants and fall through to the control SDK-grid layout.
-    const isLogsProduct = productKey === ProductKey.LOGS
+    // shown (either directly or as a secondary product within another flow), skip all
+    // wizard variants and fall through to the control SDK-grid layout.
+    const isLogsProduct = currentStepProductKey === ProductKey.LOGS
 
     // Double-gated: both the feature flag AND the client-side mobile check must
     // be true. The flag controls experiment enrollment (targeted to mobile
