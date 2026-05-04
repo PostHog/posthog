@@ -178,13 +178,37 @@ tools:
                 - types
     insights-activity-retrieve:
         operation: insights_activity_retrieve
-        enabled: false
+        enabled: true
+        scopes:
+            - activity_log:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get insight activity log
+        description: >
+            Audit trail for a single insight by numeric `id`. Returns a paginated list of every change made to it
+            (created, edited, deleted, restored), including who made each change, what changed (before/after diffs),
+            and when. Use this when you have a specific insight in mind. For "what's been worked on across the
+            project?" use `insights-all-activity-retrieve` instead. Paginate with `limit` and `page`.
     insights-activity-retrieve-2:
         operation: insights_activity_retrieve
         enabled: false
     insights-all-activity-retrieve:
         operation: insights_all_activity_retrieve
-        enabled: false
+        enabled: true
+        scopes:
+            - activity_log:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get recent insight activity across the project
+        description: >
+            Project-wide audit trail of changes to all insights, most recent first. Returns who created, edited,
+            deleted, or restored each insight, what changed (before/after diffs), and when. Useful for surfacing
+            what people (or agents) have been working on recently. For the change history of one specific insight,
+            use `insights-activity-retrieve`. Paginate with `limit` and `page`.
     insights-analyze-retrieve:
         operation: insights_analyze_retrieve
         enabled: false
@@ -252,6 +276,7 @@ tools:
             destructive: false
             idempotent: true
         enrich_url: '{short_id}'
+        list: true
         title: Get most-viewed insights
         description: >
             Returns the most-viewed insights in the project, ranked by view count over the last N days

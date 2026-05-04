@@ -98,7 +98,7 @@ from posthog.models.activity_logging.activity_log import (
     load_activity,
     log_activity,
 )
-from posthog.models.activity_logging.activity_page import activity_page_response
+from posthog.models.activity_logging.activity_page import ActivityLogPaginatedResponseSerializer, activity_page_response
 from posthog.models.alert import AlertConfiguration
 from posthog.models.filters.utils import get_filter
 from posthog.models.insight import InsightViewed
@@ -1520,7 +1520,7 @@ class InsightViewSet(
             "3 recent `viewers`. Useful for surfacing the most-used insights in a project."
         ),
     )
-    @action(methods=["GET"], detail=False, pagination_class=None)
+    @action(methods=["GET"], detail=False, required_scopes=["insight:read"])
     def trending(self, request: request.Request, *args, **kwargs) -> Response:
         try:
             days = int(request.GET.get("days", "7"))
@@ -1569,10 +1569,12 @@ class InsightViewSet(
         for insight in insights:
             insight.viewers = viewers_by_insight.get(insight.pk, [])  # type: ignore[attr-defined]
 
-        return Response(
-            data=TrendingInsightSerializer(insights, many=True, context=self.get_serializer_context()).data,
-            status=status.HTTP_200_OK,
-        )
+        data = TrendingInsightSerializer(insights, many=True, context=self.get_serializer_context()).data
+        # Wrap in the standard paginated envelope so the response shape matches the auto-generated
+        # OpenAPI schema (drf-spectacular wraps `many=True` responses as `Paginated*List` when the
+        # viewset has a paginator). This keeps the MCP-generated client and any other typed consumer
+        # happy. There's no real pagination — `limit` already caps the result set.
+        return Response({"count": len(data), "next": None, "previous": None, "results": data})
 
     @staticmethod
     @tracer.start_as_current_span("InsightViewSet._apply_search")
@@ -2090,7 +2092,31 @@ When set, the specified dashboard's filters and date range override will be appl
 
         return Response(status=status.HTTP_201_CREATED)
 
-    @extend_schema(operation_id="insights_all_activity_retrieve")
+    @extend_schema(
+        operation_id="insights_all_activity_retrieve",
+        parameters=[
+            OpenApiParameter(
+                name="limit",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                description="Page size. Defaults to 10.",
+                required=False,
+            ),
+            OpenApiParameter(
+                name="page",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                description="1-indexed page number. Defaults to 1.",
+                required=False,
+            ),
+        ],
+        responses={200: ActivityLogPaginatedResponseSerializer},
+        description=(
+            "Project-wide audit trail across all insights — who created, edited, deleted, or restored insights, "
+            "what changed (with before/after diffs), and when. Useful for surfacing what people (or agents) have "
+            "been working on recently."
+        ),
+    )
     @action(methods=["GET"], url_path="activity", detail=False, required_scopes=["activity_log:read"])
     def all_activity(self, request: request.Request, **kwargs):
         limit = int(request.query_params.get("limit", "10"))
@@ -2099,6 +2125,29 @@ When set, the specified dashboard's filters and date range override will be appl
         activity_page = load_activity(scope="Insight", team_id=self.team_id, limit=limit, page=page)
         return activity_page_response(activity_page, limit, page, request)
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="limit",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                description="Page size. Defaults to 10.",
+                required=False,
+            ),
+            OpenApiParameter(
+                name="page",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                description="1-indexed page number. Defaults to 1.",
+                required=False,
+            ),
+        ],
+        responses={200: ActivityLogPaginatedResponseSerializer},
+        description=(
+            "Audit trail for a single insight — every change made to it, by whom, and when. Use this when you "
+            "want the change history of a specific insight; use the project-wide activity endpoint for a broader view."
+        ),
+    )
     @action(methods=["GET"], detail=True, required_scopes=["activity_log:read"])
     def activity(self, request: request.Request, **kwargs):
         limit = int(request.query_params.get("limit", "10"))

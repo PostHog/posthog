@@ -9746,6 +9746,64 @@ export interface PatchedInsightApi {
     readonly last_viewed_at?: string | null
 }
 
+export interface ChangeApi {
+    readonly type: string
+    readonly action: string
+    readonly field: string
+    readonly before: unknown
+    readonly after: unknown
+}
+
+export interface MergeApi {
+    readonly type: string
+    readonly source: unknown
+    readonly target: unknown
+}
+
+export interface TriggerApi {
+    readonly job_type: string
+    readonly job_id: string
+    readonly payload: unknown
+}
+
+export interface DetailApi {
+    readonly id: string
+    changes?: ChangeApi[]
+    merge?: MergeApi
+    trigger?: TriggerApi
+    readonly name: string
+    readonly short_id: string
+    readonly type: string
+}
+
+/**
+ * @nullable
+ */
+export type ActivityLogEntryApiUser = { [key: string]: unknown } | null | null
+
+export interface ActivityLogEntryApi {
+    readonly id: string
+    /** @nullable */
+    readonly user: ActivityLogEntryApiUser
+    readonly activity: string
+    readonly scope: string
+    readonly item_id: string
+    detail?: DetailApi
+    readonly created_at: string
+}
+
+/**
+ * Response shape for paginated activity log endpoints.
+ */
+export interface ActivityLogPaginatedResponseApi {
+    results: ActivityLogEntryApi[]
+    /** @nullable */
+    next: string | null
+    /** @nullable */
+    previous: string | null
+    total_count: number
+}
+
 /**
  * * `add` - add
  * `remove` - remove
@@ -9835,6 +9893,15 @@ export interface TrendingInsightApi {
     readonly view_count: number
     /** Up to 3 of the most recent users who viewed this insight in the time window. */
     readonly viewers: readonly UserBasicApi[]
+}
+
+export interface PaginatedTrendingInsightListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: TrendingInsightApi[]
 }
 
 export type ColumnConfigurationsListParams = {
@@ -10071,6 +10138,14 @@ export const InsightsDestroyFormat = {
 
 export type InsightsActivityRetrieveParams = {
     format?: InsightsActivityRetrieveFormat
+    /**
+     * Page size. Defaults to 10.
+     */
+    limit?: number
+    /**
+     * 1-indexed page number. Defaults to 1.
+     */
+    page?: number
 }
 
 export type InsightsActivityRetrieveFormat =
@@ -10119,6 +10194,14 @@ export const InsightsSuggestionsCreateFormat = {
 
 export type InsightsAllActivityRetrieveParams = {
     format?: InsightsAllActivityRetrieveFormat
+    /**
+     * Page size. Defaults to 10.
+     */
+    limit?: number
+    /**
+     * 1-indexed page number. Defaults to 1.
+     */
+    page?: number
 }
 
 export type InsightsAllActivityRetrieveFormat =
@@ -10186,6 +10269,10 @@ export type InsightsTrendingRetrieveParams = {
      * Maximum number of insights to return. Defaults to 10. Capped at 100.
      */
     limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
     short_id?: string
 }
 

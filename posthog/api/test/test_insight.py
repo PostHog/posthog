@@ -3018,14 +3018,16 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         response = self.client.get(f"/api/projects/{self.team.id}/insights/trending")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        data = response.json()
+        body = response.json()
+        results = body["results"]
+        assert body["count"] == len(results)
 
-        ids = [r["id"] for r in data]
+        ids = [r["id"] for r in results]
         assert two_views_id in ids and one_view_id in ids
         assert unviewed.pk not in ids
         assert ids.index(two_views_id) < ids.index(one_view_id)
 
-        two_views_row = next(r for r in data if r["id"] == two_views_id)
+        two_views_row = next(r for r in results if r["id"] == two_views_id)
         assert two_views_row["view_count"] == 2
         assert len(two_views_row["viewers"]) == 2
 
@@ -3044,11 +3046,11 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
 
         response = self.client.get(f"/api/projects/{self.team.id}/insights/trending?days=7")
-        ids = [r["id"] for r in response.json()]
+        ids = [r["id"] for r in response.json()["results"]]
         assert ids == [recent_id]
 
         response = self.client.get(f"/api/projects/{self.team.id}/insights/trending?days=30")
-        ids = [r["id"] for r in response.json()]
+        ids = [r["id"] for r in response.json()["results"]]
         assert set(ids) == {recent_id, old_id}
 
     def test_trending_insights_excludes_deleted(self) -> None:
@@ -3064,7 +3066,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.dashboard_api.soft_delete(deleted_id, "insights")
 
         response = self.client.get(f"/api/projects/{self.team.id}/insights/trending")
-        ids = [r["id"] for r in response.json()]
+        ids = [r["id"] for r in response.json()["results"]]
         assert ids == [kept_id]
 
     def test_trending_insights_respects_limit(self) -> None:
@@ -3075,7 +3077,9 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             )
 
         response = self.client.get(f"/api/projects/{self.team.id}/insights/trending?limit=2")
-        assert len(response.json()) == 2
+        body = response.json()
+        assert len(body["results"]) == 2
+        assert body["count"] == 2
 
     def test_trending_insights_rejects_invalid_params(self) -> None:
         response = self.client.get(f"/api/projects/{self.team.id}/insights/trending?days=abc")

@@ -9,6 +9,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    ActivityLogPaginatedResponseApi,
     BulkUpdateTagsRequestApi,
     BulkUpdateTagsResponseApi,
     ColumnConfigurationApi,
@@ -36,10 +37,10 @@ import type {
     PaginatedColumnConfigurationListApi,
     PaginatedElementListApi,
     PaginatedInsightListApi,
+    PaginatedTrendingInsightListApi,
     PatchedColumnConfigurationApi,
     PatchedElementApi,
     PatchedInsightApi,
-    TrendingInsightApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -522,12 +523,7 @@ export const insightsDestroy = async (
 }
 
 /**
- * DRF ViewSet mixin that gates coalesced responses behind permission checks.
-
-The QueryCoalescingMiddleware attaches cached response data to
-request.META["_coalesced_response"] for followers. This mixin runs DRF's
-initial() (auth + permissions + throttling) before returning the
-cached response, ensuring the request is authorized.
+ * Audit trail for a single insight — every change made to it, by whom, and when. Use this when you want the change history of a specific insight; use the project-wide activity endpoint for a broader view.
  */
 export const getInsightsActivityRetrieveUrl = (
     projectId: string,
@@ -554,8 +550,8 @@ export const insightsActivityRetrieve = async (
     id: number,
     params?: InsightsActivityRetrieveParams,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getInsightsActivityRetrieveUrl(projectId, id, params), {
+): Promise<ActivityLogPaginatedResponseApi> => {
+    return apiMutator<ActivityLogPaginatedResponseApi>(getInsightsActivityRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })
@@ -685,12 +681,7 @@ export const insightsSuggestionsCreate = async (
 }
 
 /**
- * DRF ViewSet mixin that gates coalesced responses behind permission checks.
-
-The QueryCoalescingMiddleware attaches cached response data to
-request.META["_coalesced_response"] for followers. This mixin runs DRF's
-initial() (auth + permissions + throttling) before returning the
-cached response, ensuring the request is authorized.
+ * Project-wide audit trail across all insights — who created, edited, deleted, or restored insights, what changed (with before/after diffs), and when. Useful for surfacing what people (or agents) have been working on recently.
  */
 export const getInsightsAllActivityRetrieveUrl = (projectId: string, params?: InsightsAllActivityRetrieveParams) => {
     const normalizedParams = new URLSearchParams()
@@ -712,8 +703,8 @@ export const insightsAllActivityRetrieve = async (
     projectId: string,
     params?: InsightsAllActivityRetrieveParams,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getInsightsAllActivityRetrieveUrl(projectId, params), {
+): Promise<ActivityLogPaginatedResponseApi> => {
+    return apiMutator<ActivityLogPaginatedResponseApi>(getInsightsAllActivityRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -887,8 +878,8 @@ export const insightsTrendingRetrieve = async (
     projectId: string,
     params?: InsightsTrendingRetrieveParams,
     options?: RequestInit
-): Promise<TrendingInsightApi[]> => {
-    return apiMutator<TrendingInsightApi[]>(getInsightsTrendingRetrieveUrl(projectId, params), {
+): Promise<PaginatedTrendingInsightListApi> => {
+    return apiMutator<PaginatedTrendingInsightListApi>(getInsightsTrendingRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
