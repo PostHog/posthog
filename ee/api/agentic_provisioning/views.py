@@ -2038,6 +2038,7 @@ ALLOWED_PROVISIONING_SCOPES = {
     "experiment:read",
     "feature_flag:read",
     "insight:read",
+    "llm_gateway:read",
     "organization:read",
     "person:read",
     "project:read",
