@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
+import { InternalFetchService } from '~/common/services/internal-fetch'
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
 
 import { convertToHogFunctionInvocationGlobals } from '../../cdp/utils'
@@ -36,6 +37,7 @@ export class CdpEventsConsumer<
     protected kafkaConsumer: KafkaConsumerInterface
 
     private hogRateLimiter: HogRateLimiterService
+    private internalFetchService: InternalFetchService
 
     constructor(
         config: TConfig,
@@ -54,6 +56,7 @@ export class CdpEventsConsumer<
             },
             this.redis
         )
+        this.internalFetchService = new InternalFetchService(config.INTERNAL_API_BASE_URL, config.INTERNAL_API_SECRET)
     }
 
     public async processBatch(
@@ -331,6 +334,49 @@ export class CdpEventsConsumer<
                             eventUuid,
                             personId,
                         })
+
+                        // Debounced notification trigger — at most once per 24h per workflow
+                        try {
+                            await this.redis.useClient(
+                                { name: 'rate-limit-notification', failOpen: true },
+                                async (client) => {
+                                    const debounceKey = `@posthog/cdp-rate-limit-notification/${item.teamId}/${item.functionId}`
+                                    const wasSet = await client.set(
+                                        debounceKey,
+                                        '1',
+                                        'EX',
+                                        86400, // 24 hours
+                                        'NX'
+                                    )
+                                    if (wasSet) {
+                                        this.internalFetchService
+                                            .fetch({
+                                                urlPath: `/api/projects/${item.teamId}/internal/hog_flows/notify_rate_limited`,
+                                                fetchParams: {
+                                                    method: 'POST',
+                                                    headers: {
+                                                        'Content-Type': 'application/json',
+                                                    },
+                                                    body: JSON.stringify({
+                                                        hog_flow_id: item.functionId,
+                                                        hog_flow_name: item.hogFlow.name,
+                                                        created_by_id: item.hogFlow.created_by_id ?? null,
+                                                    }),
+                                                },
+                                            })
+                                            .catch((error) => {
+                                                captureException(error)
+                                                logger.error('🔴', 'Failed to send rate-limit notification', {
+                                                    err: error,
+                                                })
+                                            })
+                                    }
+                                }
+                            )
+                        } catch (e) {
+                            // Non-critical — don't let notification failures affect rate-limiting flow
+                            captureException(e)
+                        }
 
                         return
                     }

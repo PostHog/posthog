@@ -23,6 +23,7 @@ const HOG_FLOW_FIELDS = [
     'actions',
     'abort_action',
     'billable_action_types',
+    'created_by_id',
 ]
 
 export type HogFlowTeamInfo = Pick<HogFlow, 'id' | 'team_id' | 'version'>

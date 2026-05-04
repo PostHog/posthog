@@ -21,6 +21,7 @@ enum NotificationBlock {
     CommentMentions = 'comment-mentions',
     ApiKeyExposure = 'api-key-exposure',
     MaterializedViewSync = 'materialized-view-sync',
+    Workflows = 'workflows',
 }
 
 const NOTIFICATION_BLOCK_ORDER = Object.values(NotificationBlock)
@@ -42,6 +43,8 @@ const NOTIFICATION_DEFAULTS: BooleanNotificationSettings = {
     project_api_key_exposed: true,
     materialized_view_sync_failed: false,
     web_analytics_weekly_digest: true,
+    workflows_notifications_disabled: false,
+    workflow_rate_limited: true,
 }
 
 function ProjectDigestSelector({
@@ -222,6 +225,7 @@ export function UpdateEmailPreferences(): JSX.Element {
     const weeklyDigestEnabled = !user?.notification_settings?.all_weekly_digest_disabled
     const etDigestEnabled = user?.notification_settings?.error_tracking_weekly_digest !== false
     const waDigestEnabled = user?.notification_settings?.web_analytics_weekly_digest !== false
+    const workflowsEnabled = !user?.notification_settings?.workflows_notifications_disabled
 
     const dataPipelineErrorThresholdValue = (user?.notification_settings?.data_pipeline_error_threshold ?? 0) * 100
     const [localDataPipelineErrorThreshold, setLocalDataPipelineErrorThreshold] = useState(
@@ -427,6 +431,27 @@ export function UpdateEmailPreferences(): JSX.Element {
                     description="Get notified when a materialized view fails to sync"
                     dataAttr="materialized_view_sync_failed_enabled"
                 />
+            </div>
+        ),
+        [NotificationBlock.Workflows]: (
+            <div className="border rounded p-4 space-y-3">
+                <SimpleSwitch
+                    setting="workflows_notifications_disabled"
+                    label="Workflows"
+                    description="Notifications about your workflows"
+                    dataAttr="workflows_notifications_enabled"
+                    inverse={true}
+                />
+                {workflowsEnabled && (
+                    <div className="ml-6">
+                        <SimpleSwitch
+                            setting="workflow_rate_limited"
+                            label="Rate limited"
+                            description="Get notified when a workflow you created exceeds its rate limit and events are dropped"
+                            dataAttr="workflow_rate_limited_enabled"
+                        />
+                    </div>
+                )}
             </div>
         ),
     }

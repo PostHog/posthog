@@ -1243,3 +1243,32 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
         except Exception as e:
             logger.exception("Error in internal_process_due_schedules", error=str(e))
             return Response({"error": "Internal server error"}, status=500)
+
+    def internal_notify_rate_limited(self, request: Request, team_id: str) -> Response:
+        """
+        Internal endpoint called by the CDP consumer to notify a workflow owner
+        that their workflow has been rate limited.
+        """
+        from products.workflows.backend.services.rate_limit_notifications import handle_workflow_rate_limited
+
+        if request.method != "POST":
+            return Response({"error": "Method not allowed"}, status=405)
+
+        hog_flow_id = request.data.get("hog_flow_id")
+        hog_flow_name = request.data.get("hog_flow_name", "")
+        created_by_id = request.data.get("created_by_id")
+
+        if not hog_flow_id:
+            return Response({"error": "Missing hog_flow_id"}, status=400)
+
+        try:
+            handle_workflow_rate_limited(
+                team_id=int(team_id),
+                hog_flow_id=hog_flow_id,
+                hog_flow_name=hog_flow_name,
+                created_by_id=created_by_id,
+            )
+            return Response({"status": "ok"})
+        except Exception as e:
+            logger.exception("Error in internal_notify_rate_limited", error=str(e))
+            return Response({"error": "Internal server error"}, status=500)
