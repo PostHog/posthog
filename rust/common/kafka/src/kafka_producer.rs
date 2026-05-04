@@ -90,6 +90,14 @@ where
         client_config.set("sticky.partitioning.linger.ms", v.to_string());
     }
 
+    if !config.kafka_client_rack.is_empty() {
+        client_config.set("client.rack", &config.kafka_client_rack);
+    }
+
+    if !config.kafka_client_id.is_empty() {
+        client_config.set("client.id", &config.kafka_client_id);
+    }
+
     if config.kafka_tls {
         client_config
             .set("security.protocol", "ssl")
