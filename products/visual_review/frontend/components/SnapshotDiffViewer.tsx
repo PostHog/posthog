@@ -345,6 +345,8 @@ export function SnapshotDiffViewer({
                             width: c.width,
                             height: c.height,
                         }))}
+                        diffOverlayWidth={snapshot.diff_artifact?.width ?? undefined}
+                        diffOverlayHeight={snapshot.diff_artifact?.height ?? undefined}
                     />
                 </div>
 

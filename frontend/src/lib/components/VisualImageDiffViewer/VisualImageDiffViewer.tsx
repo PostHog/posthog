@@ -29,11 +29,22 @@ export interface VisualImageDiffViewerProps {
     mode?: ComparisonMode
     onModeChange?: (mode: ComparisonMode) => void
     /**
-     * Bounding boxes drawn over the diff image (mode=`diff` only). Coords
-     * are in the image's natural pixel space; the overlay scales with the
-     * rendered image via SVG viewBox. Empty array == no overlays.
+     * Bounding boxes drawn over the diff image (and the blend overlay
+     * when on `blend` mode). Coords are in the diff image's natural
+     * pixel space (which is the *padded* size when baseline and current
+     * differed); the overlay scales with the rendered image via SVG
+     * viewBox + preserveAspectRatio="none". Empty array == no overlays.
      */
     diffOverlayBoxes?: DiffOverlayBox[]
+    /**
+     * Natural-pixel dimensions of the bbox coord space — the diff
+     * image's dimensions, which equal current/baseline when sizes
+     * match and the padded size when they don't. Defaults to
+     * `imageWidth`/`imageHeight` for back-compat with callers that
+     * never had a size mismatch.
+     */
+    diffOverlayWidth?: number
+    diffOverlayHeight?: number
 }
 
 const RESULT_LABELS: Record<VisualDiffResult, string> = {
@@ -91,45 +102,61 @@ function ImagePanel({
                 {label}
             </div>
             {url ? (
-                <div className="relative inline-block max-w-full">
+                // `block` on the inline-block wrapper kills the implicit
+                // baseline-descender gap that nudges the SVG overlay a few
+                // pixels below the image's actual bottom edge.
+                <div className="relative inline-block max-w-full leading-none">
                     <img
                         src={url}
                         alt={label}
                         loading="lazy"
                         decoding="async"
-                        className={cn('h-auto bg-black/5', imgClassName || 'max-w-full')}
+                        className={cn('block h-auto bg-black/5', imgClassName || 'max-w-full')}
                         // eslint-disable-next-line react/forbid-dom-props
                         style={imgStyle}
                     />
-                    {hasOverlay && (
-                        <svg
-                            // viewBox in natural coords + preserveAspectRatio=none stretches
-                            // the SVG to the rendered image size, so bbox coords stay accurate
-                            // even when the browser scales the diff image down.
-                            className="absolute inset-0 w-full h-full pointer-events-none"
-                            viewBox={`0 0 ${overlayWidth} ${overlayHeight}`}
-                            preserveAspectRatio="none"
-                        >
-                            {overlayBoxes!.map((b, i) => (
-                                <rect
-                                    key={i}
-                                    x={b.x}
-                                    y={b.y}
-                                    width={b.width}
-                                    height={b.height}
-                                    fill="none"
-                                    stroke="cyan"
-                                    strokeWidth={Math.max(2, Math.round(overlayWidth! / 400))}
-                                    vectorEffect="non-scaling-stroke"
-                                />
-                            ))}
-                        </svg>
-                    )}
+                    {hasOverlay && <BboxOverlay boxes={overlayBoxes!} width={overlayWidth!} height={overlayHeight!} />}
                 </div>
             ) : (
                 <EmptyImageState title={emptyTitle} />
             )}
         </div>
+    )
+}
+
+interface BboxOverlayProps {
+    boxes: DiffOverlayBox[]
+    /** Natural pixel coord space the bboxes live in. */
+    width: number
+    height: number
+}
+
+function BboxOverlay({ boxes, width, height }: BboxOverlayProps): JSX.Element {
+    return (
+        <svg
+            // viewBox in the bbox coord space + preserveAspectRatio=none
+            // stretches the SVG to the rendered image's box. With
+            // `vector-effect: non-scaling-stroke` the stroke stays a
+            // constant 2px regardless of how the image is scaled.
+            className="absolute inset-0 w-full h-full pointer-events-none"
+            viewBox={`0 0 ${width} ${height}`}
+            preserveAspectRatio="none"
+        >
+            {boxes.map((b, i) => (
+                <rect
+                    key={i}
+                    x={b.x}
+                    y={b.y}
+                    width={b.width}
+                    height={b.height}
+                    fill="rgba(0, 200, 255, 0.08)"
+                    stroke="rgb(0, 200, 255)"
+                    strokeWidth={2}
+                    strokeDasharray="4 3"
+                    vectorEffect="non-scaling-stroke"
+                />
+            ))}
+        </svg>
     )
 }
 
@@ -167,9 +194,16 @@ export function VisualImageDiffViewer({
     imageWidth,
     imageHeight,
     diffOverlayBoxes,
+    diffOverlayWidth,
+    diffOverlayHeight,
     mode: controlledMode,
     onModeChange,
 }: VisualImageDiffViewerProps): JSX.Element {
+    // Bbox coords live in the diff image's natural pixel space (= padded
+    // size when sizes mismatched). Fall back to image dims for the
+    // common matched-size case.
+    const overlayCoordWidth = diffOverlayWidth ?? imageWidth
+    const overlayCoordHeight = diffOverlayHeight ?? imageHeight
     const supportsComparison = isComparisonResult(result)
     const hasBothImages = Boolean(baselineUrl && currentUrl)
     const hasDiffImage = Boolean(diffUrl)
@@ -282,8 +316,8 @@ export function VisualImageDiffViewer({
                         label="Diff"
                         emptyTitle="No diff image available"
                         overlayBoxes={diffOverlayBoxes}
-                        overlayWidth={imageWidth}
-                        overlayHeight={imageHeight}
+                        overlayWidth={overlayCoordWidth}
+                        overlayHeight={overlayCoordHeight}
                     />
                 </div>
             )
