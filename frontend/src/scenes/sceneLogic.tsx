@@ -1145,15 +1145,12 @@ export const sceneLogic = kea<sceneLogicType>([
                 try {
                     const builtLogicProps = { tabId, ...exportedScene?.paramsToProps?.(params) }
                     const builtLogic = exportedScene?.logic(builtLogicProps)
-                    // cache.mountedTabLogic[tabId] = builtLogic.mount()
                     newUnmount = builtLogic.mount()
                 } catch (error) {
                     // Scene logic builders (e.g. dashboardLogic.key()) can throw on malformed
                     // route params like `/dashboard/abc`. Capture so regressions surface, then
                     // route to Error404 so the user sees a proper 404 instead of a blank crash.
                     posthog.captureException(error, { extra: { sceneId, sceneKey, tabId } })
-                    // actions.loadScene(Scene.Error404, undefined, tabId, emptySceneParams, 'REPLACE')
-                    // return
                     newLogicErrored = true
                 }
             }
