@@ -14,7 +14,6 @@ from posthog.approvals.notifications import (
     send_approval_expired_notification,
     send_approval_requested_notification,
 )
-from posthog.approvals.realtime import dispatch_approval_requested_realtime
 from posthog.email import CUSTOMER_IO_TEMPLATE_ID_MAP
 from posthog.models.instance_setting import override_instance_config
 
@@ -168,10 +167,11 @@ class TestSendApprovalRequestedNotification(TestApprovalNotifications):
         self.assertEqual(mock_send_email.call_count, 2)
 
 
-class TestDispatchApprovalRequestedRealtime(TestApprovalNotifications):
-    @patch("posthog.approvals.realtime.create_notification")
-    def test_dispatches_one_realtime_per_approver(self, mock_create_notification):
-        dispatch_approval_requested_realtime(self.change_request)
+class TestRealtimeDispatchOnRequested(TestApprovalNotifications):
+    @patch("posthog.approvals.notifications.create_notification")
+    @patch("posthog.approvals.notifications._send_approval_email")
+    def test_dispatches_one_realtime_per_approver(self, _mock_email, mock_create_notification):
+        send_approval_requested_notification(self.change_request)
 
         self.assertEqual(mock_create_notification.call_count, 2)
         target_ids = {call.args[0].target_id for call in mock_create_notification.call_args_list}
@@ -185,42 +185,65 @@ class TestDispatchApprovalRequestedRealtime(TestApprovalNotifications):
         self.assertEqual(first_data.resource_id, str(self.change_request.id))
         self.assertEqual(first_data.priority.value, "normal")
         self.assertIn("needs your sign-off", first_data.title)
-        self.assertIn(self.change_request.action_key, first_data.body)
+        self.assertEqual(first_data.body, "Update rollout to 50%")
         expected_url = f"/project/{self.change_request.team.project_id}/approvals/{self.change_request.id}"
         self.assertEqual(first_data.source_url, expected_url)
 
-    @patch("posthog.approvals.realtime.create_notification")
-    def test_no_realtime_dispatch_when_no_policy(self, mock_create_notification):
+    @patch("posthog.approvals.notifications.create_notification")
+    @patch("posthog.approvals.notifications._send_approval_email")
+    def test_body_falls_back_to_action_key_when_no_description(self, _mock_email, mock_create_notification):
+        self.change_request.intent_display = {}
+        self.change_request.save()
+
+        send_approval_requested_notification(self.change_request)
+
+        first_data = mock_create_notification.call_args_list[0].args[0]
+        self.assertEqual(first_data.body, self.change_request.action_key)
+
+    @patch("posthog.approvals.notifications.create_notification")
+    @patch("posthog.approvals.notifications._send_approval_email")
+    def test_no_realtime_dispatch_when_no_policy(self, _mock_email, mock_create_notification):
         self.policy.delete()
 
-        dispatch_approval_requested_realtime(self.change_request)
+        send_approval_requested_notification(self.change_request)
 
         mock_create_notification.assert_not_called()
 
-    @patch("posthog.approvals.realtime.create_notification", side_effect=RuntimeError("boom"))
-    def test_realtime_failure_is_swallowed(self, _mock_create):
+    @patch("posthog.approvals.notifications.create_notification", side_effect=RuntimeError("boom"))
+    @patch("posthog.approvals.notifications._send_approval_email")
+    def test_realtime_failure_is_swallowed(self, _mock_email, _mock_create):
         # Should not raise — failure is logged and swallowed so email path is not impacted.
-        dispatch_approval_requested_realtime(self.change_request)
+        send_approval_requested_notification(self.change_request)
 
-    @patch("posthog.approvals.realtime.create_notification")
-    def test_failure_for_one_approver_does_not_block_others(self, mock_create_notification):
-        # First call raises; remaining approvers must still receive their notification.
+    @patch("posthog.approvals.notifications.create_notification")
+    @patch("posthog.approvals.notifications._send_approval_email")
+    def test_failure_for_one_approver_does_not_block_others(self, _mock_email, mock_create_notification):
         mock_create_notification.side_effect = [RuntimeError("boom"), None]
 
-        dispatch_approval_requested_realtime(self.change_request)
+        send_approval_requested_notification(self.change_request)
 
         self.assertEqual(mock_create_notification.call_count, 2)
         target_ids = [call.args[0].target_id for call in mock_create_notification.call_args_list]
         self.assertEqual(set(target_ids), {str(self.approver.id), str(self.approver2.id)})
 
-    @patch("posthog.approvals.realtime.create_notification")
-    def test_no_realtime_dispatch_when_no_approvers(self, mock_create_notification):
+    @patch("posthog.approvals.notifications.create_notification")
+    @patch("posthog.approvals.notifications._send_approval_email")
+    def test_no_realtime_dispatch_when_no_approvers(self, _mock_email, mock_create_notification):
         self.policy.approver_config = {"users": [], "quorum": 1}
         self.policy.save()
 
-        dispatch_approval_requested_realtime(self.change_request)
+        send_approval_requested_notification(self.change_request)
 
         mock_create_notification.assert_not_called()
+
+    @patch("posthog.approvals.notifications.create_notification")
+    @patch("posthog.approvals.notifications._send_approval_email")
+    def test_email_failure_does_not_block_realtime(self, mock_email, mock_create_notification):
+        mock_email.side_effect = RuntimeError("smtp down")
+
+        send_approval_requested_notification(self.change_request)
+
+        self.assertEqual(mock_create_notification.call_count, 2)
 
 
 class TestSendApprovalDecisionNotification(TestApprovalNotifications):

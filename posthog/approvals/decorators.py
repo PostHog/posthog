@@ -15,7 +15,6 @@ from posthog.approvals.exceptions import ApprovalRequired
 from posthog.approvals.models import ChangeRequest, ChangeRequestState
 from posthog.approvals.notifications import send_approval_requested_notification
 from posthog.approvals.policies import PolicyDecision, PolicyEngine
-from posthog.approvals.realtime import dispatch_approval_requested_realtime
 from posthog.approvals.serializers import ChangeRequestSerializer
 from posthog.constants import AvailableFeature
 from posthog.event_usage import report_user_action
@@ -151,7 +150,6 @@ def _create_change_request(
     )
 
     send_approval_requested_notification(change_request)
-    dispatch_approval_requested_realtime(change_request)
 
     return change_request
 

@@ -6,6 +6,15 @@ from posthog.email import EmailMessage, is_email_available
 from posthog.models import User
 from posthog.utils import absolute_uri
 
+from products.notifications.backend.facade.api import (
+    NotificationData,
+    NotificationType,
+    Priority,
+    TargetType,
+    create_notification,
+)
+from products.notifications.backend.facade.enums import NotificationOnlyResourceType
+
 if TYPE_CHECKING:
     from posthog.approvals.models import Approval, ChangeRequest
 
@@ -22,6 +31,51 @@ def get_user_display_name(user: User | None, fallback: str = "A team member") ->
 def _build_change_request_url(change_request: "ChangeRequest") -> str:
     """Build the absolute URL to view a change request."""
     return absolute_uri(f"/project/{change_request.team.project_id}/approvals/{change_request.id}")
+
+
+def _change_summary(change_request: "ChangeRequest") -> str:
+    """Human-readable summary of what is being changed, for notification bodies."""
+    description = (change_request.intent_display or {}).get("description")
+    return description or change_request.action_key
+
+
+def _dispatch_realtime_requested(change_request: "ChangeRequest") -> None:
+    """Fan out one in-app notification per approver. Per-iteration try/except so
+    one failure does not block notifications for the remaining approvers.
+    """
+    policy = change_request.get_policy()
+    if not policy:
+        return
+    approver_ids = policy.get_approver_user_ids()
+    if not approver_ids:
+        return
+    requester_name = get_user_display_name(change_request.created_by)
+    title = f"{requester_name} needs your sign-off"[:100]
+    body = _change_summary(change_request)[:200]
+    source_url = f"/project/{change_request.team.project_id}/approvals/{change_request.id}"
+    for approver_id in approver_ids:
+        try:
+            create_notification(
+                NotificationData(
+                    team_id=change_request.team_id,
+                    notification_type=NotificationType.APPROVAL_REQUESTED,
+                    priority=Priority.NORMAL,
+                    title=title,
+                    body=body,
+                    target_type=TargetType.USER,
+                    target_id=str(approver_id),
+                    resource_type=NotificationOnlyResourceType.APPROVAL,
+                    resource_id=str(change_request.id),
+                    source_url=source_url,
+                )
+            )
+        except Exception as e:
+            logger.exception(
+                "send_approval_requested_notification.realtime_failed",
+                change_request_id=str(change_request.id),
+                approver_id=str(approver_id),
+                error=str(e),
+            )
 
 
 def _send_approval_email(
@@ -111,6 +165,8 @@ def send_approval_requested_notification(change_request: "ChangeRequest") -> Non
                 approver_id=approver.id,
                 error=str(e),
             )
+
+    _dispatch_realtime_requested(change_request)
 
 
 def send_approval_decision_notification(
