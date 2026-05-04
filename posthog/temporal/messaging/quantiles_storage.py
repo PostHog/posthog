@@ -14,6 +14,7 @@ import json
 import time
 import random
 import datetime as dt
+import statistics
 from typing import Optional
 
 import structlog
@@ -30,9 +31,10 @@ DEFAULT_TTL = 2 * 60 * 60  # 2 hours
 LOCK_KEY_PREFIX = "duration_quantiles_lock:"
 LOCK_TTL = 300  # 5 minutes
 # Retry configuration for handling race conditions
-MAX_RETRIES = 5
-BASE_RETRY_DELAY = 0.1  # 100ms
-MAX_RETRY_DELAY = 2.0  # 2 seconds
+# Conservative limits to avoid blocking database_sync_to_async thread pool
+MAX_RETRIES = 3
+BASE_RETRY_DELAY = 0.05  # 50ms
+MAX_RETRY_DELAY = 0.2  # 200ms max
 
 
 def _get_cache_key(hour_bucket: str) -> str:
@@ -69,6 +71,7 @@ def store_quantiles(quantiles_data: list[float], hour_bucket: Optional[str] = No
     lock_key = _get_lock_key(hour_bucket)
 
     redis_client = get_client()
+    lock_acquired = False
 
     try:
         # Try to acquire lock atomically
@@ -110,11 +113,12 @@ def store_quantiles(quantiles_data: list[float], hour_bucket: Optional[str] = No
         return False
 
     finally:
-        # Always release the lock
-        try:
-            redis_client.delete(lock_key)
-        except Exception as e:
-            LOGGER.warning("Failed to release quantiles calculation lock", lock_key=lock_key, error=str(e))
+        # Only release the lock if we acquired it
+        if lock_acquired:
+            try:
+                redis_client.delete(lock_key)
+            except Exception as e:
+                LOGGER.warning("Failed to release quantiles calculation lock", lock_key=lock_key, error=str(e))
 
 
 def get_quantiles(hour_bucket: Optional[str] = None) -> Optional[list[float]]:
@@ -169,22 +173,15 @@ def get_quantiles(hour_bucket: Optional[str] = None) -> Optional[list[float]]:
         return None
 
 
-def get_or_calculate_quantiles(
+def get_cached_quantiles_or_calculate(
     durations_list: list[int], hour_bucket: Optional[str] = None, max_retries: int = MAX_RETRIES
 ) -> Optional[list[float]]:
     """
-    Get quantiles from cache or calculate and cache them atomically.
+    Get quantiles from cache first, regardless of current data size.
+    Only calculate new quantiles if cache is empty and we have sufficient data.
 
-    Uses retry logic with exponential backoff to handle race conditions where
-    multiple workflows try to calculate quantiles simultaneously.
-
-    Args:
-        durations_list: List of duration values in milliseconds
-        hour_bucket: Optional hour bucket, defaults to current hour
-        max_retries: Maximum number of retries for handling race conditions
-
-    Returns:
-        List of 99 quantile values (p1 through p99), or None on failure
+    This ensures workflows can reuse cached quantiles even when the current
+    query returns insufficient data (e.g., cohort count dropped mid-hour).
     """
     if hour_bucket is None:
         hour_bucket = _get_current_hour_bucket()
@@ -194,15 +191,43 @@ def get_or_calculate_quantiles(
     if cached_quantiles is not None:
         return cached_quantiles
 
-    # Cache miss - need to calculate quantiles
-    import statistics
-
+    # Cache miss - only calculate if we have sufficient current data
     if len(durations_list) < 2:
         LOGGER.warning(
-            "Insufficient data for quantile calculation", hour_bucket=hour_bucket, data_points=len(durations_list)
+            "No cached quantiles available and insufficient current data for calculation",
+            hour_bucket=hour_bucket,
+            data_points=len(durations_list),
         )
         return None
 
+    # Continue with calculation using the current implementation
+    return _calculate_and_cache_quantiles(durations_list, hour_bucket, max_retries)
+
+
+def get_or_calculate_quantiles(
+    durations_list: list[int], hour_bucket: Optional[str] = None, max_retries: int = MAX_RETRIES
+) -> Optional[list[float]]:
+    """Legacy function name for backward compatibility."""
+    return get_cached_quantiles_or_calculate(durations_list, hour_bucket, max_retries)
+
+
+def _calculate_and_cache_quantiles(
+    durations_list: list[int], hour_bucket: str, max_retries: int = MAX_RETRIES
+) -> Optional[list[float]]:
+    """
+    Calculate and cache quantiles atomically with retry logic for race conditions.
+
+    Assumes cache has already been checked. This function only calculates new quantiles
+    when we know we have sufficient data and need to populate the cache.
+
+    Args:
+        durations_list: List of duration values in milliseconds (must have >= 2 elements)
+        hour_bucket: Time bucket for cache key
+        max_retries: Maximum number of retries for handling race conditions
+
+    Returns:
+        List of 99 quantile values (p1 through p99), or None on failure
+    """
     try:
         # Calculate quantiles
         quantiles = statistics.quantiles(durations_list, n=100, method="inclusive")
@@ -241,13 +266,25 @@ def get_or_calculate_quantiles(
                 )
                 time.sleep(delay)
 
-        # All retries exhausted, return calculated quantiles without caching
+        # All retries exhausted. Do not return uncached locally computed quantiles,
+        # because doing so can reintroduce inconsistent percentile boundaries across workflows.
+        # Perform one final cache read in case another process populated the cache
+        # after our last retry attempt, otherwise fail closed.
+        cached_quantiles = get_quantiles(hour_bucket)
+        if cached_quantiles is not None:
+            LOGGER.info(
+                "Using quantiles calculated by another process after final cache check",
+                hour_bucket=hour_bucket,
+                max_retries=max_retries,
+            )
+            return cached_quantiles
+
         LOGGER.warning(
-            "Failed to cache quantiles after all retries, returning uncached values",
+            "Failed to obtain cached quantiles after all retries; returning None to preserve consistency",
             hour_bucket=hour_bucket,
             max_retries=max_retries,
         )
-        return quantiles
+        return None
 
     except (statistics.StatisticsError, TypeError, ValueError) as e:
         LOGGER.warning(

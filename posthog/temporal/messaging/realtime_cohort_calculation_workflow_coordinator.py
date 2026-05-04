@@ -172,7 +172,7 @@ async def calculate_percentile_thresholds(
 
     @database_sync_to_async
     def get_thresholds():
-        from posthog.temporal.messaging.quantiles_storage import get_or_calculate_quantiles
+        from posthog.temporal.messaging.quantiles_storage import get_cached_quantiles_or_calculate
 
         try:
             # Get cohorts with recent duration data (past 24 hours)
@@ -188,16 +188,14 @@ async def calculate_percentile_thresholds(
 
             durations_list = list(recent_cohorts)
 
-            if len(durations_list) < 2:
-                return None
-
             # Calculate specific percentile thresholds
             min_percentile = inputs.min_percentile
             max_percentile = inputs.max_percentile
 
             # Get quantiles from cache or calculate atomically
             # This ensures all workflows use the same percentile boundaries
-            quantiles = get_or_calculate_quantiles(durations_list)
+            # Check cache first even if current query has insufficient data
+            quantiles = get_cached_quantiles_or_calculate(durations_list)
 
             if quantiles is None:
                 LOGGER.warning("Failed to get or calculate quantiles")
