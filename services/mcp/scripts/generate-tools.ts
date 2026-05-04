@@ -561,15 +561,17 @@ function composeToolSchema(
     // wire but conceptually objects. Widen the schema to accept either shape so
     // LLM agents can pass the object literal they just read from a sibling
     // tool's response, without a JSON.stringify round-trip that frequently
-    // breaks on escaping. The runtime request() helper at
-    // services/mcp/src/api/client.ts:141-145 JSON-stringify-s object query
-    // params automatically, so the schema-side union is sufficient — no handler
-    // changes required. Skipped when the YAML config also defines a
-    // param_overrides entry for the field, so explicit YAML always wins.
+    // breaks on escaping. ApiClient.request() in services/mcp/src/api/client.ts
+    // JSON-stringify-s object query params automatically, so the schema-side
+    // union is sufficient — no handler changes required. Skipped when the YAML
+    // config also defines a param_overrides entry for the field, so explicit
+    // YAML always wins.
     const explicitOverrideKeys = new Set(Object.keys(config.param_overrides ?? {}))
     const stringifiedJsonQueryParams = queryParams.filter(
         (p) =>
             p['x-accepts-stringified-json'] === true &&
+            // queryParamNames is the post-include/exclude set, so this drops
+            // params the YAML excluded via include_params / exclude_params.
             queryParamNames.includes(p.name) &&
             !explicitOverrideKeys.has(p.name)
     )

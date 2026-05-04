@@ -19,6 +19,13 @@ type Result = WithPostHogUrl<{ query: unknown; insight: Insight & { url: string 
 // object, so requiring them to JSON.stringify before sending is friction that
 // frequently breaks (escaping, double-encoding). Normalising here lets either
 // shape reach the backend as a properly-encoded query-string value.
+//
+// Transitional: the auto-generated tools rely on ApiClient.request() in
+// services/mcp/src/api/client.ts, which already JSON-stringify-s object query
+// params automatically. This helper exists because the bespoke insights().get()
+// in client.ts builds its own URLSearchParams and types the override params as
+// `string`. Once that endpoint migrates onto request(), normalizeOverride can
+// be deleted.
 function normalizeOverride(value: string | Record<string, unknown> | undefined): string | undefined {
     if (value === undefined) {
         return undefined
