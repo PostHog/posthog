@@ -12,6 +12,7 @@ import {
     CONFIGURE_SOURCES,
     POSTHOG_WAREHOUSE,
     connectionSelectorLogic,
+    getConnectionSelectorValue,
 } from './connectionSelectorLogic'
 import { sqlEditorLogic } from './sqlEditorLogic'
 
@@ -26,10 +27,14 @@ interface ConnectionSelectorProps {
 export function ConnectionSelector({ tabId }: ConnectionSelectorProps): JSX.Element | null {
     const logic = sqlEditorLogic({ tabId })
     const { sourceQuery, selectedConnectionId } = useValues(logic)
-    const { connectionSelectOptions, connectionSelectorValue } = useValues(
-        connectionSelectorLogic({ selectedConnectionId })
-    )
+    const { connectionOptions, connectionOptionsLoading, connectionSelectOptions } =
+        useValues(connectionSelectorLogic())
     const { setSourceQuery, syncUrlWithQuery } = useActions(logic)
+    const connectionSelectorValue = getConnectionSelectorValue(
+        connectionOptions,
+        connectionOptionsLoading,
+        selectedConnectionId
+    )
     // Strip the legacy top-level connectionId so source.connectionId stays canonical.
     const { connectionId: _legacyConnectionId, ...sourceQueryWithoutLegacyConnectionId } =
         sourceQuery as typeof sourceQuery & {
