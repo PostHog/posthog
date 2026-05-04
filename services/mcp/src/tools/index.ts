@@ -2,8 +2,6 @@ import { hasScopes } from '@/lib/api'
 
 // Debug
 import debugMcpUiApps from './debug/debugMcpUiApps'
-// Documentation
-import searchDocs from './documentation/searchDocs'
 // Experiments (hand-written — CRUD + lifecycle are codegen in generated/experiments.ts)
 import getExperimentResults from './experiments/getResults'
 import experimentListDeprecated from './experiments/listDeprecated'
@@ -57,9 +55,6 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'event-definition-update': updateEventDefinition,
     'properties-list': getProperties,
 
-    // Documentation - handled separately due to env check
-    // "docs-search": searchDocs,
-
     // Experiments (results is hand-written; CRUD + lifecycle are codegen)
     'experiment-results-get': getExperimentResults,
     // Deprecated alias for experiment-list — forwards and annotates the response.
@@ -107,14 +102,9 @@ export const getToolsFromContext = async (
     const toolBases: ToolBase<ZodObjectAny>[] = []
 
     for (const toolName of allowedToolNames) {
-        // Special handling for docs-search which requires API key
-        if (toolName === 'docs-search' && context.env.INKEEP_API_KEY) {
-            toolBases.push(searchDocs())
-        } else {
-            const toolFactory = effectiveMap[toolName]
-            if (toolFactory) {
-                toolBases.push(toolFactory())
-            }
+        const toolFactory = effectiveMap[toolName]
+        if (toolFactory) {
+            toolBases.push(toolFactory())
         }
     }
 

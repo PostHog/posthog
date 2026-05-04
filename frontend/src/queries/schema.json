@@ -37886,7 +37886,8 @@
                 "used_similar_products",
                 "used_on_separate_team",
                 "new_product",
-                "sales_led"
+                "sales_led",
+                "onboarding_delegated"
             ],
             "type": "string"
         },

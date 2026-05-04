@@ -43,6 +43,7 @@ import { AccessControlLevel } from '~/types'
 import { handleLoginRedirect } from './authentication/loginLogic'
 import { billingLogic } from './billing/billingLogic'
 import { parseCouponCampaign } from './coupons/utils'
+import { isOnboardingRedirectSuppressed } from './onboarding/onboardingDelegationState'
 import { organizationLogic } from './organizationLogic'
 import { preflightLogic } from './PreflightCheck/preflightLogic'
 import type { sceneLogicType } from './sceneLogicType'
@@ -1134,28 +1135,43 @@ export const sceneLogic = kea<sceneLogicType>([
                 }
             }
 
-            const unmount = cache.mountedTabLogic[tabId]
-            if (unmount) {
-                try {
-                    unmount()
-                } catch (error) {
-                    console.error('Error unmounting previous tab logic:', error)
-                }
-                delete cache.mountedTabLogic[tabId]
-            }
+            // Mount the new scene logic *before* unmounting the previous one. When the new
+            // mount uses the same logic key (tab switch back to the same scene with the same
+            // params), kea's reference count goes 1 → 2 → 1 and reducer state is preserved.
+            // Unmount-then-mount would briefly drop the count to 0 and destroy the instance.
+            let newUnmount: (() => void) | undefined
+            let newLogicErrored = false
             if (exportedScene?.logic) {
                 try {
                     const builtLogicProps = { tabId, ...exportedScene?.paramsToProps?.(params) }
                     const builtLogic = exportedScene?.logic(builtLogicProps)
-                    cache.mountedTabLogic[tabId] = builtLogic.mount()
+                    newUnmount = builtLogic.mount()
                 } catch (error) {
                     // Scene logic builders (e.g. dashboardLogic.key()) can throw on malformed
                     // route params like `/dashboard/abc`. Capture so regressions surface, then
                     // route to Error404 so the user sees a proper 404 instead of a blank crash.
                     posthog.captureException(error, { extra: { sceneId, sceneKey, tabId } })
-                    actions.loadScene(Scene.Error404, undefined, tabId, emptySceneParams, 'REPLACE')
-                    return
+                    newLogicErrored = true
                 }
+            }
+
+            const previousUnmount = cache.mountedTabLogic[tabId]
+            if (newUnmount) {
+                cache.mountedTabLogic[tabId] = newUnmount
+            } else {
+                delete cache.mountedTabLogic[tabId]
+            }
+            if (previousUnmount) {
+                try {
+                    previousUnmount()
+                } catch (error) {
+                    console.error('Error unmounting previous tab logic:', error)
+                }
+            }
+
+            if (newLogicErrored) {
+                actions.loadScene(Scene.Error404, undefined, tabId, emptySceneParams, 'REPLACE')
+                return
             }
 
             const trackingKey = tabId || '__default__'
@@ -1235,6 +1251,11 @@ export const sceneLogic = kea<sceneLogicType>([
                         !teamLogic.values.currentTeam.is_demo &&
                         !teamLogic.values.hasOnboardedAnyProduct &&
                         !teamLogic.values.currentTeam?.ingested_event &&
+                        // Suppress the redirect when the user has explicitly exited onboarding
+                        // (skipped for later, or delegated to a teammate with a pending invite).
+                        // If the delegation invite is cancelled or expires, the backend clears
+                        // onboarding_delegated_to_invite and the redirect re-fires.
+                        !isOnboardingRedirectSuppressed(user) &&
                         !pathPrefixesOnboardingNotRequiredFor.some((path) =>
                             removeProjectIdIfPresent(location.pathname).startsWith(path)
                         )

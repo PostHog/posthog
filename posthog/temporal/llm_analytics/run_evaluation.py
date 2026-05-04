@@ -431,6 +431,48 @@ class ExecuteLLMJudgeInputs:
         }
 
 
+def _is_errored_trace(properties: dict[str, Any]) -> bool:
+    """Return True when the captured trace recorded an error.
+
+    `$ai_is_error` may be ingested as a Python bool or a JSON-encoded string depending on the
+    SDK and capture path, so we normalise both forms here.
+    """
+    raw = properties.get("$ai_is_error")
+    if isinstance(raw, bool):
+        return raw
+    if isinstance(raw, str):
+        return raw.strip().lower() == "true"
+    return False
+
+
+def _build_errored_trace_result(allows_na: bool) -> dict[str, Any]:
+    """Result returned when the source trace errored — skips the LLM call entirely.
+
+    Keep the keys here in sync with the success-path result built around the bottom of
+    `execute_llm_judge_activity`; `emit_evaluation_event_activity` and the workflow downstream
+    both branch on the same shape. `model` and `provider` are deliberately omitted so the
+    `.get(..., DEFAULT_JUDGE_MODEL)` defaults don't silently attribute phantom calls to a model
+    that was never invoked — the emit activity instead detects the `skipped` flag and drops
+    cost / model attribution entirely.
+    """
+    reasoning = "Source trace errored before producing output; evaluation skipped."
+    result: dict[str, Any] = {
+        "verdict": None if allows_na else False,
+        "reasoning": reasoning,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "is_byok": False,
+        "key_id": None,
+        "allows_na": allows_na,
+        "skipped": True,
+        "skip_reason": "trace_errored",
+    }
+    if allows_na:
+        result["applicable"] = False
+    return result
+
+
 @temporalio.activity.defn
 async def execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> dict[str, Any]:
     """Execute LLM judge to evaluate the target event.
@@ -462,6 +504,20 @@ async def execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> dict[str,
 
     output_config = evaluation.get("output_config", {})
     allows_na = output_config.get("allows_na", False)
+
+    # Parse properties early so we can short-circuit on traces that errored before producing
+    # any output. Without this guard, the judge runs against an empty Output and tends to
+    # return spurious verdicts (often `true`) instead of recognising that there is nothing to
+    # evaluate.
+    event_type = event_data["event"]
+    properties = event_data["properties"]
+    if isinstance(properties, str):
+        properties = json.loads(properties)
+
+    if _is_errored_trace(properties):
+        # Visibility for skipped evaluations comes from the workflow-level SKIPPED status emitted
+        # by the metrics interceptor; there is no error to record here.
+        return _build_errored_trace_result(allows_na)
 
     # Fetch provider key configuration (BYOK or trial)
     team_id = evaluation["team_id"]
@@ -552,12 +608,6 @@ async def execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> dict[str,
 
     is_byok = provider_key is not None
     key_id = str(provider_key.id) if provider_key else None
-
-    # Build context from event
-    event_type = event_data["event"]
-    properties = event_data["properties"]
-    if isinstance(properties, str):
-        properties = json.loads(properties)
 
     # Extract input/output based on event type
     input_raw, output_raw = extract_event_io(event_type, properties)
@@ -875,8 +925,14 @@ async def emit_evaluation_event_activity(inputs: EmitEvaluationEventInputs) -> N
             "$session_id": source_props.get("$session_id"),
         }
 
-        # LLM-specific properties: cost attribution and model info (not applicable for hog evals)
-        if evaluation_type != "hog":
+        if result.get("skipped"):
+            properties["$ai_evaluation_skipped"] = True
+            properties["$ai_evaluation_skip_reason"] = result.get("skip_reason")
+
+        # LLM-specific properties: cost attribution and model info (not applicable for hog evals,
+        # and skipped evaluations never made an API call so attributing them to a model would
+        # pollute cost dashboards with phantom calls).
+        if evaluation_type != "hog" and not result.get("skipped"):
             properties["$ai_model"] = result.get("model", DEFAULT_JUDGE_MODEL)
             properties["$ai_provider"] = result.get("provider", "openai")
             properties["$ai_input_tokens"] = result.get("input_tokens", 0)
@@ -1086,8 +1142,10 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                         )
                 raise
 
-            # Increment trial eval counter if using PostHog key (LLM judge only — no cost for hog evals)
-            if not result.get("is_byok"):
+            # Increment trial eval counter if using PostHog key (LLM judge only — no cost for hog evals).
+            # Skipped evaluations (e.g. errored source trace) never made an API call, so they do not
+            # consume trial quota.
+            if not result.get("is_byok") and not result.get("skipped"):
                 threshold_pct = await temporalio.workflow.execute_activity(
                     increment_trial_eval_count_activity,
                     evaluation["team_id"],
@@ -1130,16 +1188,20 @@ class RunEvaluationWorkflow(PostHogWorkflow):
             increment_errors("emit_evaluation_event_failed")
             raise
 
-        # Activity 5: Emit internal telemetry (fire-and-forget)
-        await temporalio.workflow.execute_activity(
-            emit_internal_telemetry_activity,
-            EmitInternalTelemetryInputs(
-                evaluation=evaluation,
-                team_id=evaluation["team_id"],
-                result=result,
-            ),
-            schedule_to_close_timeout=timedelta(seconds=30),
-        )
+        # Activity 5: Emit internal telemetry (fire-and-forget). Internal telemetry tracks model,
+        # provider, and token usage on the PostHog org for cost attribution; skipped evaluations
+        # never made an API call, so emitting a phantom record with `verdict=False` and zero
+        # tokens would pollute that data.
+        if not result.get("skipped"):
+            await temporalio.workflow.execute_activity(
+                emit_internal_telemetry_activity,
+                EmitInternalTelemetryInputs(
+                    evaluation=evaluation,
+                    team_id=evaluation["team_id"],
+                    result=result,
+                ),
+                schedule_to_close_timeout=timedelta(seconds=30),
+            )
 
         # Emit signal when eval judge verdict is true (fire-and-forget).
         # v2: dedicated workflow on VIDEO_EXPORT_TASK_QUEUE (signals worker).
@@ -1198,10 +1260,17 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                         team_id=evaluation["team_id"],
                     )
 
-        return {
+        workflow_result: dict[str, Any] = {
             "verdict": result["verdict"],
             "reasoning": result["reasoning"],
             "evaluation_id": evaluation["id"],
             "evaluation_type": evaluation_type,
             "is_byok": result.get("is_byok", False),
+            "skipped": result.get("skipped", False),
         }
+        # Match the shape of the existing workflow-level skip path (around the `error_type` branch
+        # above) so consumers can group skipped workflows by reason without special-casing the
+        # source of the skip.
+        if result.get("skipped"):
+            workflow_result["skip_reason"] = result.get("skip_reason")
+        return workflow_result

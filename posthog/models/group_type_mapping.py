@@ -3,6 +3,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from posthog.models.project import Project
+    from posthog.models.team.team import Team
     from posthog.personhog_client.client import PersonHogClient
 
 from django.contrib.postgres.fields import ArrayField
@@ -227,6 +229,36 @@ def _fetch_group_types_for_projects_via_personhog(
         mappings.sort(key=lambda d: d["group_type_index"])
         result[batch.key] = mappings
     return result
+
+
+_REQUEST_CACHED_GROUP_TYPES_ATTR = "_request_cached_group_types"
+
+
+def cached_group_types_for_team(team: Team) -> list[dict[str, Any]]:
+    """Memoise `get_group_types_for_project` per request on the team instance.
+
+    Sibling SerializerMethodFields (`has_group_types` + `group_types`) both want
+    the same answer; without this memo each render hits the Redis cache twice.
+    The cache lives on the model instance, which is request-scoped in practice —
+    DRF builds a fresh serializer + ORM instance per request and callers do not
+    retain instances across requests.
+    """
+    return _memoise_group_types_on(team, team.project_id)
+
+
+def cached_group_types_for_project(project: Project) -> list[dict[str, Any]]:
+    """Memoise `get_group_types_for_project` per request on the project instance.
+
+    See `cached_group_types_for_team` — same memo, same lifetime, sibling
+    serializer's project-shaped equivalent.
+    """
+    return _memoise_group_types_on(project, project.id)
+
+
+def _memoise_group_types_on(target: Team | Project, project_id: int) -> list[dict[str, Any]]:
+    if not hasattr(target, _REQUEST_CACHED_GROUP_TYPES_ATTR):
+        setattr(target, _REQUEST_CACHED_GROUP_TYPES_ATTR, get_group_types_for_project(project_id))
+    return getattr(target, _REQUEST_CACHED_GROUP_TYPES_ATTR)
 
 
 def get_group_types_for_projects(project_ids: list[int]) -> dict[int, list[dict[str, Any]]]:

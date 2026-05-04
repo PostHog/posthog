@@ -330,6 +330,8 @@ export interface UserGitHubAccountApi {
 }
 
 export interface UserGitHubIntegrationItemApi {
+    /** PostHog UserIntegration row id. */
+    id: string
     /** Integration kind; always `github` for this API. */
     kind: string
     /** GitHub App installation id. */
@@ -473,6 +475,29 @@ export type UsersIntegrationsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type UsersIntegrationsGithubBranchesRetrieveParams = {
+    /**
+     * Maximum number of branches to return
+     * @minimum 1
+     * @maximum 1000
+     */
+    limit?: number
+    /**
+     * Number of branches to skip
+     * @minimum 0
+     */
+    offset?: number
+    /**
+     * Repository in owner/repo format
+     * @minLength 1
+     */
+    repo: string
+    /**
+     * Optional case-insensitive branch name search query.
+     */
+    search?: string
 }
 
 export type UsersIntegrationsGithubReposRetrieveParams = {

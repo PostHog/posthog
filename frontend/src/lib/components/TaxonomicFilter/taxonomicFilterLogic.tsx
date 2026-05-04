@@ -351,6 +351,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         tabLeft: true,
         tabRight: true,
         setSearchQuery: (searchQuery: string) => ({ searchQuery }),
+        markUserInteraction: true,
         recordPaste: (pastedLength: number) => ({ pastedLength }),
         setActiveTab: (activeTab: TaxonomicFilterGroupType) => ({ activeTab }),
         selectItem: (
@@ -407,6 +408,22 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 moveDown: () => false,
                 setActiveTab: () => true,
                 enableMouseInteractions: () => true,
+            },
+        ],
+        hadInteraction: [
+            // Any genuine user-driven action flips this. Read in `beforeUnmount` to gate the
+            // `taxonomic filter closed` capture so involuntary mounts (popovers/side panels
+            // rendered before the picker is shown, route transitions) don't fire phantom closes.
+            // New interaction sources should be added here, not by mutating cache from listeners.
+            false,
+            {
+                moveUp: () => true,
+                moveDown: () => true,
+                tabLeft: () => true,
+                tabRight: () => true,
+                setActiveTab: () => true,
+                selectItem: () => true,
+                markUserInteraction: () => true,
             },
         ],
         topMatchItems: [
@@ -1701,11 +1718,18 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         }
     }),
     beforeUnmount(({ values, cache }) => {
-        posthog.capture('taxonomic filter closed', {
-            dwellMs: Date.now() - (cache.openedAt ?? Date.now()),
-            hadSelection: !!cache.hadSelection,
-            groupType: values.activeTab,
-        })
+        // Only capture when there's evidence the user actually engaged with the picker. The logic
+        // mounts in many places where the picker isn't visibly opened (popover contents rendered
+        // before the popover shows, side panels tied to scene lifecycle, route transitions), so
+        // without this gate every involuntary mount/unmount fires a close with hadSelection=false
+        // and inflates the abandonment metric (top sessions hit 100+ closes pre-gate).
+        if (values.hadInteraction) {
+            posthog.capture('taxonomic filter closed', {
+                dwellMs: Date.now() - (cache.openedAt ?? Date.now()),
+                hadSelection: !!cache.hadSelection,
+                groupType: values.activeTab,
+            })
+        }
     }),
     propsChanged(({ actions, props }, oldProps) => {
         // When the in-context events change (e.g. an insight series swaps event), ask the model
