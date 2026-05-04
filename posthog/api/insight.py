@@ -1321,7 +1321,7 @@ class InsightViewSet(
         response = super().list(request, *args, **kwargs)
         if request.query_params.get("search"):
             data = response.data if isinstance(response.data, dict) else {}
-            results_len = len(data.get("results", [])) if "results" in data else 0
+            results_len = data.get("count", len(data.get("results", [])))
             span.set_attribute("insight.search.result_count", results_len)
             span.set_attribute("insight.search.empty", results_len == 0)
         return response

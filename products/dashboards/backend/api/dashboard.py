@@ -1104,7 +1104,7 @@ class DashboardsViewSet(
         # telemetry — flag empty results (loosen) and high counts (tighten).
         if request.query_params.get("search"):
             data = response.data if isinstance(response.data, dict) else {}
-            results_len = len(data.get("results", [])) if "results" in data else 0
+            results_len = data.get("count", len(data.get("results", [])))
             span = trace.get_current_span()
             span.set_attribute("dashboard.search.result_count", results_len)
             span.set_attribute("dashboard.search.empty", results_len == 0)
