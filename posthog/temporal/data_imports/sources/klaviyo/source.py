@@ -59,6 +59,7 @@ Make sure to grant the following read permissions:
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="pk_...",
+                        secret=True,
                     ),
                 ],
             ),

@@ -3,6 +3,7 @@ import React from 'react'
 interface ChartErrorBoundaryProps {
     children: React.ReactNode
     fallback?: React.ReactNode
+    onError?: (error: Error, info: React.ErrorInfo) => void
 }
 
 interface ChartErrorBoundaryState {
@@ -29,6 +30,7 @@ export class ChartErrorBoundary extends React.Component<ChartErrorBoundaryProps,
 
     override componentDidCatch(error: Error, info: React.ErrorInfo): void {
         console.error('[hog-charts] render error:', error, info.componentStack)
+        this.props.onError?.(error, info)
     }
 
     override render(): React.ReactNode {

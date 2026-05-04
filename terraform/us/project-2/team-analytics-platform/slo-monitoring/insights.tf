@@ -28,7 +28,7 @@ locals {
     alert_check = {
       name    = "Alert checks"
       slo     = 99.95 # error budget = 0.05%
-      regions = ["US"] # EU not captured yet: ph_scoped_capture hardcodes US client
+      regions = ["US", "EU"]
     }
   }
 

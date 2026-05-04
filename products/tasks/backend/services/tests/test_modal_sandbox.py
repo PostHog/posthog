@@ -238,6 +238,29 @@ class TestModalSandboxAgentServer:
         assert "/tmp/agentsh-env-wrapper.sh" in command
         assert "./node_modules/.bin/agent-server" in command
 
+    def test_start_agent_server_wraps_with_agentsh_when_domains_empty(self, mock_sandbox: Any):
+        mock_sandbox.execute = MagicMock(
+            side_effect=[
+                ExecutionResult(stdout="", stderr="", exit_code=0, error=None),
+                ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None),
+            ]
+        )
+
+        with patch.object(mock_sandbox, "_setup_agentsh") as mock_setup_agentsh:
+            mock_sandbox.start_agent_server(
+                repository="posthog/posthog",
+                task_id="task-123",
+                run_id="run-456",
+                mode="background",
+                allowed_domains=[],
+            )
+
+        mock_setup_agentsh.assert_called_once_with("/tmp/workspace", [])
+        command = mock_sandbox.execute.call_args_list[0][0][0]
+        assert "--allowedDomains" not in command
+        assert "agentsh exec --client-timeout 2h --timeout 2h" in command
+        assert "env -0 > /tmp/agent-env" in command
+
     @pytest.mark.parametrize(
         ("create_pr", "expected_flag"),
         [

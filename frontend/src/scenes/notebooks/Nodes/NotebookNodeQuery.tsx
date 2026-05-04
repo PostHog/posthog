@@ -15,17 +15,24 @@ import { Query } from '~/queries/Query/Query'
 import { DataTableNode, InsightQueryNode, InsightVizNode, NodeKind, QuerySchema } from '~/queries/schema/schema-general'
 import {
     containsHogQLQuery,
-    isActorsQuery,
     isDataTableNode,
     isEventsQuery,
     isHogQLQuery,
     isInsightVizNode,
     isNodeWithSource,
     isSavedInsightNode,
+    isActorsQuery,
 } from '~/queries/utils'
 import { InsightLogicProps, InsightShortId } from '~/types'
 
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
+import {
+    getSqlEditorSourceQuery,
+    EMBEDDED_SQL_EDITOR_DEFAULT_HEIGHT,
+    EMBEDDED_SQL_EDITOR_MIN_HEIGHT,
+    NotebookSQLEditorOutput,
+    NotebookSQLEditorSettings,
+} from './components/NotebookSQLEditor'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { SHORT_CODE_REGEX_MATCH_GROUPS } from './utils'
 
@@ -46,7 +53,8 @@ const Component = ({
 }: NotebookNodeProps<NotebookNodeQueryAttributes>): JSX.Element | null => {
     const { query, nodeId } = attributes
     const nodeLogic = useMountedLogic(notebookNodeLogic)
-    const { expanded, notebookLogic } = useValues(nodeLogic)
+    const { expanded, nodeId: resolvedNodeId, notebookLogic } = useValues(nodeLogic)
+    const { editingNodeIds } = useValues(notebookLogic)
     const { setTitlePlaceholder } = useActions(nodeLogic)
     const summarizeInsight = useSummarizeInsight()
     const { canvasFiltersOverride } = useValues(notebookLogic)
@@ -117,6 +125,18 @@ const Component = ({
 
     if (!expanded) {
         return null
+    }
+
+    if (getSqlEditorSourceQuery(query)) {
+        return (
+            <div className="flex flex-1 flex-col h-full" data-attr="notebook-node-query">
+                <NotebookSQLEditorOutput
+                    attributes={attributes}
+                    updateAttributes={updateAttributes}
+                    showOutputToolbar={!!editingNodeIds[resolvedNodeId]}
+                />
+            </div>
+        )
     }
 
     const isInsightViz = isInsightVizNode(modifiedQuery) || isSavedInsightNode(modifiedQuery)
@@ -229,6 +249,8 @@ export const Settings = ({
         }
     }
 
+    const isSqlEditorQuery = !!getSqlEditorSourceQuery(query)
+
     return isSavedInsightNode(attributes.query) ? (
         <div className="p-3 deprecated-space-y-2">
             <div className="text-lg font-semibold">Insight created outside of this notebook</div>
@@ -258,6 +280,8 @@ export const Settings = ({
                 </LemonButton>
             </div>
         </div>
+    ) : isSqlEditorQuery ? (
+        <NotebookSQLEditorSettings attributes={attributes} updateAttributes={updateAttributes} />
     ) : (
         <div className="p-3">
             <Query
@@ -282,8 +306,8 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
     nodeType: NotebookNodeType.Query,
     titlePlaceholder: 'Query',
     Component,
-    heightEstimate: 500,
-    minHeight: 200,
+    heightEstimate: EMBEDDED_SQL_EDITOR_DEFAULT_HEIGHT,
+    minHeight: EMBEDDED_SQL_EDITOR_MIN_HEIGHT,
     resizeable: true,
     startExpanded: true,
     attributes: {

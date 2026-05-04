@@ -21,7 +21,7 @@ pnpm --filter=@posthog/mcp run scaffold-yaml -- --product your_product \
 #    Place in products/<product>/mcp/*.yaml (preferred) or services/mcp/definitions/*.yaml
 
 # 3. Add a HogQL system table in posthog/hogql/database/schema/system.py
-#    and a model reference in products/posthog_ai/skills/query-examples/references/
+#    and a model reference in products/posthog_ai/skills/querying-posthog-data/references/
 
 # 4. Generate handlers and schemas
 hogli build:openapi
@@ -195,8 +195,8 @@ Use `mcp_version: 1` on read/list YAML tools when a system table covers the same
 v2 agents use SQL instead.
 
 When adding a system table, also add a model reference file
-(`models-<domain>.md`) in [`products/posthog_ai/skills/query-examples/references/`](products/posthog_ai/skills/query-examples/references/)
-and register it in [`products/posthog_ai/skills/query-examples/SKILL.md`](products/posthog_ai/skills/query-examples/SKILL.md) under **Data Schema**.
+(`models-<domain>.md`) in [`products/posthog_ai/skills/querying-posthog-data/references/`](products/posthog_ai/skills/querying-posthog-data/references/)
+and register it in [`products/posthog_ai/skills/querying-posthog-data/SKILL.md`](products/posthog_ai/skills/querying-posthog-data/SKILL.md) under **Data Schema**.
 
 ## Two MCP versions
 

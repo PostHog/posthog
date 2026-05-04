@@ -123,6 +123,7 @@ async fn process_request_inner(
             context.state.database_pools.non_persons_reader.clone(),
             context.state.team_hypercache_reader.clone(),
             context.state.flags_hypercache_reader.clone(),
+            context.state.flag_definitions_cache.clone(),
             context.state.team_negative_cache.clone(),
             *context.state.config.skip_pg_team_fallback,
         );

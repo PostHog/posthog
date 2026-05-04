@@ -230,7 +230,7 @@ class TestUsageEndpoint:
         )
         assert response.status_code == 200
         assert response.json() == {"ok": True}
-        app.state.plan_resolver.invalidate.assert_called_once_with(42, team_id=1)
+        app.state.plan_resolver.invalidate.assert_called_once_with(42)
 
     def test_invalidate_plan_cache_404_for_other_product(self, authenticated_usage_client: TestClient) -> None:
         response = authenticated_usage_client.post(

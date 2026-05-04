@@ -550,7 +550,7 @@ class ModalSandbox(SandboxBase):
 
         inner = f"cd /scripts && {server_cmd} > /tmp/agent-server.log 2>&1"
 
-        if allowed_domains:
+        if allowed_domains is not None:
             return (
                 f"cd /scripts && env -0 > {ENV_FILE} && "
                 f"{build_exec_prefix()} {ENV_WRAPPER_SCRIPT} bash -c {shlex.quote(inner)} &"
@@ -595,7 +595,7 @@ class ModalSandbox(SandboxBase):
             org, repo = repository.lower().split("/")
             repo_path = f"/tmp/workspace/repos/{org}/{repo}"
 
-        if allowed_domains:
+        if allowed_domains is not None:
             self._setup_agentsh(WORKING_DIR, allowed_domains)
 
         mcp_servers_arg = ""
@@ -631,7 +631,7 @@ class ModalSandbox(SandboxBase):
         logger.info(f"Agent-server started in sandbox {self.id}")
 
     def _setup_agentsh(self, workspace_path: str, allowed_domains: list[str] | None = None) -> None:
-        if allowed_domains:
+        if allowed_domains is not None:
             logger.info("Configuring agentsh in sandbox %s for %d allowed domain(s)", self.id, len(allowed_domains))
         else:
             logger.info("Configuring agentsh in sandbox %s (allow-all mode)", self.id)

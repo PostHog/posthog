@@ -827,6 +827,25 @@ describe('lib/utils', () => {
             ).toEqual('/bye')
         })
 
+        it('handles screen events using $screen_name', () => {
+            expect(
+                eventToDescription({ ...baseEvent, event: '$screen', properties: { $screen_name: 'CartScreen' } })
+            ).toEqual('CartScreen')
+        })
+
+        it('falls back to event name when the promoted property is missing', () => {
+            // Old behaviour fell back to $current_url for $pageview without $pathname; the new
+            // single-property contract returns the event name instead so the change is explicit
+            // and consistent with $screen / $feature_flag_called.
+            expect(
+                eventToDescription({
+                    ...baseEvent,
+                    event: '$pageview',
+                    properties: { $current_url: 'https://example.com/' },
+                })
+            ).toEqual('$pageview')
+        })
+
         it('handles no text autocapture as expected', () => {
             expect(
                 eventToDescription({

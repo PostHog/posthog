@@ -37,7 +37,7 @@ catalog:
     kea-window-values: ^3.0.1
     # PostHog packages
     '@posthog/react': ^1.9.0
-    posthog-js: ^1.372.3
+    posthog-js: ^1.372.6
     # Build tools
     '@parcel/packager-ts': 2.13.3
     '@parcel/transformer-typescript-types': 2.13.3
@@ -50,7 +50,6 @@ catalog:
     # Storybook
     '@storybook/addon-actions': ^7.6.4
     '@storybook/react': ^7.6.4
-    '@storybook/testing-library': ^0.2.2
     '@storybook/types': ^7.6.4
     # Common utilities
     fast-deep-equal: ^3.1.3

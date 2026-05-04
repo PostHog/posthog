@@ -29,34 +29,32 @@ export class CdpPersonUpdatesConsumer extends CdpEventsConsumer {
     // This consumer always parses from kafka
     @instrumented('cdpConsumer.handleEachBatch.parseKafkaMessages')
     public override async _parseKafkaBatch(messages: Message[]): Promise<HogFunctionInvocationGlobals[]> {
-        return await this.runWithHeartbeat(async () => {
-            const globals: HogFunctionInvocationGlobals[] = []
-            await Promise.all(
-                messages.map(async (message) => {
-                    try {
-                        const data = parseJSON(message.value!.toString()) as ClickHousePerson
+        const globals: HogFunctionInvocationGlobals[] = []
+        await Promise.all(
+            messages.map(async (message) => {
+                try {
+                    const data = parseJSON(message.value!.toString()) as ClickHousePerson
 
-                        const [teamHogFunctions, team] = await Promise.all([
-                            this.hogFunctionManager.getHogFunctionsForTeam(data.team_id, ['destination']),
-                            this.deps.teamManager.getTeam(data.team_id),
-                        ])
+                    const [teamHogFunctions, team] = await Promise.all([
+                        this.hogFunctionManager.getHogFunctionsForTeam(data.team_id, ['destination']),
+                        this.deps.teamManager.getTeam(data.team_id),
+                    ])
 
-                        const filteredHogFunctions = teamHogFunctions.filter(this.filterHogFunction)
+                    const filteredHogFunctions = teamHogFunctions.filter(this.filterHogFunction)
 
-                        if (!filteredHogFunctions.length || !team) {
-                            return
-                        }
-
-                        globals.push(convertClickhousePersonToInvocationGlobals(data, team, this.config.SITE_URL))
-                    } catch (e) {
-                        logger.error('Error parsing message', e)
-                        counterParseError.labels({ error: e.message }).inc()
+                    if (!filteredHogFunctions.length || !team) {
+                        return
                     }
-                })
-            )
 
-            return globals
-        })
+                    globals.push(convertClickhousePersonToInvocationGlobals(data, team, this.config.SITE_URL))
+                } catch (e) {
+                    logger.error('Error parsing message', e)
+                    counterParseError.labels({ error: e.message }).inc()
+                }
+            })
+        )
+
+        return globals
     }
 }
 

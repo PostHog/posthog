@@ -1,6 +1,7 @@
 import {
     BreakdownType,
     ChartDisplayType,
+    FilterLogicalOperator,
     FunnelMathType,
     IntervalType,
     LifecycleToggle,
@@ -369,6 +370,35 @@ export interface AssistantTrendsActionsNode extends Omit<
     math_hogql?: string
 }
 
+/**
+ * Defines a series that combines multiple events or actions with OR (e.g. "Pageview OR Pageleave"
+ * as one line). Aggregation (`math*`) is read from the group, not the inner nodes — set it here.
+ * Inner-node `event` / `id` / `properties` / `name` are respected normally; per-node `properties`
+ * apply only to that node, so each event can carry its own filter.
+ */
+export interface AssistantTrendsGroupNode {
+    kind: NodeKind.GroupNode
+    /** Only `OR` is supported. */
+    operator: FilterLogicalOperator.Or
+    /**
+     * Events and actions combined into the series. Mirror the group's `math*` on each node for
+     * UI round-trip; they're ignored at execution time.
+     * @minItems 2
+     */
+    nodes: (AssistantTrendsEventsNode | AssistantTrendsActionsNode)[]
+    /** Display name for the combined series. */
+    name?: string
+    custom_name?: string
+    /** Math aggregation for the combined series. The engine reads aggregation from here, not from inner nodes. */
+    math?: AssistantTrendsEventsNode['math']
+    math_property?: AssistantTrendsEventsNode['math_property']
+    math_property_type?: AssistantTrendsEventsNode['math_property_type']
+    math_multiplier?: AssistantTrendsEventsNode['math_multiplier']
+    math_group_type_index?: AssistantTrendsEventsNode['math_group_type_index']
+    /** Custom HogQL aggregation. When set, `math` must be `hogql`. */
+    math_hogql?: string
+}
+
 export interface AssistantBaseMultipleBreakdownFilter {
     /**
      * Property name from the plan to break down by.
@@ -528,9 +558,16 @@ export interface AssistantTrendsQuery extends AssistantInsightsQueryBase {
     interval?: IntervalType
 
     /**
-     * Events or actions to include. Prioritize the more popular and fresh events and actions.
+     * Events, actions, or groups of events/actions to include. Prioritize the more popular and
+     * fresh events and actions.
+     *
+     * Use a top-level `EventsNode` or `ActionsNode` entry for each independent series (one line
+     * per entry on the chart). Use an `AssistantTrendsGroupNode` to combine multiple events or
+     * actions into a single series joined by `OR` — for example, treating
+     * "Pageview OR Pageleave" as one line. Only `OR` grouping is supported; pick groups only
+     * when the user wants the events counted together, otherwise prefer separate series.
      */
-    series: (AssistantTrendsEventsNode | AssistantTrendsActionsNode)[]
+    series: (AssistantTrendsEventsNode | AssistantTrendsActionsNode | AssistantTrendsGroupNode)[]
 
     /**
      * Properties specific to the trends insight

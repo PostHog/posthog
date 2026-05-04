@@ -62,6 +62,7 @@ class PinterestAdsSource(ResumableSource[PinterestAdsSourceConfig, PinterestAdsR
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="Your Pinterest Ads ad account ID",
+                        secret=False,
                     ),
                     SourceFieldOauthConfig(
                         name="pinterest_ads_integration_id",

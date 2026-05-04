@@ -158,16 +158,91 @@ def update_repo(input: contracts.UpdateRepoInput, team_id: int) -> contracts.Rep
     return _to_repo(repo)
 
 
+def get_thumbnail_hash_for_identifier(repo_id: UUID, identifier: str) -> str | None:
+    """Resolve a snapshot identifier to the content hash of its thumbnail, if any."""
+    return logic.get_thumbnail_hash_for_identifier(repo_id, identifier)
+
+
+def read_thumbnail_bytes(repo_id: UUID, content_hash: str) -> bytes | None:
+    """Read the raw bytes for a thumbnail artifact from storage."""
+    return logic.read_thumbnail_bytes(repo_id, content_hash)
+
+
+def get_baselines_overview(repo_id: UUID) -> contracts.BaselineOverview:
+    """Universe of identifiers with a current baseline, plus aggregates.
+
+    Backs the snapshots overview page. See `logic.get_baselines_overview` for
+    query shape and performance notes.
+    """
+    raw = logic.get_baselines_overview(repo_id)
+
+    entries: list[contracts.BaselineEntry] = []
+    for snapshot in raw.entries:
+        identifier = snapshot.identifier
+        run = snapshot.run
+        artifact = snapshot.current_artifact
+        thumbnail = artifact.thumbnail if artifact is not None else None
+        # `(run_type, identifier)` keys because the same identifier in
+        # different run types is a different baseline.
+        key = (run.run_type, identifier)
+        metadata = snapshot.metadata or {}
+        entries.append(
+            contracts.BaselineEntry(
+                identifier=identifier,
+                run_type=run.run_type,
+                browser=metadata.get("browser") if isinstance(metadata, dict) else None,
+                thumbnail_hash=thumbnail.content_hash if thumbnail is not None else None,
+                width=artifact.width if artifact is not None else None,
+                height=artifact.height if artifact is not None else None,
+                tolerate_count_30d=raw.tolerate_30d_by_id.get(identifier, 0),
+                tolerate_count_90d=raw.tolerate_90d_by_id.get(identifier, 0),
+                is_quarantined=key in raw.quarantined_ids,
+                last_run_at=run.completed_at or run.created_at,
+                baseline_change_count=raw.change_count_by_key.get(key, 0),
+                recent_drift_avg=raw.recent_drift_by_key.get(key),
+            )
+        )
+
+    totals = contracts.BaselineTotals(
+        all_snapshots=raw.totals_all,
+        recently_tolerated=raw.totals_recent,
+        frequently_tolerated=raw.totals_frequent,
+        currently_quarantined=raw.totals_quarantined,
+        by_run_type=raw.by_run_type,
+    )
+
+    return contracts.BaselineOverview(
+        entries=entries,
+        totals=totals,
+        truncated=raw.truncated,
+        generated_at=raw.generated_at,
+    )
+
+
 # --- Run API ---
 
 
-def list_runs(team_id: int, review_state: str | None = None) -> list[contracts.Run]:
-    runs = logic.list_runs_for_team(team_id, review_state=review_state)
+def list_runs(
+    team_id: int,
+    review_state: str | None = None,
+    repo_id: UUID | None = None,
+    pr_number: int | None = None,
+    commit_sha: str | None = None,
+    branch: str | None = None,
+) -> list[contracts.Run]:
+    runs = logic.list_runs_for_team(
+        team_id,
+        review_state=review_state,
+        repo_id=repo_id,
+        pr_number=pr_number,
+        commit_sha=commit_sha,
+        branch=branch,
+    )
     return [_to_run(r) for r in runs]
 
 
-def get_review_state_counts(team_id: int) -> dict[str, int]:
-    return logic.get_review_state_counts(team_id)
+def get_review_state_counts(team_id: int, repo_id: UUID | None = None) -> dict[str, int]:
+    return logic.get_review_state_counts(team_id, repo_id=repo_id)
 
 
 def create_run(input: contracts.CreateRunInput, team_id: int) -> contracts.CreateRunResult:
@@ -253,15 +328,20 @@ def get_run_snapshots(run_id: UUID, team_id: int | None = None) -> list[contract
     return [_to_snapshot(s, repo_id, user_basic_infos) for s in snapshots]
 
 
-def get_snapshot_history(repo_id: UUID, identifier: str) -> list[contracts.SnapshotHistoryEntry]:
-    entries = logic.get_snapshot_history(repo_id, identifier)
+def get_snapshot_history(repo_id: UUID, identifier: str, run_type: str) -> list[contracts.SnapshotHistoryEntry]:
+    entries = logic.get_snapshot_history(repo_id, identifier, run_type)
     return [
         contracts.SnapshotHistoryEntry(
-            run_id=e["run_id"],
-            result=e["result"],
-            branch=e["branch"],
-            commit_sha=e["commit_sha"],
-            created_at=e["created_at"],
+            run_id=e.run_id,
+            snapshot_id=e.id,
+            result=e.result,
+            branch=e.run.branch,
+            commit_sha=e.run.commit_sha,
+            created_at=e.run.created_at,
+            pr_number=e.run.pr_number,
+            diff_percentage=e.diff_percentage,
+            review_state=e.review_state,
+            current_artifact=_to_artifact(e.current_artifact, repo_id) if e.current_artifact else None,
         )
         for e in entries
     ]

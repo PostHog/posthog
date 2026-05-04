@@ -268,7 +268,7 @@
         "chromium": 2.181,
         "webkit": 2.152
     },
-    "frontend/src/lib/hog-charts/ReferenceLine.stories.tsx": {
+    "frontend/src/lib/hog-charts/overlays/ReferenceLine.stories.tsx": {
         "chromium": 20.109,
         "webkit": 3.433
     },

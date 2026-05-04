@@ -110,8 +110,8 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                 access_type: undefined,
             } as EditingKeyFormValues,
             errors: ({ label, access_type, scopes, scoped_organizations, scoped_teams }) => ({
-                label: !label ? 'Your API key needs a label' : undefined,
-                scopes: !scopes?.length ? ('Your API key needs at least one scope' as any) : undefined,
+                label: !label ? 'Your personal API key needs a label' : undefined,
+                scopes: !scopes?.length ? ('Your personal API key needs at least one scope' as any) : undefined,
                 access_type: !access_type ? ('Select access mode' as any) : undefined,
                 scoped_organizations:
                     access_type === 'organizations' && !scoped_organizations?.length
