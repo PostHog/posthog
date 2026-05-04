@@ -1,4 +1,4 @@
-import { cleanup } from '@testing-library/react'
+import { cleanup, waitFor } from '@testing-library/react'
 
 import type { ChartTheme, Series, TooltipContext } from '../core/types'
 import { ReferenceLine } from '../overlays/ReferenceLine'
@@ -57,7 +57,8 @@ describe('BarChart', () => {
             const { chart } = renderHogChart(
                 <BarChart series={SERIES} labels={LABELS} theme={THEME} config={{ barLayout, axisOrientation }} />
             )
-            expect(chart.yTicks().length).toBeGreaterThan(0)
+            const valueTicks = axisOrientation === 'horizontal' ? chart.xTicks() : chart.yTicks()
+            expect(valueTicks.length).toBeGreaterThan(0)
         })
     })
 
@@ -236,7 +237,7 @@ describe('BarChart', () => {
             expect(lines[0].orientation).toBe('horizontal')
         })
 
-        it('reports render errors through onError', () => {
+        it('reports render errors through onError', async () => {
             const onError = jest.fn()
             const tooltip = (): React.ReactNode => {
                 throw new Error('boom')
@@ -247,7 +248,7 @@ describe('BarChart', () => {
                     <BarChart series={SERIES} labels={LABELS} theme={THEME} tooltip={tooltip} onError={onError} />
                 )
                 hoverAtIndex(chart.element, 1, LABELS.length)
-                expect(onError).toHaveBeenCalled()
+                await waitFor(() => expect(onError).toHaveBeenCalled())
             } finally {
                 consoleErrorSpy.mockRestore()
             }
