@@ -1,7 +1,7 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import { TimeSeriesLineChart } from 'lib/hog-charts'
-import type { Series, TimeInterval, YAxisConfig } from 'lib/hog-charts'
+import { DEFAULT_Y_AXIS_ID, TimeSeriesLineChart } from 'lib/hog-charts'
+import type { AnomalyMarker, Series, TimeInterval, YAxisConfig } from 'lib/hog-charts'
 
 import { Stage, useReactiveTheme } from '../../story-helpers'
 
@@ -163,6 +163,29 @@ export const YAxisFormats: Story = {
             <YFormatCell title="duration_ms" series={DURATION_MS_SERIES} config={{ format: 'duration_ms' }} />
         </div>
     ),
+}
+
+export const Anomalies: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        const series: Series[] = [{ key: 'visits', label: 'Visits', data: [20, 35, 28, 60, 45, 70, 52] }]
+        // Severity drives color — low (amber), medium (orange), high (red).
+        const anomalies: AnomalyMarker[] = [
+            { dataIndex: 1, value: 35, color: '#f59e0b', yAxisId: DEFAULT_Y_AXIS_ID },
+            { dataIndex: 3, value: 60, color: '#f97316', yAxisId: DEFAULT_Y_AXIS_ID },
+            { dataIndex: 5, value: 70, color: '#ef4444', yAxisId: DEFAULT_Y_AXIS_ID },
+        ]
+        return (
+            <Stage>
+                <TimeSeriesLineChart
+                    series={series}
+                    labels={DAYS}
+                    theme={theme}
+                    config={{ yAxis: { showGrid: true }, anomalies }}
+                />
+            </Stage>
+        )
+    },
 }
 
 export const DateAxis: Story = {

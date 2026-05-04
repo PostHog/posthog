@@ -4,6 +4,7 @@ import type { ChartTheme, LineChartConfig, PointClickData, Series, TooltipContex
 import { ReferenceLines } from '../../overlays/ReferenceLine'
 import { ValueLabels } from '../../overlays/ValueLabels'
 import { LineChart } from '../LineChart'
+import { AnomalyPointsLayer, type AnomalyMarker } from './overlays/AnomalyPointsLayer'
 import { buildGoalLineReferenceLines, type GoalLineConfig } from './utils/goal-lines'
 import { applyInProgressToSeries, type InProgressConfig } from './utils/in-progress'
 import { useXTickFormatter, useYTickFormatter, type XAxisConfig, type YAxisConfig } from './utils/use-axis-formatters'
@@ -19,6 +20,8 @@ export interface TimeSeriesLineChartConfig {
     inProgress?: InProgressConfig
     valueLabels?: boolean | ValueLabelsConfig
     goalLines?: GoalLineConfig[]
+    /** Anomaly markers rendered as filled circles on top of the chart. */
+    anomalies?: AnomalyMarker[]
 }
 
 export interface TimeSeriesLineChartProps<Meta = unknown> {
@@ -54,7 +57,7 @@ export function TimeSeriesLineChart<Meta = unknown>({
     className,
     children,
 }: TimeSeriesLineChartProps<Meta>): React.ReactElement {
-    const { xAxis, yAxis, inProgress, valueLabels, goalLines } = config ?? {}
+    const { xAxis, yAxis, inProgress, valueLabels, goalLines, anomalies } = config ?? {}
     const xTickFormatter = useXTickFormatter(xAxis, labels)
     const yTickFormatter = useYTickFormatter(yAxis)
 
@@ -109,6 +112,7 @@ export function TimeSeriesLineChart<Meta = unknown>({
         >
             {referenceLines.length > 0 && <ReferenceLines lines={referenceLines} />}
             {valueLabelsConfig && <ValueLabels valueFormatter={valueLabelFormatter} />}
+            {anomalies && anomalies.length > 0 && <AnomalyPointsLayer markers={anomalies} />}
             {children}
         </LineChart>
     )
