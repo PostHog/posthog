@@ -68,7 +68,24 @@ impl Janitor {
 
         let aggregated_deletes = {
             let _time = common_metrics::timing_guard(CLEANUP_TIME, &self.metrics_labels);
-            self.inner.delete_completed_and_failed_jobs().await?
+            match self.inner.delete_completed_and_failed_jobs().await {
+                Ok(aggregated_deletes) => aggregated_deletes,
+                Err(error) if error.is_missing_relation("cyclotron_jobs") => {
+                    warn!(
+                        "Skipping janitor cleanup because cyclotron_jobs does not exist on this deployment"
+                    );
+                    common_metrics::inc(RUN_ENDS, &self.metrics_labels, 1);
+                    info!("Janitor loop skipped");
+                    return Ok(CleanupResult {
+                        completed: 0,
+                        failed: 0,
+                        canceled: 0,
+                        poisoned: 0,
+                        stalled: 0,
+                    });
+                }
+                Err(error) => return Err(error),
+            }
         };
 
         let mut completed_count = 0u64;

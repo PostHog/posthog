@@ -16,6 +16,21 @@ pub enum QueueError {
     CsvError(&'static str, csv::Error),
 }
 
+impl QueueError {
+    pub fn is_missing_relation(&self, relation: &str) -> bool {
+        match self {
+            QueueError::SqlxError(sqlx::Error::Database(db_error)) => {
+                is_missing_relation_error(db_error.code().as_deref(), db_error.message(), relation)
+            }
+            _ => false,
+        }
+    }
+}
+
+fn is_missing_relation_error(code: Option<&str>, message: &str, relation: &str) -> bool {
+    code == Some("42P01") && message.contains(relation)
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum JobError {
     #[error("Unknown job id: {0}")]
@@ -30,4 +45,32 @@ pub enum JobError {
     UpdateDropped,
     #[error("vm_state compression error: {0}")]
     CompressionError(String),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_missing_relation_error;
+
+    #[test]
+    fn detects_missing_relation_error_for_named_table() {
+        assert!(is_missing_relation_error(
+            Some("42P01"),
+            "relation \"cyclotron_jobs\" does not exist",
+            "cyclotron_jobs"
+        ));
+    }
+
+    #[test]
+    fn ignores_other_tables_and_error_codes() {
+        assert!(!is_missing_relation_error(
+            Some("42P01"),
+            "relation \"some_other_table\" does not exist",
+            "cyclotron_jobs"
+        ));
+        assert!(!is_missing_relation_error(
+            Some("23505"),
+            "duplicate key value violates unique constraint",
+            "cyclotron_jobs"
+        ));
+    }
 }
