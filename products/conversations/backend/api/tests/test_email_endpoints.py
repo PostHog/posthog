@@ -805,7 +805,7 @@ class TestEmailInboundDmarcRewrite(BaseTest):
         self.team.save()
         self.config = EmailChannel.objects.create(
             team=self.team,
-            inbound_token="dmarc11223344",
+            inbound_token="dd00aa11cc2233ee",
             from_email="merch@posthog.com",
             from_name="Merch",
             domain="posthog.com",
@@ -814,7 +814,7 @@ class TestEmailInboundDmarcRewrite(BaseTest):
 
     def _base_data(self, msg_id: str) -> dict[str, str]:
         return {
-            "recipient": "team-dmarc11223344@mg.posthog.com",
+            "recipient": "team-dd00aa11cc2233ee@mg.posthog.com",
             "Message-Id": msg_id,
             "subject": "Order question",
             "stripped-text": "Where is my order?",
