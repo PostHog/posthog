@@ -374,6 +374,7 @@ if DEBUG:
 # DRF Spectacular
 
 SPECTACULAR_SETTINGS = {
+    "OAS_VERSION": "3.1.0",
     "AUTHENTICATION_WHITELIST": ["posthog.auth.PersonalAPIKeyAuthentication"],
     "GET_MOCK_REQUEST": "posthog.api.documentation.build_openapi_mock_request",
     "PREPROCESSING_HOOKS": ["posthog.api.documentation.preprocess_exclude_path_format"],
