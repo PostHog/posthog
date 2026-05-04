@@ -96,7 +96,6 @@ from posthog.rate_limit import (
     UserAuthenticationThrottle,
     UserEmailVerificationThrottle,
 )
-from posthog.tasks import user_identify
 from posthog.tasks.email import (
     send_email_change_emails,
     send_password_changed_email,
@@ -208,6 +207,7 @@ class UserSerializer(serializers.ModelSerializer):
         "to scope the 'waiting for teammate' UI to the org where delegation was initiated.",
     )
     is_organization_first_user = serializers.SerializerMethodField()
+    analytics_metadata = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -258,6 +258,7 @@ class UserSerializer(serializers.ModelSerializer):
             "onboarding_delegation_accepted_at",
             "is_organization_first_user",
             "pending_invites",
+            "analytics_metadata",
         ]
 
         read_only_fields = [
@@ -285,6 +286,7 @@ class UserSerializer(serializers.ModelSerializer):
             "onboarding_delegation_accepted_at",
             "is_organization_first_user",
             "pending_invites",
+            "analytics_metadata",
         ]
 
         extra_kwargs = {
@@ -354,6 +356,19 @@ class UserSerializer(serializers.ModelSerializer):
         return bool(
             OrganizationDomain.objects.get_sso_enforcement_for_email_address(instance.email, organization=organization)
         )
+
+    @extend_schema_field(serializers.DictField())
+    @tracer.start_as_current_span("user_serializer.analytics_metadata")
+    def get_analytics_metadata(self, instance: User) -> dict | None:
+        # Bundle of person-property fields the frontend will hand to posthog.people.set
+        # at userLogic.loadUserSuccess. Replaces the per-render Celery identify_task
+        # that paid the broker round-trip on the request path. Only computed when the
+        # serialized user is the requesting user — staff retrieving another account
+        # don't need (and shouldn't seed) someone else's analytics properties.
+        request = self.context.get("request")
+        if not request or request.user.id != instance.id:
+            return None
+        return instance.get_analytics_metadata()
 
     @tracer.start_as_current_span("user_serializer.is_organization_first_user")
     def get_is_organization_first_user(self, instance: User) -> bool | None:
@@ -613,8 +628,6 @@ class UserSerializer(serializers.ModelSerializer):
         return instance
 
     def to_representation(self, instance: Any) -> Any:
-        with tracer.start_as_current_span("user_serializer.identify_task_delay"):
-            user_identify.identify_task.delay(user_id=instance.id)
         with tracer.start_as_current_span("user_serializer.default_fields"):
             data = super().to_representation(instance)
 
