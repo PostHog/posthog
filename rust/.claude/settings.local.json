@@ -1,0 +1,11 @@
+{
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "phrocs"
+  ],
+  "permissions": {
+    "allow": [
+      "Bash(find /Users/meikelratz/Desktop/code/posthog/rust -type f -name *.tsx)"
+    ]
+  }
+}

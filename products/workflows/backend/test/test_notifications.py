@@ -14,11 +14,11 @@ from products.notifications.backend.facade.enums import (
     SourceType,
     TargetType,
 )
-from products.workflows.backend.services.rate_limit_notifications import handle_workflow_rate_limited
+from products.workflows.backend.services.notifications import handle_workflow_rate_limited
 
 
 class TestHandleWorkflowRateLimited(APIBaseTest):
-    @patch("products.workflows.backend.services.rate_limit_notifications.create_notification")
+    @patch("products.workflows.backend.services.notifications.create_notification")
     def test_sends_notification_with_correct_data(self, mock_create):
         hog_flow = HogFlow.objects.create(
             team=self.team,
@@ -49,7 +49,7 @@ class TestHandleWorkflowRateLimited(APIBaseTest):
         assert data.source_url == f"/workflows/{hog_flow.id}/workflow"
         assert data.source_type == SourceType.WORKFLOW
 
-    @patch("products.workflows.backend.services.rate_limit_notifications.create_notification")
+    @patch("products.workflows.backend.services.notifications.create_notification")
     def test_resolves_created_by_from_db_when_not_provided(self, mock_create):
         hog_flow = HogFlow.objects.create(
             team=self.team,
@@ -71,7 +71,7 @@ class TestHandleWorkflowRateLimited(APIBaseTest):
         data = mock_create.call_args[0][0]
         assert data.target_id == str(self.user.id)
 
-    @patch("products.workflows.backend.services.rate_limit_notifications.create_notification")
+    @patch("products.workflows.backend.services.notifications.create_notification")
     def test_skips_when_hogflow_not_found(self, mock_create):
         handle_workflow_rate_limited(
             team_id=self.team.id,
@@ -82,7 +82,7 @@ class TestHandleWorkflowRateLimited(APIBaseTest):
 
         mock_create.assert_not_called()
 
-    @patch("products.workflows.backend.services.rate_limit_notifications.create_notification")
+    @patch("products.workflows.backend.services.notifications.create_notification")
     def test_skips_when_no_created_by(self, mock_create):
         hog_flow = HogFlow.objects.create(
             team=self.team,
@@ -102,7 +102,7 @@ class TestHandleWorkflowRateLimited(APIBaseTest):
 
         mock_create.assert_not_called()
 
-    @patch("products.workflows.backend.services.rate_limit_notifications.create_notification")
+    @patch("products.workflows.backend.services.notifications.create_notification")
     def test_respects_normal_priority(self, mock_create):
         hog_flow = HogFlow.objects.create(
             team=self.team,
@@ -124,7 +124,7 @@ class TestHandleWorkflowRateLimited(APIBaseTest):
         data = mock_create.call_args[0][0]
         assert data.priority == Priority.NORMAL
 
-    @patch("products.workflows.backend.services.rate_limit_notifications.create_notification")
+    @patch("products.workflows.backend.services.notifications.create_notification")
     def test_targets_team_when_requested(self, mock_create):
         hog_flow = HogFlow.objects.create(
             team=self.team,
@@ -161,7 +161,7 @@ class TestInternalNotifyEndpoint(APIBaseTest):
             headers={"x-internal-api-secret": "test-secret"},
         )
 
-    @patch("products.workflows.backend.services.rate_limit_notifications.handle_workflow_rate_limited")
+    @patch("products.workflows.backend.services.notifications.handle_workflow_rate_limited")
     def test_dispatches_rate_limited_to_handler(self, mock_handler):
         hog_flow = HogFlow.objects.create(
             team=self.team,

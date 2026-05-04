@@ -1249,7 +1249,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
         Internal endpoint called by CDP consumers to send workflow notifications.
         Dispatches to the appropriate handler based on the 'type' field.
         """
-        from products.workflows.backend.services.rate_limit_notifications import handle_workflow_rate_limited
+        from products.workflows.backend.services.notifications import handle_workflow_rate_limited
 
         if request.method != "POST":
             return Response({"error": "Method not allowed"}, status=405)
