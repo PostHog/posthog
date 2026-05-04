@@ -22,8 +22,9 @@ posthog:exec({ "command": "info <tool_name>" })
 # 3. Drill into complex fields — REQUIRED for any field with a `hint`
 posthog:exec({ "command": "schema <tool_name> <field_path>" })
 
-# 4. Call the tool
+# 4. Call the tool. For long or quote-heavy payloads, pass structured `input` (no double-escape):
 posthog:exec({ "command": "call <tool_name> <json_input>" })
+posthog:exec({ "command": "call <tool_name>", "input": { ... } })
 ```
 
 **Schema drill-down:**
@@ -41,5 +42,3 @@ posthog:exec({ "command": "call <tool_name> <json_input>" })
 
 - `search` matches tool metadata only, not input schemas.
 - No pattern-based field projection — drill one path at a time.
-
-Detailed reference (examples, query tools, URL patterns, guidelines) is in the `command` parameter description.

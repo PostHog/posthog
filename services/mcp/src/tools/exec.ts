@@ -18,9 +18,15 @@ export interface ExecInnerCallProperties {
 
 export type ExecInnerCallTracker = (toolName: string, properties: ExecInnerCallProperties) => void
 
-function makeExecSchema(commandReference: string): z.ZodObject<{ command: z.ZodString }> {
+const INPUT_FIELD_DESCRIPTION =
+    "Structured payload for `call <tool>`. Pass the inner tool's arguments as a native JSON object here instead of inline JSON in `command` to skip double-escaping. Recommended for any payload over a few hundred characters or containing quotes/newlines (saving skills, multi-line strings, nested filters, embedded code or markdown). Ignored for `tools`, `search`, `info`, `schema`. Mutually exclusive with inline JSON in `command`."
+
+function makeExecSchema(
+    commandReference: string
+): z.ZodObject<{ command: z.ZodString; input: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>> }> {
     return z.object({
         command: z.string().describe(commandReference),
+        input: z.record(z.string(), z.unknown()).optional().describe(INPUT_FIELD_DESCRIPTION),
     })
 }
 
@@ -196,15 +202,26 @@ export function createExecTool(
                     }
                     const { verb: toolName, rest: jsonBody } = parseCommand(callArgs)
                     const tool = findTool(allTools, toolName)
+                    const structuredInput = params.input
 
                     let input: Record<string, unknown>
-                    if (!jsonBody) {
+                    if (structuredInput !== undefined) {
+                        if (jsonBody) {
+                            throw new Error(
+                                'Provide either inline JSON in `command` or the `input` parameter, not both.'
+                            )
+                        }
+                        input = structuredInput
+                    } else if (!jsonBody) {
                         input = {}
                     } else {
                         try {
                             input = JSON.parse(jsonBody) as Record<string, unknown>
-                        } catch {
-                            throw new Error(`Invalid JSON input: ${jsonBody}`)
+                        } catch (err) {
+                            const detail = err instanceof Error ? err.message : String(err)
+                            throw new Error(
+                                `Invalid JSON input: ${detail}. Tip: for long or quote-heavy payloads, pass the structured \`input\` parameter instead of inline JSON to avoid double-escaping. Body received: ${jsonBody}`
+                            )
                         }
                     }
 
