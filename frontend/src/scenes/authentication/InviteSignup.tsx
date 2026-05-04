@@ -220,6 +220,7 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
         challengeRequired,
         turnstileSiteKey,
         turnstileToken,
+        fromSignupRedirect,
     } = useValues(inviteSignupLogic)
     const { registerPasskey, setTurnstileToken } = useActions(inviteSignupLogic)
     const { preflight } = useValues(preflightLogic)
@@ -411,6 +412,13 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
             <div className="mt-4 text-center text-secondary">
                 Already have an account? <Link to="/login">Log in</Link>
             </div>
+            {fromSignupRedirect && (
+                <div className="mt-2 text-center text-secondary">
+                    <Link to="/signup?skip_invite_check=1" data-attr="invite-signup-create-own-org">
+                        I'd rather create my own organization →
+                    </Link>
+                </div>
+            )}
             <div className="mt-4 text-center text-secondary">
                 By clicking continue you agree to our{' '}
                 <Link to="https://posthog.com/terms" target="_blank">

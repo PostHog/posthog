@@ -42,10 +42,26 @@ export interface SignupPanelOnboardingForm {
     referral_source_ai_prompt: string
 }
 
+interface PendingInvite {
+    id: string
+    organization_name: string
+}
+
 interface SignupEmailPrecheckResponse {
     email_exists: boolean
     code?: string
     detail?: string
+    pending_invite?: PendingInvite | null
+}
+
+function shouldRedirectToInvite(
+    response: SignupEmailPrecheckResponse,
+    searchParams: Record<string, string>
+): PendingInvite | null {
+    if (searchParams.skip_invite_check === '1') {
+        return null
+    }
+    return response.pending_invite ?? null
 }
 
 // Keep SignupForm for backwards compatibility
@@ -162,8 +178,9 @@ export const signupLogic = kea<signupLogicType>([
                 actions.setSignupPanelEmailManualErrors({})
                 actions.setPasskeyError(null)
                 actions.setError(null)
+                let precheckResponse: SignupEmailPrecheckResponse
                 try {
-                    await api.create<SignupEmailPrecheckResponse>('api/signup/precheck', {
+                    precheckResponse = await api.create<SignupEmailPrecheckResponse>('api/signup/precheck', {
                         email,
                     })
                 } catch (e: any) {
@@ -179,6 +196,14 @@ export const signupLogic = kea<signupLogicType>([
                     actions.setSignupPanelEmailManualErrors({
                         email: e?.detail || 'Could not verify your email. Please try again.',
                     })
+                    return
+                }
+                const pendingInvite = shouldRedirectToInvite(
+                    precheckResponse,
+                    router.values.searchParams as Record<string, string>
+                )
+                if (pendingInvite) {
+                    router.actions.push(`/signup/${pendingInvite.id}/`, { from_signup_redirect: '1' })
                     return
                 }
                 actions.setPanel(1)
@@ -334,6 +359,14 @@ export const signupLogic = kea<signupLogicType>([
                         email: precheckResponse.detail || 'There is already an account with this email address.',
                     })
                     actions.setPanel(0)
+                    return
+                }
+                const pendingInvite = shouldRedirectToInvite(
+                    precheckResponse,
+                    router.values.searchParams as Record<string, string>
+                )
+                if (pendingInvite) {
+                    router.actions.push(`/signup/${pendingInvite.id}/`, { from_signup_redirect: '1' })
                     return
                 }
                 actions.setPanel(1)

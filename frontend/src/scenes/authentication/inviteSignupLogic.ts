@@ -50,6 +50,7 @@ export const inviteSignupLogic = kea<inviteSignupLogicType>([
         setTurnstileSiteKey: (siteKey: string | null) => ({ siteKey }),
         setTurnstileToken: (token: string | null) => ({ token }),
         resetChallenge: true,
+        setFromSignupRedirect: (fromSignupRedirect: boolean) => ({ fromSignupRedirect }),
     }),
     reducers({
         error: [
@@ -102,6 +103,12 @@ export const inviteSignupLogic = kea<inviteSignupLogicType>([
             {
                 setTurnstileToken: (_, { token }) => token,
                 resetChallenge: () => null,
+            },
+        ],
+        fromSignupRedirect: [
+            false,
+            {
+                setFromSignupRedirect: (_, { fromSignupRedirect }) => fromSignupRedirect,
             },
         ],
     }),
@@ -279,7 +286,8 @@ export const inviteSignupLogic = kea<inviteSignupLogicType>([
         },
     })),
     urlToAction(({ actions }) => ({
-        '/signup/*': ({ _: id }, { error_code, error_detail }) => {
+        '/signup/*': ({ _: id }, { error_code, error_detail, from_signup_redirect }) => {
+            actions.setFromSignupRedirect(from_signup_redirect === '1')
             if (error_code) {
                 if ((Object.values(ErrorCodes) as string[]).includes(error_code)) {
                     actions.setError({ code: error_code as ErrorCodes, detail: error_detail })
