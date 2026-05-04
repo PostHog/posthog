@@ -20,21 +20,21 @@ export const getTanStackSteps = (ctx: OnboardingComponentsContext): StepDefiniti
                                 language: 'bash',
                                 file: 'npm',
                                 code: dedent`
-                                    npm install posthog-js
+                                    npm install posthog-js @posthog/react
                                 `,
                             },
                             {
                                 language: 'bash',
                                 file: 'yarn',
                                 code: dedent`
-                                    yarn add posthog-js
+                                    yarn add posthog-js @posthog/react
                                 `,
                             },
                             {
                                 language: 'bash',
                                 file: 'pnpm',
                                 code: dedent`
-                                    pnpm add posthog-js
+                                    pnpm add posthog-js @posthog/react
                                 `,
                             },
                         ]}
