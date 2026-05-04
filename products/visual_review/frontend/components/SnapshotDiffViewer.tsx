@@ -339,6 +339,12 @@ export function SnapshotDiffViewer({
                         mode={comparisonMode}
                         onModeChange={setComparisonMode}
                         className="min-h-[200px]"
+                        diffOverlayBoxes={snapshot.cluster_summary?.items.map((c) => ({
+                            x: c.x,
+                            y: c.y,
+                            width: c.width,
+                            height: c.height,
+                        }))}
                     />
                 </div>
 

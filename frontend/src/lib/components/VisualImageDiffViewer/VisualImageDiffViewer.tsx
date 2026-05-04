@@ -8,6 +8,14 @@ export type VisualDiffResult = 'changed' | 'new' | 'removed' | 'unchanged'
 
 export type ComparisonMode = 'sideBySide' | 'blend' | 'split' | 'diff'
 
+/** Bounding box of a connected diff region, in natural image coordinates. */
+export interface DiffOverlayBox {
+    x: number
+    y: number
+    width: number
+    height: number
+}
+
 export interface VisualImageDiffViewerProps {
     baselineUrl: string | null
     currentUrl: string | null
@@ -20,6 +28,12 @@ export interface VisualImageDiffViewerProps {
     imageHeight?: number
     mode?: ComparisonMode
     onModeChange?: (mode: ComparisonMode) => void
+    /**
+     * Bounding boxes drawn over the diff image (mode=`diff` only). Coords
+     * are in the image's natural pixel space; the overlay scales with the
+     * rendered image via SVG viewBox. Empty array == no overlays.
+     */
+    diffOverlayBoxes?: DiffOverlayBox[]
 }
 
 const RESULT_LABELS: Record<VisualDiffResult, string> = {
@@ -54,24 +68,64 @@ interface ImagePanelProps {
     emptyTitle: string
     imgClassName?: string
     imgStyle?: React.CSSProperties
+    /** When set, draw bbox outlines over the image at these natural-coord positions. */
+    overlayBoxes?: DiffOverlayBox[]
+    overlayWidth?: number
+    overlayHeight?: number
 }
 
-function ImagePanel({ url, label, emptyTitle, imgClassName, imgStyle }: ImagePanelProps): JSX.Element {
+function ImagePanel({
+    url,
+    label,
+    emptyTitle,
+    imgClassName,
+    imgStyle,
+    overlayBoxes,
+    overlayWidth,
+    overlayHeight,
+}: ImagePanelProps): JSX.Element {
+    const hasOverlay = !!url && !!overlayBoxes && overlayBoxes.length > 0 && !!overlayWidth && !!overlayHeight
     return (
         <div className="overflow-hidden rounded-lg border bg-bg-light inline-block max-w-full">
             <div className="px-2 py-1 text-[11px] font-semibold uppercase tracking-wide border-b bg-bg-3000">
                 {label}
             </div>
             {url ? (
-                <img
-                    src={url}
-                    alt={label}
-                    loading="lazy"
-                    decoding="async"
-                    className={cn('h-auto bg-black/5', imgClassName || 'max-w-full')}
-                    // eslint-disable-next-line react/forbid-dom-props
-                    style={imgStyle}
-                />
+                <div className="relative inline-block max-w-full">
+                    <img
+                        src={url}
+                        alt={label}
+                        loading="lazy"
+                        decoding="async"
+                        className={cn('h-auto bg-black/5', imgClassName || 'max-w-full')}
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={imgStyle}
+                    />
+                    {hasOverlay && (
+                        <svg
+                            // viewBox in natural coords + preserveAspectRatio=none stretches
+                            // the SVG to the rendered image size, so bbox coords stay accurate
+                            // even when the browser scales the diff image down.
+                            className="absolute inset-0 w-full h-full pointer-events-none"
+                            viewBox={`0 0 ${overlayWidth} ${overlayHeight}`}
+                            preserveAspectRatio="none"
+                        >
+                            {overlayBoxes!.map((b, i) => (
+                                <rect
+                                    key={i}
+                                    x={b.x}
+                                    y={b.y}
+                                    width={b.width}
+                                    height={b.height}
+                                    fill="none"
+                                    stroke="cyan"
+                                    strokeWidth={Math.max(2, Math.round(overlayWidth! / 400))}
+                                    vectorEffect="non-scaling-stroke"
+                                />
+                            ))}
+                        </svg>
+                    )}
+                </div>
             ) : (
                 <EmptyImageState title={emptyTitle} />
             )}
@@ -112,6 +166,7 @@ export function VisualImageDiffViewer({
     className,
     imageWidth,
     imageHeight,
+    diffOverlayBoxes,
     mode: controlledMode,
     onModeChange,
 }: VisualImageDiffViewerProps): JSX.Element {
@@ -222,7 +277,14 @@ export function VisualImageDiffViewer({
         if (mode === 'diff') {
             return (
                 <div className="p-3 flex justify-center">
-                    <ImagePanel url={diffUrl} label="Diff" emptyTitle="No diff image available" />
+                    <ImagePanel
+                        url={diffUrl}
+                        label="Diff"
+                        emptyTitle="No diff image available"
+                        overlayBoxes={diffOverlayBoxes}
+                        overlayWidth={imageWidth}
+                        overlayHeight={imageHeight}
+                    />
                 </div>
             )
         }
