@@ -2232,8 +2232,8 @@
                 "completion_token": 1.3e-7
             },
             "sambanova": {
-                "prompt_token": 2e-7,
-                "completion_token": 3.5e-7
+                "prompt_token": 2.2e-7,
+                "completion_token": 5.9e-7
             }
         }
     },
@@ -3219,8 +3219,8 @@
                 "completion_token": 0.00000138
             },
             "sambanova": {
-                "prompt_token": 3e-7,
-                "completion_token": 0.0000012
+                "prompt_token": 2.2e-7,
+                "completion_token": 5.9e-7
             },
             "siliconflow-fp8": {
                 "prompt_token": 3e-7,
@@ -3484,6 +3484,19 @@
                 "prompt_token": 4e-7,
                 "completion_token": 0.000002,
                 "cache_read_token": 4e-8
+            }
+        }
+    },
+    {
+        "model": "mistralai/mistral-medium-3-5",
+        "cost": {
+            "default": {
+                "prompt_token": 0.0000015,
+                "completion_token": 0.0000075
+            },
+            "mistral": {
+                "prompt_token": 0.0000015,
+                "completion_token": 0.0000075
             }
         }
     },
@@ -4432,8 +4445,7 @@
             "default": {
                 "prompt_token": 0.0000025,
                 "completion_token": 0.00001,
-                "audio": 0.00004,
-                "audio_output": 0.00008
+                "audio": 0.00004
             },
             "openai": {
                 "prompt_token": 0.0000025,
@@ -5035,8 +5047,7 @@
             "default": {
                 "prompt_token": 0.0000025,
                 "completion_token": 0.00001,
-                "audio": 0.000032,
-                "audio_output": 0.000064
+                "audio": 0.000032
             },
             "openai": {
                 "prompt_token": 0.0000025,
@@ -5052,8 +5063,7 @@
             "default": {
                 "prompt_token": 6e-7,
                 "completion_token": 0.0000024,
-                "audio": 6e-7,
-                "audio_output": 0.0000024
+                "audio": 6e-7
             },
             "openai": {
                 "prompt_token": 6e-7,
@@ -6133,10 +6143,6 @@
                 "prompt_token": 1.2e-7,
                 "completion_token": 8e-7,
                 "cache_read_token": 7e-8
-            },
-            "phala": {
-                "prompt_token": 1.8e-7,
-                "completion_token": 0.0000012
             },
             "together": {
                 "prompt_token": 5e-7,
@@ -7513,9 +7519,8 @@
         "model": "z-ai/glm-4.7",
         "cost": {
             "default": {
-                "prompt_token": 4e-7,
-                "completion_token": 0.00000175,
-                "cache_read_token": 8e-8
+                "prompt_token": 3.8e-7,
+                "completion_token": 0.00000174
             },
             "atlas-cloud-fp8": {
                 "prompt_token": 5.2e-7,
@@ -7531,6 +7536,10 @@
                 "prompt_token": 4e-7,
                 "completion_token": 0.00000175,
                 "cache_read_token": 8e-8
+            },
+            "dekallm-fp4": {
+                "prompt_token": 3.8e-7,
+                "completion_token": 0.00000174
             },
             "google-vertex": {
                 "prompt_token": 6e-7,
