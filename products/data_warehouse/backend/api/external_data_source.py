@@ -51,6 +51,11 @@ from posthog.temporal.data_imports.sources.common.config import Config
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.postgres.cdc.config import PostgresCDCConfig
 from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
+from posthog.temporal.data_imports.sources.slack.slack import (
+    MAX_RETRY_AFTER_SECONDS,
+    SlackRateLimitedError,
+    SlackRetryableError,
+)
 
 from products.data_warehouse.backend.api.external_data_schema import (
     ExternalDataSchemaSerializer,
@@ -1879,6 +1884,20 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": "Invalid source configuration", "details": getattr(e, "detail", str(e))},
             )
+        except (SlackRetryableError, SlackRateLimitedError) as e:
+            # `get_schemas` for Slack hits `conversations.list` synchronously; when the
+            # workspace is throttled we'd otherwise capture this as an exception and
+            # return 400. Surface a 429 with Retry-After so the client can back off.
+            retry_after = e.retry_after if e.retry_after is not None else MAX_RETRY_AFTER_SECONDS
+            response = Response(
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+                data={
+                    "message": "Slack is rate limiting requests; please retry shortly.",
+                    "retry_after": retry_after,
+                },
+            )
+            response["Retry-After"] = str(retry_after)
+            return response
         except Exception as e:
             capture_exception(e)
             return Response(

@@ -10,6 +10,7 @@ import structlog
 from asgiref.sync import async_to_sync
 from requests import Request, Response
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from urllib3.util.retry import Retry
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SortMode, SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import table_from_py_list
@@ -32,8 +33,30 @@ class SlackResumeConfig:
     oldest_ts: str | None = None
 
 
+# Cap how long we are willing to sleep on a single Retry-After. Beyond this we surface
+# the throttle to the caller (Temporal workflow / API endpoint) instead of holding the
+# activity or HTTP request open — long sleeps stack with tenacity's retries and end up
+# tripping Temporal's heartbeat cancellation mid-`sleep`.
+MAX_RETRY_AFTER_SECONDS = 30
+
+
 class SlackRetryableError(Exception):
+    """Transient Slack failure that `_slack_get` retries via tenacity (capped wait)."""
+
     def __init__(self, message: str, retry_after: int | None = None):
+        super().__init__(message)
+        self.retry_after = retry_after
+
+
+class SlackRateLimitedError(Exception):
+    """Slack rate-limit signal we will not sleep through inside one attempt.
+
+    Raised when Slack's `Retry-After` exceeds `MAX_RETRY_AFTER_SECONDS`. Bubbles
+    out of `_slack_get` so the caller can surface it without burning a Temporal
+    activity heartbeat budget on a long sleep, or blocking a sync HTTP handler.
+    """
+
+    def __init__(self, message: str, retry_after: int):
         super().__init__(message)
         self.retry_after = retry_after
 
@@ -41,7 +64,7 @@ class SlackRetryableError(Exception):
 def _wait_with_retry_after(retry_state: RetryCallState) -> float:
     exception = retry_state.outcome and retry_state.outcome.exception()
     if isinstance(exception, SlackRetryableError) and exception.retry_after is not None:
-        return float(exception.retry_after)
+        return float(min(exception.retry_after, MAX_RETRY_AFTER_SECONDS))
     return wait_exponential_jitter(initial=1, max=30)(retry_state)
 
 
@@ -54,10 +77,19 @@ def _wait_with_retry_after(retry_state: RetryCallState) -> float:
     reraise=True,
 )
 def _slack_get(url: str, **kwargs: Any) -> requests.Response:
-    response = make_tracked_session().get(url, **kwargs)
+    # Disable urllib3-level retries here: tenacity already retries 429/5xx with a
+    # Retry-After-aware wait, and stacking the two layers turns a sustained throttle
+    # into ~3×5 long Retry-After sleeps — long enough that Temporal cancels the
+    # activity mid-sleep.
+    response = make_tracked_session(retry=Retry(total=0)).get(url, **kwargs)
     if response.status_code == 429:
         retry_after = int(response.headers.get("Retry-After", 1))
         logger.warning("Slack API rate limited", url=url, retry_after=retry_after)
+        if retry_after > MAX_RETRY_AFTER_SECONDS:
+            raise SlackRateLimitedError(
+                f"Slack: rate limited; Retry-After {retry_after}s exceeds cap of {MAX_RETRY_AFTER_SECONDS}s",
+                retry_after=retry_after,
+            )
         raise SlackRetryableError("Slack: rate limited", retry_after=retry_after)
     if response.status_code >= 500:
         raise SlackRetryableError(f"Slack: server error {response.status_code}")

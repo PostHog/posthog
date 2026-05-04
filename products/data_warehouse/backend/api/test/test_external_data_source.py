@@ -4930,6 +4930,62 @@ class TestCreateWebhook(APIBaseTest):
         assert hog_function.inputs["source_id"]["value"] == str(source.pk)
 
 
+class TestCreateWebhookSlackRateLimit(APIBaseTest):
+    """Regression: a Slack workspace being throttled by Slack's `conversations.list` rate
+    limit must not surface as a captured exception + 400 from `create_webhook`. Instead
+    the user should get a 429 with a Retry-After header so the client can back off.
+    """
+
+    def _create_slack_source(self) -> ExternalDataSource:
+        return ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Slack",
+            created_by=self.user,
+            job_inputs={"slack_integration_id": "1"},
+        )
+
+    @parameterized.expand(
+        [
+            ("retryable_error_within_cap", "SlackRetryableError", 7),
+            ("rate_limited_error_above_cap", "SlackRateLimitedError", 600),
+        ]
+    )
+    @patch("posthog.temporal.data_imports.sources.slack.source.SlackSource.parse_config")
+    @patch("posthog.temporal.data_imports.sources.slack.source.SlackSource.get_schemas")
+    def test_returns_429_with_retry_after_when_slack_throttled(
+        self,
+        _name: str,
+        error_class_name: str,
+        retry_after: int,
+        mock_get_schemas: Mock,
+        mock_parse_config: Mock,
+    ) -> None:
+        from posthog.temporal.data_imports.sources.slack.slack import SlackRateLimitedError, SlackRetryableError
+
+        error_class = {
+            "SlackRetryableError": SlackRetryableError,
+            "SlackRateLimitedError": SlackRateLimitedError,
+        }[error_class_name]
+
+        mock_parse_config.return_value = Mock()
+        mock_get_schemas.side_effect = error_class("Slack: rate limited", retry_after=retry_after)
+
+        source = self._create_slack_source()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/create_webhook/"
+        )
+
+        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert response["Retry-After"] == str(retry_after)
+        body = response.json()
+        assert body["retry_after"] == retry_after
+        assert "rate limit" in body["message"].lower()
+
+
 class TestSensitiveFieldClassification(APIBaseTest):
     def test_classifies_password_fields_as_sensitive(self):
         fields: list[FieldType] = [

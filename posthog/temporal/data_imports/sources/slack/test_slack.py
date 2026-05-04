@@ -1,5 +1,6 @@
 from typing import Any
 
+import pytest
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
@@ -7,10 +8,14 @@ from parameterized import parameterized
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from posthog.temporal.data_imports.sources.slack.slack import (
+    MAX_RETRY_AFTER_SECONDS,
+    SlackRateLimitedError,
     SlackResumeConfig,
+    SlackRetryableError,
     _channel_messages_generator,
     _fetch_all_channels,
     _fetch_channels_by_type,
+    _slack_get,
     slack_source,
 )
 
@@ -303,3 +308,92 @@ class TestSlackSourceChannelsEndpoint:
 
         assert items == sample
         mock_fetch.assert_called_once_with("token", authed_user)
+
+
+def _make_status_response(status_code: int, headers: dict[str, str] | None = None) -> MagicMock:
+    response = MagicMock()
+    response.status_code = status_code
+    response.headers = headers or {}
+    return response
+
+
+class TestSlackGetRateLimitHandling:
+    def test_disables_urllib3_retry_layer(self) -> None:
+        # Tenacity already retries 429/5xx; the urllib3 adapter must not stack on top.
+        with patch("posthog.temporal.data_imports.sources.slack.slack.make_tracked_session") as mock_factory:
+            session = MagicMock()
+            session.get.return_value = _make_status_response(200)
+            mock_factory.return_value = session
+
+            _slack_get("https://slack.com/api/auth.test", timeout=10)
+
+        assert mock_factory.call_count == 1
+        retry_arg = mock_factory.call_args.kwargs["retry"]
+        # urllib3.util.retry.Retry exposes total via the .total attribute.
+        assert retry_arg.total == 0
+
+    def test_short_circuits_when_retry_after_exceeds_cap(self) -> None:
+        # Slack asking us to wait > MAX_RETRY_AFTER_SECONDS must not be retried inline:
+        # surface to the caller so an activity / API request doesn't sleep through it.
+        long_wait = MAX_RETRY_AFTER_SECONDS + 1
+        with patch("posthog.temporal.data_imports.sources.slack.slack.make_tracked_session") as mock_factory:
+            session = MagicMock()
+            session.get.return_value = _make_status_response(429, headers={"Retry-After": str(long_wait)})
+            mock_factory.return_value = session
+
+            with pytest.raises(SlackRateLimitedError) as excinfo:
+                _slack_get("https://slack.com/api/conversations.list", timeout=10)
+
+        assert excinfo.value.retry_after == long_wait
+        # Single attempt, no tenacity retries: the GET must have run exactly once.
+        assert session.get.call_count == 1
+
+    @patch("tenacity.nap.time.sleep", return_value=None)
+    def test_short_retry_after_is_retried_then_succeeds(self, _mock_sleep: MagicMock) -> None:
+        # Within the cap, tenacity retries with the (clamped) Retry-After wait.
+        with patch("posthog.temporal.data_imports.sources.slack.slack.make_tracked_session") as mock_factory:
+            session = MagicMock()
+            session.get.side_effect = [
+                _make_status_response(429, headers={"Retry-After": "1"}),
+                _make_status_response(200),
+            ]
+            mock_factory.return_value = session
+
+            response = _slack_get("https://slack.com/api/conversations.list", timeout=10)
+
+        assert response.status_code == 200
+        assert session.get.call_count == 2
+
+    @patch("tenacity.nap.time.sleep", return_value=None)
+    def test_short_retry_after_eventually_gives_up_with_retryable_error(self, _mock_sleep: MagicMock) -> None:
+        # If Slack keeps returning 429 within the cap, tenacity exhausts attempts and
+        # reraises SlackRetryableError — the workflow / endpoint then surfaces it.
+        with patch("posthog.temporal.data_imports.sources.slack.slack.make_tracked_session") as mock_factory:
+            session = MagicMock()
+            session.get.return_value = _make_status_response(429, headers={"Retry-After": "1"})
+            mock_factory.return_value = session
+
+            with pytest.raises(SlackRetryableError):
+                _slack_get("https://slack.com/api/conversations.list", timeout=10)
+
+        # tenacity stop_after_attempt(5) ⇒ exactly 5 GETs, never more.
+        assert session.get.call_count == 5
+
+    @patch("tenacity.nap.time.sleep", return_value=None)
+    def test_wait_is_clamped_below_cap(self, mock_sleep: MagicMock) -> None:
+        # Slack returning a Retry-After at exactly the cap is retried, but the sleep
+        # passed to tenacity must never exceed MAX_RETRY_AFTER_SECONDS.
+        with patch("posthog.temporal.data_imports.sources.slack.slack.make_tracked_session") as mock_factory:
+            session = MagicMock()
+            session.get.side_effect = [
+                _make_status_response(429, headers={"Retry-After": str(MAX_RETRY_AFTER_SECONDS)}),
+                _make_status_response(200),
+            ]
+            mock_factory.return_value = session
+
+            response = _slack_get("https://slack.com/api/conversations.list", timeout=10)
+
+        assert response.status_code == 200
+        assert mock_sleep.call_count == 1
+        actual_sleep = mock_sleep.call_args.args[0]
+        assert actual_sleep <= MAX_RETRY_AFTER_SECONDS
