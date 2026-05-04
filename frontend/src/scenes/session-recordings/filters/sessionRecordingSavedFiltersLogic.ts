@@ -5,6 +5,7 @@ import { router } from 'kea-router'
 import api from 'lib/api'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
 import { objectClean, toParams } from 'lib/utils'
+import { projectLogic } from 'scenes/projectLogic'
 import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessionRecordingEventUsageLogic'
 import { urls } from 'scenes/urls'
 
@@ -29,7 +30,13 @@ export const DEFAULT_PLAYLIST_FILTERS = {
 export const sessionRecordingSavedFiltersLogic = kea<sessionRecordingSavedFiltersLogicType>([
     path(() => ['scenes', 'session-recordings', 'filters', 'sessionRecordingSavedFiltersLogic']),
     connect(() => ({
-        actions: [sessionRecordingEventUsageLogic, ['reportRecordingPlaylistCreated']],
+        actions: [
+            sessionRecordingEventUsageLogic,
+            ['reportRecordingPlaylistCreated'],
+            projectLogic,
+            ['loadCurrentProjectSuccess'],
+        ],
+        values: [projectLogic, ['currentProjectId']],
     })),
     actions(() => ({
         setSavedPlaylistsFilters: (filters: Partial<SavedSessionRecordingPlaylistsFilters>) => ({
@@ -130,6 +137,13 @@ export const sessionRecordingSavedFiltersLogic = kea<sessionRecordingSavedFilter
         setSavedPlaylistsFilters: () => {
             actions.loadSavedFilters()
         },
+        loadCurrentProjectSuccess: ({ currentProject }) => {
+            // The navbar mounts this logic during app boot, so afterMount can run before
+            // projectLogic has resolved the project ID — defer the API call until then.
+            if (currentProject) {
+                actions.loadSavedFilters()
+            }
+        },
         checkForSavedFilterRedirect: async () => {
             //If you want to load a saved filter via GET param, you can do it like this: ?savedFilterId=bndnfkxL
             const { savedFilterId } = router.values.searchParams
@@ -172,8 +186,10 @@ export const sessionRecordingSavedFiltersLogic = kea<sessionRecordingSavedFilter
             },
         ],
     })),
-    afterMount(({ actions }) => {
-        actions.loadSavedFilters()
+    afterMount(({ actions, values }) => {
+        if (values.currentProjectId) {
+            actions.loadSavedFilters()
+        }
         actions.checkForSavedFilterRedirect()
     }),
 ])

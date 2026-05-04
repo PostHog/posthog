@@ -902,15 +902,15 @@ export class ApiRequest {
             .addPathComponent('matching_events')
     }
 
-    public recordingPlaylists(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('session_recording_playlists')
+    public recordingPlaylists(projectId?: ProjectType['id']): ApiRequest {
+        return this.projectsDetail(projectId).addPathComponent('session_recording_playlists')
     }
 
     public recordingPlaylist(
         playlistId?: SessionRecordingPlaylistType['short_id'],
-        teamId?: TeamType['id']
+        projectId?: ProjectType['id']
     ): ApiRequest {
-        return this.projectsDetail(teamId)
+        return this.projectsDetail(projectId)
             .addPathComponent('session_recording_playlists')
             .addPathComponent(String(playlistId))
     }
