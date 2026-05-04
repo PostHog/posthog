@@ -36,8 +36,10 @@ export default defineConfig(({ mode }) => {
 
     return {
         plugins: [
-            tailwindDevSourcePlugin,
-            tailwindcss(),
+            // Only run Tailwind via Vite in dev. Production goes through the
+            // standalone CLI in `common/tailwind` and the precompiled CSS, so
+            // we must not redirect that import or double-compile here.
+            ...(isDev ? [tailwindDevSourcePlugin, tailwindcss()] : []),
             react(),
             // We delete and copy the HTML files for development
             htmlGenerationPlugin(),
