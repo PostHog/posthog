@@ -122,7 +122,8 @@ tools:
         description: >
             Fetch a saved insight by its numeric `id` or 8-character `short_id`. Returns the insight metadata and query
             definition, but NOT the query results. To retrieve the actual data, call the insight-query tool with the
-            same identifier.
+            same identifier. Optionally accepts `variables_override` and `filters_override` to apply one-off overrides
+            to the returned query definition without mutating the saved insight.
         exclude_params:
             - format
             - refresh

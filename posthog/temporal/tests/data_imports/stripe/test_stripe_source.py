@@ -4,14 +4,18 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 from unittest import mock
 
+import stripe as stripe_lib
+
 from posthog.models.integration import Integration
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.generated_configs import StripeSourceConfig
 from posthog.temporal.data_imports.sources.stripe.constants import ACCOUNT_RESOURCE_NAME
 from posthog.temporal.data_imports.sources.stripe.source import StripeSource
 from posthog.temporal.data_imports.sources.stripe.stripe import (
+    StripeAuthenticationError,
     StripePermissionError,
     StripeResumeConfig,
+    StripeValidationError,
     validate_credentials,
 )
 from posthog.temporal.tests.data_imports.conftest import run_external_data_job_workflow
@@ -288,6 +292,115 @@ def test_validate_credentials_with_table_name():
         mock_client.subscriptions.list.assert_not_called()
         mock_client.refunds.list.assert_not_called()
         mock_client.credit_notes.list.assert_not_called()
+
+
+def test_validate_credentials_authentication_error_short_circuits():
+    """An invalid API key (401) must raise StripeAuthenticationError immediately,
+    not bucket every resource into StripePermissionError. Otherwise the user sees
+    a misleading 'lacks permissions for ALL 13 resources' message and tries to
+    grant permissions they already have."""
+    mock_client = mock.MagicMock()
+    auth_error = stripe_lib.AuthenticationError(message="Invalid API Key provided: rk_live_***")
+    # First call (accounts) raises 401 — loop must abort before touching others.
+    mock_client.accounts.list = mock.MagicMock(side_effect=auth_error)
+    mock_client.balance_transactions.list = mock.MagicMock()
+    mock_client.charges.list = mock.MagicMock()
+
+    with (
+        mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient", return_value=mock_client),
+        pytest.raises(StripeAuthenticationError) as e,
+    ):
+        validate_credentials("api_key")
+
+    assert "Invalid API Key" in str(e.value)
+    # Critically: we did not keep banging the API after a 401.
+    mock_client.balance_transactions.list.assert_not_called()
+    mock_client.charges.list.assert_not_called()
+
+
+def test_validate_credentials_permission_error_lists_only_403_resources():
+    """403 on a single resource must be reported as a per-resource permission gap,
+    not poisoned by other unrelated successes."""
+    mock_client = mock.MagicMock()
+    mock_client.accounts.list = mock.MagicMock()
+    mock_client.balance_transactions.list = mock.MagicMock()
+    mock_client.charges.list = mock.MagicMock(side_effect=stripe_lib.PermissionError(message="Forbidden"))
+    mock_client.customers.list = mock.MagicMock()
+    mock_client.disputes.list = mock.MagicMock()
+    mock_client.invoice_items.list = mock.MagicMock()
+    mock_client.invoices.list = mock.MagicMock()
+    mock_client.payouts.list = mock.MagicMock()
+    mock_client.prices.list = mock.MagicMock()
+    mock_client.products.list = mock.MagicMock()
+    mock_client.subscriptions.list = mock.MagicMock()
+    mock_client.refunds.list = mock.MagicMock()
+    mock_client.credit_notes.list = mock.MagicMock()
+
+    with (
+        mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient", return_value=mock_client),
+        pytest.raises(StripePermissionError) as e,
+    ):
+        validate_credentials("api_key")
+
+    assert list(e.value.missing_permissions.keys()) == ["Charge"]
+
+
+def test_validate_credentials_unknown_error_raises_validation_error():
+    """Non-403 failures (network, schema, rate limit) are not permission gaps — must raise
+    StripeValidationError so the caller surfaces the verbose underlying message rather than
+    pretending the customer needs to grant a missing scope."""
+    mock_client = mock.MagicMock()
+    mock_client.accounts.list = mock.MagicMock()
+    mock_client.balance_transactions.list = mock.MagicMock()
+    mock_client.charges.list = mock.MagicMock(side_effect=RuntimeError("connection reset by peer"))
+    mock_client.customers.list = mock.MagicMock()
+    mock_client.disputes.list = mock.MagicMock()
+    mock_client.invoice_items.list = mock.MagicMock()
+    mock_client.invoices.list = mock.MagicMock()
+    mock_client.payouts.list = mock.MagicMock()
+    mock_client.prices.list = mock.MagicMock()
+    mock_client.products.list = mock.MagicMock()
+    mock_client.subscriptions.list = mock.MagicMock()
+    mock_client.refunds.list = mock.MagicMock()
+    mock_client.credit_notes.list = mock.MagicMock()
+
+    with (
+        mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient", return_value=mock_client),
+        pytest.raises(StripeValidationError) as e,
+    ):
+        validate_credentials("api_key")
+
+    assert list(e.value.errors.keys()) == ["Charge"]
+    assert "connection reset" in e.value.errors["Charge"]
+    assert e.value.missing_permissions == {}
+
+
+def test_validate_credentials_mixed_403_and_unknown_raises_validation_error_with_both():
+    """When both true 403s and unknown errors are present, the validation error should win
+    (it's the higher-severity signal) but carry the 403s along so callers can show both."""
+    mock_client = mock.MagicMock()
+    mock_client.accounts.list = mock.MagicMock()
+    mock_client.balance_transactions.list = mock.MagicMock()
+    mock_client.charges.list = mock.MagicMock(side_effect=RuntimeError("connection reset"))
+    mock_client.customers.list = mock.MagicMock()
+    mock_client.disputes.list = mock.MagicMock()
+    mock_client.invoice_items.list = mock.MagicMock()
+    mock_client.invoices.list = mock.MagicMock()
+    mock_client.payouts.list = mock.MagicMock()
+    mock_client.prices.list = mock.MagicMock()
+    mock_client.products.list = mock.MagicMock()
+    mock_client.subscriptions.list = mock.MagicMock(side_effect=stripe_lib.PermissionError(message="Forbidden"))
+    mock_client.refunds.list = mock.MagicMock()
+    mock_client.credit_notes.list = mock.MagicMock()
+
+    with (
+        mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient", return_value=mock_client),
+        pytest.raises(StripeValidationError) as e,
+    ):
+        validate_credentials("api_key")
+
+    assert list(e.value.errors.keys()) == ["Charge"]
+    assert list(e.value.missing_permissions.keys()) == ["Subscription"]
 
 
 def test_validate_credentials_with_missing_table_name():

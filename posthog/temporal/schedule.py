@@ -61,8 +61,8 @@ from posthog.temporal.salesforce_enrichment.usage_workflow import UsageEnrichmen
 from posthog.temporal.salesforce_enrichment.workflow import SalesforceEnrichmentInputs
 from posthog.temporal.session_replay.delete_recordings.types import PurgeDeletedMetadataInput
 from posthog.temporal.session_replay.enforce_max_replay_retention.types import EnforceMaxReplayRetentionInput
+from posthog.temporal.session_replay.gemini_cleanup_sweep import create_gemini_cleanup_sweep_schedule
 from posthog.temporal.session_replay.replay_count_metrics.types import ReplayCountMetricsInput
-from posthog.temporal.session_replay.session_summary.cleanup_sweep import create_cleanup_sweep_schedule
 from posthog.temporal.session_replay.summarization_sweep.reconciler import (
     create_summarization_sweep_reconciler_schedule,
 )
@@ -560,7 +560,7 @@ schedules = [
 if settings.CLOUD_DEPLOYMENT:
     # Sweeper compares the deployment prefix on each Gemini file's display_name against its own
     # CLOUD_DEPLOYMENT, so it can't run unscoped (would risk reaping sibling deployments' files).
-    schedules.append(create_cleanup_sweep_schedule)
+    schedules.append(create_gemini_cleanup_sweep_schedule)
 
 if settings.EE_AVAILABLE:
     schedules.append(create_schedule_all_subscriptions_schedule)

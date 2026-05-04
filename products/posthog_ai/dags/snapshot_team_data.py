@@ -26,7 +26,7 @@ from posthog.hogql_queries.ai.actors_property_taxonomy_query_runner import Actor
 from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.models import GroupTypeMapping, Team
+from posthog.models import Team
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 from products.posthog_ai.dags.utils import (
@@ -245,12 +245,11 @@ def snapshot_actors_property_taxonomy(
 
     # Snapshot all group type mappings and person
     results: list[ActorsPropertyTaxonomySnapshot] = []
+    from posthog.models.group_type_mapping import get_group_types_for_team
+
     group_type_mappings: list[int | None] = [
         None,
-        *(
-            g.group_type_index
-            for g in GroupTypeMapping.objects.filter(team=team)  # nosemgrep: no-direct-persons-db-orm
-        ),  # nosemgrep: no-direct-persons-db-orm
+        *(m["group_type_index"] for m in get_group_types_for_team(team.id)),
     ]
 
     for index in group_type_mappings:

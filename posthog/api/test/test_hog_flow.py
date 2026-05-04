@@ -1522,15 +1522,10 @@ class TestHogFlowBlockedRuns(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()
         sync_template_to_db(webhook_template)
-        from posthog.models.feature_flag import FeatureFlag
-
-        FeatureFlag.objects.create(
-            team=self.team,
-            key="workflows-replay-blocked-runs",
-            active=True,
-            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
-            created_by=self.user,
-        )
+        # Mock feature flag check across all tests; flip via @patch on individual tests.
+        feature_flag_patcher = patch("posthog.api.hog_flow.posthoganalytics.feature_enabled", return_value=True)
+        feature_flag_patcher.start()
+        self.addCleanup(feature_flag_patcher.stop)
 
     def _create_flow(self) -> str:
         trigger_action = {
@@ -1853,11 +1848,8 @@ class TestHogFlowBlockedRuns(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"succeeded": 0, "failed": 0, "skipped": 0}
 
-    def test_blocked_runs_returns_empty_when_feature_flag_disabled(self):
-        from posthog.models.feature_flag import FeatureFlag
-
-        FeatureFlag.objects.filter(team=self.team, key="workflows-replay-blocked-runs").update(active=False)
-
+    @patch("posthog.api.hog_flow.posthoganalytics.feature_enabled", return_value=False)
+    def test_blocked_runs_returns_empty_when_feature_flag_disabled(self, _mock):
         flow_id = self._create_flow()
         self._insert_blocked_log(flow_id)
 
@@ -1865,11 +1857,8 @@ class TestHogFlowBlockedRuns(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["results"] == []
 
-    def test_replay_blocked_run_returns_403_when_feature_flag_disabled(self):
-        from posthog.models.feature_flag import FeatureFlag
-
-        FeatureFlag.objects.filter(team=self.team, key="workflows-replay-blocked-runs").update(active=False)
-
+    @patch("posthog.api.hog_flow.posthoganalytics.feature_enabled", return_value=False)
+    def test_replay_blocked_run_returns_403_when_feature_flag_disabled(self, _mock):
         flow_id = self._create_flow()
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_flows/{flow_id}/replay_blocked_run",

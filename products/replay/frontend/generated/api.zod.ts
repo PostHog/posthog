@@ -9,6 +9,26 @@
  */
 import * as zod from 'zod'
 
+/**
+ * Generate AI individual summary for each session, without grouping.
+ */
+export const createSessionSummariesIndividuallyBodySessionIdsMax = 300
+
+export const createSessionSummariesIndividuallyBodyFocusAreaMax = 500
+
+export const CreateSessionSummariesIndividuallyBody = /* @__PURE__ */ zod.object({
+    session_ids: zod
+        .array(zod.string())
+        .min(1)
+        .max(createSessionSummariesIndividuallyBodySessionIdsMax)
+        .describe('List of session IDs to summarize (max 300)'),
+    focus_area: zod
+        .string()
+        .max(createSessionSummariesIndividuallyBodyFocusAreaMax)
+        .optional()
+        .describe('Optional focus area for the summarization'),
+})
+
 export const sessionRecordingPlaylistsCreateBodyNameMax = 400
 
 export const sessionRecordingPlaylistsCreateBodyDerivedNameMax = 400
