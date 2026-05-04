@@ -112,7 +112,11 @@ const MarketingAnalyticsDashboard = (): JSX.Element => {
     }, [loading, hasSources, showOnboarding, resetOnboarding]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const feedbackBanner = (
-        <LemonBanner type="info" action={{ children: 'Send feedback', id: 'marketing-analytics-feedback-button' }}>
+        <LemonBanner
+            type="info"
+            action={{ children: 'Send feedback', id: 'marketing-analytics-feedback-button' }}
+            className="mt-4"
+        >
             Marketing analytics is in beta. Please let us know what you'd like to see here and/or report any issues
             directly to us!
         </LemonBanner>

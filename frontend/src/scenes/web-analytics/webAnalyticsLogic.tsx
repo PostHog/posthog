@@ -2567,7 +2567,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 
         return {
             '/web': toAction,
-            '/web/page-reports': toAction,
             '/web/bots': (_, searchParams) => {
                 toAction({ productTab: ProductTab.BOT_ANALYTICS }, searchParams)
             },

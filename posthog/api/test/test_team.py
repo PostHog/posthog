@@ -19,10 +19,15 @@ from rest_framework import status, test
 from temporalio.service import RPCError
 
 from posthog.api.oauth.test_dcr import generate_rsa_key
+from posthog.api.team import _default_data_color_theme_id, _reset_default_data_color_theme_id_cache
 from posthog.api.test.batch_exports.conftest import start_test_worker
 from posthog.constants import AvailableFeature
 from posthog.models import ActivityLog
-from posthog.models.group_type_mapping import GROUP_TYPES_CACHE_KEY_PREFIX, GROUP_TYPES_STALE_CACHE_KEY_PREFIX
+from posthog.models.group_type_mapping import (
+    GROUP_TYPES_CACHE_KEY_PREFIX,
+    GROUP_TYPES_STALE_CACHE_KEY_PREFIX,
+    cached_group_types_for_team,
+)
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
@@ -3224,3 +3229,142 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         data = response.json()
         assert sorted(data.keys()) == ["timezone"]
         assert data["timezone"] in ("UTC", "Europe/London")
+
+
+class TestTeamSerializerHomeViewWins(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        _reset_default_data_color_theme_id_cache()
+        self.addCleanup(_reset_default_data_color_theme_id_cache)
+
+    def test_cached_group_types_for_team_memoises_per_instance(self):
+        # has_group_types and group_types are sibling SerializerMethodFields; previously
+        # each hit Redis. They now share a request-scoped memo on the team instance,
+        # via the helper in posthog/models/group_type_mapping.py.
+        with patch("posthog.models.group_type_mapping.get_group_types_for_project", return_value=[]) as mock_fetch:
+            cached_group_types_for_team(self.team)
+            cached_group_types_for_team(self.team)
+            cached_group_types_for_team(self.team)
+        assert mock_fetch.call_count == 1
+
+        # Different team instance bypasses the memo: a single mock spanning both
+        # instances must see exactly one fetch (the fresh one), not zero.
+        fresh_team = Team.objects.get(pk=self.team.pk)
+        with patch("posthog.models.group_type_mapping.get_group_types_for_project", return_value=[]) as mock_fetch:
+            cached_group_types_for_team(self.team)  # cached on self.team
+            cached_group_types_for_team(fresh_team)  # uncached on fresh
+        assert mock_fetch.call_count == 1
+        assert mock_fetch.call_args.args == (fresh_team.project_id,)
+
+    def test_default_data_color_theme_id_is_cached_for_process_lifetime(self):
+        # System-wide default DataColorTheme is a deploy-time fixture; cache for
+        # process lifetime to skip a per-render PG round-trip on the home view.
+        with patch("posthog.api.team.DataColorTheme.objects") as mock_objects:
+            chained = mock_objects.filter.return_value.order_by.return_value.values_list.return_value
+            chained.first.return_value = 42
+
+            assert _default_data_color_theme_id() == 42
+            assert _default_data_color_theme_id() == 42
+            assert _default_data_color_theme_id() == 42
+
+        assert mock_objects.filter.call_count == 1
+
+    def test_default_data_color_theme_id_does_not_cache_none(self):
+        # If the very first call lands before the data migration is applied, a
+        # None must NOT be cached - subsequent calls should retry so we recover
+        # automatically once the row appears.
+        with patch("posthog.api.team.DataColorTheme.objects") as mock_objects:
+            chained = mock_objects.filter.return_value.order_by.return_value.values_list.return_value
+            chained.first.return_value = None
+
+            assert _default_data_color_theme_id() is None
+            assert _default_data_color_theme_id() is None
+
+        assert mock_objects.filter.call_count == 2
+
+        with patch("posthog.api.team.DataColorTheme.objects") as mock_objects:
+            chained = mock_objects.filter.return_value.order_by.return_value.values_list.return_value
+            chained.first.return_value = 7
+
+            assert _default_data_color_theme_id() == 7
+            assert _default_data_color_theme_id() == 7
+
+        assert mock_objects.filter.call_count == 1
+
+
+class TestGetOrMintLiveEventsToken(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        cache.clear()
+
+    @parameterized.expand(
+        [
+            ("authenticated_user", False),
+            ("anonymous_user", True),
+        ]
+    )
+    def test_returns_a_signed_jwt_with_expected_claims(self, _name: str, anonymous: bool) -> None:
+        from posthog.api.team import get_or_mint_live_events_token
+        from posthog.jwt import PosthogJwtAudience, decode_jwt
+
+        user_id = None if anonymous else self.user.id
+        token = get_or_mint_live_events_token(self.team, user_id)
+        claims = decode_jwt(token, PosthogJwtAudience.LIVESTREAM)
+        assert claims["team_id"] == self.team.id
+        assert claims["api_token"] == self.team.api_token
+        assert claims["user_id"] == user_id
+        assert claims["organization_id"] == str(self.team.organization_id)
+
+    @parameterized.expand(
+        [
+            ("authenticated_user", False),
+            ("anonymous_user", True),
+        ]
+    )
+    def test_second_call_returns_cached_token_without_re_signing(self, _name: str, anonymous: bool) -> None:
+        from posthog.api.team import get_or_mint_live_events_token
+
+        user_id = None if anonymous else self.user.id
+        first = get_or_mint_live_events_token(self.team, user_id)
+        with patch("posthog.api.team.encode_jwt") as mock_encode:
+            second = get_or_mint_live_events_token(self.team, user_id)
+        mock_encode.assert_not_called()
+        assert first == second
+
+    @parameterized.expand(
+        [
+            # name, mutation_callback (called with self) describing the cache-key
+            # component that should diverge between two calls
+            ("user_id changes", lambda self: {"first_user_id": self.user.id, "second_user_id": self.user.id + 9999}),
+            (
+                "anonymous vs authenticated diverge",
+                lambda self: {"first_user_id": None, "second_user_id": self.user.id},
+            ),
+            ("api_token rotates", lambda self: {"rotate_api_token": True}),
+        ]
+    )
+    def test_cache_key_component_changes_force_a_fresh_mint(self, _name: str, mutation_factory) -> None:
+        from posthog.api.team import get_or_mint_live_events_token
+
+        mutation = mutation_factory(self)
+        first_user_id = mutation.get("first_user_id", self.user.id)
+        second_user_id = mutation.get("second_user_id", self.user.id)
+        rotate_api_token = mutation.get("rotate_api_token", False)
+
+        token_before = get_or_mint_live_events_token(self.team, first_user_id)
+        if rotate_api_token:
+            self.team.api_token = "rotated_token_value"
+        token_after = get_or_mint_live_events_token(self.team, second_user_id)
+        assert token_before != token_after
+
+    def test_secret_key_rotation_partitions_the_cache_namespace(self) -> None:
+        # SECRET_KEY rotation must invalidate cached tokens automatically — otherwise
+        # the livestream service would reject the cached old-key signatures for up
+        # to the cache TTL. We embed a fingerprint of SECRET_KEY in the cache key so
+        # the namespace partitions cleanly on rotation.
+        from posthog.api.team import get_or_mint_live_events_token
+
+        token_old_secret = get_or_mint_live_events_token(self.team, self.user.id)
+        with override_settings(SECRET_KEY="completely-different-rotated-secret"):
+            token_new_secret = get_or_mint_live_events_token(self.team, self.user.id)
+        assert token_old_secret != token_new_secret

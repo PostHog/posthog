@@ -17,6 +17,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { SnapshotDiffViewer } from '../components/SnapshotDiffViewer'
 import { SnapshotStatusIndicator } from '../components/SnapshotStatusIndicator'
+import { VisualReviewTabs } from '../components/VisualReviewTabs'
 import type { SnapshotApi } from '../generated/api.schemas'
 import { VisualReviewRunSceneLogicProps, visualReviewRunSceneLogic } from './visualReviewRunSceneLogic'
 
@@ -162,7 +163,7 @@ function RunInProgressEmptyState({
             data-attr="visual-review-run-in-progress"
         >
             {isStale ? (
-                <LemonBanner type="warning" className="max-w-lg mb-4">
+                <LemonBanner type="warning" className="w-full max-w-lg mb-4">
                     The CI job hasn't reported back.{' '}
                     {ciJobUrl ? (
                         <Link to={ciJobUrl} target="_blank" className="font-semibold">
@@ -347,6 +348,7 @@ export function VisualReviewRunScene(): JSX.Element {
                     ) : undefined
                 }
             />
+            <VisualReviewTabs activeKey="runs" repoId={run.repo_id} />
 
             {run.is_stale && (
                 <LemonBanner type="warning" className="mb-4">

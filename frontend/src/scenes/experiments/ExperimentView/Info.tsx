@@ -15,7 +15,7 @@ import { urls } from 'scenes/urls'
 import { ExperimentStatsMethod, ExperimentStatus } from '~/types'
 
 import { CONCLUSION_DISPLAY_CONFIG } from '../constants'
-import { experimentLogic } from '../experimentLogic'
+import { experimentLogic, previousRefreshAnalytics } from '../experimentLogic'
 import type { ExperimentSceneLogicProps } from '../experimentSceneLogic'
 import { getExperimentStatus, isExperimentPaused } from '../experimentsLogic'
 import { modalsLogic } from '../modalsLogic'
@@ -38,6 +38,7 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
         isSingleVariantShipped,
         shippedVariantKey,
         autoRefresh,
+        currentRefresh,
     } = useValues(experimentLogic)
     const { updateExperiment, refreshExperimentResults, reportExperimentMetricsRefreshed } = useActions(experimentLogic)
     const { openEditConclusionModal, openDescriptionModal, closeDescriptionModal, openRunningTimeConfigModal } =
@@ -222,6 +223,7 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
                                             triggered_by: 'manual',
                                             auto_refresh_enabled: autoRefresh.enabled,
                                             auto_refresh_interval: autoRefresh.interval,
+                                            ...previousRefreshAnalytics(currentRefresh),
                                         })
                                         refreshExperimentResults(true, 'manual')
                                     }}
