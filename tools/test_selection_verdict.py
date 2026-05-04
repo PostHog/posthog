@@ -1,9 +1,15 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.12"
+# dependencies = [
+#     "defusedxml>=0.7.1",
+# ]
+# ///
 """Compare test selection against actual JUnit failures to produce a verdict.
 
-Standalone script (stdlib only) that evaluates whether the shadow test
-selector would have caught the tests that actually failed in CI. Outputs
-a JSON verdict suitable for batch collection across PRs.
+Evaluates whether the shadow test selector would have caught the tests
+that actually failed in CI. Outputs a JSON verdict suitable for batch
+collection across PRs.
 """
 
 from __future__ import annotations
@@ -13,7 +19,8 @@ import sys
 import json
 import argparse
 from pathlib import Path
-from xml.etree import ElementTree
+
+from defusedxml import ElementTree
 
 
 def classname_to_filepath(classname: str) -> str:

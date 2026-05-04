@@ -1702,7 +1702,7 @@ jobs:
                       --pretty \
                       > /tmp/verdict/selection.json
 
-                  python3 tools/test_selection_verdict.py \
+                  uv run tools/test_selection_verdict.py \
                       /tmp/verdict/selection.json \
                       /tmp/junit-results/ \
                       --summary-path "$GITHUB_STEP_SUMMARY" \
