@@ -529,9 +529,16 @@ interface OutputPaneProps {
     tabId: string
     showToolbar?: boolean
     onShareTab?: () => void
+    /** When true, the visualization output fills its container instead of using the 60vh preset. */
+    fitOutputToContainer?: boolean
 }
 
-export function OutputPane({ tabId, showToolbar = true, onShareTab }: OutputPaneProps): JSX.Element {
+export function OutputPane({
+    tabId,
+    showToolbar = true,
+    onShareTab,
+    fitOutputToContainer,
+}: OutputPaneProps): JSX.Element {
     const { activeTab } = useValues(outputPaneLogic)
     const { setActiveTab } = useActions(outputPaneLogic)
 
@@ -742,6 +749,7 @@ export function OutputPane({ tabId, showToolbar = true, onShareTab }: OutputPane
         setProgress,
         progress: queryId ? progressCache[queryId] : undefined,
         showVisualizationSettings: showToolbar && isChartSettingsPanelOpen,
+        fitOutputToContainer,
     }
     const sharedActionsProps = {
         response,
@@ -843,7 +851,7 @@ export function OutputPane({ tabId, showToolbar = true, onShareTab }: OutputPane
 }
 
 function InternalDataTableVisualization(
-    props: DataTableVisualizationProps & { showSettingsPanel: boolean }
+    props: DataTableVisualizationProps & { showSettingsPanel: boolean; fitOutputToContainer?: boolean }
 ): JSX.Element | null {
     const {
         query,
@@ -860,6 +868,10 @@ function InternalDataTableVisualization(
 
     const { seriesBreakdownData } = useValues(seriesBreakdownLogic({ key: dataVisualizationProps.key }))
     const { goalLines } = useValues(displayLogic)
+
+    // When the caller (e.g., notebook node) constrains height itself, force the chart to
+    // fit its container instead of using the 60vh viewport-relative preset.
+    const effectivePresetChartHeight = props.fitOutputToContainer ? false : presetChartHeight
 
     let component: JSX.Element | null = null
 
@@ -897,7 +909,7 @@ function InternalDataTableVisualization(
                 chartSettings={chartSettings}
                 dashboardId={dashboardId}
                 goalLines={goalLines}
-                presetChartHeight={presetChartHeight}
+                presetChartHeight={effectivePresetChartHeight}
             />
         )
     } else if (effectiveVisualizationType === ChartDisplayType.ActionsPie) {
@@ -911,7 +923,7 @@ function InternalDataTableVisualization(
                 xData={_xData}
                 yData={_yData}
                 chartSettings={chartSettings}
-                presetChartHeight={presetChartHeight}
+                presetChartHeight={effectivePresetChartHeight}
             />
         )
     } else if (effectiveVisualizationType === ChartDisplayType.TwoDimensionalHeatmap) {
@@ -982,6 +994,7 @@ const Content = ({
     progress,
     insightLoading,
     showVisualizationSettings,
+    fitOutputToContainer,
 }: any): JSX.Element | null => {
     const [sortColumns, setSortColumns] = useState<SortColumn[]>([])
 
@@ -1050,6 +1063,7 @@ const Content = ({
                     exportContext={exportContext}
                     editMode
                     showSettingsPanel={showVisualizationSettings}
+                    fitOutputToContainer={fitOutputToContainer}
                 />
             </div>
         )
