@@ -3,15 +3,20 @@ import typing as t
 import datetime as dt
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from temporalio.testing import ActivityEnvironment
 
 from posthog.batch_exports.models import BatchExport, BatchExportDestination
 from posthog.models.utils import uuid7
+from posthog.temporal.common.clickhouse import ClickHouseQueryTimeoutError
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse, insert_sessions_in_clickhouse
 
-from products.batch_exports.backend.temporal.backfill_batch_export import GetBackfillInfoInputs, get_backfill_info
+from products.batch_exports.backend.temporal.backfill_batch_export import (
+    BACKFILL_INFO_QUERY_TIMEOUT_SECONDS,
+    GetBackfillInfoInputs,
+    get_backfill_info,
+)
 from products.batch_exports.backend.tests.temporal.utils.clickhouse import (
     truncate_events,
     truncate_persons,
@@ -238,6 +243,38 @@ class TestGetBackfillInfoForEvents:
                 "query_type": "backfill_estimate",
             }
         )
+
+    async def test_query_caps_max_execution_time(
+        self, mock_clickhouse_client, run_get_backfill_info, create_batch_export
+    ):
+        batch_export = await create_batch_export()
+        await run_get_backfill_info(
+            batch_export,
+            start_at=dt.datetime(2021, 1, 1, tzinfo=dt.UTC),
+            end_at=dt.datetime(2021, 1, 2, tzinfo=dt.UTC),
+        )
+
+        captured = mock_clickhouse_client.calls[0]
+        assert captured.query_parameters is not None
+        assert captured.query_parameters["max_execution_time"] == BACKFILL_INFO_QUERY_TIMEOUT_SECONDS
+        assert "max_execution_time" in captured.query.lower()
+
+    async def test_returns_no_estimate_on_timeout(
+        self, mock_clickhouse_client, run_get_backfill_info, create_batch_export
+    ):
+        mock_clickhouse_client.mock_client.read_query_as_jsonl = AsyncMock(
+            side_effect=ClickHouseQueryTimeoutError("Code: 159. TIMEOUT_EXCEEDED")
+        )
+
+        batch_export = await create_batch_export()
+        result = await run_get_backfill_info(
+            batch_export,
+            start_at=dt.datetime(2021, 1, 1, tzinfo=dt.UTC),
+            end_at=dt.datetime(2021, 1, 2, tzinfo=dt.UTC),
+        )
+
+        assert result.total_records_count is None
+        assert result.adjusted_start_at == dt.datetime(2021, 1, 1, tzinfo=dt.UTC).isoformat()
 
 
 class TestGetBackfillInfoForPersons:
@@ -610,6 +647,43 @@ class TestGetBackfillInfoForPersons:
         mock_clickhouse_client.expect_unique_query_ids()
         mock_clickhouse_client.expect_properties_in_log_comment({"query_type": "backfill_estimate"})
 
+    async def test_query_caps_max_execution_time(
+        self, mock_clickhouse_client, run_get_backfill_info, create_batch_export
+    ):
+        batch_export = await create_batch_export()
+        mock_clickhouse_client.read_query_as_jsonl_responses = [
+            [{"min_timestamp": "2021-01-15 10:30:00"}, {"min_timestamp": "2021-01-15 10:30:00"}],
+            [{"record_count": "42"}],
+        ]
+
+        await run_get_backfill_info(
+            batch_export,
+            start_at=dt.datetime(2021, 1, 1, tzinfo=dt.UTC),
+            end_at=dt.datetime(2021, 1, 2, tzinfo=dt.UTC),
+        )
+
+        for call in mock_clickhouse_client.calls:
+            assert call.query_parameters is not None
+            assert call.query_parameters["max_execution_time"] == BACKFILL_INFO_QUERY_TIMEOUT_SECONDS
+            assert "max_execution_time" in call.query.lower()
+
+    async def test_returns_no_estimate_on_timeout(
+        self, mock_clickhouse_client, run_get_backfill_info, create_batch_export
+    ):
+        mock_clickhouse_client.mock_client.read_query_as_jsonl = AsyncMock(
+            side_effect=ClickHouseQueryTimeoutError("Code: 159. TIMEOUT_EXCEEDED")
+        )
+
+        batch_export = await create_batch_export()
+        result = await run_get_backfill_info(
+            batch_export,
+            start_at=dt.datetime(2021, 1, 1, tzinfo=dt.UTC),
+            end_at=dt.datetime(2021, 1, 2, tzinfo=dt.UTC),
+        )
+
+        assert result.total_records_count is None
+        assert result.adjusted_start_at == dt.datetime(2021, 1, 1, tzinfo=dt.UTC).isoformat()
+
 
 class TestGetBackfillInfoForSessions:
     @pytest.fixture(autouse=True)
@@ -780,3 +854,37 @@ class TestGetBackfillInfoForSessions:
                 "query_type": "backfill_estimate",
             }
         )
+
+    async def test_query_caps_max_execution_time(
+        self, mock_clickhouse_client, run_get_backfill_info, create_batch_export
+    ):
+        batch_export = await create_batch_export()
+        await run_get_backfill_info(
+            batch_export,
+            start_at=dt.datetime(2021, 1, 1, tzinfo=dt.UTC),
+            end_at=dt.datetime(2021, 1, 2, tzinfo=dt.UTC),
+        )
+
+        captured = mock_clickhouse_client.calls[0]
+        # The sessions path uses HogQL placeholders (`{name}`); the printed
+        # query carries the placeholder, while context.values carries the value.
+        assert "max_execution_time" in captured.query.lower()
+        assert captured.query_parameters is not None
+        assert captured.query_parameters["max_execution_time_seconds"] == BACKFILL_INFO_QUERY_TIMEOUT_SECONDS
+
+    async def test_returns_no_estimate_on_timeout(
+        self, mock_clickhouse_client, run_get_backfill_info, create_batch_export
+    ):
+        mock_clickhouse_client.mock_client.read_query_as_jsonl = AsyncMock(
+            side_effect=ClickHouseQueryTimeoutError("Code: 159. TIMEOUT_EXCEEDED")
+        )
+
+        batch_export = await create_batch_export()
+        result = await run_get_backfill_info(
+            batch_export,
+            start_at=dt.datetime(2021, 1, 1, tzinfo=dt.UTC),
+            end_at=dt.datetime(2021, 1, 2, tzinfo=dt.UTC),
+        )
+
+        assert result.total_records_count is None
+        assert result.adjusted_start_at == dt.datetime(2021, 1, 1, tzinfo=dt.UTC).isoformat()

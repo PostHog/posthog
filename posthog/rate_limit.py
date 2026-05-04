@@ -144,6 +144,21 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
         except KeyError:
             return None
 
+    @staticmethod
+    def safely_get_organization_id_from_view(view):
+        """
+        Gets the organization_id from a view without throwing.
+
+        `organization_id` on TeamAndOrgViewSetMixin is a @cached_property that can raise
+        `NotFound` when the caller has no current organization or the parent route has
+        no organization_id kwarg. Hence this method mirrors safely_get_team_id_from_view
+        but catches broader exceptions than KeyError.
+        """
+        try:
+            return getattr(view, "organization_id", None)
+        except Exception:
+            return None
+
     def load_team_rate_limit(self, team_id):
         # try loading from cache
         rate_limit_cache_key = f"team_ratelimit_{self.scope}_{team_id}"
@@ -613,6 +628,22 @@ class UserEmailVerificationThrottle(UserOrEmailRateThrottle):
     rate = "6/day"
 
 
+class OnboardingDelegationThrottle(UserRateThrottle):
+    # Delegation sends PostHog-branded emails to caller-supplied recipients, so we cap it tightly
+    # to prevent a compromised admin session (or a misbehaving integration) from using the endpoint
+    # as a spam cannon.
+    scope = "onboarding_delegation"
+    rate = "10/hour"
+
+
+class OnboardingSkipThrottle(UserRateThrottle):
+    # Each skip call opens an atomic transaction, may delete a delegation invite (firing
+    # signals), and queues an analytics event. Cap repeated calls so a misbehaving client
+    # can't churn the user row and the activity log.
+    scope = "onboarding_skip"
+    rate = "30/hour"
+
+
 class SetupWizardAuthenticationRateThrottle(UserRateThrottle):
     # Throttle class that is applied for authenticating the setup wizard
     # This is more aggressive than other throttles because the wizard makes LLM calls
@@ -818,6 +849,79 @@ class SubscriptionTestDeliveryThrottle(PersonalApiKeyOrUserRateThrottle):
         team_id = self.safely_get_team_id_from_view(view)
         if team_id:
             return self.cache_format % {"scope": self.scope, "ident": f"team_{team_id}"}
+
+
+class _OrganizationInviteRateThrottleBase(PersonalApiKeyOrUserRateThrottle):
+    # Cap how many organization invites a single organization can create in a
+    # given window. A malicious member can otherwise use the invite flow to
+    # spam arbitrary email addresses with PostHog-branded invitations, since
+    # the target_email is user-controlled.
+    #
+    # Keyed per organization (not per user, not per personal API key) so the
+    # limit cannot be bypassed by rotating keys or by splitting the attack
+    # across multiple members of the same org.
+    #
+    # Counts invites, not requests: the /bulk endpoint accepts up to 20
+    # invites per HTTP request, so counting requests would let a caller emit
+    # num_requests * 20 invites per window. Subclasses define the window
+    # (burst vs sustained); the counting logic lives here.
+    def get_cache_key(self, request, view):
+        organization_id = self.safely_get_organization_id_from_view(view)
+        if organization_id:
+            return self.cache_format % {"scope": self.scope, "ident": f"org_{organization_id}"}
+        return super().get_cache_key(request, view)
+
+    def allow_request(self, request, view):
+        if not is_rate_limit_enabled(round(time.time() / 60)):
+            return True
+
+        if self.rate is None:
+            return True
+        assert self.num_requests is not None
+        assert self.duration is not None
+
+        try:
+            self.key = self.get_cache_key(request, view)
+            if self.key is None:
+                return True
+
+            count = _resolve_invite_count(request)
+            self.history = self.cache.get(self.key, [])
+            self.now = self.timer()
+
+            while self.history and self.history[-1] <= self.now - self.duration:
+                self.history.pop()
+
+            if len(self.history) + count > self.num_requests:
+                return self.throttle_failure()
+
+            self.history = [self.now] * count + self.history
+            self.cache.set(self.key, self.history, self.duration)
+            return True
+        except Exception as e:
+            capture_exception(e)
+            return True
+
+
+def _resolve_invite_count(request) -> int:
+    """Count invites being created by this request: 1 for single-create, len(data) for bulk."""
+    try:
+        data = getattr(request, "data", None)
+    except Exception:
+        return 1
+    if isinstance(data, list):
+        return max(1, len(data))
+    return 1
+
+
+class OrganizationInviteBurstThrottle(_OrganizationInviteRateThrottleBase):
+    scope = "organization_invite_burst"
+    rate = "50/hour"
+
+
+class OrganizationInviteSustainedThrottle(_OrganizationInviteRateThrottleBase):
+    scope = "organization_invite_sustained"
+    rate = "100/day"
 
 
 class GitHubRepositoryRefreshThrottle(PersonalApiKeyOrUserRateThrottle):

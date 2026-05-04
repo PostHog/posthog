@@ -61,6 +61,55 @@ def delete_expired_exported_assets() -> None:
     ExportedAsset.delete_expired_assets()
 
 
+@shared_task(ignore_result=True, soft_time_limit=300, time_limit=360)
+def delete_expired_delegation_invites() -> None:
+    """Delete delegation invites that have passed their expiry.
+
+    The `pre_delete` receiver on OrganizationInvite handles un-suppressing onboarding
+    for the delegator, so this runs the existing cancellation path without bespoke
+    state-clearing logic here. Without this periodic sweep, natural expiry leaves
+    delegators stranded on the "waiting for teammate" screen indefinitely.
+
+    The sweep is bounded to a single batch per run; if more invites remain, the next
+    scheduled run picks them up. Materializing ids first (rather than iterating a
+    QuerySet while deleting from the same table) avoids server-side cursor invalidation
+    on Postgres.
+    """
+    from posthog.constants import INVITE_DAYS_VALIDITY
+    from posthog.models import OrganizationInvite
+
+    BATCH_SIZE = 500
+
+    cutoff = timezone.now() - datetime.timedelta(days=INVITE_DAYS_VALIDITY)
+    expired_ids = list(
+        OrganizationInvite.objects.filter(is_setup_delegation=True, created_at__lt=cutoff)
+        .order_by("created_at")
+        .values_list("id", flat=True)[:BATCH_SIZE]
+    )
+    swept = 0
+    errors = 0
+    # Per-row instance .delete() preserves ModelActivityMixin's "deleted" activity-log
+    # signal, which bulk QuerySet .delete() bypasses. Wrap each delete so one concurrent
+    # acceptance race (use() deleting the row first) can't break the entire sweep.
+    for invite_id in expired_ids:
+        invite = OrganizationInvite.objects.filter(pk=invite_id).first()
+        if invite is None:
+            continue
+        try:
+            invite.delete()
+            swept += 1
+        except Exception as exc:  # noqa: BLE001 - one invite must not block the sweep
+            errors += 1
+            capture_exception(exc)
+    logger.info(
+        "delete_expired_delegation_invites.sweep_done",
+        candidates=len(expired_ids),
+        swept=swept,
+        errors=errors,
+        batch_size=BATCH_SIZE,
+    )
+
+
 @shared_task(ignore_result=True)
 def clear_expired_sessions() -> None:
     from django.contrib.sessions.models import Session
@@ -496,29 +545,32 @@ def capture_task_run_state_metrics() -> None:
 
     try:
         with pushed_metrics_registry("tasks_run_state") as registry:
+            # NOTE: the label is named `run_environment` (not `environment`) to avoid collision with the
+            # deployment-environment label applied by the pushgateway scrape target, which would otherwise
+            # clobber the TaskRun.Environment value on ingest.
             runs_in_status_gauge = Gauge(
                 "posthog_tasks_runs_in_status",
-                "Number of open TaskRun rows by status, origin_product, and environment.",
+                "Number of open TaskRun rows by status, origin_product, and run_environment.",
                 registry=registry,
-                labelnames=["status", "origin_product", "environment"],
+                labelnames=["status", "origin_product", "run_environment"],
             )
             oldest_age_gauge = Gauge(
                 "posthog_tasks_oldest_open_run_age_seconds",
-                "Age (seconds) of the oldest TaskRun still in a given non-terminal status, by origin_product and environment.",
+                "Age (seconds) of the oldest TaskRun still in a given non-terminal status, by origin_product and run_environment.",
                 registry=registry,
-                labelnames=["status", "origin_product", "environment"],
+                labelnames=["status", "origin_product", "run_environment"],
             )
             runs_created_1h_gauge = Gauge(
                 "posthog_tasks_runs_created_1h",
-                "Number of TaskRun rows created in the last hour, by origin_product and environment.",
+                "Number of TaskRun rows created in the last hour, by origin_product and run_environment.",
                 registry=registry,
-                labelnames=["origin_product", "environment"],
+                labelnames=["origin_product", "run_environment"],
             )
             runs_terminal_1h_gauge = Gauge(
                 "posthog_tasks_runs_terminal_1h",
-                "Number of TaskRun rows that reached a terminal status in the last hour, by status, origin_product, and environment.",
+                "Number of TaskRun rows that reached a terminal status in the last hour, by status, origin_product, and run_environment.",
                 registry=registry,
-                labelnames=["status", "origin_product", "environment"],
+                labelnames=["status", "origin_product", "run_environment"],
             )
 
             counts = (
@@ -530,7 +582,7 @@ def capture_task_run_state_metrics() -> None:
                 runs_in_status_gauge.labels(
                     status=row["status"],
                     origin_product=row["task__origin_product"] or "unknown",
-                    environment=row["environment"],
+                    run_environment=row["environment"],
                 ).set(row["count"])
 
             oldest = (
@@ -544,7 +596,7 @@ def capture_task_run_state_metrics() -> None:
                 oldest_age_gauge.labels(
                     status=row["status"],
                     origin_product=row["task__origin_product"] or "unknown",
-                    environment=row["environment"],
+                    run_environment=row["environment"],
                 ).set(age_seconds)
 
             created_1h = (
@@ -555,7 +607,7 @@ def capture_task_run_state_metrics() -> None:
             for row in created_1h:
                 runs_created_1h_gauge.labels(
                     origin_product=row["task__origin_product"] or "unknown",
-                    environment=row["environment"],
+                    run_environment=row["environment"],
                 ).set(row["count"])
 
             # Terminal runs: approximated by updated_at since completed_at can be null for FAILED/CANCELLED
@@ -572,7 +624,7 @@ def capture_task_run_state_metrics() -> None:
                 runs_terminal_1h_gauge.labels(
                     status=row["status"],
                     origin_product=row["task__origin_product"] or "unknown",
-                    environment=row["environment"],
+                    run_environment=row["environment"],
                 ).set(row["count"])
 
     except Exception as err:

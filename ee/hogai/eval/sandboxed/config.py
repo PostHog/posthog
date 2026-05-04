@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+
+from products.tasks.backend.services.custom_prompt_runner import CustomPromptSandboxContext
 
 
 class SandboxedEvalCase(BaseModel):
     """A single eval case for the sandboxed coding agent."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     name: str
     """Human-readable name for this eval case."""
@@ -26,6 +31,17 @@ class SandboxedEvalCase(BaseModel):
 
     metadata: dict[str, Any] = Field(default_factory=dict)
     """Arbitrary metadata for tracking and filtering."""
+
+    setup: Callable[[CustomPromptSandboxContext], dict[str, Any]] | None = Field(
+        default=None,
+        exclude=True,
+    )
+    """Optional pre-run hook invoked once the per-case team/user has been
+    provisioned, before the agent prompt is dispatched. Returns a dict that
+    is merged into the task output under ``seed`` so scorers can read seeded
+    entity IDs. Excluded from serialization — the callable never round-trips
+    through Braintrust telemetry.
+    """
 
 
 class AgentArtifacts(BaseModel):

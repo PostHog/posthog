@@ -4,7 +4,7 @@
        Shared menu visuals — dropdown-menu, context-menu, menubar, submenus
        ========================================================================= */
     .quill-menu__content {
-        z-index: 50;
+        z-index: var(--quill-z-popover, 50);
         min-width: 8rem;
         max-height: var(--available-height);
         padding: 0.25rem;

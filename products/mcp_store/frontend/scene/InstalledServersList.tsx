@@ -50,7 +50,7 @@ export function InstalledServersList(): JSX.Element | null {
                                 onClick={() => selectServer(installation.id)}
                             >
                                 <div className="flex items-center gap-3">
-                                    <ServerIcon iconKey={null} name={installation.name} size={32} />
+                                    <ServerIcon iconKey={installation.icon_key} size={32} />
                                     <div className="flex-1 min-w-0">
                                         <h4 className="mb-0 truncate">{installation.name}</h4>
                                         <div className="text-xs text-secondary truncate">

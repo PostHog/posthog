@@ -2,9 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonDialog, LemonInput, LemonTable, Spinner } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { DatabaseSchemaDataWarehouseTable } from '~/queries/schema/schema-general'
@@ -15,28 +13,24 @@ import { sourcesDataLogic } from '../logics/sourcesDataLogic'
 import { SourceIcon, mapUrlToProvider } from './SourceIcon'
 
 export function SelfManagedSourcesTable(): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
     const { filteredSelfManagedTables, searchTerm, sourceReloadingById } = useValues(sourceManagementLogic)
     const { deleteSelfManagedTable, refreshSelfManagedTableSchema, setSearchTerm, reloadSource, deleteSource } =
         useActions(sourceManagementLogic)
     const { dataWarehouseSources, dataWarehouseSourcesLoading } = useValues(sourcesDataLogic)
-    const isDirectQueryEnabled = !!featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]
 
-    const directSources = isDirectQueryEnabled
-        ? (dataWarehouseSources?.results ?? [])
-              .filter((source) => source.access_method?.toLowerCase() === 'direct')
-              .filter((source) => {
-                  if (!searchTerm?.trim()) {
-                      return true
-                  }
-                  const normalizedSearch = searchTerm.toLowerCase()
-                  return (
-                      source.source_type.toLowerCase().includes(normalizedSearch) ||
-                      source.prefix?.toLowerCase().includes(normalizedSearch) ||
-                      source.description?.toLowerCase().includes(normalizedSearch)
-                  )
-              })
-        : []
+    const directSources = (dataWarehouseSources?.results ?? [])
+        .filter((source) => source.access_method?.toLowerCase() === 'direct')
+        .filter((source) => {
+            if (!searchTerm?.trim()) {
+                return true
+            }
+            const normalizedSearch = searchTerm.toLowerCase()
+            return (
+                source.source_type.toLowerCase().includes(normalizedSearch) ||
+                source.prefix?.toLowerCase().includes(normalizedSearch) ||
+                source.description?.toLowerCase().includes(normalizedSearch)
+            )
+        })
 
     const rows: Array<
         { kind: 'direct'; source: ExternalDataSource } | { kind: 'table'; table: DatabaseSchemaDataWarehouseTable }
@@ -53,7 +47,7 @@ export function SelfManagedSourcesTable(): JSX.Element {
             <LemonTable
                 id="self-managed-sources"
                 dataSource={rows}
-                loading={isDirectQueryEnabled ? dataWarehouseSourcesLoading : undefined}
+                loading={dataWarehouseSourcesLoading}
                 pagination={{ pageSize: 10 }}
                 columns={[
                     {

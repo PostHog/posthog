@@ -8,10 +8,12 @@ from posthog.schema import (
 )
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from posthog.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.convex.convex import (
+    ConvexResumeConfig,
     convex_source,
     get_json_schemas,
     validate_credentials as validate_convex_credentials,
@@ -23,7 +25,7 @@ from products.data_warehouse.backend.types import ExternalDataSourceType, Increm
 
 
 @SourceRegistry.register
-class ConvexSource(SimpleSource[ConvexSourceConfig]):
+class ConvexSource(ResumableSource[ConvexSourceConfig, ConvexResumeConfig]):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.CONVEX
@@ -50,6 +52,7 @@ You can find your deployment URL and deploy key in your [Convex Dashboard](https
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="https://your-deployment-123.convex.cloud",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="deploy_key",
@@ -57,6 +60,7 @@ You can find your deployment URL and deploy key in your [Convex Dashboard](https
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="prod:...",
+                        secret=True,
                     ),
                 ],
             ),
@@ -112,7 +116,15 @@ You can find your deployment URL and deploy key in your [Convex Dashboard](https
     ) -> tuple[bool, str | None]:
         return validate_convex_credentials(config.deploy_url, config.deploy_key)
 
-    def source_for_pipeline(self, config: ConvexSourceConfig, inputs: SourceInputs) -> SourceResponse:
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[ConvexResumeConfig]:
+        return ResumableSourceManager[ConvexResumeConfig](inputs, ConvexResumeConfig)
+
+    def source_for_pipeline(
+        self,
+        config: ConvexSourceConfig,
+        resumable_source_manager: ResumableSourceManager[ConvexResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
         return convex_source(
             deploy_url=config.deploy_url,
             deploy_key=config.deploy_key,
@@ -121,4 +133,5 @@ You can find your deployment URL and deploy key in your [Convex Dashboard](https
             job_id=inputs.job_id,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value,
+            resumable_source_manager=resumable_source_manager,
         )

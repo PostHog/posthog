@@ -1002,11 +1002,29 @@ async def _process_signal_batch(
     report_contexts: dict[str, ReportContext] = report_contexts_result.contexts
 
     # === SEQUENTIAL PHASE (steps 5-7) ===
+    _PATCH_PARALLEL_SEQUENTIAL = "parallel-sequential-phase-v1"
+    _use_parallel_sequential = workflow.patched(_PATCH_PARALLEL_SEQUENTIAL)
     processed_batch_signals: list[_ProcessedBatchSignal] = []
     promoted_reports: dict[str, tuple[SignalReportSummaryWorkflowInputs, int]] = {}
     emitted_signals: list[tuple[str, AssignAndEmitSignalOutput]] = []
 
-    for i, signal in enumerate(batch):
+    if _use_parallel_sequential:
+        from products.signals.backend.temporal.parallel_grouping import process_sequential_phase_parallel
+
+        _par = await process_sequential_phase_parallel(
+            batch=batch,
+            team_id=team_id,
+            per_signal_queries=per_signal_queries,
+            per_signal_query_embeddings=per_signal_query_embeddings,
+            per_signal_ch_results=per_signal_ch_results,
+            signal_embeddings=[e.embedding for e in signal_embeddings],
+            report_contexts=report_contexts,
+        )
+        dropped += _par.dropped
+        promoted_reports = _par.promoted_reports
+        emitted_signals = _par.emitted_signals
+
+    for i, signal in enumerate(batch if not _use_parallel_sequential else []):
         signal_id = str(uuid.uuid4())
         try:
             # Augment CH candidates with earlier-in-batch signals

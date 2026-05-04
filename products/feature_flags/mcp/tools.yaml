@@ -18,6 +18,39 @@ ui_apps:
         item_name_field: key
         click_prop: onFlagClick
 tools:
+    create-feature-flag:
+        operation: feature_flags_create
+        enabled: true
+        scopes:
+            - feature_flag:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{id}'
+        title: Create feature flag
+        description: |
+            Create a feature flag in the current project.
+        include_params:
+            - key
+            - name
+            - filters
+            - active
+            - tags
+            - evaluation_contexts
+    delete-feature-flag:
+        operation: feature_flags_destroy
+        enabled: true
+        scopes:
+            - feature_flag:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete feature flag
+        description: |
+            Soft-delete a feature flag by ID in the current project.
+        soft_delete: true
     feature-flag-get-all:
         operation: feature_flags_list
         enabled: true
@@ -59,62 +92,6 @@ tools:
         title: Get feature flag definition
         description: |
             Get a feature flag by ID.
-    create-feature-flag:
-        operation: feature_flags_create
-        enabled: true
-        scopes:
-            - feature_flag:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: false
-        enrich_url: '{id}'
-        title: Create feature flag
-        description: |
-            Create a feature flag in the current project.
-        include_params:
-            - key
-            - name
-            - filters
-            - active
-            - tags
-            - evaluation_contexts
-    update-feature-flag:
-        operation: feature_flags_partial_update
-        enabled: true
-        scopes:
-            - feature_flag:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: true
-        enrich_url: '{id}'
-        title: Update feature flag
-        description: |
-            Update a feature flag by ID in the current project.
-        include_params:
-            - key
-            - name
-            - filters
-            - active
-            - tags
-            - evaluation_contexts
-    delete-feature-flag:
-        operation: feature_flags_destroy
-        enabled: true
-        scopes:
-            - feature_flag:write
-        annotations:
-            readOnly: false
-            destructive: true
-            idempotent: true
-        title: Delete feature flag
-        description: |
-            Soft-delete a feature flag by ID in the current project.
-        soft_delete: true
-    feature-flags-update:
-        operation: feature_flags_update
-        enabled: false
     feature-flags-activity-retrieve:
         operation: feature_flags_activity_retrieve
         enabled: true
@@ -128,6 +105,32 @@ tools:
         description: >
             Get the audit trail for a specific feature flag by ID. Returns a paginated list of changes including who
             made changes, what was changed, and when. Use limit and page query params for pagination.
+    feature-flags-all-activity-retrieve:
+        operation: feature_flags_all_activity_retrieve
+        enabled: false
+    feature-flags-bulk-delete-create:
+        operation: feature_flags_bulk_delete_create
+        enabled: false
+    feature-flags-bulk-keys-create:
+        operation: feature_flags_bulk_keys_create
+        enabled: false
+    feature-flags-bulk-update-tags-create:
+        operation: feature_flags_bulk_update_tags_create
+        enabled: false
+    feature-flags-copy-flags-create:
+        operation: feature_flags_copy_flags_create
+        enabled: true
+        scopes:
+            - feature_flag:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Copy feature flag across projects
+        description: >
+            Copy a feature flag from one project to other projects within the same organization. Provide the flag key,
+            source project ID, and a list of target project IDs. Optionally copy scheduled changes with copy_schedule.
+            Returns lists of successful and failed copies.
     feature-flags-create-static-cohort-for-flag-create:
         operation: feature_flags_create_static_cohort_for_flag_create
         enabled: false
@@ -149,28 +152,6 @@ tools:
             before making changes to a flag's rollout conditions or disabling it.
     feature-flags-enrich-usage-dashboard-create:
         operation: feature_flags_enrich_usage_dashboard_create
-        enabled: false
-    feature-flags-remote-config-retrieve:
-        operation: feature_flags_remote_config_retrieve
-        enabled: false
-    feature-flags-status-retrieve:
-        operation: feature_flags_status_retrieve
-        enabled: true
-        scopes:
-            - feature_flag:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Get feature flag status
-        description: >
-            Check the health and evaluation status of a feature flag by ID. Returns a status (active, stale, deleted, or
-            unknown) and a human-readable reason explaining the status.
-    feature-flags-bulk-delete-create:
-        operation: feature_flags_bulk_delete_create
-        enabled: false
-    feature-flags-bulk-keys-create:
-        operation: feature_flags_bulk_keys_create
         enabled: false
     feature-flags-evaluation-reasons-retrieve:
         operation: feature_flags_evaluation_reasons_retrieve
@@ -195,6 +176,25 @@ tools:
     feature-flags-my-flags-retrieve:
         operation: feature_flags_my_flags_retrieve
         enabled: false
+    feature-flags-remote-config-retrieve:
+        operation: feature_flags_remote_config_retrieve
+        enabled: false
+    feature-flags-status-retrieve:
+        operation: feature_flags_status_retrieve
+        enabled: true
+        scopes:
+            - feature_flag:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get feature flag status
+        description: >
+            Check the health and evaluation status of a feature flag by ID. Returns a status (active, stale, deleted, or
+            unknown) and a human-readable reason explaining the status.
+    feature-flags-update:
+        operation: feature_flags_update
+        enabled: false
     feature-flags-user-blast-radius-create:
         operation: feature_flags_user_blast_radius_create
         enabled: true
@@ -208,8 +208,14 @@ tools:
         description: >
             Assess the impact of a feature flag release condition before applying it. Provide a condition object and
             optionally a group_type_index to see how many users would be affected relative to the total user count.
-    feature-flags-copy-flags-create:
-        operation: feature_flags_copy_flags_create
+    feature-flags-versions-retrieve:
+        operation: feature_flags_versions_retrieve
+        enabled: false
+    org-feature-flags-retrieve:
+        operation: org_feature_flags_retrieve
+        enabled: false
+    scheduled-changes-create:
+        operation: scheduled_changes_create
         enabled: true
         scopes:
             - feature_flag:write
@@ -217,11 +223,38 @@ tools:
             readOnly: false
             destructive: false
             idempotent: false
-        title: Copy feature flag across projects
+        title: Create a scheduled change
         description: >
-            Copy a feature flag from one project to other projects within the same organization. Provide the flag key,
-            source project ID, and a list of target project IDs. Optionally copy scheduled changes with copy_schedule.
-            Returns lists of successful and failed copies.
+            Schedule a future change to a feature flag. Supported operations: 'update_status' (enable/disable),
+            'add_release_condition', and 'update_variants'. Provide the flag ID as record_id, model_name as
+            "FeatureFlag", a payload with the operation and value, and a scheduled_at datetime.
+        exclude_params:
+            - executed_at
+    scheduled-changes-delete:
+        operation: scheduled_changes_destroy
+        enabled: true
+        scopes:
+            - feature_flag:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete a scheduled change
+        description: |
+            Delete a scheduled change by ID. This permanently removes the scheduled change and it will not be executed.
+    scheduled-changes-get:
+        operation: scheduled_changes_retrieve
+        enabled: true
+        scopes:
+            - feature_flag:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get a scheduled change
+        description: >
+            Get a single scheduled change by ID. Returns the full details including the payload, schedule timing,
+            execution status, and any failure reason.
     scheduled-changes-list:
         operation: scheduled_changes_list
         enabled: true
@@ -244,35 +277,6 @@ tools:
             record_id:
                 description: |
                     Filter by the ID of a specific feature flag.
-    scheduled-changes-get:
-        operation: scheduled_changes_retrieve
-        enabled: true
-        scopes:
-            - feature_flag:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Get a scheduled change
-        description: >
-            Get a single scheduled change by ID. Returns the full details including the payload, schedule timing,
-            execution status, and any failure reason.
-    scheduled-changes-create:
-        operation: scheduled_changes_create
-        enabled: true
-        scopes:
-            - feature_flag:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: false
-        title: Create a scheduled change
-        description: >
-            Schedule a future change to a feature flag. Supported operations: 'update_status' (enable/disable),
-            'add_release_condition', and 'update_variants'. Provide the flag ID as record_id, model_name as
-            "FeatureFlag", a payload with the operation and value, and a scheduled_at datetime.
-        exclude_params:
-            - executed_at
     scheduled-changes-update:
         operation: scheduled_changes_partial_update
         enabled: true
@@ -291,27 +295,23 @@ tools:
     scheduled-changes-update-full:
         operation: scheduled_changes_update
         enabled: false
-    scheduled-changes-delete:
-        operation: scheduled_changes_destroy
+    update-feature-flag:
+        operation: feature_flags_partial_update
         enabled: true
         scopes:
             - feature_flag:write
         annotations:
             readOnly: false
-            destructive: true
+            destructive: false
             idempotent: true
-        title: Delete a scheduled change
+        enrich_url: '{id}'
+        title: Update feature flag
         description: |
-            Delete a scheduled change by ID. This permanently removes the scheduled change and it will not be executed.
-    feature-flags-all-activity-retrieve:
-        operation: feature_flags_all_activity_retrieve
-        enabled: false
-    feature-flags-bulk-update-tags-create:
-        operation: feature_flags_bulk_update_tags_create
-        enabled: false
-    feature-flags-versions-retrieve:
-        operation: feature_flags_versions_retrieve
-        enabled: false
-    org-feature-flags-retrieve:
-        operation: org_feature_flags_retrieve
-        enabled: false
+            Update a feature flag by ID in the current project.
+        include_params:
+            - key
+            - name
+            - filters
+            - active
+            - tags
+            - evaluation_contexts

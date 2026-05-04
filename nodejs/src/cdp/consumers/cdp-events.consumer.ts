@@ -74,10 +74,16 @@ export class CdpEventsConsumer<
         return {
             // This is all IO so we can set them off in the background and start processing the next batch
             backgroundTask: Promise.all([
-                this.cyclotronJobQueue.queueInvocations(invocationsToBeQueued),
-                this.hogFunctionMonitoringService.flush().catch((err) => {
-                    captureException(err)
-                    logger.error('🔴', 'Error producing queued messages for monitoring', { err })
+                instrumentFn({ key: 'cdp.background_task.queue_invocations', sendException: false }, () =>
+                    this.cyclotronJobQueue.queueInvocations(invocationsToBeQueued)
+                ),
+                instrumentFn({ key: 'cdp.background_task.monitoring_flush', sendException: false }, async () => {
+                    try {
+                        await this.hogFunctionMonitoringService.flush()
+                    } catch (err) {
+                        captureException(err)
+                        logger.error('🔴', 'Error producing queued messages for monitoring', { err })
+                    }
                 }),
             ]),
             invocations: invocationsToBeQueued,
@@ -116,7 +122,6 @@ export class CdpEventsConsumer<
 
                     this.hogFunctionMonitoringService.queueAppMetrics(metrics, 'hog_function')
                     this.hogFunctionMonitoringService.queueLogs(logs, 'hog_function')
-                    this.heartbeat()
 
                     return invocations
                 })
@@ -138,7 +143,7 @@ export class CdpEventsConsumer<
                 try {
                     const rateLimit = rateLimits[index][1]
                     if (rateLimit.isRateLimited) {
-                        counterRateLimited.labels({ kind: 'hog_function' }).inc()
+                        counterRateLimited.labels({ kind: 'hog_function', function_id: item.functionId }).inc()
                         // NOTE: We don't return here as we are just monitoring this feature currently
                         // this.hogFunctionMonitoringService.queueAppMetric(
                         //     {
@@ -273,7 +278,6 @@ export class CdpEventsConsumer<
 
                     this.hogFunctionMonitoringService.queueAppMetrics(metrics, 'hog_flow')
                     this.hogFunctionMonitoringService.queueLogs(logs, 'hog_flow')
-                    this.heartbeat()
 
                     return invocations
                 })
@@ -294,7 +298,7 @@ export class CdpEventsConsumer<
                 try {
                     const rateLimit = rateLimits[index][1]
                     if (rateLimit.isRateLimited) {
-                        counterRateLimited.labels({ kind: 'hog_flow' }).inc()
+                        counterRateLimited.labels({ kind: 'hog_flow', function_id: item.functionId }).inc()
                         this.hogFunctionMonitoringService.queueAppMetric(
                             {
                                 team_id: item.teamId,

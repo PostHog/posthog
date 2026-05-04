@@ -15,10 +15,12 @@ from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
 from posthog.ducklake.common import (
+    _get_org_id_for_team,
     attach_catalog,
     get_config,
-    get_duckgres_server_for_team,
-    get_ducklake_catalog_for_team,
+    get_duckgres_server_for_organization,
+    get_ducklake_catalog_by_team_org,
+    get_ducklake_catalog_for_organization,
     is_dev_mode,
     sanitize_ducklake_identifier,
 )
@@ -197,7 +199,7 @@ async def prepare_data_imports_ducklake_metadata_activity(
 
         staging_uri: str | None = None
         if not is_dev_mode():
-            catalog = await database_sync_to_async(get_ducklake_catalog_for_team)(inputs.team_id)
+            catalog = await database_sync_to_async(get_ducklake_catalog_by_team_org)(inputs.team_id)
             if catalog:
                 staging_uri = compute_staging_uri(source_table_uri, catalog.bucket)
 
@@ -262,8 +264,9 @@ def copy_data_imports_to_ducklake_activity(inputs: DuckLakeCopyDataImportsActivi
 
 def _copy_data_imports_via_duckgres(inputs: DuckLakeCopyDataImportsActivityInputs, logger: typing.Any) -> None:
     """Stage Delta files and create the DuckLake table via duckgres."""
-    catalog = get_ducklake_catalog_for_team(inputs.team_id)
-    server = get_duckgres_server_for_team(inputs.team_id)
+    org_id = _get_org_id_for_team(inputs.team_id)
+    catalog = get_ducklake_catalog_for_organization(org_id)
+    server = get_duckgres_server_for_organization(org_id)
     if catalog is None:
         raise ApplicationError(f"No DuckLakeCatalog configured for team {inputs.team_id}", non_retryable=True)
     if server is None:
@@ -311,7 +314,7 @@ class DuckLakeDataImportsStagingCleanupInputs:
 def cleanup_data_imports_staging_activity(inputs: DuckLakeDataImportsStagingCleanupInputs) -> None:
     """Clean up staged Delta files after successful verification."""
     bind_contextvars(team_id=inputs.team_id)
-    catalog = get_ducklake_catalog_for_team(inputs.team_id)
+    catalog = get_ducklake_catalog_by_team_org(inputs.team_id)
     if catalog is None:
         return
     cleanup_staged_files(
@@ -383,7 +386,7 @@ def verify_data_imports_ducklake_copy_activity(
                 config = get_config()
                 configure_connection(conn)
             else:
-                catalog = get_ducklake_catalog_for_team(inputs.team_id)
+                catalog = get_ducklake_catalog_by_team_org(inputs.team_id)
                 if catalog is None:
                     raise ApplicationError(
                         f"No DuckLakeCatalog configured for team {inputs.team_id}", non_retryable=True

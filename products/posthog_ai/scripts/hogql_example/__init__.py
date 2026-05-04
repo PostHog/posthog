@@ -47,7 +47,7 @@ def render_hogql_example(query_dict: dict[str, Any]) -> str:
     # Skip `transformers` when freezegun walks sys.modules: it has a broken
     # lazy-import path that crashes `getattr`, leaving a partial monkey-patch
     # on `time.time` that poisons the whole process.
-    freezegun.configure(extend_ignore_list=["transformers"])  # type: ignore[attr-defined]
+    freezegun.configure(extend_ignore_list=["transformers"])
 
     from posthog.schema import HogQLFilters
 

@@ -4,13 +4,14 @@ from datetime import datetime, timedelta
 from uuid import uuid4
 
 import pytest
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 import structlog
 from parameterized import parameterized
 
 from posthog.models.integration import Integration
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.generated_configs import TikTokAdsSourceConfig
 from posthog.temporal.data_imports.sources.tiktok_ads.source import TikTokAdsSource
 
@@ -102,6 +103,17 @@ class TestTikTokAdsSource:
                 assert schema.supports_incremental is False
                 assert schema.incremental_fields == []
 
+    def test_get_resumable_source_manager(self):
+        """The source must expose a ResumableSourceManager instance."""
+        inputs = MagicMock()
+        inputs.team_id = self.team_id
+        inputs.job_id = self.job_id
+        inputs.logger = MagicMock()
+
+        manager = self.source.get_resumable_source_manager(inputs)
+
+        assert isinstance(manager, ResumableSourceManager)
+
     @patch("posthog.temporal.data_imports.sources.tiktok_ads.source.tiktok_ads_source")
     def test_source_for_pipeline_success(self, mock_tiktok_source):
         """Test successful pipeline source creation."""
@@ -122,11 +134,12 @@ class TestTikTokAdsSource:
 
         mock_response = Mock()
         mock_tiktok_source.return_value = mock_response
+        manager = MagicMock()
 
         with patch.object(self.source, "get_oauth_integration") as mock_get_integration:
             mock_get_integration.return_value = self.mock_integration
 
-            result = self.source.source_for_pipeline(self.config, inputs)
+            result = self.source.source_for_pipeline(self.config, manager, inputs)
 
             assert result == mock_response
             mock_tiktok_source.assert_called_once_with(
@@ -135,6 +148,7 @@ class TestTikTokAdsSource:
                 team_id=self.team_id,
                 job_id=self.job_id,
                 access_token="test_access_token",
+                resumable_source_manager=manager,
                 should_use_incremental_field=True,
                 db_incremental_field_last_value=inputs.db_incremental_field_last_value,
             )
@@ -162,7 +176,7 @@ class TestTikTokAdsSource:
             mock_get_integration.return_value = self.mock_integration
 
             with pytest.raises(ValueError, match="TikTok Ads access token not found"):
-                self.source.source_for_pipeline(self.config, inputs)
+                self.source.source_for_pipeline(self.config, MagicMock(), inputs)
 
     def test_validate_credentials_exception_handling(self):
         """Test credential validation handles exceptions properly."""

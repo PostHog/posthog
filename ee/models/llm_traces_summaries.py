@@ -24,7 +24,7 @@ class LLMTraceSummary(UUIDTModel):
     created_at = models.DateTimeField(auto_now_add=True, null=True)
     updated_at = models.DateTimeField(auto_now=True, null=True)
     trace_summary_type = models.CharField(
-        max_length=100, choices=LLMTraceSummaryType.choices, default=LLMTraceSummaryType.ISSUES_SEARCH
+        max_length=100, choices=LLMTraceSummaryType, default=LLMTraceSummaryType.ISSUES_SEARCH
     )
     trace_id = models.CharField(max_length=255, help_text="Trace ID")
     summary = models.CharField(max_length=1000, help_text="Trace summary")

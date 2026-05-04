@@ -81,7 +81,7 @@ class BatchExportDestination(UUIDTModel):
     }
 
     type = models.CharField(
-        choices=Destination.choices,
+        choices=Destination,
         max_length=64,
         help_text="A choice of supported BatchExportDestination types.",
     )
@@ -135,7 +135,7 @@ class BatchExportRun(UUIDTModel):
         on_delete=models.CASCADE,
         help_text="The BatchExport this run belongs to.",
     )
-    status = models.CharField(choices=Status.choices, max_length=64, help_text="The status of this run.")
+    status = models.CharField(choices=Status, max_length=64, help_text="The status of this run.")
     records_completed = models.IntegerField(null=True, help_text="The number of records that have been exported.")
     records_failed = models.IntegerField(
         null=True,
@@ -259,7 +259,7 @@ class BatchExport(ModelActivityMixin, UUIDTModel):
         max_length=64,
         null=True,
         blank=True,
-        choices=Model.choices,
+        choices=Model,
         default=Model.EVENTS,
         help_text="Which model this BatchExport is exporting.",
     )
@@ -392,7 +392,7 @@ class BatchExportBackfill(UUIDTModel):
     )
     start_at = models.DateTimeField(help_text="The start of the data interval.", null=True)
     end_at = models.DateTimeField(help_text="The end of the data interval.", null=True)
-    status = models.CharField(choices=Status.choices, max_length=64, help_text="The status of this backfill.")
+    status = models.CharField(choices=Status, max_length=64, help_text="The status of this backfill.")
     created_at = models.DateTimeField(
         auto_now_add=True,
         help_text="The timestamp at which this BatchExportBackfill was created.",

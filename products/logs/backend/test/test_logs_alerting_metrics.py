@@ -1,9 +1,12 @@
 import datetime as dt
+from typing import Any
 
 import pytest
 from unittest.mock import MagicMock, patch
 
 from django.conf import settings
+
+from parameterized import parameterized
 
 from products.logs.backend.alert_state_machine import AlertState, NotificationAction
 from products.logs.backend.temporal.metrics import (
@@ -12,14 +15,23 @@ from products.logs.backend.temporal.metrics import (
     ExecutionTimeRecorder,
     LogsAlertingMetricsInterceptor,
     increment_check_errors,
+    increment_checkpoint_unavailable,
     increment_checks_total,
+    increment_cohort_save_fallback,
     increment_notification_failures,
     increment_state_transition,
     record_alerts_active,
     record_check_duration,
     record_checkpoint_lag,
+    record_clickhouse_duration,
+    record_cohort_event_insert_duration,
+    record_cohort_save_duration,
+    record_cohort_size,
+    record_cohort_update_duration,
+    record_pending_alerts,
     record_schedule_to_start_latency,
     record_scheduler_lag,
+    record_semaphore_wait,
 )
 
 
@@ -150,23 +162,126 @@ class TestRecordCheckpointLag:
         assert name == "logs_alerting_ingestion_checkpoint_lag_seconds"
         mock_gauge.set.assert_called_once_with(expected)
 
+
+class TestIncrementCheckpointUnavailable:
     @patch("products.logs.backend.temporal.metrics.get_metric_meter")
-    def test_sentinel_when_checkpoint_none(self, mock_get_meter: MagicMock):
+    def test_increments_counter(self, mock_get_meter: MagicMock):
         mock_meter = MagicMock()
-        mock_gauge = MagicMock()
-        mock_meter.create_gauge.return_value = mock_gauge
+        mock_counter = MagicMock()
+        mock_meter.create_counter.return_value = mock_counter
         mock_get_meter.return_value = mock_meter
 
-        record_checkpoint_lag(dt.datetime(2025, 1, 1, 0, 0, 0), None)
+        increment_checkpoint_unavailable()
 
-        mock_gauge.set.assert_called_once_with(-1)
+        (name, _description), _ = mock_meter.create_counter.call_args
+        assert name == "logs_alerting_checkpoint_unavailable_total"
+        mock_counter.add.assert_called_once_with(1)
 
 
 class TestRecordCheckDuration:
     @patch("products.logs.backend.temporal.metrics._record_histogram")
     def test_records_histogram_with_duration(self, mock_record: MagicMock):
         record_check_duration(150)
-        mock_record.assert_called_once_with("logs_alerting_check_duration_ms", "Per-alert evaluation duration", 150)
+        mock_record.assert_called_once_with(
+            "logs_alerting_check_duration_ms",
+            "Per-alert end-to-end duration (eval + dispatch); cohort bulk save excluded — see logs_alerting_cohort_save_ms",
+            150,
+        )
+
+
+class TestRecordClickhouseDuration:
+    @patch("products.logs.backend.temporal.metrics._record_histogram")
+    def test_records_histogram_with_duration(self, mock_record: MagicMock):
+        record_clickhouse_duration(2_500)
+        mock_record.assert_called_once_with(
+            "logs_alerting_clickhouse_duration_ms",
+            "ClickHouse query wall time for a single alert evaluation",
+            2_500,
+        )
+
+
+class TestRecordSemaphoreWait:
+    @patch("products.logs.backend.temporal.metrics._record_histogram")
+    def test_records_histogram_with_wait(self, mock_record: MagicMock):
+        record_semaphore_wait(800)
+        mock_record.assert_called_once_with(
+            "logs_alerting_semaphore_wait_ms",
+            "Time an alert spent waiting on the per-cycle concurrency semaphore",
+            800,
+        )
+
+
+class TestRecordCohortSaveSubstageDurations:
+    @parameterized.expand(
+        [
+            (
+                "save_total",
+                record_cohort_save_duration,
+                "logs_alerting_cohort_save_ms",
+                "Postgres write time for the per-cohort bulk save (full transaction: bulk_create + bulk_update)",
+                45,
+            ),
+            (
+                "event_insert",
+                record_cohort_event_insert_duration,
+                "logs_alerting_cohort_event_insert_ms",
+                "Postgres bulk_create time for LogsAlertEvent rows in a cohort (only on state changes or errors)",
+                12,
+            ),
+            (
+                "cohort_update",
+                record_cohort_update_duration,
+                "logs_alerting_cohort_update_ms",
+                "Postgres bulk_update time for LogsAlertConfiguration rows in a cohort",
+                28,
+            ),
+            (
+                "cohort_size",
+                record_cohort_size,
+                "logs_alerting_cohort_size",
+                "Number of alerts in a cohort sharing one batched ClickHouse query and one bulk Postgres save",
+                17,
+            ),
+        ]
+    )
+    @patch("products.logs.backend.temporal.metrics._record_histogram")
+    def test_records_histogram_with_duration(
+        self, _name: str, fn: Any, metric_name: str, description: str, sample_value: int, mock_record: MagicMock
+    ):
+        fn(sample_value)
+        mock_record.assert_called_once_with(metric_name, description, sample_value)
+
+
+class TestIncrementCohortSaveFallback:
+    @patch("products.logs.backend.temporal.metrics.get_metric_meter")
+    def test_increments_counter_with_reason(self, mock_get_meter: MagicMock):
+        mock_meter = MagicMock()
+        mock_counter = MagicMock()
+        mock_meter.create_counter.return_value = mock_counter
+        mock_get_meter.return_value = mock_meter
+
+        increment_cohort_save_fallback("integrity_error")
+
+        mock_get_meter.assert_called_once_with({"reason": "integrity_error"})
+        (name, _description), _ = mock_meter.create_counter.call_args
+        assert name == "logs_alerting_cohort_save_fallback_total"
+        mock_counter.add.assert_called_once_with(1)
+
+
+class TestRecordPendingAlerts:
+    @pytest.mark.parametrize("count", [42, 0])
+    @patch("products.logs.backend.temporal.metrics.get_metric_meter")
+    def test_sets_gauge_value(self, mock_get_meter: MagicMock, count: int):
+        mock_meter = MagicMock()
+        mock_gauge = MagicMock()
+        mock_meter.create_gauge.return_value = mock_gauge
+        mock_get_meter.return_value = mock_meter
+
+        record_pending_alerts(count)
+
+        (name, _description), _ = mock_meter.create_gauge.call_args
+        assert name == "logs_alerting_pending_alerts"
+        mock_gauge.set.assert_called_once_with(count)
 
 
 class TestRecordScheduleToStartLatency:
