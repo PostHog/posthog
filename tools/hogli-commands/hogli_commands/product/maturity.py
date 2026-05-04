@@ -525,9 +525,9 @@ def score_codegen(product_dir: Path) -> DimensionScore:
     if total_calls > 0:
         score += round(60 * used / total_calls)
         call_pct = round(100 * used / total_calls)
-        detail = f"{call_pct}% of calls use generated client ({used} generated, {manual} manual)"
+        detail = f"{call_pct}% generated ({used} imported endpoints, {manual} manual call sites)"
     else:
-        detail = "0 generated used"
+        detail = "no API usage"
 
     return DimensionScore("codegen", score, detail)
 
