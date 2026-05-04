@@ -489,7 +489,7 @@ class BatchExportFileDownload(ModelActivityMixin, UUIDTModel):
     batch_export_run = models.ForeignKey(
         "BatchExportRun",
         on_delete=models.CASCADE,
-        help_text="The batch export run that generated these file downloads.",
+        help_text="The batch export run that generated this file downloads.",
     )
     key = models.TextField(help_text="The S3 key containing the file to download.")
     expires_at = models.DateTimeField(null=True, help_text="When will this key expire, if available.")
@@ -512,7 +512,6 @@ class BatchExportFileDownload(ModelActivityMixin, UUIDTModel):
             raise ValueError("Cannot determine if object is expired: `expires_at` missing.")
 
         return dt.datetime.now(dt.UTC) > self.expires_at
-
 
     def is_expired_or_close(self, threshold: dt.timedelta | int = dt.timedelta(hours=1)) -> bool:
         """Return whether this file download is expired, or close to expiring."""
