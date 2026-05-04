@@ -188,11 +188,12 @@ export class HogWatcherService {
     /**
      * Get the persisted states of a list of hog functions.
      *
-     * Uses the read replica (redisReader) with plain hget calls instead of
-     * the evalsha Lua script on the primary. The Lua script with cost=0 was
-     * doing 2 hget + 2 hset + 1 expire per call — all writes unnecessary
-     * for a read-only check. This reduces primary Redis CPU load
-     * significantly at high call volumes.
+     * Uses plain hget calls instead of the evalsha Lua script.
+     * The Lua script with cost=0 was doing 2 hget + 2 hset + 1 expire
+     * per call — all writes unnecessary for a read-only check.
+     * Replacing with 2 hget calls eliminates ~60% of internal Redis
+     * operations per read and makes this method safe to route to
+     * read replicas in the future.
      */
     public async getPersistedStates(
         ids: HogFunctionType['id'][]
