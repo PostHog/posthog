@@ -339,6 +339,18 @@ class SignupEmailPrecheckSerializer(serializers.Serializer):
     email: serializers.Field = serializers.EmailField()
 
 
+def _get_pending_invite_for_email(email: str) -> Optional[dict[str, Any]]:
+    invite = (
+        OrganizationInvite.objects.filter(target_email__iexact=email)
+        .select_related("organization")
+        .order_by("-created_at")
+        .first()
+    )
+    if invite is None or invite.is_expired():
+        return None
+    return {"id": str(invite.id), "organization_name": invite.organization.name}
+
+
 class SignupEmailPrecheckViewset(generics.GenericAPIView):
     serializer_class = SignupEmailPrecheckSerializer
     permission_classes = (permissions.AllowAny,)
@@ -358,7 +370,11 @@ class SignupEmailPrecheckViewset(generics.GenericAPIView):
                 },
                 status=status.HTTP_409_CONFLICT,
             )
-        return response.Response({"email_exists": False}, status=status.HTTP_200_OK)
+        pending_invite = _get_pending_invite_for_email(email)
+        return response.Response(
+            {"email_exists": False, "pending_invite": pending_invite},
+            status=status.HTTP_200_OK,
+        )
 
 
 class SignupViewset(generics.CreateAPIView):

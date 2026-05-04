@@ -25,7 +25,7 @@ from posthog.models import Organization, Team, User
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
-from posthog.models.organization_invite import OrganizationInvite
+from posthog.models.organization_invite import INVITE_DAYS_VALIDITY, OrganizationInvite
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.utils import get_instance_realm
 
@@ -2860,3 +2860,64 @@ class TestInviteSignupAPI(APIBaseTest):
         self.assertIsNone(session.get(WEBAUTHN_SIGNUP_CREDENTIAL_KEY))
         self.assertIsNone(session.get(WEBAUTHN_SIGNUP_EMAIL_KEY))
         self.assertIsNone(session.get(WEBAUTHN_SIGNUP_USER_UUID_KEY))
+
+
+class TestSignupPrecheckPendingInvite(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.client.logout()
+
+    def _create_invite(self, email: str, *, days_old: int = 0) -> OrganizationInvite:
+        invite = OrganizationInvite.objects.create(
+            organization=self.organization,
+            target_email=email,
+            created_by=self.user,
+        )
+        if days_old:
+            invite.created_at = timezone.now() - timedelta(days=days_old)
+            invite.save(update_fields=["created_at"])
+        return invite
+
+    def test_precheck_returns_pending_invite_for_active_invite(self):
+        invite = self._create_invite("alice@acme.com")
+        response = self.client.post("/api/signup/precheck", {"email": "alice@acme.com"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.json(),
+            {
+                "email_exists": False,
+                "pending_invite": {
+                    "id": str(invite.id),
+                    "organization_name": self.organization.name,
+                },
+            },
+        )
+
+    def test_precheck_returns_null_pending_invite_when_no_invite(self):
+        response = self.client.post("/api/signup/precheck", {"email": "stranger@nowhere.com"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"email_exists": False, "pending_invite": None})
+
+    def test_precheck_ignores_expired_invites(self):
+        self._create_invite("alice@acme.com", days_old=INVITE_DAYS_VALIDITY + 5)
+        response = self.client.post("/api/signup/precheck", {"email": "alice@acme.com"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"email_exists": False, "pending_invite": None})
+
+    def test_precheck_matches_email_case_insensitively(self):
+        invite = self._create_invite("alice@acme.com")
+        response = self.client.post("/api/signup/precheck", {"email": "Alice@Acme.COM"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["pending_invite"]["id"], str(invite.id))
+
+    def test_precheck_returns_most_recent_invite_when_multiple_exist(self):
+        self._create_invite("alice@acme.com", days_old=2)
+        latest = self._create_invite("alice@acme.com")
+        response = self.client.post("/api/signup/precheck", {"email": "alice@acme.com"})
+        self.assertEqual(response.json()["pending_invite"]["id"], str(latest.id))
+
+    def test_precheck_does_not_return_pending_invite_when_account_exists(self):
+        self._create_invite(self.user.email)
+        response = self.client.post("/api/signup/precheck", {"email": self.user.email})
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertNotIn("pending_invite", response.json())
