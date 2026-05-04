@@ -205,7 +205,7 @@ export function Editor(): JSX.Element {
                 const notebookEditor: NotebookEditor = {
                     ...createEditor(editor),
                     findCommentPosition: (markId: string) => findCommentPosition(editor, markId),
-                    getMarkText: (markId: string) => getMarkText(editor, markId),
+                    getAllCommentTexts: () => getAllCommentTexts(editor),
                     removeComment: (pos: number) => removeCommentMark(editor, pos),
                     getText: () => textContent(editor.state.doc),
                 }
@@ -262,14 +262,19 @@ function findCommentPosition(editor: TTEditor, markId: string): number | null {
     return result
 }
 
-function getMarkText(editor: TTEditor, markId: string): string {
-    const parts: string[] = []
+function getAllCommentTexts(editor: TTEditor): Record<string, string> {
+    const result: Record<string, string> = {}
     editor.state.doc.descendants((node) => {
-        if (node.isText && node.marks.some((m) => m.type.name === 'comment' && m.attrs.id === markId)) {
-            parts.push(node.text ?? '')
+        if (!node.isText) {
+            return
+        }
+        for (const m of node.marks) {
+            if (m.type.name === 'comment' && m.attrs.id) {
+                result[m.attrs.id] = (result[m.attrs.id] ?? '') + (node.text ?? '')
+            }
         }
     })
-    return parts.join('')
+    return result
 }
 
 function removeCommentMark(editor: TTEditor, pos: number): void {

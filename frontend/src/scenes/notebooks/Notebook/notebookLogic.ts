@@ -102,12 +102,13 @@ async function runWhenEditorIsReady(waitForEditor: () => boolean, fn: () => any)
 }
 
 function buildCommentContexts(editor: NotebookEditor, comments: CommentType[]): Record<string, string> {
+    const markTexts = editor.getAllCommentTexts()
     const contexts: Record<string, string> = {}
     for (const comment of comments) {
         if (comment.source_comment || comment.item_context?.type !== 'mark') {
             continue
         }
-        const text = editor.getMarkText(comment.item_context.id)
+        const text = markTexts[comment.item_context.id]
         if (text) {
             contexts[comment.id] = text
         }
