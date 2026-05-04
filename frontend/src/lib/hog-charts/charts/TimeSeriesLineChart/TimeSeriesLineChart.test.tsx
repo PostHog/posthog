@@ -2,6 +2,7 @@ import { cleanup } from '@testing-library/react'
 
 import type { ChartTheme, Series } from '../../core/types'
 import { renderHogChart, setupJsdom, setupSyncRaf } from '../../testing'
+import type { AnomalyMarker } from './overlays/AnomalyPointsLayer'
 import { TimeSeriesLineChart } from './TimeSeriesLineChart'
 
 const THEME: ChartTheme = { colors: ['#111', '#222', '#333'], backgroundColor: '#ffffff' }
@@ -109,6 +110,84 @@ describe('TimeSeriesLineChart', () => {
         })
     })
 
+    describe('config.valueLabels', () => {
+        it.each([
+            ['omitted', undefined],
+            ['false', false as const],
+        ])('does not render value labels when %s', (_, valueLabels) => {
+            const { chart } = renderHogChart(
+                <TimeSeriesLineChart
+                    series={SERIES}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={valueLabels === undefined ? undefined : { valueLabels }}
+                />
+            )
+            expect(chart.valueLabels()).toHaveLength(0)
+        })
+
+        it('renders one value label per visible point when valueLabels=true', () => {
+            const { chart } = renderHogChart(
+                <TimeSeriesLineChart series={SERIES} labels={LABELS} theme={THEME} config={{ valueLabels: true }} />
+            )
+            expect(chart.valueLabels()).toHaveLength(SERIES[0].data.length)
+        })
+
+        it('forwards an explicit formatter', () => {
+            const formatter = (v: number): string => `~${v}`
+            const { chart } = renderHogChart(
+                <TimeSeriesLineChart
+                    series={SERIES}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={{ valueLabels: { formatter } }}
+                />
+            )
+            expect(chart.valueLabels().map((l) => l.text)).toEqual(['~1', '~2', '~3'])
+        })
+
+        it('falls back to a yAxis-driven formatter when no explicit formatter is provided', () => {
+            const { chart } = renderHogChart(
+                <TimeSeriesLineChart
+                    series={[{ key: 'a', label: 'A', data: [50] }]}
+                    labels={['Mon']}
+                    theme={THEME}
+                    config={{ yAxis: { format: 'percentage' }, valueLabels: true }}
+                />
+            )
+            expect(chart.valueLabels().map((l) => l.text)).toEqual(['50%'])
+        })
+
+        it('reuses an explicit yAxis.tickFormatter as the default', () => {
+            const explicit = (v: number): string => `y:${v}`
+            const { chart } = renderHogChart(
+                <TimeSeriesLineChart
+                    series={SERIES}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={{ yAxis: { tickFormatter: explicit }, valueLabels: true }}
+                />
+            )
+            expect(chart.valueLabels().map((l) => l.text)).toEqual(['y:1', 'y:2', 'y:3'])
+        })
+
+        it('hides labels for series excluded via seriesKeys', () => {
+            const series: Series[] = [
+                { key: 'a', label: 'A', data: [1, 2, 3] },
+                { key: 'b', label: 'B', data: [4, 5, 6] },
+            ]
+            const { chart } = renderHogChart(
+                <TimeSeriesLineChart
+                    series={series}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={{ valueLabels: { seriesKeys: ['a'] } }}
+                />
+            )
+            expect(chart.valueLabels()).toHaveLength(3)
+        })
+    })
+
     describe('config.goalLines', () => {
         it.each([
             ['omitted', undefined],
@@ -138,6 +217,50 @@ describe('TimeSeriesLineChart', () => {
             expect(lines).toHaveLength(1)
             expect(lines[0].orientation).toBe('horizontal')
             expect(lines[0].label).toBe('Target')
+        })
+    })
+
+    describe('config.anomalies', () => {
+        it.each([
+            ['omitted', undefined],
+            ['empty', [] as AnomalyMarker[]],
+        ])('does not render anomaly points when anomalies is %s', (_, anomalies) => {
+            const { container } = renderHogChart(
+                <TimeSeriesLineChart
+                    series={SERIES}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={anomalies === undefined ? undefined : { anomalies }}
+                />
+            )
+            expect(container.querySelectorAll('[data-attr="hog-chart-anomaly-point"]')).toHaveLength(0)
+        })
+
+        it('renders one anomaly point per marker', () => {
+            const markers: AnomalyMarker[] = [
+                { dataIndex: 1, value: 2, color: '#f00', yAxisId: 'left' },
+                { dataIndex: 2, value: 3, color: '#0f0', yAxisId: 'left' },
+            ]
+            const { container } = renderHogChart(
+                <TimeSeriesLineChart series={SERIES} labels={LABELS} theme={THEME} config={{ anomalies: markers }} />
+            )
+            const dots = container.querySelectorAll<HTMLElement>('[data-attr="hog-chart-anomaly-point"]')
+            expect(dots).toHaveLength(2)
+            expect(dots[0].style.backgroundColor).toBe('rgb(255, 0, 0)')
+            expect(dots[1].style.backgroundColor).toBe('rgb(0, 255, 0)')
+        })
+    })
+
+    describe('derived-series wiring', () => {
+        it.each([
+            ['confidenceIntervals', { confidenceIntervals: [{ seriesKey: 'a', lower: [0, 1, 2], upper: [2, 3, 4] }] }],
+            ['movingAverage', { movingAverage: [{ seriesKey: 'a', window: 2 }] }],
+        ])('plumbs config.%s through to the rendered series count', (_, derivedConfig) => {
+            const { chart } = renderHogChart(
+                <TimeSeriesLineChart series={SERIES} labels={LABELS} theme={THEME} config={derivedConfig} />
+            )
+            // SERIES has 1 entry; each derived block adds one more series.
+            expect(chart.seriesCount).toBe(2)
         })
     })
 

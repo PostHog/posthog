@@ -125,35 +125,6 @@ describe('ValueLabels', () => {
         })
     })
 
-    it('skips a series with more points than maxPointsPerSeries', () => {
-        const longData = Array.from({ length: 150 }, (_, i) => i + 1)
-        const longLabels = longData.map((_, i) => `L${i}`)
-        const longXPositions: Record<string, number> = {}
-        longData.forEach((_, i) => {
-            longXPositions[`L${i}`] = 60 + (i / (longData.length - 1)) * 640
-        })
-        const series: ResolvedSeries[] = [{ key: 's', label: 'S', color: '#f00', data: longData }]
-        const ctx = makeContext(series, {
-            labels: longLabels,
-            scales: {
-                x: (label: string) => longXPositions[label],
-                y: yScale,
-                yTicks: () => [0, 50, 100],
-            },
-        })
-        const { container } = renderInChart(ctx, <ValueLabels />)
-        expect(labelDivs(container)).toHaveLength(0)
-    })
-
-    it('honours a custom maxPointsPerSeries override', () => {
-        const data = Array.from({ length: 6 }, (_, i) => 10 + i * 10)
-        const series: ResolvedSeries[] = [{ key: 's', label: 'S', color: '#f00', data }]
-        // default (100) renders all; override to 3 should render none
-        const ctx = makeContext(series)
-        const { container } = renderInChart(ctx, <ValueLabels maxPointsPerSeries={3} />)
-        expect(labelDivs(container)).toHaveLength(0)
-    })
-
     it('drops overlapping labels via greedy collision avoidance', () => {
         // Two points at the same x: only one should survive.
         const series: ResolvedSeries[] = [{ key: 's', label: 'S', color: '#f00', data: [50, 50] }]
@@ -276,15 +247,6 @@ describe('ValueLabels', () => {
     })
 
     describe('stack-total mode', () => {
-        it('honours maxPointsPerSeries against the number of bands', () => {
-            const series: ResolvedSeries[] = [{ key: 's', label: 'S', color: '#f00', data: [10, 20, 30, 40, 50] }]
-            const { container } = renderInChart(
-                makeContext(series),
-                <ValueLabels mode="stack-total" maxPointsPerSeries={3} />
-            )
-            expect(labelDivs(container)).toHaveLength(0)
-        })
-
         it('skips mixed-sign bands (no single visual stack apex)', () => {
             const series: ResolvedSeries[] = [
                 { key: 'a', label: 'A', color: '#a00', data: [30, 30] },
@@ -307,33 +269,6 @@ describe('ValueLabels', () => {
             expect(divs.map((d) => d.textContent)).toEqual(['15', '35'])
             // Total label uses the topmost visible series color.
             expect(divs[0].style.backgroundColor).toBe('rgb(68, 85, 102)')
-        })
-    })
-
-    describe('minBarSize', () => {
-        const barPrivate = { __barChart: { band: () => 0, value: () => 0 } as unknown }
-        const barScales = { x: xScale, y: yScale, yTicks: () => [0, 50, 100], _private: barPrivate }
-
-        it.each<[string, number[], string[], { minBarSize?: number; bar?: boolean; mode?: 'stack-total' }]>([
-            ['filters narrow segments by default on bar charts', [1, 2, 50, 1, 2], ['50'], { bar: true }],
-            ['minBarSize=0 keeps everything', [1, 50], ['1', '50'], { minBarSize: 0, bar: true }],
-            ['ignored on non-bar charts', [1, 2], ['1', '2'], {}],
-        ])('%s', (_name, data, expected, { minBarSize, bar }) => {
-            const series: ResolvedSeries[] = [{ key: 's', label: 'S', color: '#f00', data }]
-            const labels = data.length === 5 ? LABELS : ['Mon', 'Tue']
-            const ctx = makeContext(series, bar ? { labels, scales: barScales } : { labels })
-            const { container } = renderInChart(ctx, <ValueLabels minBarSize={minBarSize} />)
-            expect(labelDivs(container).map((d) => d.textContent)).toEqual(expected)
-        })
-
-        it('drops bands whose stack-total size is below minBarSize', () => {
-            const series: ResolvedSeries[] = [
-                { key: 'a', label: 'A', color: '#a00', data: [1, 50] },
-                { key: 'b', label: 'B', color: '#0a0', data: [1, 5] },
-            ]
-            const ctx = makeContext(series, { labels: ['Mon', 'Tue'], scales: barScales })
-            const divs = labelDivs(renderInChart(ctx, <ValueLabels mode="stack-total" />).container)
-            expect(divs.map((d) => d.textContent)).toEqual(['55'])
         })
     })
 

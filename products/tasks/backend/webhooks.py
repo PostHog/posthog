@@ -1,10 +1,8 @@
 import hmac
-import json
 import uuid
 import hashlib
 
-from django.http import HttpRequest, HttpResponse
-from django.views.decorators.csrf import csrf_exempt
+from django.http import HttpResponse
 
 import structlog
 
@@ -71,51 +69,11 @@ def get_github_webhook_secret() -> str | None:
     return secret if secret else None
 
 
-@csrf_exempt
-def github_pr_webhook(request: HttpRequest) -> HttpResponse:
+def handle_pull_request_event(payload: dict) -> HttpResponse:
+    """Process a pre-verified pull_request webhook event.
+
+    Called from ``posthog.urls.github_webhook`` (unified dispatcher).
     """
-    Handle GitHub pull_request webhook events.
-
-    This endpoint:
-    1. Validates the HMAC-SHA256 signature from GitHub
-    2. Parses pull_request events (opened, closed, merged)
-    3. Finds TaskRun by matching pr_url in output field
-    4. Emits console log events and analytics
-
-    Expected events:
-    - pull_request.opened → log "PR created"
-    - pull_request.closed with merged=true → log "PR merged"
-    - pull_request.closed with merged=false → log "PR closed"
-    """
-    if request.method != "POST":
-        return HttpResponse(status=405)
-
-    webhook_secret = get_github_webhook_secret()
-    if not webhook_secret:
-        logger.error(
-            "github_pr_webhook_no_secret",
-            message="GITHUB_WEBHOOK_SECRET not configured",
-        )
-        return HttpResponse("Webhook not configured", status=500)
-
-    signature = request.headers.get("X-Hub-Signature-256")
-    if not verify_github_signature(request.body, signature, webhook_secret):
-        logger.warning(
-            "github_pr_webhook_invalid_signature",
-            has_signature=bool(signature),
-        )
-        return HttpResponse("Invalid signature", status=403)
-
-    try:
-        payload = json.loads(request.body)
-    except json.JSONDecodeError:
-        return HttpResponse("Invalid JSON", status=400)
-
-    event_type = request.headers.get("X-GitHub-Event")
-    if event_type != "pull_request":
-        # Not a PR event, acknowledge but don't process, shouldnt happen becuase of github app permissions
-        return HttpResponse(status=200)
-
     action = payload.get("action")
     pull_request = payload.get("pull_request", {})
     pr_url = pull_request.get("html_url")
@@ -136,7 +94,6 @@ def github_pr_webhook(request: HttpRequest) -> HttpResponse:
             event_action = "closed"
             analytics_event = "pr_closed"
     else:
-        # Other actions (reopened, edited, etc.) - acknowledge but don't process
         logger.debug("github_pr_webhook_ignored_action", action=action, pr_url=pr_url)
         return HttpResponse(status=200)
 

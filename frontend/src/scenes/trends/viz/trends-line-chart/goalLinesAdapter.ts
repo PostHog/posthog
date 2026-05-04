@@ -28,28 +28,40 @@ function schemaToReferenceLine(line: SchemaGoalLine, variant: 'goal' | 'alert'):
     }
 }
 
+function withAxisOrientation(
+    refs: ReferenceLineProps[],
+    axisOrientation: 'vertical' | 'horizontal' | undefined
+): ReferenceLineProps[] {
+    return axisOrientation === 'horizontal' ? refs.map((r) => ({ ...r, axisOrientation })) : refs
+}
+
 /** Map persisted {@link SchemaGoalLine}s to {@link ReferenceLineProps} for the hog-charts
  *  primitive, preserving the `displayIfCrossed` filter. The filter drops a goal when
  *  `displayIfCrossed` is explicitly `false` *and* the line sits below the series peak —
- *  i.e. the data has already crossed it. */
+ *  i.e. the data has already crossed it. Pass `axisOrientation: 'horizontal'` when the
+ *  chart's value axis is horizontal (e.g. horizontal bar charts) to flip rendering. */
 export function goalLinesToReferenceLines(
     goalLines: SchemaGoalLine[] | null | undefined,
-    series: Series[]
+    series: Series[],
+    axisOrientation?: 'vertical' | 'horizontal'
 ): ReferenceLineProps[] {
     if (!goalLines?.length) {
         return []
     }
-    return buildGoalLineReferenceLines(goalLines.map(schemaToGoalLineConfig), series)
+    const refs = buildGoalLineReferenceLines(goalLines.map(schemaToGoalLineConfig), series)
+    return withAxisOrientation(refs, axisOrientation)
 }
 
 /** Map alert threshold lines (sourced from `insightAlertsLogic.alertThresholdLines`) to
  *  {@link ReferenceLineProps}. Same shape as goal lines, but rendered with the `alert`
  *  variant (dashed red) so they read as bounds, not targets. */
 export function alertThresholdsToReferenceLines(
-    alertThresholdLines: SchemaGoalLine[] | null | undefined
+    alertThresholdLines: SchemaGoalLine[] | null | undefined,
+    axisOrientation?: 'vertical' | 'horizontal'
 ): ReferenceLineProps[] {
     if (!alertThresholdLines?.length) {
         return []
     }
-    return alertThresholdLines.map((line) => schemaToReferenceLine(line, 'alert'))
+    const refs = alertThresholdLines.map((line) => schemaToReferenceLine(line, 'alert'))
+    return withAxisOrientation(refs, axisOrientation)
 }

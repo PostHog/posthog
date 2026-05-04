@@ -735,12 +735,32 @@ export class ApiClient {
 
     insights({ projectId }: { projectId: string }): Endpoint {
         return {
-            get: async ({ insightId }: { insightId: string }): Promise<Result<Schemas.Insight>> => {
+            get: async ({
+                insightId,
+                variables_override,
+                filters_override,
+            }: {
+                insightId: string
+                variables_override?: string
+                filters_override?: string
+            }): Promise<Result<Schemas.Insight>> => {
+                const params = new URLSearchParams()
+                if (variables_override) {
+                    params.set('variables_override', variables_override)
+                }
+                if (filters_override) {
+                    params.set('filters_override', filters_override)
+                }
+
                 // Check if insightId is a short_id (8 character alphanumeric string)
                 // Note: This won't work when we start creating insight id's with 8 digits. (We're at 7 currently)
                 if (isShortId(insightId)) {
-                    const searchParams = new URLSearchParams({ short_id: insightId })
-                    const url = `${this.baseUrl}/api/projects/${projectId}/insights/?${searchParams}`
+                    // The list endpoint accepts ?short_id=... and runs the same
+                    // InsightSerializer.to_representation, which applies
+                    // variables_override / filters_override from query_params. So
+                    // short_id resolution + override application happen in one hop.
+                    params.set('short_id', insightId)
+                    const url = `${this.baseUrl}/api/projects/${projectId}/insights/?${params}`
 
                     const result = await this.fetchJson<{ results: Schemas.Insight[] }>(url)
 
@@ -761,8 +781,9 @@ export class ApiClient {
                     return { success: true, data: insight }
                 }
 
+                const queryString = params.toString() ? `?${params}` : ''
                 return this.fetchJson<Schemas.Insight>(
-                    `${this.baseUrl}/api/projects/${projectId}/insights/${insightId}/`
+                    `${this.baseUrl}/api/projects/${projectId}/insights/${insightId}/${queryString}`
                 )
             },
 

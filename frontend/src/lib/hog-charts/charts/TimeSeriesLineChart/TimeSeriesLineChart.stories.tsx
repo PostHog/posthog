@@ -1,7 +1,8 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import { TimeSeriesLineChart } from 'lib/hog-charts'
-import type { Series, TimeInterval, YAxisConfig } from 'lib/hog-charts'
+import { DEFAULT_Y_AXIS_ID, TimeSeriesLineChart } from 'lib/hog-charts'
+import type { AnomalyMarker, Series, TimeInterval, YAxisConfig } from 'lib/hog-charts'
+import { ciRanges } from 'lib/statistics'
 
 import { Stage, useReactiveTheme } from '../../story-helpers'
 
@@ -163,6 +164,75 @@ export const YAxisFormats: Story = {
             <YFormatCell title="duration_ms" series={DURATION_MS_SERIES} config={{ format: 'duration_ms' }} />
         </div>
     ),
+}
+
+export const Anomalies: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        const series: Series[] = [{ key: 'visits', label: 'Visits', data: [20, 35, 28, 60, 45, 70, 52] }]
+        // Severity drives color — low (amber), medium (orange), high (red).
+        const anomalies: AnomalyMarker[] = [
+            { dataIndex: 1, value: 35, color: '#f59e0b', yAxisId: DEFAULT_Y_AXIS_ID },
+            { dataIndex: 3, value: 60, color: '#f97316', yAxisId: DEFAULT_Y_AXIS_ID },
+            { dataIndex: 5, value: 70, color: '#ef4444', yAxisId: DEFAULT_Y_AXIS_ID },
+        ]
+        return (
+            <Stage>
+                <TimeSeriesLineChart
+                    series={series}
+                    labels={DAYS}
+                    theme={theme}
+                    config={{ yAxis: { showGrid: true }, anomalies }}
+                />
+            </Stage>
+        )
+    },
+}
+
+const DERIVED_SERIES: Series[] = [
+    { key: 'visits', label: 'Visits', data: [20, 35, 28, 60, 45, 70, 52] },
+    { key: 'signups', label: 'Sign-ups', data: [4, 8, 6, 14, 11, 19, 13] },
+]
+const [DERIVED_CI_LOWER, DERIVED_CI_UPPER] = ciRanges(DERIVED_SERIES[0].data, 0.95)
+
+export const ConfidenceIntervals: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        return (
+            <Stage>
+                <TimeSeriesLineChart
+                    series={DERIVED_SERIES}
+                    labels={DAYS}
+                    theme={theme}
+                    config={{
+                        yAxis: { showGrid: true },
+                        confidenceIntervals: [
+                            { seriesKey: 'visits', lower: DERIVED_CI_LOWER, upper: DERIVED_CI_UPPER },
+                        ],
+                    }}
+                />
+            </Stage>
+        )
+    },
+}
+
+export const MovingAverage: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        return (
+            <Stage>
+                <TimeSeriesLineChart
+                    series={DERIVED_SERIES}
+                    labels={DAYS}
+                    theme={theme}
+                    config={{
+                        yAxis: { showGrid: true },
+                        movingAverage: [{ seriesKey: 'visits', window: 3 }],
+                    }}
+                />
+            </Stage>
+        )
+    },
 }
 
 export const DateAxis: Story = {

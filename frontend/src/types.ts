@@ -675,6 +675,9 @@ export interface ConversationsSettings {
     teams_team_name?: string | null
     teams_channel_id?: string | null
     teams_channel_name?: string | null
+    github_enabled?: boolean
+    github_integration_id?: number | null
+    github_repos?: string[] | null
 }
 
 export interface LogsSettings {
@@ -4389,7 +4392,7 @@ export interface EventDefinition {
     enforcement_mode?: SchemaEnforcementMode
     media_preview_urls?: string[]
     /** Name of a single property on this event to display alongside it in PostHog UI surfaces. */
-    promoted_property?: string | null
+    primary_property?: string | null
 }
 
 export interface EventDefinitionMetrics {
@@ -4668,7 +4671,7 @@ export interface CoreFilterDefinition {
     /** whether this is a property PostHog adds to aid with debugging */
     used_for_debug?: boolean
     /** Name of a single property on events of this name that UIs should display alongside the event. */
-    promoted_property?: string
+    primary_property?: string
 }
 
 export interface TileParams {
@@ -5760,6 +5763,8 @@ export interface WebhookExternalStatus {
     error?: string
 }
 
+export type WebhookInputValue = { secret: true } | { value: unknown }
+
 export interface WebhookInfo {
     supports_webhooks: boolean
     exists: boolean
@@ -5772,6 +5777,7 @@ export interface WebhookInfo {
     }
     webhook_url?: string
     schema_mapping?: Record<string, string>
+    inputs?: Record<string, WebhookInputValue>
     external_status?: WebhookExternalStatus | null
 }
 

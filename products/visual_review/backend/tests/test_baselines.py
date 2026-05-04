@@ -257,6 +257,45 @@ class TestBaselinesOverview(APIBaseTest):
         assert result.totals.recently_tolerated == 1  # ≥1 in last 30d
         assert result.totals.frequently_tolerated == 1  # ≥3 in last 90d
 
+    def test_tolerate_counts_exclude_auto_threshold(self):
+        """AUTO_THRESHOLD rows are auto-minted by the diff pipeline for
+        sub-threshold pixel jitter — they're a system-judged tolerated-hash
+        cache, not a user/agent decision to accept drift. The Tolerated drift
+        tile and its inline `frequent` chip should reflect intent only.
+        """
+        run = _mk_run(self.repo)
+        _mk_snapshot(run, identifier="noisy")
+
+        # 5 auto-threshold rows in the last 30d — pure rendering noise.
+        for i in range(5):
+            ToleratedHash.objects.create(
+                repo=self.repo,
+                team_id=self.team.id,
+                identifier="noisy",
+                baseline_hash="b",
+                alternate_hash=f"auto-{i}",
+                reason=ToleratedReason.AUTO_THRESHOLD,
+            )
+        # 1 deliberate human tolerate.
+        ToleratedHash.objects.create(
+            repo=self.repo,
+            team_id=self.team.id,
+            identifier="noisy",
+            baseline_hash="b",
+            alternate_hash="human",
+            reason=ToleratedReason.HUMAN,
+        )
+
+        result = vr_api.get_baselines_overview(self.repo.id)
+        entry = next(e for e in result.entries if e.identifier == "noisy")
+
+        # Only the human row should count.
+        assert entry.tolerate_count_30d == 1
+        assert entry.tolerate_count_90d == 1
+        assert result.totals.recently_tolerated == 1
+        # 1 deliberate < 3, so this identifier is not "frequently tolerated".
+        assert result.totals.frequently_tolerated == 0
+
     def test_active_quarantine_counts_but_expired_does_not(self):
         run = _mk_run(self.repo)
         _mk_snapshot(run, identifier="active")
