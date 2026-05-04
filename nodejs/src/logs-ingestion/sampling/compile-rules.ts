@@ -61,7 +61,7 @@ function parseRateLimitFromConfig(
     if (typeof burstRaw === 'number' && Number.isFinite(burstRaw) && burstRaw >= refill) {
         poolMax = Math.min(Math.floor(burstRaw), MAX_BURST_LOGS)
     } else {
-        poolMax = Math.min(Math.max(refill * 3, refill), MAX_BURST_LOGS)
+        poolMax = Math.min(refill * 3, MAX_BURST_LOGS)
     }
     return { refillPerSecond: refill, poolMax }
 }
