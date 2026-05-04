@@ -1,18 +1,6 @@
-import { EventWithProperties, extractModalityTokens } from './modality-tokens'
-
-function createAIEvent(properties?: Record<string, any>): EventWithProperties {
-    return {
-        event: '$ai_generation',
-        properties: properties || {},
-        ip: '',
-        site_url: '',
-        team_id: 0,
-        now: '',
-        distinct_id: '',
-        uuid: '',
-        timestamp: '',
-    }
-}
+import { aiCostModalityExtractionCounter } from '../metrics'
+import { extractModalityTokens } from './modality-tokens'
+import { createAIEvent } from './test-helpers'
 
 describe('extractModalityTokens()', () => {
     describe('Gemini direct usage metadata', () => {
@@ -439,6 +427,458 @@ describe('extractModalityTokens()', () => {
             const result = extractModalityTokens(event)
 
             expect(result.properties['$ai_usage']).toBeUndefined()
+        })
+    })
+
+    describe('cache modality extraction', () => {
+        it('extracts cached audio tokens from Gemini cacheTokensDetails array format', () => {
+            const event = createAIEvent({
+                $ai_usage: {
+                    promptTokenCount: 1000,
+                    cachedContentTokenCount: 300,
+                    cacheTokensDetails: [
+                        { modality: 'TEXT', tokenCount: 250 },
+                        { modality: 'AUDIO', tokenCount: 50 },
+                    ],
+                },
+            })
+
+            const result = extractModalityTokens(event)
+
+            expect(result.properties['$ai_cache_read_audio_tokens']).toBe(50)
+            expect(result.properties['$ai_usage']).toBeUndefined()
+        })
+
+        it('extracts cached audio from Gemini cacheTokensDetails object format (defensive)', () => {
+            const event = createAIEvent({
+                $ai_usage: {
+                    promptTokenCount: 1000,
+                    cacheTokensDetails: { audioTokens: 50 },
+                },
+            })
+
+            const result = extractModalityTokens(event)
+
+            expect(result.properties['$ai_cache_read_audio_tokens']).toBe(50)
+        })
+
+        it('does not set $ai_cache_read_audio_tokens when cacheTokensDetails has no audio entry', () => {
+            const event = createAIEvent({
+                $ai_usage: {
+                    cacheTokensDetails: [{ modality: 'TEXT', tokenCount: 300 }],
+                },
+            })
+
+            const result = extractModalityTokens(event)
+
+            expect(result.properties['$ai_cache_read_audio_tokens']).toBeUndefined()
+        })
+
+        it('extracts cached audio from OpenAI prompt_tokens_details.cached_tokens_details', () => {
+            const event = createAIEvent({
+                $ai_usage: {
+                    prompt_tokens: 1000,
+                    prompt_tokens_details: {
+                        cached_tokens: 300,
+                        audio_tokens: 200,
+                        cached_tokens_details: {
+                            audio_tokens: 50,
+                        },
+                    },
+                },
+            })
+
+            const result = extractModalityTokens(event)
+
+            expect(result.properties['$ai_cache_read_audio_tokens']).toBe(50)
+            expect(result.properties['$ai_usage']).toBeUndefined()
+        })
+
+        it('does not set $ai_cache_read_audio_tokens when OpenAI cached_tokens_details has no audio', () => {
+            const event = createAIEvent({
+                $ai_usage: {
+                    prompt_tokens: 1000,
+                    prompt_tokens_details: {
+                        cached_tokens: 300,
+                        cached_tokens_details: { text_tokens: 300 },
+                    },
+                },
+            })
+
+            const result = extractModalityTokens(event)
+
+            expect(result.properties['$ai_cache_read_audio_tokens']).toBeUndefined()
+        })
+
+        it('extracts cached audio from Vercel-wrapped Gemini metadata', () => {
+            const event = createAIEvent({
+                $ai_usage: {
+                    rawResponse: {
+                        usageMetadata: {
+                            cacheTokensDetails: [{ modality: 'AUDIO', tokenCount: 100 }],
+                        },
+                    },
+                },
+            })
+
+            const result = extractModalityTokens(event)
+
+            expect(result.properties['$ai_cache_read_audio_tokens']).toBe(100)
+        })
+
+        it('ignores zero or negative cached audio counts', () => {
+            const event = createAIEvent({
+                $ai_usage: {
+                    cacheTokensDetails: [{ modality: 'AUDIO', tokenCount: 0 }],
+                },
+            })
+
+            const result = extractModalityTokens(event)
+
+            expect(result.properties['$ai_cache_read_audio_tokens']).toBeUndefined()
+        })
+    })
+
+    describe('input modality extraction', () => {
+        it('extracts audio + text input tokens from Gemini promptTokensDetails array format', () => {
+            const event = createAIEvent({
+                $ai_usage: {
+                    promptTokenCount: 200,
+                    promptTokensDetails: [
+                        { modality: 'AUDIO', tokenCount: 120 },
+                        { modality: 'TEXT', tokenCount: 80 },
+                    ],
+                },
+            })
+
+            const result = extractModalityTokens(event)
+
+            expect(result.properties['$ai_audio_input_tokens']).toBe(120)
+            expect(result.properties['$ai_text_input_tokens']).toBe(80)
+            expect(result.properties['$ai_usage']).toBeUndefined()
+        })
+
+        it('extracts image + text input tokens from Gemini promptTokensDetails', () => {
+            const event = createAIEvent({
+                $ai_usage: {
+                    promptTokensDetails: [
+                        { modality: 'IMAGE', tokenCount: 400 },
+                        { modality: 'TEXT', tokenCount: 50 },
+                    ],
+                },
+            })
+
+            const result = extractModalityTokens(event)
+
+            expect(result.properties['$ai_image_input_tokens']).toBe(400)
+            expect(result.properties['$ai_text_input_tokens']).toBe(50)
+        })
+
+        it('extracts input modality from object format (defensive fallback)', () => {
+            const event = createAIEvent({
+                $ai_usage: {
+                    promptTokensDetails: { audioTokens: 120, textTokens: 80 },
+                },
+            })
+
+            const result = extractModalityTokens(event)
+
+            expect(result.properties['$ai_audio_input_tokens']).toBe(120)
+            expect(result.properties['$ai_text_input_tokens']).toBe(80)
+        })
+
+        it('handles case-insensitive Gemini modality values', () => {
+            const event = createAIEvent({
+                $ai_usage: {
+                    promptTokensDetails: [
+                        { modality: 'audio', tokenCount: 120 },
+                        { modality: 'Text', tokenCount: 80 },
+                    ],
+                },
+            })
+
+            const result = extractModalityTokens(event)
+
+            expect(result.properties['$ai_audio_input_tokens']).toBe(120)
+            expect(result.properties['$ai_text_input_tokens']).toBe(80)
+        })
+
+        it('does not set audio input when token count is zero', () => {
+            const event = createAIEvent({
+                $ai_usage: {
+                    promptTokensDetails: [
+                        { modality: 'AUDIO', tokenCount: 0 },
+                        { modality: 'TEXT', tokenCount: 100 },
+                    ],
+                },
+            })
+
+            const result = extractModalityTokens(event)
+
+            expect(result.properties['$ai_audio_input_tokens']).toBeUndefined()
+            expect(result.properties['$ai_text_input_tokens']).toBe(100)
+        })
+
+        it('extracts input modality from Vercel-wrapped Gemini metadata', () => {
+            const event = createAIEvent({
+                $ai_usage: {
+                    rawResponse: {
+                        usageMetadata: {
+                            promptTokensDetails: [{ modality: 'AUDIO', tokenCount: 120 }],
+                        },
+                    },
+                },
+            })
+
+            const result = extractModalityTokens(event)
+
+            expect(result.properties['$ai_audio_input_tokens']).toBe(120)
+        })
+
+        it('extracts input modality from providerMetadata.google', () => {
+            const event = createAIEvent({
+                $ai_usage: {
+                    providerMetadata: {
+                        google: {
+                            promptTokensDetails: [{ modality: 'AUDIO', tokenCount: 120 }],
+                        },
+                    },
+                },
+            })
+
+            const result = extractModalityTokens(event)
+
+            expect(result.properties['$ai_audio_input_tokens']).toBe(120)
+        })
+
+        it('extracts total prompt audio from OpenAI prompt_tokens_details.audio_tokens', () => {
+            const event = createAIEvent({
+                $ai_usage: {
+                    prompt_tokens: 300,
+                    prompt_tokens_details: {
+                        audio_tokens: 200, // total audio in prompt (cached + uncached)
+                    },
+                },
+            })
+
+            const result = extractModalityTokens(event)
+
+            expect(result.properties['$ai_audio_input_tokens']).toBe(200)
+        })
+
+        it('extracts both total and cached audio from OpenAI prompt_tokens_details', () => {
+            const event = createAIEvent({
+                $ai_usage: {
+                    prompt_tokens: 300,
+                    prompt_tokens_details: {
+                        audio_tokens: 200,
+                        cached_tokens_details: { audio_tokens: 50 },
+                    },
+                },
+            })
+
+            const result = extractModalityTokens(event)
+
+            expect(result.properties['$ai_audio_input_tokens']).toBe(200)
+            expect(result.properties['$ai_cache_read_audio_tokens']).toBe(50)
+        })
+
+        it('does not set audio input when OpenAI prompt audio_tokens is zero', () => {
+            const event = createAIEvent({
+                $ai_usage: {
+                    prompt_tokens_details: { audio_tokens: 0 },
+                },
+            })
+
+            const result = extractModalityTokens(event)
+
+            expect(result.properties['$ai_audio_input_tokens']).toBeUndefined()
+        })
+    })
+
+    describe('snake_case Gemini metadata (posthog-python shape)', () => {
+        // posthog-python forwards Gemini's protobuf usage_metadata via to_dict()
+        // / vars(), which produces snake_case keys (prompt_tokens_details with
+        // modality/token_count entries). Production traces from Python users
+        // use this shape exclusively; the camelCase shape comes from the Vercel
+        // AI SDK on Node.js.
+
+        it('extracts audio + text input from snake_case prompt_tokens_details', () => {
+            const event = createAIEvent({
+                $ai_usage: {
+                    prompt_token_count: 1348,
+                    prompt_tokens_details: [
+                        { modality: 'AUDIO', token_count: 750 },
+                        { modality: 'TEXT', token_count: 598 },
+                    ],
+                },
+            })
+
+            const result = extractModalityTokens(event)
+
+            expect(result.properties['$ai_audio_input_tokens']).toBe(750)
+            expect(result.properties['$ai_text_input_tokens']).toBe(598)
+            expect(result.properties['$ai_usage']).toBeUndefined()
+        })
+
+        it('extracts output modality from snake_case candidates_tokens_details', () => {
+            const event = createAIEvent({
+                $ai_usage: {
+                    candidates_tokens_details: [
+                        { modality: 'TEXT', token_count: 100 },
+                        { modality: 'IMAGE', token_count: 1290 },
+                    ],
+                },
+            })
+
+            const result = extractModalityTokens(event)
+
+            expect(result.properties['$ai_text_output_tokens']).toBe(100)
+            expect(result.properties['$ai_image_output_tokens']).toBe(1290)
+        })
+
+        it('extracts cached audio from snake_case cache_tokens_details', () => {
+            const event = createAIEvent({
+                $ai_usage: {
+                    cache_tokens_details: [{ modality: 'AUDIO', token_count: 50 }],
+                },
+            })
+
+            const result = extractModalityTokens(event)
+
+            expect(result.properties['$ai_cache_read_audio_tokens']).toBe(50)
+        })
+
+        it('handles snake_case input + output + cache together (full Gemini event)', () => {
+            const event = createAIEvent({
+                $ai_usage: {
+                    prompt_token_count: 1348,
+                    candidates_token_count: 100,
+                    cached_content_token_count: 50,
+                    prompt_tokens_details: [
+                        { modality: 'AUDIO', token_count: 750 },
+                        { modality: 'TEXT', token_count: 598 },
+                    ],
+                    candidates_tokens_details: [{ modality: 'TEXT', token_count: 100 }],
+                    cache_tokens_details: [{ modality: 'AUDIO', token_count: 50 }],
+                },
+            })
+
+            const result = extractModalityTokens(event)
+
+            expect(result.properties['$ai_audio_input_tokens']).toBe(750)
+            expect(result.properties['$ai_text_input_tokens']).toBe(598)
+            expect(result.properties['$ai_text_output_tokens']).toBe(100)
+            expect(result.properties['$ai_cache_read_audio_tokens']).toBe(50)
+        })
+    })
+
+    describe('extraction counter labels', () => {
+        const labelsSpy = jest.spyOn(aiCostModalityExtractionCounter, 'labels')
+
+        beforeEach(() => {
+            labelsSpy.mockClear()
+        })
+
+        afterAll(() => {
+            labelsSpy.mockRestore()
+        })
+
+        it('emits status=no_details, source=none when nothing extracts', () => {
+            extractModalityTokens(createAIEvent({ $ai_usage: { candidatesTokenCount: 100 } }))
+
+            expect(labelsSpy).toHaveBeenCalledTimes(1)
+            expect(labelsSpy).toHaveBeenCalledWith({ status: 'no_details', source: 'none' })
+        })
+
+        it('emits source=gemini_output for output-only extractions', () => {
+            extractModalityTokens(
+                createAIEvent({
+                    $ai_usage: {
+                        candidatesTokensDetails: [{ modality: 'IMAGE', tokenCount: 1290 }],
+                    },
+                })
+            )
+
+            expect(labelsSpy).toHaveBeenCalledTimes(1)
+            expect(labelsSpy).toHaveBeenCalledWith({ status: 'extracted', source: 'gemini_output' })
+        })
+
+        it('emits source=gemini_cache for cache-only Gemini extractions', () => {
+            extractModalityTokens(
+                createAIEvent({
+                    $ai_usage: {
+                        cacheTokensDetails: [{ modality: 'AUDIO', tokenCount: 50 }],
+                    },
+                })
+            )
+
+            expect(labelsSpy).toHaveBeenCalledTimes(1)
+            expect(labelsSpy).toHaveBeenCalledWith({ status: 'extracted', source: 'gemini_cache' })
+        })
+
+        it('emits source=openai_cache for OpenAI cached_tokens_details extractions', () => {
+            extractModalityTokens(
+                createAIEvent({
+                    $ai_usage: {
+                        prompt_tokens_details: { cached_tokens_details: { audio_tokens: 50 } },
+                    },
+                })
+            )
+
+            expect(labelsSpy).toHaveBeenCalledTimes(1)
+            expect(labelsSpy).toHaveBeenCalledWith({ status: 'extracted', source: 'openai_cache' })
+        })
+
+        it('emits source=gemini_input for Gemini promptTokensDetails extractions', () => {
+            extractModalityTokens(
+                createAIEvent({
+                    $ai_usage: {
+                        promptTokensDetails: [{ modality: 'AUDIO', tokenCount: 120 }],
+                    },
+                })
+            )
+
+            expect(labelsSpy).toHaveBeenCalledTimes(1)
+            expect(labelsSpy).toHaveBeenCalledWith({ status: 'extracted', source: 'gemini_input' })
+        })
+
+        it('emits source=openai_input for OpenAI prompt_tokens_details.audio_tokens extractions', () => {
+            extractModalityTokens(
+                createAIEvent({
+                    $ai_usage: {
+                        prompt_tokens_details: { audio_tokens: 200 },
+                    },
+                })
+            )
+
+            expect(labelsSpy).toHaveBeenCalledTimes(1)
+            expect(labelsSpy).toHaveBeenCalledWith({ status: 'extracted', source: 'openai_input' })
+        })
+
+        it('emits one increment per source when an event hits multiple extractors', () => {
+            extractModalityTokens(
+                createAIEvent({
+                    $ai_usage: {
+                        promptTokensDetails: [{ modality: 'AUDIO', tokenCount: 120 }],
+                        candidatesTokensDetails: [{ modality: 'IMAGE', tokenCount: 1290 }],
+                        cacheTokensDetails: [{ modality: 'AUDIO', tokenCount: 50 }],
+                        prompt_tokens_details: {
+                            audio_tokens: 200,
+                            cached_tokens_details: { audio_tokens: 60 },
+                        },
+                    },
+                })
+            )
+
+            // Five different sources fire; each gets its own increment.
+            // Order is alphabetical by source for determinism.
+            expect(labelsSpy).toHaveBeenCalledTimes(5)
+            expect(labelsSpy).toHaveBeenNthCalledWith(1, { status: 'extracted', source: 'gemini_cache' })
+            expect(labelsSpy).toHaveBeenNthCalledWith(2, { status: 'extracted', source: 'gemini_input' })
+            expect(labelsSpy).toHaveBeenNthCalledWith(3, { status: 'extracted', source: 'gemini_output' })
+            expect(labelsSpy).toHaveBeenNthCalledWith(4, { status: 'extracted', source: 'openai_cache' })
+            expect(labelsSpy).toHaveBeenNthCalledWith(5, { status: 'extracted', source: 'openai_input' })
         })
     })
 })

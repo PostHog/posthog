@@ -622,6 +622,126 @@ describe('rename_params', () => {
     })
 })
 
+describe('x-accepts-stringified-json query params', () => {
+    function resolvedWith(parameters: NonNullable<ResolvedOperation['operation']['parameters']>): ResolvedOperation {
+        return makeResolved({
+            operation: {
+                operationId: 'things_list',
+                parameters,
+            },
+        })
+    }
+
+    it('widens schema for params marked x-accepts-stringified-json', () => {
+        const config: ToolConfig = { operation: 'things_list', enabled: true }
+        const resolved = resolvedWith([
+            {
+                in: 'query',
+                name: 'filters_override',
+                schema: { type: 'string' },
+                description: 'Filters override.',
+                'x-accepts-stringified-json': true,
+            },
+        ])
+
+        const result = composeToolSchema(config, resolved, makeSpec(), stubGetQuerySchema)
+
+        expect(result.schemaExpr).toContain(
+            "filters_override: z.union([z.string(), z.record(z.string(), z.unknown())]).optional().describe('Filters override.')"
+        )
+    })
+
+    it('does not widen sibling params that lack the extension', () => {
+        const config: ToolConfig = { operation: 'things_list', enabled: true }
+        const resolved = resolvedWith([
+            {
+                in: 'query',
+                name: 'filters_override',
+                schema: { type: 'string' },
+                'x-accepts-stringified-json': true,
+            },
+            {
+                in: 'query',
+                name: 'plain_string',
+                schema: { type: 'string' },
+            },
+        ])
+
+        const result = composeToolSchema(config, resolved, makeSpec(), stubGetQuerySchema)
+
+        expect(result.schemaExpr).toContain('filters_override: z.union([z.string()')
+        expect(result.schemaExpr).not.toContain('plain_string: z.union(')
+    })
+
+    it('does not widen params named *_override without the extension', () => {
+        const config: ToolConfig = { operation: 'things_list', enabled: true }
+        const resolved = resolvedWith([
+            {
+                in: 'query',
+                name: 'filters_override',
+                schema: { type: 'string' },
+                // no x-accepts-stringified-json — magic naming alone must not trigger widening
+            },
+        ])
+
+        const result = composeToolSchema(config, resolved, makeSpec(), stubGetQuerySchema)
+
+        expect(result.schemaExpr).not.toContain('z.union([z.string()')
+    })
+
+    it('skips widening when the YAML config also defines a param_override for the same field', () => {
+        const config: ToolConfig = {
+            operation: 'things_list',
+            enabled: true,
+            param_overrides: {
+                filters_override: { description: 'Custom YAML description' },
+            },
+        }
+        const resolved = resolvedWith([
+            {
+                in: 'query',
+                name: 'filters_override',
+                schema: { type: 'string' },
+                description: 'OpenAPI description',
+                'x-accepts-stringified-json': true,
+            },
+        ])
+
+        const result = composeToolSchema(config, resolved, makeSpec(), stubGetQuerySchema)
+
+        // YAML wins — describe() comes through, no union extension afterwards.
+        expect(result.schemaExpr).toContain('Custom YAML description')
+        expect(result.schemaExpr).not.toContain('z.union([z.string()')
+    })
+
+    it('respects exclude_params — excluded fields are not widened', () => {
+        const config: ToolConfig = {
+            operation: 'things_list',
+            enabled: true,
+            exclude_params: ['filters_override'],
+        }
+        const resolved = resolvedWith([
+            {
+                in: 'query',
+                name: 'filters_override',
+                schema: { type: 'string' },
+                'x-accepts-stringified-json': true,
+            },
+            {
+                in: 'query',
+                name: 'variables_override',
+                schema: { type: 'string' },
+                'x-accepts-stringified-json': true,
+            },
+        ])
+
+        const result = composeToolSchema(config, resolved, makeSpec(), stubGetQuerySchema)
+
+        expect(result.schemaExpr).not.toContain('filters_override: z.union(')
+        expect(result.schemaExpr).toContain('variables_override: z.union([z.string()')
+    })
+})
+
 describe('QueryWrapperToolConfigSchema validation', () => {
     it.each([true, false] as const)('accepts use_optimized_output: %s', (value) => {
         const result = QueryWrapperToolConfigSchema.safeParse({
