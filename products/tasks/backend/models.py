@@ -80,6 +80,18 @@ class Task(DeletedMetaFields, models.Model):
         limit_choices_to={"kind": "github"},
         help_text="GitHub integration for this task",
     )
+    # Keep the selected personal installation as a preference for deterministic
+    # authorship when a user has multiple GitHub installations. SET_NULL on
+    # disconnect lets future runs fall back to resolving the user's current link.
+    github_user_integration = models.ForeignKey(
+        "posthog.UserIntegration",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_index=False,
+        limit_choices_to={"kind": "github"},
+        help_text="User-scoped GitHub integration used for user-authored task runs",
+    )
 
     repository = models.CharField(
         max_length=255, null=True, blank=True
@@ -277,11 +289,40 @@ class Task(DeletedMetaFields, models.Model):
         created_by = User.objects.get(id=user_id)
 
         from products.tasks.backend.services.sandbox import is_public_sandbox_repo
+        from products.tasks.backend.temporal.process_task.utils import (
+            PrAuthorshipMode,
+            RunSource,
+            get_pr_authorship_mode,
+            resolve_user_github_integration_for_task,
+            user_github_integration_is_usable,
+        )
 
-        github_integration = None
+        github_integration = Integration.objects.filter(team=team, kind="github").first()
+        github_user_integration = None
+        task_stub = Task(
+            team=team,
+            origin_product=origin_product,
+            created_by=created_by,
+            repository=repository,
+            github_integration=github_integration,
+        )
+        authorship_mode = get_pr_authorship_mode(
+            task_stub,
+            {"run_source": RunSource.SIGNAL_REPORT.value}
+            if origin_product == Task.OriginProduct.SIGNAL_REPORT
+            else None,
+        )
+        if authorship_mode == PrAuthorshipMode.USER:
+            user_github_integration = resolve_user_github_integration_for_task(
+                task_stub,
+                repository=repository,
+                allow_refresh=True,
+            )
+            if user_github_integration_is_usable(user_github_integration):
+                github_user_integration = user_github_integration.integration if user_github_integration else None
+
         if repository:
-            github_integration = Integration.objects.filter(team=team, kind="github").first()
-            if not github_integration and not is_public_sandbox_repo(repository):
+            if not github_integration and github_user_integration is None and not is_public_sandbox_repo(repository):
                 raise ValueError(f"Team {team.id} does not have a GitHub integration")
 
         sandbox_env = None
@@ -301,6 +342,7 @@ class Task(DeletedMetaFields, models.Model):
             origin_product=origin_product,
             created_by=created_by,
             github_integration=github_integration,
+            github_user_integration=github_user_integration,
             repository=repository,
             internal=internal,
             json_schema=resolve_schema(output_schema) if output_schema else None,
@@ -314,6 +356,13 @@ class Task(DeletedMetaFields, models.Model):
             extra_state["interaction_origin"] = interaction_origin
         elif slack_thread_context:
             extra_state["interaction_origin"] = "slack"
+        if origin_product == Task.OriginProduct.SIGNAL_REPORT:
+            extra_state["run_source"] = RunSource.SIGNAL_REPORT.value
+            extra_state["pr_authorship_mode"] = PrAuthorshipMode.BOT.value
+        elif origin_product in (Task.OriginProduct.USER_CREATED, Task.OriginProduct.SLACK):
+            extra_state["pr_authorship_mode"] = (
+                PrAuthorshipMode.USER.value if github_user_integration is not None else PrAuthorshipMode.BOT.value
+            )
 
         if sandbox_env is not None:
             extra_state["sandbox_environment_id"] = str(sandbox_env.id)
@@ -347,6 +396,7 @@ class TaskAutomationManager(models.Manager):
                 "task__team",
                 "task__created_by",
                 "task__github_integration",
+                "task__github_user_integration",
                 "last_task_run",
                 "last_task_run__task",
             )
@@ -360,6 +410,7 @@ class TaskAutomationQuerySet(models.QuerySet):
             "task__team",
             "task__created_by",
             "task__github_integration",
+            "task__github_user_integration",
             "last_task_run",
             "last_task_run__task",
         )

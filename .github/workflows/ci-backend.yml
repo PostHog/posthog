@@ -417,6 +417,26 @@ jobs:
                   CLICKHOUSE_SERVER_IMAGE: clickhouse/clickhouse-server:26.3.9.8
               run: bin/ci-wait-for-docker wait
 
+            - name: Restore schema cache from master
+              if: ${{ github.event_name == 'pull_request' }}
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
+              with:
+                  path: schema.sql.gz
+                  key: posthog-schema-master-${{ github.sha }}
+                  restore-keys: posthog-schema-master-
+
+            - name: Prime test_posthog from cached schema
+              # No-op on cache miss; pytest --reuse-db falls back to a full migrate.
+              if: ${{ github.event_name == 'pull_request' }}
+              run: |
+                  if [ ! -f schema.sql.gz ]; then
+                      echo "::notice::Schema cache miss — pytest --reuse-db will run full migrations"
+                      exit 0
+                  fi
+                  mkdir -p .postgres-backups
+                  mv schema.sql.gz .postgres-backups/schema-latest.sql.gz
+                  ./bin/hogli db:restore-test-db
+
             - name: Register Temporal search attributes
               run: |
                   bin/wait-for-docker temporal
@@ -1269,6 +1289,26 @@ jobs:
                   CLICKHOUSE_SERVER_IMAGE: ${{ matrix.clickhouse-server-image || needs.get_clickhouse_versions.outputs.oldest_supported_image }}
               run: bin/ci-wait-for-docker wait
 
+            - name: Restore schema cache from master
+              if: ${{ github.event_name == 'pull_request' }}
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
+              with:
+                  path: schema.sql.gz
+                  key: posthog-schema-master-${{ github.sha }}
+                  restore-keys: posthog-schema-master-
+
+            - name: Prime test_posthog from cached schema
+              # No-op on cache miss; pytest --reuse-db falls back to a full migrate.
+              if: ${{ github.event_name == 'pull_request' }}
+              run: |
+                  if [ ! -f schema.sql.gz ]; then
+                      echo "::notice::Schema cache miss — pytest --reuse-db will run full migrations"
+                      exit 0
+                  fi
+                  mkdir -p .postgres-backups
+                  mv schema.sql.gz .postgres-backups/schema-latest.sql.gz
+                  ./bin/hogli db:restore-test-db
+
             - name: Determine if --snapshot-update should be on
               # UPDATE mode: human commits - update snapshots
               # CHECK mode: bot commits (after snapshot update) - verify snapshots match exactly
@@ -1320,7 +1360,7 @@ jobs:
               shell: bash
               run: | # async_migrations covered in ci-async-migrations.yml
                   set +e
-                  pytest -v --tb=short ${{
+                  pytest -v --tb=short --reuse-db ${{
                       matrix.compat
                       && env.CLICKHOUSE_COMPAT_PYTEST_TARGETS
                       || (
@@ -1387,7 +1427,7 @@ jobs:
                   MODAL_TOKEN_SECRET: ${{ needs.changes.outputs.tasks_temporal == 'true' && secrets.MODAL_TOKEN_SECRET || '' }}
               run: |
                   set +e
-                  pytest -v --tb=short --timeout=600 --timeout-method=thread posthog/temporal products/batch_exports/backend/tests/temporal products/tasks/backend/temporal -m "not async_migrations" \
+                  pytest -v --tb=short --reuse-db --timeout=600 --timeout-method=thread posthog/temporal products/batch_exports/backend/tests/temporal products/tasks/backend/temporal -m "not async_migrations" \
                       --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                       --durations=100 --durations-min=1.0 --store-durations \
                       --splitting-algorithm=duration_based_chunks \

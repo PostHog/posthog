@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { Form } from 'kea-forms'
 
 import { LemonBanner, LemonButton, LemonSkeleton, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
@@ -9,8 +10,10 @@ import { AppMetricSummary } from 'lib/components/AppMetrics/AppMetricSummary'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 
+import { SourceConfig, SourceFieldConfig } from '~/queries/schema/schema-general'
 import { WebhookInfo } from '~/types'
 
+import { sourceFieldToElement } from '../../../shared/components/forms/SourceForm'
 import {
     WebhookRefreshButton,
     WebhookSetupForm,
@@ -103,10 +106,40 @@ export function WebhookTab({ id, tabId }: { id: string; tabId?: string }): JSX.E
                 />
             )}
             <WebhookDetailsSection webhookInfo={webhookInfo} />
+            {sourceConfig && (sourceConfig.webhookFields?.length ?? 0) > 0 && (
+                <WebhookConfigurationSection sourceConfig={sourceConfig} formLogicProps={logicProps} />
+            )}
             {webhookInfo.hog_function?.id && <WebhookMetricsSection hogFunctionId={webhookInfo.hog_function.id} />}
             {mappedTables.length > 0 && <MappedTablesSection mappedTables={mappedTables} />}
             <WebhookDeleteSection canDelete={canDeleteWebhook} deleting={webhookDeleting} onDelete={deleteWebhook} />
         </div>
+    )
+}
+
+function WebhookConfigurationSection({
+    sourceConfig,
+    formLogicProps,
+}: {
+    sourceConfig: SourceConfig
+    formLogicProps: { id: string; tabId?: string }
+}): JSX.Element {
+    const { webhookFieldInputs, isWebhookFieldInputsSubmitting } = useValues(webhookTabLogic(formLogicProps))
+    const webhookFields = sourceConfig.webhookFields ?? []
+
+    return (
+        <LemonCard hoverEffect={false} className="space-y-3">
+            <h3 className="text-lg font-semibold">Configuration</h3>
+            <Form logic={webhookTabLogic} props={formLogicProps} formKey="webhookFieldInputs" enableFormOnSubmit>
+                <div className="space-y-3 ph-no-capture">
+                    {webhookFields.map((field: SourceFieldConfig) =>
+                        sourceFieldToElement(field, sourceConfig, webhookFieldInputs[field.name], true)
+                    )}
+                    <LemonButton type="primary" htmlType="submit" loading={isWebhookFieldInputsSubmitting}>
+                        Save changes
+                    </LemonButton>
+                </div>
+            </Form>
+        </LemonCard>
     )
 }
 
