@@ -101,19 +101,15 @@ async function runWhenEditorIsReady(waitForEditor: () => boolean, fn: () => any)
     return fn()
 }
 
-function buildCommentContexts(editor: NotebookEditor, comments: CommentType[], title: string): Record<string, string> {
+function buildCommentContexts(editor: NotebookEditor, comments: CommentType[]): Record<string, string> {
     const contexts: Record<string, string> = {}
     for (const comment of comments) {
-        if (comment.source_comment) {
+        if (comment.source_comment || comment.item_context?.type !== 'mark') {
             continue
         }
-        if (comment.item_context?.type === 'mark') {
-            const text = editor.getMarkText(comment.item_context.id)
-            if (text) {
-                contexts[comment.id] = text
-            }
-        } else {
-            contexts[comment.id] = title
+        const text = editor.getMarkText(comment.item_context.id)
+        if (text) {
+            contexts[comment.id] = text
         }
     }
     return contexts
@@ -905,7 +901,7 @@ export const notebookLogic = kea<notebookLogicType>([
         setEditor: () => {
             // Compute contexts immediately if comments are already loaded when the editor mounts
             if (values.editor && values.comments) {
-                actions.setCommentContexts(buildCommentContexts(values.editor, values.comments, values.title))
+                actions.setCommentContexts(buildCommentContexts(values.editor, values.comments))
             }
         },
 
@@ -1038,7 +1034,7 @@ export const notebookLogic = kea<notebookLogicType>([
                     }
                 })
 
-                actions.setCommentContexts(buildCommentContexts(editor, comments, values.title))
+                actions.setCommentContexts(buildCommentContexts(editor, comments))
             }
         },
         activeCommentMarkId: (markId: string | null) => {
