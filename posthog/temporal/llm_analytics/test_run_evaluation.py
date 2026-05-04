@@ -1063,12 +1063,16 @@ class TestExtractEventTools:
         assert isinstance(tools, list)
         assert tools[0]["function"]["name"] == "send_email"
 
-    def test_returns_none_for_non_generation_events(self):
-        # Trace and span events don't carry the tool catalog, so the judge
-        # prompt should omit the Tools section entirely.
+    def test_returns_tools_for_non_generation_events(self):
+        # Custom trace/span events (e.g. agent-loop `run_summary`) may also
+        # forward the catalog. The judge benefits from it regardless of event
+        # type, so presence of `$ai_tools` — not the event name — drives the
+        # Tools section.
         properties = {"$ai_tools": [{"type": "function", "function": {"name": "x"}}]}
-        assert extract_event_tools("$ai_trace", properties) is None
-        assert extract_event_tools("$ai_span", properties) is None
+        assert extract_event_tools("$ai_trace", properties) is not None
+        assert extract_event_tools("$ai_span", properties) is not None
+        assert extract_event_tools("run_summary", properties) is not None
 
     def test_returns_none_when_property_missing(self):
         assert extract_event_tools("$ai_generation", {}) is None
+        assert extract_event_tools("$ai_trace", {}) is None

@@ -573,20 +573,14 @@ async def execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> dict[str,
     system_prompt = build_system_prompt(prompt, allows_na)
     response_format = type_config.response_format
 
-    # Insert a `Tools:` section between Input and Output when the event captured
-    # the tool catalog. The judge needs to see what the agent *could* call to
-    # evaluate prompts like "did it pick the right tool?".
+    # Insert a `Tools available:` section between Input and Output when the
+    # event captured the tool catalog. The judge needs to see what the agent
+    # *could* call to evaluate prompts like "did it pick the right tool?".
+    sections = [f"Input: {input_data}"]
     if tools_data:
-        user_prompt = f"""Input: {input_data}
-
-Tools available:
-{tools_data}
-
-Output: {output_data}"""
-    else:
-        user_prompt = f"""Input: {input_data}
-
-Output: {output_data}"""
+        sections.append(f"Tools available:\n{tools_data}")
+    sections.append(f"Output: {output_data}")
+    user_prompt = "\n\n".join(sections)
 
     # Get eval-specific config when using PostHog defaults (no provider_key)
     config = get_eval_config(provider) if provider_key is None else None
@@ -727,13 +721,17 @@ def extract_event_io(event_type: str, properties: dict[str, Any]) -> tuple[Any, 
 
 
 def extract_event_tools(event_type: str, properties: dict[str, Any]) -> Any:
-    """Extract the tool catalog (`$ai_tools`) captured on a generation event.
+    """Extract the tool catalog (`$ai_tools`) captured on the event, regardless
+    of event type.
 
-    Only `$ai_generation` events carry a tool catalog today; other event types
-    return None so the judge prompt omits the section entirely.
+    `$ai_generation` is the canonical carrier today, but custom span/trace
+    events (e.g. an agent loop's `run_summary`) may also forward the catalog,
+    and the judge prompt benefits from it for any event shape. `event_type`
+    is kept on the signature for parity with `extract_event_io` and so the
+    callsite stays self-documenting; we ignore it for now and let presence
+    of `$ai_tools` drive whether the section renders.
     """
-    if event_type != "$ai_generation":
-        return None
+    del event_type
     return properties.get("$ai_tools")
 
 

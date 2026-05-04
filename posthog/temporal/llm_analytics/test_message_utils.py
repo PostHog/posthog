@@ -1,5 +1,7 @@
 """Tests for message extraction utilities."""
 
+import json
+
 import pytest
 
 from posthog.temporal.llm_analytics.message_utils import extract_text_from_messages, format_tool_definitions
@@ -415,3 +417,23 @@ class TestFormatToolDefinitions:
         assert "- lookup_user" in result
         assert "Look up a user by id." in result
         assert '"id"' in result
+
+    def test_empty_parameters_dict_is_skipped(self):
+        # Locking current behavior: an explicitly-empty schema (`{}`) is
+        # treated as "no params" and the `(params: …)` suffix is omitted.
+        tools = [{"type": "function", "function": {"name": "noop", "description": "Does nothing", "parameters": {}}}]
+        assert format_tool_definitions(tools) == "- noop: Does nothing"
+
+    @pytest.mark.parametrize(
+        "tools",
+        [
+            pytest.param(42, id="int"),
+            pytest.param(3.14, id="float"),
+            pytest.param(True, id="bool"),
+        ],
+    )
+    def test_non_list_non_dict_falls_through_to_json(self, tools):
+        # Anything we can't iterate as a list of tool specs gets stringified
+        # rather than silently dropped — the judge can still see something.
+        result = format_tool_definitions(tools)
+        assert result == json.dumps(tools, default=str)

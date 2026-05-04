@@ -38,12 +38,16 @@ def extract_text_from_messages(messages: Union[str, list, dict, None]) -> str:
 
         return "\n".join(formatted_parts)
 
-    # Handle single dict message
+    # Handle single dict message. Unlike the list path, this returns body only
+    # (no `role:` prefix) — callers use it to unwrap a single message into raw
+    # text rather than to render a transcript.
     if isinstance(messages, dict):
         content = messages.get("content", "")
         text = _extract_content_text(content)
         tool_calls_text = _format_tool_calls(messages.get("tool_calls"))
         return " ".join(part for part in (text, tool_calls_text) if part)
+
+    return ""
 
 
 def _render_message(msg: dict) -> str | None:
@@ -197,14 +201,16 @@ def format_tool_definitions(tools: Any) -> str:
 
 
 def _format_single_tool_definition(tool: dict) -> str:
-    # OpenAI shape: {"type": "function", "function": {"name": ..., "description": ..., "parameters": {...}}}
+    # OpenAI nests the spec under `function`; Anthropic / Gemini-unwrapped lay
+    # it out at the top level. Pull from either, falling back to the tool dict
+    # itself so the lookups below find name/description regardless of nesting.
     fn = tool.get("function") if isinstance(tool.get("function"), dict) else tool
     name = fn.get("name") or tool.get("name") or ""
     description = fn.get("description") or tool.get("description") or ""
     # Schema lives under different keys across providers: `parameters` for OpenAI
     # function-calling and Gemini, `input_schema` for Anthropic, and `inputSchema`
     # for the camelCase OpenAI Responses API variant.
-    parameters = fn.get("parameters") or tool.get("parameters") or tool.get("input_schema") or tool.get("inputSchema")
+    parameters = fn.get("parameters") or tool.get("input_schema") or tool.get("inputSchema")
 
     if not name:
         # Unrecognized shape — stringify so the judge still sees something.
