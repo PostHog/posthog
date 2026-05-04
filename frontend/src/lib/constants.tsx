@@ -294,6 +294,7 @@ export const FEATURE_FLAGS = {
     ERROR_TRACKING_SPIKE_ALERTING: 'error-tracking-spike-alerting', // owner: #team-error-tracking
     ERROR_TRACKING_WEEKLY_DIGEST: 'error-tracking-weekly-digest', // owner: #team-error-tracking
     EVENT_MEDIA_PREVIEWS: 'event-media-previews', // owner: @alexlider
+    EXPERIMENT_CUPED: 'experiment-cuped', // owner: @andehen #team-experiments
     EXPERIMENT_FUNNEL_ACTORS_QUERY: 'experiment-funnel-actors-query', // owner: @rodrigoi #team-experiments
     EXPERIMENT_FUNNEL_DWH_SUPPORT: 'experiment-funnel-dwh-support', // owner: @rodrigoi #team-experiments
     EXPERIMENT_SESSION_REPLAYS_SKILL: 'experiment-session-replays-skill', // owner: @rodrigoi #team-experiments
@@ -548,7 +549,10 @@ export enum CohortTypeEnum {
  * Mock Node.js `process`, which is required by VFile that is used by ReactMarkdown.
  * See https://github.com/remarkjs/react-markdown/issues/339.
  */
-export const MOCK_NODE_PROCESS = { cwd: () => '', env: {} } as unknown as NodeJS.Process
+export const MOCK_NODE_PROCESS = {
+    cwd: () => '',
+    env: {},
+} as unknown as NodeJS.Process
 
 export const SSO_PROVIDER_NAMES: Record<SSOProvider, string> = {
     'google-oauth2': 'Google',

@@ -4,6 +4,7 @@ import { IconPencil } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, Link } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
 import { urls } from 'scenes/urls'
@@ -21,6 +22,7 @@ export function SettingsTab(): JSX.Element {
     const { updateExperiment } = useActions(experimentLogic)
     const { openStatsEngineModal, openCupedModal } = useActions(modalsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const showCupedOption = useFeatureFlag('EXPERIMENT_CUPED')
 
     const isBayesian = statsMethod === ExperimentStatsMethod.Bayesian
 
@@ -50,17 +52,19 @@ export function SettingsTab(): JSX.Element {
                 </div>
                 <StatsMethodModal />
             </div>
-            <div>
-                <h2 className="font-semibold text-lg">CUPED</h2>
-                <div className="flex items-center gap-2">
-                    <span>{cupedDisplay}</span>
-                    <LemonButton type="secondary" size="xsmall" icon={<IconPencil />} onClick={openCupedModal} />
+            {showCupedOption && (
+                <div>
+                    <h2 className="font-semibold text-lg">CUPED</h2>
+                    <div className="flex items-center gap-2">
+                        <span>{cupedDisplay}</span>
+                        <LemonButton type="secondary" size="xsmall" icon={<IconPencil />} onClick={openCupedModal} />
+                    </div>
+                    <p className="text-muted text-xs mt-1">
+                        Reduce variance using pre-experiment data as a covariate. Currently supported for mean metrics.
+                    </p>
+                    <CupedModal />
                 </div>
-                <p className="text-muted text-xs mt-1">
-                    Reduce variance using pre-experiment data as a covariate. Currently supported for mean metrics.
-                </p>
-                <CupedModal />
-            </div>
+            )}
             <div>
                 <h2 className="font-semibold text-lg">Conversion windows</h2>
                 <div className="flex items-center gap-2">
