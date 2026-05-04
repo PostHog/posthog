@@ -190,21 +190,21 @@ export const webhookTabLogic = kea<webhookTabLogicType>([
     listeners(({ actions, props, values }) => ({
         loadWebhookInfoSuccess: ({ webhookInfo }) => {
             // Server returns each input either as `{secret: true}` (masked) or `{value: ...}`
-            // (HogFunctionSerializer convention). Unwrap non-secret values for the form so
-            // `webhookFieldInputsChanged` only flips to true when the user actually edits.
+            // (HogFunctionSerializer convention). Unwrap non-secret values and use them as
+            // the form's new defaults via reset — that way any stale plaintext typed in a
+            // prior edit gets cleared, and `webhookFieldInputsChanged` only flips when the
+            // user actually edits a field. Mirrors the HogFunctions configuration logic
+            // pattern (`loadHogFunctionSuccess: () => actions.resetForm()`).
             const inputs = webhookInfo?.inputs
-            if (!inputs) {
-                return
-            }
             const nonSecretValues: Record<string, any> = {}
-            for (const [name, entry] of Object.entries(inputs)) {
-                if (entry && typeof entry === 'object' && !Array.isArray(entry) && 'value' in entry) {
-                    nonSecretValues[name] = (entry as { value: unknown }).value
+            if (inputs) {
+                for (const [name, entry] of Object.entries(inputs)) {
+                    if (entry && typeof entry === 'object' && !Array.isArray(entry) && 'value' in entry) {
+                        nonSecretValues[name] = (entry as { value: unknown }).value
+                    }
                 }
             }
-            if (Object.keys(nonSecretValues).length > 0) {
-                actions.setWebhookFieldInputsValues(nonSecretValues)
-            }
+            actions.resetWebhookFieldInputs(nonSecretValues)
         },
         createWebhook: async () => {
             try {
@@ -246,6 +246,10 @@ export const webhookTabLogic = kea<webhookTabLogicType>([
             try {
                 await api.externalDataSources.updateWebhookInputs(props.id, payload)
                 lemonToast.success('Webhook inputs saved')
+                // Clear typed plaintext immediately so the form doesn't keep the rotated
+                // secret in client state. `loadWebhookInfoSuccess` will then re-seed
+                // defaults from the masked server response.
+                actions.resetWebhookFieldInputs()
                 actions.loadWebhookInfo()
             } catch (e: any) {
                 lemonToast.error(e.data?.message ?? e.message ?? 'Failed to update webhook inputs')
