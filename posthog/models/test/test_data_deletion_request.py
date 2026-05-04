@@ -114,6 +114,26 @@ def test_compile_hogql_predicate_empty_returns_empty():
     assert compile_hogql_predicate(request) == ("", {})
 
 
+def test_compile_hogql_predicate_targets_sharded_events(team, snapshot):
+    """Predicate is spliced into ``DELETE FROM sharded_events WHERE …``, so the
+    compiled SQL must not reference the Distributed ``events`` proxy.
+
+    Snapshots the full SQL fragment so any regression that re-introduces an
+    ``events.`` table prefix (or any other shape change) is caught.
+    """
+    from posthog.models.data_deletion_request import compile_hogql_predicate
+
+    request = DataDeletionRequest(
+        **_base_kwargs(
+            team_id=team.id,
+            events=["$pageview"],
+            hogql_predicate="properties.$browser = 'Chrome' AND event = '$pageview'",
+        )
+    )
+    sql, _ = compile_hogql_predicate(request)
+    assert sql == snapshot
+
+
 def test_rendered_count_query_substitutes_parameters():
     from posthog.admin.admins.data_deletion_request_admin import build_deletion_count_query
     from posthog.clickhouse.client.escape import substitute_params_for_display
