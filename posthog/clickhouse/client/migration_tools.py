@@ -72,9 +72,11 @@ def run_sql_with_exceptions(
     # Store original node_roles for validation purposes before debug override
     original_node_roles = node_roles_list
 
-    if settings.E2E_TESTING or settings.DEBUG or not settings.CLOUD_DEPLOYMENT:
+    if (settings.E2E_TESTING or settings.DEBUG or not settings.CLOUD_DEPLOYMENT) and not settings.MULTINODE_CLICKHOUSE:
         # In E2E tests, debug mode and hobby deployments, we run migrations on ALL nodes
-        # because we don't have different ClickHouse topologies yet in Docker
+        # because we don't have different ClickHouse topologies yet in Docker.
+        # MULTINODE_CLICKHOUSE opts back into role-based routing so the smoke-test
+        # stack can verify migrations actually land on the correct cluster.
         node_roles_list = [NodeRole.ALL]
 
     def run_migration():
@@ -84,7 +86,8 @@ def run_sql_with_exceptions(
 
         if sharded and is_alter_on_replicated_table:
             assert (NodeRole.DATA in node_roles_list and len(node_roles_list) == 1) or (
-                settings.E2E_TESTING or settings.DEBUG or not settings.CLOUD_DEPLOYMENT
+                (settings.E2E_TESTING or settings.DEBUG or not settings.CLOUD_DEPLOYMENT)
+                and not settings.MULTINODE_CLICKHOUSE
             ), "When running migrations on sharded tables, the node_role must be NodeRole.DATA"
             return cluster.map_one_host_per_shard(query).result()
         elif is_alter_on_replicated_table:

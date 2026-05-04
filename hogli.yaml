@@ -601,6 +601,9 @@ tests:
     test:e2e:
         bin_script: e2e-test-runner
         description: Set up test databases and run Playwright E2E tests
+    test:multinode-migrations:
+        bin_script: multinode-migration-smoke
+        description: Boot a per-cluster ClickHouse stack and smoke-test migrations against it
 quality:
     lint:
         cmd: ./bin/ruff.sh check . && pnpm --filter=@posthog/frontend run lint
@@ -854,4 +857,16 @@ environment:
     flags:jumphost:
         bin_script: rust-jumphost
         description: 'Shell into the flags-cache-jumphost pod (uses $KUBE_NAMESPACE, defaults to posthog)'
+        hidden: true
+    setup:json:drop:keys:udf:
+        bin_script: setup-json-drop-keys-udf.sh
+        description: 'TODO: add description for setup-json-drop-keys-udf.sh'
+        hidden: true
+    start:multinode:clickhouse:
+        bin_script: start-multinode-clickhouse
+        description: 'TODO: add description for start-multinode-clickhouse'
+        hidden: true
+    verify:multinode:clickhouse:
+        bin_script: verify-multinode-clickhouse.py
+        description: 'TODO: add description for verify-multinode-clickhouse.py'
         hidden: true

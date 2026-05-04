@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+#
+# End-to-end smoke test for ClickHouse migrations against a multi-node topology.
+#
+# Boots one ClickHouse server per logical cluster (data + ai_events + aux + ops + sessions),
+# runs `manage.py migrate_clickhouse` with MULTINODE_CLICKHOUSE=1 (so migrations respect
+# their declared NodeRole instead of being collapsed to NodeRole.ALL), then runs the
+# verification script to assert each node ended up with the tables it should have.
+#
+# Env knobs:
+#   KEEP=1          Do not tear down the stack on success (useful for local debugging).
+#   SKIP_BOOT=1     Assume the stack is already running (useful when iterating on
+#                   migrations against an already-booted stack).
+#
+
+set -euo pipefail
+
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)
+cd "$SCRIPT_DIR/.."
+
+COMPOSE_FILE="docker-compose.multinode-clickhouse.yml"
+CH_SERVICES=(clickhouse-data clickhouse-ai-events clickhouse-aux clickhouse-ops clickhouse-sessions)
+ALL_SERVICES=(zookeeper kafka "${CH_SERVICES[@]}")
+HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-180}"
+
+dc() { docker compose -f "$COMPOSE_FILE" "$@"; }
+
+dump_logs_on_failure() {
+    local exit_code=$?
+    if [ "$exit_code" -ne 0 ]; then
+        echo
+        echo "===================== FAILURE: dumping container logs ====================="
+        for svc in "${ALL_SERVICES[@]}"; do
+            echo
+            echo "----- $svc -----"
+            dc logs --tail=200 "$svc" || true
+        done
+        echo
+        echo "===================== ClickHouse system.errors per node ====================="
+        for svc in "${CH_SERVICES[@]}"; do
+            echo "----- $svc -----"
+            dc exec -T "$svc" clickhouse-client --query \
+                "SELECT name, value, last_error_message FROM system.errors WHERE value > 0 ORDER BY value DESC LIMIT 20" \
+                || true
+        done
+    fi
+    return "$exit_code"
+}
+trap dump_logs_on_failure EXIT
+
+wait_for_healthy() {
+    local svc="$1"
+    local cid status
+    local deadline=$(( SECONDS + HEALTH_TIMEOUT ))
+
+    while [ "$SECONDS" -lt "$deadline" ]; do
+        cid=$(dc ps -q "$svc" || true)
+        if [ -n "$cid" ]; then
+            status=$(docker inspect --format '{{.State.Health.Status}}' "$cid" 2>/dev/null || echo "missing")
+            if [ "$status" = "healthy" ]; then
+                echo "  $svc -> healthy"
+                return 0
+            fi
+        fi
+        sleep 2
+    done
+    echo "  $svc -> NOT healthy after ${HEALTH_TIMEOUT}s" >&2
+    return 1
+}
+
+if [ "${SKIP_BOOT:-0}" != "1" ]; then
+    echo "==> Booting multinode ClickHouse stack..."
+    dc up -d "${ALL_SERVICES[@]}"
+
+    echo "==> Waiting for ClickHouse nodes to become healthy..."
+    for svc in "${CH_SERVICES[@]}"; do
+        wait_for_healthy "$svc"
+    done
+fi
+
+echo "==> Running ClickHouse migrations against the data node..."
+export MULTINODE_CLICKHOUSE=1
+export CLICKHOUSE_HOST="${CLICKHOUSE_HOST:-localhost}"
+export CLICKHOUSE_MIGRATIONS_HOST="${CLICKHOUSE_MIGRATIONS_HOST:-localhost}"
+export CLICKHOUSE_CLUSTER="${CLICKHOUSE_CLUSTER:-posthog}"
+export CLICKHOUSE_MIGRATIONS_CLUSTER="${CLICKHOUSE_MIGRATIONS_CLUSTER:-posthog_migrations}"
+export CLICKHOUSE_SATELLITE_CLUSTERS="${CLICKHOUSE_SATELLITE_CLUSTERS:-ai_events,aux,ops,sessions}"
+export CLICKHOUSE_DATABASE="${CLICKHOUSE_DATABASE:-posthog}"
+export CLICKHOUSE_USER="${CLICKHOUSE_USER:-default}"
+export CLICKHOUSE_PASSWORD="${CLICKHOUSE_PASSWORD:-}"
+export CLICKHOUSE_SECURE="${CLICKHOUSE_SECURE:-false}"
+export CLICKHOUSE_VERIFY="${CLICKHOUSE_VERIFY:-false}"
+
+python manage.py migrate_clickhouse
+
+echo "==> Verifying per-node table layout..."
+python bin/verify-multinode-clickhouse.py
+
+echo "==> Smoke test passed."
+
+if [ "${KEEP:-0}" = "1" ]; then
+    echo "KEEP=1 set: leaving stack running. Tear down with: bin/start-multinode-clickhouse down"
+else
+    echo "==> Tearing down stack..."
+    dc down -v
+fi

@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+#
+# Boot the multinode ClickHouse smoke-test stack in the background.
+# One ClickHouse server per logical cluster (data + ai_events + aux + ops + sessions).
+# This is opt-in tooling for verifying migration routing — `bin/start` is unaffected.
+#
+
+set -euo pipefail
+
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)
+cd "$SCRIPT_DIR/.."
+
+COMPOSE_FILE="docker-compose.multinode-clickhouse.yml"
+SERVICES=(zookeeper kafka clickhouse-data clickhouse-ai-events clickhouse-aux clickhouse-ops clickhouse-sessions)
+
+case "${1:-up}" in
+    up)
+        docker compose -f "$COMPOSE_FILE" up -d "${SERVICES[@]}"
+        echo
+        echo "Multinode ClickHouse stack starting. Published ports:"
+        echo "  clickhouse-data       localhost:9000 (HTTP 8123)"
+        echo "  clickhouse-ai-events  localhost:9100 (HTTP 8124)"
+        echo "  clickhouse-aux        localhost:9200 (HTTP 8125)"
+        echo "  clickhouse-ops        localhost:9300 (HTTP 8126)"
+        echo "  clickhouse-sessions   localhost:9400 (HTTP 8127)"
+        echo
+        echo "To run migrations against this stack, set:"
+        echo "  export MULTINODE_CLICKHOUSE=1"
+        echo "  export CLICKHOUSE_HOST=localhost"
+        echo "  export CLICKHOUSE_MIGRATIONS_HOST=localhost"
+        echo "Then run: python manage.py migrate_clickhouse"
+        echo
+        echo "Or run the full smoke test: bin/multinode-migration-smoke"
+        ;;
+    down)
+        docker compose -f "$COMPOSE_FILE" down -v
+        ;;
+    logs)
+        docker compose -f "$COMPOSE_FILE" logs -f "${@:2}"
+        ;;
+    ps)
+        docker compose -f "$COMPOSE_FILE" ps
+        ;;
+    *)
+        echo "Usage: $0 [up|down|logs|ps]" >&2
+        exit 2
+        ;;
+esac

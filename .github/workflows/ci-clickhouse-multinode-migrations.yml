@@ -1,0 +1,85 @@
+name: ClickHouse Multinode Migration Smoke
+
+on:
+    push:
+        branches:
+            - master
+    pull_request:
+        paths:
+            - 'posthog/clickhouse/migrations/**'
+            - 'posthog/models/**/sql.py'
+            - 'posthog/settings/data_stores.py'
+            - 'posthog/clickhouse/cluster.py'
+            - 'posthog/clickhouse/client/migration_tools.py'
+            - 'docker/clickhouse/config.d/multinode/**'
+            - 'docker-compose.multinode-clickhouse.yml'
+            - 'bin/multinode-migration-smoke'
+            - 'bin/start-multinode-clickhouse'
+            - 'bin/verify-multinode-clickhouse.py'
+            - '.github/workflows/ci-clickhouse-multinode-migrations.yml'
+    merge_group:
+    workflow_dispatch:
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+    contents: read
+
+jobs:
+    multinode-migration-smoke:
+        name: Run ClickHouse migrations against per-cluster topology
+        runs-on: ubuntu-24.04
+        timeout-minutes: 25
+        env:
+            DEBUG: '1'
+            MULTINODE_CLICKHOUSE: '1'
+            CLICKHOUSE_HOST: localhost
+            CLICKHOUSE_MIGRATIONS_HOST: localhost
+            CLICKHOUSE_DATABASE: posthog
+            CLICKHOUSE_USER: default
+            CLICKHOUSE_PASSWORD: ''
+            CLICKHOUSE_SECURE: 'false'
+            CLICKHOUSE_VERIFY: 'false'
+            DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
+            REDIS_URL: 'redis://localhost'
+            # unsafe - for testing only
+            SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da'
+        steps:
+            - uses: actions/checkout@v6
+
+            - name: Add multinode hostnames to /etc/hosts
+              run: |
+                  echo "127.0.0.1 clickhouse-data clickhouse-ai-events clickhouse-aux clickhouse-ops clickhouse-sessions kafka zookeeper" | sudo tee -a /etc/hosts
+
+            - name: Set up Python
+              uses: actions/setup-python@v6
+              with:
+                  python-version: 3.12.12
+
+            - name: Install uv
+              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              with:
+                  version: '0.10.2'
+                  enable-cache: true
+                  cache-dependency-glob: uv.lock
+
+            - name: Install Python dependencies
+              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+
+            - name: Run smoke test
+              run: bin/multinode-migration-smoke
+
+            - name: Dump compose logs on failure
+              if: failure()
+              run: |
+                  docker compose -f docker-compose.multinode-clickhouse.yml logs --no-color > multinode-compose.log || true
+
+            - name: Upload compose logs on failure
+              if: failure()
+              uses: actions/upload-artifact@v4
+              with:
+                  name: multinode-compose-logs
+                  path: multinode-compose.log
+                  if-no-files-found: ignore
