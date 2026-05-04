@@ -2,15 +2,9 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonInput, LemonLabel, LemonModal, LemonSwitch } from '@posthog/lemon-ui'
 
+import { DEFAULT_LOOKBACK_DAYS, MAX_LOOKBACK_DAYS, MIN_LOOKBACK_DAYS } from '../constants'
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
-
-export const DEFAULT_LOOKBACK_DAYS = 14
-export const MIN_LOOKBACK_DAYS = 1
-export const MAX_LOOKBACK_DAYS = 365
-
-const clampLookbackDays = (value: number): number =>
-    Math.min(Math.max(Math.round(value), MIN_LOOKBACK_DAYS), MAX_LOOKBACK_DAYS)
 
 export function CupedModal(): JSX.Element {
     const { experiment } = useValues(experimentLogic)
@@ -39,17 +33,7 @@ export function CupedModal(): JSX.Element {
     }
 
     const onSave = (): void => {
-        const cupedConfig = experiment.stats_config?.cuped
-        const clampedLookback = clampLookbackDays(cupedConfig?.lookback_days ?? DEFAULT_LOOKBACK_DAYS)
-        updateExperiment({
-            stats_config: {
-                ...experiment.stats_config,
-                cuped: {
-                    ...cupedConfig,
-                    lookback_days: clampedLookback,
-                },
-            },
-        })
+        updateExperiment({ stats_config: experiment.stats_config })
         closeCupedModal()
     }
 
@@ -92,10 +76,14 @@ export function CupedModal(): JSX.Element {
                             max={MAX_LOOKBACK_DAYS}
                             value={lookbackDays}
                             onChange={(value) => {
-                                if (typeof value !== 'number' || !Number.isFinite(value) || value < MIN_LOOKBACK_DAYS) {
+                                if (typeof value !== 'number' || !Number.isFinite(value)) {
                                     return
                                 }
-                                updateCupedConfig({ lookback_days: value })
+                                const rounded = Math.round(value)
+                                if (rounded < MIN_LOOKBACK_DAYS || rounded > MAX_LOOKBACK_DAYS) {
+                                    return
+                                }
+                                updateCupedConfig({ lookback_days: rounded })
                             }}
                             className="w-32"
                         />
