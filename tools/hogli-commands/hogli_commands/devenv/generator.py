@@ -233,10 +233,10 @@ echo ''
 if [ -f {news_path} ]; then
     printf '  {orange}{bold}News:{reset}\\n'
     git blame --date=short {news_path} 2>/dev/null | \\
-      sed 's/^[^(]*([^)]*\\([0-9]\\{{4\\}}-[0-9]\\{{2\\}}-[0-9]\\{{2\\}}\\)[^)]*) /\\1|/' | \\
+      awk '{{match($0,/[0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}}/); d=substr($0,RSTART,RLENGTH); sub(/.*\\) /,""); if($0!="") print d"|"$0}}' | \\
       sort -r | \\
       while IFS='|' read -r date content; do
-        [ -n "$content" ] && printf '    {gray}%s{reset}  %s\\n' "$date" "$content"
+        printf '    {gray}%s{reset}  %s\\n' "$date" "$content"
       done
     echo ''
 fi
