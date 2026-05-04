@@ -22,6 +22,7 @@ from .run_evaluation import (
     BooleanWithNAEvalResult,
     EmitEvaluationEventInputs,
     ExecuteLLMJudgeInputs,
+    LLMJudgeResult,
     RunEvaluationInputs,
     RunEvaluationWorkflow,
     SendEvaluationDisabledEmailInputs,
@@ -160,7 +161,7 @@ class TestRunEvaluationWorkflow:
 
         event_data = create_mock_event_data(team.id, properties={})
 
-        result = {
+        result: LLMJudgeResult = {
             "verdict": True,
             "reasoning": "Test passed",
             "model": "gpt-5-mini",
@@ -213,7 +214,7 @@ class TestRunEvaluationWorkflow:
 
         event_data = create_mock_event_data(team.id, properties={})
 
-        result = {
+        result: LLMJudgeResult = {
             "verdict": False,
             "reasoning": "Source trace errored before producing output; evaluation skipped.",
             "input_tokens": 0,
@@ -520,7 +521,7 @@ class TestRunEvaluationWorkflow:
 
         event_data = create_mock_event_data(team.id, properties={})
 
-        result = {
+        result: LLMJudgeResult = {
             "verdict": True,
             "reasoning": "Test passed",
             "applicable": True,
@@ -561,7 +562,7 @@ class TestRunEvaluationWorkflow:
 
         event_data = create_mock_event_data(team.id, properties={})
 
-        result = {
+        result: LLMJudgeResult = {
             "verdict": None,
             "reasoning": "Not applicable",
             "applicable": False,
