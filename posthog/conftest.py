@@ -368,7 +368,7 @@ def _patched_flush_handle(self, **options: Any) -> None:
 
 
 _original_flush_handle = FlushCommand.handle
-FlushCommand.handle = _patched_flush_handle  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+FlushCommand.handle = _patched_flush_handle  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
 
 
 @pytest.fixture
