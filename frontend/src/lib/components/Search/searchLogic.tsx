@@ -272,6 +272,7 @@ export const searchLogic = kea<searchLogicType>([
                 return source.map((item) => {
                     const name = splitPath(item.path).pop()
                     const productIconColor = item.type ? productIconColorByType.get(item.type) : undefined
+                    const baseRecord = item as unknown as Record<string, unknown>
                     return {
                         id: item.path,
                         name: name ? unescapePath(name) : item.path,
@@ -280,8 +281,8 @@ export const searchLogic = kea<searchLogicType>([
                         lastViewedAt: item.last_viewed_at ?? null,
                         itemType: item.type ?? null,
                         record: {
-                            ...(item as unknown as Record<string, unknown>),
-                            iconColor: productIconColor ?? (item as Record<string, unknown>).iconColor,
+                            ...baseRecord,
+                            iconColor: productIconColor ?? baseRecord.iconColor,
                         },
                     }
                 })
@@ -297,6 +298,7 @@ export const searchLogic = kea<searchLogicType>([
                     .map((item) => {
                         const name = splitPath(item.path).pop()
                         const productIconColor = item.type ? productIconColorByType.get(item.type) : undefined
+                        const baseRecord = item as unknown as Record<string, unknown>
                         return {
                             id: `starred-${item.id}`,
                             name: name ? unescapePath(name) : item.path,
@@ -306,8 +308,8 @@ export const searchLogic = kea<searchLogicType>([
                             itemType: item.type ?? null,
                             searchKeywords: ['starred', 'favorite', 'favourite', 'shortcut'],
                             record: {
-                                ...(item as unknown as Record<string, unknown>),
-                                iconColor: productIconColor ?? (item as Record<string, unknown>).iconColor,
+                                ...baseRecord,
+                                iconColor: productIconColor ?? baseRecord.iconColor,
                             },
                         }
                     })
