@@ -9,6 +9,9 @@ feature: posthog_ai
 url_prefix: /
 ui_apps: {}
 tools:
+    docs-search:
+        operation: docs_search
+        enabled: false
     mcp-tools-create:
         operation: mcp_tools_create
         enabled: false
