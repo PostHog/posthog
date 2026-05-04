@@ -41,9 +41,13 @@ def _get_effective_team_id_for_persons_db(team_id: int) -> int:
     """
     from posthog.models.team import Team
 
+    # Only trust cached value when parent_team_id was explicitly resolved.
+    # `None` could mean "this is a root team" or "we just don't know yet" —
+    # falling back to team_id in the latter case would silently scope queries
+    # to the child team and miss data stored under the parent.
     ctx = get_current_team_context()
-    if ctx is not None and ctx.team_id == team_id:
-        return ctx.effective_team_id
+    if ctx is not None and ctx.team_id == team_id and ctx.parent_team_id is not None:
+        return ctx.parent_team_id
 
     try:
         team = Team.objects.using("default").get(id=team_id)

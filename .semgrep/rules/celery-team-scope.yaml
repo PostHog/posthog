@@ -1,10 +1,17 @@
 rules:
     - id: celery-task-team-scope-audit
       patterns:
-          - pattern-inside: |
-                @shared_task(...)
-                def $FUNC(...):
-                    ...
+          # Match tasks declared with or without parens. Semgrep matches the decorator
+          # regardless of other decorators stacked around it.
+          - pattern-either:
+                - pattern-inside: |
+                      @shared_task(...)
+                      def $FUNC(...):
+                          ...
+                - pattern-inside: |
+                      @shared_task
+                      def $FUNC(...):
+                          ...
           - pattern-either:
                 - pattern: $MODEL.objects.all()
                 - pattern: $MODEL.objects.filter(...)
@@ -18,7 +25,8 @@ rules:
                 @with_team_scope(...)
                 def $FUNC(...):
                     ...
-          - pattern-not: $MODEL.objects.unscoped()...
+          - pattern-not: $MODEL.objects.unscoped()
+          - pattern-not: $MODEL.objects.unscoped().$METHOD(...)
       message: |
           Celery task accesses model without explicit team scoping.
 

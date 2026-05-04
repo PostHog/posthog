@@ -30,7 +30,7 @@ def setup_django() -> None:
     django.setup()
 
 
-def get_scoped_models() -> tuple[dict[str, set[str]], set[str]]:
+def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[str]]:
     """
     Scan all Django models and categorize by scope.
 
@@ -43,7 +43,8 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str]]:
     since the team filter is the primary access control mechanism.
 
     Returns:
-        Tuple of (scoped_models_dict, excluded_models_set)
+        Tuple of (scoped_models_dict, excluded_models_set,
+                  legitimately_unscoped_set, needs_team_id_set).
     """
     from django.apps import apps
     from django.db.models import ForeignKey

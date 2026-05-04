@@ -43,9 +43,13 @@ def _resolve_effective_team_id(team_id: int) -> int:
     Uses the cached parent_team_id from ContextVar if available,
     otherwise does a single-row fetch from the main database.
     """
+    # Only trust cached value when parent_team_id was explicitly resolved.
+    # `None` could mean "this is a root team" or "we just don't know yet" —
+    # falling back to team_id in the latter case would silently scope queries
+    # to the child team and miss data stored under the parent.
     ctx = get_current_team_context()
-    if ctx is not None and ctx.team_id == team_id:
-        return ctx.effective_team_id
+    if ctx is not None and ctx.team_id == team_id and ctx.parent_team_id is not None:
+        return ctx.parent_team_id
 
     from posthog.models.team import Team
 
