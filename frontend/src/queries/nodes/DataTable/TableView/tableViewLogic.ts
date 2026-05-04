@@ -29,6 +29,22 @@ export interface TableViewLogicProps {
     setQuery: (query: TableViewSupportedQueryType) => void
 }
 
+interface EventSyntheticMarker {
+    key: 'event'
+    value: EventsQuery['event']
+    operator: PropertyOperator.Exact
+    type: undefined
+}
+
+interface EventsSyntheticMarker {
+    key: 'events'
+    value: EventsQuery['events']
+    operator: PropertyOperator.In
+    type: undefined
+}
+
+type TableViewSavedFilter = AnyPropertyFilter | EventSyntheticMarker | EventsSyntheticMarker
+
 function getViewData(
     props: TableViewLogicProps,
     name?: string,
@@ -43,15 +59,17 @@ function getViewData(
             filters: props.query.properties,
         }
     }
-    const event = {
+    const event: EventSyntheticMarker = {
         key: 'event',
         value: props.query.event,
         operator: PropertyOperator.Exact,
+        type: undefined,
     }
-    const events = {
+    const events: EventsSyntheticMarker = {
         key: 'events',
         value: props.query.events,
         operator: PropertyOperator.In,
+        type: undefined,
     }
     return {
         context_key: props.contextKey,
@@ -82,13 +100,15 @@ function getQueryFromView(
         } as TableViewSupportedQueryType
     }
 
-    const rawFilters = (view.filters || []) as AnyPropertyFilter[]
+    const rawFilters = (view.filters || []) as TableViewSavedFilter[]
     // Synthetic markers for EventsQuery.event/events are stored in the same filters array as
     // real property filters. Disambiguate by the absence of a `type` field — real property
     // filters (e.g. event_metadata on key "event") always carry one.
-    const isEventMarker = (f: AnyPropertyFilter): boolean => f.key === 'event' && !f.type
-    const isEventsMarker = (f: AnyPropertyFilter): boolean => f.key === 'events' && !f.type
-    const properties = rawFilters.filter((f) => !isEventMarker(f) && !isEventsMarker(f))
+    const isEventMarker = (f: TableViewSavedFilter): f is EventSyntheticMarker =>
+        f.key === 'event' && f.type === undefined
+    const isEventsMarker = (f: TableViewSavedFilter): f is EventsSyntheticMarker =>
+        f.key === 'events' && f.type === undefined
+    const properties = rawFilters.filter((f): f is AnyPropertyFilter => !isEventMarker(f) && !isEventsMarker(f))
     const event = rawFilters.find(isEventMarker)?.value
     const events = rawFilters.find(isEventsMarker)?.value
     return {
