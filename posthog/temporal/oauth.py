@@ -28,6 +28,7 @@ MCP_READ_SCOPES: list[str] = [
     "insight:read",
     "insight_variable:read",
     "llm_prompt:read",
+    "llm_skill:read",
     "logs:read",
     "notebook:read",
     "organization:read",
@@ -51,6 +52,7 @@ MCP_WRITE_SCOPES: list[str] = [
     "insight:write",
     "insight_variable:write",
     "llm_prompt:write",
+    "llm_skill:write",
     "notebook:write",
     "survey:write",
 ]
