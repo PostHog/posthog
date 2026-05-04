@@ -40,23 +40,6 @@ export type ProcessBufferWithSamplingResult = {
     allDropped: boolean
 }
 
-function recordTimeSeconds(record: LogRecord): number {
-    const t = record.observed_timestamp ?? record.timestamp
-    if (t == null) {
-        return Math.floor(Date.now() / 1000)
-    }
-    let x = Number(t)
-    if (!Number.isFinite(x)) {
-        return Math.floor(Date.now() / 1000)
-    }
-    if (x > 1e15) {
-        x /= 1e9
-    } else if (x > 1e12) {
-        x /= 1000
-    }
-    return Math.floor(x)
-}
-
 async function applySamplingRateLimits(
     teamId: number,
     redis: RedisV2,
@@ -160,7 +143,7 @@ async function processBufferWithSamplingImpl(
                 pendingByRule.set(c.ruleId, list)
             }
         }
-        const nowSeconds = Math.max(...records.map(recordTimeSeconds), Math.floor(Date.now() / 1000))
+        const nowSeconds = Math.floor(Date.now() / 1000)
         const rateKeep = await applySamplingRateLimits(
             rateCtx.teamId,
             rateCtx.redis,
