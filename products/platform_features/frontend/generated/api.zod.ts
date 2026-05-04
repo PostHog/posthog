@@ -240,6 +240,7 @@ export const AdvancedActivityLogsExportCreateBody = /* @__PURE__ */ zod.object({
     created_at: zod.iso.datetime({}).optional(),
 })
 
+export const commentsCreateBodyIsTaskDefault = false
 export const commentsCreateBodyItemIdMax = 72
 
 export const commentsCreateBodyScopeMax = 79
@@ -248,6 +249,12 @@ export const CommentsCreateBody = /* @__PURE__ */ zod.object({
     deleted: zod.boolean().nullish(),
     mentions: zod.array(zod.number()).optional(),
     slug: zod.string().optional(),
+    is_task: zod
+        .boolean()
+        .default(commentsCreateBodyIsTaskDefault)
+        .describe(
+            'Whether this comment is an actionable task that can be marked complete. Tasks render with a checkbox in the UI and can be filtered as a separate kind. Cannot be set on replies (source_comment) or emoji reactions. Immutable after creation.'
+        ),
     content: zod.string().nullish(),
     rich_content: zod.unknown().nullish(),
     item_id: zod.string().max(commentsCreateBodyItemIdMax).nullish(),
@@ -256,6 +263,7 @@ export const CommentsCreateBody = /* @__PURE__ */ zod.object({
     source_comment: zod.uuid().nullish(),
 })
 
+export const commentsUpdateBodyIsTaskDefault = false
 export const commentsUpdateBodyItemIdMax = 72
 
 export const commentsUpdateBodyScopeMax = 79
@@ -264,6 +272,12 @@ export const CommentsUpdateBody = /* @__PURE__ */ zod.object({
     deleted: zod.boolean().nullish(),
     mentions: zod.array(zod.number()).optional(),
     slug: zod.string().optional(),
+    is_task: zod
+        .boolean()
+        .default(commentsUpdateBodyIsTaskDefault)
+        .describe(
+            'Whether this comment is an actionable task that can be marked complete. Tasks render with a checkbox in the UI and can be filtered as a separate kind. Cannot be set on replies (source_comment) or emoji reactions. Immutable after creation.'
+        ),
     content: zod.string().nullish(),
     rich_content: zod.unknown().nullish(),
     item_id: zod.string().max(commentsUpdateBodyItemIdMax).nullish(),
@@ -272,6 +286,7 @@ export const CommentsUpdateBody = /* @__PURE__ */ zod.object({
     source_comment: zod.uuid().nullish(),
 })
 
+export const commentsPartialUpdateBodyIsTaskDefault = false
 export const commentsPartialUpdateBodyItemIdMax = 72
 
 export const commentsPartialUpdateBodyScopeMax = 79
@@ -280,6 +295,12 @@ export const CommentsPartialUpdateBody = /* @__PURE__ */ zod.object({
     deleted: zod.boolean().nullish(),
     mentions: zod.array(zod.number()).optional(),
     slug: zod.string().optional(),
+    is_task: zod
+        .boolean()
+        .default(commentsPartialUpdateBodyIsTaskDefault)
+        .describe(
+            'Whether this comment is an actionable task that can be marked complete. Tasks render with a checkbox in the UI and can be filtered as a separate kind. Cannot be set on replies (source_comment) or emoji reactions. Immutable after creation.'
+        ),
     content: zod.string().nullish(),
     rich_content: zod.unknown().nullish(),
     item_id: zod.string().max(commentsPartialUpdateBodyItemIdMax).nullish(),
