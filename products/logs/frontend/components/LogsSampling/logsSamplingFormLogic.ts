@@ -89,9 +89,9 @@ function parseSeverityPart(
     const patch = form as unknown as Record<string, unknown>
     if (raw.type === 'drop') {
         patch[prefix] = 'drop'
-    } else if (raw.type === 'sample' && typeof raw.rate === 'number') {
-        patch[prefix] = 'sample'
-        patch[`${prefix}_rate`] = raw.rate
+    } else if (raw.type === 'sample') {
+        // Sampling is not exposed in the UI; coerce legacy configs to keep on load.
+        patch[prefix] = 'keep'
     } else {
         patch[prefix] = 'keep'
     }
@@ -271,7 +271,8 @@ export const logsSamplingFormLogic = kea<logsSamplingFormLogicType>([
                 try {
                     const scope_service = form.scope_service.trim() || null
                     const scope_path_pattern = form.scope_path_pattern.trim() || null
-                    const scope_attribute_filters = (props.rule?.scope_attribute_filters ?? []) as unknown[]
+                    const scope_attribute_filters = (props.rule?.scope_attribute_filters ??
+                        []) as PatchedLogsSamplingRuleApi['scope_attribute_filters']
                     const payload = {
                         name: form.name.trim(),
                         enabled: form.enabled,

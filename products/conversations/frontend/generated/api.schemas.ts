@@ -313,6 +313,7 @@ export interface PaginatedTicketViewListApi {
  * `email` - Email
  * `slack` - Slack
  * `teams` - Microsoft Teams
+ * `github` - GitHub
  */
 export type ChannelSourceEnumApi = (typeof ChannelSourceEnumApi)[keyof typeof ChannelSourceEnumApi]
 
@@ -321,6 +322,7 @@ export const ChannelSourceEnumApi = {
     Email: 'email',
     Slack: 'slack',
     Teams: 'teams',
+    Github: 'github',
 } as const
 
 /**
@@ -331,6 +333,7 @@ export const ChannelSourceEnumApi = {
  * `teams_bot_mention` - Teams bot mention
  * `widget_embedded` - Widget
  * `widget_api` - API
+ * `github_issue` - GitHub issue
  */
 export type ChannelDetailEnumApi = (typeof ChannelDetailEnumApi)[keyof typeof ChannelDetailEnumApi]
 
@@ -342,6 +345,7 @@ export const ChannelDetailEnumApi = {
     TeamsBotMention: 'teams_bot_mention',
     WidgetEmbedded: 'widget_embedded',
     WidgetApi: 'widget_api',
+    GithubIssue: 'github_issue',
 } as const
 
 /**
@@ -472,6 +476,10 @@ export interface TicketApi {
     /** @nullable */
     readonly email_to: string | null
     readonly cc_participants: unknown
+    /** @nullable */
+    readonly github_repo: string | null
+    /** @nullable */
+    readonly github_issue_number: number | null
     readonly person: TicketPersonApi | null
     tags?: unknown[]
 }
@@ -546,6 +554,10 @@ export interface PatchedTicketApi {
     /** @nullable */
     readonly email_to?: string | null
     readonly cc_participants?: unknown
+    /** @nullable */
+    readonly github_repo?: string | null
+    /** @nullable */
+    readonly github_issue_number?: number | null
     readonly person?: TicketPersonApi | null
     tags?: unknown[]
 }
@@ -688,6 +700,7 @@ export type ConversationsTicketsListChannelDetail =
     (typeof ConversationsTicketsListChannelDetail)[keyof typeof ConversationsTicketsListChannelDetail]
 
 export const ConversationsTicketsListChannelDetail = {
+    GithubIssue: 'github_issue',
     SlackBotMention: 'slack_bot_mention',
     SlackChannelMessage: 'slack_channel_message',
     SlackEmojiReaction: 'slack_emoji_reaction',
@@ -702,6 +715,7 @@ export type ConversationsTicketsListChannelSource =
 
 export const ConversationsTicketsListChannelSource = {
     Email: 'email',
+    Github: 'github',
     Slack: 'slack',
     Teams: 'teams',
     Widget: 'widget',

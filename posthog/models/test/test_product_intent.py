@@ -5,13 +5,21 @@ from freezegun import freeze_time
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.core.cache import cache
+
+from parameterized import parameterized
+
 from posthog.schema import ProductIntentContext, ProductKey
 
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.file_system.user_product_list import UserProductList
 from posthog.models.hog_flow.hog_flow import HogFlow
 from posthog.models.insight import Insight
-from posthog.models.product_intent.product_intent import ProductIntent, calculate_product_activation
+from posthog.models.product_intent.product_intent import (
+    ProductIntent,
+    calculate_product_activation,
+    enqueue_product_activation_calc_debounced,
+)
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.utils import get_instance_realm
 
@@ -785,3 +793,46 @@ class TestProductIntent(BaseTest):
         self.product_intent.save()
 
         assert self.product_intent.has_activated_workflows() is False
+
+
+class TestEnqueueProductActivationCalcDebounced(BaseTest):
+    def setUp(self):
+        super().setUp()
+        cache.clear()
+
+    @parameterized.expand(
+        [
+            # name, team_id_offsets (called as self.team.id + offset), expected_returns, expected_delay_calls
+            ("first call enqueues", [0], [True], 1),
+            ("second call same team debounced", [0, 0], [True, False], 1),
+            ("third call same team still debounced", [0, 0, 0], [True, False, False], 1),
+            ("different team is not debounced", [0, 9999], [True, True], 2),
+            ("same team twice then different team", [0, 0, 9999], [True, False, True], 2),
+        ]
+    )
+    def test_debounce_behaviour(
+        self, _name: str, team_id_offsets: list[int], expected_returns: list[bool], expected_delay_calls: int
+    ):
+        with patch("posthog.models.product_intent.product_intent.calculate_product_activation.delay") as mock_delay:
+            results = [enqueue_product_activation_calc_debounced(self.team.id + offset) for offset in team_id_offsets]
+        assert results == expected_returns
+        assert mock_delay.call_count == expected_delay_calls
+
+    def test_cache_failure_falls_open_logs_and_still_enqueues(self):
+        # Redis blip must not 500 the team list endpoint. The helper falls open:
+        # treat a cache exception as "we haven't enqueued recently" and proceed.
+        # We also log + capture so a chronic Redis problem still shows up rather
+        # than silently degrading to "every render enqueues".
+        with (
+            patch("posthog.models.product_intent.product_intent.cache.add", side_effect=Exception("redis is sad")),
+            patch("posthog.models.product_intent.product_intent.calculate_product_activation.delay") as mock_delay,
+            patch("posthog.models.product_intent.product_intent.logger.warning") as mock_log,
+            patch("posthog.models.product_intent.product_intent.capture_exception") as mock_capture,
+        ):
+            assert enqueue_product_activation_calc_debounced(self.team.id) is True
+
+        mock_delay.assert_called_once_with(self.team.id, only_calc_if_days_since_last_checked=1)
+        mock_log.assert_called_once()
+        assert mock_log.call_args.args == ("product_activation_debounce_cache_failure",)
+        assert mock_log.call_args.kwargs == {"team_id": self.team.id, "exc_info": True}
+        mock_capture.assert_called_once()

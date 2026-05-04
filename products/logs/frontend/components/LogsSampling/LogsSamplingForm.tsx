@@ -26,55 +26,24 @@ const PATH_DROP_MATCH_TARGET_OPTIONS: { value: PathDropMatchTarget; label: strin
     { value: 'custom_attribute', label: 'One log attribute' },
 ]
 
-const ACTION_OPTIONS: { value: SeverityActionChoice; label: string }[] = [
+const SEVERITY_ACTION_OPTIONS: { value: SeverityActionChoice; label: string }[] = [
     { value: 'keep', label: 'Keep' },
     { value: 'drop', label: 'Drop (not stored)' },
-    { value: 'sample', label: 'Sample (keep some)' },
 ]
 
-function SeverityRow({
-    label,
-    actionKey,
-    rateKey,
-}: {
-    label: string
-    actionKey: keyof LogsSamplingFormType
-    rateKey: keyof LogsSamplingFormType
-}): JSX.Element {
+function SeverityRow({ label, actionKey }: { label: string; actionKey: keyof LogsSamplingFormType }): JSX.Element {
     const { samplingForm } = useValues(logsSamplingFormLogic)
     const { setSamplingFormValue } = useActions(logsSamplingFormLogic)
     const action = samplingForm[actionKey] as SeverityActionChoice
-    const rate = samplingForm[rateKey] as number
-
-    const pctKept = Math.round(Math.min(1, Math.max(0, rate)) * 100)
 
     return (
-        <div className="grid grid-cols-[5.5rem_minmax(11rem,16rem)_minmax(0,1fr)] items-center gap-x-3 gap-y-1">
+        <div className="grid grid-cols-[5.5rem_minmax(11rem,16rem)] items-center gap-x-3 gap-y-1">
             <span className="text-muted text-sm">{label}</span>
             <LemonSelect
-                options={ACTION_OPTIONS}
-                value={action}
+                options={SEVERITY_ACTION_OPTIONS}
+                value={action === 'sample' ? 'keep' : action}
                 onChange={(v) => v && setSamplingFormValue(actionKey, v)}
             />
-            {action === 'sample' ? (
-                <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-sm text-muted shrink-0">Keep fraction</span>
-                    <LemonInput
-                        type="number"
-                        min={0}
-                        max={1}
-                        step={0.05}
-                        value={rate}
-                        className="max-w-[7rem]"
-                        onChange={(v) =>
-                            setSamplingFormValue(rateKey, typeof v === 'number' ? v : parseFloat(String(v)) || 0)
-                        }
-                    />
-                    <span className="text-sm text-muted tabular-nums whitespace-nowrap">≈{pctKept}% kept</span>
-                </div>
-            ) : (
-                <div />
-            )}
         </div>
     )
 }
@@ -119,10 +88,8 @@ export function LogsSamplingForm(): JSX.Element {
                     info="You can create multiple rules; lower priority number runs first. The first rule that matches wins for each log line."
                     help={
                         <>
-                            “Drop by severity” is for whole severity levels (info, warn, …). “Drop when matched” is for
-                            regex on a path string or one attribute you pick. Optional{' '}
-                            <strong>Sample (keep some)</strong> on severity keeps a fraction of traffic (see
-                            per-severity help for trace vs no-trace behavior).
+                            “Drop by severity” is for whole severity levels (debug, info, warn, error). “Drop when
+                            matched” is for regex on a path string or one attribute you pick.
                         </>
                     }
                 >
@@ -250,42 +217,33 @@ export function LogsSamplingForm(): JSX.Element {
             {isSeverity ? (
                 <>
                     <LemonBanner type="info">
-                        <div className="text-sm space-y-2">
-                            <div>
-                                <strong>Example — drop only noisy info logs:</strong> set <strong>Info</strong> to{' '}
-                                <strong>Drop (not stored)</strong>, leave Debug / Warn / Error on <strong>Keep</strong>.
-                                Every matching INFO line in scope is removed at ingestion; other levels pass through
-                                unless another rule matches first.
-                            </div>
-                            <div>
-                                <strong>Advanced:</strong> <strong>Sample (keep some)</strong> uses your rate as the
-                                approximate share of traffic kept. With a <strong>trace ID</strong>, all lines in that
-                                trace share one keep/drop coin flip at this severity (not “half the lines inside one
-                                trace”). Without a trace ID, each line is decided on its own at random.
-                            </div>
+                        <div className="text-sm">
+                            <strong>Example — drop only noisy info logs:</strong> set <strong>Info</strong> to{' '}
+                            <strong>Drop (not stored)</strong>, leave Debug / Warn / Error on <strong>Keep</strong>.
+                            Every matching INFO line in scope is removed at ingestion; other levels pass through unless
+                            another rule matches first.
                         </div>
                     </LemonBanner>
                     <LemonBanner type="warning">
-                        <strong>Drop</strong> and <strong>Sample (keep some)</strong> both remove data from storage for
-                        affected lines; only <strong>Keep</strong> leaves that severity unchanged for this rule.
+                        <strong>Drop (not stored)</strong> removes data for affected lines; only <strong>Keep</strong>{' '}
+                        leaves that severity unchanged for this rule.
                     </LemonBanner>
                     <LemonField.Pure
                         label="Per severity level"
                         info="Evaluated after scope (service + path filter above). Ordinals follow OpenTelemetry severity on the log line (debug, info, warn, error)."
-                        help="Keep fraction is 0–1 (e.g. 0.5 ≈ 50% of affected traffic stored). With a trace ID, every line in that trace gets the same keep/drop at this severity; without one, each line is random independently."
                     >
                         <div className="flex flex-col gap-2">
-                            <SeverityRow label="Debug" actionKey="severity_debug" rateKey="severity_debug_rate" />
-                            <SeverityRow label="Info" actionKey="severity_info" rateKey="severity_info_rate" />
-                            <SeverityRow label="Warn" actionKey="severity_warn" rateKey="severity_warn_rate" />
-                            <SeverityRow label="Error" actionKey="severity_error" rateKey="severity_error_rate" />
+                            <SeverityRow label="Debug" actionKey="severity_debug" />
+                            <SeverityRow label="Info" actionKey="severity_info" />
+                            <SeverityRow label="Warn" actionKey="severity_warn" />
+                            <SeverityRow label="Error" actionKey="severity_error" />
                         </div>
                     </LemonField.Pure>
                     <div className="font-semibold mt-2">Always keep (optional)</div>
                     <LemonField.Pure
                         label="HTTP status >="
                         className="max-w-xs"
-                        info="Logs with this HTTP status or higher are never dropped or sampled by this rule, when the status attribute is present."
+                        info="Logs with this HTTP status or higher are never dropped by this rule, when the status attribute is present."
                     >
                         <LemonInput
                             value={samplingForm.always_keep_status_gte}
