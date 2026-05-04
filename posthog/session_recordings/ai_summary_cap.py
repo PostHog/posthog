@@ -30,7 +30,7 @@ logger = structlog.get_logger(__name__)
 
 # Tweak with billing team. Intentionally a code constant — easy to bump in a deploy,
 # easy to override per-team via SignalSourceConfig for ops cases.
-DEFAULT_MAX_SUMMARIES_PER_PERIOD = 100
+DEFAULT_MAX_SUMMARIES_PER_PERIOD = 4 * 1000
 
 # JSON key on SignalSourceConfig.config. Mirrors the `sample_rate` key from PR #56921.
 CONFIG_KEY = "max_summaries_per_period"
