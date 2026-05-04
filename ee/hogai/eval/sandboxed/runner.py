@@ -8,8 +8,8 @@ from dataclasses import dataclass
 
 from products.tasks.backend.services.custom_prompt_internals import (
     CustomPromptSandboxContext,
-    _create_task_and_trigger,
-    _poll_for_turn,
+    create_task_and_trigger,
+    poll_for_turn,
 )
 
 from .config import AgentArtifacts, SandboxedEvalCase
@@ -37,8 +37,8 @@ async def run_eval_case(
     try:
         # Eval is a test harness — direct use of internals (instead of MTS) is intentional:
         # the agent isn't asked for structured JSON, and we need full_log for artifact parsing.
-        task, task_run = await _create_task_and_trigger(case.prompt, context, step_name=case.name)
-        last_message, full_log_opt, _, _ = await _poll_for_turn(
+        task, task_run = await create_task_and_trigger(case.prompt, context, step_name=case.name)
+        last_message, full_log_opt, _, _ = await poll_for_turn(
             task_run, verbose=True, output_fn=lambda msg: logger.info("agent: %s", msg)
         )
         full_log = full_log_opt or ""
