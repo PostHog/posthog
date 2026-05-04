@@ -1,7 +1,7 @@
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 
-export function hasTaxonomyPromotedProperty(eventName: string | null | undefined): boolean {
-    return !!eventName && !!CORE_FILTER_DEFINITIONS_BY_GROUP.events[eventName]?.promoted_property
+export function hasTaxonomyPrimaryProperty(eventName: string | null | undefined): boolean {
+    return !!eventName && !!CORE_FILTER_DEFINITIONS_BY_GROUP.events[eventName]?.primary_property
 }
 
 /**
@@ -15,14 +15,14 @@ export function hasTaxonomyPromotedProperty(eventName: string | null | undefined
  * already in memory, so callers can invoke this in tight loops (e.g. selectors
  * filtering all events in a session) without n+1 risk.
  */
-export function getPromotedPropertyForEvent(
+export function getPrimaryPropertyForEvent(
     eventName: string | null | undefined,
     overrides?: Record<string, string | null | undefined>
 ): string | null {
     if (!eventName) {
         return null
     }
-    const taxonomyDefault = CORE_FILTER_DEFINITIONS_BY_GROUP.events[eventName]?.promoted_property
+    const taxonomyDefault = CORE_FILTER_DEFINITIONS_BY_GROUP.events[eventName]?.primary_property
     if (taxonomyDefault) {
         return taxonomyDefault
     }
@@ -30,13 +30,13 @@ export function getPromotedPropertyForEvent(
 }
 
 /**
- * Filters a list of events down to those that have a promoted property
+ * Filters a list of events down to those that have a primary property
  * (taxonomy default or team override). Pure client-side — wraps
- * `getPromotedPropertyForEvent` so the intent reads as one operation.
+ * `getPrimaryPropertyForEvent` so the intent reads as one operation.
  */
-export function getEventsWithPromotedProperty<T extends { event: string }>(
+export function getEventsWithPrimaryProperty<T extends { event: string }>(
     events: T[],
     overrides?: Record<string, string | null | undefined>
 ): T[] {
-    return events.filter((e) => getPromotedPropertyForEvent(e.event, overrides) !== null)
+    return events.filter((e) => getPrimaryPropertyForEvent(e.event, overrides) !== null)
 }

@@ -251,6 +251,19 @@ describe('TimeSeriesLineChart', () => {
         })
     })
 
+    describe('derived-series wiring', () => {
+        it.each([
+            ['confidenceIntervals', { confidenceIntervals: [{ seriesKey: 'a', lower: [0, 1, 2], upper: [2, 3, 4] }] }],
+            ['movingAverage', { movingAverage: [{ seriesKey: 'a', window: 2 }] }],
+        ])('plumbs config.%s through to the rendered series count', (_, derivedConfig) => {
+            const { chart } = renderHogChart(
+                <TimeSeriesLineChart series={SERIES} labels={LABELS} theme={THEME} config={derivedConfig} />
+            )
+            // SERIES has 1 entry; each derived block adds one more series.
+            expect(chart.seriesCount).toBe(2)
+        })
+    })
+
     it('forwards children alongside built-in overlays', () => {
         const { container } = renderHogChart(
             <TimeSeriesLineChart series={SERIES} labels={LABELS} theme={THEME}>

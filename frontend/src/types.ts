@@ -4392,7 +4392,7 @@ export interface EventDefinition {
     enforcement_mode?: SchemaEnforcementMode
     media_preview_urls?: string[]
     /** Name of a single property on this event to display alongside it in PostHog UI surfaces. */
-    promoted_property?: string | null
+    primary_property?: string | null
 }
 
 export interface EventDefinitionMetrics {
@@ -4671,7 +4671,7 @@ export interface CoreFilterDefinition {
     /** whether this is a property PostHog adds to aid with debugging */
     used_for_debug?: boolean
     /** Name of a single property on events of this name that UIs should display alongside the event. */
-    promoted_property?: string
+    primary_property?: string
 }
 
 export interface TileParams {

@@ -1,7 +1,7 @@
-import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { router, urlToAction } from 'kea-router'
+import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
@@ -9,6 +9,7 @@ import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -210,6 +211,20 @@ export function mergeRestoredSourceFormValues(
     }
 }
 
+export function shouldHydrateSourceFromUrl(
+    currentStep: number,
+    selectedConnector: SourceConfig | null,
+    source: SourceConfig,
+    currentAccessMethod: 'warehouse' | 'direct',
+    urlAccessMethod: 'warehouse' | 'direct'
+): boolean {
+    return !(selectedConnector?.name === source.name && currentAccessMethod === urlAccessMethod && currentStep > 1)
+}
+
+function webhookResultHasNoPendingInputs(webhookResult: WebhookCreateResult | null | undefined): boolean {
+    return !!webhookResult?.success && (webhookResult.pending_inputs?.length ?? 0) === 0
+}
+
 const manualLinkSourceMap: Record<ManualLinkSourceType, string> = {
     aws: 'S3',
     'google-cloud': 'Google Cloud Storage',
@@ -276,6 +291,7 @@ function syncExpandedDirectQuerySchemaKeys(
 export interface SourceWizardLogicProps {
     onComplete?: () => void
     availableSources: Record<string, SourceConfig>
+    tabId?: string
     /** When set, only these tables will be pre-selected and they cannot be deselected */
     requiredTables?: string[]
 }
@@ -283,6 +299,7 @@ export interface SourceWizardLogicProps {
 export const sourceWizardLogic = kea<sourceWizardLogicType>([
     path(['products', 'dataWarehouse', 'sourceWizardLogic']),
     props({} as SourceWizardLogicProps),
+    key((props) => props.tabId ?? 'default'),
     actions({
         selectConnector: (connector: SourceConfig | null, accessMethod?: 'warehouse' | 'direct') => ({
             connector,
@@ -697,7 +714,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         webhookStepComplete: [
             (s) => [s.webhookResult, s.selectedConnector],
             (webhookResult: WebhookCreateResult | null, selectedConnector: SourceConfig | null): boolean => {
-                if (webhookResult?.success && (webhookResult.pending_inputs?.length ?? 0) === 0) {
+                if (webhookResultHasNoPendingInputs(webhookResult)) {
                     return true
                 }
                 if (!webhookResult) {
@@ -1157,7 +1174,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             }
 
             if (values.currentStep === 4) {
-                if (values.webhookResult?.success && (values.webhookResult.pending_inputs?.length ?? 0) === 0) {
+                if (webhookResultHasNoPendingInputs(values.webhookResult)) {
                     actions.onNext()
                 } else {
                     // Manual mode (or auto-create with pending inputs) — submit webhook form
@@ -1419,7 +1436,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             )
         },
     })),
-    urlToAction(({ actions, values }) => {
+    tabAwareUrlToAction(({ actions, values }) => {
         const handleUrlChange = (_: Record<string, string | undefined>, searchParams: Record<string, string>): void => {
             const kind = searchParams.kind?.toLowerCase()
             const accessMethod = searchParams.access_method === 'direct' ? 'direct' : 'warehouse'
@@ -1436,12 +1453,27 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             const manualSource = values.manualConnectors?.find((s) => s?.type?.toLowerCase() === kind)
 
             if (manualSource) {
+                if (values.manualLinkingProvider === manualSource.type && values.currentStep > 1) {
+                    return
+                }
                 actions.toggleManualLinkFormVisible(true)
                 actions.setManualLinkingProvider(manualSource.type)
                 return
             }
 
             if (source) {
+                if (
+                    !shouldHydrateSourceFromUrl(
+                        values.currentStep,
+                        values.selectedConnector,
+                        source,
+                        values.source.access_method,
+                        accessMethod
+                    )
+                ) {
+                    return
+                }
+
                 // selectConnector forwards accessMethod to `resetSourceForm`, which seeds the
                 // connector's defaults and restores any OAuth-saved form state — saved
                 // access_method wins over the URL one (the OAuth callback URL doesn't carry it).
