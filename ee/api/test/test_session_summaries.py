@@ -10,7 +10,7 @@ from django.http import HttpResponse
 
 from rest_framework import exceptions
 
-from posthog.temporal.session_replay.session_summary.types.group import SessionSummaryStreamUpdate
+from posthog.temporal.session_replay.session_summary_group.types import SessionSummaryStreamUpdate
 
 from ee.hogai.session_summaries.session_group.patterns import (
     EnrichedSessionGroupSummaryPattern,

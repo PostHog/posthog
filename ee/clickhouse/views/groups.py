@@ -41,7 +41,6 @@ from posthog.models.group_type_mapping import (
 )
 from posthog.models.user import User
 from posthog.personhog_client.converters import GroupTypeMappingResult
-from posthog.personhog_client.metrics import PERSONHOG_ROUTING_ERRORS_TOTAL, PERSONHOG_ROUTING_TOTAL, get_client_name
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
 from products.event_definitions.backend.models.property_definition import PropertyType
@@ -238,44 +237,12 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
         return get_object_or_404(queryset)
 
     def get_group_type_mapping_or_404(self, group_type_index: GroupTypeIndex) -> GroupTypeMappingResult:
-        from posthog.personhog_client.converters import fetch_group_type_mapping_result
-        from posthog.personhog_client.gate import use_personhog
+        from posthog.models.group_type_mapping import get_group_types_for_project
 
-        if use_personhog():
-            try:
-                result = fetch_group_type_mapping_result(self.team.project_id, group_type_index)
-                if result is not None:
-                    PERSONHOG_ROUTING_TOTAL.labels(
-                        operation="get_group_type_mapping_or_404", source="personhog", client_name=get_client_name()
-                    ).inc()
-                    return result
-                raise NotFound()
-            except NotFound:
-                raise
-            except Exception:
-                PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
-                    operation="get_group_type_mapping_or_404",
-                    source="personhog",
-                    error_type="grpc_error",
-                    client_name=get_client_name(),
-                ).inc()
-                logger.warning(
-                    "personhog_group_type_mapping_failure",
-                    project_id=self.team.project_id,
-                    group_type_index=group_type_index,
-                    exc_info=True,
-                )
-
-        try:
-            obj = GroupTypeMapping.objects.get(  # nosemgrep: no-direct-persons-db-orm
-                project_id=self.team.project_id, group_type_index=group_type_index
-            )  # nosemgrep: no-direct-persons-db-orm
-            PERSONHOG_ROUTING_TOTAL.labels(
-                operation="get_group_type_mapping_or_404", source="django_orm", client_name=get_client_name()
-            ).inc()
-            return GroupTypeMappingResult(group_type=obj.group_type, group_type_index=obj.group_type_index)
-        except GroupTypeMapping.DoesNotExist:
-            raise NotFound()
+        for m in get_group_types_for_project(self.team.project_id):
+            if m["group_type_index"] == group_type_index:
+                return GroupTypeMappingResult(group_type=m["group_type"], group_type_index=m["group_type_index"])
+        raise NotFound()
 
     def trigger_group_identify(self, group: Group, operation: str, group_properties: Optional[dict] = None):
         group_type_mapping = self.get_group_type_mapping_or_404(cast(GroupTypeIndex, group.group_type_index))

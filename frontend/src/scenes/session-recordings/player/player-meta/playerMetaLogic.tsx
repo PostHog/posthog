@@ -121,6 +121,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 'loadingBySessionId',
                 'progressBySessionId',
                 'summaryBySessionId',
+                'summaryIdBySessionId',
                 'feedbackBySessionId',
                 'errorBySessionId',
                 'retryStateBySessionId',
@@ -163,6 +164,10 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
         sessionSummary: [
             (s) => [s.summaryBySessionId],
             (summaryBySessionId): SessionSummaryContent | null => summaryBySessionId[props.sessionRecordingId] ?? null,
+        ],
+        sessionSummaryId: [
+            (s) => [s.summaryIdBySessionId],
+            (summaryIdBySessionId): string | null => summaryIdBySessionId[props.sessionRecordingId] ?? null,
         ],
         sessionSummaryLoading: [
             (s) => [s.loadingBySessionId],
@@ -468,6 +473,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
             posthog.capture('session summary feedback', {
                 feedback,
                 session_summary: values.sessionSummary,
+                summary_id: values.sessionSummaryId,
                 summarized_session_id: props.sessionRecordingId,
             })
             actions.markFeedbackGiven(props.sessionRecordingId)

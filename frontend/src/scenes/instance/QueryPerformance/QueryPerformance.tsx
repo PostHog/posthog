@@ -38,8 +38,11 @@ export function QueryPerformance(): JSX.Element {
         slowestQueries,
         slowestQueriesLoading,
         hoursBack,
+        teamIdFilter,
+        experimentIdFilter,
     } = useValues(queryPerformanceLogic)
-    const { setSearch, setPrecomputation, setHoursBack, loadSlowestQueries } = useActions(queryPerformanceLogic)
+    const { setSearch, setPrecomputation, setHoursBack, loadSlowestQueries, setTeamIdFilter, setExperimentIdFilter } =
+        useActions(queryPerformanceLogic)
 
     if (!user?.is_staff) {
         return (
@@ -75,7 +78,16 @@ export function QueryPerformance(): JSX.Element {
         },
         {
             title: 'Organization',
-            dataIndex: 'organization_name',
+            render: function OrgCell(_, team) {
+                return (
+                    <div className="flex items-center gap-1">
+                        <span>{team.organization_name || <span className="text-muted">Unknown</span>}</span>
+                        {team.organization_arr != null && (
+                            <LemonTag type="completion">ARR ${team.organization_arr.toLocaleString()}</LemonTag>
+                        )}
+                    </div>
+                )
+            },
         },
         {
             title: 'Organization ID',
@@ -118,8 +130,8 @@ export function QueryPerformance(): JSX.Element {
                 return (
                     <div className="flex items-center gap-1">
                         <span>{item.organization_name || <span className="text-muted">Unknown</span>}</span>
-                        {item.organization_mrr != null && (
-                            <LemonTag type="completion">${item.organization_mrr.toLocaleString()}</LemonTag>
+                        {item.organization_arr != null && (
+                            <LemonTag type="completion">ARR ${item.organization_arr.toLocaleString()}</LemonTag>
                         )}
                     </div>
                 )
@@ -213,7 +225,7 @@ export function QueryPerformance(): JSX.Element {
                         content: (
                             <>
                                 <h2>Slowest queries</h2>
-                                <div className="flex gap-2 mb-4 items-center">
+                                <div className="flex flex-wrap gap-2 mb-4 items-center">
                                     {TIME_RANGE_OPTIONS.map(({ label, hours }) => (
                                         <LemonButton
                                             key={hours}
@@ -224,6 +236,24 @@ export function QueryPerformance(): JSX.Element {
                                             {label}
                                         </LemonButton>
                                     ))}
+                                    <LemonInput
+                                        type="number"
+                                        min={1}
+                                        size="small"
+                                        placeholder="Team ID"
+                                        value={teamIdFilter ? Number(teamIdFilter) : undefined}
+                                        onChange={(value) => setTeamIdFilter(value != null ? String(value) : '')}
+                                        className="w-32"
+                                    />
+                                    <LemonInput
+                                        type="number"
+                                        min={1}
+                                        size="small"
+                                        placeholder="Experiment ID"
+                                        value={experimentIdFilter ? Number(experimentIdFilter) : undefined}
+                                        onChange={(value) => setExperimentIdFilter(value != null ? String(value) : '')}
+                                        className="w-36"
+                                    />
                                     <LemonButton
                                         type="secondary"
                                         size="small"

@@ -82,7 +82,6 @@ from posthog.models.feature_flag.version_history import (
     VersionNotFound,
     reconstruct_flag_at_version,
 )
-from posthog.models.group.group import Group
 from posthog.models.property import Property
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.permissions import ProjectSecretAPITokenPermission
@@ -1757,12 +1756,10 @@ class FeatureFlagSerializer(
                         group_keys.add(str(prop_value))
 
                 if group_keys:
+                    from posthog.models.group.util import get_groups_by_type_indices
+
                     group_names: dict[str, str] = {}
-                    for group in Group.objects.filter(  # nosemgrep: no-direct-persons-db-orm
-                        team_id=instance.team_id,
-                        group_type_index__in=group_type_indices,
-                        group_key__in=group_keys,
-                    ).only("group_key", "group_properties"):
+                    for group in get_groups_by_type_indices(instance.team_id, group_type_indices, group_keys):
                         name = group.group_properties.get("name")
                         group_names[group.group_key] = str(name) if name else group.group_key
 

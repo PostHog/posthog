@@ -12,7 +12,8 @@ import { PERSON_EVENTS_CONTEXT_KEY } from 'scenes/persons/personsLogic'
 import { PEOPLE_LIST_CONTEXT_KEY, PEOPLE_LIST_DEFAULT_QUERY } from 'scenes/persons/personsSceneLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { ActorsQuery, EventsQuery, GroupsQuery } from '~/queries/schema/schema-general'
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
+import { ActorsQuery, EventsQuery, GroupsQuery, NodeKind } from '~/queries/schema/schema-general'
 import { isEventsQuery } from '~/queries/utils'
 import { AnyPropertyFilter, PropertyOperator } from '~/types'
 
@@ -59,6 +60,14 @@ function getViewData(
         columns: props.query.select,
         filters: [...(props.query.properties || []), event, events],
     }
+}
+
+function isInitialPersonEventsQuery(query: TableViewSupportedQueryType): boolean {
+    if (!isEventsQuery(query)) {
+        return false
+    }
+    const defaultColumns = defaultDataTableColumns(NodeKind.EventsQuery)
+    return equal(query.select, defaultColumns) && !query.properties?.length && !query.event && !query.events?.length
 }
 
 function getQueryFromView(
@@ -307,7 +316,10 @@ export const tableViewLogic = kea<tableViewLogicType>([
                 }
                 break
             case PERSON_EVENTS_CONTEXT_KEY:
-                actions.applyView(values.currentView)
+                if (isInitialPersonEventsQuery(props.query)) {
+                    actions.applyView(values.currentView)
+                }
+                break
         }
     }),
 ])
