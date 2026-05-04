@@ -53,7 +53,7 @@ export const getEffectiveAccessMethod = (
     return persistedAccessMethod
 }
 
-interface NewSourceSceneLogicProps {
+export interface NewSourceSceneLogicProps {
     tabId: string
 }
 
