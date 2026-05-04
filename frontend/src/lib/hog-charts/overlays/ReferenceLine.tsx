@@ -41,6 +41,10 @@ export interface ReferenceLineProps {
     variant?: ReferenceLineVariant
     /** Which y-axis this line references. Only used for horizontal lines. Defaults to the primary axis. */
     yAxisId?: string
+    /** Chart axis orientation. When `'horizontal'`, a `'horizontal'`-orientation reference
+     *  line at a numeric value is drawn as a vertical stripe at `scales.y(value)` — matching
+     *  the value axis of horizontal bar charts. Defaults to `'vertical'`. */
+    axisOrientation?: ReferenceLineOrientation
 }
 
 interface ResolvedStyle {
@@ -84,7 +88,7 @@ export function ReferenceLines({ lines }: { lines: ReferenceLineProps[] }): Reac
  *  type narrowing, scale lookup, and bounds check, then hands pre-computed styles to
  *  {@link ReferenceLineView}. */
 export function ReferenceLine(props: ReferenceLineProps): React.ReactElement | null {
-    const { orientation = 'horizontal', variant = 'goal', style } = props
+    const { orientation = 'horizontal', variant = 'goal', style, axisOrientation = 'vertical' } = props
     const resolved = useMemo(
         () => resolveStyle(variant, style),
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -101,9 +105,13 @@ export function ReferenceLine(props: ReferenceLineProps): React.ReactElement | n
     }
 
     if (orientation === 'horizontal') {
-        return typeof props.value === 'number' ? (
-            <HorizontalReferenceLine y={props.value} yAxisId={props.yAxisId} {...common} />
-        ) : null
+        if (typeof props.value !== 'number') {
+            return null
+        }
+        if (axisOrientation === 'horizontal') {
+            return <HorizontalAxisValueReferenceLine value={props.value} {...common} />
+        }
+        return <HorizontalReferenceLine y={props.value} yAxisId={props.yAxisId} {...common} />
     }
     return typeof props.value === 'string' ? <VerticalReferenceLine xLabel={props.value} {...common} /> : null
 }
@@ -215,6 +223,65 @@ function VerticalReferenceLine({
         fillRect = { left: plotLeft, top: plotTop, width: x - plotLeft, height: plotHeight }
     } else if (fillSide === 'right') {
         fillRect = { left: x, top: plotTop, width: plotRight - x, height: plotHeight }
+    }
+
+    return (
+        <ReferenceLineView
+            fillRect={fillRect}
+            fillColor={fillColor}
+            fillOpacity={fillOpacity}
+            lineStyle={lineStyle}
+            label={label}
+            labelStyle={labelStyle}
+        />
+    )
+}
+
+// Horizontal-axis chart variant: numeric value, drawn as a vertical stripe at the
+// x-pixel returned by `scales.y(value)` (since in horizontal bar charts `scales.y` is
+// the value scale producing x-pixels). `fillSide` mirrors the vertical-line semantics:
+// `'above'` fills the right half-plane (values above the threshold), `'below'` the left.
+function HorizontalAxisValueReferenceLine({
+    value,
+    resolved,
+    fillSide,
+    fillColor,
+    fillOpacity,
+    label,
+    labelPosition,
+}: ResolvedProps & { value: number }): React.ReactElement | null {
+    const { scales, dimensions } = useChartLayout()
+    const { plotLeft, plotTop, plotWidth, plotHeight, height: containerHeight } = dimensions
+    const plotRight = plotLeft + plotWidth
+    const plotBottom = plotTop + plotHeight
+
+    const x = scales.y(value)
+    if (!isFinite(x) || x < plotLeft || x > plotRight) {
+        return null
+    }
+
+    const lineStyle: React.CSSProperties = {
+        left: x - resolved.width / 2,
+        top: plotTop,
+        width: 0,
+        height: plotHeight,
+        borderLeftWidth: resolved.width,
+        borderLeftStyle: resolved.stroke,
+        borderLeftColor: resolved.color,
+    }
+    const labelStyle: React.CSSProperties = {
+        left: x + LABEL_PADDING,
+        ...(labelPosition === 'end'
+            ? { bottom: containerHeight - plotBottom + LABEL_PADDING }
+            : { top: plotTop + LABEL_PADDING }),
+        color: resolved.color,
+    }
+
+    let fillRect: React.CSSProperties | null = null
+    if (fillSide === 'above') {
+        fillRect = { left: x, top: plotTop, width: plotRight - x, height: plotHeight }
+    } else if (fillSide === 'below') {
+        fillRect = { left: plotLeft, top: plotTop, width: x - plotLeft, height: plotHeight }
     }
 
     return (

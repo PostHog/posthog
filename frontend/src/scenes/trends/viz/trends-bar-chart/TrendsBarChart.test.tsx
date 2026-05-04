@@ -6,8 +6,9 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { setupJsdom } from 'lib/hog-charts/testing'
 
 import { NodeKind } from '~/queries/schema/schema-general'
-import { buildTrendsQuery, chart, personsModal, renderInsight } from '~/test/insight-testing'
-import { ChartDisplayType } from '~/types'
+import { buildTrendsQuery, chart, getHogChart, personsModal, renderInsight } from '~/test/insight-testing'
+import { buildAnnotation } from '~/test/insight-testing/test-data'
+import { AnnotationScope, ChartDisplayType } from '~/types'
 
 let cleanupJsdom: () => void
 
@@ -188,26 +189,109 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
     })
 })
 
-describe('TrendsBarChart gate', () => {
-    it.each([
-        { name: 'showValuesOnSeries', filter: { display: ChartDisplayType.ActionsBar, showValuesOnSeries: true } },
-        {
-            name: 'goalLines',
-            filter: {
-                display: ChartDisplayType.ActionsBar,
-                goalLines: [{ label: 'Target', value: 150, displayIfCrossed: true }],
-            },
-        },
-    ])('falls back to the legacy renderer when the insight needs $name', async ({ filter }) => {
+describe('TrendsBarChart (ActionsUnstackedBar)', () => {
+    const groupedBar = (extra?: Parameters<typeof buildTrendsQuery>[0]): ReturnType<typeof buildTrendsQuery> =>
+        buildTrendsQuery({ trendsFilter: { display: ChartDisplayType.ActionsUnstackedBar }, ...extra })
+
+    it('routes grouped bar insights through the hog-charts adapter', async () => {
+        renderInsight({ query: groupedBar(), featureFlags: HOG_CHARTS_FLAG })
+
+        await waitFor(() => {
+            expect(screen.getByTestId('trend-bar-graph')).toBeInTheDocument()
+        })
+    })
+
+    it('renders one band per series in grouped layout', async () => {
         renderInsight({
-            query: buildTrendsQuery({ trendsFilter: filter }),
+            query: groupedBar({
+                series: [
+                    { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' },
+                    { kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' },
+                ],
+            }),
             featureFlags: HOG_CHARTS_FLAG,
         })
 
         await waitFor(() => {
-            // hog-charts BarChart sets data-attr="trend-bar-graph"; legacy ActionsLineGraph does not.
-            expect(screen.queryByTestId('trend-bar-graph')).not.toBeInTheDocument()
-            expect(screen.queryByTestId('trend-bar-value-graph')).not.toBeInTheDocument()
+            expect(screen.getByRole('img', { name: /chart with 2 data series/i })).toBeInTheDocument()
         })
+    })
+})
+
+describe('TrendsBarChart overlays', () => {
+    it('renders value labels when showValuesOnSeries is enabled', async () => {
+        renderInsight({
+            query: buildTrendsQuery({
+                trendsFilter: { display: ChartDisplayType.ActionsBar, showValuesOnSeries: true },
+            }),
+            featureFlags: HOG_CHARTS_FLAG,
+        })
+
+        await screen.findByRole('img', { name: /chart with/i })
+        await waitFor(() => {
+            expect(getHogChart().valueLabels().length).toBeGreaterThan(0)
+        })
+        const labels = getHogChart()
+            .valueLabels()
+            .map((l) => l.text)
+        // Pageview series peaks at 210 — it should appear among the rendered labels.
+        expect(labels).toContain('210')
+    })
+
+    it('renders an annotation badge when an annotation exists', async () => {
+        renderInsight({
+            query: buildTrendsQuery({ trendsFilter: { display: ChartDisplayType.ActionsBar } }),
+            mocks: {
+                annotations: [
+                    buildAnnotation({
+                        scope: AnnotationScope.Project,
+                        content: 'Hedgehog spotted',
+                        date_marker: '2024-06-12T12:00:00Z',
+                    }),
+                ],
+            },
+            featureFlags: HOG_CHARTS_FLAG,
+        })
+
+        await screen.findByRole('img', { name: /chart with/i })
+        await waitFor(() => {
+            expect(getHogChart().annotationBadges().length).toBeGreaterThan(0)
+        })
+    })
+
+    it('renders a goal line as a horizontal reference line for vertical bars', async () => {
+        renderInsight({
+            query: buildTrendsQuery({
+                trendsFilter: {
+                    display: ChartDisplayType.ActionsBar,
+                    goalLines: [{ label: 'Target', value: 150, displayIfCrossed: true }],
+                },
+            }),
+            featureFlags: HOG_CHARTS_FLAG,
+        })
+
+        await screen.findByRole('img', { name: /chart with/i })
+        const lines = getHogChart().referenceLines()
+        expect(lines.map((l) => l.label)).toEqual(['Target'])
+        expect(lines[0].orientation).toBe('horizontal')
+    })
+
+    it('renders a goal line as a vertical reference line for horizontal aggregated bars', async () => {
+        renderInsight({
+            query: buildTrendsQuery({
+                trendsFilter: {
+                    display: ChartDisplayType.ActionsBarValue,
+                    goalLines: [{ label: 'Target', value: 100, displayIfCrossed: true }],
+                },
+            }),
+            featureFlags: HOG_CHARTS_FLAG,
+        })
+
+        await screen.findByRole('img', { name: /chart with/i })
+        const lines = getHogChart().referenceLines()
+        expect(lines.map((l) => l.label)).toEqual(['Target'])
+        // axisOrientation='horizontal' flips the line geometry to a vertical stripe at
+        // the value-axis x-pixel.
+        expect(lines[0].orientation).toBe('vertical')
     })
 })
