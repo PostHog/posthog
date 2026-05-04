@@ -380,15 +380,26 @@ def validate_credentials(api_key: str, table_name: Optional[str] = None) -> bool
     # ID, so we resolve them to their parent via the StripeNestedResource.parent linkage that
     # already exists on each entry.
     all_resources = _build_resources(client, logger=None)
-    # Build a method→name reverse index so we can look up a nested resource's parent name from
-    # its `parent.method` reference, without restating the relationship in a separate constant.
+    # Reverse index from parent method → flat resource name so we can recover a nested
+    # resource's parent name from its `parent.method` reference, without restating the
+    # relationship in a separate constant.
     flat_method_to_name = {id(r.method): name for name, r in all_resources.items() if isinstance(r, StripeResource)}
 
     def _resolve_to_flat(name: str) -> tuple[str, StripeResource]:
+        """Return (display_name, resource_to_probe) for a given table.
+
+        For nested resources, the display name is `<nested> (<parent>)` — keeping the
+        nested table the user toggled visible while making the actionable scope (the
+        parent) explicit in the same string. The parent lookup is direct (KeyError on
+        miss); the test
+        `test_validate_credentials_nested_resources_have_registered_parents` proves
+        every nested resource's parent.method is registered as a top-level
+        StripeResource, so a miss can only mean a programming error and should fail loud.
+        """
         entry = all_resources[name]
         if isinstance(entry, StripeNestedResource):
-            parent_name = flat_method_to_name.get(id(entry.parent.method), name)
-            return parent_name, entry.parent
+            parent_name = flat_method_to_name[id(entry.parent.method)]
+            return f"{name} ({parent_name})", entry.parent
         return name, entry
 
     missing_permissions: dict[str, str] = {}
@@ -399,8 +410,8 @@ def validate_credentials(api_key: str, table_name: Optional[str] = None) -> bool
 
     if table_name is not None:
         # Single-table validation: hit just that resource (or its parent for nested).
-        flat_name, flat_resource = _resolve_to_flat(table_name)
-        resources_to_check = [(flat_name, flat_resource)]
+        display_name, flat_resource = _resolve_to_flat(table_name)
+        resources_to_check = [(display_name, flat_resource)]
     else:
         # Full validation: probe every flat resource. Nested resources are covered by their
         # parent's check, so no need to enumerate them separately.
@@ -408,7 +419,7 @@ def validate_credentials(api_key: str, table_name: Optional[str] = None) -> bool
             (name, resource) for name, resource in all_resources.items() if isinstance(resource, StripeResource)
         ]
 
-    for resource_name, resource in resources_to_check:
+    for display_name, resource in resources_to_check:
         try:
             # Override params to limit=1 for cheap permission probing — we don't need real data.
             resource.method(params={"limit": 1})
@@ -420,12 +431,12 @@ def validate_credentials(api_key: str, table_name: Optional[str] = None) -> bool
             # concise Stripe explanation; str(e) on a stripe error includes request id, status code,
             # and headers — way too noisy when the cause ("missing X read scope") is already obvious
             # from the resource name.
-            missing_permissions[resource_name] = getattr(e, "user_message", None) or str(e)
+            missing_permissions[display_name] = getattr(e, "user_message", None) or str(e)
         except Exception as e:
             # Anything else (network, schema, rate limit, unexpected Stripe API change) is not a
             # permission problem — track separately so callers can render the verbose underlying
             # message instead of pretending it's a missing scope.
-            errors[resource_name] = str(e)
+            errors[display_name] = str(e)
 
     # Errors take precedence over permission gaps because they indicate something went genuinely
     # wrong rather than a configuration issue the customer can self-serve. We still pass any

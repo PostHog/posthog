@@ -17,9 +17,12 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
 from posthog.temporal.data_imports.sources.stripe.source import StripeSource
 from posthog.temporal.data_imports.sources.stripe.stripe import (
     StripeAuthenticationError,
+    StripeNestedResource,
     StripePermissionError,
+    StripeResource,
     StripeResumeConfig,
     StripeValidationError,
+    _build_resources,
     validate_credentials,
 )
 from posthog.temporal.tests.data_imports.conftest import run_external_data_job_workflow
@@ -432,9 +435,9 @@ def test_validate_credentials_nested_resource_validates_via_parent(nested_table_
     [CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME, CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME],
 )
 def test_validate_credentials_nested_resource_surfaces_parent_permission_error(nested_table_name):
-    """If the parent (Customer) scope is missing, validating a nested resource must report
-    the Customer permission gap rather than the nested table name — that's the actual scope
-    the customer needs to grant on Stripe."""
+    """If the parent (Customer) scope is missing, the error must name both the nested table
+    the user toggled and the parent that actually gates the permission — `Nested (Parent)` —
+    so the message is unambiguous about which Stripe scope to grant."""
     mock_client = mock.MagicMock()
     mock_client.customers.list = mock.MagicMock(side_effect=stripe_lib.PermissionError(message="Forbidden"))
 
@@ -444,7 +447,27 @@ def test_validate_credentials_nested_resource_surfaces_parent_permission_error(n
     ):
         validate_credentials("api_key", nested_table_name)
 
-    assert list(e.value.missing_permissions.keys()) == ["Customer"]
+    assert list(e.value.missing_permissions.keys()) == [f"{nested_table_name} (Customer)"]
+
+
+def test_validate_credentials_nested_resources_have_registered_parents():
+    """Invariant: every StripeNestedResource's `parent.method` must point at a method
+    that is also registered as a top-level StripeResource in _build_resources. The
+    nested→parent reverse lookup in validate_credentials does a direct dict access on
+    that, so a miss would crash rather than render a useful error. Catching the
+    misconfiguration here in CI is cheaper than a silent regression."""
+    mock_client = mock.MagicMock()
+    resources = _build_resources(mock_client, logger=None)
+
+    flat_method_ids = {id(r.method) for r in resources.values() if isinstance(r, StripeResource)}
+
+    for name, resource in resources.items():
+        if isinstance(resource, StripeNestedResource):
+            assert id(resource.parent.method) in flat_method_ids, (
+                f"Nested resource {name!r} has a parent.method that is not registered as a "
+                f"top-level StripeResource — validate_credentials would fail to resolve the "
+                f"parent name and crash."
+            )
 
 
 def test_validate_credentials_with_missing_table_name():
