@@ -19,6 +19,8 @@ export type ProcessBufferWithSamplingResult = {
     value: Buffer
     pii: PiiScrubStats
     recordsDropped: number
+    /** Counts dropped lines (drop / sample_dropped) attributed to the first matching rule UUID. */
+    recordsDroppedByRuleId: Map<string, number>
     /** When true, the caller must not produce this message to downstream Kafka (all lines sampled out). */
     allDropped: boolean
 }
@@ -35,11 +37,15 @@ async function processBufferWithSamplingImpl(
     const pii = await transformDecodedLogRecordsInPlace(records, settings)
     const kept: LogRecord[] = []
     let recordsDropped = 0
+    const recordsDroppedByRuleId = new Map<string, number>()
 
     for (const record of records) {
-        const { decision } = evaluateLogRecord(ruleSet, record)
+        const { decision, ruleId } = evaluateLogRecord(ruleSet, record)
         if (decision === SAMPLING_DECISION_DROP || decision === SAMPLING_DECISION_SAMPLE_DROPPED) {
             recordsDropped++
+            if (ruleId != null) {
+                recordsDroppedByRuleId.set(ruleId, (recordsDroppedByRuleId.get(ruleId) ?? 0) + 1)
+            }
             continue
         }
         kept.push(record)
@@ -55,10 +61,10 @@ async function processBufferWithSamplingImpl(
     })
 
     if (kept.length === 0) {
-        return { value: Buffer.alloc(0), pii, recordsDropped, allDropped: true }
+        return { value: Buffer.alloc(0), pii, recordsDropped, recordsDroppedByRuleId, allDropped: true }
     }
     const value = await encodeLogRecords(logRecordType, compressionCodec, kept)
-    return { value, pii, recordsDropped, allDropped: false }
+    return { value, pii, recordsDropped, recordsDroppedByRuleId, allDropped: false }
 }
 
 export const processBufferWithSampling = instrumented({

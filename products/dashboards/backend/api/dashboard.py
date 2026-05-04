@@ -6,12 +6,13 @@ from contextlib import nullcontext
 from typing import Any, Optional, cast
 
 from django.conf import settings
+from django.contrib.postgres.search import TrigramSimilarity, TrigramWordSimilarity
 from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import URLValidator
 from django.db import IntegrityError, transaction
 from django.db.models import CharField, Count, DateTimeField, F, FilteredRelation, Prefetch, Q, QuerySet, Value
-from django.db.models.functions import Cast
+from django.db.models.functions import Cast, Coalesce
 from django.http import StreamingHttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
@@ -21,7 +22,7 @@ import pydantic_core
 import posthoganalytics
 from asgiref.sync import sync_to_async
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from opentelemetry import trace
 from pydantic import BaseModel
 from rest_framework import exceptions, serializers, status, viewsets
@@ -37,6 +38,7 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.insight import DashboardTileBasicSerializer, InsightSerializer, InsightViewSet
 from posthog.api.insight_suggestions import summarize_insight_result
 from posthog.api.monitoring import Feature, monitor
+from posthog.api.openapi_parameters import make_filters_override_param, make_variables_override_param
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_model
 from posthog.api.shared import UserBasicSerializer
@@ -47,6 +49,13 @@ from posthog.constants import GENERATED_DASHBOARD_PREFIX
 from posthog.event_usage import get_request_analytics_properties, report_user_action
 from posthog.helpers import create_dashboard_from_template
 from posthog.helpers.dashboard_templates import create_from_template, dashboard_template_from_creation_payload
+from posthog.helpers.trigram_search import (
+    DESCRIPTION_SCORE_WEIGHT,
+    MAX_SEARCH_LENGTH,
+    MIN_DESCRIPTION_TRIGRAM_SIMILARITY,
+    MIN_NAME_TRIGRAM_SIMILARITY,
+    normalize_search_term,
+)
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Insight
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
@@ -106,36 +115,8 @@ DASHBOARD_SHARED_FIELDS = [
 ]
 
 
-# Shared OpenAPI parameter definitions for the variables_override / filters_override
-# query params. These three semantics are easy to miss without reading
-# posthog/utils.py and posthog/api/insight_variable.py:
-#   1. Each variable entry needs `code_name` to match — `map_stale_to_latest` drops
-#      entries that lack it, so an override of `{"value": ...}` alone silently no-ops.
-#   2. Both helpers shallow-merge — top-level keys replace wholesale, nested values
-#      are not deep-merged.
-#   3. Both helpers ignore overrides when the request is authenticated via a
-#      dashboard sharing token, returning the persisted state with no error.
-VARIABLES_OVERRIDE_PARAM = OpenApiParameter(
-    "variables_override",
-    OpenApiTypes.STR,
-    description=(
-        "JSON object to override dashboard variables for this request only (not persisted). "
-        'Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. '
-        "Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call "
-        "`dashboard-get` first, copy the matching entry from the response's `variables` field, and mutate `value`. "
-        "Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a dashboard sharing token."
-    ),
-)
-FILTERS_OVERRIDE_PARAM = OpenApiParameter(
-    "filters_override",
-    OpenApiTypes.STR,
-    description=(
-        "JSON object to override dashboard filters for this request only (not persisted). "
-        "Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. "
-        "See the dashboard filters schema for available keys (e.g., `date_from`, `date_to`, `properties`). "
-        "Ignored when accessed via a dashboard sharing token."
-    ),
-)
+VARIABLES_OVERRIDE_PARAM = make_variables_override_param(subject_label="dashboard", tool_name="dashboard-get")
+FILTERS_OVERRIDE_PARAM = make_filters_override_param(subject_label="dashboard")
 
 
 tracer = trace.get_tracer(__name__)
@@ -703,6 +684,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 primary_dashboard=instance,
                 id=instance.team_id,
             ).update(primary_dashboard=None)
+            # Will be migrated with the personhog write path
             group_type_mapping = GroupTypeMapping.objects.filter(  # nosemgrep: no-direct-persons-db-orm
                 team=instance.team, project_id=instance.team.project_id, detail_dashboard_id=instance.id
             ).first()
@@ -1028,6 +1010,24 @@ class DashboardSerializer(DashboardMetadataSerializer):
         return {**validated_data, "creation_mode": "default"}
 
 
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "search",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description=(
+                    "Optional. Fuzzy match against dashboard `name` and `description` using Postgres trigram "
+                    "word similarity (handles typos, transpositions, and prefix-as-you-type). `name` matches "
+                    "rank above `description` matches. Results are ordered by relevance, then pinned status, "
+                    "then name. When omitted, dashboards are ordered by pinned status then alphabetical name. "
+                    "Capped at 200 characters; longer queries return a 400 error."
+                ),
+            ),
+        ],
+    ),
+)
 @extend_schema(tags=["core"])
 class DashboardsViewSet(
     TeamAndOrgViewSetMixin,
@@ -1055,11 +1055,71 @@ class DashboardsViewSet(
 
     def filter_queryset(self, queryset: QuerySet) -> QuerySet:
         queryset = super().filter_queryset(queryset)
+
+        search = self.request.query_params.get("search")
+        if search:
+            if len(search) > MAX_SEARCH_LENGTH:
+                raise serializers.ValidationError(
+                    {"search": f"Search query must be {MAX_SEARCH_LENGTH} characters or fewer."}
+                )
+            queryset = self._apply_search(queryset, search)
+
         tags = self.request.query_params.getlist("tags")
-        if not tags:
+        if tags:
+            queryset = queryset.filter(tagged_items__tag__name__in=tags).distinct()
+
+        return queryset
+
+    @tracer.start_as_current_span("DashboardViewSet.list")
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        response = super().list(request, *args, **kwargs)
+        # Record search-result cardinality so we can tune MIN_*_TRIGRAM_SIMILARITY from prod
+        # telemetry — flag empty results (loosen) and high counts (tighten).
+        if request.query_params.get("search"):
+            data = response.data if isinstance(response.data, dict) else {}
+            results_len = data.get("count", len(data.get("results", [])))
+            span = trace.get_current_span()
+            span.set_attribute("dashboard.search.result_count", results_len)
+            span.set_attribute("dashboard.search.empty", results_len == 0)
+        return response
+
+    @staticmethod
+    @tracer.start_as_current_span("DashboardViewSet._apply_search")
+    def _apply_search(queryset: QuerySet, search: str) -> QuerySet:
+        search = normalize_search_term(search)
+        span = trace.get_current_span()
+        span.set_attribute("dashboard.search.length", len(search))
+        if not search:
             return queryset
 
-        return queryset.filter(tagged_items__tag__name__in=tags).distinct()
+        # Word similarity (`<%`) drives match/no-match — it's index-accelerated and handles
+        # prefix-as-you-type and substring matches. Full-string similarity is added as a
+        # tiebreak so an exact name match outranks rows that merely *contain* the search word.
+        # `Dashboard.name` is nullable; coalesce each component to 0.0 so a NULL-name row
+        # matched only on description doesn't end up with a NULL `_search_score` (which
+        # Postgres orders NULLS FIRST in DESC, putting unnamed rows wrongly at the top).
+        zero = Value(0.0)
+        name_word_score = Coalesce(TrigramWordSimilarity(search, "name"), zero)
+        name_full_score = Coalesce(TrigramSimilarity("name", search), zero)
+        description_word_score = Coalesce(TrigramWordSimilarity(search, "description"), zero)
+
+        return (
+            queryset.annotate(
+                _name_word=name_word_score,
+                _name_full=name_full_score,
+                _description_word=description_word_score,
+            )
+            .filter(
+                Q(_name_word__gt=MIN_NAME_TRIGRAM_SIMILARITY)
+                | Q(_description_word__gt=MIN_DESCRIPTION_TRIGRAM_SIMILARITY)
+            )
+            .annotate(
+                _name_match_score=F("_name_word") + F("_name_full"),
+                _description_match_score=F("_description_word"),
+            )
+            .annotate(_search_score=F("_name_match_score") + F("_description_match_score") * DESCRIPTION_SCORE_WEIGHT)
+            .order_by("-_search_score", "-pinned", "name")
+        )
 
     @tracer.start_as_current_span("DashboardViewSet.dangerously_get_queryset")
     def dangerously_get_queryset(self):

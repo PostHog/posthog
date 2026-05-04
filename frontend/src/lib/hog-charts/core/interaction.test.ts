@@ -1,4 +1,4 @@
-import { dimensions, makeSeries } from '../test-helpers'
+import { dimensions, makeSeries } from '../testing'
 import { buildPointClickData, buildTooltipContext, findNearestIndex, isInPlotArea } from './interaction'
 import type { ResolveValueFn } from './types'
 

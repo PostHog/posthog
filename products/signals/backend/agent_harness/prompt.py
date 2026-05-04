@@ -1,8 +1,27 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime
 
+from pydantic import BaseModel, Field
+
 from products.signals.backend.agent_harness.skill_loader import LoadedSkill
+
+
+class SignalAgentRunSummary(BaseModel):
+    """Structured close-out the scout returns at end_turn.
+
+    Mirrors the report agent's `MultiTurnSession.start` contract: the agent emits
+    a JSON object matching this schema, the harness parses it, and `summary` is
+    persisted on the run row as searchable prose.
+    """
+
+    summary: str = Field(
+        description=(
+            "One paragraph describing what was looked at, what was found, and what "
+            "was skipped. An empty findings list is a real outcome — say so plainly."
+        )
+    )
 
 _BASE_PROMPT_INTRO = """You are a Signals scout agent for PostHog.
 
@@ -30,11 +49,13 @@ _BASE_PROMPT_TAIL = """# How a run works
    - **Remember** a learning so you don't redo this work next run
      (call `signals-agent-memory-create`).
    - **Skip** with a one-line note in your final summary.
-4. **Close out.** End your turn with a one-paragraph summary of what you looked
-   at, what you found, and what you skipped. An empty findings list is a real
-   outcome on a quiet day — "looked but found nothing meaningful" is a genuine,
-   useful summary, not a failure. Don't manufacture findings to fill space. The
-   harness writes that summary to the run row as searchable prose.
+4. **Close out.** End your turn by emitting a JSON object matching the schema in
+   the *Output format* section below. The `summary` field is one paragraph on
+   what you looked at, what you found, and what you skipped. An empty findings
+   list is a real outcome on a quiet day — "looked but found nothing meaningful"
+   is a genuine, useful summary, not a failure. Don't manufacture findings to
+   fill space. The harness parses the JSON and writes `summary` to the run row
+   as searchable prose.
 
 # Recency lens
 
@@ -70,6 +91,14 @@ When you call `signals-agent-runs-findings-create`:
 - Don't fabricate evidence. If a tool returns nothing, say so in the summary.
 - Stay in scope: emits are tied to your own run; memories are scoped to this
   team and TTL'd by default.
+
+# Output format
+
+Respond at end_turn with a single JSON object matching this schema:
+
+<jsonschema>
+{schema_json}
+</jsonschema>
 """
 
 
@@ -92,6 +121,8 @@ def build_run_prompt(skill: LoadedSkill, *, run_id: str, team_id: int, started_a
     so the harness can pin the version the agent should request.
     """
     started_at_iso = started_at.replace(microsecond=0).isoformat()
+    schema_json = json.dumps(SignalAgentRunSummary.model_json_schema(), indent=2)
+    tail = _BASE_PROMPT_TAIL.format(schema_json=schema_json)
     return f"""{_BASE_PROMPT_INTRO}
 # Your run identity
 
@@ -125,4 +156,4 @@ would otherwise take 4-5 discovery calls. Treat it as ground truth: it's
 computed from authoritative tables, distinct from the agent-inferred memories
 in `signals-agent-memory-list`.
 
-{_BASE_PROMPT_TAIL}"""
+{tail}"""

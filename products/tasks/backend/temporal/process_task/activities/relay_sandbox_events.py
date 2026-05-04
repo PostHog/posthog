@@ -107,6 +107,17 @@ async def relay_sandbox_events(input: RelaySandboxEventsInput) -> None:
         # task run as unrecoverably disconnected.
         await redis_stream.mark_complete()
         raise
+    except RuntimeError as e:
+        # Interpreter-shutdown race: asyncio uses the default ThreadPoolExecutor
+        # for getaddrinfo, and it gets torn down by atexit before in-flight
+        # reconnect attempts finish (common under pytest teardown of the eval
+        # harness). Exit quietly — logger and Redis are already unusable here,
+        # so touching them would cascade into "I/O on closed file" noise.
+        if "cannot schedule new futures after shutdown" in str(e):
+            return
+        logger.exception("relay_sandbox_events_failed", run_id=input.run_id, error=str(e))
+        await redis_stream.mark_error(str(e)[:500])
+        raise
     except Exception as e:
         try:
             marked_complete = await _mark_error_unless_run_is_terminal(redis_stream, input.run_id, str(e))

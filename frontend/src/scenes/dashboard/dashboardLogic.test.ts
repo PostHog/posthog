@@ -5,7 +5,9 @@ import { router } from 'kea-router'
 import { expectLogic, truth } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs, now } from 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import * as dashboardUtils from 'scenes/dashboard/dashboardUtils'
@@ -485,6 +487,113 @@ describe('dashboardLogic', () => {
 
             const restoredTileLayouts = logic.values.dashboard?.tiles.find((t) => t.id === firstTile.id)?.layouts
             expect(restoredTileLayouts).toEqual(originalLayouts)
+        })
+
+        describe('hasUnsavedLayoutChanges selector', () => {
+            const moveFirstTile = (): void => {
+                const firstTile = logic.values.dashboard!.tiles[0]
+                const currentLayouts = logic.values.layouts
+                const modifiedLayouts: any = {
+                    ...currentLayouts,
+                    sm: currentLayouts.sm?.map((layout: any) =>
+                        layout.i === String(firstTile.id) ? { ...layout, x: (layout.x ?? 0) + 1 } : layout
+                    ),
+                }
+                logic.actions.updateLayouts(modifiedLayouts)
+            }
+
+            it('is false when no tile has been moved', async () => {
+                await expectLogic(logic).toFinishAllListeners().toMatchValues({ hasUnsavedLayoutChanges: false })
+            })
+
+            it('is false when filters or theme change but layout has not', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    logic.actions.setDates('-7d', null)
+                    logic.actions.setDataColorThemeId(123)
+                })
+                    .toFinishAllListeners()
+                    .toMatchValues({ hasUnsavedLayoutChanges: false })
+            })
+
+            it('is true after a layout change', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+
+                await expectLogic(logic, moveFirstTile)
+                    .toFinishAllListeners()
+                    .toMatchValues({ hasUnsavedLayoutChanges: true })
+            })
+
+            it('returns to false after discarding changes', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+
+                await expectLogic(logic, moveFirstTile)
+                    .toFinishAllListeners()
+                    .toMatchValues({ hasUnsavedLayoutChanges: true })
+
+                await expectLogic(logic, () => {
+                    logic.actions.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)
+                })
+                    .toFinishAllListeners()
+                    .toMatchValues({ hasUnsavedLayoutChanges: false })
+            })
+        })
+
+        describe('cancelEditMode action', () => {
+            const moveFirstTile = (): void => {
+                const firstTile = logic.values.dashboard!.tiles[0]
+                const currentLayouts = logic.values.layouts
+                const modifiedLayouts: any = {
+                    ...currentLayouts,
+                    sm: currentLayouts.sm?.map((layout: any) =>
+                        layout.i === String(firstTile.id) ? { ...layout, x: (layout.x ?? 0) + 1 } : layout
+                    ),
+                }
+                logic.actions.updateLayouts(modifiedLayouts)
+            }
+
+            const setDiscardPromptFlag = (enabled: boolean): void => {
+                const flagKey = FEATURE_FLAGS.DASHBOARD_LAYOUT_DISCARD_PROMPT
+                featureFlagLogic.actions.setFeatureFlags(enabled ? [flagKey] : [], { [flagKey]: enabled })
+            }
+
+            it('exits edit mode immediately when no tile has been moved', async () => {
+                setDiscardPromptFlag(true)
+                await expectLogic(logic).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    logic.actions.cancelEditMode()
+                }).toDispatchActions([
+                    logic.actionCreators.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges),
+                ])
+            })
+
+            it('does not exit edit mode when a tile has been moved and the prompt flag is on', async () => {
+                setDiscardPromptFlag(true)
+                await expectLogic(logic).toFinishAllListeners()
+
+                await expectLogic(logic, moveFirstTile).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    logic.actions.cancelEditMode()
+                }).toNotHaveDispatchedActions([
+                    logic.actionCreators.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges),
+                ])
+            })
+
+            it('exits edit mode immediately when the prompt flag is off, even with unsaved layout changes', async () => {
+                setDiscardPromptFlag(false)
+                await expectLogic(logic).toFinishAllListeners()
+
+                await expectLogic(logic, moveFirstTile).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    logic.actions.cancelEditMode()
+                }).toDispatchActions([
+                    logic.actionCreators.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges),
+                ])
+            })
         })
     })
 

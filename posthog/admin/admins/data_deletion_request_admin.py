@@ -178,9 +178,9 @@ class DataDeletionRequestForm(forms.ModelForm):
         fields = "__all__"
 
 
-def _append_hogql_predicate(fragment: str, params: dict, obj) -> tuple[str, dict]:
+def _append_hogql_predicate(fragment: str, params: dict, obj, *, target_data_table: bool) -> tuple[str, dict]:
     """Append the compiled HogQL predicate (if any) to ``fragment`` and merge params."""
-    hogql_sql, hogql_values = compile_hogql_predicate(obj)
+    hogql_sql, hogql_values = compile_hogql_predicate(obj, target_data_table=target_data_table)
     if not hogql_sql:
         return fragment, params
     combined = f"{fragment} AND ({hogql_sql})".strip() if fragment else f"AND ({hogql_sql})"
@@ -188,12 +188,14 @@ def _append_hogql_predicate(fragment: str, params: dict, obj) -> tuple[str, dict
     return combined, params
 
 
-def _build_event_filter(obj) -> tuple[str, dict]:
+def _build_event_filter(obj, *, target_data_table: bool = False) -> tuple[str, dict]:
     """Build the WHERE clause and params for matching events."""
-    return _append_hogql_predicate(event_match_sql_fragment(obj), event_match_params(obj), obj)
+    return _append_hogql_predicate(
+        event_match_sql_fragment(obj), event_match_params(obj), obj, target_data_table=target_data_table
+    )
 
 
-def _build_property_filter(obj) -> tuple[str, dict]:
+def _build_property_filter(obj, *, target_data_table: bool = False) -> tuple[str, dict]:
     """Build the WHERE clause addition and params for matching properties."""
     event_clause = event_match_sql_fragment(obj)
     params: dict = event_match_params(obj)
@@ -209,7 +211,7 @@ def _build_property_filter(obj) -> tuple[str, dict]:
             params[f"fp_{i}_{j}"] = part
 
     filter_clause = f"{event_clause} {property_clause}".strip()
-    return _append_hogql_predicate(filter_clause, params, obj)
+    return _append_hogql_predicate(filter_clause, params, obj, target_data_table=target_data_table)
 
 
 def _event_count_query_template(extra_filter: str) -> str:
@@ -243,8 +245,19 @@ def build_deletion_count_query(obj: DataDeletionRequest) -> tuple[str, dict]:
     return _event_count_query_template(extra_filter), params
 
 
-def _fetch_stats(team_id: int, extra_filter: str, params: dict) -> dict:
-    """Run event count + parts size queries against ClickHouse."""
+def _fetch_stats(
+    team_id: int,
+    events_filter: str,
+    events_params: dict,
+    sharded_filter: str,
+    sharded_params: dict,
+) -> dict:
+    """Run event count + parts size queries against ClickHouse.
+
+    The two filters share the same ``hogql_val_*`` keys but are qualified for
+    their respective tables (``events`` vs ``sharded_events``), so any
+    materialized-column references resolve correctly in each query.
+    """
     from posthog.clickhouse.client import sync_execute
 
     with tags_context(
@@ -255,8 +268,8 @@ def _fetch_stats(team_id: int, extra_filter: str, params: dict) -> dict:
         query_type="delete_event_count",
     ):
         event_result = sync_execute(
-            _event_count_query_template(extra_filter),
-            params,
+            _event_count_query_template(events_filter),
+            events_params,
             team_id=team_id,
             readonly=True,
             workload=Workload.OFFLINE,
@@ -274,7 +287,7 @@ def _fetch_stats(team_id: int, extra_filter: str, params: dict) -> dict:
 
         cluster = django_settings.CLICKHOUSE_CLUSTER
 
-        # nosemgrep: clickhouse-fstring-param-audit (extra_filter from internal helpers; cluster from Django settings)
+        # nosemgrep: clickhouse-fstring-param-audit (filter built from internal helpers; cluster from Django settings)
         parts_result = sync_execute(
             f"""
             SELECT
@@ -288,12 +301,12 @@ def _fetch_stats(team_id: int, extra_filter: str, params: dict) -> dict:
                 WHERE team_id = %(team_id)s
                   AND timestamp >= %(start_time)s
                   AND timestamp < %(end_time)s
-                  {extra_filter}
+                  {sharded_filter}
             ) AS matched ON p.name = matched.name
             WHERE p.table = 'sharded_events'
               AND p.active
             """,
-            params,
+            sharded_params,
             team_id=team_id,
             readonly=True,
             workload=Workload.OFFLINE,
@@ -312,16 +325,18 @@ def _fetch_stats(team_id: int, extra_filter: str, params: dict) -> dict:
 
 def fetch_event_deletion_stats(obj: DataDeletionRequest):
     """Count events and affected parts for an event removal request."""
-    extra_filter, params = _build_event_filter(obj)
-    return _fetch_stats(obj.team_id, extra_filter, params)
+    events_filter, events_params = _build_event_filter(obj)
+    sharded_filter, sharded_params = _build_event_filter(obj, target_data_table=True)
+    return _fetch_stats(obj.team_id, events_filter, events_params, sharded_filter, sharded_params)
 
 
 def fetch_property_deletion_stats(obj: DataDeletionRequest):
     """Count events with matching properties and affected parts for a property removal request."""
     if not obj.properties:
         raise ValueError("Cannot fetch stats for a property removal request with no properties specified.")
-    extra_filter, params = _build_property_filter(obj)
-    return _fetch_stats(obj.team_id, extra_filter, params)
+    events_filter, events_params = _build_property_filter(obj)
+    sharded_filter, sharded_params = _build_property_filter(obj, target_data_table=True)
+    return _fetch_stats(obj.team_id, events_filter, events_params, sharded_filter, sharded_params)
 
 
 def fetch_deletion_stats(obj: DataDeletionRequest):

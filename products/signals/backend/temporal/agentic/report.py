@@ -40,7 +40,7 @@ from products.signals.backend.temporal.agentic import (
 )
 from products.signals.backend.temporal.types import SignalData
 from products.tasks.backend.models import SandboxEnvironment, Task
-from products.tasks.backend.services.custom_prompt_runner import CustomPromptSandboxContext
+from products.tasks.backend.services.custom_prompt_internals import CustomPromptSandboxContext
 
 logger = structlog.get_logger(__name__)
 

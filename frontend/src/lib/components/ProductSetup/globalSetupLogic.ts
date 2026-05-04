@@ -117,7 +117,7 @@ export const globalSetupLogic = kea<globalSetupLogicType>([
     }),
     // NOTE: Not using `connect` here because the teamLogic might not have mounted yet
     // by the time this logic is mounted
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         markTaskAsCompleted: async ({ taskIdOrIds }) => {
             const taskIds = Array.isArray(taskIdOrIds) ? taskIdOrIds : [taskIdOrIds]
 
@@ -143,8 +143,12 @@ export const globalSetupLogic = kea<globalSetupLogicType>([
             }
             actions.setOptimisticTaskStatuses(optimisticStatuses)
 
-            // Reopen the quick start popover to show progress immediately
-            actions.openGlobalSetup()
+            // Only re-open the popover if it was already open — avoids the popover popping
+            // open uninvited on top of other surfaces (e.g. the welcome dialog) when team
+            // settings get updated during onboarding and silently complete a task.
+            if (values.isGlobalModalOpen) {
+                actions.openGlobalSetup()
+            }
 
             // Track analytics for each task
             for (const taskId of taskIds) {

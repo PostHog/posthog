@@ -186,16 +186,24 @@ export class HogWatcherService {
     }
 
     /**
-     * Get the persisted states of a list of hog functions
+     * Get the persisted states of a list of hog functions.
+     *
+     * Uses plain hget calls instead of the evalsha Lua script.
+     * The Lua script with cost=0 was doing 2 hget + 2 hset + 1 expire
+     * per call — all writes unnecessary for a read-only check.
+     * Replacing with 2 hget calls eliminates ~60% of internal Redis
+     * operations per read and makes this method safe to route to
+     * read replicas in the future.
      */
     public async getPersistedStates(
         ids: HogFunctionType['id'][]
     ): Promise<Record<HogFunctionType['id'], HogWatcherFunctionState>> {
         const idsSet = new Set(ids)
+        const nowSeconds = Math.round(Date.now() / 1000)
 
         const res = await this.redis.usePipeline({ name: 'getStates' }, (pipeline) => {
             for (const id of idsSet) {
-                pipeline.checkRateLimitV2(...this.rateLimitArgs(id, 0))
+                pipeline.hmget(`${REDIS_KEY_TOKENS}/${id}`, 'pool', 'ts')
                 pipeline.get(`${REDIS_KEY_STATE}/${id}`)
             }
         })
@@ -203,14 +211,22 @@ export class HogWatcherService {
         return Array.from(idsSet).reduce(
             (acc, id, index) => {
                 const resIndex = index * 2
-                // V2 returns [tokensBefore, tokensAfter], we use tokensAfter
-                const tokenResult = res ? res[resIndex][1] : undefined
-                const tokens = tokenResult?.[1] ?? this.config.bucketSize
-                const state = res ? res[resIndex + 1][1] : undefined
+                const [pool, ts] = res?.[resIndex]?.[1] ?? [null, null]
+                const stateVal = res?.[resIndex + 1]?.[1]
+
+                // Same refill calculation as the Lua token bucket script
+                let tokens: number
+                if (pool === null || pool === undefined) {
+                    tokens = this.config.bucketSize
+                } else {
+                    const timeDiff = ts ? Math.max(nowSeconds - Number(ts), 0) : 0
+                    const owedTokens = timeDiff * this.config.refillRate
+                    tokens = Math.min(Number(pool) + owedTokens, this.config.bucketSize)
+                }
 
                 acc[id] = {
-                    state: state ? Number(state) : HogWatcherState.healthy,
-                    tokens: tokens,
+                    state: stateVal ? Number(stateVal) : HogWatcherState.healthy,
+                    tokens,
                 }
 
                 return acc

@@ -13,7 +13,7 @@ from posthog.sync import database_sync_to_async
 
 from products.signals.backend.agent_harness.budgets import BudgetCaps, resolve_budget
 from products.signals.backend.agent_harness.lazy_seed import seed_canonical_skills
-from products.signals.backend.agent_harness.prompt import build_run_prompt
+from products.signals.backend.agent_harness.prompt import SignalAgentRunSummary, build_run_prompt
 from products.signals.backend.agent_harness.skill_loader import LoadedSkill, load_skill_for_run
 from products.signals.backend.models import SignalAgentConfig, SignalAgentRun
 from products.signals.backend.temporal.agentic import (
@@ -22,7 +22,8 @@ from products.signals.backend.temporal.agentic import (
     resolve_user_id_for_team,
 )
 from products.tasks.backend.models import SandboxEnvironment, Task
-from products.tasks.backend.services.custom_prompt_runner import CustomPromptSandboxContext, run_prompt
+from products.tasks.backend.services.custom_prompt_internals import CustomPromptSandboxContext
+from products.tasks.backend.services.custom_prompt_multi_turn_runner import MultiTurnSession
 
 logger = logging.getLogger(__name__)
 
@@ -198,17 +199,21 @@ async def _spawn_and_run(
         "signals_agent: spawning sandbox",
         extra={"team_id": team.id, "skill_name": skill.name, "skill_version": skill.version},
     )
-    last_message, _full_log = await run_prompt(
-        prompt,
-        context,
+    session, result = await MultiTurnSession.start(
+        prompt=prompt,
+        context=context,
+        model=SignalAgentRunSummary,
         step_name=_step_name(skill),
-        origin_product=Task.OriginProduct.SIGNALS_AGENT.value,
         verbose=verbose,
+        origin_product=Task.OriginProduct.SIGNALS_AGENT,
     )
-    # Budget is captured on the run row but not enforced here — the spawn path is one-shot,
-    # so per-tool-call iteration will gate against the budget once the agent-SDK glue lands.
-    _ = budget
-    return last_message
+    try:
+        # Budget is captured on the run row but not enforced here — the spawn path is one-shot,
+        # so per-tool-call iteration will gate against the budget once the agent-SDK glue lands.
+        _ = budget
+        return result.summary
+    finally:
+        await session.end()
 
 
 def _get_team(team_id: int) -> Team:

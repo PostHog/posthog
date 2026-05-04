@@ -168,13 +168,10 @@ def evaluate_alert_check(
         else:
             new_state = AlertState.NOT_FIRING
 
-    # PENDING_RESOLVE is currently unused — resolution is immediate on the first
-    # OK check. Kept in the enum for future symmetric N-of-M resolution support.
     elif effective_state in (AlertState.FIRING, AlertState.PENDING_RESOLVE):
-        if check.threshold_breached:
+        if breach_count >= n:
             new_state = AlertState.FIRING
         else:
-            # Always resolve after a single OK check — N-of-M only governs firing
             new_state = AlertState.NOT_FIRING
             notification = NotificationAction.RESOLVE
 

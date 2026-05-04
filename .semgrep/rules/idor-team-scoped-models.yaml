@@ -124,6 +124,7 @@ rules:
                               |TeamFeatureFlagDefaultsConfig
                               |TeamSessionSummariesConfig
                               |FileSystem
+                              |GithubCommentMapping
                               |GitHubSyncConfig
                               |GitHubSyncPlan
                               |GitHubSyncedModel
@@ -137,6 +138,7 @@ rules:
                               |Insight
                               |InsightVariable
                               |Integration
+                              |IntegrationRepositoryCacheEntry
                               |Link
                               |LiveDebuggerBreakpoint
                               |LogsAlertConfiguration
@@ -327,6 +329,7 @@ rules:
                         |TeamFeatureFlagDefaultsConfig
                         |TeamSessionSummariesConfig
                         |FileSystem
+                        |GithubCommentMapping
                         |GitHubSyncConfig
                         |GitHubSyncPlan
                         |GitHubSyncedModel
@@ -340,6 +343,7 @@ rules:
                         |Insight
                         |InsightVariable
                         |Integration
+                        |IntegrationRepositoryCacheEntry
                         |Link
                         |LiveDebuggerBreakpoint
                         |LLMModelConfiguration
