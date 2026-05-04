@@ -9,6 +9,7 @@ export type {
     MovingAverageConfig,
     TimeSeriesLineChartConfig,
     TimeSeriesLineChartProps,
+    TrendLineConfig,
     ValueLabelsConfig,
 } from './charts/TimeSeriesLineChart/TimeSeriesLineChart'
 export type { InProgressConfig } from './charts/TimeSeriesLineChart/utils/in-progress'

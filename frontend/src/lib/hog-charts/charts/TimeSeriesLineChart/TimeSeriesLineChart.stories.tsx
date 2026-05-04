@@ -235,6 +235,56 @@ export const MovingAverage: Story = {
     },
 }
 
+export const TrendLines: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        return (
+            <Stage>
+                <TimeSeriesLineChart
+                    series={DERIVED_SERIES}
+                    labels={DAYS}
+                    theme={theme}
+                    config={{
+                        yAxis: { showGrid: true },
+                        trendLines: [
+                            { seriesKey: 'visits', kind: 'linear' },
+                            { seriesKey: 'signups', kind: 'linear' },
+                        ],
+                    }}
+                />
+            </Stage>
+        )
+    },
+}
+
+export const ComparisonOf: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        const series: Series[] = [
+            { key: 'visits', label: 'Visits', data: [20, 35, 28, 60, 45, 70, 52], color: theme.colors[0] },
+            {
+                key: 'visits-prev',
+                label: 'Visits (previous)',
+                data: [15, 25, 32, 40, 38, 50, 44],
+                color: theme.colors[0],
+            },
+        ]
+        return (
+            <Stage>
+                <TimeSeriesLineChart
+                    series={series}
+                    labels={DAYS}
+                    theme={theme}
+                    config={{
+                        yAxis: { showGrid: true },
+                        comparisonOf: { 'visits-prev': 'visits' },
+                    }}
+                />
+            </Stage>
+        )
+    },
+}
+
 export const DateAxis: Story = {
     render: () => {
         const cells: { interval: TimeInterval; labels: string[]; series: Series[]; title: string }[] = [
