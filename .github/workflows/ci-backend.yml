@@ -1360,7 +1360,7 @@ jobs:
               shell: bash
               run: | # async_migrations covered in ci-async-migrations.yml
                   set +e
-                  pytest -v --tb=short --reuse-db ${{
+                  pytest -v --tb=short --reuse-db -o junit_duration_report=call ${{
                       matrix.compat
                       && env.CLICKHOUSE_COMPAT_PYTEST_TARGETS
                       || (
@@ -1427,7 +1427,7 @@ jobs:
                   MODAL_TOKEN_SECRET: ${{ needs.changes.outputs.tasks_temporal == 'true' && secrets.MODAL_TOKEN_SECRET || '' }}
               run: |
                   set +e
-                  pytest -v --tb=short --reuse-db --timeout=600 --timeout-method=thread posthog/temporal products/batch_exports/backend/tests/temporal products/tasks/backend/temporal -m "not async_migrations" \
+                  pytest -v --tb=short --reuse-db -o junit_duration_report=call --timeout=600 --timeout-method=thread posthog/temporal products/batch_exports/backend/tests/temporal products/tasks/backend/temporal -m "not async_migrations" \
                       --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                       --durations=100 --durations-min=1.0 --store-durations \
                       --splitting-algorithm=duration_based_chunks \
@@ -1852,7 +1852,7 @@ jobs:
                   runner: 'depot'
 
     report-test-timings:
-        name: Report per-test timings
+        name: Report per-test traces
         needs: [django_tests]
         runs-on: ubuntu-latest
         continue-on-error: true
@@ -1895,9 +1895,13 @@ jobs:
               with:
                   path: ./junit-artifacts
                   pattern: junit-results-*
-            - name: Emit per-test events
+            - name: Emit per-test traces
               if: github.run_attempt == '1' && steps.timing-reporter.outputs.available == 'true'
               continue-on-error: true
               env:
                   POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
-              run: uv run --script .github/scripts/report_test_timings.py ./junit-artifacts
+                  POSTHOG_OTLP_TRACES_ENDPOINT: ${{ vars.POSTHOG_OTLP_TRACES_ENDPOINT || 'https://us.i.posthog.com/i/v1/traces' }}
+              run: |
+                  uv run --script .github/scripts/report_test_timings.py \
+                      --min-duration-seconds=0.5 \
+                      ./junit-artifacts
