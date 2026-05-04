@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import { IconGithub } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonModal, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
@@ -14,6 +14,7 @@ import { urls } from 'scenes/urls'
 import type { QuarantinedIdentifierEntryApi, SnapshotApi, ToleratedHashEntryApi } from '../generated/api.schemas'
 import { visualReviewPreferencesLogic } from '../scenes/visualReviewPreferencesLogic'
 import { SnapshotChangeBadge } from './SnapshotChangeBadge'
+import { SnapshotClusterPanel } from './SnapshotClusterPanel'
 import { SnapshotStatusIndicator } from './SnapshotStatusIndicator'
 
 function DiffMinimap({ url, onClick }: { url: string; onClick?: () => void }): JSX.Element {
@@ -230,6 +231,22 @@ export function SnapshotDiffViewer({
     const width = snapshot.current_artifact?.width || snapshot.baseline_artifact?.width
     const height = snapshot.current_artifact?.height || snapshot.baseline_artifact?.height
 
+    const [highlightedClusterIndex, setHighlightedClusterIndex] = useState<number | null>(null)
+    const overlayBoxes = useMemo(
+        () =>
+            snapshot.cluster_summary?.items.map((c) => ({
+                x: c.x,
+                y: c.y,
+                width: c.width,
+                height: c.height,
+            })),
+        [snapshot.cluster_summary]
+    )
+    const diffPixelTotal =
+        snapshot.diff_artifact?.width && snapshot.diff_artifact?.height
+            ? snapshot.diff_artifact.width * snapshot.diff_artifact.height
+            : null
+
     const isApproved = snapshot.review_state === 'approved'
     const isTolerated = snapshot.review_state === 'tolerated'
     const isQuarantined = !!quarantineEntry
@@ -327,6 +344,17 @@ export function SnapshotDiffViewer({
                         </div>
                     )}
 
+                    {snapshot.cluster_summary && snapshot.cluster_summary.items.length > 0 && (
+                        <div className="mb-3">
+                            <SnapshotClusterPanel
+                                clusterSummary={snapshot.cluster_summary}
+                                totalPixels={diffPixelTotal}
+                                highlightedIndex={highlightedClusterIndex}
+                                onHighlight={setHighlightedClusterIndex}
+                            />
+                        </div>
+                    )}
+
                     <VisualImageDiffViewer
                         key={snapshot.id}
                         baselineUrl={baselineUrl || null}
@@ -339,14 +367,10 @@ export function SnapshotDiffViewer({
                         mode={comparisonMode}
                         onModeChange={setComparisonMode}
                         className="min-h-[200px]"
-                        diffOverlayBoxes={snapshot.cluster_summary?.items.map((c) => ({
-                            x: c.x,
-                            y: c.y,
-                            width: c.width,
-                            height: c.height,
-                        }))}
+                        diffOverlayBoxes={overlayBoxes}
                         diffOverlayWidth={snapshot.diff_artifact?.width ?? undefined}
                         diffOverlayHeight={snapshot.diff_artifact?.height ?? undefined}
+                        highlightedOverlayIndex={highlightedClusterIndex}
                     />
                 </div>
 

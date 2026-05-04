@@ -45,6 +45,8 @@ export interface VisualImageDiffViewerProps {
      */
     diffOverlayWidth?: number
     diffOverlayHeight?: number
+    /** Highlighted cluster index — emphasized in the overlay (filled, opaque). */
+    highlightedOverlayIndex?: number | null
 }
 
 const RESULT_LABELS: Record<VisualDiffResult, string> = {
@@ -83,6 +85,8 @@ interface ImagePanelProps {
     overlayBoxes?: DiffOverlayBox[]
     overlayWidth?: number
     overlayHeight?: number
+    /** Highlighted cluster index — that one box renders emphasized. */
+    highlightedOverlayIndex?: number | null
 }
 
 function ImagePanel({
@@ -94,6 +98,7 @@ function ImagePanel({
     overlayBoxes,
     overlayWidth,
     overlayHeight,
+    highlightedOverlayIndex,
 }: ImagePanelProps): JSX.Element {
     const hasOverlay = !!url && !!overlayBoxes && overlayBoxes.length > 0 && !!overlayWidth && !!overlayHeight
     return (
@@ -115,7 +120,14 @@ function ImagePanel({
                         // eslint-disable-next-line react/forbid-dom-props
                         style={imgStyle}
                     />
-                    {hasOverlay && <BboxOverlay boxes={overlayBoxes!} width={overlayWidth!} height={overlayHeight!} />}
+                    {hasOverlay && (
+                        <BboxOverlay
+                            boxes={overlayBoxes!}
+                            width={overlayWidth!}
+                            height={overlayHeight!}
+                            highlightedIndex={highlightedOverlayIndex ?? null}
+                        />
+                    )}
                 </div>
             ) : (
                 <EmptyImageState title={emptyTitle} />
@@ -129,34 +141,66 @@ interface BboxOverlayProps {
     /** Natural pixel coord space the bboxes live in. */
     width: number
     height: number
+    /** When non-null, that box is emphasized (filled) and the others fade. */
+    highlightedIndex: number | null
 }
 
-function BboxOverlay({ boxes, width, height }: BboxOverlayProps): JSX.Element {
+function BboxOverlay({ boxes, width, height, highlightedIndex }: BboxOverlayProps): JSX.Element {
     return (
-        <svg
-            // viewBox in the bbox coord space + preserveAspectRatio=none
-            // stretches the SVG to the rendered image's box. With
-            // `vector-effect: non-scaling-stroke` the stroke stays a
-            // constant 2px regardless of how the image is scaled.
-            className="absolute inset-0 w-full h-full pointer-events-none"
-            viewBox={`0 0 ${width} ${height}`}
-            preserveAspectRatio="none"
-        >
-            {boxes.map((b, i) => (
-                <rect
-                    key={i}
-                    x={b.x}
-                    y={b.y}
-                    width={b.width}
-                    height={b.height}
-                    fill="rgba(0, 200, 255, 0.08)"
-                    stroke="rgb(0, 200, 255)"
-                    strokeWidth={2}
-                    strokeDasharray="4 3"
-                    vectorEffect="non-scaling-stroke"
-                />
-            ))}
-        </svg>
+        <>
+            <svg
+                // viewBox in the bbox coord space + preserveAspectRatio=none
+                // stretches the SVG to the rendered image's box. With
+                // `vector-effect: non-scaling-stroke` the stroke stays a
+                // constant 2px regardless of how the image is scaled.
+                className="absolute inset-0 w-full h-full pointer-events-none"
+                viewBox={`0 0 ${width} ${height}`}
+                preserveAspectRatio="none"
+            >
+                {boxes.map((b, i) => {
+                    const isHighlighted = highlightedIndex === i
+                    const isDimmed = highlightedIndex !== null && !isHighlighted
+                    return (
+                        <rect
+                            key={i}
+                            x={b.x}
+                            y={b.y}
+                            width={b.width}
+                            height={b.height}
+                            fill={isHighlighted ? 'rgba(0, 200, 255, 0.22)' : 'rgba(0, 200, 255, 0.08)'}
+                            stroke="rgb(0, 200, 255)"
+                            strokeWidth={isHighlighted ? 3 : 2}
+                            strokeDasharray={isHighlighted ? undefined : '4 3'}
+                            opacity={isDimmed ? 0.35 : 1}
+                            vectorEffect="non-scaling-stroke"
+                        />
+                    )
+                })}
+            </svg>
+            {boxes.map((b, i) => {
+                const leftPct = (b.x / width) * 100
+                const topPct = (b.y / height) * 100
+                const isHighlighted = highlightedIndex === i
+                const isDimmed = highlightedIndex !== null && !isHighlighted
+                return (
+                    <span
+                        key={`label-${i}`}
+                        className="absolute pointer-events-none flex items-center justify-center rounded-full bg-[rgb(0,180,235)] text-white text-[10px] font-semibold tabular-nums shadow-sm"
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{
+                            left: `calc(${leftPct}% - 9px)`,
+                            top: `calc(${topPct}% - 9px)`,
+                            width: 18,
+                            height: 18,
+                            opacity: isDimmed ? 0.4 : 1,
+                            outline: isHighlighted ? '2px solid white' : undefined,
+                        }}
+                    >
+                        {i + 1}
+                    </span>
+                )
+            })}
+        </>
     )
 }
 
@@ -196,6 +240,7 @@ export function VisualImageDiffViewer({
     diffOverlayBoxes,
     diffOverlayWidth,
     diffOverlayHeight,
+    highlightedOverlayIndex,
     mode: controlledMode,
     onModeChange,
 }: VisualImageDiffViewerProps): JSX.Element {
@@ -318,6 +363,7 @@ export function VisualImageDiffViewer({
                         overlayBoxes={diffOverlayBoxes}
                         overlayWidth={overlayCoordWidth}
                         overlayHeight={overlayCoordHeight}
+                        highlightedOverlayIndex={highlightedOverlayIndex}
                     />
                 </div>
             )
@@ -428,6 +474,28 @@ export function VisualImageDiffViewer({
                                 style={{ opacity: diffOverlayOpacity / 100 }}
                             />
                         )}
+
+                        {/* Cluster bbox overlays — drawn on top of the
+                         * blend stack so users can read where the change
+                         * regions are without leaving blend mode. Only
+                         * meaningful when the bbox coord space matches
+                         * the underlying image (mismatch case has bboxes
+                         * in padded coords that don't align with either
+                         * baseline or current). */}
+                        {mode === 'blend' &&
+                            !!diffOverlayBoxes &&
+                            diffOverlayBoxes.length > 0 &&
+                            !!overlayCoordWidth &&
+                            !!overlayCoordHeight &&
+                            overlayCoordWidth === imageWidth &&
+                            overlayCoordHeight === imageHeight && (
+                                <BboxOverlay
+                                    boxes={diffOverlayBoxes}
+                                    width={overlayCoordWidth}
+                                    height={overlayCoordHeight}
+                                    highlightedIndex={highlightedOverlayIndex ?? null}
+                                />
+                            )}
 
                         {/* Split drag handle — inside image area */}
                         {!flicker && mode === 'split' && hasBothImages && (
