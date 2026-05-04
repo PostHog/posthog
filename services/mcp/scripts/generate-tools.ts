@@ -544,6 +544,28 @@ function composeToolSchema(
         }
     }
 
+    // *_override query params accept either a pre-encoded JSON string or a plain
+    // object. LLM agents reading insight/dashboard responses see these values as
+    // objects (variables, filters), so requiring JSON.stringify before sending is
+    // friction that frequently breaks (escaping, double-encoding). The runtime
+    // request() helper JSON-stringify-s object query params automatically, so the
+    // schema-side union is sufficient — no handler changes required.
+    const overrideQueryParams = queryParams.filter(
+        (p) => p.name.endsWith('_override') && queryParamNames.includes(p.name)
+    )
+    if (overrideQueryParams.length > 0) {
+        const overrideEntries = overrideQueryParams.map((p) => {
+            let expr = 'z.union([z.string(), z.record(z.string(), z.unknown())]).optional()'
+            const desc = p.description ?? p.schema?.description
+            if (desc) {
+                const escaped = desc.trim().replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n\s*/g, ' ')
+                expr += `.describe('${escaped}')`
+            }
+            return `${p.name}: ${expr}`
+        })
+        schemaExpr = `(${schemaExpr}).extend({ ${overrideEntries.join(', ')} })`
+    }
+
     return {
         orvalImports,
         toolInputsImports,
