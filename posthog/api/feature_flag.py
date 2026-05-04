@@ -85,7 +85,6 @@ from posthog.models.feature_flag.version_history import (
     reconstruct_flag_at_timestamp,
     reconstruct_flag_at_version,
 )
-from posthog.models.group.group import Group
 from posthog.models.person.point_in_time_properties import (
     build_person_properties_at_time,
     get_person_and_distinct_ids_for_identifier,
