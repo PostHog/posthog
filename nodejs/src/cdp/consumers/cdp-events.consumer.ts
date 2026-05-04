@@ -351,13 +351,14 @@ export class CdpEventsConsumer<
                                     if (wasSet) {
                                         this.internalFetchService
                                             .fetch({
-                                                urlPath: `/api/projects/${item.teamId}/internal/hog_flows/notify_rate_limited`,
+                                                urlPath: `/api/projects/${item.teamId}/internal/hog_flows/notify`,
                                                 fetchParams: {
                                                     method: 'POST',
                                                     headers: {
                                                         'Content-Type': 'application/json',
                                                     },
                                                     body: JSON.stringify({
+                                                        type: 'workflow_rate_limited',
                                                         hog_flow_id: item.functionId,
                                                         hog_flow_name: item.hogFlow.name,
                                                         created_by_id: item.hogFlow.created_by_id ?? null,

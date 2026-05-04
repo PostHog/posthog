@@ -104,8 +104,8 @@ class TestHandleWorkflowRateLimited(APIBaseTest):
 
 
 @override_settings(INTERNAL_API_SECRET="test-secret")
-class TestNotifyRateLimitedEndpoint(APIBaseTest):
-    INTERNAL_URL_TEMPLATE = "/api/projects/{team_id}/internal/hog_flows/notify_rate_limited"
+class TestInternalNotifyEndpoint(APIBaseTest):
+    INTERNAL_URL_TEMPLATE = "/api/projects/{team_id}/internal/hog_flows/notify"
 
     def _post(self, team_id=None, data=None):
         url = self.INTERNAL_URL_TEMPLATE.format(team_id=team_id or self.team.id)
@@ -117,7 +117,7 @@ class TestNotifyRateLimitedEndpoint(APIBaseTest):
         )
 
     @patch("products.workflows.backend.services.rate_limit_notifications.handle_workflow_rate_limited")
-    def test_calls_handler_with_correct_params(self, mock_handler):
+    def test_dispatches_rate_limited_to_handler(self, mock_handler):
         hog_flow = HogFlow.objects.create(
             team=self.team,
             name="Test Workflow",
@@ -129,6 +129,7 @@ class TestNotifyRateLimitedEndpoint(APIBaseTest):
 
         response = self._post(
             data={
+                "type": "workflow_rate_limited",
                 "hog_flow_id": str(hog_flow.id),
                 "hog_flow_name": "Test Workflow",
                 "created_by_id": self.user.id,
@@ -143,15 +144,26 @@ class TestNotifyRateLimitedEndpoint(APIBaseTest):
             created_by_id=self.user.id,
         )
 
-    def test_returns_400_without_hog_flow_id(self):
-        response = self._post(data={"hog_flow_name": "Test"})
+    def test_returns_400_without_type(self):
+        response = self._post(data={"hog_flow_id": "abc", "hog_flow_name": "Test"})
         assert response.status_code == 400
+        assert "Missing type" in response.json()["error"]
+
+    def test_returns_400_without_hog_flow_id(self):
+        response = self._post(data={"type": "workflow_rate_limited", "hog_flow_name": "Test"})
+        assert response.status_code == 400
+        assert "Missing hog_flow_id" in response.json()["error"]
+
+    def test_returns_400_for_unknown_type(self):
+        response = self._post(data={"type": "unknown_type", "hog_flow_id": "abc"})
+        assert response.status_code == 400
+        assert "Unknown notification type" in response.json()["error"]
 
     def test_rejects_unauthenticated_requests(self):
         url = self.INTERNAL_URL_TEMPLATE.format(team_id=self.team.id)
         response = self.client.post(
             url,
-            data={"hog_flow_id": "abc", "hog_flow_name": "Test"},
+            data={"type": "workflow_rate_limited", "hog_flow_id": "abc"},
             content_type="application/json",
         )
         assert response.status_code == 401

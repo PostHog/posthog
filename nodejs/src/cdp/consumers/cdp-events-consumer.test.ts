@@ -1032,7 +1032,7 @@ describe('hog flow processing', () => {
                 )
 
                 expect(mockFetch).toHaveBeenCalledWith({
-                    urlPath: `/api/projects/${team.id}/internal/hog_flows/notify_rate_limited`,
+                    urlPath: `/api/projects/${team.id}/internal/hog_flows/notify`,
                     fetchParams: {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
@@ -1042,6 +1042,7 @@ describe('hog flow processing', () => {
 
                 const callBody = parseJSON(mockFetch.mock.calls[0][0].fetchParams.body)
                 expect(callBody).toMatchObject({
+                    type: 'workflow_rate_limited',
                     hog_flow_id: hogFlow.id,
                     hog_flow_name: hogFlow.name,
                 })
