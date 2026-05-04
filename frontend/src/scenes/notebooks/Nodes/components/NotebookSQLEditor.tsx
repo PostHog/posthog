@@ -14,6 +14,9 @@ import { NotebookNodeAttributeProperties, NotebookNodeAttributes, NotebookNodePr
 
 export const EMBEDDED_SQL_EDITOR_DEFAULT_HEIGHT = 500
 export const EMBEDDED_SQL_EDITOR_MIN_HEIGHT = 200
+// Notebook node container is shorter than the bare SQL editor — charts/tables look out of
+// place when the wrapper is taller than the rendered output, and the node is freely resizable.
+export const EMBEDDED_SQL_EDITOR_NODE_DEFAULT_HEIGHT = 350
 
 export const getNotebookSqlEditorTabId = (nodeId: string | null | undefined, suffix: string | null = null): string =>
     `notebook-sql-${suffix ? `${suffix}-` : ''}${nodeId ?? 'new'}`

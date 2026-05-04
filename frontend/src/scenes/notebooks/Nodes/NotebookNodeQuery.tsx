@@ -28,8 +28,8 @@ import { InsightLogicProps, InsightShortId } from '~/types'
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
 import {
     getSqlEditorSourceQuery,
-    EMBEDDED_SQL_EDITOR_DEFAULT_HEIGHT,
     EMBEDDED_SQL_EDITOR_MIN_HEIGHT,
+    EMBEDDED_SQL_EDITOR_NODE_DEFAULT_HEIGHT,
     NotebookSQLEditorOutput,
     NotebookSQLEditorSettings,
 } from './components/NotebookSQLEditor'
@@ -306,7 +306,7 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
     nodeType: NotebookNodeType.Query,
     titlePlaceholder: 'Query',
     Component,
-    heightEstimate: EMBEDDED_SQL_EDITOR_DEFAULT_HEIGHT,
+    heightEstimate: EMBEDDED_SQL_EDITOR_NODE_DEFAULT_HEIGHT,
     minHeight: EMBEDDED_SQL_EDITOR_MIN_HEIGHT,
     resizeable: true,
     startExpanded: true,
