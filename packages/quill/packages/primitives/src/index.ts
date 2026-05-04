@@ -101,12 +101,15 @@ export {
     DropdownMenuCheckboxItem,
     DropdownMenuRadioGroup,
     DropdownMenuRadioItem,
+    DropdownMenuSelectAll,
     DropdownMenuSeparator,
     DropdownMenuShortcut,
     DropdownMenuSub,
     DropdownMenuSubTrigger,
     DropdownMenuSubContent,
+    useDropdownMenuSelectAll,
 } from './dropdown-menu'
+export type { SelectAllState, UseSelectAllResult } from './dropdown-menu'
 export { Empty, EmptyHeader, EmptyTitle, EmptyDescription, EmptyContent, EmptyMedia } from './empty'
 export {
     Field,

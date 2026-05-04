@@ -75,9 +75,7 @@ function SelectContent({
                     {...props}
                 >
                     <SelectScrollUpButton className="quill-select__scroll-button flex items-center justify-center" />
-                    <SelectPrimitive.List className="scroll-mask-y-4 scroll-py-4">
-                        {children}
-                    </SelectPrimitive.List>
+                    <SelectPrimitive.List className="scroll-mask-y-4 scroll-py-4">{children}</SelectPrimitive.List>
                     <SelectScrollDownButton />
                 </SelectPrimitive.Popup>
             </SelectPrimitive.Positioner>

@@ -185,7 +185,7 @@ function AutocompleteItem({
 }
 
 function AutocompleteGroup({ className, ...props }: AutocompletePrimitive.Group.Props): React.ReactElement {
-    return <AutocompletePrimitive.Group data-slot="autocomplete-group" className={cn('px-1 pb-1', className)} {...props} />
+    return <AutocompletePrimitive.Group data-slot="autocomplete-group" className={cn('pb-1', className)} {...props} />
 }
 
 function AutocompleteLabel({ className, ...props }: AutocompletePrimitive.GroupLabel.Props): React.ReactElement {
@@ -204,13 +204,20 @@ function AutocompleteCollection({ ...props }: AutocompletePrimitive.Collection.P
 }
 
 function AutocompleteEmpty({ className, children, ...props }: AutocompletePrimitive.Empty.Props): React.ReactElement {
+    // Nest MenuEmpty as a child rather than passing it via `render`. With
+    // `render`, MenuEmpty's `buttonVariants` `inline-flex` would merge onto
+    // the SAME element as our `quill-autocomplete__empty`, conflicting with
+    // the `display: none` visibility rule. As a child, the parent's
+    // `display: none` collapses the whole subtree without needing
+    // `!important` to outrank the utility layer.
     return (
         <AutocompletePrimitive.Empty
             data-slot="autocomplete-empty"
             className={cn('quill-autocomplete__empty', className)}
             {...props}
-            render={<MenuEmpty>{children}</MenuEmpty>}
-        />
+        >
+            <MenuEmpty>{children}</MenuEmpty>
+        </AutocompletePrimitive.Empty>
     )
 }
 
@@ -251,6 +258,9 @@ function countAutocompleteLeaves(items: unknown): number {
  *
  * Counts are derived via `Autocomplete.useFilteredItems()` from the parent
  * Root, so it works for flat *and* grouped item shapes.
+ *
+ * MUST be rendered inside `<Autocomplete>` — `useFilteredItems` reads from
+ * Autocomplete's Root context and will throw if no provider is mounted.
  */
 function AutocompleteStatus({
     className,
@@ -295,8 +305,12 @@ function AutocompleteStatus({
  * Hook returning the anchor ref so consumers (e.g. an external trigger)
  * can position the popup against an arbitrary element.
  */
-function useAutocompleteAnchor(): React.RefObject<HTMLDivElement> | null {
-    return React.useContext(AutocompleteAnchorContext)
+function useAutocompleteAnchor(): React.RefObject<HTMLDivElement> {
+    const contextRef = React.useContext(AutocompleteAnchorContext)
+    if (contextRef === null) {
+        throw new Error('useAutocompleteAnchor must be used within an Autocomplete')
+    }
+    return contextRef
 }
 
 export {

@@ -5,7 +5,21 @@
      */
     .quill-autocomplete__content {
         position: relative;
-        max-width: min(24rem, var(--available-width));
+
+        /*
+         * Default minimum width matches the trigger (`--anchor-width` is set
+         * by base-ui's Positioner from the anchor element). The popup grows
+         * with content but never shrinks below the trigger. Override per
+         * instance by setting `--quill-autocomplete-min-width` — works via
+         * inline style or Tailwind arbitrary-property syntax:
+         *
+         *   <AutocompleteContent style={{ '--quill-autocomplete-min-width': '20rem' }} />
+         *   <AutocompleteContent className="[--quill-autocomplete-min-width:20rem]" />
+         *
+         * `max-width: var(--available-width)` keeps it inside the viewport.
+         */
+        min-width: var(--quill-autocomplete-min-width, var(--anchor-width, 8rem));
+        max-width: var(--available-width);
         max-height: var(--available-height);
         overflow: hidden;
         color: var(--foreground);
@@ -82,7 +96,7 @@
             calc(var(--spacing, 0.25rem) * 72 - var(--spacing, 0.25rem) * 9),
             calc(var(--available-height, 100vh) - var(--spacing, 0.25rem) * 9)
         );
-        padding: var(--spacing, 0.25rem) 0;
+        padding: var(--spacing, 0.25rem);
 
         /* `hidden auto` = overflow-x: hidden, overflow-y: auto. Clips item
            highlight rings at the list's right edge so they don't leak past
@@ -95,28 +109,38 @@
 
     /*
      * Empty state visibility. Hide by default; show only when a sibling
-     * List has zero `[role='option']` descendants. `!important` on both
-     * branches overrides MenuEmpty's `inline-flex` from buttonVariants
-     * (Tailwind's `@layer utilities` outranks `@layer components`). We
-     * target `[role='option']` rather than `[data-slot='autocomplete-item']`
-     * because base-ui's render-prop merging onto Button drops our slot
-     * attribute, but ARIA roles are always set by base-ui internally.
+     * List has zero `[role='option']` descendants. Targets `[role='option']`
+     * rather than `[data-slot='autocomplete-item']` because base-ui's
+     * render-prop merging onto Button drops our slot attribute, but ARIA
+     * roles are always set by base-ui internally.
      *
      * Two selectors cover Empty placed before OR after the List in the
      * DOM, without needing a common ancestor — works in popover mode
      * (Default) and inline mode (CommandPalette inside Dialog).
+     *
+     * `MenuEmpty` is nested as a CHILD of `<Autocomplete.Empty>` (not
+     * passed via the `render` prop) so the parent's `display: none`
+     * collapses the whole subtree without needing `!important` to outrank
+     * `MenuEmpty`'s `inline-flex` from `buttonVariants`.
      */
     .quill-autocomplete__empty {
-        display: none !important;
+        display: none;
     }
 
     .quill-autocomplete__empty:has(~ [data-slot='autocomplete-list']:not(:has([role='option']))),
     [data-slot='autocomplete-list']:not(:has([role='option'])) ~ .quill-autocomplete__empty {
-        display: flex !important;
+        display: flex;
     }
 
     .quill-autocomplete__list[data-empty] {
         padding: 0;
+    }
+
+    /* When AutocompleteStatus immediately precedes the list, the Status's
+       own padding already provides the inset above the first item — drop
+       the list's top padding to avoid stacking. */
+    [data-slot='autocomplete-status'] + .quill-autocomplete__list {
+        padding-top: 0;
     }
 
     .quill-autocomplete__item {
@@ -139,14 +163,33 @@
 
     .quill-autocomplete__label {
         position: sticky;
-        top: 0;
+        top: calc(var(--spacing, 0.25rem) * -1);
         z-index: 1;
         display: flex;
         align-items: center;
         justify-content: space-between;
         width: 100%;
         padding-block: 0 !important;
+
+        /*
+         * Pull the label flush with the list's outer top edge:
+         *  - `margin-top: -spacing` consumes the list's `padding-top` in
+         *    the normal flow (otherwise the label sits BELOW the padding
+         *    on initial render).
+         *  - `top: -spacing` keeps the sticky offset at the same place so
+         *    the label doesn't jump when scrolling starts.
+         *
+         * When `[data-slot='autocomplete-status']` precedes the list, the
+         * list's `padding-top` is 0 (set elsewhere in this file), so the
+         * lift would punch the label into the Status. Override below.
+         */
+        margin-top: calc(var(--spacing, 0.25rem) * -1);
         background-color: var(--card);
+    }
+
+    [data-slot='autocomplete-status'] + .quill-autocomplete__list .quill-autocomplete__label {
+        top: 0;
+        margin-top: 0;
     }
 
     .quill-autocomplete__separator {

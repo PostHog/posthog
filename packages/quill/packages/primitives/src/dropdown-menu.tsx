@@ -338,7 +338,10 @@ function DropdownMenuSelectAll<T>({
     selectLabel?: React.ReactNode
     deselectLabel?: React.ReactNode
     children?: (result: UseSelectAllResult<T>) => React.ReactNode
-} & Omit<React.ComponentProps<typeof DropdownMenuItem>, 'children' | 'onClick' | 'onChange'>): React.ReactElement {
+} & Omit<
+    React.ComponentProps<typeof DropdownMenuItem>,
+    'children' | 'onClick' | 'onChange' | 'closeOnClick' | 'data-state'
+>): React.ReactElement {
     const result = useDropdownMenuSelectAll(values, selected, onChange, getKey)
 
     if (children) {
@@ -347,11 +350,11 @@ function DropdownMenuSelectAll<T>({
 
     return (
         <DropdownMenuItem
+            {...itemProps}
             data-slot="dropdown-menu-select-all"
             data-state={result.state}
             closeOnClick={false}
             onClick={result.toggle}
-            {...itemProps}
         >
             {result.isAllSelected ? deselectLabel : selectLabel}
         </DropdownMenuItem>

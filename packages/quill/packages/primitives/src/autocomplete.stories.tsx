@@ -12,7 +12,6 @@ import {
     AutocompleteItem,
     AutocompleteLabel,
     AutocompleteList,
-    AutocompleteSeparator,
     AutocompleteStatus,
 } from './autocomplete'
 import { Button } from './button'
@@ -245,7 +244,7 @@ export const CommandPalette: Story = {
                                 <Button variant="outline" size="xs">Some more content</Button>
                             </AutocompleteInput>
                             <AutocompleteStatus emptyContent={<span>No commands match <strong>"{query}"</strong></span>}/>
-                            <AutocompleteList className="p-0">
+                            <AutocompleteList>
                                 {(section: CommandSection) => (
                                     <AutocompleteGroup key={section.label} items={section.items}>
                                         <AutocompleteLabel>{section.label}</AutocompleteLabel>
@@ -335,7 +334,7 @@ export const CommandPaletteCustomEmpty: Story = {
                                     </EmptyContent>
                                 </Empty>
                             }/>
-                            <AutocompleteList className="p-0">
+                            <AutocompleteList>
                                 {(section: CommandSection) => (
                                     <AutocompleteGroup key={section.label} items={section.items}>
                                         <AutocompleteLabel>{section.label}</AutocompleteLabel>
