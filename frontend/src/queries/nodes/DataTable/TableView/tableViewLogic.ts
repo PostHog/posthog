@@ -83,9 +83,14 @@ function getQueryFromView(
     }
 
     const rawFilters = (view.filters || []) as AnyPropertyFilter[]
-    const properties = rawFilters.filter((filter) => filter.key !== 'event' && filter.key !== 'events')
-    const event = rawFilters.find((filter) => filter.key === 'event')?.value
-    const events = rawFilters.find((filter) => filter.key === 'events')?.value
+    // Synthetic markers for EventsQuery.event/events are stored in the same filters array as
+    // real property filters. Disambiguate by the absence of a `type` field — real property
+    // filters (e.g. event_metadata on key "event") always carry one.
+    const isEventMarker = (f: AnyPropertyFilter): boolean => f.key === 'event' && !f.type
+    const isEventsMarker = (f: AnyPropertyFilter): boolean => f.key === 'events' && !f.type
+    const properties = rawFilters.filter((f) => !isEventMarker(f) && !isEventsMarker(f))
+    const event = rawFilters.find(isEventMarker)?.value
+    const events = rawFilters.find(isEventsMarker)?.value
     return {
         ...query,
         select: view.columns || [],
