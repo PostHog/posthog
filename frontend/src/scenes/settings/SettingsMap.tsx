@@ -512,7 +512,6 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'error-tracking-rate-limits',
                 title: 'Rate limits',
-                description: 'Cap how many exception events are ingested per hour for this project.',
                 component: <RateLimitSettings />,
                 flag: 'ERROR_TRACKING_RATE_LIMITING',
                 keywords: ['rate', 'limit', 'throttle', 'ingestion', 'cap'],

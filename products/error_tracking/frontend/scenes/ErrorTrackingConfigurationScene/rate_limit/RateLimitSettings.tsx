@@ -2,8 +2,6 @@ import { useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useMemo } from 'react'
 
-import { LemonBanner } from '@posthog/lemon-ui'
-
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -14,6 +12,8 @@ import { LineGraph } from '~/queries/nodes/DataVisualization/Components/Charts/L
 import { ChartDisplayType } from '~/types'
 
 import { ExceptionVolumeBucket, rateLimitConfigLogic } from './rateLimitConfigLogic'
+
+const SIMULATION_HOURS = 7 * 24
 
 export function RateLimitSettings(): JSX.Element {
     const { configLoading, configFormChanged, isConfigFormSubmitting, configForm, volume, volumeLoading } =
@@ -29,58 +29,73 @@ export function RateLimitSettings(): JSX.Element {
     }
 
     return (
-        <div className="space-y-8">
-            <Form logic={rateLimitConfigLogic} formKey="configForm" enableFormOnSubmit className="space-y-4">
-                <LemonBanner type="info">
-                    Rate limiting caps how many exception events are ingested per hour. Events over the limit are
-                    dropped. Leave empty to disable.
-                </LemonBanner>
+        <div className="space-y-4">
+            <div>
+                <h3 className="font-semibold text-base mb-1">Project wide rate limiting</h3>
+                <p className="text-muted-foreground">
+                    This rate limit applies to your entire project. It specifies how many exceptions per hour we will
+                    accept at most. Anything above that is dropped.
+                </p>
+            </div>
 
-                <div className="grid grid-cols-3 gap-4">
-                    <LemonField
-                        name="rate_limit_per_hour"
-                        label="Events per hour"
-                        info="Maximum number of exception events to accept per hour. Empty means unlimited."
-                    >
-                        {({ value, onChange }) => (
-                            <LemonInput
-                                type="number"
-                                min={1}
-                                value={value ?? undefined}
-                                onChange={(v) => onChange(v ?? null)}
-                                placeholder="Unlimited"
-                                fullWidth
-                                data-attr="rate-limit-per-hour"
-                            />
+            <Form logic={rateLimitConfigLogic} formKey="configForm" enableFormOnSubmit>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-4">
+                        <LemonField
+                            name="rate_limit_per_hour"
+                            label="Exceptions per hour"
+                            info="Maximum number of exception events to accept per hour. Empty means unlimited."
+                        >
+                            {({ value, onChange }) => (
+                                <LemonInput
+                                    type="number"
+                                    min={1}
+                                    value={value ?? undefined}
+                                    onChange={(v) => onChange(v ?? null)}
+                                    placeholder="Unlimited"
+                                    fullWidth
+                                    data-attr="rate-limit-per-hour"
+                                />
+                            )}
+                        </LemonField>
+
+                        <div className="flex justify-end">
+                            <LemonButton
+                                type="primary"
+                                htmlType="submit"
+                                disabledReason={!configFormChanged ? 'No changes to save' : undefined}
+                                loading={isConfigFormSubmitting}
+                            >
+                                Save
+                            </LemonButton>
+                        </div>
+                    </div>
+
+                    <div>
+                        <div className="text-sm font-medium mb-1">Simulation — last 7 days</div>
+                        {volumeLoading ? (
+                            <LemonSkeleton className="w-full h-64" />
+                        ) : (
+                            <RateLimitSimulationChart volume={volume} rateLimit={configForm.rate_limit_per_hour} />
                         )}
-                    </LemonField>
-                </div>
-
-                <div className="flex justify-end">
-                    <LemonButton
-                        type="primary"
-                        htmlType="submit"
-                        disabledReason={!configFormChanged ? 'No changes to save' : undefined}
-                        loading={isConfigFormSubmitting}
-                    >
-                        Save
-                    </LemonButton>
+                    </div>
                 </div>
             </Form>
-
-            <div>
-                <h3 className="font-semibold mb-2">Simulation — last 7 days</h3>
-                <p className="text-muted-foreground text-sm mb-3">
-                    Hourly exception volume for this project. The line shows where the rate limit would sit.
-                </p>
-                {volumeLoading ? (
-                    <LemonSkeleton className="w-full h-64" />
-                ) : (
-                    <RateLimitSimulationChart volume={volume} rateLimit={configForm.rate_limit_per_hour} />
-                )}
-            </div>
         </div>
     )
+}
+
+function fillHourlyBuckets(volume: ExceptionVolumeBucket[]): ExceptionVolumeBucket[] {
+    const counts = new Map(volume.map((b) => [dayjs(b.hour).startOf('hour').toISOString(), b.count]))
+    const end = dayjs().startOf('hour')
+    const start = end.subtract(SIMULATION_HOURS - 1, 'hour')
+    const buckets: ExceptionVolumeBucket[] = []
+    for (let i = 0; i < SIMULATION_HOURS; i++) {
+        const ts = start.add(i, 'hour')
+        const key = ts.toISOString()
+        buckets.push({ hour: ts.toISOString(), count: counts.get(key) ?? 0 })
+    }
+    return buckets
 }
 
 function RateLimitSimulationChart({
@@ -91,8 +106,9 @@ function RateLimitSimulationChart({
     rateLimit: number | null
 }): JSX.Element {
     const { xData, yData } = useMemo(() => {
-        const labels = volume.map((b) => dayjs(b.hour).format('MMM D, HH:mm'))
-        const counts = volume.map((b) => b.count)
+        const filled = fillHourlyBuckets(volume)
+        const labels = filled.map((b) => dayjs(b.hour).format('MMM D, HH:mm'))
+        const counts = filled.map((b) => b.count)
         return {
             xData: {
                 column: {
@@ -135,14 +151,6 @@ function RateLimitSimulationChart({
                 : [],
         [rateLimit]
     )
-
-    if (volume.length === 0) {
-        return (
-            <div className="border rounded h-64 flex items-center justify-center text-muted-foreground">
-                No exception events in the last 7 days
-            </div>
-        )
-    }
 
     return (
         <div className="border rounded p-2 h-80">
