@@ -75,6 +75,9 @@ TRUSTED_PR_REVIEW_BOTS: frozenset[str] = frozenset(
         "sourcery-ai[bot]",
     }
 )
+# Pre-folded bot logins — `is_trusted_pr_actor` runs on every comment fetch,
+# so doing the casefold once at import time avoids rebuilding the set per call.
+_TRUSTED_PR_REVIEW_BOTS_LOWER: frozenset[str] = frozenset(b.casefold() for b in TRUSTED_PR_REVIEW_BOTS)
 
 # How many pages of comments to fetch when trusted-only filtering is on. Each
 # page is up to 100 comments, so 3 pages = 300 max. Bounded so a noisy PR can't
@@ -133,7 +136,7 @@ def is_trusted_pr_actor(
         return True
     if author_association and author_association.upper() in TRUSTED_PR_AUTHOR_ASSOCIATIONS:
         return True
-    if login_norm in {bot.casefold() for bot in TRUSTED_PR_REVIEW_BOTS}:
+    if login_norm in _TRUSTED_PR_REVIEW_BOTS_LOWER:
         return True
     return False
 
@@ -584,23 +587,28 @@ class GitHubIntegrationBase:
     # to surface PR comments to an LLM that may act on them — anything else
     # opens us to prompt-injection from drive-by contributors on public repos.
 
-    def _paginated_pr_endpoint(
+    def _paginated_pr_list(
         self,
         repository: str,
         pr_number: int,
         *,
-        endpoint_path: str,
+        url_template: str,
         endpoint_template: str,
         max_pages: int,
     ) -> list[dict[str, Any]] | None:
-        """Fetch up to `max_pages` of a PR sub-resource. Returns None on hard failure."""
+        """Fetch up to `max_pages` of a PR sub-resource as a JSON list.
+
+        `url_template` is an f-string-style template that may reference
+        `{repo_path}` and `{pr_number}`. `endpoint_template` is the static
+        OpenAPI-shape path used for metrics labels.
+        Returns None on a hard failure (network error, non-200, non-JSON, or
+        unexpected payload shape).
+        """
         repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
         all_items: list[dict[str, Any]] = []
         for page in range(1, max(1, max_pages) + 1):
-            response = self._installation_authenticated_get(
-                f"https://api.github.com/repos/{repo_path}/pulls/{pr_number}/{endpoint_path}?per_page=100&page={page}",
-                endpoint=endpoint_template,
-            )
+            url = url_template.format(repo_path=repo_path, pr_number=pr_number, page=page)
+            response = self._installation_authenticated_get(url, endpoint=endpoint_template)
             if response is None:
                 return None
             if response.status_code != 200:
@@ -629,54 +637,13 @@ class GitHubIntegrationBase:
                 break
         return all_items
 
-    def _paginated_issue_comments(
-        self,
-        repository: str,
-        pr_number: int,
-        *,
-        max_pages: int,
-    ) -> list[dict[str, Any]] | None:
-        """Issue comments live under the issues namespace, not pulls."""
-        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
-        all_items: list[dict[str, Any]] = []
-        for page in range(1, max(1, max_pages) + 1):
-            response = self._installation_authenticated_get(
-                f"https://api.github.com/repos/{repo_path}/issues/{pr_number}/comments?per_page=100&page={page}",
-                endpoint="/repos/{owner}/{repo}/issues/{issue_number}/comments",
-            )
-            if response is None:
-                return None
-            if response.status_code != 200:
-                logger.warning(
-                    "GitHubIntegration: issue comments fetch failed",
-                    repository=repo_path,
-                    pr_number=pr_number,
-                    status_code=response.status_code,
-                )
-                return None
-            try:
-                body = response.json()
-            except Exception:
-                logger.warning(
-                    "GitHubIntegration: issue comments non-JSON response",
-                    repository=repo_path,
-                    pr_number=pr_number,
-                )
-                return None
-            if not isinstance(body, list):
-                return None
-            all_items.extend(item for item in body if isinstance(item, dict))
-            if len(body) < 100:
-                break
-        return all_items
-
     @staticmethod
     def _normalize_comment(item: dict[str, Any], kind: str) -> GitHubPullRequestComment | None:
         comment_id = item.get("id")
         if not isinstance(comment_id, int):
             return None
         user = item.get("user") if isinstance(item.get("user"), dict) else {}
-        login = user.get("login") if isinstance(user, dict) else None
+        login = user.get("login")
         return GitHubPullRequestComment(
             kind=kind,
             id=comment_id,
@@ -721,10 +688,10 @@ class GitHubIntegrationBase:
         max_pages: int = GITHUB_PR_COMMENT_MAX_PAGES,
     ) -> list[GitHubPullRequestComment] | None:
         """Inline diff review comments. Returns None on a hard fetch failure."""
-        raw = self._paginated_pr_endpoint(
+        raw = self._paginated_pr_list(
             repository,
             pr_number,
-            endpoint_path="comments",
+            url_template="https://api.github.com/repos/{repo_path}/pulls/{pr_number}/comments?per_page=100&page={page}",
             endpoint_template="/repos/{owner}/{repo}/pulls/{pull_number}/comments",
             max_pages=max_pages,
         )
@@ -743,10 +710,10 @@ class GitHubIntegrationBase:
         max_pages: int = GITHUB_PR_COMMENT_MAX_PAGES,
     ) -> list[GitHubPullRequestComment] | None:
         """Formal review summaries (approvals, change-requests, etc)."""
-        raw = self._paginated_pr_endpoint(
+        raw = self._paginated_pr_list(
             repository,
             pr_number,
-            endpoint_path="reviews",
+            url_template="https://api.github.com/repos/{repo_path}/pulls/{pr_number}/reviews?per_page=100&page={page}",
             endpoint_template="/repos/{owner}/{repo}/pulls/{pull_number}/reviews",
             max_pages=max_pages,
         )
@@ -773,8 +740,14 @@ class GitHubIntegrationBase:
         pr_author: str | None = None,
         max_pages: int = GITHUB_PR_COMMENT_MAX_PAGES,
     ) -> list[GitHubPullRequestComment] | None:
-        """Top-level conversation comments on the PR."""
-        raw = self._paginated_issue_comments(repository, pr_number, max_pages=max_pages)
+        """Top-level conversation comments on the PR (issue-namespace endpoint)."""
+        raw = self._paginated_pr_list(
+            repository,
+            pr_number,
+            url_template="https://api.github.com/repos/{repo_path}/issues/{pr_number}/comments?per_page=100&page={page}",
+            endpoint_template="/repos/{owner}/{repo}/issues/{issue_number}/comments",
+            max_pages=max_pages,
+        )
         if raw is None:
             return None
         normalized = [c for c in (self._normalize_comment(item, "issue_comment") for item in raw) if c is not None]

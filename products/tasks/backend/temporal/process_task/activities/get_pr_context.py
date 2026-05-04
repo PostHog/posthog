@@ -160,6 +160,15 @@ def get_pr_context(input: GetPrContextInput) -> GetPrContextOutput | None:
                     trusted_only=True,
                     pr_author=pr_author,
                 )
+                # `get_pull_request_feedback` normalizes a sub-fetch failure (e.g.
+                # a 502 from GitHub) to an empty list and sets `success=False`.
+                # Without this warning, a partial outage would look identical to
+                # a PR that genuinely has no comments.
+                if not feedback.get("success"):
+                    activity.logger.warning(
+                        "get_pr_context_feedback_partial_failure",
+                        pr_url=pr_url,
+                    )
                 trusted_review_comments = [_to_trusted_comment(c) for c in feedback.get("review_comments", [])]
                 trusted_reviews = [_to_trusted_comment(c) for c in feedback.get("reviews", [])]
                 trusted_issue_comments = [_to_trusted_comment(c) for c in feedback.get("issue_comments", [])]
