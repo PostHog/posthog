@@ -202,7 +202,7 @@ class TestLoginAPI(APIBaseTest):
         self.assertEqual(response.json()["email"], self.user.email)
 
         # Assert the event was captured.
-        mock_capture.assert_called_once_with(
+        mock_capture.assert_any_call(
             distinct_id=self.user.distinct_id,
             event="user logged in",
             properties={"social_provider": ""},

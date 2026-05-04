@@ -809,7 +809,9 @@ class TestSignupAPI(APIBaseTest):
             cast(OrganizationMembership, user.organization_memberships.first()).level,
             OrganizationMembership.Level.MEMBER,
         )
-        self.assertFalse(mock_capture.call_args.kwargs["properties"]["is_organization_first_user"])
+        signup_calls = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "user signed up"]
+        assert signup_calls, "expected a 'user signed up' capture call"
+        self.assertFalse(signup_calls[-1].kwargs["properties"]["is_organization_first_user"])
 
         if use_invite and not expired_invite:
             # make sure the org invite no longer exists
