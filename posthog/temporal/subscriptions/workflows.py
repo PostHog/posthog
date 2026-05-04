@@ -27,6 +27,7 @@ from posthog.temporal.subscriptions.activities import (
     deliver_subscription,
     fetch_due_subscriptions_activity,
     update_delivery_record,
+    validate_subscription_for_delivery,
 )
 from posthog.temporal.subscriptions.snapshot_activities import snapshot_subscription_insights
 from posthog.temporal.subscriptions.types import (
@@ -274,6 +275,22 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                     maximum_attempts=3,
                 ),
             )
+
+            # Validate up-front: if the subscription is already disabled or its target
+            # configuration is permanently broken, auto-disable and short-circuit before
+            # the export pipeline runs.
+            should_abort = await temporalio.workflow.execute_activity(
+                validate_subscription_for_delivery,
+                inputs.subscription_id,
+                start_to_close_timeout=dt.timedelta(minutes=1),
+                retry_policy=temporalio.common.RetryPolicy(
+                    initial_interval=dt.timedelta(seconds=5),
+                    maximum_interval=dt.timedelta(seconds=30),
+                    maximum_attempts=3,
+                ),
+            )
+            if should_abort:
+                return
 
             # Phase 1: Prepare — create ExportedAssets and persist insight snapshots
             # onto SubscriptionDelivery.content_snapshot (written from within the

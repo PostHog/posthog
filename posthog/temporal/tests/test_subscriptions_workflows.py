@@ -25,6 +25,7 @@ from posthog.errors import CHQueryErrorS3Error
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.insight import Insight
 from posthog.models.instance_setting import set_instance_setting
+from posthog.models.integration import Integration
 from posthog.models.subscription import Subscription, SubscriptionDelivery
 from posthog.slo.types import SloArea, SloConfig, SloOperation, SloOutcome
 from posthog.tasks.exports.failure_handler import ExcelColumnLimitExceeded
@@ -37,6 +38,7 @@ from posthog.temporal.subscriptions.activities import (
     deliver_subscription,
     fetch_due_subscriptions_activity,
     update_delivery_record,
+    validate_subscription_for_delivery,
 )
 from posthog.temporal.subscriptions.types import (
     CreateDeliveryRecordInputs,
@@ -70,6 +72,7 @@ SUBSCRIPTION_SCHEDULE_ACTIVITIES: Sequence[Callable[..., Any]] = cast(
     [
         fetch_due_subscriptions_activity,
         create_delivery_record,
+        validate_subscription_for_delivery,
         create_export_assets,
         export_asset_activity,
         deliver_subscription,
@@ -82,6 +85,7 @@ SUBSCRIPTION_PROCESS_ACTIVITIES: Sequence[Callable[..., Any]] = cast(
     Sequence[Callable[..., Any]],
     [
         create_delivery_record,
+        validate_subscription_for_delivery,
         create_export_assets,
         export_asset_activity,
         deliver_subscription,
@@ -348,6 +352,11 @@ async def test_deliver_subscription_report_slack(
     )
 
     insight = await sync_to_async(Insight.objects.create)(team=team, short_id="abc999", name="Insight")
+    integration = await sync_to_async(Integration.objects.create)(
+        team=team,
+        kind="slack",
+        config={"team": {"id": "T123", "name": "Test"}},
+    )
 
     subscription = await sync_to_async(create_subscription)(
         team=team,
@@ -355,6 +364,7 @@ async def test_deliver_subscription_report_slack(
         created_by=user,
         target_type="slack",
         target_value="C12345|#test-channel",
+        integration_id=integration.id,
     )
 
     def fake_export(asset_obj, **kwargs):
@@ -425,9 +435,9 @@ async def test_process_subscription_records_missing_slack_integration_failure(
         content_location="s3://bucket/slack-fail.png",
     )
 
-    # Missing Slack integration auto-disables the subscription cleanly — the
-    # workflow completes (no ApplicationError, no SLO failure) but the
-    # per-recipient delivery row records the missing-integration failure.
+    # Missing Slack integration_id is caught by the workflow's validation step
+    # which auto-disables before the export pipeline runs. The team-fallback in
+    # `deliver_subscription` is no longer reachable for this scenario.
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
             env.client,
@@ -451,21 +461,12 @@ async def test_process_subscription_records_missing_slack_integration_failure(
             )
 
     row = await sync_to_async(SubscriptionDelivery.objects.filter(subscription_id=subscription.id).latest)("created_at")
-    # Activity returns cleanly after auto-disable, so the workflow records a
-    # COMPLETED delivery row — the per-recipient failure detail lives in
-    # recipient_results, not the row-level status.
-    assert row.status == SubscriptionDelivery.Status.COMPLETED
-    assert row.recipient_results == [
-        {
-            "recipient": "C12345|#test-channel",
-            "status": "failed",
-            "error": {
-                "message": "Slack integration disconnected",
-                "type": "missing_integration",
-            },
-        }
-    ]
-    mock_get_slack.assert_called_once_with(subscription.team_id)
+    # Workflow short-circuits before deliver_subscription, so the row is SKIPPED
+    # and recipient_results stays empty — the disable email + analytics event
+    # carry the failure detail.
+    assert row.status == SubscriptionDelivery.Status.SKIPPED
+    assert row.recipient_results == []  # Model default; finally block doesn't overwrite when nothing was delivered.
+    mock_get_slack.assert_not_called()
 
     # Subscription is auto-disabled and owner is notified.
     await sync_to_async(subscription.refresh_from_db)()
@@ -647,6 +648,50 @@ async def test_deliver_subscription_retry_idempotent_after_auto_disable(team, us
     assert second_result.recipient_results == []
     send_mock.assert_not_called()
     capture_mock.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "label,target_type,target_value,initial_enabled,expected_abort,expected_disable_called,expected_final_enabled",
+    [
+        ("valid_email_no_abort", "email", "ok@example.com", True, False, False, True),
+        ("unsupported_webhook_auto_disables", "webhook", "https://example.com/hook", True, True, True, False),
+        ("already_disabled_short_circuits", "email", "dis@example.com", False, True, False, False),
+    ],
+)
+@pytest.mark.asyncio
+async def test_validate_subscription_for_delivery(
+    team,
+    user,
+    label,
+    target_type,
+    target_value,
+    initial_enabled,
+    expected_abort,
+    expected_disable_called,
+    expected_final_enabled,
+):
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id=f"vld-{label[:5]}", name=label)
+    subscription = await sync_to_async(create_subscription)(
+        team=team,
+        insight=insight,
+        created_by=user,
+        target_type=target_type,
+        target_value=target_value,
+        enabled=initial_enabled,
+    )
+
+    env = ActivityEnvironment()
+    with (
+        patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription") as send_mock,
+        patch("posthog.temporal.subscriptions.activities._capture_delivery_failed_event") as capture_mock,
+    ):
+        should_abort = await env.run(validate_subscription_for_delivery, subscription.id)
+
+    assert should_abort is expected_abort
+    assert send_mock.called is expected_disable_called
+    assert capture_mock.called is expected_disable_called
+    await sync_to_async(subscription.refresh_from_db)()
+    assert subscription.enabled is expected_final_enabled
 
 
 @patch("posthog.slo.events.posthoganalytics")

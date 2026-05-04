@@ -167,6 +167,35 @@ async def fetch_due_subscriptions_activity(inputs: FetchDueSubscriptionsActivity
 
 
 @temporalio.activity.defn
+async def validate_subscription_for_delivery(subscription_id: int) -> bool:
+    """Returns True when delivery should be aborted; auto-disables on permanent misconfiguration."""
+    subscription = await database_sync_to_async(
+        Subscription.objects.select_related("created_by", "integration").get,
+        thread_sensitive=False,
+    )(pk=subscription_id)
+
+    # Idempotency: a Temporal redispatch (e.g. worker crash mid-acknowledge) after a
+    # prior auto-disable committed must not re-fire side effects.
+    if not subscription.enabled:
+        await LOGGER.ainfo("validate_subscription.already_disabled_skipping", subscription_id=subscription_id)
+        return True
+
+    reason = get_subscription_disable_reason(subscription.target_type, subscription.integration_id)
+    if reason is None:
+        return False
+
+    LOGGER.warning(
+        "validate_subscription.invalid_auto_disabling",
+        subscription_id=subscription_id,
+        target_type=subscription.target_type,
+        reason=reason.key,
+    )
+    _capture_delivery_failed_event(subscription, Exception(reason.description))
+    await database_sync_to_async(disable_invalid_subscription, thread_sensitive=False)(subscription, reason)
+    return True
+
+
+@temporalio.activity.defn
 async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExportAssetsResult:
     await LOGGER.ainfo(
         "create_export_assets.starting",
@@ -188,26 +217,6 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
         has_insight=bool(subscription.insight_id),
         target_type=subscription.target_type,
     )
-
-    # Mirrors the alert pattern: validate up-front and auto-disable on permanent
-    # misconfiguration so the workflow short-circuits before running the export
-    # pipeline. Only unsupported-target is caught here — the slack-disconnected
-    # branch is handled in `deliver_subscription` after the team-integration fallback.
-    if (
-        subscription.enabled
-        and get_subscription_disable_reason(subscription.target_type, subscription.integration_id)
-        == UNSUPPORTED_TARGET_DISABLE_REASON
-    ):
-        LOGGER.warning(
-            "create_export_assets.unsupported_target_auto_disabling",
-            subscription_id=inputs.subscription_id,
-            target_type=subscription.target_type,
-        )
-        _capture_delivery_failed_event(subscription, Exception(UNSUPPORTED_TARGET_DISABLE_REASON.description))
-        await database_sync_to_async(disable_invalid_subscription, thread_sensitive=False)(
-            subscription, UNSUPPORTED_TARGET_DISABLE_REASON
-        )
-        return CreateExportAssetsResult(exported_asset_ids=[], total_insight_count=0, team_id=team.id)
 
     # Early exit if target value hasn't changed — avoids creating orphaned assets
     if inputs.previous_value is not None and subscription.target_value == inputs.previous_value:
