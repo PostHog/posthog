@@ -134,7 +134,7 @@ const CommentEditingForm = ({ comment }: { comment: CommentType }): JSX.Element 
     } = useActions(commentsLogic)
 
     return (
-        <div className="deprecated-space-y-2 border-t p-2">
+        <div className="deprecated-space-y-2">
             <LemonRichContentEditor
                 placeholder="Edit comment"
                 initialContent={comment.rich_content}
