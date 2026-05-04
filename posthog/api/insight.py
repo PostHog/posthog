@@ -5,8 +5,10 @@ from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 from typing import Any, Union, cast
 
+from django.contrib.postgres.search import TrigramSimilarity, TrigramWordSimilarity
 from django.db import transaction
-from django.db.models import Count, Exists, F, Max, OuterRef, Prefetch, QuerySet, Subquery
+from django.db.models import Count, Exists, F, Max, OuterRef, Prefetch, QuerySet, Subquery, Value
+from django.db.models.functions import Coalesce
 from django.db.models.query_utils import Q
 from django.http import HttpResponse
 from django.utils.text import slugify
@@ -127,6 +129,10 @@ from common.hogvm.python.utils import HogVMException
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
+
+MIN_NAME_TRIGRAM_SIMILARITY = 0.3
+MIN_DESCRIPTION_TRIGRAM_SIMILARITY = 0.4
+MAX_SEARCH_LENGTH = 200
 
 LEGACY_INSIGHT_ENDPOINTS_BLOCKED_FLAG = "legacy-insight-endpoints-disabled"
 LEGACY_INSIGHT_FILTERS_BLOCKED_FLAG = "legacy-insight-filters-disabled"
@@ -1516,6 +1522,47 @@ class InsightViewSet(
 
         return Response(data=data, status=status.HTTP_200_OK)
 
+    @staticmethod
+    def _apply_search(queryset: QuerySet, search: str) -> QuerySet:
+        search = search.replace("\x00", "").strip()
+        if not search:
+            return queryset
+
+        zero = Value(0.0)
+        name_word_score = Coalesce(TrigramWordSimilarity(search, "name"), zero)
+        name_full_score = Coalesce(TrigramSimilarity("name", search), zero)
+        derived_name_word_score = Coalesce(TrigramWordSimilarity(search, "derived_name"), zero)
+        description_word_score = Coalesce(TrigramWordSimilarity(search, "description"), zero)
+
+        tag_match = queryset.filter(tagged_items__tag__name__icontains=search).values("id")
+
+        return (
+            queryset.annotate(
+                _name_word=name_word_score,
+                _name_full=name_full_score,
+                _derived_name_word=derived_name_word_score,
+                _description_word=description_word_score,
+            )
+            .filter(
+                Q(_name_word__gt=MIN_NAME_TRIGRAM_SIMILARITY)
+                | Q(_derived_name_word__gt=MIN_NAME_TRIGRAM_SIMILARITY)
+                | Q(_description_word__gt=MIN_DESCRIPTION_TRIGRAM_SIMILARITY)
+                | Q(id__in=tag_match)
+            )
+            .annotate(
+                _name_match_score=F("_name_word") + F("_name_full"),
+                _derived_name_match_score=F("_derived_name_word"),
+                _description_match_score=F("_description_word"),
+            )
+            .annotate(
+                _search_score=F("_name_match_score")
+                + F("_derived_name_match_score")
+                + F("_description_match_score") * 0.5
+            )
+            .order_by("-_search_score", "name")
+            .distinct()
+        )
+
     def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
         filters = request.GET.dict()
 
@@ -1599,12 +1646,10 @@ class InsightViewSet(
                 else:
                     queryset = queryset.filter(legacy_filter)
             elif key == "search":
-                queryset = queryset.filter(
-                    Q(name__icontains=request.GET["search"])
-                    | Q(derived_name__icontains=request.GET["search"])
-                    | Q(tagged_items__tag__name__icontains=request.GET["search"])
-                    | Q(description__icontains=request.GET["search"])
-                ).distinct()
+                term = request.GET["search"]
+                if len(term) > MAX_SEARCH_LENGTH:
+                    raise ValidationError({"search": f"Search query must be {MAX_SEARCH_LENGTH} characters or fewer."})
+                queryset = self._apply_search(queryset, term)
             elif key == "dashboards":
                 dashboards_filter = request.GET["dashboards"]
                 if dashboards_filter:
