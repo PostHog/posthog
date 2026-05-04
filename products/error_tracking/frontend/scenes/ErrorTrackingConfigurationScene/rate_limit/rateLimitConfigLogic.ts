@@ -7,7 +7,7 @@ import api from 'lib/api'
 import { ErrorTrackingRateLimitConfig } from 'lib/components/Errors/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
-import { HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
+import { HogQLQueryResponse, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 
 import type { rateLimitConfigLogicType } from './rateLimitConfigLogicType'
 
@@ -68,6 +68,7 @@ export const rateLimitConfigLogic = kea<rateLimitConfigLogicType>([
                             GROUP BY hour
                             ORDER BY hour
                         `,
+                        tags: { productKey: ProductKey.ERROR_TRACKING },
                     })) as HogQLQueryResponse
                     return (response.results ?? []).map(([hour, count]) => ({
                         hour: String(hour),
