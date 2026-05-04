@@ -1,4 +1,3 @@
-import FuseClass from 'fuse.js'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
@@ -9,7 +8,6 @@ import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
-import { createFuse } from 'lib/utils/fuseSearch'
 import { projectLogic } from 'scenes/projectLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -20,8 +18,6 @@ import type { hogFunctionsListLogicType } from './hogFunctionsListLogicType'
 
 export const CDP_TEST_HIDDEN_FLAG = '[CDP-TEST-HIDDEN]'
 const EMPTY_MANUAL_FUNCTIONS: HogFunctionType[] = []
-// Helping kea-typegen navigate the exported default class for Fuse
-export interface Fuse extends FuseClass<HogFunctionType> {}
 
 export type HogFunctionListFilters = {
     search?: string
@@ -99,10 +95,12 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
             [] as HogFunctionType[],
             {
                 loadHogFunctions: async () => {
+                    const search = values.filters.search?.trim() || undefined
                     return (
                         await api.hogFunctions.list({
                             filter_groups: props.forceFilterGroups,
                             types: [props.type, ...(props.additionalTypes || [])],
+                            search,
                             // TODO: This is a temporary fix. We need proper server-side pagination
                             // once we rework the data pipelines UI and batch exports is no longer
                             // part of the same list
@@ -167,21 +165,12 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
                 return hogFunctions.filter((hogFunction) => hogFunction.enabled)
             },
         ],
-        hogFunctionsFuse: [
-            (s) => [s.sortedHogFunctions],
-            (hogFunctions): Fuse => {
-                return createFuse(hogFunctions || [], {
-                    keys: ['name', 'description'],
-                })
-            },
-        ],
-
         filteredHogFunctions: [
-            (s) => [s.filters, s.sortedHogFunctions, s.hogFunctionsFuse, s.user],
-            (filters, hogFunctions, hogFunctionsFuse, user): HogFunctionType[] => {
-                const { search, showPaused, createdBy } = filters
+            (s) => [s.filters, s.sortedHogFunctions, s.user],
+            (filters, hogFunctions, user): HogFunctionType[] => {
+                const { showPaused, createdBy } = filters
 
-                return (search ? hogFunctionsFuse.search(search).map((x) => x.item) : hogFunctions).filter((x) => {
+                return hogFunctions.filter((x) => {
                     if (!shouldShowHogFunction(x, user)) {
                         return false
                     }
@@ -208,6 +197,13 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
     }),
 
     listeners(({ actions }) => ({
+        setFilters: async ({ filters }, breakpoint) => {
+            if (filters.search === undefined) {
+                return
+            }
+            await breakpoint(250)
+            actions.loadHogFunctions()
+        },
         saveHogFunctionOrderSuccess: () => {
             actions.setReorderModalOpen(false)
             lemonToast.success('Order updated successfully')
