@@ -155,9 +155,9 @@ export function CLIAuthorize(): JSX.Element {
                     </LemonBanner>
                     <div className="text-muted text-sm mt-4">
                         <p>
-                            A Personal API Key has been created for your CLI. You can manage your API keys in{' '}
+                            A personal API key has been created for your CLI. You can manage your personal API keys in{' '}
                             <Link to={urls.settings('user-api-keys')} className="font-semibold">
-                                Settings → Personal API Keys
+                                Settings → Personal API keys
                             </Link>
                         </p>
                     </div>

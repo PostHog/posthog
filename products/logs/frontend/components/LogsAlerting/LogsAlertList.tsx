@@ -38,7 +38,7 @@ function formatThreshold(alert: LogsAlertConfigurationApi): string {
 }
 
 export function LogsAlertList(): JSX.Element {
-    const { alerts, alertsLoading, resettingAlertIds } = useValues(logsAlertingLogic)
+    const { alerts, alertsLoading, resettingAlertIds, creatingAlert } = useValues(logsAlertingLogic)
     const {
         setEditingAlert,
         deleteAlert,
@@ -47,6 +47,7 @@ export function LogsAlertList(): JSX.Element {
         setViewingHistoryAlert,
         snoozeAlert,
         unsnoozeAlert,
+        createAlertAndOpen,
     } = useActions(logsAlertingLogic)
 
     const columns: LemonTableColumns<LogsAlertConfigurationApi> = [
@@ -66,6 +67,7 @@ export function LogsAlertList(): JSX.Element {
                 <LogsAlertStateIndicator
                     state={alert.state}
                     enabled={alert.enabled ?? true}
+                    firstEnabledAt={alert.first_enabled_at}
                     lastErrorMessage={alert.last_error_message}
                     snoozeUntil={alert.snooze_until}
                 />
@@ -168,6 +170,7 @@ export function LogsAlertList(): JSX.Element {
                             ? 'Reset this alert to re-enable checks'
                             : undefined
                     }
+                    data-attr="logs-alert-row-toggle"
                 />
             ),
         },
@@ -210,6 +213,7 @@ export function LogsAlertList(): JSX.Element {
                                       ]
                                     : []),
                                 {
+                                    'data-attr': 'logs-alert-row-delete',
                                     label: 'Delete',
                                     status: 'danger',
                                     onClick: () => {
@@ -222,6 +226,7 @@ export function LogsAlertList(): JSX.Element {
                                                 type: 'primary',
                                                 status: 'danger',
                                                 onClick: () => deleteAlert(alert.id),
+                                                'data-attr': 'logs-alert-delete-confirm',
                                             },
                                             secondaryButton: {
                                                 children: 'Cancel',
@@ -244,7 +249,13 @@ export function LogsAlertList(): JSX.Element {
     return (
         <div className="space-y-2">
             <div className="flex justify-end">
-                <LemonButton type="primary" size="small" to={urls.logsAlertNew()}>
+                <LemonButton
+                    type="primary"
+                    size="small"
+                    onClick={() => createAlertAndOpen()}
+                    loading={creatingAlert}
+                    data-attr="logs-alerts-new"
+                >
                     New alert
                 </LemonButton>
             </div>

@@ -1,6 +1,7 @@
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { expectLogic, partial } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
@@ -14,6 +15,7 @@ import { AppContext, PropertyDefinition, PropertyType } from '~/types'
 import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
 
 import { infiniteListLogic } from './infiniteListLogic'
+import { taxonomicFilterLogic } from './taxonomicFilterLogic'
 
 window.POSTHOG_APP_CONTEXT = {
     current_team: { id: MOCK_TEAM_ID },
@@ -813,6 +815,61 @@ describe('infiniteListLogic', () => {
                 .toMatchValues({
                     keywordShortcutItems: [],
                 })
+        })
+    })
+
+    describe('`taxonomic filter empty result` capture', () => {
+        // Every list runs the same search in parallel — without an active-tab gate, one keystroke
+        // can fire 4-8 empty events from background tabs the user never sees. Pin the gate.
+        const taxonomicFilterLogicKey = 'emptyResultGateTest'
+        const props = {
+            taxonomicFilterLogicKey,
+            taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.EventProperties],
+            showNumericalPropsOnly: false,
+        }
+
+        it.each([
+            {
+                name: 'fires when the empty list is the active tab',
+                activeTab: TaxonomicFilterGroupType.Events,
+                listGroupType: TaxonomicFilterGroupType.Events,
+                expectFire: true,
+            },
+            {
+                name: 'does not fire when the empty list is a background tab',
+                activeTab: TaxonomicFilterGroupType.EventProperties,
+                listGroupType: TaxonomicFilterGroupType.Events,
+                expectFire: false,
+            },
+        ])('$name', async ({ activeTab, listGroupType, expectFire }) => {
+            const captureSpy = jest.spyOn(posthog, 'capture')
+
+            const parent = taxonomicFilterLogic(props)
+            parent.mount()
+            parent.actions.setActiveTab(activeTab)
+
+            const listLogic = infiniteListLogic({ ...props, listGroupType })
+            listLogic.mount()
+
+            // Tripwire: the gate reads `isActiveTab` from the parent. If anyone refactors
+            // `isActiveTab` to be self-contained, this assertion catches it before the
+            // empty-result expectations silently start passing for the wrong reason.
+            expect(listLogic.values.isActiveTab).toBe(activeTab === listGroupType)
+
+            await expectLogic(listLogic, () => listLogic.actions.setSearchQuery('mcp tool call'))
+                .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+                .toFinishAllListeners()
+
+            const emptyCalls = captureSpy.mock.calls.filter((c) => c[0] === 'taxonomic filter empty result')
+            if (expectFire) {
+                expect(emptyCalls).toHaveLength(1)
+                expect(emptyCalls[0][1]).toMatchObject({
+                    groupType: listGroupType,
+                    searchQuery: 'mcp tool call',
+                })
+            } else {
+                expect(emptyCalls).toHaveLength(0)
+            }
         })
     })
 })

@@ -59,6 +59,30 @@ function formatMissingProjectContextMessage(organizationId: string | undefined):
     )
 }
 
+/**
+ * Thrown by `StateManager.getOrgID()` when no organization can be resolved for
+ * the current session — neither pinned via header, cached from a prior init,
+ * nor derivable from the API key's scopes or the active project. Throwing
+ * (rather than returning `undefined`) prevents callers from interpolating
+ * literal `"undefined"` into URLs like `/api/organizations/undefined/...`.
+ */
+export class MissingOrganizationContextError extends Error {
+    constructor() {
+        super(formatMissingOrganizationContextMessage())
+        this.name = 'MissingOrganizationContextError'
+    }
+}
+
+function formatMissingOrganizationContextMessage(): string {
+    return (
+        'No PostHog organization is selected for this MCP session, and a default could not be derived from your API key.' +
+        '\n\n' +
+        'To pick one (in order of preference):\n' +
+        '1. Call `organizations-list` to list organizations you can access, then `switch-organization` with the chosen organization id.\n' +
+        '2. (For MCP client maintainers) Pin an organization at session start by sending the `x-posthog-organization-id` header on the initialize request.'
+    )
+}
+
 export interface PostHogValidationErrorOptions {
     detail: string
     attr: string | undefined
@@ -218,7 +242,7 @@ export function handleToolError(error: any, tool?: string, distinctId?: string, 
     // Recoverable: agent can fix it via switch-project / projects-get. Skip
     // exception capture (this is expected user state, not a bug) and return the
     // typed error's pre-formatted multi-line message verbatim.
-    if (error instanceof MissingProjectContextError) {
+    if (error instanceof MissingProjectContextError || error instanceof MissingOrganizationContextError) {
         return {
             content: [
                 {

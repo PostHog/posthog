@@ -15,6 +15,8 @@ const LAYOUT: ChartLayoutContextValue = {
     theme: THEME,
     resolveValue: (s, i) => s.data[i] ?? 0,
     canvasBounds: () => null,
+    axisOrientation: 'vertical',
+    isPercent: false,
 }
 
 describe('chart-context split', () => {
