@@ -101,9 +101,6 @@ function getQueryFromView(
     }
 
     const rawFilters = (view.filters || []) as TableViewSavedFilter[]
-    // Synthetic markers for EventsQuery.event/events are stored in the same filters array as
-    // real property filters. Disambiguate by the absence of a `type` field — real property
-    // filters (e.g. event_metadata on key "event") always carry one.
     const isEventMarker = (f: TableViewSavedFilter): f is EventSyntheticMarker =>
         f.key === 'event' && f.type === undefined
     const isEventsMarker = (f: TableViewSavedFilter): f is EventsSyntheticMarker =>
