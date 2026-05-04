@@ -100,6 +100,31 @@ class TestNotebookCollabSaveAPI(APIBaseTest):
         nb = Notebook.objects.get(short_id=notebook["short_id"])
         assert nb.title == "New Title"
 
+    def test_collab_save_updates_filesystem_entry_when_title_changes(self):
+        from posthog.models.file_system.file_system import FileSystem
+
+        notebook = self._create_notebook(SAMPLE_DOC)
+        version = notebook["version"]
+
+        fs_entry = FileSystem.objects.get(team=self.team, ref=notebook["short_id"], type="notebook")
+        assert fs_entry.path.endswith("/Untitled")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/notebooks/{notebook['short_id']}/collab/save/",
+            data={
+                "client_id": "test-client",
+                "version": version,
+                "steps": [{"stepType": "replace", "from": 0, "to": 0}],
+                "content": UPDATED_DOC,
+                "title": "Renamed Notebook",
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        fs_entry.refresh_from_db()
+        assert fs_entry.path.endswith("/Renamed Notebook")
+
     def test_collab_save_rejected_stale_version(self):
         notebook = self._create_notebook(SAMPLE_DOC)
         version = notebook["version"]

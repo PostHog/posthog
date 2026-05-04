@@ -763,15 +763,24 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
 
         if result.status == "accepted":
             content = data["content"]
-            Notebook.objects.filter(pk=notebook.pk).update(
-                content=annotate_python_nodes(content) if isinstance(content, dict) else content,
-                text_content=data.get("text_content", ""),
-                title=data.get("title", notebook.title),
-                version=result.version,
-                last_modified_at=now(),
-                last_modified_by=request.user,
+            notebook.content = annotate_python_nodes(content) if isinstance(content, dict) else content
+            notebook.text_content = data.get("text_content", "")
+            notebook.title = data.get("title", notebook.title)
+            notebook.version = result.version
+            notebook.last_modified_at = now()
+            notebook.last_modified_by = request.user
+            # Use save() (not QuerySet.update()) so post_save fires and FileSystemSyncMixin
+            # keeps the sidebar/recents in sync with the latest title.
+            notebook.save(
+                update_fields=[
+                    "content",
+                    "text_content",
+                    "title",
+                    "version",
+                    "last_modified_at",
+                    "last_modified_by",
+                ]
             )
-            notebook.refresh_from_db()
             return Response(NotebookSerializer(notebook, context=self.get_serializer_context()).data)
 
         if result.status == "stale":

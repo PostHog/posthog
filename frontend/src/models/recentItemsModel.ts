@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
+import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 import type { recentItemsModelType } from './recentItemsModelType'
@@ -60,6 +61,32 @@ export const recentItemsModel = kea<recentItemsModelType>([
                     }
                     const item = { ...state[idx], last_viewed_at: new Date().toISOString() }
                     return [item, ...state.slice(0, idx), ...state.slice(idx + 1)]
+                },
+                // Pick up renames/path changes that come back from refreshTreeItem so the
+                // recents dropdown reflects the latest title without a page reload.
+                [projectTreeDataLogic.actionTypes.addLoadedResults]: (state, { results }) => {
+                    const updatesById: Record<string, FileSystemEntry> = {}
+                    for (const result of results.results) {
+                        if (result.id) {
+                            updatesById[result.id] = result
+                        }
+                    }
+                    let changed = false
+                    const next = state.map((entry) => {
+                        if (!entry.id) {
+                            return entry
+                        }
+                        const update = updatesById[entry.id]
+                        if (!update) {
+                            return entry
+                        }
+                        if (update.path === entry.path && update.href === entry.href) {
+                            return entry
+                        }
+                        changed = true
+                        return { ...entry, path: update.path, href: update.href, meta: update.meta }
+                    })
+                    return changed ? next : state
                 },
             },
         ],
