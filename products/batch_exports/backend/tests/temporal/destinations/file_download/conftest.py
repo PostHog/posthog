@@ -7,6 +7,7 @@ import pytest
 import aioboto3
 import structlog
 import pytest_asyncio
+import botocore.exceptions
 
 from products.batch_exports.backend.tests.temporal.utils.s3 import delete_all_from_s3
 
@@ -67,10 +68,13 @@ async def s3_client(session):
 
 @pytest_asyncio.fixture(scope="module")
 async def s3_bucket(bucket_name, s3_client, region):
-    resp = await s3_client.create_bucket(
-        Bucket=bucket_name,
-        ACL="private",
-    )
+    try:
+        resp = await s3_client.create_bucket(
+            Bucket=bucket_name,
+            ACL="private",
+        )
+    except botocore.exceptions.ClientError:
+        raise pytest.skip("Could not setup S3 bucket")
 
     yield bucket_name
 
