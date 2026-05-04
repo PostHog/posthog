@@ -48,7 +48,7 @@ export function TableView(): JSX.Element {
     }
     return (
         <LemonTable
-            className="h-[calc(100vh-17rem)]"
+            className="max-h-[calc(100vh-17rem)]"
             allowContentScroll
             dataSource={visibleNodes}
             loading={nodesLoading}
