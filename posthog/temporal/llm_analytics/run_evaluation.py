@@ -1,7 +1,7 @@
 import json
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any, NotRequired, TypedDict
+from typing import Any, NotRequired, Required, TypedDict
 
 from django.conf import settings
 from django.db import models
@@ -63,23 +63,26 @@ LLM_JUDGE_RETRY_POLICY = RetryPolicy(
 
 
 class LLMJudgeResult(TypedDict, total=False):
-    """Result produced by `execute_llm_judge_activity` and `_build_errored_trace_result`.
+    """Result produced by `execute_llm_judge_activity`, `_build_errored_trace_result`, and
+    `execute_hog_eval_activity`.
 
-    `total=False` is used because the dict is constructed across paths whose shapes overlap
-    but are not identical, and `NotRequired` markers document the truly conditional fields:
+    `total=False` is used as the default so individual fields opt in via `Required` /
+    `NotRequired`, making the contract honest about which keys every path actually sets:
 
+    - `verdict`, `reasoning`, `allows_na` are set on every path (LLM judge success, errored-
+      trace skip, hog eval) and are `Required`.
     - `applicable` is set only when `allows_na=True`.
     - `skipped` and `skip_reason` are set only on the skip path (e.g. errored source trace).
     - `model`, `provider`, `key_id`, `is_byok`, and the `*_tokens` fields come from the LLM
-      judge success path; the skip path omits `model`/`provider` so downstream cost
+      judge success path. The skip path omits `model`/`provider` so downstream cost
       attribution doesn't credit phantom calls, and `execute_hog_eval_activity` (whose
       output also flows into `emit_evaluation_event_activity`) emits only `verdict`,
       `reasoning`, `allows_na`, and optionally `applicable`.
     """
 
-    verdict: bool | None
-    reasoning: str
-    allows_na: bool
+    verdict: Required[bool | None]
+    reasoning: Required[str]
+    allows_na: Required[bool]
     input_tokens: NotRequired[int]
     output_tokens: NotRequired[int]
     total_tokens: NotRequired[int]
@@ -95,16 +98,18 @@ class LLMJudgeResult(TypedDict, total=False):
 class WorkflowResult(TypedDict, total=False):
     """Result returned by `RunEvaluationWorkflow.run`.
 
-    Composes a subset of `LLMJudgeResult` with workflow-level identifiers. The skip-on-error
-    branch (e.g. `trial_limit_reached`, `key_invalid`) omits `reasoning` and `is_byok` and
-    adds `message`; the normal-completion branch carries those fields through from the
-    activity result. `skip_reason` is set only when `skipped=True`.
+    Composes a subset of `LLMJudgeResult` with workflow-level identifiers. Both branches
+    that build this dict — the skip-on-error branch (e.g. `trial_limit_reached`,
+    `key_invalid`) and the normal-completion branch — always set `verdict`, `evaluation_id`,
+    `evaluation_type`, and `skipped`, so those four are `Required`. The skip-on-error branch
+    omits `reasoning` and `is_byok` and adds `message`; `skip_reason` is set only when
+    `skipped=True`.
     """
 
-    verdict: bool | None
-    evaluation_id: str
-    evaluation_type: str
-    skipped: bool
+    verdict: Required[bool | None]
+    evaluation_id: Required[str]
+    evaluation_type: Required[str]
+    skipped: Required[bool]
     reasoning: NotRequired[str]
     is_byok: NotRequired[bool]
     skip_reason: NotRequired[str]

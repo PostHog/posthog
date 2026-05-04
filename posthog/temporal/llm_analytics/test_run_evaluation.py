@@ -164,6 +164,7 @@ class TestRunEvaluationWorkflow:
         result: LLMJudgeResult = {
             "verdict": True,
             "reasoning": "Test passed",
+            "allows_na": False,
             "model": "gpt-5-mini",
             "provider": "openai",
             "input_tokens": 42,
