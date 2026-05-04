@@ -10,7 +10,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { RepoSwitcher } from '../components/RepoSwitcher'
-import { SnapshotCard } from '../components/SnapshotCard'
+import { RECENT_DRIFT_WINDOW, SnapshotCard } from '../components/SnapshotCard'
 import { SnapshotFacetSidebar } from '../components/SnapshotFacetSidebar'
 import { SnapshotStatRow } from '../components/SnapshotStatRow'
 import { VisualReviewTabs } from '../components/VisualReviewTabs'
@@ -139,7 +139,7 @@ export function VisualReviewSnapshotOverviewScene(): JSX.Element {
                 </span>
                 <span className="inline-flex items-center gap-1">
                     <IconPulse className="w-3 h-3" />
-                    Avg drift over last 10 default-branch runs
+                    Avg drift over last {RECENT_DRIFT_WINDOW} default-branch runs
                 </span>
                 <span className="inline-flex items-center gap-1">
                     <IconFlag className="w-3 h-3" />

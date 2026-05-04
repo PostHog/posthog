@@ -16,10 +16,22 @@ function formatDriftPct(value: number): string {
     return `${value.toFixed(1)}%`
 }
 
+// Anything below this rounds to "0.0%" via the formatter above, which would
+// render a misleading "no drift" chip on a card that does have drift. Hide
+// the chip entirely below this floor; the data is still in the API response
+// for anyone who wants the exact number.
+const DRIFT_DISPLAY_FLOOR_PCT = 0.05
+
 // Crossing this threshold tints the drift chip in the warning palette so the
-// eye lands on the loudest cards first. 1% pixel diff is the same boundary the
-// auto-threshold cache treats as "real change rather than render jitter".
+// eye lands on the loudest cards first. Picked for visual hierarchy, not
+// derived from the backend classifier — pixel/SSIM thresholds in
+// `diffing.py` are unrelated to this UI hook.
 const DRIFT_WARNING_THRESHOLD_PCT = 1
+
+// Mirrors `BASELINE_DRIFT_RECENT_RUN_COUNT` in
+// `products/visual_review/backend/facade/contracts.py`. Keep in sync — the
+// backend value drives `recent_drift_avg`, this constant drives the copy.
+export const RECENT_DRIFT_WINDOW = 10
 
 export function SnapshotCard({
     repoId,
@@ -34,6 +46,7 @@ export function SnapshotCard({
     const area = parseArea(entry.identifier)
     const tolerateCount = entry.tolerate_count_30d
     const driftPct = entry.recent_drift_avg ?? 0
+    const driftVisible = driftPct >= DRIFT_DISPLAY_FLOOR_PCT
     const driftLoud = driftPct >= DRIFT_WARNING_THRESHOLD_PCT
     // Only build the thumbnail URL when we know there's a thumbnail to fetch —
     // otherwise the endpoint 404s and browsers show the broken-image glyph.
@@ -42,7 +55,7 @@ export function SnapshotCard({
             ? `${thumbnailBasePath}/${encodeURIComponent(entry.identifier)}/`
             : null
     const href = urls.visualReviewSnapshotHistory(repoId, entry.run_type, entry.identifier)
-    const hasMeta = driftPct > 0 || tolerateCount > 0 || entry.baseline_change_count > 0
+    const hasMeta = driftVisible || tolerateCount > 0 || entry.baseline_change_count > 0
 
     return (
         <Link
@@ -99,9 +112,9 @@ export function SnapshotCard({
                     </LemonTag>
                     {hasMeta && (
                         <div className="flex items-center gap-2 shrink-0 tabular-nums leading-none">
-                            {driftPct > 0 && (
+                            {driftVisible && (
                                 <Tooltip
-                                    title={`Average pixel drift over the last 10 default-branch runs: ${driftPct.toFixed(
+                                    title={`Average pixel drift over the last ${RECENT_DRIFT_WINDOW} default-branch runs: ${driftPct.toFixed(
                                         2
                                     )}%`}
                                 >
