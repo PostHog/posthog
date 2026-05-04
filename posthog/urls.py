@@ -56,7 +56,6 @@ from products.signals.backend import views as signals_views
 from products.signals.backend.views import SignalUserAutonomyConfigView as signals_user_autonomy_view
 from products.slack_app.backend.api import posthog_code_event_handler, posthog_code_interactivity_handler
 from products.surveys.backend.api.survey import public_survey_page
-from products.tasks.backend.webhooks import github_pr_webhook as _github_pr_webhook
 
 from .utils import opt_slash_path, render_template
 from .views import (
@@ -89,32 +88,44 @@ else:
 
 @csrf_exempt
 def github_webhook(request: HttpRequest) -> HttpResponse:
-    """GitHub App webhook fan-out.
+    """Unified GitHub App webhook dispatcher.
 
-    Routes issues/issue_comment events to conversations and everything else
-    (pull_request, etc.) to the tasks PR webhook. Both handlers perform their
-    own signature verification using the shared GITHUB_WEBHOOK_SECRET.
+    Verifies the HMAC-SHA256 signature once, parses JSON once, then routes
+    by ``X-GitHub-Event`` to the appropriate product handler.
     """
-    if request.method == "POST":
-        event_type = request.headers.get("X-GitHub-Event")
-        if event_type in ("issues", "issue_comment"):
-            import json
+    import json
 
-            from products.conversations.backend.api.github_events import dispatch_github_event
-            from products.tasks.backend.webhooks import get_github_webhook_secret, verify_github_signature
+    from products.tasks.backend.webhooks import get_github_webhook_secret, verify_github_signature
 
-            secret = get_github_webhook_secret()
-            if not secret:
-                return HttpResponse("Webhook not configured", status=500)
-            signature = request.headers.get("X-Hub-Signature-256")
-            if not verify_github_signature(request.body, signature, secret):
-                return HttpResponse("Invalid signature", status=403)
-            try:
-                payload = json.loads(request.body)
-            except json.JSONDecodeError:
-                return HttpResponse("Invalid JSON", status=400)
-            return dispatch_github_event(request, event_type, payload)
-    return _github_pr_webhook(request)
+    if request.method != "POST":
+        return HttpResponse(status=405)
+
+    secret = get_github_webhook_secret()
+    if not secret:
+        return HttpResponse("Webhook not configured", status=500)
+
+    signature = request.headers.get("X-Hub-Signature-256")
+    if not verify_github_signature(request.body, signature, secret):
+        return HttpResponse("Invalid signature", status=403)
+
+    try:
+        payload = json.loads(request.body)
+    except json.JSONDecodeError:
+        return HttpResponse("Invalid JSON", status=400)
+
+    event_type = request.headers.get("X-GitHub-Event", "")
+
+    if event_type in ("issues", "issue_comment"):
+        from products.conversations.backend.api.github_events import dispatch_github_event
+
+        return dispatch_github_event(request, event_type, payload)
+
+    if event_type == "pull_request":
+        from products.tasks.backend.webhooks import handle_pull_request_event
+
+        return handle_pull_request_event(payload)
+
+    return HttpResponse(status=200)
 
 
 @requires_csrf_token
@@ -361,6 +372,7 @@ urlpatterns = [
     opt_slash_path("slack/event-callback", posthog_code_event_handler),
     # GitHub App webhook — fans out to tasks (PRs) and conversations (issues)
     opt_slash_path("webhooks/github/pr", github_webhook),
+    opt_slash_path("webhooks/github", github_webhook),
     # Message preferences
     path("messaging-preferences/<str:token>/", preferences_page, name="message_preferences"),
     opt_slash_path("messaging-preferences/update", update_preferences, name="message_preferences_update"),

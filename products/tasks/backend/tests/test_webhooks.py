@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 
 from django.test import TestCase
 
+from parameterized import parameterized
 from rest_framework.test import APIClient
 
 from posthog.models.integration import Integration
@@ -389,17 +390,36 @@ class TestFindTaskRun(TestCase):
 
 
 class TestGitHubWebhookFanout(TestCase):
-    """Verify that issues/issue_comment events on webhooks/github/pr are
-    routed to the conversations dispatch_github_event function."""
+    """Verify that the unified ``github_webhook`` dispatcher routes events
+    to the correct product handler. Tests both ``/webhooks/github/pr/``
+    (legacy) and ``/webhooks/github/`` (new unified URL)."""
 
     organization: ClassVar[Organization]
     team: ClassVar[Team]
+    user: ClassVar[User]
+    task: ClassVar[Task]
+    task_run: ClassVar[TaskRun]
     integration: ClassVar[Integration]
 
     @classmethod
     def setUpTestData(cls):
         cls.organization = Organization.objects.create(name="Fanout Org")
         cls.team = Team.objects.create(organization=cls.organization, name="Fanout Team")
+        cls.user = User.objects.create(email="fanout@example.com", distinct_id="fanout-1")
+        cls.task = Task.objects.create(
+            team=cls.team,
+            created_by=cls.user,
+            title="Fanout Task",
+            description="",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            repository="myorg/myrepo",
+        )
+        cls.task_run = TaskRun.objects.create(
+            task=cls.task,
+            team=cls.team,
+            status=TaskRun.Status.COMPLETED,
+            output={"pr_url": "https://github.com/myorg/myrepo/pull/99"},
+        )
         cls.integration = Integration.objects.create(
             team=cls.team,
             kind="github",
@@ -418,11 +438,13 @@ class TestGitHubWebhookFanout(TestCase):
         self.client = APIClient()
         self.webhook_secret = "test-webhook-secret"
 
-    def _make_request(self, payload: dict, event_type: str = "issues", delivery_id: str = "del-1"):
+    def _make_request(
+        self, payload: dict, event_type: str = "issues", delivery_id: str = "del-1", url: str = "/webhooks/github/pr/"
+    ):
         payload_bytes = json.dumps(payload).encode("utf-8")
         signature = generate_github_signature(payload_bytes, self.webhook_secret)
         return self.client.post(
-            "/webhooks/github/pr/",
+            url,
             data=payload_bytes,
             content_type="application/json",
             headers={
@@ -432,9 +454,15 @@ class TestGitHubWebhookFanout(TestCase):
             },
         )
 
+    @parameterized.expand(
+        [
+            ("legacy_url", "/webhooks/github/pr/"),
+            ("unified_url", "/webhooks/github/"),
+        ]
+    )
     @patch("products.conversations.backend.api.github_events.process_github_event")
     @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
-    def test_issues_event_dispatched_to_conversations(self, mock_secret, mock_task):
+    def test_issues_event_dispatched_to_conversations(self, _name, url, mock_secret, mock_task):
         mock_secret.return_value = self.webhook_secret
         mock_task.delay = MagicMock()
 
@@ -446,7 +474,7 @@ class TestGitHubWebhookFanout(TestCase):
             "sender": {"login": "dev"},
         }
 
-        response = self._make_request(payload, event_type="issues")
+        response = self._make_request(payload, event_type="issues", url=url)
 
         self.assertEqual(response.status_code, 202)
         mock_task.delay.assert_called_once()
@@ -494,3 +522,58 @@ class TestGitHubWebhookFanout(TestCase):
 
         self.assertEqual(response.status_code, 200)
         mock_task.delay.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("legacy_url", "/webhooks/github/pr/"),
+            ("unified_url", "/webhooks/github/"),
+        ]
+    )
+    @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_pull_request_routed(self, _name, url, mock_capture, mock_secret):
+        mock_secret.return_value = self.webhook_secret
+
+        payload = {
+            "action": "closed",
+            "pull_request": {
+                "html_url": "https://github.com/myorg/myrepo/pull/99",
+                "merged": True,
+            },
+        }
+
+        response = self._make_request(payload, event_type="pull_request", url=url)
+
+        self.assertEqual(response.status_code, 200)
+        mock_capture.assert_called_once()
+        self.assertEqual(mock_capture.call_args[1]["event"], "pr_merged")
+
+    @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
+    def test_unified_url_unknown_event_returns_200(self, mock_secret):
+        mock_secret.return_value = self.webhook_secret
+
+        payload = {"action": "created", "ref": "refs/heads/main"}
+        response = self._make_request(payload, event_type="push", url="/webhooks/github/")
+
+        self.assertEqual(response.status_code, 200)
+
+    @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
+    def test_unified_url_bad_signature_returns_403(self, mock_secret):
+        mock_secret.return_value = self.webhook_secret
+
+        payload_bytes = json.dumps({"action": "opened"}).encode("utf-8")
+        response = self.client.post(
+            "/webhooks/github/",
+            data=payload_bytes,
+            content_type="application/json",
+            headers={
+                "x-hub-signature-256": "sha256=invalid",
+                "x-github-event": "issues",
+            },
+        )
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_unified_url_get_returns_405(self):
+        response = self.client.get("/webhooks/github/")
+        self.assertEqual(response.status_code, 405)
