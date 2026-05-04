@@ -59,6 +59,66 @@ function formatMissingProjectContextMessage(organizationId: string | undefined):
     )
 }
 
+/**
+ * Thrown by `StateManager.getOrgID()` when no organization can be resolved for
+ * the current session — neither pinned via header, cached from a prior init,
+ * nor derivable from the API key's scopes or the active project. Throwing
+ * (rather than returning `undefined`) prevents callers from interpolating
+ * literal `"undefined"` into URLs like `/api/organizations/undefined/...`.
+ */
+export class MissingOrganizationContextError extends Error {
+    constructor() {
+        super(formatMissingOrganizationContextMessage())
+        this.name = 'MissingOrganizationContextError'
+    }
+}
+
+function formatMissingOrganizationContextMessage(): string {
+    return (
+        'No PostHog organization is selected for this MCP session, and a default could not be derived from your API key.' +
+        '\n\n' +
+        'To pick one (in order of preference):\n' +
+        '1. Call `organizations-list` to list organizations you can access, then `switch-organization` with the chosen organization id.\n' +
+        '2. (For MCP client maintainers) Pin an organization at session start by sending the `x-posthog-organization-id` header on the initialize request.'
+    )
+}
+
+export interface PostHogValidationErrorOptions {
+    detail: string
+    attr: string | undefined
+    code: string | undefined
+    extra: Record<string, unknown> | undefined
+    url: string
+    method: string
+}
+
+/**
+ * Thrown when the PostHog API rejects a request with a `validation_error`
+ * body. Carries the structured `extra` payload (if any) so tool handlers can
+ * surface information that doesn't fit in a single `detail` line — for
+ * example, the HogQL metadata response attached to a failed /query/ call.
+ */
+export class PostHogValidationError extends Error {
+    public readonly detail: string
+    public readonly attr: string | undefined
+    public readonly code: string | undefined
+    public readonly extra: Record<string, unknown> | undefined
+    public readonly url: string
+    public readonly method: string
+
+    constructor(options: PostHogValidationErrorOptions) {
+        const attr = options.attr ? ` (field: ${options.attr})` : ''
+        super(`Validation error: ${options.detail}${attr}`)
+        this.name = 'PostHogValidationError'
+        this.detail = options.detail
+        this.attr = options.attr
+        this.code = options.code
+        this.extra = options.extra
+        this.url = options.url
+        this.method = options.method
+    }
+}
+
 export interface PostHogPermissionErrorOptions {
     detail: string
     missingScope?: string | undefined
@@ -182,7 +242,7 @@ export function handleToolError(error: any, tool?: string, distinctId?: string, 
     // Recoverable: agent can fix it via switch-project / projects-get. Skip
     // exception capture (this is expected user state, not a bug) and return the
     // typed error's pre-formatted multi-line message verbatim.
-    if (error instanceof MissingProjectContextError) {
+    if (error instanceof MissingProjectContextError || error instanceof MissingOrganizationContextError) {
         return {
             content: [
                 {
@@ -208,7 +268,11 @@ export function handleToolError(error: any, tool?: string, distinctId?: string, 
             properties.$session_id = sessionUuid
         }
 
-        getPostHogClient().captureException(permissionError, distinctId, properties)
+        try {
+            getPostHogClient().captureException(permissionError, distinctId, properties)
+        } catch {
+            // Never let observability break the request.
+        }
 
         return {
             content: [
@@ -237,7 +301,11 @@ export function handleToolError(error: any, tool?: string, distinctId?: string, 
         properties.$session_id = sessionUuid
     }
 
-    getPostHogClient().captureException(mcpError, distinctId, properties)
+    try {
+        getPostHogClient().captureException(mcpError, distinctId, properties)
+    } catch {
+        // Never let observability break the request.
+    }
 
     return {
         content: [

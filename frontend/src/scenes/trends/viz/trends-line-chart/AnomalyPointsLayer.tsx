@@ -1,7 +1,7 @@
 /* eslint-disable react/forbid-dom-props -- dynamic pixel positions from d3 scales */
 import React from 'react'
 
-import { useChart } from 'lib/hog-charts'
+import { useChartLayout } from 'lib/hog-charts'
 
 import type { AnomalyMarker } from './anomalyPointsAdapter'
 
@@ -18,7 +18,7 @@ interface AnomalyPointsLayerProps {
  *  pipeline (a sibling Series<>` would force `drawLine` to stitch a connecting line through
  *  NaN values — `tracePath` doesn't reset on gaps, see `core/canvas-renderer.ts`). */
 export function AnomalyPointsLayer({ markers, radius = 3 }: AnomalyPointsLayerProps): React.ReactElement | null {
-    const { scales, dimensions, labels } = useChart()
+    const { scales, dimensions, labels } = useChartLayout()
     if (!markers.length) {
         return null
     }

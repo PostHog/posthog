@@ -3,9 +3,12 @@ import { useCallback } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { AccessDenied } from 'lib/components/AccessDenied'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -13,7 +16,7 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { DataWarehouseSavedQuery } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, DataWarehouseSavedQuery } from '~/types'
 
 import { ViewsTab } from '../data-warehouse/scene/ViewsTab'
 import { DagsTab } from './DagsTab'
@@ -49,6 +52,11 @@ export function ModelsScene(): JSX.Element {
             content: <DagsTab />,
         },
     ]
+    if (!userHasAccess(AccessControlResourceType.WarehouseObjects, AccessControlLevel.Viewer)) {
+        return (
+            <AccessDenied reason="You don't have access to Data warehouse tables & views, so this page isn't available." />
+        )
+    }
 
     return (
         <SceneContent>
@@ -68,15 +76,20 @@ export function ModelsScene(): JSX.Element {
                                 interaction="click"
                                 scope={Scene.Models}
                             >
-                                <LemonButton
-                                    type="primary"
-                                    to={urls.sqlEditor()}
-                                    size="small"
-                                    tooltip="Create view"
-                                    data-attr="new-view-button"
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.WarehouseObjects}
+                                    minAccessLevel={AccessControlLevel.Editor}
                                 >
-                                    Create view
-                                </LemonButton>
+                                    <LemonButton
+                                        type="primary"
+                                        to={urls.sqlEditor()}
+                                        size="small"
+                                        tooltip="Create view"
+                                        data-attr="new-view-button"
+                                    >
+                                        Create view
+                                    </LemonButton>
+                                </AccessControlAction>
                             </AppShortcut>
                         </div>
                     ) : undefined

@@ -16,6 +16,8 @@ from posthog.test.base import (
 )
 from unittest.mock import ANY, patch
 
+from django.test import override_settings
+
 from nanoid import generate
 from rest_framework import status
 
@@ -134,6 +136,116 @@ class TestSurvey(APIBaseTest):
         assert questions[0]["translations"]["es"]["question"] == "¿Qué tan satisfecho estás?"
         assert questions[0]["translations"]["fr"]["question"] == "Êtes-vous satisfait?"
         assert questions[1]["translations"]["es"]["choices"] == ["Analítica", "Feature Flags"]
+
+    def test_can_create_survey_with_custom_language_code_translations(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Customer feedback survey",
+                "description": "Help us improve",
+                "type": "popover",
+                "questions": [
+                    {
+                        "type": "single_choice",
+                        "question": "How satisfied are you?",
+                        "choices": ["Happy", "Unhappy"],
+                        "translations": {
+                            "ro-RO": {
+                                "question": "Cat de multumit esti?",
+                                "choices": ["Multumit", "Nemultumit"],
+                            },
+                            "custom-customer-locale": {
+                                "question": "Custom localized question",
+                                "choices": ["Custom happy", "Custom unhappy"],
+                            },
+                        },
+                    }
+                ],
+                "translations": {
+                    "ro-RO": {
+                        "name": "Sondaj de feedback",
+                        "thankYouMessageHeader": "Multumim!",
+                    },
+                    "custom-customer-locale": {
+                        "name": "Custom localized survey",
+                    },
+                },
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        survey = Survey.objects.get(id=response.json()["id"])
+        questions = cast(list[dict[str, Any]], survey.questions)
+
+        assert survey.translations is not None
+        assert survey.translations["ro-RO"]["name"] == "Sondaj de feedback"
+        assert survey.translations["custom-customer-locale"]["name"] == "Custom localized survey"
+        assert questions[0]["translations"]["ro-RO"]["question"] == "Cat de multumit esti?"
+        assert questions[0]["translations"]["custom-customer-locale"]["choices"] == [
+            "Custom happy",
+            "Custom unhappy",
+        ]
+
+    @override_settings(CLOUD_DEPLOYMENT="US", GEMINI_API_KEY="test-key")
+    @patch("products.surveys.backend.api.survey.generate_survey_translation")
+    def test_generate_translations_returns_draft_patch(self, mock_generate_survey_translation):
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+        survey = Survey.objects.create(
+            team=self.team,
+            name="Customer feedback",
+            type="popover",
+            questions=[
+                {
+                    "id": "question-1",
+                    "type": "rating",
+                    "question": "How satisfied are you?",
+                    "lowerBoundLabel": "Not satisfied",
+                    "upperBoundLabel": "Very satisfied",
+                }
+            ],
+        )
+        mock_generate_survey_translation.return_value = (
+            {"pt-BR": {"name": "Feedback do cliente"}},
+            [{"id": "question-1", "translations": {"pt-BR": {"question": "Quão satisfeito você está?"}}}],
+            ["translations.pt-BR.name", "questions.0.translations.pt-BR.question"],
+            "trace-1",
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/generate_translations/",
+            data={
+                "target_language": "pt-BR",
+                "survey": {"name": "Draft feedback", "linked_flag": None, "questions": survey.questions},
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["translations"]["pt-BR"]["name"] == "Feedback do cliente"
+        assert response.json()["generated_field_paths"] == [
+            "translations.pt-BR.name",
+            "questions.0.translations.pt-BR.question",
+        ]
+        assert mock_generate_survey_translation.call_args.kwargs["survey"]["name"] == "Draft feedback"
+        assert "linked_flag" not in mock_generate_survey_translation.call_args.kwargs["survey"]
+
+    @override_settings(CLOUD_DEPLOYMENT="US", GEMINI_API_KEY="test-key")
+    @patch("products.surveys.backend.api.survey.generate_survey_translation")
+    def test_generate_translations_requires_ai_data_processing_approval(self, mock_generate_survey_translation):
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+        survey = Survey.objects.create(team=self.team, name="Customer feedback", type="popover", questions=[])
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/generate_translations/",
+            data={"target_language": "pt-BR"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        mock_generate_survey_translation.assert_not_called()
 
     def test_can_create_survey_without_translations(self):
         response = self.client.post(

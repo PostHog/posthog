@@ -9,6 +9,7 @@ from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from posthog.temporal.data_imports.sources.common.http import make_tracked_session
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.shopify.constants import ID, resolve_schema_name
 from posthog.temporal.data_imports.sources.shopify.settings import ENDPOINT_CONFIGS
@@ -153,7 +154,7 @@ def _get_shopify_access_token(shopify_store_id: str, shopify_client_id: str, sho
         "client_secret": shopify_client_secret,
         "grant_type": SHOPIFY_ACCESS_TOKEN_GRANT,
     }
-    access_res = requests.post(access_token_url, data=access_data)
+    access_res = make_tracked_session().post(access_token_url, data=access_data)
     if not access_res.ok:
         raise Exception(f"Failed to retrieve Shopify access token: {access_res}")
     return access_res.json()["access_token"]
@@ -175,8 +176,9 @@ def shopify_source(
     schema_name = resolve_schema_name(graphql_object_name)
 
     def get_rows():
-        sess = requests.Session()
-        sess.headers.update({"X-Shopify-Access-Token": shopify_access_token, "Content-Type": "application/json"})
+        sess = make_tracked_session(
+            headers={"X-Shopify-Access-Token": shopify_access_token, "Content-Type": "application/json"}
+        )
         graphql_object = SHOPIFY_GRAPHQL_OBJECTS.get(schema_name)
         if not graphql_object:
             raise Exception(f"Shopify object does not exist: {schema_name}")
@@ -276,9 +278,8 @@ def validate_credentials(shopify_store_id: str, shopify_client_id: str, shopify_
     """
     api_url = SHOPIFY_API_URL.format(shopify_store_id, SHOPIFY_API_VERSION)
     shopify_access_token = _get_shopify_access_token(shopify_store_id, shopify_client_id, shopify_client_secret)
-    sess = requests.Session()
-    sess.headers.update(
-        {
+    sess = make_tracked_session(
+        headers={
             "Content-Type": "application/json",
             "X-Shopify-Access-Token": shopify_access_token,
         }
