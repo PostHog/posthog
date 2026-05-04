@@ -10,6 +10,7 @@ permissions:
 
 concurrency:
     group: pr-approval-${{ github.event.pull_request.number }}
+    cancel-in-progress: true
 
 jobs:
     review:
@@ -79,19 +80,35 @@ jobs:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
               run: |
                   PR=${{ github.event.pull_request.number }}
+                  REPO=${{ github.repository }}
                   VERDICT=$(jq -r '.final_verdict // ""' /tmp/review.json 2>/dev/null || echo "")
                   REASONING=$(jq -r '.reviewer.reasoning // ""' /tmp/review.json 2>/dev/null || echo "")
+                  REVIEWED_SHA=$(jq -r '.head_sha // ""' /tmp/review.json 2>/dev/null || echo "")
+
+                  # Lock the review to the sha the LLM actually saw — `gh pr
+                  # review` records against the head at API-call time, which
+                  # drifts mid-LLM-roundtrip if the author force-pushes.
+                  SHA_ARGS=()
+                  if [ -n "$REVIEWED_SHA" ]; then
+                    SHA_ARGS=(-f "commit_id=$REVIEWED_SHA")
+                  fi
 
                   if [ "$VERDICT" = "APPROVED" ]; then
-                    GH_TOKEN="$GH_TOKEN_APPROVE" gh pr review "$PR" --approve --body "$REASONING" \
-                      --repo ${{ github.repository }}
+                    GH_TOKEN="$GH_TOKEN_APPROVE" gh api \
+                      -X POST "repos/$REPO/pulls/$PR/reviews" \
+                      "${SHA_ARGS[@]}" \
+                      -f event=APPROVE \
+                      -f body="$REASONING"
                   elif [ -n "$REASONING" ]; then
-                    gh pr review "$PR" --comment --body "$REASONING" \
-                      --repo ${{ github.repository }}
+                    gh api \
+                      -X POST "repos/$REPO/pulls/$PR/reviews" \
+                      "${SHA_ARGS[@]}" \
+                      -f event=COMMENT \
+                      -f body="$REASONING"
                   else
                     gh pr comment "$PR" \
                       --body "Review agent failed — check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) and re-apply the label to retry." \
-                      --repo ${{ github.repository }}
+                      --repo "$REPO"
                   fi
 
                   # Non-APPROVED verdict removes the label, breaking the
@@ -99,7 +116,7 @@ jobs:
                   # addressing the feedback.
                   if [ "$VERDICT" != "APPROVED" ]; then
                     gh pr edit "$PR" --remove-label stamphog \
-                      --repo ${{ github.repository }}
+                      --repo "$REPO"
                   fi
 
             - name: Upload evidence

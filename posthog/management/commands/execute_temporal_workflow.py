@@ -19,13 +19,11 @@ from posthog.temporal.llm_analytics import WORKFLOWS as LLM_ANALYTICS_WORKFLOWS
 from posthog.temporal.proxy_service import WORKFLOWS as PROXY_SERVICE_WORKFLOWS
 from posthog.temporal.quota_limiting import WORKFLOWS as QUOTA_LIMITING_WORKFLOWS
 from posthog.temporal.salesforce_enrichment import WORKFLOWS as SALESFORCE_ENRICHMENT_WORKFLOWS
-from posthog.temporal.session_replay.delete_recordings import WORKFLOWS as DELETE_RECORDING_WORKFLOWS
-from posthog.temporal.session_replay.enforce_max_replay_retention import (
-    WORKFLOWS as ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS,
-)
-from posthog.temporal.session_replay.export_recording import WORKFLOWS as EXPORT_RECORDING_WORKFLOWS
-from posthog.temporal.session_replay.import_recording import WORKFLOWS as IMPORT_RECORDING_WORKFLOWS
-from posthog.temporal.session_replay.rasterize_recording import WORKFLOWS as RASTERIZE_RECORDING_WORKFLOWS
+from posthog.temporal.session_replay.delete_recordings import DELETE_RECORDINGS_WORKFLOWS
+from posthog.temporal.session_replay.enforce_max_replay_retention import ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS
+from posthog.temporal.session_replay.export_recording import EXPORT_RECORDING_WORKFLOWS
+from posthog.temporal.session_replay.import_recording import IMPORT_RECORDING_WORKFLOWS
+from posthog.temporal.session_replay.rasterize_recording import RASTERIZE_RECORDING_WORKFLOWS
 from posthog.temporal.session_replay.summarization_sweep import SUMMARIZATION_SWEEP_WORKFLOWS
 from posthog.temporal.tests.utils.workflow import WORKFLOWS as TEST_WORKFLOWS
 from posthog.temporal.usage_reports import WORKFLOWS as USAGE_REPORTS_WORKFLOWS
@@ -146,7 +144,7 @@ class Command(BaseCommand):
             + AI_WORKFLOWS
             + SALESFORCE_ENRICHMENT_WORKFLOWS
             + TEST_WORKFLOWS
-            + DELETE_RECORDING_WORKFLOWS
+            + DELETE_RECORDINGS_WORKFLOWS
             + ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS
             + EXPORT_RECORDING_WORKFLOWS
             + IMPORT_RECORDING_WORKFLOWS

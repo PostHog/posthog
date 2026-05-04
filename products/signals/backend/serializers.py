@@ -20,6 +20,9 @@ from .report_generation.resolve_reviewers import enrich_reviewer_dicts_with_org_
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_SESSION_ANALYSIS_SAMPLE_RATE = 0.1
+
+
 # Maps (source_product, source_type) → (ExternalDataSourceType value, schema name)
 _DATA_IMPORT_SOURCE_MAP: dict[tuple[str, str], tuple[str, str]] = {
     (SignalSourceConfig.SourceProduct.GITHUB, SignalSourceConfig.SourceType.ISSUE): ("Github", "issues"),
@@ -108,6 +111,13 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
             recording_filters = config.get("recording_filters")
             if recording_filters is not None and not isinstance(recording_filters, dict):
                 raise serializers.ValidationError({"config": "recording_filters must be a JSON object"})
+            sample_rate = config.get("sample_rate")
+            if sample_rate is not None:
+                # `isinstance(True, int)` is True in Python — reject bools explicitly.
+                if isinstance(sample_rate, bool) or not isinstance(sample_rate, int | float):
+                    raise serializers.ValidationError({"config": "sample_rate must be a number between 0 and 1"})
+                if not (0 <= sample_rate <= 1):
+                    raise serializers.ValidationError({"config": "sample_rate must be between 0 and 1"})
         if enabled and source_type == SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER:
             get_team = self.context.get("get_team")
             team = get_team() if get_team else None
@@ -118,6 +128,16 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
                     }
                 )
         return attrs
+
+    def create(self, validated_data: dict) -> SignalSourceConfig:
+        if (
+            validated_data.get("source_product") == SignalSourceConfig.SourceProduct.SESSION_REPLAY
+            and validated_data.get("source_type") == SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER
+        ):
+            config = dict(validated_data.get("config") or {})
+            config.setdefault("sample_rate", DEFAULT_SESSION_ANALYSIS_SAMPLE_RATE)
+            validated_data["config"] = config
+        return super().create(validated_data)
 
 
 class SignalTeamConfigSerializer(serializers.ModelSerializer):

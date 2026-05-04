@@ -23,7 +23,8 @@ import { logsAlertingLogic } from 'products/logs/frontend/components/LogsAlertin
 import { logsAlertNotificationLogic } from 'products/logs/frontend/components/LogsAlerting/logsAlertNotificationLogic'
 import {
     SNOOZE_DURATIONS,
-    withEnableNotificationGuard,
+    dispatchPreEnableCheck,
+    runPreEnableChecks,
 } from 'products/logs/frontend/components/LogsAlerting/logsAlertUtils'
 import {
     logsAlertsDestroy,
@@ -55,13 +56,19 @@ export const logsAlertDetailSceneLogic = kea<logsAlertDetailSceneLogicType>([
             teamLogic,
             ['currentTeamId'],
             logsAlertFormLogic({ alert: { id: props.id } as LogsAlertConfigurationApi }),
-            ['alertFormChanged'],
+            ['alertFormChanged', 'alertForm'],
         ],
         actions: [
             logsAlertFormLogic({ alert: { id: props.id } as LogsAlertConfigurationApi }),
-            ['submitAlertFormSuccess', 'resetAlertForm'],
+            [
+                'submitAlertForm',
+                'submitAlertFormSuccess',
+                'submitAlertFormFailure',
+                'resetAlertForm',
+                'setAlertFormValue',
+            ],
             logsAlertNotificationLogic({ alertId: props.id }),
-            ['loadExistingHogFunctionsSuccess'],
+            ['destinationsChanged'],
             logsAlertEventHistoryLogic({ alertId: props.id }),
             ['loadEvents'],
             logsAlertingLogic,
@@ -71,9 +78,11 @@ export const logsAlertDetailSceneLogic = kea<logsAlertDetailSceneLogicType>([
 
     actions({
         setActiveTab: (tab: LogsAlertDetailTab) => ({ tab }),
-        renameAlert: (name: string) => ({ name }),
         patchAlertLocally: (patch: Partial<LogsAlertConfigurationApi>) => ({ patch }),
         toggleEnabled: true,
+        enableAlert: true,
+        markPendingEnable: true,
+        applyEnabledChange: (enabled: boolean) => ({ enabled }),
         snoozeAlert: (durationMinutes: number) => ({ durationMinutes }),
         unsnoozeAlert: true,
         resetAlert: true,
@@ -96,6 +105,14 @@ export const logsAlertDetailSceneLogic = kea<logsAlertDetailSceneLogicType>([
                 loadSparkline7dSuccess: () => true,
                 loadSparkline7dFailure: () => true,
                 submitAlertFormSuccess: () => false,
+            },
+        ],
+        pendingEnableAfterSave: [
+            false,
+            {
+                markPendingEnable: () => true,
+                applyEnabledChange: () => false,
+                submitAlertFormFailure: () => false,
             },
         ],
     }),
@@ -132,6 +149,12 @@ export const logsAlertDetailSceneLogic = kea<logsAlertDetailSceneLogicType>([
 
     selectors({
         alertId: [() => [(_, props) => props.id], (id: string): string => id],
+
+        isDraft: [
+            (s) => [s.alert],
+            (alert: LogsAlertConfigurationApi | null): boolean =>
+                !!alert && !alert.enabled && alert.first_enabled_at == null,
+        ],
 
         breadcrumbs: [
             (s) => [s.alert],
@@ -225,15 +248,19 @@ export const logsAlertDetailSceneLogic = kea<logsAlertDetailSceneLogicType>([
 
     listeners(({ actions, values, props }) => ({
         submitAlertFormSuccess: () => {
-            actions.loadAlert()
-        },
-        loadExistingHogFunctionsSuccess: () => {
-            if (!values.alertFormChanged) {
+            if (values.pendingEnableAfterSave) {
+                actions.applyEnabledChange(true)
+            } else {
                 actions.loadAlert()
             }
         },
+        destinationsChanged: () => {
+            actions.loadAlert()
+        },
         loadAlertSuccess: () => {
-            if (values.alert) {
+            // Only reset the form when it's clean — preserves in-progress edits
+            // across background refreshes (destinations CRUD, snooze, etc.).
+            if (values.alert && !values.alertFormChanged) {
                 actions.resetAlertForm(buildFormDefaults(values.alert))
             }
             if (!values.sparkline7dFetched) {
@@ -241,33 +268,45 @@ export const logsAlertDetailSceneLogic = kea<logsAlertDetailSceneLogicType>([
             }
             actions.loadEvents()
         },
-        renameAlert: async ({ name }) => {
-            try {
-                await logsAlertsPartialUpdate(String(values.currentTeamId), props.id, { name })
-                actions.patchAlertLocally({ name })
-            } catch {
-                lemonToast.error('Failed to rename alert')
-                actions.loadAlert()
-            }
-        },
         toggleEnabled: () => {
             if (!values.alert) {
                 return
             }
-            withEnableNotificationGuard(
-                values.alert,
-                async () => {
-                    try {
-                        await logsAlertsPartialUpdate(String(values.currentTeamId), props.id, {
-                            enabled: !(values.alert!.enabled ?? true),
-                        })
-                        actions.loadAlert()
-                    } catch {
-                        lemonToast.error('Failed to update alert')
-                    }
-                },
-                () => actions.setActiveTab('notifications')
-            )
+            const isEnabling = !(values.alert.enabled ?? true)
+            if (!isEnabling) {
+                actions.applyEnabledChange(false)
+                return
+            }
+            dispatchPreEnableCheck(runPreEnableChecks(values.alert, values.alertForm), {
+                onConfirm: () => actions.applyEnabledChange(true),
+                onConfigureNotifications: () => actions.setActiveTab('notifications'),
+            })
+        },
+        enableAlert: () => {
+            if (!values.alert) {
+                return
+            }
+            const proceed = (): void => {
+                if (values.alertFormChanged) {
+                    actions.markPendingEnable()
+                    actions.submitAlertForm()
+                } else {
+                    actions.applyEnabledChange(true)
+                }
+            }
+            dispatchPreEnableCheck(runPreEnableChecks(values.alert, values.alertForm), {
+                onConfirm: proceed,
+                onConfigureNotifications: () => actions.setActiveTab('notifications'),
+            })
+        },
+        applyEnabledChange: async ({ enabled }) => {
+            try {
+                const updated = await logsAlertsPartialUpdate(String(values.currentTeamId), props.id, { enabled })
+                actions.patchAlertLocally(updated)
+                actions.resetAlertForm(buildFormDefaults(updated))
+            } catch (e: any) {
+                lemonToast.error(e?.detail ?? e?.message ?? 'Failed to update alert')
+            }
         },
         snoozeAlert: async ({ durationMinutes }) => {
             const snoozeUntil = dayjs().add(durationMinutes, 'minute').toISOString()

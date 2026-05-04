@@ -109,65 +109,65 @@ class TestTypeformTransport:
         ):
             _validated_api_base_url("https://invalid.typeform.com")
 
-    @patch("posthog.temporal.data_imports.sources.typeform.typeform.requests.get")
+    @patch("posthog.temporal.data_imports.sources.typeform.typeform.make_tracked_session")
     def test_validate_credentials_handles_request_exception(self, mock_get) -> None:
-        mock_get.side_effect = requests.exceptions.RequestException("boom")
+        mock_get.return_value.get.side_effect = requests.exceptions.RequestException("boom")
         result = validate_credentials(auth_token="token", api_base_url="https://api.typeform.com")
         assert result == (False, "/forms request failed: boom")
 
-    @patch("posthog.temporal.data_imports.sources.typeform.typeform.requests.get")
+    @patch("posthog.temporal.data_imports.sources.typeform.typeform.make_tracked_session")
     def test_validate_credentials_checks_forms_and_responses_endpoints(self, mock_get) -> None:
         forms_response = Mock(status_code=200, text="ok")
         forms_response.json.return_value = {"items": [{"id": "form_1"}]}
         responses_response = Mock(status_code=200, text="ok")
         responses_response.json.return_value = {"items": []}
-        mock_get.side_effect = [forms_response, responses_response]
+        mock_get.return_value.get.side_effect = [forms_response, responses_response]
 
         result = validate_credentials(auth_token="token", api_base_url="https://api.typeform.com")
 
         assert result == (True, None)
-        assert mock_get.call_count == 2
-        assert mock_get.call_args_list[0].args[0] == "https://api.typeform.com/forms"
-        assert mock_get.call_args_list[1].args[0] == "https://api.typeform.com/forms/form_1/responses"
+        assert mock_get.return_value.get.call_count == 2
+        assert mock_get.return_value.get.call_args_list[0].args[0] == "https://api.typeform.com/forms"
+        assert mock_get.return_value.get.call_args_list[1].args[0] == "https://api.typeform.com/forms/form_1/responses"
 
-    @patch("posthog.temporal.data_imports.sources.typeform.typeform.requests.get")
+    @patch("posthog.temporal.data_imports.sources.typeform.typeform.make_tracked_session")
     def test_validate_credentials_returns_error_when_forms_endpoint_fails(self, mock_get) -> None:
         forms_response = Mock(status_code=403, text="forbidden")
         forms_response.json.return_value = {"description": "forbidden"}
-        mock_get.side_effect = [forms_response]
+        mock_get.return_value.get.side_effect = [forms_response]
 
         result = validate_credentials(auth_token="token", api_base_url="https://api.typeform.com")
 
         assert result == (False, "Typeform token is missing required scope for forms endpoint: forms:read")
 
-    @patch("posthog.temporal.data_imports.sources.typeform.typeform.requests.get")
+    @patch("posthog.temporal.data_imports.sources.typeform.typeform.make_tracked_session")
     def test_validate_credentials_returns_error_when_responses_endpoint_fails(self, mock_get) -> None:
         forms_response = Mock(status_code=200, text="ok")
         forms_response.json.return_value = {"items": [{"id": "form_1"}]}
         responses_response = Mock(status_code=403, text="forbidden")
         responses_response.json.return_value = {"description": "forbidden"}
-        mock_get.side_effect = [forms_response, responses_response]
+        mock_get.return_value.get.side_effect = [forms_response, responses_response]
 
         result = validate_credentials(auth_token="token", api_base_url="https://api.typeform.com")
 
         assert result == (False, "Typeform token is missing required scope for responses endpoint: responses:read")
 
-    @patch("posthog.temporal.data_imports.sources.typeform.typeform.requests.get")
+    @patch("posthog.temporal.data_imports.sources.typeform.typeform.make_tracked_session")
     def test_validate_credentials_returns_success_when_no_forms_exist(self, mock_get) -> None:
         forms_response = Mock(status_code=200, text="ok")
         forms_response.json.return_value = {"items": []}
-        mock_get.side_effect = [forms_response]
+        mock_get.return_value.get.side_effect = [forms_response]
 
         result = validate_credentials(auth_token="token", api_base_url="https://api.typeform.com")
 
         assert result == (True, None)
-        assert mock_get.call_count == 1
+        assert mock_get.return_value.get.call_count == 1
 
-    @patch("posthog.temporal.data_imports.sources.typeform.typeform.requests.get")
+    @patch("posthog.temporal.data_imports.sources.typeform.typeform.make_tracked_session")
     def test_validate_credentials_for_forms_schema_only_skips_responses_probe(self, mock_get) -> None:
         forms_response = Mock(status_code=200, text="ok")
         forms_response.json.return_value = {"items": [{"id": "form_1"}]}
-        mock_get.side_effect = [forms_response]
+        mock_get.return_value.get.side_effect = [forms_response]
 
         result = validate_credentials(
             auth_token="token",
@@ -176,16 +176,16 @@ class TestTypeformTransport:
         )
 
         assert result == (True, None)
-        assert mock_get.call_count == 1
-        assert mock_get.call_args_list[0].args[0] == "https://api.typeform.com/forms"
+        assert mock_get.return_value.get.call_count == 1
+        assert mock_get.return_value.get.call_args_list[0].args[0] == "https://api.typeform.com/forms"
 
-    @patch("posthog.temporal.data_imports.sources.typeform.typeform.requests.get")
+    @patch("posthog.temporal.data_imports.sources.typeform.typeform.make_tracked_session")
     def test_validate_credentials_for_responses_schema_only_skips_me_probe(self, mock_get) -> None:
         forms_response = Mock(status_code=200, text="ok")
         forms_response.json.return_value = {"items": [{"id": "form_1"}]}
         responses_response = Mock(status_code=200, text="ok")
         responses_response.json.return_value = {"items": []}
-        mock_get.side_effect = [forms_response, responses_response]
+        mock_get.return_value.get.side_effect = [forms_response, responses_response]
 
         result = validate_credentials(
             auth_token="token",
@@ -194,9 +194,9 @@ class TestTypeformTransport:
         )
 
         assert result == (True, None)
-        assert mock_get.call_count == 2
-        assert mock_get.call_args_list[0].args[0] == "https://api.typeform.com/forms"
-        assert mock_get.call_args_list[1].args[0] == "https://api.typeform.com/forms/form_1/responses"
+        assert mock_get.return_value.get.call_count == 2
+        assert mock_get.return_value.get.call_args_list[0].args[0] == "https://api.typeform.com/forms"
+        assert mock_get.return_value.get.call_args_list[1].args[0] == "https://api.typeform.com/forms/form_1/responses"
 
     def test_get_resource_forms_non_incremental(self) -> None:
         resource = cast(

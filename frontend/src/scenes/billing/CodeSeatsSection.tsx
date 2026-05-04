@@ -8,7 +8,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { billingLogic } from './billingLogic'
 import { CODE_PLAN_PRO } from './constants'
-import { isProPlanKey, seatBillingLogic, seatPriceFromPlanKey } from './seatBillingLogic'
+import { canReactivateSeat, isProPlanKey, seatBillingLogic, seatPriceFromPlanKey } from './seatBillingLogic'
 import type { SeatData, SeatStatus } from './types'
 
 function planLabel(planKey: string): string {
@@ -148,7 +148,7 @@ export function CodeSeatsSection(): JSX.Element {
                             }
                             const canUpgrade = seat.status === 'active' && !isProPlanKey(seat.plan_key)
                             const canCancel = seat.status === 'active'
-                            const canReactivate = seat.status === 'canceling'
+                            const canReactivate = canReactivateSeat(seat)
 
                             if (!canUpgrade && !canCancel && !canReactivate) {
                                 return null
