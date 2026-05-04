@@ -29,6 +29,7 @@ import type {
     SlackChannelsResponseApi,
     UserGitHubLinkStartRequestApi,
     UserGitHubLinkStartResponseApi,
+    UsersIntegrationsGithubBranchesRetrieveParams,
     UsersIntegrationsGithubReposRetrieveParams,
     UsersIntegrationsListParams,
 } from './api.schemas'
@@ -570,12 +571,7 @@ export const integrationsDomainConnectCheckRetrieve = async (
 }
 
 /**
- * Clone a GitHub Integration row from another team in the same organization onto the current team.
-
-GitHub's installation flow has no usable callback when the App is already installed on the
-target org (the user lands on the Configure page and there is no automatic redirect back).
-This endpoint lets users opt in to reusing an existing GitHub installation that's already
-linked to a sibling team in the same PostHog organization, without going through GitHub.
+ * Reuse a GitHub installation already linked to a sibling team in the same organization.
  */
 export const getIntegrationsGithubLinkExistingCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/integrations/github/link_existing/`
@@ -595,17 +591,7 @@ export const integrationsGithubLinkExistingCreate = async (
 }
 
 /**
- * Mint a User OAuth round-trip URL for an existing GitHub App installation.
-
-Used when GitHub redirects the install flow back without an OAuth `code`
-(the App was already installed on the org and the user landed on the
-Configure page). Without `code` we can't run `verify_user_installation_access`,
-so the auto-link via link_existing only works when a sibling team in the
-org has already captured the installation. For the orphan case — installation
-exists on GitHub but no PostHog team has linked it yet — we send the user
-through GitHub's User OAuth flow to mint a fresh `code`. State is bound
-server-side to (user_id, team_id, installation_id) and is single-use.
-The ``/complete/github-link/`` callback handles the return.
+ * Mint a User OAuth URL to bootstrap a fresh `code` when the install flow returns without one.
  */
 export const getIntegrationsGithubOauthAuthorizeCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/integrations/github/oauth_authorize/`
@@ -675,6 +661,45 @@ export const usersIntegrationsGithubDestroy = async (
 }
 
 /**
+ * List branches for a repository accessible to a personal GitHub installation.
+ * @summary List branches for a personal GitHub installation repository
+ */
+export const getUsersIntegrationsGithubBranchesRetrieveUrl = (
+    uuid: string,
+    installationId: string,
+    params: UsersIntegrationsGithubBranchesRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/users/${uuid}/integrations/github/${installationId}/branches/?${stringifiedParams}`
+        : `/api/users/${uuid}/integrations/github/${installationId}/branches/`
+}
+
+export const usersIntegrationsGithubBranchesRetrieve = async (
+    uuid: string,
+    installationId: string,
+    params: UsersIntegrationsGithubBranchesRetrieveParams,
+    options?: RequestInit
+): Promise<GitHubBranchesResponseApi> => {
+    return apiMutator<GitHubBranchesResponseApi>(
+        getUsersIntegrationsGithubBranchesRetrieveUrl(uuid, installationId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+/**
  * List repositories accessible to a specific GitHub installation (paginated, cached).
  * @summary List repositories for a personal GitHub installation
  */
@@ -709,6 +734,28 @@ export const usersIntegrationsGithubReposRetrieve = async (
         {
             ...options,
             method: 'GET',
+        }
+    )
+}
+
+/**
+ * Refresh repositories accessible to a specific GitHub installation.
+ * @summary Refresh repositories for a personal GitHub installation
+ */
+export const getUsersIntegrationsGithubReposRefreshCreateUrl = (uuid: string, installationId: string) => {
+    return `/api/users/${uuid}/integrations/github/${installationId}/repos/refresh/`
+}
+
+export const usersIntegrationsGithubReposRefreshCreate = async (
+    uuid: string,
+    installationId: string,
+    options?: RequestInit
+): Promise<GitHubReposRefreshResponseApi> => {
+    return apiMutator<GitHubReposRefreshResponseApi>(
+        getUsersIntegrationsGithubReposRefreshCreateUrl(uuid, installationId),
+        {
+            ...options,
+            method: 'POST',
         }
     )
 }

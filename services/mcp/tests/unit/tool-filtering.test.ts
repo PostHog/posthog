@@ -567,8 +567,10 @@ describe('Tool Filtering - Feature Flags', () => {
 
     it('getRequiredFeatureFlags should return flags used by current definitions', () => {
         const flags = getRequiredFeatureFlags()
-        expect(flags).toEqual(expect.arrayContaining(['logs-alerting', 'visual-review']))
-        expect(flags).toHaveLength(2)
+        expect(flags).toEqual(
+            expect.arrayContaining(['logs-alerting', 'replay-video-based-summarization', 'visual-review'])
+        )
+        expect(flags).toHaveLength(3)
     })
 
     // Test the filtering logic with a direct unit test approach using

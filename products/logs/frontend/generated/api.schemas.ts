@@ -187,19 +187,19 @@ export interface LogsAlertConfigurationApi {
     /** Unique identifier for this alert. */
     readonly id: string
     /**
-     * Human-readable name for this alert.
+     * Human-readable name for this alert. Defaults to 'Untitled alert' on create when omitted.
      * @maxLength 255
      */
-    name: string
+    name?: string
     /** Whether the alert is actively being evaluated. Disabling resets the state to not_firing. */
     enabled?: boolean
-    /** Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). */
-    filters: unknown
+    /** Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). May be empty on draft alerts (enabled=false). */
+    filters?: unknown
     /**
-     * Number of matching log entries that constitutes a threshold breach within the evaluation window.
+     * Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100.
      * @minimum 1
      */
-    threshold_count: number
+    threshold_count?: number
     /** Whether the alert fires when the count is above or below the threshold.
 
 * `above` - Above
@@ -266,6 +266,11 @@ export interface LogsAlertConfigurationApi {
     readonly state_timeline: readonly LogsAlertStateIntervalApi[]
     /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
     readonly destination_types: readonly NotificationDestinationTypeEnumApi[]
+    /**
+     * When the alert was first enabled. Null means the alert is still in draft state.
+     * @nullable
+     */
+    readonly first_enabled_at: string | null
     /** When the alert was created. */
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -289,16 +294,16 @@ export interface PatchedLogsAlertConfigurationApi {
     /** Unique identifier for this alert. */
     readonly id?: string
     /**
-     * Human-readable name for this alert.
+     * Human-readable name for this alert. Defaults to 'Untitled alert' on create when omitted.
      * @maxLength 255
      */
     name?: string
     /** Whether the alert is actively being evaluated. Disabling resets the state to not_firing. */
     enabled?: boolean
-    /** Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). */
+    /** Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). May be empty on draft alerts (enabled=false). */
     filters?: unknown
     /**
-     * Number of matching log entries that constitutes a threshold breach within the evaluation window.
+     * Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100.
      * @minimum 1
      */
     threshold_count?: number
@@ -368,6 +373,11 @@ export interface PatchedLogsAlertConfigurationApi {
     readonly state_timeline?: readonly LogsAlertStateIntervalApi[]
     /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
     readonly destination_types?: readonly NotificationDestinationTypeEnumApi[]
+    /**
+     * When the alert was first enabled. Null means the alert is still in draft state.
+     * @nullable
+     */
+    readonly first_enabled_at?: string | null
     /** When the alert was created. */
     readonly created_at?: string
     readonly created_by?: UserBasicApi
@@ -466,6 +476,12 @@ export interface LogsAlertSimulateRequestApi {
     threshold_operator: ThresholdOperatorEnumApi
     /** Window size in minutes — determines bucket interval. */
     window_minutes: number
+    /**
+     * How often the alert is evaluated, in minutes.
+     * @minimum 1
+     * @maximum 60
+     */
+    check_interval_minutes?: number
     /**
      * Total check periods in the N-of-M evaluation window (M).
      * @minimum 1
@@ -820,8 +836,8 @@ export interface _LogsQueryResponseApi {
 }
 
 /**
- * * `severity_sampling` - Severity sampling
- * `path_drop` - Path drop
+ * * `severity_sampling` - Severity-based reduction
+ * `path_drop` - Path exclusion
  * `rate_limit` - Rate limit
  */
 export type RuleTypeEnumApi = (typeof RuleTypeEnumApi)[keyof typeof RuleTypeEnumApi]
@@ -831,6 +847,8 @@ export const RuleTypeEnumApi = {
     PathDrop: 'path_drop',
     RateLimit: 'rate_limit',
 } as const
+
+export type LogsSamplingRuleApiScopeAttributeFiltersItem = { [key: string]: unknown }
 
 export interface LogsSamplingRuleApi {
     /** Unique identifier for this sampling rule. */
@@ -850,8 +868,8 @@ export interface LogsSamplingRuleApi {
     priority?: number | null
     /** Rule kind: severity_sampling, path_drop, or rate_limit (rate_limit reserved for a future release).
 
-* `severity_sampling` - Severity sampling
-* `path_drop` - Path drop
+* `severity_sampling` - Severity-based reduction
+* `path_drop` - Path exclusion
 * `rate_limit` - Rate limit */
     rule_type: RuleTypeEnumApi
     /**
@@ -867,8 +885,8 @@ export interface LogsSamplingRuleApi {
      */
     scope_path_pattern?: string | null
     /** Optional list of predicates over string attributes, e.g. [{"key":"http.route","op":"eq","value":"/api"}]. */
-    scope_attribute_filters?: unknown
-    /** Type-specific JSON (severity actions, path_drop patterns, or future rate_limit settings). */
+    scope_attribute_filters?: LogsSamplingRuleApiScopeAttributeFiltersItem[]
+    /** Type-specific JSON. For path_drop: object with required `patterns` (list of regex strings) and optional `match_attribute_key` (string). When `match_attribute_key` is omitted or empty, patterns match the same virtual path string as ingestion (url.path, http.path, http.route, path). When set, each pattern is tested only against that string attribute on the log record. For severity_sampling: object with `actions` per severity level and optional `always_keep`. rate_limit is reserved. */
     config: unknown
     /** Incremented on each update for worker cache coherency. */
     readonly version: number
@@ -886,6 +904,8 @@ export interface PaginatedLogsSamplingRuleListApi {
     previous?: string | null
     results: LogsSamplingRuleApi[]
 }
+
+export type PatchedLogsSamplingRuleApiScopeAttributeFiltersItem = { [key: string]: unknown }
 
 export interface PatchedLogsSamplingRuleApi {
     /** Unique identifier for this sampling rule. */
@@ -905,8 +925,8 @@ export interface PatchedLogsSamplingRuleApi {
     priority?: number | null
     /** Rule kind: severity_sampling, path_drop, or rate_limit (rate_limit reserved for a future release).
 
-* `severity_sampling` - Severity sampling
-* `path_drop` - Path drop
+* `severity_sampling` - Severity-based reduction
+* `path_drop` - Path exclusion
 * `rate_limit` - Rate limit */
     rule_type?: RuleTypeEnumApi
     /**
@@ -922,8 +942,8 @@ export interface PatchedLogsSamplingRuleApi {
      */
     scope_path_pattern?: string | null
     /** Optional list of predicates over string attributes, e.g. [{"key":"http.route","op":"eq","value":"/api"}]. */
-    scope_attribute_filters?: unknown
-    /** Type-specific JSON (severity actions, path_drop patterns, or future rate_limit settings). */
+    scope_attribute_filters?: PatchedLogsSamplingRuleApiScopeAttributeFiltersItem[]
+    /** Type-specific JSON. For path_drop: object with required `patterns` (list of regex strings) and optional `match_attribute_key` (string). When `match_attribute_key` is omitted or empty, patterns match the same virtual path string as ingestion (url.path, http.path, http.route, path). When set, each pattern is tested only against that string attribute on the log record. For severity_sampling: object with `actions` per severity level and optional `always_keep`. rate_limit is reserved. */
     config?: unknown
     /** Incremented on each update for worker cache coherency. */
     readonly version?: number

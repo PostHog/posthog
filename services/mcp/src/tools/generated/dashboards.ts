@@ -334,6 +334,7 @@ const dashboardsGetAll = (): ToolBase<
             query: {
                 limit: params.limit,
                 offset: params.offset,
+                search: params.search,
             },
         })
         return await withPostHogUrl(

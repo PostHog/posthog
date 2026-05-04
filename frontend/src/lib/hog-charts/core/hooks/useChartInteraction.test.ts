@@ -1,17 +1,9 @@
 import { renderHook, type RenderHookResult } from '@testing-library/react'
 import { act } from 'react'
 
-import type { ChartDimensions, ChartScales } from '../types'
+import { dimensions } from '../../testing'
+import type { ChartScales } from '../types'
 import { useChartInteraction } from './useChartInteraction'
-
-const dimensions: ChartDimensions = {
-    width: 800,
-    height: 400,
-    plotLeft: 48,
-    plotTop: 16,
-    plotWidth: 736,
-    plotHeight: 352,
-}
 
 const scales: ChartScales = {
     x: (label: string) => ({ Mon: 100, Tue: 200, Wed: 300 })[label],

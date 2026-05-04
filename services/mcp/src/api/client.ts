@@ -231,7 +231,9 @@ export class ApiClient {
                     if (response.status === 403 && errorData?.code === 'permission_denied') {
                         const scopeMatch = /required scope ['"]([^'"]+)['"]/.exec(errorData.detail || '')
                         const missingScope = scopeMatch?.[1]
-                        console.error(
+                        // Warn, not error: PostHogPermissionError is thrown and handled by callers,
+                        // and a missing scope is a user-config issue rather than a service bug.
+                        console.warn(
                             `[API] Permission denied on ${method} ${url}: ${errorData.detail || 'unknown'}${missingScope ? ` (missing scope: ${missingScope})` : ''}`
                         )
                         throw new PostHogPermissionError({

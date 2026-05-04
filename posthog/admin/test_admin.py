@@ -5,6 +5,7 @@ from django.contrib import admin
 from django.contrib.admin import AdminSite
 
 from posthog.admin import register_all_admin
+from posthog.admin.inlines.organization_member_inline import OrganizationMemberForUserInline, OrganizationMemberInline
 from posthog.admin.inlines.plugin_attachment_inline import PluginAttachmentInline
 
 
@@ -44,3 +45,12 @@ class TestPluginAttachmentInline(BaseTest):
         result = str(inline.raw_contents(attachment))
 
         assert "cannot preview:" in result
+
+
+class TestOrganizationMemberInlineConfig(BaseTest):
+    def test_invited_by_is_readonly_and_never_rendered_as_user_select(self):
+        # Regression guard: invited_by must not become an editable FK select in admin inlines.
+        assert "invited_by" in OrganizationMemberInline.fields
+        assert "invited_by" in OrganizationMemberInline.readonly_fields
+        assert "invited_by" in OrganizationMemberForUserInline.fields
+        assert "invited_by" in OrganizationMemberForUserInline.readonly_fields
