@@ -126,7 +126,23 @@ export function initKea({
                 if (!errorsSilenced) {
                     console.error({ error, reducerKey, actionKey })
                 }
-                posthog.captureException(error)
+                // Loaders often reject with plain objects (DRF error bodies, fetch failures), and
+                // posthog-js synthesizes an opaque title like "Object captured as exception with keys: detail, status"
+                // for non-Error values — wrap so each issue gets a meaningful message and a real stack.
+                const normalizedError =
+                    error instanceof Error
+                        ? error
+                        : new Error(
+                              error?.detail ||
+                                  error?.statusText ||
+                                  error?.message ||
+                                  `${identifierToHuman(actionKey)} failed`
+                          )
+                posthog.captureException(normalizedError, {
+                    reducer_key: reducerKey,
+                    action_key: actionKey,
+                    original_error: error,
+                })
             },
         }),
         subscriptionsPlugin,

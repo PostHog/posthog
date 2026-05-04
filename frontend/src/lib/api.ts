@@ -2042,10 +2042,8 @@ const ensureProjectIdNotInvalid = (url: string): void => {
     if (projectIdMatch) {
         const projectId = projectIdMatch[2].trim()
         if (projectId === 'null' || projectId === 'undefined') {
-            throw {
-                status: 0,
-                detail: `Cannot make request - ${projectIdMatch[1]} ID is unknown.`,
-            }
+            const detail = `Cannot make request - ${projectIdMatch[1]} ID is unknown.`
+            throw new ApiError(detail, 0, undefined, { detail })
         }
     }
 }

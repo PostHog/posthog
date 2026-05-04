@@ -1,6 +1,6 @@
 import posthog from 'posthog-js'
 
-import api, { ApiConfig, ApiRequest } from 'lib/api'
+import api, { ApiConfig, ApiError, ApiRequest } from 'lib/api'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator } from '~/types'
@@ -126,26 +126,16 @@ describe('API helper', () => {
         await expect(api.get('/api/projects/089908')).resolves.not.toThrow()
         await expect(api.get('/api/projects/089908?x')).resolves.not.toThrow()
         await expect(api.get('/api/projects/xyz/dings/')).resolves.not.toThrow()
-        await expect(api.get('/api/projects/null/')).rejects.toStrictEqual({
+        const expected = expect.objectContaining({
             detail: 'Cannot make request - project ID is unknown.',
             status: 0,
         })
-        await expect(api.get('/api/projects/null')).rejects.toStrictEqual({
-            detail: 'Cannot make request - project ID is unknown.',
-            status: 0,
-        })
-        await expect(api.get('/api/projects/null?x')).rejects.toStrictEqual({
-            detail: 'Cannot make request - project ID is unknown.',
-            status: 0,
-        })
-        await expect(api.get('/api/projects/null#x')).rejects.toStrictEqual({
-            detail: 'Cannot make request - project ID is unknown.',
-            status: 0,
-        })
-        await expect(api.get('/api/projects/null/dings')).rejects.toStrictEqual({
-            detail: 'Cannot make request - project ID is unknown.',
-            status: 0,
-        })
+        await expect(api.get('/api/projects/null/')).rejects.toBeInstanceOf(ApiError)
+        await expect(api.get('/api/projects/null/')).rejects.toEqual(expected)
+        await expect(api.get('/api/projects/null')).rejects.toEqual(expected)
+        await expect(api.get('/api/projects/null?x')).rejects.toEqual(expected)
+        await expect(api.get('/api/projects/null#x')).rejects.toEqual(expected)
+        await expect(api.get('/api/projects/null/dings')).rejects.toEqual(expected)
     })
 
     describe('organizationFeatureFlags', () => {
