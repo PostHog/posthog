@@ -304,7 +304,6 @@ describe('ValueLabels', () => {
         const barScales = { x: xScale, y: yScale, yTicks: () => [0, 50, 100], _private: barPrivate }
 
         it.each<[string, number[], string[], { minBarSize?: number; bar?: boolean; mode?: 'stack-total' }]>([
-            // segment sizes: 1→3.52 px, 2→7.04 px (filtered <16); 50→176 px kept
             ['filters narrow segments by default on bar charts', [1, 2, 50, 1, 2], ['50'], { bar: true }],
             ['minBarSize=0 keeps everything', [1, 50], ['1', '50'], { minBarSize: 0, bar: true }],
             ['ignored on non-bar charts', [1, 2], ['1', '2'], {}],
@@ -317,7 +316,6 @@ describe('ValueLabels', () => {
         })
 
         it('drops bands whose stack-total size is below minBarSize', () => {
-            // Mon total=2 → 7 px (drop), Tue total=55 → 194 px (keep).
             const series: ResolvedSeries[] = [
                 { key: 'a', label: 'A', color: '#a00', data: [1, 50] },
                 { key: 'b', label: 'B', color: '#0a0', data: [1, 5] },
