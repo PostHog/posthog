@@ -52,8 +52,10 @@ def compare_images(
     """Compare two PNG images: pixelmatch + SSIM + optional thumbnail + clusters.
 
     One decode of each PNG; subsequent ops reuse the decoded RGBA buffers.
-    Clusters are skipped when sizes mismatch — the padded region dominates
-    the diff and the clusters reduce to "the padding rectangle", not useful.
+    When sizes differ, pixelhog pads to the largest dimensions and runs
+    every metric against the padded buffers — including clusters. The
+    padded region surfaces as a cluster of its own, which is the right
+    answer ("here's the new content area") rather than something to hide.
     """
     cmp = Comparison(baseline_bytes, current_bytes)
 
@@ -71,7 +73,7 @@ def compare_images(
     thumbnail_hash = blake3(thumbnail).hexdigest() if thumbnail else ""
 
     cluster_summary: ClusterSummary | None = None
-    if with_clusters and not cmp.size_mismatch and diff_pixel_count > 0:
+    if with_clusters and diff_pixel_count > 0:
         clusters_result = cmp.clusters(
             threshold=threshold,
             min_pixels=CLUSTER_MIN_PIXELS,

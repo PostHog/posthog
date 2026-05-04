@@ -123,15 +123,16 @@ class TestTwoTierClassification:
         img2 = _make_png(100, 100, (105, 100, 100, 255))
         assert _classify(img1, img2) is None
 
-    def test_size_mismatch_classified_as_viewport_mismatch(self):
-        # Different dimensions — pixelhog pads to the bigger size and the
-        # padded region dominates the diff. We surface it as its own kind
-        # so callers don't read the misleading pixel %.
+    def test_size_mismatch_still_classifies_normally(self):
+        # Pixelhog pads to the bigger size and runs metrics over the
+        # padded buffers — we still get a real pixel-tier classification
+        # (the new content area shows up as differing pixels). The fact
+        # that sizes differed is recorded separately on diff_metadata.
         small = _make_png(100, 100, (200, 200, 200, 255))
         large = _make_png(200, 100, (200, 200, 200, 255))
         result = compare_images(small, large, with_thumbnail=False)
         assert result.size_mismatch
-        assert _classify(small, large) == ChangeKind.VIEWPORT_MISMATCH
+        assert _classify(small, large) == ChangeKind.PIXEL
 
     def test_compare_images_populates_ssim_score_for_every_path(self):
         # ssim_score is now the source of truth for structural similarity —
@@ -146,7 +147,7 @@ class TestTwoTierClassification:
 
 class TestClusterSummary:
     """Cluster output is meaningful for localized diffs only — not for
-    full inversions, not for size mismatches, not for identical pairs.
+    full inversions, not for identical pairs.
     """
 
     def test_localized_change_yields_clusters(self):
@@ -170,15 +171,16 @@ class TestClusterSummary:
         assert c.px > 0
         assert 0 <= c.centroid[0] <= 200 and 0 <= c.centroid[1] <= 200
 
-    def test_size_mismatch_skips_clusters(self):
-        # Different sizes — clusters would be dominated by the padded
-        # region; the pipeline skips them and the FE renders the
-        # categorical viewport_mismatch label instead.
+    def test_size_mismatch_yields_clusters_for_new_content_area(self):
+        # Pixelhog pads to the bigger size; the new content area
+        # surfaces as a cluster of its own. That's the right answer
+        # ("here's the new region") rather than something to hide.
         small = _make_png(100, 100, (200, 200, 200, 255))
         large = _make_png(200, 100, (200, 200, 200, 255))
         result = compare_images(small, large, with_thumbnail=False)
         assert result.size_mismatch
-        assert result.cluster_summary is None
+        assert result.cluster_summary is not None
+        assert result.cluster_summary.total >= 1
 
     def test_identical_images_have_no_clusters(self):
         img = _make_png(100, 100, (200, 200, 200, 255))

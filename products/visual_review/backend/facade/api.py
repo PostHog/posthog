@@ -56,41 +56,45 @@ def _to_artifact(artifact, repo_id: UUID) -> contracts.Artifact:
     )
 
 
-def _to_cluster_summary(diff_metadata_raw: dict | None) -> contracts.ClusterSummary | None:
+def _parse_diff_metadata(
+    diff_metadata_raw: dict | None,
+) -> tuple[contracts.ClusterSummary | None, bool]:
     """Translate the compact storage shape into the verbose wire shape.
 
-    Input is the raw `diff_metadata` JSON column; returns None when the
-    column is empty (legacy rows / not yet diffed) or when no clusters
-    were computed (size mismatch, identical pair).
+    Returns `(cluster_summary, size_mismatch)`. The cluster_summary side
+    is None for legacy rows and identical-pair rows; size_mismatch
+    defaults to False everywhere it isn't explicitly recorded.
     """
     if not diff_metadata_raw:
-        return None
+        return None, False
     parsed = DiffMetadata.model_validate(diff_metadata_raw)
-    if parsed.cluster_summary is None:
-        return None
-    cs = parsed.cluster_summary
-    return contracts.ClusterSummary(
-        items=[
-            contracts.DiffCluster(
-                x=c.bbox[0],
-                y=c.bbox[1],
-                width=c.bbox[2],
-                height=c.bbox[3],
-                pixel_count=c.px,
-                centroid_x=c.centroid[0],
-                centroid_y=c.centroid[1],
-            )
-            for c in cs.items
-        ],
-        total=cs.total,
-        truncated=cs.truncated,
-    )
+    cluster_summary: contracts.ClusterSummary | None = None
+    if parsed.cluster_summary is not None:
+        cs = parsed.cluster_summary
+        cluster_summary = contracts.ClusterSummary(
+            items=[
+                contracts.DiffCluster(
+                    x=c.bbox[0],
+                    y=c.bbox[1],
+                    width=c.bbox[2],
+                    height=c.bbox[3],
+                    pixel_count=c.px,
+                    centroid_x=c.centroid[0],
+                    centroid_y=c.centroid[1],
+                )
+                for c in cs.items
+            ],
+            total=cs.total,
+            truncated=cs.truncated,
+        )
+    return cluster_summary, parsed.size_mismatch
 
 
 def _to_snapshot(
     snapshot, repo_id: UUID, user_basic_infos: dict[int, contracts.UserBasicInfo] | None = None
 ) -> contracts.Snapshot:
     reviewed_by = (user_basic_infos or {}).get(snapshot.reviewed_by_id) if snapshot.reviewed_by_id else None
+    cluster_summary, size_mismatch = _parse_diff_metadata(snapshot.diff_metadata)
     return contracts.Snapshot(
         id=snapshot.id,
         identifier=snapshot.identifier,
@@ -110,7 +114,8 @@ def _to_snapshot(
         metadata=snapshot.metadata or {},
         ssim_score=snapshot.ssim_score,
         change_kind=snapshot.change_kind or "",
-        cluster_summary=_to_cluster_summary(snapshot.diff_metadata),
+        cluster_summary=cluster_summary,
+        size_mismatch=size_mismatch,
     )
 
 
@@ -379,6 +384,7 @@ def get_snapshot_history(repo_id: UUID, identifier: str, run_type: str) -> list[
             current_artifact=_to_artifact(e.current_artifact, repo_id) if e.current_artifact else None,
             ssim_score=e.ssim_score,
             change_kind=e.change_kind or "",
+            size_mismatch=_parse_diff_metadata(e.diff_metadata)[1],
         )
         for e in entries
     ]

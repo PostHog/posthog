@@ -40,9 +40,11 @@ def classify_compare_result(result: CompareResult) -> ChangeKind | None:
     classification path without spinning up a snapshot row. The same logic
     drives `_diff_snapshot` below; keeping it here means the production
     branch and the tests can't drift.
+
+    Size mismatch is *not* a kind — pixelhog pads to the largest dims and
+    we still get a real pixel/SSIM answer over that padded image. The fact
+    that sizes differed is recorded separately on `DiffMetadata`.
     """
-    if result.size_mismatch:
-        return ChangeKind.VIEWPORT_MISMATCH
     if result.diff_percentage >= PIXEL_DIFF_THRESHOLD_PERCENT:
         return ChangeKind.PIXEL
     if (1.0 - result.ssim_score) >= SSIM_DISSIMILARITY_THRESHOLD:
@@ -93,11 +95,10 @@ def _store_diff(
         team_id=snapshot.team_id,
     )
 
-    # Cluster output is meaningful for pixel and structural changes; skip for
-    # viewport_mismatch (where pixelhog already short-circuited the
-    # computation in compare_images, so this is belt-and-suspenders).
-    cluster_summary = result.cluster_summary if change_kind in (ChangeKind.PIXEL, ChangeKind.STRUCTURAL) else None
-    diff_metadata = DiffMetadata(cluster_summary=cluster_summary)
+    diff_metadata = DiffMetadata(
+        cluster_summary=result.cluster_summary,
+        size_mismatch=result.size_mismatch,
+    )
 
     logic.update_snapshot_diff(
         snapshot_id=snapshot.id,
@@ -119,7 +120,7 @@ def _store_diff(
         diff_pixel_count=result.diff_pixel_count,
         ssim_score=result.ssim_score,
         size_mismatch=result.size_mismatch,
-        cluster_count=cluster_summary.total if cluster_summary else 0,
+        cluster_count=result.cluster_summary.total if result.cluster_summary else 0,
     )
 
 
@@ -127,12 +128,14 @@ def _diff_snapshot(snapshot: RunSnapshot) -> None:
     """Compare snapshot against baseline; classify and store diff metrics.
 
     Classification (in priority order):
-    1. Baseline and current have different dimensions -> CHANGED, kind=viewport_mismatch
-       (diff numbers are dominated by padding and not directly comparable)
-    2. Pixel diff above threshold -> CHANGED, kind=pixel
-    3. SSIM dissimilarity above threshold -> CHANGED, kind=structural
+    1. Pixel diff above threshold -> CHANGED, kind=pixel
+    2. SSIM dissimilarity above threshold -> CHANGED, kind=structural
        (tall-page dilution safety net)
-    4. Both below -> UNCHANGED (noise), auto-populate tolerance cache.
+    3. Both below -> UNCHANGED (noise), auto-populate tolerance cache.
+
+    Size mismatch is recorded as `diff_metadata.size_mismatch` and surfaced
+    separately in the UI — a snapshot can have a different viewport AND a
+    real content change, so we don't conflate the two.
 
     `diff_percentage` and `ssim_score` are recorded faithfully; the categorical
     kind is what callers use to render. No overwriting one signal with another.

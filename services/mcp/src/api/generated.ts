@@ -24628,6 +24628,7 @@ export namespace Schemas {
       /** @nullable */
       ssim_score?: number | null;
       change_kind?: string;
+      size_mismatch?: boolean;
     }
 
     export interface PaginatedSnapshotHistoryEntryList {
@@ -24666,6 +24667,7 @@ export namespace Schemas {
       /** @nullable */
       ssim_score?: number | null;
       change_kind?: string;
+      size_mismatch?: boolean;
     }
 
     export interface PaginatedSnapshotList {

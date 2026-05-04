@@ -55,12 +55,12 @@ function SnapshotThumbnail({
     const isReviewed = snapshot.review_state === 'approved' || snapshot.review_state === 'tolerated'
     const showBadge = isReviewed || isQuarantined
     // True when we have something the SnapshotChangeBadge will render —
-    // covers `structural`, `viewport_mismatch`, and any positive
-    // pixel-diff (current `pixel` kind or legacy rows without a kind).
+    // covers `structural`, any positive pixel-diff (current `pixel` kind
+    // or legacy rows without a kind), and the size_mismatch chip.
     const kind = snapshot.change_kind ?? ''
     const hasDiff =
         kind === 'structural' ||
-        kind === 'viewport_mismatch' ||
+        snapshot.size_mismatch === true ||
         (snapshot.diff_percentage != null && snapshot.diff_percentage > 0)
 
     const imgSrc = thumbnailSrc ?? fallbackSrc

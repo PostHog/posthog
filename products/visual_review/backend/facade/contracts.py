@@ -191,11 +191,15 @@ class Snapshot:
     metadata: dict = field(default_factory=dict)
     # Diff classification details — see ChangeKind enum and the diff
     # pipeline. `change_kind` is the categorical signal the UI renders
-    # ('pixel'/'structural'/'viewport_mismatch'); `ssim_score` and
-    # `cluster_summary` are details available alongside.
+    # ('pixel' / 'structural'); `ssim_score` and `cluster_summary` are
+    # details available alongside. `size_mismatch` flags the case where
+    # baseline and current had different dimensions (composes with any
+    # change_kind — pixelhog padded the smaller image and ran metrics
+    # against the padded buffers).
     ssim_score: float | None = None
     change_kind: str = ""
     cluster_summary: ClusterSummary | None = None
+    size_mismatch: bool = False
 
 
 @dataclass(frozen=True)
@@ -322,13 +326,13 @@ class SnapshotHistoryEntry:
     review_state: str = ""
     current_artifact: Artifact | None = None
     # Diff classification — see ChangeKind enum. Lets the history view
-    # render categorical chips ('Layout shift' / 'Viewport mismatch')
-    # instead of conflating SSIM dissimilarity with pixel diff %.
-    # `cluster_summary` deliberately omitted here — bbox overlays don't
-    # apply to a list-of-history-rows view; load the full snapshot for
-    # those.
+    # render categorical chips ('Layout shift' / 'Size changed') instead
+    # of conflating SSIM dissimilarity with pixel diff %. `cluster_summary`
+    # deliberately omitted here — bbox overlays don't apply to a
+    # list-of-history-rows view; load the full snapshot for those.
     ssim_score: float | None = None
     change_kind: str = ""
+    size_mismatch: bool = False
 
 
 @dataclass(frozen=True)

@@ -199,6 +199,7 @@ export interface SnapshotHistoryEntryApi {
     /** @nullable */
     ssim_score?: number | null
     change_kind?: string
+    size_mismatch?: boolean
 }
 
 export interface PaginatedSnapshotHistoryEntryListApi {
@@ -334,6 +335,7 @@ export interface SnapshotApi {
     /** @nullable */
     ssim_score?: number | null
     change_kind?: string
+    size_mismatch?: boolean
 }
 
 export interface PaginatedSnapshotListApi {

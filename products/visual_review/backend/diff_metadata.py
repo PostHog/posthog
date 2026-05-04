@@ -55,3 +55,4 @@ class DiffMetadata(BaseModel):
     model_config = ConfigDict(extra="ignore")  # forward-compat: ignore unknown keys on read
 
     cluster_summary: ClusterSummary | None = None
+    size_mismatch: bool = False  # baseline and current had different dimensions; pixelhog padded to largest
