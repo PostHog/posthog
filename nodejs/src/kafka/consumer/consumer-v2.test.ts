@@ -3,6 +3,7 @@ import { CODES, Message, KafkaConsumer as RdKafkaConsumer } from 'node-rdkafka'
 import { captureException } from '../../utils/posthog'
 import { delay } from '../../utils/utils'
 import { KafkaConsumerV2 } from './consumer-v2'
+import { consumerKeepaliveUnexpectedMessages } from './metrics'
 
 jest.mock('../admin', () => ({ ensureTopicExists: jest.fn().mockResolvedValue(undefined) }))
 
@@ -603,12 +604,20 @@ describe('KafkaConsumerV2', () => {
 
             // Loop is now in IDLE state, awaiting consume(1, cb) for the keepalive. We have
             // NOT fired ASSIGN — so no partitions are assigned and the consumer should never
-            // see a real message here. Force-deliver one anyway to simulate the impossible
-            // case and verify the invariant fires.
+            // see a real message here. Force-deliver TWO anyway to simulate the impossible
+            // case and verify the invariant fires + the counter increments by message count.
+            const counterBefore =
+                (await consumerKeepaliveUnexpectedMessages.get()).values.find(
+                    (v) => v.labels.topic === 'test-topic' && v.labels.groupId === 'test-group'
+                )?.value ?? 0
+
             expect(consumeCallback).toBeDefined()
             const cb = consumeCallback!
             consumeCallback = undefined
-            cb(null, [createMessage({ offset: 42, partition: 7, topic: 'unexpected-topic' })])
+            cb(null, [
+                createMessage({ offset: 42, partition: 7, topic: 'unexpected-topic' }),
+                createMessage({ offset: 43, partition: 7, topic: 'unexpected-topic' }),
+            ])
             await delay(5)
 
             // No real processing should have happened.
@@ -619,6 +628,12 @@ describe('KafkaConsumerV2', () => {
             const err = (captureException as jest.Mock).mock.calls[0][0] as Error
             expect(err.message).toContain('keepalive_unexpected_messages')
             expect(err.message).toContain('unexpected-topic/7@42')
+            // Counter incremented by message count (alert hook).
+            const counterAfter =
+                (await consumerKeepaliveUnexpectedMessages.get()).values.find(
+                    (v) => v.labels.topic === 'test-topic' && v.labels.groupId === 'test-group'
+                )?.value ?? 0
+            expect(counterAfter - counterBefore).toBe(2)
         })
 
         it('does NOT capture an exception when keepalive returns the expected empty batch', async () => {

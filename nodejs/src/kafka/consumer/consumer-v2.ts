@@ -32,6 +32,7 @@ import {
     consumerBatchUtilization,
     consumerDrainDuration,
     consumerDrainTimeouts,
+    consumerKeepaliveUnexpectedMessages,
     consumerStaleStoreOffsetsSkipped,
     kafkaConsumerAssignment,
 } from './metrics'
@@ -106,8 +107,6 @@ export class KafkaConsumerV2 {
 
     // Health tracking
     private lastLoopTickAt = 0
-    private lastStatsAt = 0
-    private brokerState: string | undefined
 
     constructor(
         private config: KafkaConsumerV2Config,
@@ -515,6 +514,8 @@ export class KafkaConsumerV2 {
             return
         }
         if (messages.length > 0) {
+            // Counter is the alertable signal — `rate(...) > 0` means the invariant broke.
+            consumerKeepaliveUnexpectedMessages.labels(this.config.topic, this.config.groupId).inc(messages.length)
             const error = new Error(
                 `kafka_consumer_v2_keepalive_unexpected_messages: received ${messages.length} message(s) ` +
                     `in IDLE state; expected zero. Partitions: ${messages
@@ -594,8 +595,6 @@ export class KafkaConsumerV2 {
         consumer.on('event.stats', (stats: { message: string }) => {
             try {
                 const parsed = parseJSON(stats.message) as Record<string, any>
-                this.lastStatsAt = Date.now()
-                this.brokerState = parsed.cgrp?.state ?? 'no-group'
                 const brokerStats = parseBrokerStatistics(parsed)
                 trackBrokerMetrics(brokerStats, this.config.groupId, this.consumerId)
                 logger[this.logStatsLevel]('📊', 'kafka_consumer_v2_stats', {
