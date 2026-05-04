@@ -9,7 +9,7 @@ from django.utils import timezone
 import structlog
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter
+from drf_spectacular.utils import OpenApiParameter, extend_schema_view
 from loginas.utils import is_impersonated_session
 from opentelemetry import trace
 from requests import HTTPError
@@ -41,7 +41,6 @@ from posthog.models.group_type_mapping import (
 )
 from posthog.models.user import User
 from posthog.personhog_client.converters import GroupTypeMappingResult
-from posthog.personhog_client.metrics import PERSONHOG_ROUTING_ERRORS_TOTAL, PERSONHOG_ROUTING_TOTAL, get_client_name
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
 from products.event_definitions.backend.models.property_definition import PropertyType
@@ -103,7 +102,7 @@ class GroupsTypesViewSet(
 ):
     scope_object = "group"
     serializer_class = GroupTypeSerializer
-    queryset = GroupTypeMapping.objects.all().order_by("group_type_index")
+    queryset = GroupTypeMapping.objects.all().order_by("group_type_index")  # nosemgrep: no-direct-persons-db-orm
     pagination_class = None
     sharing_enabled_actions = ["list"]
     lookup_field = "group_type_index"
@@ -115,7 +114,7 @@ class GroupsTypesViewSet(
     @action(detail=False, methods=["PATCH"], name="Update group types metadata")
     def update_metadata(self, request: request.Request, *args, **kwargs):
         for row in cast(list[dict], request.data):
-            instance = GroupTypeMapping.objects.get(
+            instance = GroupTypeMapping.objects.get(  # nosemgrep: no-direct-persons-db-orm
                 project_id=self.team.project_id, group_type_index=row["group_type_index"]
             )
             # Pre-populate the team FK cache so serializer access control checks
@@ -130,7 +129,7 @@ class GroupsTypesViewSet(
     @action(methods=["PUT"], detail=False)
     def create_detail_dashboard(self, request: request.Request, **kw):
         try:
-            group_type_mapping = GroupTypeMapping.objects.get(
+            group_type_mapping = GroupTypeMapping.objects.get(  # nosemgrep: no-direct-persons-db-orm
                 project_id=self.team.project_id, group_type_index=request.data["group_type_index"]
             )
         except GroupTypeMapping.DoesNotExist:
@@ -155,7 +154,7 @@ class GroupsTypesViewSet(
     @action(methods=["PUT"], detail=False)
     def set_default_columns(self, request: request.Request, **kw):
         try:
-            group_type_mapping = GroupTypeMapping.objects.get(
+            group_type_mapping = GroupTypeMapping.objects.get(  # nosemgrep: no-direct-persons-db-orm
                 project_id=self.team.project_id, group_type_index=request.data["group_type_index"]
             )
         except GroupTypeMapping.DoesNotExist:
@@ -201,7 +200,7 @@ class CreateGroupSerializer(serializers.ModelSerializer):
 @extend_schema(tags=["core"])
 class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.CreateModelMixin, viewsets.GenericViewSet):
     scope_object = "group"
-    queryset = Group.objects.all()
+    queryset = Group.objects.all()  # nosemgrep: no-direct-persons-db-orm
     pagination_class = GroupCursorPagination
     serializer_classes = {
         "find": FindGroupSerializer,
@@ -238,42 +237,12 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
         return get_object_or_404(queryset)
 
     def get_group_type_mapping_or_404(self, group_type_index: GroupTypeIndex) -> GroupTypeMappingResult:
-        from posthog.personhog_client.converters import fetch_group_type_mapping_result
-        from posthog.personhog_client.gate import use_personhog
+        from posthog.models.group_type_mapping import get_group_types_for_project
 
-        if use_personhog():
-            try:
-                result = fetch_group_type_mapping_result(self.team.project_id, group_type_index)
-                if result is not None:
-                    PERSONHOG_ROUTING_TOTAL.labels(
-                        operation="get_group_type_mapping_or_404", source="personhog", client_name=get_client_name()
-                    ).inc()
-                    return result
-                raise NotFound()
-            except NotFound:
-                raise
-            except Exception:
-                PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
-                    operation="get_group_type_mapping_or_404",
-                    source="personhog",
-                    error_type="grpc_error",
-                    client_name=get_client_name(),
-                ).inc()
-                logger.warning(
-                    "personhog_group_type_mapping_failure",
-                    project_id=self.team.project_id,
-                    group_type_index=group_type_index,
-                    exc_info=True,
-                )
-
-        try:
-            obj = GroupTypeMapping.objects.get(project_id=self.team.project_id, group_type_index=group_type_index)
-            PERSONHOG_ROUTING_TOTAL.labels(
-                operation="get_group_type_mapping_or_404", source="django_orm", client_name=get_client_name()
-            ).inc()
-            return GroupTypeMappingResult(group_type=obj.group_type, group_type_index=obj.group_type_index)
-        except GroupTypeMapping.DoesNotExist:
-            raise NotFound()
+        for m in get_group_types_for_project(self.team.project_id):
+            if m["group_type_index"] == group_type_index:
+                return GroupTypeMappingResult(group_type=m["group_type"], group_type_index=m["group_type_index"])
+        raise NotFound()
 
     def trigger_group_identify(self, group: Group, operation: str, group_properties: Optional[dict] = None):
         group_type_mapping = self.get_group_type_mapping_or_404(cast(GroupTypeIndex, group.group_type_index))
@@ -807,14 +776,121 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
         ResourceNotebook.objects.create(notebook=notebook, group=group.id)
 
 
+_DW_FILTER_REQUIRED_FIELDS = ("table_name", "timestamp_field", "key_field")
+
+
 class GroupUsageMetricSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
+    name = serializers.CharField(
+        max_length=255,
+        help_text="Name of the usage metric. Must be unique per group type within the project.",
+    )
+    format = serializers.ChoiceField(
+        choices=GroupUsageMetric.Format.choices,
+        default=GroupUsageMetric.Format.NUMERIC,
+        help_text="How the metric value is formatted in the UI. One of `numeric` or `currency`.",
+    )
+    interval = serializers.IntegerField(
+        default=7,
+        help_text="Rolling time window in days used to compute the metric. Defaults to 7.",
+    )
+    display = serializers.ChoiceField(
+        choices=GroupUsageMetric.Display.choices,
+        default=GroupUsageMetric.Display.NUMBER,
+        help_text="Visual representation in the UI. One of `number` or `sparkline`.",
+    )
+    filters = serializers.DictField(
+        help_text=(
+            "Filter definition for the metric. Two shapes are accepted, discriminated by an optional "
+            "`source` key.\n\n"
+            '**Events** (default, when `source` is missing or `"events"`): HogFunction filter shape — '
+            "`events: [...]`, optional `actions: [...]`, `properties: [...]`, `filter_test_accounts: bool`.\n\n"
+            '**Data warehouse** (`source: "data_warehouse"`): `table_name` (synced DW table), '
+            "`timestamp_field` (timestamp column or HogQL expression), `key_field` (column whose value "
+            "matches the entity key). Currently DW metrics only render on group profiles — person profiles "
+            "are not yet supported."
+        ),
+    )
+    math = serializers.ChoiceField(
+        choices=GroupUsageMetric.Math.choices,
+        default=GroupUsageMetric.Math.COUNT,
+        help_text=(
+            "Aggregation function. `count` counts matching events; `sum` sums the value of `math_property` "
+            "on matching events."
+        ),
+    )
+    math_property = serializers.CharField(
+        max_length=255,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text=(
+            "Required when `math` is `sum`; must be empty when `math` is `count`. For events metrics this "
+            "is an event property name. For data warehouse metrics this is the column name (or HogQL "
+            "expression) to sum on the DW table."
+        ),
+    )
+
     class Meta:
         model = GroupUsageMetric
-        fields = ("id", "name", "format", "interval", "display", "filters")
+        fields = ("id", "name", "format", "interval", "display", "filters", "math", "math_property")
+
+    def validate(self, data):
+        data = super().validate(data)
+
+        math = data.get("math", self.instance.math if self.instance else GroupUsageMetric.Math.COUNT)
+        math_property = data.get("math_property", self.instance.math_property if self.instance else None)
+        filters = data.get("filters", self.instance.filters if self.instance else None)
+
+        source = (filters or {}).get("source") if isinstance(filters, dict) else None
+
+        if source == GroupUsageMetric.Source.DATA_WAREHOUSE:
+            self._validate_data_warehouse(filters, math, math_property)
+        elif source in (None, GroupUsageMetric.Source.EVENTS):
+            self._validate_events(math, math_property)
+        else:
+            raise serializers.ValidationError({"filters": f"Unknown source: {source!r}"})
+
+        return data
+
+    def _validate_events(self, math, math_property):
+        if math == GroupUsageMetric.Math.SUM and not math_property:
+            raise serializers.ValidationError({"math_property": "math_property is required when math is 'sum'."})
+        if math == GroupUsageMetric.Math.COUNT and math_property:
+            raise serializers.ValidationError({"math_property": "math_property must be empty when math is 'count'."})
+
+    def _validate_data_warehouse(self, filters: dict, math, math_property):
+        from products.data_warehouse.backend.models import DataWarehouseTable
+
+        missing = [field for field in _DW_FILTER_REQUIRED_FIELDS if not filters.get(field)]
+        if missing:
+            raise serializers.ValidationError(
+                {"filters": f"Data warehouse metrics require {', '.join(_DW_FILTER_REQUIRED_FIELDS)}."}
+            )
+
+        if math == GroupUsageMetric.Math.SUM and not math_property:
+            raise serializers.ValidationError(
+                {"math_property": "math_property (column to sum) is required when math is 'sum'."}
+            )
+        if math == GroupUsageMetric.Math.COUNT and math_property:
+            raise serializers.ValidationError({"math_property": "math_property must be empty when math is 'count'."})
+
+        team = self.context["get_team"]()
+        if not DataWarehouseTable.objects.filter(team=team, name=filters["table_name"]).exclude(deleted=True).exists():
+            raise serializers.ValidationError(
+                {"filters": f"Data warehouse table {filters['table_name']!r} does not exist."}
+            )
 
 
+@extend_schema_view(
+    list=extend_schema(tags=["customer_analytics"]),
+    create=extend_schema(tags=["customer_analytics"]),
+    retrieve=extend_schema(tags=["customer_analytics"]),
+    update=extend_schema(tags=["customer_analytics"]),
+    partial_update=extend_schema(tags=["customer_analytics"]),
+    destroy=extend_schema(tags=["customer_analytics"]),
+)
 class GroupUsageMetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
-    scope_object = "group"
+    scope_object = "usage_metric"
     queryset = GroupUsageMetric.objects.all()
     serializer_class = GroupUsageMetricSerializer
 

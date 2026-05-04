@@ -15,7 +15,7 @@ type Params = z.infer<typeof schema>
 type Result = WithPostHogUrl<{ query: unknown; insight: Insight & { url: string }; results: unknown }>
 
 export const queryHandler: ToolBase<typeof schema, Result>['handler'] = async (context: Context, params: Params) => {
-    const { insightId, format } = params
+    const { insightId, output_format } = params
     const projectId = await context.stateManager.getProjectId()
 
     const insightResult = await context.api.insights({ projectId }).get({ insightId })
@@ -35,8 +35,7 @@ export const queryHandler: ToolBase<typeof schema, Result>['handler'] = async (c
     const path = `/insights/${insightResult.data.short_id}`
     const queryInfo = analyzeQuery(insightResult.data.query)
 
-    // Use server-side formatted results when format is 'optimized' and available
-    const useFormatted = format === 'optimized' && queryResult.data.formatted_results != null
+    const useFormatted = output_format === 'optimized' && queryResult.data.formatted_results != null
 
     if (useFormatted) {
         return withPostHogUrl(

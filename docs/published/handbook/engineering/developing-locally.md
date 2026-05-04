@@ -136,6 +136,12 @@ To get PostHog running in a dev environment:
 
 3. After successful environment activation, run `hogli start`. This launches the Docker infrastructure and all PostHog processes together via phrocs, a terminal UI that aggregates logs from all processes in one place.
 
+   > Note on connection errors: If you see connection errors on `hogli start`, ensure the following entry exists in `/etc/hosts`:
+   >
+   > ```text
+   > 127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal
+   > ```
+
 This is it – you should be seeing the PostHog app at <a href="http://localhost:8010" target="_blank">http://localhost:8010</a>.
 
 You can now change PostHog in any way you want. See [Project structure](./project-structure) for an intro to the repository's contents. To commit changes, create a new branch based on `master` for your intended change, and develop away.
@@ -143,6 +149,25 @@ You can now change PostHog in any way you want. See [Project structure](./projec
 ### Customizing which services run
 
 By default, `hogli start` runs a minimal set of services (enough for product analytics). To customize which services start, run `hogli dev:setup` which lets you select intents based on the products you're working on. Your choices are saved and used automatically by `hogli start`.
+
+### Running in detached mode
+
+By default, `hogli start` runs interactively with a terminal UI (phrocs) that displays logs from all processes. If you prefer to run the dev stack in the background without an attached terminal, use detached mode:
+
+```bash
+hogli up -d
+```
+
+This starts all services in the background and returns once the IPC socket is bound. `hogli start -d` is also available as an equivalent. Detached mode is useful for:
+
+- Coder workspaces and remote development environments
+- CI pipelines and automated testing
+- Agent sessions and headless development
+
+**Companion commands:**
+
+- `hogli wait` – blocks until all services are ready (useful in scripts)
+- `hogli down` – gracefully stops the detached stack (`hogli stop` is also available as an equivalent)
 
 ### Manual setup
 
@@ -205,7 +230,7 @@ When running `uv sync`, you may see a `Failed to parse` warning related to `pypr
 
 ## Option 2: Developing with Coder workspaces (PostHog employees only)
 
-If you work at PostHog and want a remote workspace instead of running the stack on your laptop, see the [internal Coder workspaces guide](../../../internal/coder-workspaces.md).
+If you work at PostHog and want a remote workspace instead of running the stack on your laptop, see the [internal Coder workspaces guide](https://github.com/PostHog/posthog/blob/master/docs/internal/coder-workspaces.md).
 
 ## Testing
 

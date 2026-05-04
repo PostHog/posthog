@@ -49,8 +49,8 @@ class Conversation(UUIDTModel):
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True, null=True)
     updated_at = models.DateTimeField(auto_now=True, null=True)
-    status = models.CharField(max_length=20, choices=Status.choices, default=Status.IDLE)
-    type = models.CharField(max_length=20, choices=Type.choices, default=Type.ASSISTANT)
+    status = models.CharField(max_length=20, choices=Status, default=Status.IDLE)
+    type = models.CharField(max_length=20, choices=Type, default=Type.ASSISTANT)
     title = models.CharField(
         null=True,
         blank=True,
@@ -171,6 +171,7 @@ class ConversationCheckpointWrite(UUIDTModel):
 
 MAX_ONBOARDING_QUESTIONS = 3
 ONBOARDING_TIMEOUT_MINUTES = 10
+CORE_MEMORY_MAX_CHARACTERS = 10_000
 
 
 class CoreMemory(UUIDTModel):
@@ -185,7 +186,7 @@ class CoreMemory(UUIDTModel):
         help_text="Dumped core memory where facts are separated by newlines.",
     )
     initial_text = models.TextField(default="", help_text="Scraped memory about the business.")
-    scraping_status = models.CharField(max_length=20, choices=ScrapingStatus.choices, blank=True, null=True)
+    scraping_status = models.CharField(max_length=20, choices=ScrapingStatus, blank=True, null=True)
     scraping_started_at = models.DateTimeField(null=True)
 
     async def achange_status_to_pending(self):
@@ -229,16 +230,25 @@ class CoreMemory(UUIDTModel):
         await self.asave()
 
     async def aappend_core_memory(self, text: str):
-        if self.text == "":
-            self.text = text
-        else:
-            self.text = self.text + "\n" + text
+        new_text = text if self.text == "" else self.text + "\n" + text
+        if len(new_text) > CORE_MEMORY_MAX_CHARACTERS:
+            raise ValueError(
+                f"Memory is full ({len(self.text)}/{CORE_MEMORY_MAX_CHARACTERS} characters used)."
+                " Please free up space in Settings → PostHog AI before adding new memories."
+            )
+        self.text = new_text
         await self.asave()
 
     async def areplace_core_memory(self, original_fragment: str, new_fragment: str):
         if original_fragment not in self.text:
             raise ValueError(f"Original fragment {original_fragment} not found in core memory")
-        self.text = self.text.replace(original_fragment, new_fragment)
+        new_text = self.text.replace(original_fragment, new_fragment)
+        if len(new_text) > CORE_MEMORY_MAX_CHARACTERS:
+            raise ValueError(
+                f"Replacement would exceed memory limit ({CORE_MEMORY_MAX_CHARACTERS} characters)."
+                " Please free up space in Settings → PostHog AI first."
+            )
+        self.text = new_text
         await self.asave()
 
     @property
@@ -264,7 +274,7 @@ class AgentArtifact(UUIDModel, CreatedMetaFields, UpdatedMetaFields, DeletedMeta
 
     short_id = models.CharField(max_length=4, default=generate_short_id)
     name = models.CharField(max_length=400)
-    type = models.CharField(max_length=50, choices=Type.choices)
+    type = models.CharField(max_length=50, choices=Type)
     data = models.JSONField(help_text="Artifact content. Structure depends on artifact type.")
     conversation = models.ForeignKey(Conversation, on_delete=models.CASCADE, related_name="artifacts")
     team = models.ForeignKey(Team, on_delete=models.CASCADE)

@@ -21,6 +21,15 @@ if (request.method != 'POST') {
 }
 
 if (not inputs.bypass_signature_check) {
+  if (empty(inputs.signing_secret)) {
+    return {
+      'httpResponse': {
+        'status': 400,
+        'body': 'Signing secret not configured',
+      }
+    }
+  }
+
   let body := request.stringBody
   let signatureHeader := request.headers['stripe-signature']
 

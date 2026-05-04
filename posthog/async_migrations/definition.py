@@ -82,9 +82,6 @@ class AsyncMigrationDefinition:
     # list of versions accepted for the services the migration relies on e.g. ClickHouse, Postgres
     service_version_requirements: list[ServiceVersionRequirement] = []
 
-    # list of operations the migration will perform _in order_
-    operations: list[AsyncMigrationOperation] = []
-
     # name of async migration this migration depends on
     depends_on: Optional[str] = None
 
@@ -93,6 +90,10 @@ class AsyncMigrationDefinition:
 
     def __init__(self, name: str):
         self.name = name
+
+    @property
+    def operations(self) -> list[AsyncMigrationOperation]:
+        return []
 
     # will be run before starting the migration, return a boolean specifying if the instance needs this migration
     # e.g. instances where fresh setups are already set up correctly

@@ -970,6 +970,7 @@ class TestFileSystemAPI(APIBaseTest):
         fs = FileSystem.objects.get(team=self.team, path=path)
         self.assertEqual(fs.created_by_id, self.user.pk)
         self.assertEqual(fs.created_at, ts_1)
+        assert fs.meta is not None
         self.assertEqual(fs.meta["created_by"], self.user.pk)
         self.assertEqual(fs.meta["created_at"], ts_1.isoformat())
 
@@ -990,6 +991,7 @@ class TestFileSystemAPI(APIBaseTest):
 
         fs.refresh_from_db()
         self.assertEqual(fs.created_at, ts_2)
+        assert fs.meta is not None
         self.assertEqual(fs.meta["created_at"], ts_2.isoformat())
 
     def test_meta_sync_via_unfiled_endpoint(self):
@@ -1023,6 +1025,7 @@ class TestFileSystemAPI(APIBaseTest):
         self.assertEqual(fs.created_by_id, flag.created_by_id)
 
         # meta mirrors those values
+        assert fs.meta is not None
         self.assertEqual(fs.meta.get("created_by"), flag.created_by_id)
         self.assertTrue(fs.meta.get("created_at").startswith(flag.created_at.isoformat().replace("T", " ")[:19]))
 

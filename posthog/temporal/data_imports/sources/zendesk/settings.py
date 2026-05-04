@@ -1,10 +1,10 @@
 """Zendesk source settings and constants"""
 
-from dlt.common import pendulum
+from datetime import UTC, datetime
 
 from products.data_warehouse.backend.types import IncrementalField, IncrementalFieldType
 
-DEFAULT_START_DATE = pendulum.datetime(year=2000, month=1, day=1)
+DEFAULT_START_DATE = datetime(year=2000, month=1, day=1, tzinfo=UTC)
 PAGE_SIZE = 100
 INCREMENTAL_PAGE_SIZE = 1000
 

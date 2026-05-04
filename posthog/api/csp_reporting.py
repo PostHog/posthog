@@ -4,6 +4,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 
 from posthog.api.csp import CSP_REPORT_TYPES_MAPPING_TABLE
+from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
 prompt = r"""
@@ -38,6 +39,7 @@ Do not include any additional commentary, metadata, or headings.
 
 class CSPReportingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "INTERNAL"
+    serializer_class = _FallbackSerializer
     permission_classes = [IsAuthenticated]
 
     @action(detail=False, methods=["POST"])

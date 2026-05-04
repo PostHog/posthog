@@ -110,7 +110,7 @@ const TriggerPopover = ({
                     }
                     onClick={() => {
                         if (workflow?.trigger?.type === 'batch') {
-                            triggerBatchWorkflow(variableValues, workflow?.trigger?.filters || { properties: [] }, null)
+                            triggerBatchWorkflow(variableValues, workflow?.trigger?.filters || { properties: [] })
                         } else {
                             triggerManualWorkflow(variableValues)
                         }

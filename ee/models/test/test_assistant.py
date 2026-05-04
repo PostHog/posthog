@@ -5,7 +5,7 @@ from posthog.test.base import BaseTest
 
 from django.utils import timezone
 
-from ee.models.assistant import CoreMemory
+from ee.models.assistant import CORE_MEMORY_MAX_CHARACTERS, CoreMemory
 
 
 class TestCoreMemory(BaseTest):
@@ -83,6 +83,29 @@ class TestCoreMemory(BaseTest):
         # Test replacing non-existent content
         with self.assertRaises(ValueError):
             await self.core_memory.areplace_core_memory("nonexistent", "new")
+
+    async def test_append_exceeds_limit(self):
+        await self.core_memory.aset_core_memory("x" * (CORE_MEMORY_MAX_CHARACTERS - 5))
+        with self.assertRaises(ValueError) as ctx:
+            await self.core_memory.aappend_core_memory("y" * 10)
+        self.assertIn("full", str(ctx.exception))
+        # Text should be unchanged
+        await self.core_memory.arefresh_from_db()
+        self.assertEqual(self.core_memory.text, "x" * (CORE_MEMORY_MAX_CHARACTERS - 5))
+
+    async def test_append_at_exact_limit(self):
+        await self.core_memory.aset_core_memory("x" * (CORE_MEMORY_MAX_CHARACTERS - 6))
+        # 5 chars of existing + "\n" + 5 chars = CORE_MEMORY_MAX_CHARACTERS - 6 + 1 + 5 = CORE_MEMORY_MAX_CHARACTERS
+        await self.core_memory.aappend_core_memory("y" * 5)
+        self.assertEqual(len(self.core_memory.text), CORE_MEMORY_MAX_CHARACTERS)
+
+    async def test_replace_exceeds_limit(self):
+        await self.core_memory.aset_core_memory("x" * CORE_MEMORY_MAX_CHARACTERS)
+        with self.assertRaises(ValueError) as ctx:
+            await self.core_memory.areplace_core_memory("x", "yy")
+        self.assertIn("limit", str(ctx.exception))
+        await self.core_memory.arefresh_from_db()
+        self.assertEqual(self.core_memory.text, "x" * CORE_MEMORY_MAX_CHARACTERS)
 
     async def test_formatted_text(self):
         # Test formatted text with short content

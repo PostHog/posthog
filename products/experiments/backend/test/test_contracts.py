@@ -26,7 +26,7 @@ class TestContractImmutability:
         ("instance", "field_name", "new_value"),
         [
             pytest.param(
-                FeatureFlagVariant(key="test", rollout_percentage=50),
+                FeatureFlagVariant(key="test", split_percent=50),
                 "key",
                 "modified",
                 id="FeatureFlagVariant",
@@ -34,7 +34,7 @@ class TestContractImmutability:
             pytest.param(
                 CreateFeatureFlagInput(
                     key="test",
-                    variants=(FeatureFlagVariant(key="control", rollout_percentage=100),),
+                    variants=(FeatureFlagVariant(key="control", split_percent=100),),
                 ),
                 "key",
                 "modified",
@@ -96,13 +96,13 @@ class TestContractHashability:
         "instance",
         [
             pytest.param(
-                FeatureFlagVariant(key="test", rollout_percentage=50),
+                FeatureFlagVariant(key="test", split_percent=50),
                 id="FeatureFlagVariant",
             ),
             pytest.param(
                 CreateFeatureFlagInput(
                     key="test",
-                    variants=(FeatureFlagVariant(key="control", rollout_percentage=100),),
+                    variants=(FeatureFlagVariant(key="control", split_percent=100),),
                 ),
                 id="CreateFeatureFlagInput",
             ),
@@ -112,7 +112,7 @@ class TestContractHashability:
                     feature_flag_key="test-flag",
                     feature_flag_filters=CreateFeatureFlagInput(
                         key="test-flag",
-                        variants=(FeatureFlagVariant(key="control", rollout_percentage=100),),
+                        variants=(FeatureFlagVariant(key="control", split_percent=100),),
                     ),
                 ),
                 id="CreateExperimentInput_with_feature_flag_filters",
@@ -175,12 +175,12 @@ class TestFeatureFlagVariant:
         variant = FeatureFlagVariant(
             key="control",
             name="Control",
-            rollout_percentage=50,
+            split_percent=50,
         )
 
         assert variant.key == "control"
         assert variant.name == "Control"
-        assert variant.rollout_percentage == 50
+        assert variant.split_percent == 50
 
 
 class TestCreateFeatureFlagInput:
@@ -189,8 +189,8 @@ class TestCreateFeatureFlagInput:
         input_dto = CreateFeatureFlagInput(
             key="my-flag",
             variants=(
-                FeatureFlagVariant(key="control", rollout_percentage=50),
-                FeatureFlagVariant(key="test", rollout_percentage=50),
+                FeatureFlagVariant(key="control", split_percent=50),
+                FeatureFlagVariant(key="test", split_percent=50),
             ),
         )
 
@@ -204,8 +204,8 @@ class TestCreateFeatureFlagInput:
             key="my-flag",
             name="My Flag",
             variants=(
-                FeatureFlagVariant(key="control", rollout_percentage=50),
-                FeatureFlagVariant(key="test", rollout_percentage=50),
+                FeatureFlagVariant(key="control", split_percent=50),
+                FeatureFlagVariant(key="test", split_percent=50),
             ),
             rollout_percentage=100,
             aggregation_group_type_index=0,
@@ -238,8 +238,8 @@ class TestCreateExperimentInput:
             key="my-flag",
             name="My Flag",
             variants=(
-                FeatureFlagVariant(key="control", rollout_percentage=50),
-                FeatureFlagVariant(key="test", rollout_percentage=50),
+                FeatureFlagVariant(key="control", split_percent=50),
+                FeatureFlagVariant(key="test", split_percent=50),
             ),
         )
 

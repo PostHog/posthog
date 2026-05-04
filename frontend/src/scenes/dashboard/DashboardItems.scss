@@ -2,8 +2,12 @@
     width: 100%; // This provides the width for the dashboard items grid
     padding-top: 0.5rem;
 
-    .InsightCard__viz .InsightVizDisplay .LineGraph {
-        padding: 0.25rem;
+    .InsightCard__viz {
+        z-index: 0; // Keep viz below CardMeta details overlay on dashboards
+
+        .InsightVizDisplay .LineGraph {
+            padding: 0.25rem;
+        }
     }
 }
 

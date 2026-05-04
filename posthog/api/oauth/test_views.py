@@ -452,6 +452,95 @@ class TestOAuthAPI(APIBaseTest):
         self.assertNotEqual(data["access_token"], access_token)
         self.assertNotEqual(data["refresh_token"], refresh_token)
 
+    def _create_cimd_app_and_grant(
+        self,
+        *,
+        slug: str,
+        cimd_metadata_url: str,
+        name: str,
+    ) -> tuple[OAuthApplication, OAuthGrant]:
+        app = OAuthApplication.objects.create(
+            name=name,
+            client_id=f"cimd-client-id-{slug}",
+            client_secret="",
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="http://localhost:8239/callback",
+            user=self.user,
+            algorithm="RS256",
+            is_cimd_client=True,
+            cimd_metadata_url=cimd_metadata_url,
+        )
+        grant = OAuthGrant.objects.create(
+            application=app,
+            user=self.user,
+            code=f"cimd-code-{slug}",
+            code_challenge=self.code_challenge,
+            code_challenge_method="S256",
+            expires=timezone.now() + timedelta(minutes=1),
+            redirect_uri="http://localhost:8239/callback",
+            scope="openid",
+            scoped_organizations=[str(self.organization.id)],
+            scoped_teams=[],
+        )
+        return app, grant
+
+    def _exchange_code_for_token(self, app: OAuthApplication, grant: OAuthGrant):
+        # Uses the internal UUID client_id rather than cimd_metadata_url so we
+        # exercise the validator-level suppression in _should_skip_refresh_token
+        # without also invoking the CIMD fetch/validate path (which would require
+        # HTTP mocks). Both entry paths converge on the same in-memory client.
+        return self.post(
+            "/oauth/token/",
+            {
+                "grant_type": "authorization_code",
+                "client_id": app.client_id,
+                "redirect_uri": "http://localhost:8239/callback",
+                "code_verifier": self.code_verifier,
+                "code": grant.code,
+            },
+        )
+
+    @parameterized.expand(
+        [
+            ("us", "https://us.posthog.com/api/oauth/wizard/client-metadata"),
+            ("eu", "https://eu.posthog.com/api/oauth/wizard/client-metadata"),
+        ]
+    )
+    def test_wizard_cimd_client_does_not_issue_refresh_token(self, region: str, wizard_cimd_url: str):
+        wizard_app, grant = self._create_cimd_app_and_grant(
+            slug=f"wizard-{region}",
+            cimd_metadata_url=wizard_cimd_url,
+            name="PostHog Wizard",
+        )
+
+        response = self._exchange_code_for_token(wizard_app, grant)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+
+        self.assertIn("access_token", body)
+        self.assertNotIn("refresh_token", body)
+        self.assertFalse(OAuthRefreshToken.objects.filter(application=wizard_app).exists())
+
+    def test_non_wizard_cimd_client_still_issues_refresh_token(self):
+        # Ensures the allowlist is targeted: CIMD clients that aren't the wizard
+        # keep the default refresh-token behavior.
+        other_app, grant = self._create_cimd_app_and_grant(
+            slug="other-cimd",
+            cimd_metadata_url="https://example.com/oauth/client-metadata",
+            name="Third-Party CIMD Client",
+        )
+
+        response = self._exchange_code_for_token(other_app, grant)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+
+        self.assertIn("access_token", body)
+        self.assertIn("refresh_token", body)
+        self.assertTrue(OAuthRefreshToken.objects.filter(application=other_app).exists())
+
     @freeze_time("2025-01-01 00:00:00")
     def test_token_endpoint_invalid_client_credentials(self):
         grant = OAuthGrant.objects.create(
@@ -1045,6 +1134,47 @@ class TestOAuthAPI(APIBaseTest):
         new_access_token = refresh_response.json()["access_token"]
         db_token = OAuthAccessToken.objects.get(token=new_access_token)
         self.assertEqual(db_token.scoped_teams, [self.team.id])
+
+    @freeze_time("2026-01-01 00:00:00")
+    def test_refresh_succeeds_when_only_scoped_teams_is_set(self):
+        """scoped_teams and scoped_organizations are both nullable ArrayFields. Historically
+        they could be set independently — a token scoped to a team often had
+        scoped_organizations=None. Refresh should still succeed: the downstream permission
+        checks (posthog/permissions.py, team_access_cache.py, Rust flag service) already
+        treat None and [] as equivalent, so we only raise when BOTH are missing."""
+        access_token = OAuthAccessToken.objects.create(
+            application=self.confidential_application,
+            user=self.user,
+            token="test_legacy_access_token",
+            expires=timezone.now() + timedelta(hours=1),
+            scope="openid",
+            scoped_teams=[self.team.id],
+            scoped_organizations=None,
+        )
+        OAuthRefreshToken.objects.create(
+            application=self.confidential_application,
+            user=self.user,
+            token="test_legacy_refresh_token",
+            access_token=access_token,
+            scoped_teams=[self.team.id],
+            scoped_organizations=None,
+        )
+
+        refresh_response = self.post(
+            "/oauth/token/",
+            {
+                "grant_type": "refresh_token",
+                "refresh_token": "test_legacy_refresh_token",
+                "client_id": self.confidential_application.client_id,
+                "client_secret": "test_confidential_client_secret",
+            },
+        )
+        self.assertEqual(refresh_response.status_code, status.HTTP_200_OK)
+
+        new_access_token_value = refresh_response.json()["access_token"]
+        new_access_token = OAuthAccessToken.objects.get(token=new_access_token_value)
+        self.assertEqual(new_access_token.scoped_teams, [self.team.id])
+        self.assertIsNone(new_access_token.scoped_organizations)
 
     def test_revoked_refresh_token_invalidates_access_tokens(self):
         response = self.client.post("/oauth/authorize/", self.base_authorization_post_body)
@@ -2666,6 +2796,12 @@ class TestOAuthAPI(APIBaseTest):
         self.assertNotIn("posthog_base_url", data)
 
 
+@override_settings(
+    OAUTH2_PROVIDER={
+        **settings.OAUTH2_PROVIDER,
+        "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
+    }
+)
 class TestLocalhostLoopbackRedirectUri(APIBaseTest):
     """
     Tests for RFC 8252 Section 7.3 — loopback redirect URIs must allow any port.
@@ -2806,6 +2942,15 @@ class TestOAuthAuthorizationServerMetadata(APIBaseTest):
         # Resource scopes (from get_scope_descriptions) are in format "resource:action"
         resource_scopes = [s for s in scopes if ":" in s]
         self.assertGreater(len(resource_scopes), 0, "Should have resource scopes like 'event_definition:read'")
+
+    def test_metadata_excludes_internal_scope_objects(self):
+        response = self.client.get("/.well-known/oauth-authorization-server")
+        metadata = response.json()
+        scopes = metadata["scopes_supported"]
+        for scope in scopes:
+            assert not scope.startswith("clickhouse_test_cluster_perf:"), (
+                f"Internal scope {scope} must not be advertised in OAuth metadata"
+            )
 
     def test_metadata_accessible_without_authentication(self):
         self.client.logout()

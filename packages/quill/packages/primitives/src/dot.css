@@ -1,0 +1,106 @@
+@layer components {
+    .quill-dot {
+        font-weight: 500;
+        border: 1px solid transparent;
+        border-radius: 9999px;
+        transition: all 0.15s ease;
+    }
+
+    .quill-dot__pulse {
+        background-color: transparent;
+        border: 0.5px solid currentColor;
+        border-radius: 9999px;
+    }
+
+    .quill-dot__inner {
+        width: 0.5rem;
+        height: 0.5rem;
+        border-radius: 9999px;
+    }
+
+    .quill-dot--pulse .quill-dot__inner {
+        animation-duration: 2s;
+        animation-delay: -4s;
+    }
+
+    /* Variants — text = outer color ring, inner = solid fill, pulse = border color */
+    .quill-dot--variant-default {
+        color: var(--accent);
+    }
+
+    .quill-dot--variant-default .quill-dot__inner {
+        background-color: color-mix(in oklab, var(--accent-foreground) 40%, transparent);
+    }
+
+    .quill-dot--variant-default .quill-dot__pulse {
+        border-color: color-mix(in oklab, var(--accent-foreground) 40%, transparent);
+    }
+
+    .quill-dot--variant-info {
+        color: var(--info);
+    }
+
+    .quill-dot--variant-info .quill-dot__inner {
+        background-color: var(--info-foreground);
+    }
+
+    .quill-dot--variant-info .quill-dot__pulse {
+        border-color: var(--info-foreground);
+    }
+
+    .quill-dot--variant-destructive {
+        color: var(--destructive);
+    }
+
+    .quill-dot--variant-destructive .quill-dot__inner {
+        background-color: var(--destructive-foreground);
+    }
+
+    .quill-dot--variant-destructive .quill-dot__pulse {
+        border-color: var(--destructive-foreground);
+    }
+
+    .quill-dot--variant-warning {
+        color: var(--warning);
+    }
+
+    .quill-dot--variant-warning .quill-dot__inner {
+        background-color: var(--warning-foreground);
+    }
+
+    .quill-dot--variant-warning .quill-dot__pulse {
+        border-color: var(--warning-foreground);
+    }
+
+    .quill-dot--variant-success {
+        color: var(--success);
+    }
+
+    .quill-dot--variant-success .quill-dot__inner {
+        background-color: var(--success-foreground);
+    }
+
+    .quill-dot--variant-success .quill-dot__pulse {
+        border-color: var(--success-foreground);
+    }
+
+    @media (prefers-reduced-motion: no-preference) {
+        .quill-dot__pulse {
+            animation: var(--animate-radar, radar 2s ease-out infinite);
+        }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .quill-dot__pulse {
+            display: none;
+        }
+    }
+
+    @media (prefers-reduced-motion: no-preference) {
+        .quill-dot--pulse .quill-dot__inner {
+            animation-name: pulse;
+            animation-timing-function: cubic-bezier(0.4, 0, 0.6, 1);
+            animation-iteration-count: infinite;
+        }
+    }
+}

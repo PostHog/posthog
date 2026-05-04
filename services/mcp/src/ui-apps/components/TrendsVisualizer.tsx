@@ -46,6 +46,9 @@ function prepareChartData(results: TrendsResultItem[]): {
 
 function calculateTotal(results: TrendsResultItem[]): number {
     return results.reduce((sum, item) => {
+        if (typeof item.aggregated_value === 'number') {
+            return sum + item.aggregated_value
+        }
         if (typeof item.count === 'number') {
             return sum + item.count
         }

@@ -186,6 +186,11 @@ function BatchExportLatestRuns({ id, context }: BatchExportRunsLogicProps): JSX.
                         render: (_, run) => <TZLabel time={run.created_at} />,
                     },
                     {
+                        title: 'Error',
+                        key: 'latestError',
+                        render: (_, run) => <LatestErrorCell error={run.latest_error} />,
+                    },
+                    {
                         key: 'actions',
                         width: 0,
                         render: function RenderActions(_, run) {
@@ -297,6 +302,11 @@ export function BatchExportRunsGrouped({
                                         tooltip: 'Date and time when this run started',
                                         render: (_, run) => <TZLabel time={run.created_at} />,
                                     },
+                                    {
+                                        title: 'Error',
+                                        key: 'latestError',
+                                        render: (_, run) => <LatestErrorCell error={run.latest_error} />,
+                                    },
                                 ]}
                             />
                         )
@@ -348,6 +358,11 @@ export function BatchExportRunsGrouped({
                         render: (_, groupedRun) => {
                             return <TZLabel time={groupedRun.last_run_at} />
                         },
+                    },
+                    {
+                        title: 'Error',
+                        key: 'latestError',
+                        render: (_, groupedRun) => <LatestErrorCell error={groupedRun.runs[0]?.latest_error} />,
                     },
                     {
                         key: 'actions',
@@ -491,6 +506,29 @@ const combineFailedStatuses = (status: BatchExportRun['status']): BatchExportRun
         return 'Failed'
     }
     return status
+}
+
+function parseError(error: string): { name: string; message: string } | null {
+    const match = error.match(/^(\w+):(.+)/)
+    if (match) {
+        return { name: match[1], message: match[2].trim() }
+    }
+    return null
+}
+
+function LatestErrorCell({ error }: { error?: string | null }): JSX.Element | null {
+    if (!error) {
+        return null
+    }
+    const parsed = parseError(error)
+    return (
+        <Tooltip title={error} interactive>
+            <div className="max-w-[30vw]">
+                <div className="font-medium">{parsed ? parsed.name : 'Error'}</div>
+                <div className="text-muted truncate text-xs">{parsed ? parsed.message : error}</div>
+            </div>
+        </Tooltip>
+    )
 }
 
 function RecordsExportedCell({ run }: { run: BatchExportRun }): JSX.Element | string {

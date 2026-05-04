@@ -140,6 +140,16 @@ from posthog.errors import clickhouse_error_type, wrap_clickhouse_query_error
             184,
             "CHQueryErrorIllegalAggregation",
         ),
+        (
+            ServerException(
+                "Code: 60. DB::Exception: Unknown table expression identifier 'nonexistent'.",
+                code=60,
+            ),
+            "CHQueryErrorUnknownTable",
+            "Unknown table expression identifier 'nonexistent'.",
+            60,
+            "CHQueryErrorUnknownTable",
+        ),
     ],
 )
 def test_wrap_clickhouse_query_error(error, expected_type, expected_message, expected_code, expected_ch_error):

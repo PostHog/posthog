@@ -157,4 +157,5 @@ class TestDataWarehouseSavedQueryDraft(APIBaseTest):
         # Verify it was actually saved to the database
         draft_obj = DataWarehouseSavedQueryDraft.objects.get(id=draft["id"])
         self.assertIsNotNone(draft_obj.saved_query)
+        assert draft_obj.saved_query is not None
         self.assertEqual(draft_obj.saved_query.id, saved_query.id)

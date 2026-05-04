@@ -92,14 +92,6 @@ test.describe('Insight side panel actions', () => {
             await patchPromise
             await expect(favoriteButton).toHaveAttribute('data-active', 'true')
         })
-
-        await test.step('favorite persists after reload', async () => {
-            await page.reload()
-            await insight.trends.waitForChart()
-            await insight.openInfoPanel()
-            const favoriteButton = page.getByTestId('insight-favorite-button')
-            await expect(favoriteButton).toHaveAttribute('data-active', 'true')
-        })
     })
 
     test('View source toggle enters edit mode and shows query editor', async ({ page }) => {

@@ -1,3 +1,5 @@
+from typing import Any
+
 import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
@@ -11,7 +13,7 @@ TEST_PREFIX = "Test-Exports"
 
 class TestSiteURLReachability(APIBaseTest):
     @patch("posthog.tasks.exports.exporter_utils.logger")
-    def test_url_not_reachable_exception(self, logger_mock):
+    def test_url_not_reachable_exception(self, logger_mock: Any) -> None:
         test_url = "http://some-bad-url.test"
         with self.settings(SITE_URL=test_url):
             try:
@@ -25,7 +27,7 @@ class TestSiteURLReachability(APIBaseTest):
             assert isinstance(logger_mock.error.call_args[1]["exception"], RequestException)
 
     @patch("posthog.tasks.exports.exporter_utils.logger")
-    def test_url_not_reachable_error_status(self, logger_mock):
+    def test_url_not_reachable_error_status(self, logger_mock: Any) -> None:
         test_url = "http://some-status-bad-url.test"
         with self.settings(SITE_URL=test_url):
             with patch("posthog.tasks.exports.exporter_utils.requests.get") as mock_request:
@@ -41,7 +43,7 @@ class TestSiteURLReachability(APIBaseTest):
                 assert str(logger_mock.error.call_args[1]["exception"]) == "HTTP status code: 500"
 
     @patch("posthog.tasks.exports.exporter_utils.logger")
-    def test_url_reachable_success(self, logger_mock):
+    def test_url_reachable_success(self, logger_mock: Any) -> None:
         test_url = "http://some-good-url.test"
         with self.settings(SITE_URL=test_url):
             with patch("posthog.tasks.exports.exporter_utils.requests.get") as mock_request:

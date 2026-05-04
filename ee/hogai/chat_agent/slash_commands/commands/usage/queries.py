@@ -6,7 +6,7 @@ import posthoganalytics
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
-from posthog.clickhouse.query_tagging import Product, tags_context
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.tasks.usage_report import (
     AI_BILLING_EXCLUDED_TOOLS,
     AI_COST_MARKUP_PERCENT,
@@ -48,7 +48,7 @@ def _get_billing_config_payload() -> dict | None:
         }
     }
     """
-    payload: dict | None = posthoganalytics.get_feature_flag_payload(  # type: ignore[assignment]
+    payload: dict | None = posthoganalytics.get_feature_flag_payload(  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
         "posthog-ai-billing-free-tier-credits", "internal_billing_events"
     )
 
@@ -143,7 +143,12 @@ def get_ai_credits(
 
     usage_report_kind = "posthog_ai_credits_for_conversation" if conversation_id else "posthog_ai_credits_for_team"
 
-    with tags_context(product=Product.MAX_AI, usage_report=usage_report_kind, kind=usage_report_kind):
+    with tags_context(
+        product=Product.MAX_AI,
+        feature=Feature.POSTHOG_AI,
+        usage_report=usage_report_kind,
+        kind=usage_report_kind,
+    ):
         query = f"""
         WITH trace_analysis AS (
             WITH %(excluded_tools)s AS excluded_tools
@@ -239,7 +244,7 @@ def get_ai_credits(
         WHERE t.is_billable = 1 OR t.trace_id IS NULL
         """
 
-        params = {
+        params: dict[str, int | datetime | float | list[str] | str] = {
             "team_id": team_id,
             "team_to_query": team_to_query,
             "begin": begin,

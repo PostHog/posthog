@@ -5,14 +5,16 @@ from django.http import HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 
 import structlog
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema
-from PIL import Image
+from PIL import Image, ImageOps
 from rest_framework import status, viewsets
 from rest_framework.exceptions import APIException, UnsupportedMediaType, ValidationError
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from statshog.defaults.django import statsd
 
+from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import UploadedMedia
 from posthog.models.uploaded_media import ObjectStorageUnavailable
@@ -20,7 +22,33 @@ from posthog.storage import object_storage
 
 FOUR_MEGABYTES = 4 * 1024 * 1024
 
+# Content types safe to render inline in a browser when served from the
+# unauthenticated /uploaded_media endpoint. Anything outside this set is
+# served as a download with a generic content type so stored HTML/SVG/etc.
+# cannot execute script in the application origin.
+_INLINE_SAFE_CONTENT_TYPES = frozenset(
+    {
+        "image/png",
+        "image/jpeg",
+        "image/jpg",
+        "image/gif",
+        "image/webp",
+        "image/avif",
+        "image/bmp",
+    }
+)
+
 logger = structlog.getLogger(__name__)
+
+
+def _normalize_content_type(value: str | None) -> str:
+    if not value:
+        return ""
+    return value.split(";", 1)[0].strip().lower()
+
+
+def _is_inline_safe_content_type(content_type: str | None) -> bool:
+    return _normalize_content_type(content_type) in _INLINE_SAFE_CONTENT_TYPES
 
 
 def validate_image_file(file: Optional[bytes], user: int) -> bool:
@@ -38,7 +66,7 @@ def validate_image_file(file: Optional[bytes], user: int) -> bool:
 
     try:
         im = Image.open(BytesIO(file))
-        im.transpose(Image.FLIP_LEFT_RIGHT)
+        ImageOps.mirror(im)
         im.close()
         return True
     except Exception as e:
@@ -64,6 +92,8 @@ def download(request, *args, **kwargs) -> HttpResponse:
     except UploadedMedia.DoesNotExist:
         return HttpResponse(status=404)
 
+    if instance.media_location is None:
+        return HttpResponse(status=404)
     file_bytes = object_storage.read_bytes(instance.media_location)
 
     statsd.incr(
@@ -71,16 +101,33 @@ def download(request, *args, **kwargs) -> HttpResponse:
         tags={"team_id": instance.team_id, "uuid": kwargs["image_uuid"]},
     )
 
+    # Defense in depth against stored XSS: files whose content type is not on
+    # an inline-safe allowlist (raster images) are served as an opaque download
+    # with a generic content type so any malicious HTML/SVG/JS can't execute
+    # in the application origin — even if it slipped past upload validation.
+    # CSPMiddleware layers on `default-src 'none'` for all non-HTML responses,
+    # and SecurityMiddleware already emits X-Content-Type-Options: nosniff.
+    response_headers: dict[str, str] = {
+        "Cache-Control": "public, max-age=315360000, immutable",
+    }
+
+    if _is_inline_safe_content_type(instance.content_type):
+        response_content_type = instance.content_type
+    else:
+        response_content_type = "application/octet-stream"
+        response_headers["Content-Disposition"] = "attachment"
+
     return HttpResponse(
         file_bytes,
-        content_type=instance.content_type,
-        headers={"Cache-Control": "public, max-age=315360000, immutable"},
+        content_type=response_content_type,
+        headers=response_headers,
     )
 
 
 class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "uploaded_media"
     queryset = UploadedMedia.objects.all()
+    serializer_class = _FallbackSerializer
     parser_classes = (MultiPartParser, FormParser)
 
     @extend_schema(
@@ -88,7 +135,8 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     When object storage is available this API allows upload of media which can be used, for example, in text cards on dashboards.
 
     Uploaded media must have a content type beginning with 'image/' and be less than 4MB.
-    """
+    """,
+        responses={201: OpenApiTypes.OBJECT},
     )
     def create(self, request, *args, **kwargs) -> Response:
         try:
@@ -110,6 +158,8 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
                 # to save having to copy the stream so that we can read it to verify the image,
                 # save it to minio anyway and then delete the record if it's not valid
+                if uploaded_media.media_location is None:
+                    raise APIException("Could not read uploaded media")
                 bytes_to_verify = object_storage.read_bytes(uploaded_media.media_location)
                 if not validate_image_file(bytes_to_verify, user=request.user.id):
                     statsd.incr(

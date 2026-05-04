@@ -1,9 +1,10 @@
 import { definitionPopoverLogic } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import type { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
 
 import type { DatabaseSchemaField } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
+
+import type { DataWarehouseTableForInsight } from 'products/data_warehouse/frontend/types'
 
 import { funnelDataWarehouseStepDefinitionPopoverLogic } from './funnelDataWarehouseStepDefinitionPopoverLogic'
 

@@ -7,13 +7,14 @@ import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { objectsEqual } from 'lib/utils'
-import { getDefaultSessionsSceneQuery } from 'scenes/activity/explore/defaults'
+import { applyTestAccountFilter, getDefaultSessionsSceneQuery } from 'scenes/activity/explore/defaults'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
+import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { Node } from '~/queries/schema/schema-general'
+import { DataTableNode, Node } from '~/queries/schema/schema-general'
 import { ActivityTab, Breadcrumb } from '~/types'
 
 import type { sessionsSceneLogicType } from './sessionsSceneLogicType'
@@ -21,16 +22,17 @@ import type { sessionsSceneLogicType } from './sessionsSceneLogicType'
 export const sessionsSceneLogic = kea<sessionsSceneLogicType>([
     path(['scenes', 'sessions', 'sessionsSceneLogic']),
     tabAwareScene(),
-    connect(() => ({ values: [teamLogic, ['currentTeam']] })),
+    connect(() => ({
+        values: [teamLogic, ['currentTeam'], filterTestAccountsDefaultsLogic, ['filterTestAccountsDefault']],
+    })),
 
     actions({ setQuery: (query: Node) => ({ query }) }),
     reducers({ savedQuery: [null as Node | null, { setQuery: (_, { query }) => query }] }),
     selectors({
         defaultQuery: [
-            () => [],
-            (): Node => {
-                return getDefaultSessionsSceneQuery()
-            },
+            (s) => [s.currentTeam, s.filterTestAccountsDefault],
+            (currentTeam, filterTestAccountsDefault): DataTableNode =>
+                applyTestAccountFilter(getDefaultSessionsSceneQuery(), currentTeam, filterTestAccountsDefault),
         ],
         query: [(s) => [s.savedQuery, s.defaultQuery], (savedQuery, defaultQuery): Node => savedQuery || defaultQuery],
         breadcrumbs: [

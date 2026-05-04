@@ -86,8 +86,6 @@ export function createInsightStory(
                         // sql insights
                         columns: (insight as any).columns,
                         types: (insight as any).types,
-                        // trends box plot insight
-                        boxplot_data: (insight as any).boxplot_data,
                     }),
                 ],
             },

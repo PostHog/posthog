@@ -102,7 +102,7 @@ class LabelQuery(models.Lookup):
     def as_sql(self, compiler, connection):
         lhs, lhs_params = self.process_lhs(compiler, connection)
         rhs, rhs_params = self.process_rhs(compiler, connection)
-        params = lhs_params + rhs_params
+        params = [*lhs_params, *rhs_params]
         return "%s ~ %s" % (lhs, rhs), params  # noqa: UP031
 
 
@@ -118,7 +118,7 @@ class LabelQueryArray(models.Lookup):
     def as_sql(self, compiler, connection):
         lhs, lhs_params = self.process_lhs(compiler, connection)
         rhs, rhs_params = self.process_rhs(compiler, connection)
-        params = lhs_params + rhs_params
+        params = [*lhs_params, *rhs_params]
         return "%s ? %s" % (lhs, rhs), params  # noqa: UP031
 
 
@@ -360,10 +360,13 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
         Raises:
             ValueError: If no paths exists for the provided `DataWarehouseSavedQuery`.
         """
+        model_query_value = saved_query.query.get("query") if isinstance(saved_query.query, dict) else None
+        model_query = model_query_value if isinstance(model_query_value, str) else ""
+
         return self.create_leaf_paths_from_query(
             team=saved_query.team,
             model_name=saved_query.name,
-            model_query=saved_query.query["query"],
+            model_query=model_query,
             saved_query_id=saved_query.id,
             created_by=saved_query.created_by,
             label=saved_query.id.hex,
@@ -515,10 +518,13 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
         if not self.filter(team=saved_query.team, saved_query=saved_query).exists():
             raise ValueError("Provided saved query contains no paths to update.")
 
+        model_query_value = saved_query.query.get("query") if isinstance(saved_query.query, dict) else None
+        model_query = model_query_value if isinstance(model_query_value, str) else ""
+
         self.update_paths_from_query(
             team=saved_query.team,
             model_name=saved_query.name,
-            model_query=saved_query.query["query"],
+            model_query=model_query,
             label=saved_query.id.hex,
             saved_query_id=saved_query.id,
         )
@@ -590,7 +596,8 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
                             parent_id = parent_query.id.hex
 
                     cursor.execute(CYCLE_CHECK_QUERY, params={"team_id": team.pk, "child": label, "parent": parent_id})
-                    if cursor.fetchone()[0]:
+                    cycle_exists_row = cursor.fetchone()
+                    if cycle_exists_row is not None and cycle_exists_row[0]:
                         raise ModelPathCycleError(child=label, parent=parent_id)
 
                     cursor.execute(UPDATE_PATHS_QUERY, params={**{"child": label, "parent": parent_id}, **base_params})

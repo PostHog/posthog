@@ -102,6 +102,7 @@ class ClickhouseCluster:
         logger: logging.Logger | None = None,
         client_settings: Mapping[str, str] | None = None,
         cluster: str | None = None,
+        data_cluster: str | None = None,
         satellite_clusters: Sequence[str] | None = None,
         retry_policy: RetryPolicy | None = None,
         connection_overrides: Mapping[str, Any] | None = None,
@@ -131,10 +132,37 @@ class ClickhouseCluster:
             )
             (self.__shards[shard_num] if host_info.shard_num is not None else self.__extra_hosts).add(host_info)
 
+        # posthog_migrations may not include all DATA nodes — discover them from
+        # the main posthog cluster which has the complete shard topology
+        if data_cluster and data_cluster != migrations_cluster:
+            self.__shards.clear()
+            data_hosts = self.__get_cluster_hosts(bootstrap_client, data_cluster, retry_policy)
+            for row in data_hosts:
+                (host_name, port, shard_num, replica_num, host_cluster_type, host_cluster_role) = row
+                if host_cluster_role == NodeRole.DATA:
+                    host_info = HostInfo(
+                        ConnectionInfo(
+                            host_name,
+                            port=port if (settings.E2E_TESTING or settings.DEBUG) else None,
+                        ),
+                        shard_num,
+                        replica_num,
+                        host_cluster_type,
+                        host_cluster_role,
+                    )
+                    self.__shards[shard_num].add(host_info)
+            logger.info(
+                "Discovered %d DATA nodes across %d shards from cluster %r",
+                sum(len(s) for s in self.__shards.values()),
+                len(self.__shards),
+                data_cluster,
+            )
+
         for satellite_name in satellite_clusters or []:
             satellite_hosts = self.__get_satellite_cluster_hosts(
                 bootstrap_client, satellite_name, migrations_cluster, retry_policy
             )
+            logger.info("Discovered %d hosts from satellite cluster %r", len(satellite_hosts), satellite_name)
             for row in satellite_hosts:
                 (host_name, port, _shard_num, _replica_num, host_cluster_type, host_cluster_role) = row
                 host_info = HostInfo(
@@ -243,6 +271,13 @@ class ClickhouseCluster:
             ):
                 if host.connection_info not in seen:
                     seen[host.connection_info] = host
+        logger.info(
+            "Matched %d hosts for roles %s (from %d candidates): %s",
+            len(seen),
+            node_roles,
+            len(hosts),
+            [f"{h.connection_info.host}({h.host_cluster_role})" for h in seen.values()],
+        )
         return set(seen.values())
 
     @property
@@ -465,6 +500,7 @@ def get_cluster(
     logger: logging.Logger | None = None,
     client_settings: Mapping[str, str] | None = None,
     cluster: str | None = None,
+    data_cluster: str | None = None,
     satellite_clusters: Sequence[str] | None = None,
     retry_policy: RetryPolicy | None = None,
     host: str = settings.CLICKHOUSE_HOST,
@@ -480,6 +516,7 @@ def get_cluster(
         logger=logger,
         client_settings=client_settings,
         cluster=cluster,
+        data_cluster=data_cluster,
         satellite_clusters=satellite_clusters,
         retry_policy=retry_policy,
         connection_overrides=connection_overrides,

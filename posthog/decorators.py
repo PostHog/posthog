@@ -97,9 +97,9 @@ def cached_by_filters(f: Callable[[U, Request], T]) -> Callable[[U, Request], T]
             result = fresh_result_package.get("result")
             if not isinstance(result, dict) or not result.get("loading"):
                 timestamp = now()
-                fresh_result_package["last_refresh"] = timestamp
-                fresh_result_package["is_cached"] = False
-                fresh_result_package["query_method"] = query_method
+                fresh_result_package["last_refresh"] = timestamp  # ty: ignore[invalid-assignment]
+                fresh_result_package["is_cached"] = False  # ty: ignore[invalid-assignment]
+                fresh_result_package["query_method"] = query_method  # ty: ignore[invalid-assignment]
                 update_cached_state(team.pk, cache_key, timestamp, fresh_result_package)
 
         return fresh_result_package

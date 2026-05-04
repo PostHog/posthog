@@ -1,8 +1,6 @@
 from datetime import date
 from typing import Any
 
-from django.db.models import ForeignKey
-
 from posthog.models import FeatureFlag
 
 from products.surveys.backend.models import Survey
@@ -25,8 +23,8 @@ def _update_survey_iteration(survey: Survey) -> None:
         survey.save(update_fields=["current_iteration", "current_iteration_start_date", "internal_targeting_flag_id"])
 
 
-def _get_targeting_flag(survey: Survey) -> ForeignKey | ForeignKey | Any:
-    existing_targeting_flag = survey.internal_targeting_flag
+def _get_targeting_flag(survey: Survey) -> FeatureFlag | Any:
+    existing_targeting_flag: FeatureFlag | None = survey.internal_targeting_flag
     user_submitted_dismissed_filter = {
         "groups": [
             {
@@ -50,8 +48,7 @@ def _get_targeting_flag(survey: Survey) -> ForeignKey | ForeignKey | Any:
         ]
     }
 
-    if existing_targeting_flag:
-        existing_targeting_flag = survey.internal_targeting_flag
+    if existing_targeting_flag is not None:
         # Note: new filters must come LAST to overwrite old iteration-unaware properties
         serialized_data_filters = {**existing_targeting_flag.filters, **user_submitted_dismissed_filter}
         existing_targeting_flag.filters = serialized_data_filters

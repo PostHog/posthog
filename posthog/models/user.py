@@ -1,6 +1,6 @@
 from collections.abc import Callable
 from functools import cached_property
-from typing import TYPE_CHECKING, Any, Optional, TypedDict
+from typing import TYPE_CHECKING, Any, Optional, TypedDict, cast
 
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.db import models, transaction
@@ -84,8 +84,6 @@ class UserManager(BaseUserManager):
     def get_queryset(self):
         return super().get_queryset().defer(*DEFERED_ATTRS)
 
-    model: type["User"]
-
     use_in_migrations = True
 
     def create_user(self, email: str, password: Optional[str], first_name: str, **extra_fields) -> "User":
@@ -94,7 +92,7 @@ class UserManager(BaseUserManager):
             raise ValueError("Email must be provided!")
         email = EmailNormalizer.normalize(email)
         extra_fields.setdefault("distinct_id", generate_random_token())
-        user = self.model(email=email, first_name=first_name, **extra_fields)
+        user = cast("User", self.model(email=email, first_name=first_name, **extra_fields))
         if password is not None:
             # nosemgrep: python.django.security.audit.unvalidated-password.unvalidated-password (validation happens at serializer/view layer before reaching this method)
             user.set_password(password)
@@ -165,9 +163,15 @@ class ShortcutPosition(models.TextChoices):
     HIDDEN = "hidden", "Hidden"
 
 
-class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):
+class OnboardingSkippedReason(models.TextChoices):
+    DELEGATED = "delegated", "Delegated to teammate"
+    LATER = "later", "Skipped for later"
+    OTHER = "other", "Other"
+
+
+class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore[django-manager-missing]
     USERNAME_FIELD = "email"
-    REQUIRED_FIELDS: list[str] = []
+    REQUIRED_FIELDS = []
 
     DISABLED = "disabled"
     TOOLBAR = "toolbar"
@@ -196,7 +200,7 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):
     role_at_organization = models.CharField(max_length=64, choices=ROLE_CHOICES, null=True, blank=True)
     # Preferences / configuration options
 
-    theme_mode = models.CharField(max_length=20, null=True, blank=True, choices=ThemeMode.choices)
+    theme_mode = models.CharField(max_length=20, null=True, blank=True, choices=ThemeMode)
     # These override the notification settings
     partial_notification_settings = models.JSONField(null=True, blank=True)
     anonymize_data = models.BooleanField(default=False, null=True, blank=True)
@@ -205,7 +209,7 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):
     hedgehog_config = models.JSONField(null=True, blank=True)
     allow_sidebar_suggestions = models.BooleanField(default=True, null=True, blank=True)
     shortcut_position = models.CharField(
-        max_length=20, null=True, blank=True, choices=ShortcutPosition.choices, default=ShortcutPosition.ABOVE
+        max_length=20, null=True, blank=True, choices=ShortcutPosition, default=ShortcutPosition.ABOVE
     )
     passkeys_enabled_for_2fa = models.BooleanField(
         default=False,
@@ -213,6 +217,36 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):
         blank=True,
         help_text="Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.",
     )
+
+    # Onboarding exit tracking. Set when the user explicitly leaves the onboarding flow (skip or delegate).
+    ONBOARDING_SKIPPED_REASONS = OnboardingSkippedReason.choices
+    onboarding_skipped_at = models.DateTimeField(null=True, blank=True)
+    onboarding_skipped_reason = models.CharField(
+        max_length=32, null=True, blank=True, choices=ONBOARDING_SKIPPED_REASONS
+    )
+    # Scopes the skip to a specific organization so a user who skips onboarding in Org A
+    # still sees onboarding when they switch to Org B. Read by `isOnboardingRedirectSuppressed`
+    # on the frontend, which only suppresses the redirect when this matches the current org.
+    onboarding_skipped_organization_id = models.UUIDField(null=True, blank=True)
+    # Index is created out-of-band via `CREATE INDEX CONCURRENTLY` in a follow-up migration —
+    # see 1138_onboarding_delegated_to_invite_index. `db_index=False` keeps Django's base AddField
+    # from emitting a blocking CREATE INDEX on posthog_user during deploy.
+    onboarding_delegated_to_invite = models.ForeignKey(
+        "posthog.OrganizationInvite",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="delegating_users",
+        db_index=False,
+    )
+    # Denormalized org id: filled when the delegation invite is created so that `/api/users/@me/`
+    # doesn't need an extra DB query per page load just to surface which org the delegation is scoped to.
+    # Not a ForeignKey to avoid extra ALTER TABLE lock overhead on posthog_user. Dangling rows on
+    # Organization deletion are tolerated — frontend compares this against current org.id and
+    # treats a no-match the same as "no delegation"; consistency is restored the next time the
+    # delegation state transitions (accept/cancel/expire).
+    onboarding_delegated_to_organization_id = models.UUIDField(null=True, blank=True)
+    onboarding_delegation_accepted_at = models.DateTimeField(null=True, blank=True)
 
     # DEPRECATED
     events_column_config = models.JSONField(default=events_column_config_default)
@@ -223,9 +257,9 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):
     temporary_token = deprecate_field(models.CharField(max_length=200, null=True, blank=True, unique=True))
 
     # Remove unused attributes from `AbstractUser`
-    username = None
+    username = cast(Any, None)
 
-    objects: UserManager = UserManager()
+    objects: UserManager = UserManager()  # type: ignore[assignment,misc]
 
     # Reverse relation from social_django.UserSocialAuth.user (related_name="social_auth"); not a DB column.
     if TYPE_CHECKING:
@@ -242,7 +276,7 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):
         return instance
 
     @property
-    def is_superuser(self) -> bool:
+    def is_superuser(self) -> bool:  # type: ignore[override]
         return self.is_staff
 
     @cached_property
@@ -310,7 +344,7 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):
                     accessible_team_ids = accessible_private_team_ids | role_accessible_team_ids
 
                     # Build the list of all accessible team IDs
-                    all_accessible_team_ids = set()
+                    all_accessible_team_ids: set[int] = set()
 
                     # Add teams from organizations where user is admin
                     admin_teams = Team.objects.filter(
@@ -355,15 +389,32 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):
     def get_github_login(self) -> str | None:
         """Resolve this user's GitHub login.
 
-        Checks GitHub App integrations created by this user first (populated during
-        GitHub App installation with user authorization), then falls back to social auth.
-
-        When called from a context with prefetched data (e.g. ``_prefetched_github_integrations``
-        or ``social_auth``), the prefetch cache is used. Otherwise, queries are issued.
+        Precedence:
+        1. `UserIntegration` (kind=github) - the user's own GitHub integration
+        2. `UserSocialAuth` (provider=github) - fallback for users who log in with GitHub but haven't set up a `UserIntegration` yet
+        3. Team `Integration` `connecting_user_github_login` - legacy fallback from before the user integration model existed
         """
         from posthog.models.integration import Integration
+        from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 
-        # Check GitHub integrations created by this user
+        user_integration = UserIntegration.objects.filter(user=self, kind="github").first()
+        if user_integration:
+            login = UserGitHubIntegration(user_integration).github_login
+            if login:
+                return login
+
+        for sa in self.social_auth.all():
+            if sa.provider != "github":
+                continue
+            login_val = getattr(sa, "_prefetched_github_login", None)
+            if login_val:
+                return str(login_val)
+            if isinstance(sa.extra_data, dict):
+                login = sa.extra_data.get("login")
+                if login:
+                    return str(login)
+
+        # Fall back to team Integration identity captured at install time.
         prefetched_integrations = getattr(self, "_prefetched_github_integrations", None)
         if prefetched_integrations is not None:
             for integration in prefetched_integrations:
@@ -380,17 +431,6 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):
             if login:
                 return str(login)
 
-        # Fall back to social auth
-        for sa in self.social_auth.all():
-            if sa.provider != "github":
-                continue
-            login_val = getattr(sa, "_prefetched_github_login", None)
-            if login_val:
-                return str(login_val)
-            if isinstance(sa.extra_data, dict):
-                login = sa.extra_data.get("login")
-                if login:
-                    return str(login)
         return None
 
     def join(
@@ -436,7 +476,6 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):
                     },
                 )
 
-        self.update_billing_organization_users(organization)
         return membership
 
     @property
@@ -464,7 +503,6 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):
                 )
                 self.team = self.current_team  # Update cached property
                 self.save()
-        self.update_billing_organization_users(organization)
 
     def update_billing_organization_users(self, organization: Organization) -> None:
         from ee.billing.billing_manager import BillingManager  # avoid circular import

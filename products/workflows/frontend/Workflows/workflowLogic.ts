@@ -164,18 +164,15 @@ export const workflowLogic = kea<workflowLogicType>([
         setScheduleRepeating: (repeating: boolean) => ({ repeating }),
         setSchedules: (schedules: HogFlowSchedule[]) => ({ schedules }),
         saveWorkflowPartial: (workflow: Partial<HogFlow>) => ({ workflow }),
-        triggerManualWorkflow: (variables: Record<string, any>, scheduledAt?: string | null) => ({
+        triggerManualWorkflow: (variables: Record<string, any>) => ({
             variables,
-            scheduledAt,
         }),
         triggerBatchWorkflow: (
             variables: Record<string, any>,
-            filters: Extract<HogFlowAction['config'], { type: 'batch' }>['filters'],
-            scheduledAt?: string | null
+            filters: Extract<HogFlowAction['config'], { type: 'batch' }>['filters']
         ) => ({
             variables,
             filters,
-            scheduledAt,
         }),
         discardChanges: true,
         duplicate: true,
@@ -646,7 +643,7 @@ export const workflowLogic = kea<workflowLogicType>([
                 const hasValidTrigger =
                     (config.type === 'event' &&
                         (config.filters?.events?.length > 0 || config.filters?.actions?.length > 0)) ||
-                    (config.type === 'schedule' && config.scheduled_at) ||
+                    config.type === 'schedule' ||
                     (config.type === 'batch' && config.filters?.properties?.length > 0)
                 if (hasValidTrigger) {
                     globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.ConfigureWorkflowTrigger)
@@ -778,7 +775,7 @@ export const workflowLogic = kea<workflowLogicType>([
                 return
             }
         },
-        triggerBatchWorkflow: async ({ variables, filters, scheduledAt }) => {
+        triggerBatchWorkflow: async ({ variables, filters }) => {
             if (!values.workflow.id || values.workflow.id === 'new') {
                 lemonToast.error('You need to save the workflow before triggering it manually.')
                 return
@@ -790,7 +787,6 @@ export const workflowLogic = kea<workflowLogicType>([
                 await api.hogFlows.createHogFlowBatchJob(values.workflow.id, {
                     variables,
                     filters,
-                    scheduled_at: scheduledAt,
                 })
                 lemonToast.success('Batch workflow triggered', {
                     button: {

@@ -370,20 +370,15 @@ function escapeSqlString(value: string): string {
 }
 
 export function getSurveyResponse(question: SurveyQuestion, index: number): string {
-    const { indexBasedKey, idBasedKey } = getResponseFieldWithId(index, question.id)
-
+    // Delegate to the backend HogQL helper so survey response typing stays
+    // consistent with PropertyDefinition metadata and materialized column rules.
     if (question.type === SurveyQuestionType.MultipleChoice) {
-        return `if(
-        JSONHas(events.properties, '${idBasedKey}') AND length(JSONExtractArrayRaw(events.properties, '${idBasedKey}')) > 0,
-        JSONExtractArrayRaw(events.properties, '${idBasedKey}'),
-        JSONExtractArrayRaw(events.properties, '${indexBasedKey}')
-    )`
+        return question.id
+            ? `getSurveyResponse(${index}, '${question.id}', true)`
+            : `getSurveyResponse(${index}, '', true)`
     }
 
-    return `COALESCE(
-        NULLIF(events.properties['${idBasedKey}'], ''),
-        NULLIF(events.properties['${indexBasedKey}'], '')
-    )`
+    return question.id ? `getSurveyResponse(${index}, '${question.id}')` : `getSurveyResponse(${index})`
 }
 
 /**
@@ -581,9 +576,16 @@ export function doesSurveyHaveDisplayConditions(survey: Survey | NewSurvey): boo
     return false
 }
 
+export function buildSurveyOptionalBooleanPropertyFilter(
+    propertyName: SurveyEventProperties,
+    excludedValue: 'true' | 'false'
+): string {
+    return `coalesce(JSONExtractString(properties, '${propertyName}'), '') != '${excludedValue}'`
+}
+
 export function buildPartialResponsesFilter(survey: Survey, dateRange?: SurveyDateRange | null): string {
     if (!survey.enable_partial_responses) {
-        return `AND coalesce(properties.\`${SurveyEventProperties.SURVEY_COMPLETED}\` = true, true)`
+        return `AND ${buildSurveyOptionalBooleanPropertyFilter(SurveyEventProperties.SURVEY_COMPLETED, 'false')}`
     }
 
     const { fromDate, toDate } = getResolvedSurveyDateRange(survey, dateRange)
@@ -1114,34 +1116,46 @@ export function getSurveyDisplayConditionsSummary(survey: Survey | NewSurvey): S
     return parts
 }
 
-export function getSurveyNotificationFilters(
-    surveyId: string,
-    onlyCompletedResponses: boolean = true
-): CyclotronJobFiltersType {
-    const properties: EventPropertyFilter[] = [
+export function getSurveyNotificationFilters(surveyId: string): CyclotronJobFiltersType {
+    const sentEventProperties: EventPropertyFilter[] = [
         {
             key: SurveyEventProperties.SURVEY_ID,
             type: PropertyFilterType.Event,
             value: surveyId,
             operator: PropertyOperator.Exact,
         },
-    ]
-
-    if (onlyCompletedResponses) {
-        properties.push({
+        {
             key: SurveyEventProperties.SURVEY_COMPLETED,
             type: PropertyFilterType.Event,
             value: true,
             operator: PropertyOperator.Exact,
-        })
-    }
+        },
+    ]
 
     return {
         events: [
             {
                 id: SurveyEventName.SENT,
                 type: 'events',
-                properties,
+                properties: sentEventProperties,
+            },
+            {
+                id: SurveyEventName.DISMISSED,
+                type: 'events',
+                properties: [
+                    {
+                        key: SurveyEventProperties.SURVEY_ID,
+                        type: PropertyFilterType.Event,
+                        value: surveyId,
+                        operator: PropertyOperator.Exact,
+                    },
+                    {
+                        key: SurveyEventProperties.SURVEY_PARTIALLY_COMPLETED,
+                        type: PropertyFilterType.Event,
+                        value: true,
+                        operator: PropertyOperator.Exact,
+                    },
+                ],
             },
         ],
     }

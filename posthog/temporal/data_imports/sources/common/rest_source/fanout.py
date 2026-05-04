@@ -17,7 +17,6 @@ class FanoutEndpointLike(Protocol):
     incremental_fields: list[Any]
     default_incremental_field: str | None
     page_size: int
-    primary_key: str | list[str]
 
 
 @dataclass(frozen=True)
@@ -86,7 +85,6 @@ def build_dependent_resource(
     parent_resource: EndpointResource = {
         "name": fanout.parent_name,
         "table_name": fanout.parent_name,
-        "primary_key": parent_config.primary_key,
         "write_disposition": "replace",
         "endpoint": parent_endpoint_config,
         "table_format": "delta",
@@ -127,7 +125,6 @@ def build_dependent_resource(
     child_resource: EndpointResource = {
         "name": child_endpoint,
         "table_name": child_endpoint,
-        "primary_key": child_config.primary_key,
         "write_disposition": ({"disposition": "merge", "strategy": "upsert"} if use_merge else "replace"),
         "include_from_parent": fanout.include_from_parent,
         "endpoint": child_endpoint_config,

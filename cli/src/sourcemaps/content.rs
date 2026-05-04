@@ -22,6 +22,30 @@ pub struct SourceMapContent {
     pub fields: BTreeMap<String, Value>,
 }
 
+impl SourceMapContent {
+    /// True when the sourcemap carries no symbolication payload — empty `mappings`,
+    /// no `sources`, and no `names`. Such maps upload successfully but are useless
+    /// for stack trace resolution, and usually indicate a bundler misconfiguration.
+    pub fn is_empty(&self) -> bool {
+        let mappings_empty = self
+            .fields
+            .get("mappings")
+            .and_then(|v| v.as_str())
+            .is_none_or(str::is_empty);
+        let sources_empty = self
+            .fields
+            .get("sources")
+            .and_then(|v| v.as_array())
+            .is_none_or(Vec::is_empty);
+        let names_empty = self
+            .fields
+            .get("names")
+            .and_then(|v| v.as_array())
+            .is_none_or(Vec::is_empty);
+        mappings_empty && sources_empty && names_empty
+    }
+}
+
 #[derive(Debug)]
 pub struct SourceMapFile {
     pub inner: SourceFile<SourceMapContent>,
@@ -113,6 +137,10 @@ impl SourceMapFile {
 
     pub fn set_release_id(&mut self, release_id: Option<String>) {
         self.inner.content.release_id = release_id;
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.inner.content.is_empty()
     }
 }
 
@@ -310,5 +338,70 @@ impl TryInto<SymbolSetUpload> for SourceMapFile {
             release_id,
             data,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn content_from(value: Value) -> SourceMapContent {
+        serde_json::from_value(value).expect("Failed to build SourceMapContent")
+    }
+
+    #[test]
+    fn is_empty_true_for_all_empty_fields() {
+        let sm = content_from(json!({
+            "version": 3,
+            "file": "index-abc.js",
+            "mappings": "",
+            "names": [],
+            "sources": [],
+            "sourcesContent": [],
+        }));
+        assert!(sm.is_empty());
+    }
+
+    #[test]
+    fn is_empty_true_when_fields_missing() {
+        let sm = content_from(json!({
+            "version": 3,
+            "file": "index-abc.js",
+        }));
+        assert!(sm.is_empty());
+    }
+
+    #[test]
+    fn is_empty_false_with_mappings_only() {
+        let sm = content_from(json!({
+            "version": 3,
+            "mappings": "AAAA",
+            "names": [],
+            "sources": [],
+        }));
+        assert!(!sm.is_empty());
+    }
+
+    #[test]
+    fn is_empty_false_with_sources_only() {
+        let sm = content_from(json!({
+            "version": 3,
+            "mappings": "",
+            "names": [],
+            "sources": ["foo.ts"],
+        }));
+        assert!(!sm.is_empty());
+    }
+
+    #[test]
+    fn is_empty_false_with_names_only() {
+        let sm = content_from(json!({
+            "version": 3,
+            "mappings": "",
+            "names": ["x"],
+            "sources": [],
+        }));
+        assert!(!sm.is_empty());
     }
 }

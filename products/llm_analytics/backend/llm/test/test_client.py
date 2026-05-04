@@ -41,6 +41,7 @@ class TestProviderRouting(SimpleTestCase):
             ("openai",),
             ("anthropic",),
             ("gemini",),
+            ("together_ai",),
             ("openrouter",),
             ("fireworks",),
         ]
@@ -57,6 +58,33 @@ class TestProviderRouting(SimpleTestCase):
         with pytest.raises(UnsupportedProviderError) as exc:
             _get_provider("unsupported")
         assert "unsupported" in str(exc.value)
+
+    def test_get_provider_azure_openai_reads_encrypted_config(self):
+        from products.llm_analytics.backend.llm.client import _get_provider
+        from products.llm_analytics.backend.llm.providers.azure_openai import AzureOpenAIAdapter
+
+        mock_key = MagicMock()
+        mock_key.encrypted_config = {
+            "api_key": "irrelevant",
+            "azure_endpoint": "https://contoso.openai.azure.com/",
+            "api_version": "2025-01-01",
+        }
+
+        provider = _get_provider("azure_openai", mock_key)
+
+        assert isinstance(provider, AzureOpenAIAdapter)
+        assert provider.azure_endpoint == "https://contoso.openai.azure.com/"
+        assert provider.api_version == "2025-01-01"
+
+    def test_get_provider_azure_openai_without_provider_key_uses_defaults(self):
+        from products.llm_analytics.backend.llm.client import _get_provider
+        from products.llm_analytics.backend.llm.providers.azure_openai import DEFAULT_API_VERSION, AzureOpenAIAdapter
+
+        provider = _get_provider("azure_openai")
+
+        assert isinstance(provider, AzureOpenAIAdapter)
+        assert provider.azure_endpoint == ""
+        assert provider.api_version == DEFAULT_API_VERSION
 
 
 class TestProviderMismatchValidation(SimpleTestCase):
@@ -92,6 +120,7 @@ class TestProviderMismatchValidation(SimpleTestCase):
         client._validate_provider("openai")
         client._validate_provider("anthropic")
         client._validate_provider("gemini")
+        client._validate_provider("together_ai")
         client._validate_provider("openrouter")
         client._validate_provider("fireworks")
 

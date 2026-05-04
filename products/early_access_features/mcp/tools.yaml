@@ -9,20 +9,6 @@ feature: early_access_features
 url_prefix: /early_access_features
 ui_apps: {}
 tools:
-    early-access-feature-list:
-        operation: early_access_feature_list
-        enabled: true
-        scopes:
-            - early_access_feature:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        list: true
-        title: List early access features
-        description: >
-            List early access features in the current project. Returns name, stage, description, linked feature flag,
-            and creation date for each feature.
     early-access-feature-create:
         operation: early_access_feature_create
         enabled: true
@@ -44,8 +30,21 @@ tools:
             - documentation_url
             - payload
             - feature_flag_id
-    early-access-feature-retrieve:
-        operation: early_access_feature_retrieve
+    early-access-feature-destroy:
+        operation: early_access_feature_destroy
+        enabled: true
+        scopes:
+            - early_access_feature:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete early access feature
+        description: >
+            Delete an early access feature by ID. Clears enrollment conditions from the linked feature flag but does not
+            delete the flag itself.
+    early-access-feature-list:
+        operation: early_access_feature_list
         enabled: true
         scopes:
             - early_access_feature:read
@@ -53,14 +52,11 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        enrich_url: '{id}'
-        title: Get early access feature
+        list: true
+        title: List early access features
         description: >
-            Get a single early access feature by ID. Returns full details including the linked feature flag
-            configuration.
-    early-access-feature-update:
-        operation: early_access_feature_update
-        enabled: false
+            List early access features in the current project. Returns name, stage, description, linked feature flag,
+            and creation date for each feature.
     early-access-feature-partial-update:
         operation: early_access_feature_partial_update
         enabled: true
@@ -80,16 +76,20 @@ tools:
             - description
             - stage
             - documentation_url
-    early-access-feature-destroy:
-        operation: early_access_feature_destroy
+    early-access-feature-retrieve:
+        operation: early_access_feature_retrieve
         enabled: true
         scopes:
-            - early_access_feature:write
+            - early_access_feature:read
         annotations:
-            readOnly: false
-            destructive: true
+            readOnly: true
+            destructive: false
             idempotent: true
-        title: Delete early access feature
+        enrich_url: '{id}'
+        title: Get early access feature
         description: >
-            Delete an early access feature by ID. Clears enrollment conditions from the linked feature flag but does not
-            delete the flag itself.
+            Get a single early access feature by ID. Returns full details including the linked feature flag
+            configuration.
+    early-access-feature-update:
+        operation: early_access_feature_update
+        enabled: false

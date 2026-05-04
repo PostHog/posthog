@@ -42,6 +42,13 @@
 </p>
 {% endif %}
 
+{% if change_summary %}
+<div style="padding: 16px; background-color: #f0f4ff; border: 1px solid #d0d8f0; border-radius: 4px; margin-bottom: 16px;">
+    <p style="margin: 0 0 8px 0; font-weight: bold;">AI summary:</p>
+    <div style="margin: 0;">{{ change_summary|linebreaksbr }}</div>
+</div>
+{% endif %}
+
 {% for asset in asset_data %}
     {% if asset.error %}
         <div class="insight-error mb" style="padding: 16px; background-color: #fee; border: 1px solid #fcc; border-radius: 4px; margin-bottom: 16px;">

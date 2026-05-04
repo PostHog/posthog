@@ -6,14 +6,11 @@ from typing import Any, Optional
 
 from django.db.models import Prefetch
 
-import posthoganalytics
 from structlog.contextvars import bind_contextvars
 from structlog.typing import FilteringBoundLogger
 from temporalio import activity
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
-from posthog.exceptions_capture import capture_exception
-from posthog.models import Team
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.heartbeat import LivenessHeartbeater as Heartbeater
 from posthog.temporal.common.logger import get_logger
@@ -29,6 +26,7 @@ from posthog.temporal.data_imports.pipelines.pipeline_sync import PipelineInputs
 from posthog.temporal.data_imports.row_tracking import setup_row_tracking
 from posthog.temporal.data_imports.sources import SourceRegistry
 from posthog.temporal.data_imports.sources.common.base import ResumableSource, SimpleSource
+from posthog.temporal.data_imports.sources.common.http import bind_job_context
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.postgres.exceptions import CDCHandledExternally
 
@@ -92,6 +90,14 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
         await logger.adebug("Running import_data_activity")
 
         source_type = ExternalDataSourceType(model.pipeline.source_type)
+
+        bind_job_context(
+            team_id=inputs.team_id,
+            source_type=str(source_type),
+            external_data_source_id=inputs.source_id,
+            external_data_schema_id=inputs.schema_id,
+            external_data_job_id=inputs.run_id,
+        )
 
         job_inputs = PipelineInputs(
             source_id=inputs.source_id,
@@ -213,34 +219,16 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
 
 
 async def _is_pipeline_v3_enabled(team_id: int, source_type: str, logger: FilteringBoundLogger) -> bool:
-    try:
-        team = await database_sync_to_async_pool(Team.objects.only("uuid", "organization_id").get)(id=team_id)
-    except Team.DoesNotExist:
-        return False
+    from posthog.temporal.data_imports.workflow_activities.create_job_model import (
+        _is_pipeline_v3_enabled as _sync_check,
+    )
 
-    try:
-        enabled = await database_sync_to_async_pool(posthoganalytics.feature_enabled)(
-            WAREHOUSE_PIPELINES_V3_FLAG,
-            str(team.uuid),
-            groups={
-                "organization": str(team.organization_id),
-                "project": str(team.id),
-            },
-            group_properties={
-                "organization": {"id": str(team.organization_id), "source_type": source_type},
-                "project": {"id": str(team.id), "source_type": source_type},
-            },
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
+    enabled = await database_sync_to_async_pool(_sync_check)(team_id, source_type)
+    if enabled:
+        logger.debug(
+            f"Feature flag '{WAREHOUSE_PIPELINES_V3_FLAG}' is enabled for team {team_id} source_type {source_type}"
         )
-        if enabled:
-            logger.debug(
-                f"Feature flag '{WAREHOUSE_PIPELINES_V3_FLAG}' is enabled for team {team_id} source_type {source_type}"
-            )
-        return bool(enabled)
-    except Exception as e:
-        capture_exception(e)
-        return False
+    return enabled
 
 
 @database_sync_to_async_pool

@@ -1,4 +1,5 @@
 import json
+from typing import Any, cast
 
 from posthog.test.base import (
     APIBaseTest,
@@ -79,7 +80,7 @@ class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):
             "date_to": "2021-05-10",
         }
 
-        response = self.client.get("/api/person/funnel/", data=request_data)
+        response = self.client.get("/api/person/funnel/", data=cast(Any, request_data))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         j = response.json()
         first_person = j["results"][0]["people"][0]
@@ -114,7 +115,7 @@ class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):
             "date_to": "2021-05-10",
         }
 
-        response = self.client.get("/api/person/funnel/", data=request_data)
+        response = self.client.get("/api/person/funnel/", data=cast(Any, request_data))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         j = response.json()
         self.assertEqual(1, len(j["results"][0]["people"]))
@@ -143,7 +144,7 @@ class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):
             "date_to": "2021-05-10",
         }
 
-        response = self.client.get("/api/person/funnel/", data=request_data)
+        response = self.client.get("/api/person/funnel/", data=cast(Any, request_data))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         j = response.json()
         people = j["results"][0]["people"]
@@ -185,7 +186,7 @@ class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):
             "funnel_step_breakdown": "Chrome",
         }
 
-        response = self.client.get("/api/person/funnel/", data=request_data)
+        response = self.client.get("/api/person/funnel/", data=cast(Any, request_data))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         j = response.json()
         people = j["results"][0]["people"]
@@ -228,7 +229,7 @@ class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):
             "limit": 15,
         }
 
-        response = self.client.get("/api/person/funnel/", data=request_data)
+        response = self.client.get("/api/person/funnel/", data=cast(Any, request_data))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         j = response.json()
         people = j["results"][0]["people"]
@@ -320,7 +321,7 @@ class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):
             timestamp="2020-01-02T14:00:00Z",
         )
 
-        response = self.client.get("/api/person/funnel/", data=request_data)
+        response = self.client.get("/api/person/funnel/", data=cast(Any, request_data))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         j = response.json()
 
@@ -330,7 +331,7 @@ class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.get(
             "/api/person/funnel/",
-            data={**request_data, "funnel_step_breakdown": "Safari"},
+            data=cast(Any, {**request_data, "funnel_step_breakdown": "Safari"}),
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         j = response.json()
@@ -387,7 +388,7 @@ class TestFunnelCorrelationActors(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.get(
             f"/api/projects/{self.team.pk}/persons/funnel/correlation",
-            data=request_data,
+            data=cast(Any, request_data),
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         j = response.json()

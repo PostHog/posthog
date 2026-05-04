@@ -41,7 +41,6 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
-import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { variableDataLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variableDataLogic'
@@ -103,6 +102,7 @@ import {
     parseURLFilters,
     parseURLVariables,
     runWithLimit,
+    scheduleSharedDashboardStaleAutoForceIfEligible,
 } from './dashboardUtils'
 import { TileFiltersOverride } from './TileFiltersOverride'
 import { tileLogic } from './tileLogic'
@@ -179,8 +179,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
     props({} as DashboardLogicProps),
 
     key((props) => {
-        if (typeof props.id !== 'number') {
-            throw Error('Must init dashboardLogic with a numeric ID key')
+        // `typeof NaN === 'number'` — check finiteness explicitly so a NaN id surfaces loudly
+        // instead of mounting a stuck-NotFound logic instance.
+        if (typeof props.id !== 'number' || !Number.isFinite(props.id)) {
+            throw Error(`dashboardLogic key() received non-finite id: ${String(props.id)}`)
         }
         return props.id
     }),
@@ -278,6 +280,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setSubscriptionMode: (enabled: boolean, id?: number | 'new') => ({ enabled, id }),
         /** Set the dashboard mode, see DashboardMode for details. */
         setDashboardMode: (mode: DashboardMode | null, source: DashboardEventSource) => ({ mode, source }),
+        /** Exit edit mode, prompting to confirm if there are unsaved changes. */
+        cancelEditMode: true,
         /** Make it easier to handle organizing the layout when theres lots of tiles by zooming out */
         setLayoutZoom: (layoutZoom: number) => ({ layoutZoom }),
         /** Optimistic pin/unpin toggle. */
@@ -630,22 +634,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     }
 
                     return values.dashboard
-                },
-            },
-        ],
-        generatedDashboardMetadata: [
-            null as { name: string; description: string } | null,
-            {
-                generateDashboardMetadata: async () => {
-                    try {
-                        const response = await api.dashboards.generateMetadata(props.id)
-                        eventUsageLogic.actions.reportDashboardMetadataAiGenerated({ dashboardId: props.id })
-                        return { name: response.name, description: response.description }
-                    } catch (e) {
-                        eventUsageLogic.actions.reportDashboardMetadataAiGenerationFailed({ dashboardId: props.id })
-                        lemonToast.error('Failed to generate name and description')
-                        throw e
-                    }
                 },
             },
         ],
@@ -1255,6 +1243,22 @@ export const dashboardLogic = kea<dashboardLogicType>([
             (s) => [s.dashboard, s.urlVariables],
             (dashboard, urlVariables) => ({ ...dashboard?.persisted_variables, ...urlVariables }),
         ],
+        hasUnsavedLayoutChanges: [
+            (s) => [s.dashboard, s.dashboardLayouts],
+            (
+                dashboard: DashboardType<QueryBasedInsightModel> | null,
+                dashboardLayouts: Record<DashboardTile['id'], DashboardTile['layouts']>
+            ): boolean => {
+                if (!dashboard) {
+                    return false
+                }
+                return (dashboard.tiles || []).some((tile: DashboardTile<QueryBasedInsightModel>) => {
+                    const originalSm = dashboardLayouts?.[tile.id]?.sm
+                    const currentSm = tile.layouts?.sm
+                    return !equal(originalSm || {}, currentSm || {})
+                })
+            },
+        ],
         effectiveVariablesAndAssociatedInsights: [
             (s) => [s.dashboard, s.variables, s.urlVariables],
             (
@@ -1461,8 +1465,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
         effectiveLastRefresh: [
             (s) => [s.lastDashboardRefresh, s.oldestRefreshed],
             (lastDashboardRefresh, oldestRefreshed): Dayjs | null => {
-                const dates = [lastDashboardRefresh, oldestRefreshed].filter((d): d is Dayjs => d != null)
-                return sortDayJsDates(dates)[dates.length - 1]
+                // Pessimistic: the banner must not claim the dashboard is fresher than the stalest insight
+                // tile (per-tile menus use insight.last_refresh). `last_dashboard.last_refresh` and client
+                // `updateDashboardLastRefresh(dayjs())` can otherwise run ahead of embedded tile metadata.
+                return oldestRefreshed ?? lastDashboardRefresh ?? null
             },
         ],
 
@@ -1538,33 +1544,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     return true
                 }
                 return !!featureFlags[FEATURE_FLAGS.CUSTOMER_DASHBOARD_TEMPLATE_AUTHORING]
-            },
-        ],
-        /** AI dashboard title/description: editor access, tiles present, main dashboard scene only, not shared/embed routes. */
-        canGenerateDashboardAiMetadata: [
-            (s) => [s.canEditDashboard, s.placement, s.dashboard, router.selectors.location],
-            (
-                canEditDashboard: boolean,
-                placement: DashboardPlacement,
-                dashboard: DashboardType<QueryBasedInsightModel> | null,
-                { pathname }: { pathname: string }
-            ): boolean => {
-                const tiles = dashboard?.tiles?.filter((t: DashboardTile<QueryBasedInsightModel>) => !t.deleted) ?? []
-                const hasInsightOrTextTile = tiles.some((t) => !!(t.insight || t.text))
-                if (!canEditDashboard || !hasInsightOrTextTile) {
-                    return false
-                }
-                if (placement !== DashboardPlacement.Dashboard) {
-                    return false
-                }
-                if (
-                    pathname.startsWith('/shared/') ||
-                    pathname.startsWith('/embedded/') ||
-                    pathname.startsWith('/shared_dashboard/')
-                ) {
-                    return false
-                }
-                return true
             },
         ],
         canRestrictDashboard: [
@@ -1765,19 +1744,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
     })),
     listeners(({ actions, values, cache, props, sharedListeners }) => ({
-        generateDashboardMetadataSuccess: ({ generatedDashboardMetadata }) => {
-            if (generatedDashboardMetadata && values.dashboard) {
-                dashboardsModel.actions.updateDashboard({
-                    id: values.dashboard.id,
-                    name: generatedDashboardMetadata.name,
-                    description: generatedDashboardMetadata.description,
-                    allowUndo: true,
-                })
-                if (generatedDashboardMetadata.description && !sceneLayoutLogic.values.showDescription) {
-                    sceneLayoutLogic.actions.toggleShowDescription()
-                }
-            }
-        },
         togglePinned: () => {
             if (values.dashboard) {
                 // Reducers have already run, so values.isPinned reflects the desired new state.
@@ -2225,6 +2191,21 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     }
                 }
             }
+
+            if (
+                isInitialLoad &&
+                !forceRefresh &&
+                tilesErroredCount === 0 &&
+                tilesAbortedCount === 0 &&
+                values.placement === DashboardPlacement.Public
+            ) {
+                scheduleSharedDashboardStaleAutoForceIfEligible({
+                    effectiveLastRefresh: values.effectiveLastRefresh,
+                    triggerDashboardRefresh: () => {
+                        void actions.triggerDashboardRefresh()
+                    },
+                })
+            }
         },
         saveEditModeChanges: () => {
             if (
@@ -2257,6 +2238,36 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     forceRefresh: false,
                 })
             }
+        },
+        cancelEditMode: () => {
+            const discard = (): void =>
+                actions.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)
+            const promptEnabled = !!values.featureFlags[FEATURE_FLAGS.DASHBOARD_LAYOUT_DISCARD_PROMPT]
+            if (!promptEnabled || !values.hasUnsavedLayoutChanges) {
+                discard()
+                return
+            }
+            eventUsageLogic.actions.reportDashboardEditModeDiscardPrompt(values.dashboard, 'shown')
+            LemonDialog.open({
+                title: 'Discard layout changes?',
+                description:
+                    'You have moved tiles around but not saved. If you discard now, the layout will revert to its last saved state.',
+                primaryButton: {
+                    children: 'Discard changes',
+                    status: 'danger',
+                    onClick: () => {
+                        eventUsageLogic.actions.reportDashboardEditModeDiscardPrompt(values.dashboard, 'discarded')
+                        discard()
+                    },
+                    'data-attr': 'dashboard-edit-mode-discard-confirm',
+                },
+                secondaryButton: {
+                    children: 'Keep editing',
+                    onClick: () => {
+                        eventUsageLogic.actions.reportDashboardEditModeDiscardPrompt(values.dashboard, 'kept_editing')
+                    },
+                },
+            })
         },
         setDashboardMode: async ({ mode, source }) => {
             if (mode === DashboardMode.Edit && source !== DashboardEventSource.DashboardHeaderDiscardChanges) {

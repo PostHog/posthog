@@ -16,7 +16,7 @@ export function StepSchemaErrors(): JSX.Element | null {
 
     return (
         <div className="flex flex-col gap-1">
-            {Object.values(validationResult.schema.errors).map(({ path, message }) => (
+            {validationResult.schema.issues.map(({ path, message }) => (
                 <LemonBanner type="error" key={path.join('.')}>
                     {path.join('.')}: {message}
                 </LemonBanner>

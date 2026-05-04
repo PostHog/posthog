@@ -72,7 +72,7 @@ for xml_file in sorted(tmpdir.rglob('junit.xml')):
 
         if filepath not in timings:
             timings[filepath] = {}
-        timings[filepath][browser] = round(time_s, 1)
+        timings[filepath][browser] = round(time_s, 3)
 
 if not timings:
     print('ERROR: No test timings found in JUnit artifacts', file=sys.stderr)

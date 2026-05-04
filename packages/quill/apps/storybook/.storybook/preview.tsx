@@ -33,7 +33,14 @@ const preview: Preview = {
             const isDark = theme === 'dark'
 
             useEffect(() => {
+                // Set both .dark class and theme="dark" attribute so the
+                // toolbar toggle validates both dark mode selectors at once.
                 document.documentElement.classList.toggle('dark', isDark)
+                if (isDark) {
+                    document.documentElement.setAttribute('theme', 'dark')
+                } else {
+                    document.documentElement.removeAttribute('theme')
+                }
                 document.body.style.backgroundColor = ''
             }, [isDark])
 

@@ -35,6 +35,8 @@ const NEW_SUBSCRIPTION: Partial<SubscriptionType> = {
     bysetpos: 1,
     dashboard_export_insights: [],
     integration_id: null,
+    summary_enabled: false,
+    summary_prompt_guide: '',
 }
 
 export interface SubscriptionLogicProps extends SubscriptionBaseProps {

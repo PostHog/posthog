@@ -1,29 +1,16 @@
-import { useActions } from 'kea'
-import { router } from 'kea-router'
+import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconBug, IconCheckCircle, IconComment, IconNotification, IconPlug, IconWarning } from '@posthog/icons'
+import { IconCheckCircle } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
+import { getNotificationIcon } from 'lib/components/NotificationsMenu/notificationToasts'
 import { dayjs } from 'lib/dayjs'
 import { IconRadioButtonUnchecked } from 'lib/lemon-ui/icons'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 
 import { sidePanelNotificationsLogic } from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelNotificationsLogic'
 import { InAppNotification } from '~/types'
-
-const NOTIFICATION_TYPE_ICONS: Record<string, JSX.Element> = {
-    comment_mention: <IconComment className="size-5 text-primary" />,
-    alert_firing: <IconWarning className="size-5 text-warning" />,
-    approval_requested: <IconCheckCircle className="size-5 text-success" />,
-    approval_resolved: <IconCheckCircle className="size-5 text-success" />,
-    pipeline_failure: <IconPlug className="size-5 text-danger" />,
-    issue_assigned: <IconBug className="size-5 text-primary" />,
-}
-
-function getNotificationIcon(notificationType: string): JSX.Element {
-    return NOTIFICATION_TYPE_ICONS[notificationType] ?? <IconNotification className="size-5 text-secondary" />
-}
 
 export function NotificationRow({
     notification,
@@ -32,16 +19,17 @@ export function NotificationRow({
     notification: InAppNotification
     onNavigate?: () => void
 }): JSX.Element {
-    const { markAsRead, toggleRead } = useActions(sidePanelNotificationsLogic)
+    const { navigateToNotification, toggleRead } = useActions(sidePanelNotificationsLogic)
+    const { projectNameForNotification, sourcePathForNotification } = useValues(sidePanelNotificationsLogic)
     const [expanded, setExpanded] = useState(false)
 
+    const otherProjectName = projectNameForNotification(notification)
+
+    const hasNavigationTarget = !!sourcePathForNotification(notification)
     const handleNavigate = (e: React.MouseEvent): void => {
         e.stopPropagation()
-        if (!notification.read) {
-            markAsRead(notification.id)
-        }
-        if (notification.source_url) {
-            router.actions.push(notification.source_url)
+        if (hasNavigationTarget) {
+            navigateToNotification(notification)
             onNavigate?.()
         }
     }
@@ -65,7 +53,7 @@ export function NotificationRow({
                         {notification.title}
                     </span>
                     <div className="flex items-center gap-1 shrink-0">
-                        {notification.source_url && (
+                        {hasNavigationTarget && (
                             <Tooltip title="Go to source">
                                 <button
                                     className="min-w-[26px] min-h-[26px] flex items-center justify-center rounded hover:bg-fill-highlight-200 text-secondary hover:text-primary cursor-pointer"
@@ -97,7 +85,16 @@ export function NotificationRow({
                         {notification.body}
                     </div>
                 )}
-                <div className="text-[10px] text-muted mt-0.5">{dayjs(notification.created_at).fromNow()}</div>
+                <div className="flex items-center gap-1.5 mt-2">
+                    <span className="text-[10px] text-muted">{dayjs(notification.created_at).fromNow()}</span>
+                    {otherProjectName && (
+                        <Tooltip title={`Notified on project ${otherProjectName}`}>
+                            <span className="text-[10px] text-muted bg-fill-highlight-100 px-1 py-px rounded truncate max-w-[240px]">
+                                {otherProjectName}
+                            </span>
+                        </Tooltip>
+                    )}
+                </div>
             </div>
         </div>
     )

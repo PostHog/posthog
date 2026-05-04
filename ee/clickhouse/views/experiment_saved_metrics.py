@@ -69,6 +69,15 @@ class ExperimentSavedMetricSerializer(
             "user_access_level",
         ]
 
+    def validate_name(self, value: str) -> str:
+        team = self.context["get_team"]()
+        qs = ExperimentSavedMetric.objects.filter(team=team, name__iexact=value)
+        if self.instance:
+            qs = qs.exclude(pk=self.instance.pk)
+        if qs.exists():
+            raise serializers.ValidationError("A shared metric with this name already exists.")
+        return value
+
     def to_representation(self, instance: ExperimentSavedMetric):
         data = super().to_representation(instance)
         # Refresh action names to show current names instead of stale cached values

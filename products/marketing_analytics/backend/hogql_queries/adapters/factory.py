@@ -9,6 +9,7 @@ if TYPE_CHECKING:
 
 from posthog.schema import NativeMarketingSource, SourceMap
 
+from posthog.hogql import ast
 from posthog.hogql.database.database import Database
 
 from products.data_warehouse.backend.models import DataWarehouseTable, ExternalDataSource
@@ -21,10 +22,10 @@ from products.marketing_analytics.backend.hogql_queries.adapters.snapchat_ads im
 from products.marketing_analytics.backend.hogql_queries.adapters.tiktok_ads import TikTokAdsAdapter
 
 from ..constants import (
-    FALLBACK_EMPTY_QUERY,
     TABLE_PATTERNS,
     VALID_NATIVE_MARKETING_SOURCES,
     VALID_NON_NATIVE_MARKETING_SOURCES,
+    build_fallback_empty_query_ast,
 )
 from ..utils import map_url_to_provider
 from .base import (
@@ -585,24 +586,32 @@ class MarketingSourceFactory:
                 self.logger.exception("Error validating adapter", source_type=adapter.get_source_type(), error=str(e))
         return valid_adapters
 
-    def build_union_query(self, adapters: list[MarketingSourceAdapter]) -> str:
-        """Build union query from all valid adapters"""
+    def build_union_query_ast(self, adapters: list[MarketingSourceAdapter]) -> ast.SelectQuery | ast.SelectSetQuery:
+        """Build union query AST from all valid adapters.
+
+        Returning an AST avoids the expensive parse_select roundtrip (~700 ms
+        for ~10 KB HogQL in cpp-json, ~9 s in the Python parser) that we used
+        to pay on every dashboard render.
+        """
         # Sort adapters by source_id to ensure deterministic UNION ALL ordering
         # This prevents flaky tests where query optimizer reorders UNION ALL clauses
         sorted_adapters = sorted(adapters, key=lambda adapter: adapter.config.source_id)
 
-        queries = []
+        queries: list[ast.SelectQuery | ast.SelectSetQuery] = []
         for adapter in sorted_adapters:
             try:
-                query = adapter.build_query_string()
-                if query:
+                query = adapter.build_query()
+                if query is not None:
                     queries.append(query)
             except Exception as e:
                 self.logger.exception(
                     "Error building query for adapter", source_type=adapter.get_source_type(), error=str(e)
                 )
 
-        return "\nUNION ALL\n".join(queries) if queries else FALLBACK_EMPTY_QUERY
+        if not queries:
+            return build_fallback_empty_query_ast()
+
+        return ast.SelectSetQuery.create_from_queries(queries, set_operator="UNION ALL")
 
     def _get_schema_id_for_table(self, table: DataWarehouseTable) -> str | None:
         """Get schema ID for a warehouse table"""

@@ -1,5 +1,7 @@
 from typing import Any
 
+import structlog
+from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -7,7 +9,12 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.exceptions_capture import capture_exception
+from posthog.models.integration import Integration
 from posthog.models.organization_integration import OrganizationIntegration
+from posthog.permissions import OrganizationAdminWritePermissions
+
+logger = structlog.get_logger(__name__)
 
 
 class OrganizationIntegrationSerializer(serializers.ModelSerializer):
@@ -39,22 +46,65 @@ class OrganizationIntegrationViewSet(
     TeamAndOrgViewSetMixin,
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
+    mixins.DestroyModelMixin,
     viewsets.GenericViewSet,
 ):
     """
     ViewSet for organization-level integrations.
 
-    Provides read-only access to integrations that are scoped to the entire organization
+    Provides access to integrations that are scoped to the entire organization
     (vs. project-level integrations). Examples include Vercel, AWS Marketplace, etc.
 
-    This is read-only. Creation is handled by the integration installation flows
-    (e.g., Vercel marketplace installation). Deletion requires contacting support
-    due to billing implications.
+    Creation is handled by the integration installation flows
+    (e.g., Vercel marketplace installation). Users can disconnect integrations
+    via the DELETE endpoint.
     """
 
     scope_object = "organization_integration"
     queryset = OrganizationIntegration.objects.select_related("created_by").all()
     serializer_class = OrganizationIntegrationSerializer
+    permission_classes = [OrganizationAdminWritePermissions]
+
+    @extend_schema(operation_id="organization_integrations_destroy")
+    def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        return super().destroy(request, *args, **kwargs)
+
+    def perform_destroy(self, instance: OrganizationIntegration) -> None:
+        is_marketplace = instance.config.get("type") != "connectable"
+
+        if is_marketplace and instance.integration_id:
+            try:
+                from ee.vercel.integration import VercelIntegration
+
+                VercelIntegration.delete_installation(instance.integration_id)
+            except Exception as e:
+                capture_exception(
+                    e,
+                    {
+                        "organization_id": str(instance.organization_id),
+                        "integration_id": instance.integration_id,
+                    },
+                )
+                logger.warning(
+                    "organization_integration.delete_installation_failed",
+                    organization_id=str(instance.organization_id),
+                    integration_id=instance.integration_id,
+                    error=str(e),
+                )
+
+        team_integrations_deleted, _ = Integration.objects.filter(
+            team__organization=instance.organization,
+            kind=Integration.IntegrationKind.VERCEL,
+        ).delete()
+
+        logger.info(
+            "organization_integration.deleted",
+            organization_id=str(instance.organization_id),
+            integration_id=instance.integration_id,
+            kind=instance.kind,
+            team_integrations_deleted=team_integrations_deleted,
+        )
+        instance.delete()
 
     @action(detail=True, methods=["patch"], url_path="environment-mapping")
     def environment_mapping(self, request: Request, **kwargs) -> Response:

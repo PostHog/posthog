@@ -1,0 +1,18 @@
+{% extends "email/base.html" %} {% load posthog_assets %} {% load posthog_filters %}{% block section %}
+<p>
+    Welcome to PostHog! Your account was created{% if partner_name %} via {{ partner_name }}{% endif %}.
+</p>
+<p>
+    Set a password to log in to PostHog directly.
+</p>
+<div class="mb mt text-center">
+    <a class="button" href="{% absolute_uri link %}">Set your password</a>
+</div>
+
+<div class="mt muted">
+    <p>
+        If the button above doesn't work, paste this link into your browser:<br />
+        <a href="{% absolute_uri link %}">{% absolute_uri link %}</a>
+    </p>
+</div>
+{% endblock %} {% block preheader %}{{preheader}}{% endblock %}{% block heading %}Welcome to PostHog{% endblock %}

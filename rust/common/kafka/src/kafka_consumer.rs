@@ -93,6 +93,25 @@ impl SingleTopicConsumer {
         if let Some(v) = consumer_config.kafka_consumer_fetch_max_bytes {
             client_config.set("fetch.max.bytes", v.to_string());
         }
+        if let Some(v) = consumer_config.kafka_consumer_max_partition_fetch_bytes {
+            client_config.set("max.partition.fetch.bytes", v.to_string());
+        }
+
+        if let Some(ref id) = consumer_config.kafka_consumer_group_instance_id {
+            client_config.set("group.instance.id", id);
+        }
+        if let Some(ref strategy) = consumer_config.kafka_consumer_partition_strategy {
+            client_config.set("partition.assignment.strategy", strategy);
+        }
+        if let Some(ref v) = consumer_config.kafka_consumer_socket_send_buffer_bytes {
+            client_config.set("socket.send.buffer.bytes", v);
+        }
+        if let Some(ref v) = consumer_config.kafka_consumer_socket_receive_buffer_bytes {
+            client_config.set("socket.receive.buffer.bytes", v);
+        }
+        if let Some(v) = consumer_config.kafka_consumer_metadata_refresh_interval_ms {
+            client_config.set("topic.metadata.refresh.interval.ms", v.to_string());
+        }
 
         let consumer: StreamConsumer = client_config.create()?;
         consumer.subscribe(&[consumer_config.kafka_consumer_topic.as_str()])?;

@@ -47,6 +47,9 @@
                           $virt_bot_name: {
                             hidden: False
                           },
+                          $virt_bot_operator: {
+                            hidden: False
+                          },
                           $virt_is_bot: {
                             hidden: False
                           },
@@ -2253,6 +2256,9 @@
                   $virt_bot_name: {
                     hidden: False
                   },
+                  $virt_bot_operator: {
+                    hidden: False
+                  },
                   $virt_is_bot: {
                     hidden: False
                   },
@@ -3834,6 +3840,15 @@
                     active_milliseconds: {
                       hidden: False
                     },
+                    ai_highlighted: {
+                      hidden: False
+                    },
+                    ai_tags_fixed: {
+                      hidden: False
+                    },
+                    ai_tags_freeform: {
+                      hidden: False
+                    },
                     all_urls: {
                       hidden: False
                     },
@@ -4273,6 +4288,66 @@
         }
       },
       {
+        alias: "ai_tags_fixed"
+        expr: {
+          chain: [
+            "e",
+            "ai_tags_fixed"
+          ]
+          from_asterisk: True
+          type: {
+            name: "ai_tags_fixed"
+            table_type: <recursion ...>
+          }
+        }
+        from_asterisk: False
+        hidden: True
+        type: {
+          alias: "ai_tags_fixed"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "ai_tags_freeform"
+        expr: {
+          chain: [
+            "e",
+            "ai_tags_freeform"
+          ]
+          from_asterisk: True
+          type: {
+            name: "ai_tags_freeform"
+            table_type: <recursion ...>
+          }
+        }
+        from_asterisk: False
+        hidden: True
+        type: {
+          alias: "ai_tags_freeform"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "ai_highlighted"
+        expr: {
+          chain: [
+            "e",
+            "ai_highlighted"
+          ]
+          from_asterisk: True
+          type: {
+            name: "ai_highlighted"
+            table_type: <recursion ...>
+          }
+        }
+        from_asterisk: False
+        hidden: True
+        type: {
+          alias: "ai_highlighted"
+          type: <recursion ...>
+        }
+      },
+      {
         alias: "start_time"
         expr: {
           chain: [
@@ -4550,6 +4625,9 @@
       anonymous_tables: []
       columns: {
         active_milliseconds: <recursion ...>,
+        ai_highlighted: <recursion ...>,
+        ai_tags_fixed: <recursion ...>,
+        ai_tags_freeform: <recursion ...>,
         all_urls: <recursion ...>,
         click_count: <recursion ...>,
         console_error_count: <recursion ...>,
@@ -4853,6 +4931,9 @@
                             hidden: False
                           },
                           $virt_bot_name: {
+                            hidden: False
+                          },
+                          $virt_bot_operator: {
                             hidden: False
                           },
                           $virt_is_bot: {
@@ -7016,6 +7097,9 @@
                             $virt_bot_name: {
                               hidden: False
                             },
+                            $virt_bot_operator: {
+                              hidden: False
+                            },
                             $virt_is_bot: {
                               hidden: False
                             },
@@ -8896,6 +8980,9 @@
                   $virt_bot_name: {
                     hidden: False
                   },
+                  $virt_bot_operator: {
+                    hidden: False
+                  },
                   $virt_is_bot: {
                     hidden: False
                   },
@@ -10492,6 +10579,9 @@
                       hidden: False
                     },
                     $virt_bot_name: {
+                      hidden: False
+                    },
+                    $virt_bot_operator: {
                       hidden: False
                     },
                     $virt_is_bot: {
@@ -12094,6 +12184,9 @@
                       $virt_bot_name: {
                         hidden: False
                       },
+                      $virt_bot_operator: {
+                        hidden: False
+                      },
                       $virt_is_bot: {
                         hidden: False
                       },
@@ -12330,6 +12423,9 @@
                         hidden: False
                       },
                       $virt_bot_name: {
+                        hidden: False
+                      },
+                      $virt_bot_operator: {
                         hidden: False
                       },
                       $virt_is_bot: {
@@ -12895,6 +12991,9 @@
                   $virt_bot_name: {
                     hidden: False
                   },
+                  $virt_bot_operator: {
+                    hidden: False
+                  },
                   $virt_is_bot: {
                     hidden: False
                   },
@@ -13167,6 +13266,9 @@
                       hidden: False
                     },
                     $virt_bot_name: {
+                      hidden: False
+                    },
+                    $virt_bot_operator: {
                       hidden: False
                     },
                     $virt_is_bot: {
@@ -13445,6 +13547,9 @@
                         hidden: False
                       },
                       $virt_bot_name: {
+                        hidden: False
+                      },
+                      $virt_bot_operator: {
                         hidden: False
                       },
                       $virt_is_bot: {
@@ -13763,6 +13868,9 @@
                                 hidden: False
                               },
                               $virt_bot_name: {
+                                hidden: False
+                              },
+                              $virt_bot_operator: {
                                 hidden: False
                               },
                               $virt_is_bot: {
@@ -14089,6 +14197,9 @@
                   $virt_bot_name: {
                     hidden: False
                   },
+                  $virt_bot_operator: {
+                    hidden: False
+                  },
                   $virt_is_bot: {
                     hidden: False
                   },
@@ -14371,6 +14482,9 @@
                       hidden: False
                     },
                     $virt_bot_name: {
+                      hidden: False
+                    },
+                    $virt_bot_operator: {
                       hidden: False
                     },
                     $virt_is_bot: {
@@ -14658,6 +14772,9 @@
                   $virt_bot_name: {
                     hidden: False
                   },
+                  $virt_bot_operator: {
+                    hidden: False
+                  },
                   $virt_is_bot: {
                     hidden: False
                   },
@@ -14927,6 +15044,9 @@
                       hidden: False
                     },
                     $virt_bot_name: {
+                      hidden: False
+                    },
+                    $virt_bot_operator: {
                       hidden: False
                     },
                     $virt_is_bot: {
@@ -15305,6 +15425,9 @@
                     $virt_bot_name: {
                       hidden: False
                     },
+                    $virt_bot_operator: {
+                      hidden: False
+                    },
                     $virt_is_bot: {
                       hidden: False
                     },
@@ -15538,6 +15661,9 @@
                           hidden: False
                         },
                         $virt_bot_name: {
+                          hidden: False
+                        },
+                        $virt_bot_operator: {
                           hidden: False
                         },
                         $virt_is_bot: {
@@ -15785,6 +15911,9 @@
                     hidden: False
                   },
                   $virt_bot_name: {
+                    hidden: False
+                  },
+                  $virt_bot_operator: {
                     hidden: False
                   },
                   $virt_is_bot: {

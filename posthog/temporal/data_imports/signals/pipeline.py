@@ -13,7 +13,9 @@ from posthoganalytics.ai.gemini import AsyncClient, genai
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
-from posthog.models import Team
+from posthog.event_usage import groups
+from posthog.models import Organization, Team
+from posthog.sync import database_sync_to_async
 from posthog.temporal.data_imports.signals.registry import SignalEmitter, SignalEmitterOutput, SignalSourceTableConfig
 
 from products.signals.backend.api import emit_signal
@@ -37,6 +39,34 @@ LLM_THINKING_BUDGET_TOKENS = 1024
 # Backoff between LLM retry attempts (delay = initial * coefficient ^ (attempt - 1))
 LLM_RETRY_INITIAL_DELAY_SECONDS = 5
 LLM_RETRY_BACKOFF_COEFFICIENT = 2.0
+
+
+def _capture_pipeline_stage(
+    event: str,
+    team: Team,
+    organization: Organization,
+    output: SignalEmitterOutput,
+) -> None:
+    try:
+        posthoganalytics.capture(
+            event=event,
+            distinct_id=str(team.uuid),
+            properties={
+                "source_product": output.source_product,
+                "source_type": output.source_type,
+                "source_id": output.source_id,
+            },
+            groups=groups(organization, team),
+        )
+    except Exception:
+        # Swallow the exception, to avoid breaking the flow over failed analytics event
+        logger.exception(
+            "Failed to capture signal pipeline stage event",
+            event=event,
+            source_product=output.source_product,
+            source_type=output.source_type,
+            source_id=output.source_id,
+        )
 
 
 def _safe_heartbeat() -> None:
@@ -396,20 +426,35 @@ async def run_signal_pipeline(
         )
     logger.info(f"Built {len(outputs)} signal outputs from {len(records)} records for {source_label}", **extra)
 
+    organization = await database_sync_to_async(lambda: team.organization)()
+    for output in outputs:
+        _capture_pipeline_stage("signal_data_source_entered", team, organization, output)
+
     if config.summarization_prompt is not None and config.description_summarization_threshold_chars is not None:
+        threshold = config.description_summarization_threshold_chars
+        pre_summary_by_id = {o.source_id: o for o in outputs}
         outputs = await summarize_long_descriptions(
             outputs=outputs,
             summarization_prompt=config.summarization_prompt,
-            threshold=config.description_summarization_threshold_chars,
+            threshold=threshold,
             extra=extra,
         )
+        for output in outputs:
+            pre = pre_summary_by_id.get(output.source_id)
+            if pre is not None and len(pre.description) > threshold:
+                _capture_pipeline_stage("signal_data_source_summarized", team, organization, output)
 
     if config.actionability_prompt:
+        pre_filter_by_id = {o.source_id: o for o in outputs}
         outputs = await filter_actionable(
             outputs=outputs,
             actionability_prompt=config.actionability_prompt,
             extra=extra,
         )
+        post_filter_ids = {o.source_id for o in outputs}
+        for source_id, output in pre_filter_by_id.items():
+            if source_id not in post_filter_ids:
+                _capture_pipeline_stage("signal_data_source_filtered", team, organization, output)
 
     if not outputs:
         logger.warning(f"No actionable records after filtering for {source_label}", **extra)

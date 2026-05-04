@@ -14,17 +14,25 @@ from ..facade.contracts import (
     ApproveSnapshotInput,
     Artifact,
     AutoApproveResult,
+    BaselineEntry,
+    BaselineOverview,
+    BaselineTotals,
     CreateRepoInput,
     CreateRunInput,
     CreateRunResult,
+    QuarantinedIdentifierEntry,
+    QuarantineInput,
+    RecomputeResult,
     Repo,
     Run,
     RunSummary,
     Snapshot,
     SnapshotHistoryEntry,
     SnapshotManifestItem,
+    ToleratedHashEntry,
     UpdateRepoRequestInput,
     UploadTarget,
+    UserBasicInfo,
 )
 
 # --- Output Serializers ---
@@ -47,17 +55,25 @@ class ArtifactSerializer(DataclassSerializer):
         dataclass = Artifact
 
 
+class UserBasicInfoSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = UserBasicInfo
+
+
 class SnapshotSerializer(DataclassSerializer):
     # Explicitly mark artifact fields as nullable for OpenAPI schema
     current_artifact = ArtifactSerializer(allow_null=True, required=False)
     baseline_artifact = ArtifactSerializer(allow_null=True, required=False)
     diff_artifact = ArtifactSerializer(allow_null=True, required=False)
+    reviewed_by = UserBasicInfoSerializer(allow_null=True, required=False)
 
     class Meta:
         dataclass = Snapshot
 
 
 class RunSerializer(DataclassSerializer):
+    approved_by = UserBasicInfoSerializer(allow_null=True, required=False)
+
     class Meta:
         dataclass = Run
 
@@ -80,6 +96,11 @@ class CreateRunResultSerializer(DataclassSerializer):
 class AutoApproveResultSerializer(DataclassSerializer):
     class Meta:
         dataclass = AutoApproveResult
+
+
+class RecomputeResultSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = RecomputeResult
 
 
 # --- Input Serializers ---
@@ -121,10 +142,60 @@ class ApproveRunInputSerializer(DataclassSerializer):
 
 
 class SnapshotHistoryEntrySerializer(DataclassSerializer):
+    current_artifact = ArtifactSerializer(allow_null=True, required=False)
+
     class Meta:
         dataclass = SnapshotHistoryEntry
+
+
+class ToleratedHashEntrySerializer(DataclassSerializer):
+    class Meta:
+        dataclass = ToleratedHashEntry
+
+
+class MarkToleratedInputSerializer(serializers.Serializer):
+    snapshot_id = serializers.UUIDField()
+
+
+class QuarantinedIdentifierEntrySerializer(DataclassSerializer):
+    created_by = UserBasicInfoSerializer(allow_null=True, required=False)
+
+    class Meta:
+        dataclass = QuarantinedIdentifierEntry
+
+
+class QuarantineInputSerializer(DataclassSerializer):
+    identifier = serializers.CharField(max_length=512)
+    reason = serializers.CharField(max_length=255)
+
+    class Meta:
+        dataclass = QuarantineInput
+
+
+class UnquarantineQuerySerializer(serializers.Serializer):
+    identifier = serializers.CharField(max_length=512, help_text="Snapshot identifier to unquarantine")
 
 
 class CreateRepoInputSerializer(DataclassSerializer):
     class Meta:
         dataclass = CreateRepoInput
+
+
+class BaselineEntrySerializer(DataclassSerializer):
+    class Meta:
+        dataclass = BaselineEntry
+
+
+class BaselineTotalsSerializer(DataclassSerializer):
+    by_run_type = serializers.DictField(child=serializers.IntegerField())
+
+    class Meta:
+        dataclass = BaselineTotals
+
+
+class BaselineOverviewSerializer(DataclassSerializer):
+    entries = BaselineEntrySerializer(many=True)
+    totals = BaselineTotalsSerializer()
+
+    class Meta:
+        dataclass = BaselineOverview

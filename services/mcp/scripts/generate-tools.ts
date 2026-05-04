@@ -102,6 +102,14 @@ interface ResolvedOperation {
 }
 
 // ------------------------------------------------------------------
+// General helpers
+// ------------------------------------------------------------------
+
+function sortKeys<T extends Record<string, unknown>>(obj: T): T {
+    return Object.fromEntries(Object.entries(obj).sort(([a], [b]) => a.localeCompare(b))) as T
+}
+
+// ------------------------------------------------------------------
 // OpenAPI helpers
 // ------------------------------------------------------------------
 
@@ -110,7 +118,40 @@ function loadOpenApi(): OpenApiSpec {
         console.error(`OpenAPI schema not found at ${OPENAPI_PATH}. Run \`hogli build:openapi-schema\` first.`)
         process.exit(1)
     }
-    return JSON.parse(fs.readFileSync(OPENAPI_PATH, 'utf-8')) as OpenApiSpec
+    const spec = JSON.parse(fs.readFileSync(OPENAPI_PATH, 'utf-8')) as OpenApiSpec
+    inlineParameterRefs(spec)
+    return spec
+}
+
+/**
+ * Replace ``{$ref: '#/components/parameters/...'}`` entries in operation parameters with the
+ * fully resolved parameter object. The rest of this script reads ``parameter.in`` /
+ * ``parameter.name`` directly, which would silently return ``undefined`` for ref-only entries
+ * and cause downstream tools to mis-handle path/query params (e.g. dropping the
+ * ``project_id`` / ``organization_id`` auto-resolved omit).
+ */
+function inlineParameterRefs(spec: OpenApiSpec): void {
+    const parameterComponents = (spec.components as { parameters?: Record<string, unknown> } | undefined)?.parameters
+    if (!parameterComponents) {
+        return
+    }
+    for (const methods of Object.values(spec.paths ?? {})) {
+        for (const op of Object.values(methods ?? {}) as Array<{ parameters?: unknown[] }>) {
+            if (!op?.parameters || !Array.isArray(op.parameters)) {
+                continue
+            }
+            op.parameters = op.parameters.map((param) => {
+                if (param && typeof param === 'object' && '$ref' in param && typeof param.$ref === 'string') {
+                    const name = param.$ref.replace('#/components/parameters/', '')
+                    const resolved = parameterComponents[name]
+                    if (resolved) {
+                        return resolved
+                    }
+                }
+                return param
+            })
+        }
+    }
 }
 
 /**
@@ -227,16 +268,21 @@ function toCamelCase(str: string): string {
 }
 
 /**
- * Parse enrich_url template into prefix and field.
- * '{id}' → { prefix: '', field: 'id' }
- * 'hog-{id}' → { prefix: 'hog-', field: 'id' }
+ * Parse enrich_url template into prefix, field, and source.
+ * '{id}' → { prefix: '', field: 'id', source: 'result' }
+ * 'hog-{id}' → { prefix: 'hog-', field: 'id', source: 'result' }
+ * '{params.id}' → { prefix: '', field: 'id', source: 'params' }
+ *
+ * Use '{params.x}' when the response has no usable identifier (e.g. action endpoints
+ * that return {results: [...]} with no top-level id) — the URL is built from the
+ * request params instead of the response body.
  */
-function parseEnrichUrl(enrichUrl: string): { prefix: string; field: string } {
-    const match = enrichUrl.match(/^(.*?)\{(\w+)\}$/)
+function parseEnrichUrl(enrichUrl: string): { prefix: string; field: string; source: 'result' | 'params' } {
+    const match = enrichUrl.match(/^(.*?)\{(?:(params)\.)?(\w+)\}$/)
     if (!match) {
         throw new Error(`Invalid enrich_url format: ${enrichUrl}`)
     }
-    return { prefix: match[1]!, field: match[2]! }
+    return { prefix: match[1]!, field: match[3]!, source: match[2] === 'params' ? 'params' : 'result' }
 }
 
 /** Convert operationId (snake_case) to PascalCase for Orval schema names */
@@ -262,6 +308,8 @@ interface SchemaComposition {
     bodyFieldNames: string[]
     /** Maps alias → original field name for renamed params */
     renamedFields: Record<string, string>
+    /** Maps param name → fallback key for optional params with state fallbacks */
+    paramFallbacks: Record<string, string>
 }
 
 function composeToolSchema(
@@ -413,8 +461,10 @@ function composeToolSchema(
     //   - input_schema  → replace the field with a named import from @/schema/tool-inputs
     //   - schema_ref    → generate inline Zod from schema.json and use that
     //   - description   → wrap the existing Orval-derived field with .describe(...)
+    //   - optional+fallback → make param optional and resolve from state when omitted
     const toolInputsImports: string[] = []
     const schemaRefBlocks: string[] = []
+    const paramFallbacks: Record<string, string> = {}
     // Fields added via param_overrides (input_schema/schema_ref) need to participate in
     // the body builder for write ops — otherwise the override is in the schema but
     // the handler never forwards the value to the API. On PATCH (partial update) the
@@ -425,6 +475,11 @@ function composeToolSchema(
     if (config.param_overrides) {
         const schemaOverrides: string[] = []
         for (const [paramName, override] of Object.entries(config.param_overrides)) {
+            // Track optional params with state fallbacks
+            if (override.optional && override.fallback) {
+                paramFallbacks[paramName] = override.fallback
+            }
+
             if (override.input_schema) {
                 toolInputsImports.push(override.input_schema)
                 schemaOverrides.push(`${paramName}: ${override.input_schema}${optionalSuffix}`)
@@ -440,9 +495,9 @@ function composeToolSchema(
                 if (isWriteOp && !bodyFieldNames.includes(paramName)) {
                     bodyFieldNames.push(paramName)
                 }
-            } else if (override.description) {
+            } else if (override.description || override.default !== undefined || override.optional) {
                 // Locate the Orval source schema this param came from, so we can reference
-                // its original field type via .shape and wrap it with .describe(...).
+                // its original field type via .shape and wrap it with .describe(...) / .default(...) / .optional().
                 let sourceImport: string | null = null
                 if (bodyFieldNames.includes(paramName)) {
                     sourceImport = `${pascal}Body`
@@ -452,12 +507,22 @@ function composeToolSchema(
                     sourceImport = `${pascal}Params`
                 }
                 if (sourceImport) {
-                    const escaped = override.description
-                        .trim()
-                        .replace(/\\/g, '\\\\')
-                        .replace(/'/g, "\\'")
-                        .replace(/\n\s*/g, ' ')
-                    schemaOverrides.push(`${paramName}: ${sourceImport}.shape['${paramName}'].describe('${escaped}')`)
+                    let expr = `${sourceImport}.shape['${paramName}']`
+                    if (override.default !== undefined) {
+                        expr += `.default(${JSON.stringify(override.default)}).optional()`
+                    }
+                    if (override.description) {
+                        const escaped = override.description
+                            .trim()
+                            .replace(/\\/g, '\\\\')
+                            .replace(/'/g, "\\'")
+                            .replace(/\n\s*/g, ' ')
+                        expr += `.describe('${escaped}')`
+                    }
+                    if (override.optional) {
+                        expr += '.optional()'
+                    }
+                    schemaOverrides.push(`${paramName}: ${expr}`)
                 }
             }
         }
@@ -488,6 +553,7 @@ function composeToolSchema(
         queryParamNames,
         bodyFieldNames,
         renamedFields,
+        paramFallbacks,
     }
 }
 
@@ -502,11 +568,19 @@ function extractPathParams(urlPattern: string): string[] {
     return matches.map((m) => m.slice(1, -1)).filter((name) => !autoResolved.has(name))
 }
 
-/** Build a template literal expression for the API path, interpolating auto-resolved IDs and path params */
-function buildPathExpr(urlPath: string, pathParamNames: string[], paramAccessPrefix = ''): string {
-    let pathExpr = `\`${urlPath.replace('{project_id}', '${projectId}').replace('{organization_id}', '${orgId}')}\``
+/** Build a template literal expression for the API path, interpolating auto-resolved IDs and path params.
+ *  All interpolated values are wrapped with encodeURIComponent() to prevent path traversal.
+ *  Params in `localVarParams` use a bare variable name (no prefix) because they are resolved to local variables. */
+function buildPathExpr(
+    urlPath: string,
+    pathParamNames: string[],
+    paramAccessPrefix = '',
+    localVarParams: Set<string> = new Set()
+): string {
+    let pathExpr = `\`${urlPath.replace('{project_id}', '${encodeURIComponent(String(projectId))}').replace('{organization_id}', '${encodeURIComponent(String(orgId))}')}\``
     for (const pn of pathParamNames) {
-        pathExpr = pathExpr.replace(`{${pn}}`, `\${${paramAccessPrefix}${pn}}`)
+        const prefix = localVarParams.has(pn) ? '' : paramAccessPrefix
+        pathExpr = pathExpr.replace(`{${pn}}`, `\${encodeURIComponent(String(${prefix}${pn}))}`)
     }
     return pathExpr
 }
@@ -553,10 +627,17 @@ function buildResponseFilter(config: ToolConfig): {
 // ------------------------------------------------------------------
 
 function buildEnrichment(config: ToolConfig, category: CategoryConfig, resultVar = 'result'): string {
-    const baseUrl = category.url_prefix
+    const baseUrl = config.url_prefix ?? category.url_prefix
 
     if (config.list && config.enrich_url) {
-        const { prefix, field } = parseEnrichUrl(config.enrich_url)
+        const { prefix, field, source } = parseEnrichUrl(config.enrich_url)
+        // For list endpoints, 'params.x' is not meaningful (items come from the response
+        // array, not request params), so force 'result' source here.
+        if (source === 'params') {
+            throw new Error(
+                `enrich_url '{params.${field}}' is not supported on list tools — list items are enriched from the response array`
+            )
+        }
         return [
             `        return await withPostHogUrl(context, {`,
             `            ...${resultVar},`,
@@ -571,9 +652,10 @@ function buildEnrichment(config: ToolConfig, category: CategoryConfig, resultVar
     }
 
     if (config.enrich_url) {
-        const { prefix, field } = parseEnrichUrl(config.enrich_url)
+        const { prefix, field, source } = parseEnrichUrl(config.enrich_url)
+        const sourceExpr = source === 'params' ? `params.${field}` : `${resultVar}.${field}`
 
-        return `        return await withPostHogUrl(context, ${resultVar}, \`${baseUrl}/${prefix}\${${resultVar}.${field}}\`)\n`
+        return `        return await withPostHogUrl(context, ${resultVar}, \`${baseUrl}/${prefix}\${${sourceExpr}}\`)\n`
     }
 
     return `        return ${resultVar}\n`
@@ -628,7 +710,8 @@ function generateToolCode(
 
     const schemaDecl = `const ${schemaName} = ${composition.schemaExpr}`
 
-    const pathExpr = buildPathExpr(resolved.path, composition.pathParamNames, 'params.')
+    const localVarParams = new Set(Object.keys(composition.paramFallbacks))
+    const pathExpr = buildPathExpr(resolved.path, composition.pathParamNames, 'params.', localVarParams)
 
     // Determine which auto-resolved IDs this operation needs
     const needsProjectId = resolved.path.includes('{project_id}')
@@ -642,9 +725,28 @@ function generateToolCode(
     if (needsProjectId) {
         handlerBody += `        const projectId = await context.stateManager.getProjectId()\n`
     }
+
+    // Resolve optional params with state fallbacks
+    const fallbackMethodMap: Record<string, string> = {
+        orgId: 'context.stateManager.getOrgID()',
+        projectId: 'context.stateManager.getProjectId()',
+    }
+    for (const [paramName, fallbackKey] of Object.entries(composition.paramFallbacks)) {
+        const method = fallbackMethodMap[fallbackKey]
+        if (method) {
+            handlerBody += `        const ${paramName} = params.${paramName} ?? await ${method}\n`
+            handlerBody += `        if (!${paramName}) {\n`
+            handlerBody += `            throw new Error('${paramName} is required. Provide it explicitly or set an active ${fallbackKey === 'orgId' ? 'organization' : 'project'} first.')\n`
+            handlerBody += `        }\n`
+        }
+    }
+
     const softDeleteField = typeof config.soft_delete === 'string' ? config.soft_delete : 'deleted'
 
-    const hasBody = !isSoftDelete && composition.bodyFieldNames.length > 0
+    const injectBody = config.inject_body ?? {}
+    const injectBodyEntries = Object.entries(injectBody)
+    const hasInjectBody = !isSoftDelete && injectBodyEntries.length > 0
+    const hasBody = !isSoftDelete && (composition.bodyFieldNames.length > 0 || hasInjectBody)
     const hasQuery = composition.queryParamNames.length > 0
 
     if (hasBody) {
@@ -653,7 +755,12 @@ function generateToolCode(
             // If the field was renamed, bf is the alias (used for params access)
             // and bodyKey is the original name (used as the HTTP body key).
             const bodyKey = composition.renamedFields[bf] ?? bf
-            handlerBody += `        if (params.${bf} !== undefined) body['${bodyKey}'] = params.${bf}\n`
+            handlerBody += `        if (params.${bf} !== undefined) body[${JSON.stringify(bodyKey)}] = params.${bf}\n`
+        }
+        // inject_body: hardcoded values that always override caller-supplied params.
+        // Emitted last so they overwrite anything set above.
+        for (const [key, value] of injectBodyEntries) {
+            handlerBody += `        body[${JSON.stringify(key)}] = ${JSON.stringify(value)}\n`
         }
     }
 
@@ -715,7 +822,11 @@ function generateToolCode(
 
     const appKey = config.ui_app ?? null
 
-    const paramsUsed = hasBody || hasQuery || composition.pathParamNames.length > 0
+    const enrichUsesParams = !!config.enrich_url && parseEnrichUrl(config.enrich_url).source === 'params'
+    // `params` is only referenced when a dynamic body/query/path param reads from it; inject_body
+    // alone doesn't touch params, so don't count it here.
+    const paramsUsed =
+        composition.bodyFieldNames.length > 0 || hasQuery || composition.pathParamNames.length > 0 || enrichUsesParams
     const unusedParamsComment = paramsUsed ? '' : '// eslint-disable-next-line no-unused-vars\n'
 
     const mcpVersionLine = config.mcp_version !== undefined ? `\n    mcpVersion: ${config.mcp_version},` : ''
@@ -1151,6 +1262,11 @@ function generateDefinitionsJson(
                     readOnlyHint: toolConfig.annotations.readOnly,
                 },
                 ...(toolConfig.requires_ai_consent ? { requires_ai_consent: true } : {}),
+                ...(toolConfig.feature_flag ? { feature_flag: toolConfig.feature_flag } : {}),
+                ...(toolConfig.feature_flag_behavior
+                    ? { feature_flag_behavior: toolConfig.feature_flag_behavior }
+                    : {}),
+                ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
             }
         }
         // Include query wrappers defined in the same category file
@@ -1169,6 +1285,11 @@ function generateDefinitionsJson(
                     openWorldHint: true,
                     readOnlyHint: wrapperConfig.annotations.readOnly,
                 },
+                ...(wrapperConfig.feature_flag ? { feature_flag: wrapperConfig.feature_flag } : {}),
+                ...(wrapperConfig.feature_flag_behavior
+                    ? { feature_flag_behavior: wrapperConfig.feature_flag_behavior }
+                    : {}),
+                ...(wrapperConfig.system_prompt_hint ? { system_prompt_hint: wrapperConfig.system_prompt_hint } : {}),
             }
         }
     }
@@ -1239,7 +1360,8 @@ function generateQueryWrapperFile(
     const perToolSchemaNames = new Map<string, string>()
     for (const [name, toolConfig] of enabledWrappers) {
         const hasDefaults = toolConfig.property_defaults && Object.keys(toolConfig.property_defaults).length > 0
-        if (!hasDefaults) {
+        const useOptimizedOutput = !!toolConfig.use_optimized_output
+        if (!hasDefaults && !useOptimizedOutput) {
             continue
         }
         const baseVarName = getEntryVarName(toolConfig.schema_ref)
@@ -1248,6 +1370,16 @@ function generateQueryWrapperFile(
         for (const [prop, defaultValue] of Object.entries(toolConfig.property_defaults ?? {})) {
             overrides.push(
                 `    ${prop}: ${baseVarName}.shape.${prop}.default(${JSON.stringify(defaultValue)}).optional(),`
+            )
+        }
+        if (useOptimizedOutput) {
+            // When the wrapper has a server-side formatter, expose an `output_format` per-call input
+            // so the agent can override the default (`optimized`) and request raw JSON. The factory
+            // strips this field before building the query body so it never leaks to the backend.
+            const outputFormatDescription =
+                'Output format. "optimized" returns a human-readable summary from server-side formatters (recommended for analysis). "json" returns the raw query results as JSON.'
+            overrides.push(
+                `    output_format: z.enum(['optimized', 'json']).default('optimized').optional().describe(${JSON.stringify(outputFormatDescription)}),`
             )
         }
         const extendExpr = `.extend({\n${overrides.join('\n')}\n})`
@@ -1266,9 +1398,10 @@ function generateQueryWrapperFile(
             if (toolConfig.ui_resource_uri) {
                 configParts.push(`uiResourceUri: '${toolConfig.ui_resource_uri}'`)
             }
-            if (toolConfig.response_format) {
-                configParts.push(`responseFormat: '${toolConfig.response_format}'`)
-            }
+            // The factory's `outputFormat` drives both the default text encoding and whether the
+            // wrapper surfaces `formatted_results`. `use_optimized_output` in YAML maps to `'optimized'`;
+            // everything else falls back to raw JSON.
+            configParts.push(`outputFormat: '${toolConfig.use_optimized_output ? 'optimized' : 'json'}'`)
 
             if (toolConfig.url_prefix) {
                 configParts.push(`urlPrefix: '${toolConfig.url_prefix}'`)
@@ -1331,6 +1464,9 @@ function generateQueryWrapperDefinitionsJson(
                 openWorldHint: true,
                 readOnlyHint: toolConfig.annotations.readOnly,
             },
+            ...(toolConfig.feature_flag ? { feature_flag: toolConfig.feature_flag } : {}),
+            ...(toolConfig.feature_flag_behavior ? { feature_flag_behavior: toolConfig.feature_flag_behavior } : {}),
+            ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
         }
     }
     return definitions
@@ -1450,13 +1586,14 @@ ${spreads}
     fs.writeFileSync(path.join(GENERATED_DIR, 'index.ts'), barrelCode)
 
     // Tool definitions JSON (merge OpenAPI-based + query wrapper definitions)
-    const definitions = { ...generateDefinitionsJson(allCategories), ...queryWrapperDefinitions }
+    // Sort keys so output is stable regardless of upstream OpenAPI iteration order.
+    const definitions = sortKeys({ ...generateDefinitionsJson(allCategories), ...queryWrapperDefinitions })
     fs.writeFileSync(DEFINITIONS_JSON_PATH, JSON.stringify(definitions, null, 4) + '\n')
 
     // Combined tool definitions for external consumers (docs site)
     const v1Definitions = JSON.parse(fs.readFileSync(TOOL_DEFINITIONS_V1_PATH, 'utf-8'))
     const v2Definitions = JSON.parse(fs.readFileSync(TOOL_DEFINITIONS_V2_PATH, 'utf-8'))
-    const allDefinitions = { ...v1Definitions, ...v2Definitions, ...definitions }
+    const allDefinitions = sortKeys({ ...v1Definitions, ...v2Definitions, ...definitions })
     fs.writeFileSync(ALL_DEFINITIONS_JSON_PATH, JSON.stringify(allDefinitions, null, 4) + '\n')
 
     const totalTools = allCategories.reduce((sum, c) => sum + c.enabledTools.length, 0)
@@ -1486,6 +1623,8 @@ export {
     extractPathParams,
     generateCategoryFile,
     generateCustomSchemaToolCode,
+    generateDefinitionsJson,
+    generateQueryWrapperDefinitionsJson,
     generateQueryWrapperFile,
     generateToolCode,
 }

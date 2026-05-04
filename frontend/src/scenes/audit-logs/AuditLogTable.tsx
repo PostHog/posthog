@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-import { LemonTabs } from '@posthog/lemon-ui'
+import { LemonTag, LemonTabs, Tooltip } from '@posthog/lemon-ui'
 
 import { HumanizedActivityLogItem, humanizeActivity, humanizeScope } from 'lib/components/ActivityLog/humanizeActivity'
 import MonacoDiffEditor from 'lib/components/MonacoDiffEditor'
@@ -35,15 +35,24 @@ const columns: LemonTableColumns<HumanizedActivityLogItem> = [
         title: 'User',
         key: 'user',
         render: (_, logItem) => (
-            <ProfilePicture
-                showName={true}
-                user={{
-                    first_name: logItem.isSystem ? 'PostHog' : logItem.name,
-                    email: logItem.email ?? undefined,
-                }}
-                type={logItem.isSystem ? 'system' : 'person'}
-                size="md"
-            />
+            <div className="flex items-center gap-1.5">
+                <ProfilePicture
+                    showName={true}
+                    user={{
+                        first_name: logItem.isSystem ? 'PostHog' : logItem.name,
+                        email: logItem.email ?? undefined,
+                    }}
+                    type={logItem.isSystem ? 'system' : 'person'}
+                    size="md"
+                />
+                {logItem.unprocessed?.client === 'mcp' && (
+                    <Tooltip title="This action was performed via the MCP (Model Context Protocol) integration">
+                        <LemonTag type="muted" size="small">
+                            mcp
+                        </LemonTag>
+                    </Tooltip>
+                )}
+            </div>
         ),
         width: '20%',
     },

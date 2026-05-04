@@ -16,6 +16,7 @@ import { IconLink } from 'lib/lemon-ui/icons'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
 
+import { LogContextSelector } from 'products/logs/frontend/components/LogsViewer/LogContextSelector/LogContextSelector'
 import { logDetailsModalLogic } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal'
 import { logsViewerLogic } from 'products/logs/frontend/components/LogsViewer/logsViewerLogic'
 import { useCellScrollControls } from 'products/logs/frontend/components/VirtualizedLogsList/useCellScroll'
@@ -122,6 +123,7 @@ export function LogRowFAB({
                     className="text-muted"
                     data-attr="logs-viewer-copy-link"
                 />
+                <LogContextSelector log={log} noPadding />
                 {sessionId && (
                     <ViewRecordingButton
                         sessionId={sessionId}

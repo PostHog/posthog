@@ -1,10 +1,9 @@
 use std::sync::Arc;
 
 use aws_sdk_s3::primitives::ByteStreamError;
-use common_geoip::GeoIpError;
 use common_kafka::kafka_producer::KafkaProduceError;
 use common_redis::CustomRedisError;
-use common_types::{CapturedEvent, ClickHouseEvent};
+use common_types::ClickHouseEvent;
 use posthog_symbol_data::SymbolDataError;
 use rdkafka::error::KafkaError;
 use serde::{Deserialize, Serialize};
@@ -50,8 +49,6 @@ pub enum UnhandledError {
     ByteStreamError(#[from] ByteStreamError), // AWS specific bytestream error. Idk
     #[error("Unhandled serde error: {0}")]
     SerdeError(#[from] serde_json::Error),
-    #[error("Unhandled geoip error: {0}")]
-    GeoIpError(#[from] GeoIpError),
     #[error("Unhandled redis error: {0}")]
     RedisError(#[from] CustomRedisError),
     #[error("Unhandled error: {0}")]
@@ -186,24 +183,14 @@ pub enum AppleError {
 pub enum EventError {
     #[error("Wrong event type: {0} for event {1}")]
     WrongEventType(String, Uuid),
-    #[error("No properties on event {0}")]
-    NoProperties(Uuid),
     #[error("Invalid properties on event {0}, serde error: {1}")]
     InvalidProperties(Uuid, String),
     #[error("Empty exception list on event {0}")]
     EmptyExceptionList(Uuid),
-    #[error("Invalid event timestamp: {0}, {1}")]
-    InvalidTimestamp(String, String),
-    #[error("No team for token: {0}")]
-    NoTeamForToken(String),
     #[error("Suppressed issue: {0}")]
     Suppressed(Uuid),
     #[error("Suppressed by rule: {0}")]
     SuppressedByRule(Uuid),
-    #[error("Could not deserialize event data: {1}")]
-    FailedToDeserialize(Box<CapturedEvent>, String),
-    #[error("Filtered by team id")]
-    FilteredByTeamId,
 }
 
 impl JsResolveErr {

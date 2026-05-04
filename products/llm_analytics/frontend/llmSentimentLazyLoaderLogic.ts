@@ -4,6 +4,7 @@ import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { llmSentimentLazyLoaderLogicType } from './llmSentimentLazyLoaderLogicType'
+import { runWithConcurrency } from './utils'
 
 export interface SentimentDateRange {
     dateFrom?: string | null
@@ -41,6 +42,10 @@ function isValidSentimentResult(value: unknown): value is SentimentResult {
 }
 
 const BATCH_MAX_SIZE = 5
+// Cap on in-flight sentiment requests per flush. Browsers limit to ~6 concurrent
+// connections per origin; fanning out all chunks at once starves sibling lazy
+// loaders (trace messages, persons) on page loads with many rows.
+const MAX_CONCURRENT_BATCHES = 2
 
 function chunk<T>(arr: T[], size: number): T[][] {
     const chunks: T[][] = []
@@ -189,32 +194,30 @@ export const llmSentimentLazyLoaderLogic = kea<llmSentimentLazyLoaderLogicType>(
 
                     const chunks = chunk(allIds, BATCH_MAX_SIZE)
 
-                    await Promise.allSettled(
-                        chunks.map(async (batch) => {
-                            try {
-                                const response = await api.create<BatchSentimentResponse>(
-                                    `api/environments/${teamId}/llm_analytics/sentiment/`,
-                                    {
-                                        ids: batch,
-                                        analysis_level: 'trace',
-                                        date_from: dateRangeForBatch?.dateFrom || undefined,
-                                        date_to: dateRangeForBatch?.dateTo || undefined,
-                                    }
-                                )
-
-                                const results: Record<string, SentimentResult | null> = {}
-
-                                for (const traceId of batch) {
-                                    const raw = response.results[traceId]
-                                    results[traceId] = isValidSentimentResult(raw) ? raw : null
+                    await runWithConcurrency(chunks, MAX_CONCURRENT_BATCHES, async (batch) => {
+                        try {
+                            const response = await api.create<BatchSentimentResponse>(
+                                `api/environments/${teamId}/llm_analytics/sentiment/`,
+                                {
+                                    ids: batch,
+                                    analysis_level: 'trace',
+                                    date_from: dateRangeForBatch?.dateFrom || undefined,
+                                    date_to: dateRangeForBatch?.dateTo || undefined,
                                 }
+                            )
 
-                                actions.loadSentimentBatchSuccess(results, batch)
-                            } catch {
-                                actions.loadSentimentBatchFailure(batch)
+                            const results: Record<string, SentimentResult | null> = {}
+
+                            for (const traceId of batch) {
+                                const raw = response.results[traceId]
+                                results[traceId] = isValidSentimentResult(raw) ? raw : null
                             }
-                        })
-                    )
+
+                            actions.loadSentimentBatchSuccess(results, batch)
+                        } catch {
+                            actions.loadSentimentBatchFailure(batch)
+                        }
+                    })
                 }, 0)
             },
         }

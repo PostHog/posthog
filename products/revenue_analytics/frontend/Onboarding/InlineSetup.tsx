@@ -10,13 +10,14 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DataWarehouseManagedViewsetCard } from 'scenes/data-management/managed-viewsets/DataWarehouseManagedViewsetCard'
-import { NewSourcesWizard } from 'scenes/data-warehouse/new/NewSourceWizard'
-import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { ExternalDataSourceType, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlResourceType } from '~/types'
+
+import { NewSourcesWizard } from 'products/data_warehouse/frontend/scenes/NewSourceScene/NewSourceScene'
+import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
 
 import { EventConfigurationModal } from '../settings/EventConfigurationModal'
 import { revenueAnalyticsSettingsLogic } from '../settings/revenueAnalyticsSettingsLogic'
@@ -304,7 +305,7 @@ export function InlineSetup({ completeOnboarding, initialSetupView }: InlineSetu
                                     onClick={source.isAvailable ? () => handleSourceSelect(source.id) : undefined}
                                 >
                                     <div className="flex items-center gap-3 mb-3">
-                                        <DataWarehouseSourceIcon type={source.id} size="small" disableTooltip />
+                                        <SourceIcon type={source.id} size="small" disableTooltip />
                                         <div>
                                             <h5 className="font-medium text-sm">{source.id}</h5>
                                             {!source.isAvailable && (

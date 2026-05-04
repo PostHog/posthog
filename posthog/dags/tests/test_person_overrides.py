@@ -50,7 +50,7 @@ def test_full_job(cluster: ClickhouseCluster):
 
     cluster.any_host(insert_overrides).result()
 
-    def get_distinct_ids_on_events_by_person(client: Client) -> dict[UUID, int]:
+    def get_distinct_ids_on_events_by_person(client: Client) -> dict[UUID, set[str]]:
         rows = client.execute("SELECT person_id, groupUniqArray(distinct_id) FROM events GROUP BY ALL")
         result = {person_id: set(distinct_ids) for person_id, distinct_ids in rows}
         assert len(rows) == len(result)

@@ -28,8 +28,8 @@ class Annotation(ModelActivityMixin, models.Model):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     organization = models.ForeignKey("posthog.Organization", on_delete=models.CASCADE, null=True)
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
-    scope = models.CharField(max_length=24, choices=Scope.choices, default=Scope.INSIGHT)
-    creation_type = models.CharField(max_length=3, choices=CreationType.choices, default=CreationType.USER)
+    scope = models.CharField(max_length=24, choices=Scope, default=Scope.INSIGHT)
+    creation_type = models.CharField(max_length=3, choices=CreationType, default=CreationType.USER)
     date_marker = models.DateTimeField(null=True, blank=True)
     deleted = models.BooleanField(default=False)
 

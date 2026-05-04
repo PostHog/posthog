@@ -8,7 +8,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 
-from posthog.hogql_queries.insights.lifecycle_query_runner import LifecycleQueryRunner
+from posthog.hogql_queries.insights.lifecycle.lifecycle_query_runner import LifecycleQueryRunner
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
 from posthog.models.filters.mixins.utils import cached_property
@@ -21,6 +21,10 @@ class InsightActorsQueryOptionsRunner(QueryRunner):
     @cached_property
     def source_runner(self) -> QueryRunner:
         return get_query_runner(self.query.source.source, self.team, self.timings, self.limit_context)
+
+    def validate(self) -> None:
+        super().validate()
+        self.source_runner.validate()
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         raise ValueError(f"Cannot convert source query of type {self.query.source.kind} to query")

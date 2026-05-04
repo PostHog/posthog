@@ -498,10 +498,12 @@ class TestPartitioning:
         """Test backfill policy for assets."""
         # Check organizations asset
         assert organizations_in_clickhouse.partitions_def is not None
+        assert organizations_in_clickhouse.backfill_policy is not None
         assert organizations_in_clickhouse.backfill_policy.max_partitions_per_run == 24
 
         # Check teams asset
         assert teams_in_clickhouse.partitions_def is not None
+        assert teams_in_clickhouse.backfill_policy is not None
         assert teams_in_clickhouse.backfill_policy.max_partitions_per_run == 24
 
     @patch("posthog.dags.postgres_to_clickhouse_etl.get_postgres_connection")

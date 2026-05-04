@@ -3,9 +3,8 @@ import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 
-import { sidePanelStatusIncidentIoLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelStatusIncidentIoLogic'
-
 import type { healthMenuLogicType } from './healthMenuLogicType'
+import { incidentStatusLogic } from './incidentStatusLogic'
 
 export type PostHogStatusType = 'operational' | 'degraded_performance' | 'partial_outage' | 'major_outage'
 export type PostHogStatusBadgeStatus = 'success' | 'warning' | 'danger'
@@ -14,7 +13,7 @@ export const healthMenuLogic = kea<healthMenuLogicType>([
     path(['lib', 'components', 'HealthMenu', 'healthMenuLogic']),
     connect({
         values: [
-            sidePanelStatusIncidentIoLogic,
+            incidentStatusLogic,
             ['status', 'statusDescription'],
             superpowersLogic,
             ['fakeStatusOverride', 'superpowersEnabled'],

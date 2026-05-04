@@ -40,14 +40,13 @@ def validate_cdc_prerequisites(
         errors.extend(_check_replication_role(conn))
         errors.extend(_check_replication_slot_capacity(conn))
     elif management_mode == "self_managed":
-        if slot_name:
-            errors.extend(_check_slot_exists(conn, slot_name))
-        else:
-            errors.append("Replication slot name is required for self-managed mode.")
+        # Self-managed: the DBA creates the publication out-of-band, PostHog creates
+        # and owns the slot at source-creation time. So we only verify the publication
+        # exists post-setup; the slot is ours to manage.
+        errors.extend(_check_replication_role(conn))
+        errors.extend(_check_replication_slot_capacity(conn))
         if publication_name:
             errors.extend(_check_publication_exists(conn, publication_name))
-        else:
-            errors.append("Publication name is required for self-managed mode.")
 
     return errors
 
@@ -83,7 +82,12 @@ def _check_wal_level(conn: psycopg.Connection) -> list[str]:
 
 
 def _check_tables_have_primary_keys(conn: psycopg.Connection, schema: str, tables: list[str]) -> list[str]:
-    """Each target table must have a primary key."""
+    """Each target table must have a primary key.
+
+    Uses pg_catalog rather than information_schema because information_schema views
+    are ACL-filtered — a SELECT-only user may see an empty result even when the
+    primary key exists. pg_catalog is always readable.
+    """
     if not tables:
         return []
 
@@ -92,8 +96,10 @@ def _check_tables_have_primary_keys(conn: psycopg.Connection, schema: str, table
         for table in tables:
             cur.execute(
                 sql.SQL(
-                    "SELECT COUNT(*) FROM information_schema.table_constraints "
-                    "WHERE table_schema = {} AND table_name = {} AND constraint_type = 'PRIMARY KEY'"
+                    "SELECT COUNT(*) FROM pg_index i "
+                    "JOIN pg_class c ON c.oid = i.indrelid "
+                    "JOIN pg_namespace n ON n.oid = c.relnamespace "
+                    "WHERE i.indisprimary AND n.nspname = {} AND c.relname = {}"
                 ).format(sql.Literal(schema), sql.Literal(table))
             )
             row = cur.fetchone()
@@ -121,16 +127,38 @@ def _check_select_permission(conn: psycopg.Connection, schema: str, tables: list
 
 
 def _check_replication_role(conn: psycopg.Connection) -> list[str]:
-    """Check if current user has REPLICATION role (PostHog-managed mode)."""
+    """Check if current user can create logical replication slots (PostHog-managed mode).
+
+    Any of the following is sufficient:
+      - rolsuper: superusers can always create slots
+      - rolreplication: the standard REPLICATION attribute
+      - membership in rds_replication or rds_superuser: AWS RDS's equivalent
+    """
     with conn.cursor() as cur:
-        cur.execute("SELECT rolreplication FROM pg_roles WHERE rolname = current_user")
+        cur.execute(
+            """
+            SELECT
+                r.rolsuper
+                OR r.rolreplication
+                OR EXISTS (
+                    SELECT 1
+                    FROM pg_auth_members m
+                    JOIN pg_roles parent ON parent.oid = m.roleid
+                    WHERE m.member = r.oid
+                      AND parent.rolname IN ('rds_replication', 'rds_superuser')
+                )
+            FROM pg_roles r
+            WHERE r.rolname = current_user
+            """
+        )
         row = cur.fetchone()
         if row is None:
             return ["Could not determine user roles."]
         if not row[0]:
             return [
-                "The database user must have the REPLICATION role for PostHog-managed CDC. "
-                "Run: ALTER USER <username> WITH REPLICATION;"
+                "The database user cannot create logical replication slots. "
+                "Grant one of: REPLICATION attribute (ALTER USER <username> WITH REPLICATION), "
+                "superuser, or membership in rds_replication / rds_superuser on RDS."
             ]
     return []
 

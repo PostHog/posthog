@@ -49,7 +49,7 @@ class Command(BaseCommand):
         )
 
     def handle(self, **options):
-        dags = DAG.objects.select_related("team").exclude(name__startswith="conflict_")
+        dags = DAG.objects.select_related("team")
         if options.get("team_ids") is not None:
             try:
                 team_ids = [int(tid) for tid in options["team_ids"].split(",")]

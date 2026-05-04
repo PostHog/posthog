@@ -209,6 +209,11 @@ class HogQLParserVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
+    # Visit a parse tree produced by HogQLParser#interpolateClause.
+    def visitInterpolateClause(self, ctx:HogQLParser.InterpolateClauseContext):
+        return self.visitChildren(ctx)
+
+
     # Visit a parse tree produced by HogQLParser#projectionOrderByClause.
     def visitProjectionOrderByClause(self, ctx:HogQLParser.ProjectionOrderByClauseContext):
         return self.visitChildren(ctx)
@@ -321,6 +326,16 @@ class HogQLParserVisitor(ParseTreeVisitor):
 
     # Visit a parse tree produced by HogQLParser#orderExpr.
     def visitOrderExpr(self, ctx:HogQLParser.OrderExprContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by HogQLParser#withFillClause.
+    def visitWithFillClause(self, ctx:HogQLParser.WithFillClauseContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by HogQLParser#interpolateExpr.
+    def visitInterpolateExpr(self, ctx:HogQLParser.InterpolateExprContext):
         return self.visitChildren(ctx)
 
 

@@ -1,13 +1,18 @@
 import equal from 'fast-deep-equal'
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
+import { subscriptions } from 'kea-subscriptions'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { hashCodeForString } from 'lib/utils'
 import { liveEventsHostOrigin } from 'lib/utils/apiHost'
+import { CATEGORY_LABELS } from 'lib/utils/botDetection'
 import { deduplicateEvents } from 'scenes/activity/live/deduplicateEvents'
 import { teamLogic } from 'scenes/teamLogic'
+import { webAnalyticsFilterLogic } from 'scenes/web-analytics/webAnalyticsFilterLogic'
 
 import { performQuery } from '~/queries/query'
 import {
@@ -17,22 +22,33 @@ import {
     TrendsQuery,
     TrendsQueryResponse,
 } from '~/queries/schema/schema-general'
-import { BaseMathType, LiveEvent } from '~/types'
+import { BaseMathType, LiveEvent, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { createStreamConnection } from './createStreamConnection'
 import { LiveMetricsSlidingWindow } from './LiveMetricsSlidingWindow'
 import type { liveWebAnalyticsMetricsLogicType } from './liveWebAnalyticsMetricsLogicType'
 import {
+    BOT_ELIGIBLE_EVENTS,
+    BOT_KEY_SEPARATOR,
+    BotBreakdownItem,
     BrowserBreakdownItem,
     ChartDataPoint,
+    CITY_KEY_SEPARATOR,
+    CityBreakdownItem,
     CountryBreakdownItem,
     DeviceBreakdownItem,
     DIRECT_REFERRER,
     LiveGeoEvent,
+    parseBotKey,
     PathItem,
     ReferrerItem,
     SlidingWindowBucket,
 } from './LiveWebAnalyticsMetricsTypes'
+import {
+    FILTERED_LIVE_USER_WINDOW_SECONDS,
+    pruneRecentUsersByLastSeen,
+    upsertRecentUsersByLastSeenFromEvents,
+} from './recentUsersByLastSeen'
 
 const ERROR_TOAST_ID = 'live-pageviews-error'
 const RECONNECT_TOAST_ID = 'live-pageviews-reconnect'
@@ -41,35 +57,71 @@ const FLUSH_INTERVAL_MS = 300
 const COOKIELESS_TRANSFORM_PREFIX = 'cookieless_transform'
 const COOKIELESS_TRANSFORM_SEPARATOR = '|||'
 const COUNTRY_BREAKDOWN_LIMIT = 6
+const CITY_BREAKDOWN_LIMIT = 6
+
+const collapseTopWithOther = <T extends { count: number; percentage: number }>(
+    items: T[],
+    limit: number,
+    makeOther: (count: number, percentage: number) => T
+): T[] => {
+    if (items.length <= limit) {
+        return items
+    }
+    const top = items.slice(0, limit)
+    const rest = items.slice(limit)
+    let othersCount = 0
+    let othersPercentage = 0
+    for (const item of rest) {
+        othersCount += item.count
+        othersPercentage += item.percentage
+    }
+    if (othersCount === 0) {
+        return top
+    }
+    return [...top, makeOther(othersCount, othersPercentage)]
+}
 
 export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType>([
     path(['scenes', 'web-analytics', 'livePageviewsLogic']),
     connect(() => ({
-        values: [teamLogic, ['currentTeam']],
+        values: [
+            teamLogic,
+            ['currentTeam'],
+            featureFlagLogic,
+            ['featureFlags'],
+            webAnalyticsFilterLogic,
+            ['selectedHost as rawSelectedHost'],
+        ],
     })),
     actions(() => ({
         addEvents: (events: LiveEvent[], newerThan: Date) => ({ events, newerThan }),
         addGeoEvents: (events: LiveGeoEvent[]) => ({ events }),
-        setInitialData: (buckets: { timestamp: number; bucket: SlidingWindowBucket }[]) => ({ buckets }),
+        setInitialData: (
+            buckets: { timestamp: number; bucket: SlidingWindowBucket }[],
+            recentUsersByLastSeen: [string, number][]
+        ) => ({ buckets, recentUsersByLastSeen }),
         setIsLoading: (loading: boolean) => ({ loading }),
         loadInitialData: true,
         updateConnection: true,
         updateGeoConnection: true,
         tickCurrentMinute: true,
+        tickLiveUserCount: true,
         pauseStream: true,
         resumeStream: true,
         clearRecentEvents: true,
+        clearFilteredLiveUsers: true,
     })),
     reducers({
         slidingWindow: [
             new LiveMetricsSlidingWindow(BUCKET_WINDOW_MINUTES),
             {
-                setInitialData: (existingWindow, { buckets }) => {
+                setInitialData: (_, { buckets }) => {
+                    const freshWindow = new LiveMetricsSlidingWindow(BUCKET_WINDOW_MINUTES)
                     for (const { timestamp, bucket } of buckets) {
-                        existingWindow.extendBucketData(timestamp / 1000, bucket)
+                        freshWindow.extendBucketData(timestamp / 1000, bucket)
                     }
-                    existingWindow.prune()
-                    return existingWindow
+                    freshWindow.prune()
+                    return freshWindow
                 },
                 addEvents: (window, { events, newerThan }) => {
                     for (const event of events) {
@@ -93,6 +145,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                             }
 
                             const isPageview = event.event === '$pageview'
+                            const isBotEligibleEvent = (BOT_ELIGIBLE_EVENTS as readonly string[]).includes(event.event)
                             const normalizedReferrer =
                                 isPageview &&
                                 referringDomain &&
@@ -103,13 +156,39 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                                       ? DIRECT_REFERRER
                                       : undefined
 
+                            // Server-side classification from livestream ($virt_* properties)
+                            const virtBotName = event.properties?.$virt_bot_name as string | undefined
+                            const virtCategory = event.properties?.$virt_traffic_category as string | undefined
+                            const virtIsBot = event.properties?.$virt_is_bot as boolean | undefined
+
+                            let botData: { name: string; category: string } | undefined
+                            if (virtIsBot && virtBotName) {
+                                botData = {
+                                    name: virtBotName,
+                                    category:
+                                        (CATEGORY_LABELS as Record<string, string>)[virtCategory ?? ''] ??
+                                        virtCategory ??
+                                        '',
+                                }
+                            }
+
                             window.addDataPoint(eventTs, event.distinct_id, {
                                 pageviews: isPageview ? 1 : 0,
+                                botEligibleEvents: isBotEligibleEvent ? 1 : 0,
                                 device: deviceType ? { deviceId: deviceKey, deviceType } : undefined,
                                 browser: browser ? { deviceId: deviceKey, browserType: browser } : undefined,
                                 pathname: isPageview ? pathname : undefined,
                                 referringDomain: normalizedReferrer,
+                                bot: botData,
                             })
+
+                            // City breakdown rides on the regular event stream because the geo SSE
+                            // (which drives lat/lng + country) doesn't include city information.
+                            const cityName = event.properties?.$geoip_city_name as string | undefined
+                            const cityCountryCode = event.properties?.$geoip_country_code as string | undefined
+                            if (cityName) {
+                                window.addCityDataPoint(eventTs, cityName, cityCountryCode ?? '', event.distinct_id)
+                            }
                         }
                     }
 
@@ -135,6 +214,16 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                 setInitialData: (v) => v + 1,
                 addEvents: (v) => v + 1,
                 tickCurrentMinute: (v) => v + 1,
+            },
+        ],
+        recentUsersByLastSeen: [
+            new Map<string, number>(),
+            {
+                setInitialData: (_, { recentUsersByLastSeen }) => new Map(recentUsersByLastSeen),
+                addEvents: (state, { events, newerThan }) =>
+                    upsertRecentUsersByLastSeenFromEvents(state, events, newerThan),
+                tickLiveUserCount: (state) => pruneRecentUsersByLastSeen(state, Date.now() / 1000),
+                clearFilteredLiveUsers: () => new Map<string, number>(),
             },
         ],
         geoVersion: [
@@ -170,6 +259,13 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                     const ts = currentBucketTs - i * 60
                     const bucket = bucketMap.get(ts)
 
+                    let botEvents = 0
+                    if (bucket?.bots) {
+                        for (const { count } of bucket.bots.values()) {
+                            botEvents += count
+                        }
+                    }
+
                     result.push({
                         minute: dayjs.unix(ts).format('HH:mm'),
                         timestamp: ts * 1000,
@@ -177,6 +273,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                         newUsers: bucket?.newUserCount ?? 0,
                         returningUsers: bucket?.returningUserCount ?? 0,
                         pageviews: bucket?.pageviews ?? 0,
+                        botEvents,
                     })
                 }
 
@@ -201,26 +298,28 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
         ],
         topCountryBreakdown: [
             (s) => [s.countryBreakdown],
-            (countryBreakdown: CountryBreakdownItem[]): CountryBreakdownItem[] => {
-                if (countryBreakdown.length <= COUNTRY_BREAKDOWN_LIMIT) {
-                    return countryBreakdown
-                }
-                const top = countryBreakdown.slice(0, COUNTRY_BREAKDOWN_LIMIT)
-                const rest = countryBreakdown.slice(COUNTRY_BREAKDOWN_LIMIT)
-                const othersCount = rest.reduce((sum, item) => sum + item.count, 0)
-                if (othersCount === 0) {
-                    return top
-                }
-                const othersPercentage = rest.reduce((sum, item) => sum + item.percentage, 0)
-                return [
-                    ...top,
-                    {
-                        country: 'Other',
-                        count: othersCount,
-                        percentage: othersPercentage,
-                    },
-                ]
-            },
+            (countryBreakdown: CountryBreakdownItem[]): CountryBreakdownItem[] =>
+                collapseTopWithOther(countryBreakdown, COUNTRY_BREAKDOWN_LIMIT, (count, percentage) => ({
+                    country: 'Other',
+                    count,
+                    percentage,
+                })),
+            { resultEqualityCheck: equal },
+        ],
+        cityBreakdown: [
+            (s) => [s.slidingWindow, s.eventsVersion],
+            (slidingWindow: LiveMetricsSlidingWindow): CityBreakdownItem[] => slidingWindow.getCityBreakdown(),
+            { resultEqualityCheck: equal },
+        ],
+        topCityBreakdown: [
+            (s) => [s.cityBreakdown],
+            (cityBreakdown: CityBreakdownItem[]): CityBreakdownItem[] =>
+                collapseTopWithOther(cityBreakdown, CITY_BREAKDOWN_LIMIT, (count, percentage) => ({
+                    cityName: 'Other',
+                    countryCode: '',
+                    count,
+                    percentage,
+                })),
             { resultEqualityCheck: equal },
         ],
         topPaths: [
@@ -245,6 +344,28 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             (s) => [s.slidingWindow, s.eventsVersion],
             (slidingWindow: LiveMetricsSlidingWindow): number => slidingWindow.getTotalBrowsers(),
         ],
+        botBreakdown: [
+            (s) => [s.slidingWindow, s.eventsVersion],
+            (slidingWindow: LiveMetricsSlidingWindow): BotBreakdownItem[] => slidingWindow.getBotBreakdown(6),
+            { resultEqualityCheck: equal },
+        ],
+        totalBotEvents: [
+            (s) => [s.slidingWindow, s.eventsVersion],
+            (slidingWindow: LiveMetricsSlidingWindow): number => slidingWindow.getTotalBotEvents(),
+        ],
+        totalBotEligibleEvents: [
+            (s) => [s.slidingWindow, s.eventsVersion],
+            (slidingWindow: LiveMetricsSlidingWindow): number => slidingWindow.getTotalBotEligibleEvents(),
+        ],
+        liveUserCount: [
+            (s) => [s.recentUsersByLastSeen],
+            (recentUsersByLastSeen: Map<string, number>): number => recentUsersByLastSeen.size,
+        ],
+        selectedHost: [
+            (s) => [s.rawSelectedHost, s.featureFlags],
+            (rawSelectedHost: string | null, featureFlags: FeatureFlagsSet): string | null =>
+                featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_DOMAIN_FILTER] ? rawSelectedHost : null,
+        ],
     }),
     listeners(({ actions, values, cache }) => ({
         pauseStream: () => {
@@ -253,6 +374,10 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             cache.batch = []
             cache.geoBatch = []
             stopFlushInterval(cache as FlushCache)
+            if (cache.liveUserCountInterval) {
+                clearInterval(cache.liveUserCountInterval)
+                cache.liveUserCountInterval = null
+            }
         },
         resumeStream: () => {
             if (cache.hasInitialized) {
@@ -262,6 +387,12 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                 })
             }
             startFlushInterval(cache as FlushCache, actions as FlushActions)
+            if (!cache.liveUserCountInterval) {
+                // Drives the "Users online" count so users drop off within ~5s of leaving the 60s window
+                cache.liveUserCountInterval = setInterval(() => {
+                    actions.tickLiveUserCount()
+                }, 5000)
+            }
             actions.loadInitialData()
         },
         loadInitialData: async () => {
@@ -285,7 +416,15 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                     pathsResponse,
                     referrerResponse,
                     geoResponse,
-                ] = await loadQueryData(dateFrom, handoff)
+                    recentUsersResponse,
+                    botResponse,
+                    cityResponse,
+                ] = await loadQueryData(
+                    dateFrom,
+                    handoff,
+                    values.selectedHost,
+                    !!values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_CITY_BREAKDOWN]
+                )
 
                 const bucketMap = new Map<number, SlidingWindowBucket>()
 
@@ -295,8 +434,13 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                 addPathDataToBuckets(pathsResponse, bucketMap)
                 addReferrerDataToBuckets(referrerResponse, bucketMap)
                 addGeoDataToBuckets(geoResponse, bucketMap)
+                addCityDataToBuckets(cityResponse, bucketMap)
+                addBotDataToBuckets(botResponse, bucketMap)
 
-                actions.setInitialData([...bucketMap.entries()].map(([timestamp, bucket]) => ({ timestamp, bucket })))
+                actions.setInitialData(
+                    [...bucketMap.entries()].map(([timestamp, bucket]) => ({ timestamp, bucket })),
+                    recentUsersResponse ? getRecentUsersByLastSeenEntries(recentUsersResponse) : []
+                )
             } catch (error) {
                 console.error('Failed to load initial live pageview data:', error)
                 lemonToast.error('Failed to load initial data')
@@ -319,10 +463,15 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             }
 
             const url = new URL(`${host}/events`)
-            url.searchParams.append(
-                'columns',
-                '$pathname,$current_url,$device_type,$device_id,$browser,$ip,$raw_user_agent,$referring_domain'
-            )
+            const baseColumns =
+                '$pathname,$current_url,$host,$device_type,$device_id,$browser,$ip,$raw_user_agent,$referring_domain'
+            const cityColumns = values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_CITY_BREAKDOWN]
+                ? ',$geoip_city_name,$geoip_country_code'
+                : ''
+            url.searchParams.append('columns', `${baseColumns}${cityColumns}`)
+            if (values.selectedHost) {
+                url.searchParams.append('property', `$host=${values.selectedHost}`)
+            }
 
             cache.batch = cache.batch ?? ([] as LiveEvent[])
 
@@ -389,6 +538,18 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             })
         },
     })),
+    subscriptions(({ actions, cache }) => ({
+        selectedHost: () => {
+            if (!cache.hasInitialized) {
+                return
+            }
+            cache.batch = []
+            cache.geoBatch = []
+            actions.clearRecentEvents()
+            actions.clearFilteredLiveUsers()
+            actions.loadInitialData()
+        },
+    })),
     events(({ actions, cache }) => ({
         afterMount: () => {
             cache.batch = [] as LiveEvent[]
@@ -408,6 +569,9 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                 }, msUntilNextMinute)
             }
             scheduleNextTick()
+            cache.liveUserCountInterval = setInterval(() => {
+                actions.tickLiveUserCount()
+            }, 5000)
         },
         beforeUnmount: () => {
             cache.eventsConnection?.abort()
@@ -415,6 +579,10 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             stopFlushInterval(cache as FlushCache)
             if (cache.minuteTickTimeout) {
                 clearTimeout(cache.minuteTickTimeout)
+            }
+            if (cache.liveUserCountInterval) {
+                clearInterval(cache.liveUserCountInterval)
+                cache.liveUserCountInterval = null
             }
         },
     })),
@@ -459,7 +627,9 @@ const startFlushInterval = (cache: FlushCache, actions: FlushActions): void => {
 
 const loadQueryData = async (
     dateFrom: Date,
-    dateTo: Date
+    dateTo: Date,
+    host: string | null,
+    includeCity: boolean
 ): Promise<
     [
         HogQLQueryResponse,
@@ -468,18 +638,28 @@ const loadQueryData = async (
         TrendsQueryResponse,
         HogQLQueryResponse,
         HogQLQueryResponse,
+        HogQLQueryResponse | null,
+        HogQLQueryResponse,
+        HogQLQueryResponse | null,
     ]
 > => {
+    const hostFilterClause = host ? `AND properties.$host = {host}` : ''
+    const hostValues = host ? { host } : {}
+
+    const botEligibleEventsTuple = `(${BOT_ELIGIBLE_EVENTS.map((e) => `'${e}'`).join(', ')})`
+
     const usersPageviewsQuery: HogQLQuery = {
         kind: NodeKind.HogQLQuery,
         query: `SELECT
                     toStartOfMinute(timestamp) AS minute_bucket,
                     arrayDistinct(groupArray(distinct_id)) AS distinct_ids,
-                    countIf(event = '$pageview') AS pageviews
+                    countIf(event = '$pageview') AS pageviews,
+                    countIf(event IN ${botEligibleEventsTuple}) AS bot_eligible_events
                 FROM events
                 WHERE
                     timestamp >= toDateTime({dateFrom})
                     AND timestamp <= toDateTime({dateTo})
+                    ${hostFilterClause}
                 GROUP BY
                     minute_bucket
                 ORDER BY
@@ -487,6 +667,7 @@ const loadQueryData = async (
         values: {
             dateFrom: dateFrom.toISOString(),
             dateTo: dateTo.toISOString(),
+            ...hostValues,
         },
     }
 
@@ -519,6 +700,7 @@ const loadQueryData = async (
                     WHERE
                         timestamp >= toDateTime({dateFrom})
                         AND timestamp <= toDateTime({dateTo})
+                        ${hostFilterClause}
                     GROUP BY
                         minute_bucket,
                         ${alias}
@@ -530,6 +712,7 @@ const loadQueryData = async (
         values: {
             dateFrom: dateFrom.toISOString(),
             dateTo: dateTo.toISOString(),
+            ...hostValues,
         },
     })
 
@@ -550,6 +733,18 @@ const loadQueryData = async (
             date_from: dateFrom.toISOString(),
             date_to: dateTo.toISOString(),
         },
+        ...(host
+            ? {
+                  properties: [
+                      {
+                          key: '$host',
+                          value: host,
+                          operator: PropertyOperator.Exact,
+                          type: PropertyFilterType.Event,
+                      },
+                  ],
+              }
+            : {}),
     }
 
     const referrerQuery: HogQLQuery = {
@@ -563,11 +758,13 @@ const loadQueryData = async (
                     timestamp >= toDateTime({dateFrom})
                     AND timestamp <= toDateTime({dateTo})
                     AND event = '$pageview'
+                    ${hostFilterClause}
                 GROUP BY minute_bucket, referring_domain
                 ORDER BY minute_bucket ASC`,
         values: {
             dateFrom: dateFrom.toISOString(),
             dateTo: dateTo.toISOString(),
+            ...hostValues,
         },
     }
 
@@ -591,6 +788,7 @@ const loadQueryData = async (
                         AND timestamp <= toDateTime({dateTo})
                         AND properties.$geoip_country_code IS NOT NULL
                         AND properties.$geoip_country_code != ''
+                        ${hostFilterClause}
                     GROUP BY
                         minute_bucket,
                         country_code
@@ -600,8 +798,112 @@ const loadQueryData = async (
         values: {
             dateFrom: dateFrom.toISOString(),
             dateTo: dateTo.toISOString(),
+            ...hostValues,
         },
     }
+
+    // Aggregate per-minute first then re-group so the response is bounded by the
+    // number of minutes in the window (not by the bot-name cardinality). Without this
+    // the default HogQL row cap (100) silently truncates high-traffic projects.
+    const botQuery: HogQLQuery = {
+        kind: NodeKind.HogQLQuery,
+        query: `SELECT
+                    minute_bucket,
+                    mapFromArrays(
+                        groupArray(bot_key),
+                        groupArray(event_count)
+                    ) AS counts_by_bot
+                FROM
+                (
+                    SELECT
+                        toStartOfMinute(timestamp) AS minute_bucket,
+                        concat(
+                            \`$virt_bot_name\`,
+                            {botSeparator},
+                            ifNull(\`$virt_traffic_category\`, '')
+                        ) AS bot_key,
+                        count() AS event_count
+                    FROM events
+                    WHERE
+                        timestamp >= toDateTime({dateFrom})
+                        AND timestamp <= toDateTime({dateTo})
+                        AND \`$virt_is_bot\` = true
+                        AND \`$virt_bot_name\` != ''
+                        AND event IN ${botEligibleEventsTuple}
+                        ${hostFilterClause}
+                    GROUP BY
+                        minute_bucket,
+                        bot_key
+                )
+                GROUP BY minute_bucket
+                ORDER BY minute_bucket ASC`,
+        values: {
+            dateFrom: dateFrom.toISOString(),
+            dateTo: dateTo.toISOString(),
+            botSeparator: BOT_KEY_SEPARATOR,
+            ...hostValues,
+        },
+    }
+
+    const cityQuery: HogQLQuery | null = includeCity
+        ? {
+              kind: NodeKind.HogQLQuery,
+              query: `SELECT
+                    minute_bucket,
+                    mapFromArrays(
+                        groupArray(city_key),
+                        groupArray(distinct_ids)
+                    ) AS ids_by_city
+                FROM
+                (
+                    SELECT
+                        toStartOfMinute(timestamp) AS minute_bucket,
+                        concat(
+                            properties.$geoip_city_name,
+                            {citySeparator},
+                            ifNull(properties.$geoip_country_code, '')
+                        ) AS city_key,
+                        arrayDistinct(groupArray(distinct_id)) AS distinct_ids
+                    FROM events
+                    WHERE
+                        timestamp >= toDateTime({dateFrom})
+                        AND timestamp <= toDateTime({dateTo})
+                        AND properties.$geoip_city_name IS NOT NULL
+                        AND properties.$geoip_city_name != ''
+                        ${hostFilterClause}
+                    GROUP BY
+                        minute_bucket,
+                        city_key
+                )
+                GROUP BY minute_bucket
+                ORDER BY minute_bucket ASC`,
+              values: {
+                  dateFrom: dateFrom.toISOString(),
+                  dateTo: dateTo.toISOString(),
+                  citySeparator: CITY_KEY_SEPARATOR,
+                  ...hostValues,
+              },
+          }
+        : null
+
+    const recentUsersQuery: HogQLQuery | null = host
+        ? {
+              kind: NodeKind.HogQLQuery,
+              query: `SELECT
+                          distinct_id,
+                          toUnixTimestamp(max(timestamp)) AS last_seen
+                      FROM events
+                      WHERE
+                          timestamp > toDateTime({dateTo}) - INTERVAL ${FILTERED_LIVE_USER_WINDOW_SECONDS} SECOND
+                          AND timestamp <= toDateTime({dateTo})
+                          ${hostFilterClause}
+                      GROUP BY distinct_id`,
+              values: {
+                  dateTo: dateTo.toISOString(),
+                  ...hostValues,
+              },
+          }
+        : null
 
     return await Promise.all([
         performQuery(usersPageviewsQuery),
@@ -610,20 +912,32 @@ const loadQueryData = async (
         performQuery(pathsQuery),
         performQuery(referrerQuery),
         performQuery(geoQuery),
+        recentUsersQuery ? performQuery(recentUsersQuery) : Promise.resolve(null),
+        performQuery(botQuery),
+        cityQuery ? performQuery(cityQuery) : Promise.resolve(null),
     ])
+}
+
+const getRecentUsersByLastSeenEntries = (response: HogQLQueryResponse): [string, number][] => {
+    const results = response.results as [string, number | string][]
+
+    return results
+        .map(([distinctId, lastSeenTs]) => [distinctId, Number(lastSeenTs)] as [string, number])
+        .filter(([distinctId, lastSeenTs]) => distinctId !== '' && Number.isFinite(lastSeenTs))
 }
 
 const addUserDataToBuckets = (
     usersPageviewsResponse: HogQLQueryResponse,
     bucketMap: Map<number, SlidingWindowBucket>
 ): void => {
-    const usersResults = usersPageviewsResponse.results as [string, string[], number][]
+    const usersResults = usersPageviewsResponse.results as [string, string[], number, number][]
 
-    for (const [timestampStr, distinctIds, viewCount] of usersResults) {
+    for (const [timestampStr, distinctIds, viewCount, botEligibleCount] of usersResults) {
         const timestamp = Date.parse(timestampStr)
         const bucket = getOrCreateBucket(bucketMap, timestamp)
 
         bucket.pageviews = viewCount
+        bucket.botEligibleEvents = botEligibleCount ?? 0
         bucket.uniqueUsers = new Set<string>(distinctIds)
     }
 }
@@ -707,6 +1021,68 @@ const addGeoDataToBuckets = (geoResponse: HogQLQueryResponse, bucketMap: Map<num
     }
 }
 
+const addCityDataToBuckets = (
+    cityResponse: HogQLQueryResponse | null,
+    bucketMap: Map<number, SlidingWindowBucket>
+): void => {
+    if (!cityResponse) {
+        return
+    }
+    const results = cityResponse.results as [string, Record<string, string[]>][]
+
+    for (const [timestampStr, idsByCityKey] of results) {
+        const timestamp = Date.parse(timestampStr)
+        const bucket = getOrCreateBucket(bucketMap, timestamp)
+
+        if (!bucket.cities) {
+            bucket.cities = new Map<string, Set<string>>()
+        }
+
+        for (const [cityKey, distinctIds] of Object.entries(idsByCityKey)) {
+            const cityUsers = bucket.cities.get(cityKey) ?? new Set<string>()
+            for (const distinctId of distinctIds) {
+                cityUsers.add(distinctId)
+            }
+            bucket.cities.set(cityKey, cityUsers)
+        }
+    }
+}
+
+const addBotDataToBuckets = (botResponse: HogQLQueryResponse, bucketMap: Map<number, SlidingWindowBucket>): void => {
+    // Response shape: [[minute_bucket_iso, { 'BotName|||category': eventCount, ... }], ...]
+    const results = botResponse.results as [string, Record<string, number>][]
+
+    for (const [timestampStr, countsByBotKey] of results) {
+        const timestamp = Date.parse(timestampStr)
+        const bucket = getOrCreateBucket(bucketMap, timestamp)
+
+        if (!bucket.bots) {
+            bucket.bots = new Map<string, { count: number; category: string }>()
+        }
+
+        for (const [botKey, eventCount] of Object.entries(countsByBotKey)) {
+            const { botName, category: rawCategory } = parseBotKey(botKey)
+            if (!botName) {
+                continue
+            }
+            const categoryLabel = translateCategoryLabel(rawCategory)
+            const existing = bucket.bots.get(botName)
+            bucket.bots.set(botName, {
+                count: (existing?.count ?? 0) + eventCount,
+                category: categoryLabel,
+            })
+        }
+    }
+}
+
+const translateCategoryLabel = (rawCategory: string | null | undefined): string => {
+    if (!rawCategory) {
+        return CATEGORY_LABELS.regular
+    }
+    const known = (CATEGORY_LABELS as Record<string, string>)[rawCategory]
+    return known ?? rawCategory
+}
+
 const getOrCreateBucket = (map: Map<number, SlidingWindowBucket>, timestamp: number): SlidingWindowBucket => {
     if (!map.has(timestamp)) {
         map.set(timestamp, createEmptyBucket())
@@ -718,6 +1094,7 @@ const getOrCreateBucket = (map: Map<number, SlidingWindowBucket>, timestamp: num
 const createEmptyBucket = (): SlidingWindowBucket => {
     return {
         pageviews: 0,
+        botEligibleEvents: 0,
         newUserCount: 0,
         returningUserCount: 0,
         devices: new Map<string, Set<string>>(),
@@ -726,5 +1103,7 @@ const createEmptyBucket = (): SlidingWindowBucket => {
         referrers: new Map<string, number>(),
         uniqueUsers: new Set<string>(),
         countries: new Map<string, Set<string>>(),
+        cities: new Map<string, Set<string>>(),
+        bots: new Map<string, { count: number; category: string }>(),
     }
 }

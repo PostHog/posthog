@@ -9,7 +9,6 @@ import { dayjs } from 'lib/dayjs'
 import { objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
-import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import {
@@ -23,6 +22,8 @@ import {
     SubscriptionDropoffMode,
 } from '~/queries/schema/schema-general'
 import { ExternalDataSource } from '~/types'
+
+import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/logics/sourceManagementLogic'
 
 import type { revenueAnalyticsSettingsLogicType } from './revenueAnalyticsSettingsLogicType'
 
@@ -65,7 +66,7 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
         values: [
             teamLogic,
             ['currentTeam', 'currentTeamId'],
-            dataWarehouseSettingsLogic,
+            sourceManagementLogic,
             ['dataWarehouseSources', 'dataWarehouseSourcesLoading'],
             databaseTableListLogic,
             ['database'],
@@ -73,7 +74,7 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
         actions: [
             teamLogic,
             ['updateCurrentTeam'],
-            dataWarehouseSettingsLogic,
+            sourceManagementLogic,
             ['updateSourceRevenueAnalyticsConfig', 'deleteJoin'],
             eventUsageLogic,
             [

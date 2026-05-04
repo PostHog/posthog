@@ -1,4 +1,4 @@
-from typing import Any, Optional, Union
+from typing import Any, Optional, Union, cast
 from uuid import UUID
 
 from posthog.clickhouse.materialized_columns import ColumnName
@@ -303,7 +303,7 @@ class PersonQuery:
             # TODO: doesn't support non-caclculated cohorts
             for index, property in enumerate(self._cohort_filters):
                 try:
-                    cohort = Cohort.objects.get(pk=property.value, team_id=self._team_id)
+                    cohort = Cohort.objects.get(pk=cast(str | int, property.value), team_id=self._team_id)
                     if property.type == "static-cohort":
                         subquery, subquery_params = format_static_cohort_query(cohort, index, prepend)
                     else:

@@ -15,7 +15,7 @@ import {
     SessionRecordingPlaylistType,
 } from '~/types'
 
-import { deletePlaylist } from '../playlist/playlistUtils'
+import { deletePlaylist, stripSessionIds } from '../playlist/playlistUtils'
 import type { sessionRecordingSavedFiltersLogicType } from './sessionRecordingSavedFiltersLogicType'
 
 export const PLAYLISTS_PER_PAGE = 30
@@ -136,7 +136,7 @@ export const sessionRecordingSavedFiltersLogic = kea<sessionRecordingSavedFilter
             if (savedFilterId) {
                 const savedFilter = await api.recordings.getPlaylist(savedFilterId)
                 if (savedFilter) {
-                    router.actions.push(urls.replay(ReplayTabs.Home, savedFilter.filters))
+                    router.actions.push(urls.replay(ReplayTabs.Home, stripSessionIds(savedFilter.filters)))
                     actions.setAppliedSavedFilter(savedFilter)
                 }
             }

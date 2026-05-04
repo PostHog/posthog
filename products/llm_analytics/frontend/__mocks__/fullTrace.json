@@ -3247,6 +3247,8 @@
     },
     "inputTokens": 18490,
     "outputCost": 0.0061,
+    "requestCost": 0,
+    "webSearchCost": 0,
     "outputState": null,
     "outputTokens": 417,
     "person": {

@@ -1,12 +1,12 @@
 use std::sync::Arc;
 
 use serde::Serialize;
-use tiktoken_rs::cl100k_base;
 use tracing::warn;
 
 use crate::config::Config;
 use crate::issue_resolution::Issue;
 use crate::metric_consts::{SIGNAL_EMITTED, SIGNAL_EMIT_FAILED, SIGNAL_EMIT_RESPONSE};
+use crate::tokenizer::CL100K_BPE;
 use crate::types::OutputErrProps;
 
 /// Signal payload matching the Django internal API contract.
@@ -39,9 +39,7 @@ impl<'a> From<IssueSignalContext<'a>> for EmitSignalRequest {
             ctx.issue.name.as_deref().unwrap_or("Unknown"),
             ctx.issue.description.as_deref().unwrap_or(""),
         );
-        let header_tokens = cl100k_base()
-            .map(|bpe| bpe.encode_with_special_tokens(&header).len())
-            .unwrap_or(0);
+        let header_tokens = CL100K_BPE.encode_with_special_tokens(&header).len();
         let stacktrace = ctx.props.print_stacktrace(Some(8000 - header_tokens));
         let description = format!("{header}\n```\n{stacktrace}\n```");
 

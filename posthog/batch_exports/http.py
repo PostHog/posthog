@@ -16,9 +16,10 @@ from django.utils.timezone import now
 
 import structlog
 import posthoganalytics
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import filters, mixins, request, response, serializers, status, viewsets
-from rest_framework.exceptions import NotAuthenticated, NotFound, PermissionDenied, ValidationError
+from rest_framework.exceptions import APIException, NotAuthenticated, NotFound, PermissionDenied, ValidationError
 from rest_framework.pagination import CursorPagination
 
 from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
@@ -167,7 +168,7 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Read
     log_source = "batch_exports"
 
     def get_log_entry_instance_id(self) -> str:
-        return self.parents_query_dict.get("run_id", None)
+        return cast(str, self.parents_query_dict["run_id"])
 
     def safely_get_queryset(self, queryset):
         after = self.request.GET.get("after", None)
@@ -236,6 +237,7 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Read
 class BatchExportDestinationSerializer(serializers.ModelSerializer):
     """Serializer for an BatchExportDestination model."""
 
+    integration = TeamScopedPrimaryKeyRelatedField(queryset=Integration.objects.all(), required=False, allow_null=True)
     integration_id = TeamScopedPrimaryKeyRelatedField(
         write_only=True, queryset=Integration.objects.all(), source="integration", required=False, allow_null=True
     )
@@ -243,15 +245,6 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
     class Meta:
         model = BatchExportDestination
         fields = ["type", "config", "integration", "integration_id"]
-
-    def get_fields(self):
-        fields = super().get_fields()
-        team_id = self.context.get("team_id")
-        if team_id:
-            fields["integration_id"].queryset = Integration.objects.filter(team_id=team_id)  # type: ignore[attr-defined]
-        else:
-            fields["integration_id"].queryset = Integration.objects.none()  # type: ignore[attr-defined]
-        return fields
 
     def create(self, validated_data: collections.abc.Mapping[str, typing.Any]) -> BatchExportDestination:
         """Create a BatchExportDestination."""
@@ -366,6 +359,7 @@ def try_convert_to_type(value: typing.Any, target_type: type) -> tuple[typing.An
     return (new_value, True)
 
 
+@extend_schema_field(OpenApiTypes.STR)
 class HogQLSelectQueryField(serializers.Field):
     def to_internal_value(self, data: str) -> ast.SelectQuery | ast.SelectSetQuery:
         """Parse a HogQL SelectQuery from a string query."""
@@ -652,13 +646,19 @@ class BatchExportSerializer(serializers.ModelSerializer):
         config = destination_attrs["config"]
         view = self.context.get("view")
 
+        instance = None
         if self.instance is not None:
-            existing_config = self.instance.destination.config
+            instance = self.instance
+            existing_config = instance.destination.config
         elif view is not None and "pk" in view.kwargs:
             # Running validation for a `detail=True` action.
             instance = view.get_object()
             existing_config = instance.destination.config
         else:
+            existing_config = {}
+
+        if instance is not None and destination_type != instance.destination.type:
+            # Start fresh if this is changing the batch export type
             existing_config = {}
         merged_config = recursive_dict_merge(existing_config, config)
 
@@ -731,6 +731,15 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 DatabricksIntegration(integration)
             except DatabricksIntegrationError as e:
                 raise serializers.ValidationError(str(e))
+
+        if destination_type == BatchExportDestination.Destination.POSTGRES:
+            team_id = self.context["team_id"]
+            integration = destination_attrs.get("integration")
+            if integration is not None:
+                if integration.team_id != team_id:
+                    raise serializers.ValidationError("Integration does not belong to this team.")
+                if integration.kind != Integration.IntegrationKind.POSTGRESQL:
+                    raise serializers.ValidationError("Integration is not a PostgreSQL integration.")
 
         if destination_type == BatchExportDestination.Destination.BIGQUERY:
             team_id = self.context["team_id"]
@@ -965,6 +974,10 @@ class BatchExportSerializer(serializers.ModelSerializer):
 
         with transaction.atomic():
             if destination_data:
+                if destination_data.get("type", batch_export.destination.type) != batch_export.destination.type:
+                    # Start fresh if this is changing the destination type
+                    batch_export.destination.config = {}
+
                 batch_export.destination.type = destination_data.get("type", batch_export.destination.type)
                 batch_export.destination.config = recursive_dict_merge(
                     batch_export.destination.config,
@@ -1219,6 +1232,12 @@ class BackfillsCursorPagination(CursorPagination):
     page_size = 50
 
 
+class TooManyConcurrentBackfills(APIException):
+    status_code = status.HTTP_429_TOO_MANY_REQUESTS
+    default_code = "too_many_concurrent_backfills"
+    default_detail = "Too many concurrent batch export backfills for this team."
+
+
 def create_backfill(
     team: Team,
     batch_export: BatchExport,
@@ -1252,6 +1271,20 @@ def create_backfill(
             send_feature_flag_events=False,
         ):
             raise ValidationError("Backfilling from the beginning of time is not enabled for this team.")
+
+    concurrency_limit = settings.BATCH_EXPORT_MAX_CONCURRENT_BACKFILLS_PER_TEAM
+    active_backfills = BatchExportBackfill.objects.filter(
+        team_id=team.pk,
+        status__in=[
+            BatchExportBackfill.Status.STARTING,
+            BatchExportBackfill.Status.RUNNING,
+        ],
+    ).count()
+    if active_backfills >= concurrency_limit:
+        raise TooManyConcurrentBackfills(
+            f"This team already has {concurrency_limit} batch export backfills running. "
+            f"Wait for some to finish or cancel them before creating more."
+        )
 
     temporal = sync_connect()
 

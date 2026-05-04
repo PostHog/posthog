@@ -1072,6 +1072,91 @@ class TestEnsurePrecomputed(ClickhouseTestMixin, BaseTest):
                 f"Job {job.time_range_start}: expected TTL ~{expected_ttl}, got {actual_ttl}"
             )
 
+    def test_sentinel_placeholders_produce_stable_hash(self):
+        query = """
+            SELECT
+                toStartOfDay(timestamp) as time_window_start,
+                [] as breakdown_value,
+                uniqExactState(person_id) as uniq_exact_state
+            FROM events
+            WHERE event = '$pageview'
+                AND timestamp >= {time_window_min}
+                AND timestamp < {time_window_max}
+                AND timestamp <= {my_date}
+            GROUP BY time_window_start
+        """
+
+        first = ensure_precomputed(
+            team=self.team,
+            insert_query=query,
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+            placeholders={"my_date": ast.Constant(value=datetime(2024, 1, 5, 12, 0, 0, tzinfo=UTC))},
+            sentinel_placeholders={"my_date"},
+        )
+        second = ensure_precomputed(
+            team=self.team,
+            insert_query=query,
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+            placeholders={"my_date": ast.Constant(value=datetime(2024, 1, 5, 12, 0, 30, tzinfo=UTC))},
+            sentinel_placeholders={"my_date"},
+        )
+
+        assert first.ready is True
+        assert second.ready is True
+        assert second.job_ids[0] == first.job_ids[0]
+
+    def test_non_sentinel_placeholder_change_produces_different_hash(self):
+        query = """
+            SELECT
+                toStartOfDay(timestamp) as time_window_start,
+                [] as breakdown_value,
+                uniqExactState(person_id) as uniq_exact_state
+            FROM events
+            WHERE event = {event_name}
+                AND timestamp >= {time_window_min}
+                AND timestamp < {time_window_max}
+                AND timestamp <= {my_date}
+            GROUP BY time_window_start
+        """
+
+        first = ensure_precomputed(
+            team=self.team,
+            insert_query=query,
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+            placeholders={
+                "event_name": ast.Constant(value="$pageview"),
+                "my_date": ast.Constant(value=datetime(2024, 1, 5, tzinfo=UTC)),
+            },
+            sentinel_placeholders={"my_date"},
+        )
+        second = ensure_precomputed(
+            team=self.team,
+            insert_query=query,
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+            placeholders={
+                "event_name": ast.Constant(value="$pageleave"),
+                "my_date": ast.Constant(value=datetime(2024, 1, 5, tzinfo=UTC)),
+            },
+            sentinel_placeholders={"my_date"},
+        )
+
+        assert first.job_ids[0] != second.job_ids[0]
+
+    def test_sentinel_placeholders_must_exist_in_placeholders(self):
+        with pytest.raises(ValueError, match="must also be present in placeholders"):
+            ensure_precomputed(
+                team=self.team,
+                insert_query=self.MANUAL_INSERT_QUERY,
+                time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+                time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+                placeholders={},
+                sentinel_placeholders={"nonexistent"},
+            )
+
 
 class TestParseTtlSchedule(BaseTest):
     def test_int_returns_schedule_with_no_rules(self):

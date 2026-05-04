@@ -7,7 +7,6 @@ import { LemonBanner, LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
-import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { urls } from 'scenes/urls'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
@@ -17,6 +16,8 @@ import {
     VALID_NATIVE_MARKETING_SOURCES,
 } from '~/queries/schema/schema-general'
 import { ExternalDataSchemaStatus, ExternalDataSource, ManualLinkSourceType } from '~/types'
+
+import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
 
 import { useSortedPaginatedList } from '../../hooks/useSortedPaginatedList'
 import {
@@ -208,7 +209,7 @@ export function ExternalDataSourceConfiguration(): JSX.Element {
                         title: '',
                         width: 0,
                         render: (_, item: UnifiedSource): JSX.Element => (
-                            <DataWarehouseSourceIcon
+                            <SourceIcon
                                 type={item.nativeSource?.source_type || item.table?.source_type || ''}
                                 engine={item.nativeSource?.engine}
                             />

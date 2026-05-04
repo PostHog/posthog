@@ -6,12 +6,13 @@ import { IconArrowLeft } from '@posthog/icons'
 import { LemonButton, LemonModal, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
-import SourceForm from 'scenes/data-warehouse/external/forms/SourceForm'
-import { availableSourcesDataLogic } from 'scenes/data-warehouse/new/availableSourcesDataLogic'
-import { sourceWizardLogic } from 'scenes/data-warehouse/new/sourceWizardLogic'
-import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 
 import { ExternalDataSourceType, SourceConfig } from '~/queries/schema/schema-general'
+
+import { availableSourcesLogic } from 'products/data_warehouse/frontend/scenes/NewSourceScene/availableSourcesLogic'
+import { sourceWizardLogic } from 'products/data_warehouse/frontend/scenes/NewSourceScene/sourceWizardLogic'
+import SourceForm from 'products/data_warehouse/frontend/shared/components/forms/SourceForm'
+import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
 
 import { SessionAnalysisSetup } from './SessionAnalysisSetup'
 import { signalSourcesLogic } from './signalSourcesLogic'
@@ -98,7 +99,7 @@ function DataSourceSetup({
     product: ExternalDataSourceType
     onComplete: () => void
 }): JSX.Element {
-    const { availableSources, availableSourcesLoading } = useValues(availableSourcesDataLogic)
+    const { availableSources, availableSourcesLoading } = useValues(availableSourcesLogic)
 
     if (availableSourcesLoading || availableSources === null) {
         return <LemonSkeleton />
@@ -135,7 +136,7 @@ function DataSourceSetupForm({ sourceConfig }: { sourceConfig: SourceConfig }): 
     return (
         <div className="space-y-4">
             <div className="flex items-center gap-3">
-                <DataWarehouseSourceIcon type={sourceConfig.name} size="small" disableTooltip />
+                <SourceIcon type={sourceConfig.name} size="small" disableTooltip />
                 <p className="text-sm text-muted-alt mb-0">
                     Connect {sourceConfig.label ?? sourceConfig.name} as a data source to enable this signal.
                 </p>

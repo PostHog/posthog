@@ -1,7 +1,7 @@
 import gzip
 import json
 import logging
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from django.db import close_old_connections
 
@@ -68,7 +68,9 @@ class BillingConsumer(SQSConsumer):
             logger.exception(f"Error processing billing message: {e}")
             capture_exception(e, {"message_id": message_id, "message_type": message_type})
 
-    def _decompress_and_parse_message(self, raw_body: str, message_attributes: Optional[dict] = None) -> dict:
+    def _decompress_and_parse_message(
+        self, raw_body: str | bytes, message_attributes: Optional[dict[str, Any]] = None
+    ) -> dict[str, Any]:
         """
         Decompress and parse message body based on content encoding.
 
@@ -90,21 +92,26 @@ class BillingConsumer(SQSConsumer):
                     import base64
 
                     try:
-                        raw_body = base64.b64decode(raw_body)
+                        raw_body_bytes = base64.b64decode(raw_body)
                     except Exception:
-                        raw_body = raw_body.encode("utf-8")
+                        raw_body_bytes = raw_body.encode("utf-8")
+                else:
+                    raw_body_bytes = raw_body
 
-                decompressed_data = gzip.decompress(raw_body)
-                return json.loads(decompressed_data.decode("utf-8"))
+                decompressed_data = gzip.decompress(raw_body_bytes)
+                return cast(dict[str, Any], json.loads(decompressed_data.decode("utf-8")))
             except Exception as e:
                 logger.exception(f"Failed to decompress gzipped message: {str(e)}")
                 capture_exception(e)
                 raise
 
         try:
-            return json.loads(raw_body)
+            return cast(dict[str, Any], json.loads(raw_body))
         except json.JSONDecodeError:
-            logger.exception(f"Invalid JSON in message body: {raw_body[:100]}...")
+            preview = (
+                raw_body[:100].decode("utf-8", errors="replace") if isinstance(raw_body, bytes) else raw_body[:100]
+            )
+            logger.exception(f"Invalid JSON in message body: {preview}...")
             raise
 
     def _process_billing_customer_update(self, body: dict[str, Any]) -> None:

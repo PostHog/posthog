@@ -16,7 +16,7 @@ from django.core.management.base import BaseCommand, CommandError
 
 from products.signals.backend.report_generation.research import ReportResearchOutput, run_multi_turn_research
 from products.signals.backend.temporal.types import SignalData
-from products.tasks.backend.services.custom_prompt_runner import resolve_sandbox_context_for_local_dev
+from products.tasks.backend.services.dev_sandbox_context import resolve_sandbox_context_for_local_dev
 
 logger = logging.getLogger(__name__)
 
@@ -225,7 +225,6 @@ class Command(BaseCommand):
                 summary=summary,
                 previous_report_id=previous_report_id,
                 previous_report_research=previous_report_research,
-                branch="master",
                 verbose=verbose,
                 output_fn=self._flushing_write,
             )

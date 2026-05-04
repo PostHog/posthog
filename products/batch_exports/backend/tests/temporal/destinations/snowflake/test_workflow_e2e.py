@@ -60,6 +60,7 @@ async def _run_workflow(
     expected_status: str = "Completed",
     sort_key: str = "event",
     expect_data_interval_start_none: bool = False,
+    min_ingested_timestamp: dt.datetime | None = None,
 ):
     """Helper function to run SnowflakeBatchExportWorkflow and assert records in Snowflake"""
     workflow_id = str(uuid4())
@@ -127,6 +128,7 @@ async def _run_workflow(
         exclude_events=exclude_events,
         batch_export_model=batch_export_model or batch_export_schema,
         sort_key=sort_key,
+        min_ingested_timestamp=min_ingested_timestamp,
     )
 
     return run
@@ -161,6 +163,8 @@ async def test_snowflake_export_workflow(
     elif model is not None:
         batch_export_schema = model
 
+    min_ingested_timestamp = dt.datetime.now(dt.UTC).replace(tzinfo=None)
+
     await _run_workflow(
         clickhouse_client=clickhouse_client,
         snowflake_cursor=snowflake_cursor,
@@ -172,6 +176,7 @@ async def test_snowflake_export_workflow(
         batch_export_model=batch_export_model,
         batch_export_schema=batch_export_schema,
         exclude_events=exclude_events,
+        min_ingested_timestamp=min_ingested_timestamp,
     )
 
 
@@ -206,6 +211,8 @@ async def test_snowflake_export_workflow_with_many_files(
     elif model is not None:
         batch_export_schema = model
 
+    min_ingested_timestamp = dt.datetime.now(dt.UTC).replace(tzinfo=None)
+
     await _run_workflow(
         clickhouse_client=clickhouse_client,
         snowflake_cursor=snowflake_cursor,
@@ -218,6 +225,7 @@ async def test_snowflake_export_workflow_with_many_files(
         batch_export_schema=batch_export_schema,
         exclude_events=exclude_events,
         settings_overrides={"BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES": 1},
+        min_ingested_timestamp=min_ingested_timestamp,
     )
 
 
@@ -260,6 +268,8 @@ async def test_snowflake_export_workflow_backfill_earliest_persons(
         end_at=data_interval_end.isoformat(),
     )
 
+    min_ingested_timestamp = dt.datetime.now(dt.UTC).replace(tzinfo=None)
+
     await _run_workflow(
         clickhouse_client=clickhouse_client,
         snowflake_cursor=snowflake_cursor,
@@ -273,6 +283,7 @@ async def test_snowflake_export_workflow_backfill_earliest_persons(
         settings_overrides={"BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES": 1},
         execution_timeout=dt.timedelta(minutes=10),
         expect_data_interval_start_none=True,
+        min_ingested_timestamp=min_ingested_timestamp,
     )
 
 

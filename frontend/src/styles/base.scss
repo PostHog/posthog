@@ -650,6 +650,7 @@
     --z-definition-popover: 1250;
     --z-popover: 1200;
     --z-graph-tooltip: 1150;
+    --z-chart-tooltip: calc(var(--z-modal) - 50);
 
     // 1161 and 1162 are reserved to be set from code
     // 1166 through 1169 are reserved to be set from code
@@ -1125,6 +1126,17 @@
     button:focus-visible,
     [data-highlighted]:not(:hover) {
         outline: 2px solid var(--color-accent);
+    }
+
+    /* Radix menus highlight items on pointer-move; only show the outline for
+       keyboard focus, and render it inset so the container's rounded
+       overflow:hidden mask can't clip the corners */
+    .primitive-menu-content [data-highlighted]:not(:focus-visible) {
+        outline: none;
+    }
+
+    .primitive-menu-content [data-highlighted]:focus-visible {
+        outline-offset: -2px;
     }
 
     .input-like {

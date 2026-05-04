@@ -24,6 +24,7 @@ from .run_evaluation import (
     ExecuteLLMJudgeInputs,
     RunEvaluationInputs,
     RunEvaluationWorkflow,
+    SendEvaluationDisabledEmailInputs,
     SendTrialUsageEmailInputs,
     disable_evaluation_activity,
     emit_evaluation_event_activity,
@@ -32,6 +33,7 @@ from .run_evaluation import (
     fetch_evaluation_activity,
     increment_trial_eval_count_activity,
     run_hog_eval,
+    send_evaluation_disabled_email_activity,
     send_trial_usage_email_activity,
 )
 
@@ -384,12 +386,14 @@ class TestRunEvaluationWorkflow:
         evaluation = setup_data["evaluation"]
         team = setup_data["team"]
 
-        assert evaluation.enabled is True
+        assert evaluation.enabled
 
-        await disable_evaluation_activity(str(evaluation.id), team.id)
+        await disable_evaluation_activity(str(evaluation.id), team.id, "trial_limit_reached")
 
         await sync_to_async(evaluation.refresh_from_db)()
-        assert evaluation.enabled is False
+        assert not evaluation.enabled
+        assert evaluation.status == "error"
+        assert evaluation.status_reason == "trial_limit_reached"
 
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
@@ -983,4 +987,66 @@ class TestSendTrialUsageEmailActivity:
             affected = call_kwargs["template_context"]["affected_evals"]
             assert "My Trial Eval" in affected
             assert "Legacy Eval" in affected
-            assert "Disabled Eval" not in affected
+
+
+class TestSendEvaluationDisabledEmailActivity:
+    @pytest.fixture
+    def setup_data(self, db):
+        from posthog.models import Organization, Team, User
+
+        organization = Organization.objects.create(name="Test Org")
+        User.objects.create_and_join(organization=organization, email="test@example.com", password="password")
+        team = Team.objects.create(organization=organization, name="Test Team")
+        return {"team": team, "organization": organization}
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_sends_email_with_evaluation_disabled_template(self, setup_data):
+        team = setup_data["team"]
+
+        with (
+            patch("posthog.email.is_email_available", return_value=True),
+            patch("posthog.email.EmailMessage") as mock_email_class,
+        ):
+            mock_message = MagicMock()
+            mock_email_class.return_value = mock_message
+
+            await send_evaluation_disabled_email_activity(
+                SendEvaluationDisabledEmailInputs(
+                    team_id=team.id,
+                    evaluation_id="eval-123",
+                    evaluation_name="My Eval",
+                    status_reason="model_not_allowed",
+                    human_readable_reason="The model 'gpt-9' isn't available on the trial plan.",
+                )
+            )
+
+            mock_email_class.assert_called_once()
+            call_kwargs = mock_email_class.call_args[1]
+            assert call_kwargs["template_name"] == "llm_analytics_evaluation_disabled"
+            assert call_kwargs["template_context"]["evaluation_name"] == "My Eval"
+            assert "isn't available on the trial plan" in call_kwargs["template_context"]["disabled_reason"]
+            # Campaign key must include the reason so a later different-reason error triggers a fresh email.
+            assert "model_not_allowed" in call_kwargs["campaign_key"]
+            mock_message.send.assert_called_once()
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_skips_when_email_not_available(self, setup_data):
+        team = setup_data["team"]
+
+        with (
+            patch("posthog.email.is_email_available", return_value=False),
+            patch("posthog.email.EmailMessage") as mock_email_class,
+        ):
+            await send_evaluation_disabled_email_activity(
+                SendEvaluationDisabledEmailInputs(
+                    team_id=team.id,
+                    evaluation_id="eval-123",
+                    evaluation_name="My Eval",
+                    status_reason="model_not_allowed",
+                    human_readable_reason="reason",
+                )
+            )
+
+            mock_email_class.assert_not_called()

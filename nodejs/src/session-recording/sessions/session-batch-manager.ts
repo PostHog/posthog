@@ -1,3 +1,4 @@
+import { SessionFeatureStore } from '../../session-replay/shared/features/session-feature-store'
 import { SessionMetadataStore } from '../../session-replay/shared/metadata/session-metadata-store'
 import { KeyStore, RecordingEncryptor } from '../../session-replay/shared/types'
 import { logger } from '../../utils/logger'
@@ -23,6 +24,8 @@ export interface SessionBatchManagerConfig {
     metadataStore: SessionMetadataStore
     /** Manages storing console logs */
     consoleLogStore: SessionConsoleLogStore
+    /** Manages storing session features for ML scoring */
+    featureStore: SessionFeatureStore
     /** Session tracker for new session detection */
     sessionTracker: SessionTracker
     /** Session filter for blocking and rate-limiting sessions */
@@ -76,6 +79,7 @@ export class SessionBatchManager {
     private readonly fileStorage: SessionBatchFileStorage
     private readonly metadataStore: SessionMetadataStore
     private readonly consoleLogStore: SessionConsoleLogStore
+    private readonly featureStore: SessionFeatureStore
     private lastFlushTime: number
     private readonly sessionTracker: SessionTracker
     private readonly sessionFilter: SessionFilter
@@ -90,6 +94,7 @@ export class SessionBatchManager {
         this.fileStorage = config.fileStorage
         this.metadataStore = config.metadataStore
         this.consoleLogStore = config.consoleLogStore
+        this.featureStore = config.featureStore
         this.sessionTracker = config.sessionTracker
         this.sessionFilter = config.sessionFilter
         this.keyStore = config.keyStore
@@ -100,6 +105,7 @@ export class SessionBatchManager {
             this.fileStorage,
             this.metadataStore,
             this.consoleLogStore,
+            this.featureStore,
             this.sessionTracker,
             this.sessionFilter,
             this.keyStore,
@@ -127,6 +133,7 @@ export class SessionBatchManager {
             this.fileStorage,
             this.metadataStore,
             this.consoleLogStore,
+            this.featureStore,
             this.sessionTracker,
             this.sessionFilter,
             this.keyStore,

@@ -4,6 +4,7 @@ import logging
 from django.conf import settings
 
 import boto3
+import dns.name
 import dns.resolver
 from botocore.exceptions import BotoCoreError, ClientError
 from rest_framework import exceptions
@@ -226,6 +227,27 @@ class SESProvider:
             for r in dns_records:
                 if r["type"] == "dkim":
                     r["status"] = "success"
+        else:
+            # SES reports aggregate DKIM status, but individual CNAMEs may already
+            # be present.  Do per-record DNS lookups so the UI can show which
+            # specific records are still missing.
+            resolver = dns.resolver.Resolver()
+            resolver.lifetime = 5
+            for r in dns_records:
+                if r["type"] != "dkim":
+                    continue
+                try:
+                    answers = resolver.resolve(r["recordHostname"], "CNAME")
+                    expected = dns.name.from_text(r["recordValue"])
+                    for rdata in answers:
+                        # Use dnspython Name comparison, case-insensitive per RFC 1035
+                        if rdata.target == expected:
+                            r["status"] = "success"
+                            break
+                except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer, dns.resolver.NoNameservers, dns.resolver.Timeout):
+                    pass
+                except Exception:
+                    logger.exception("Unexpected error during DKIM CNAME lookup for %s", r["recordHostname"])
         if mail_from_status == "Success":
             for r in dns_records:
                 if r["type"] == "mail_from":

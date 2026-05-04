@@ -1,5 +1,6 @@
 import hmac
 import json
+import uuid
 import hashlib
 
 from django.http import HttpRequest, HttpResponse
@@ -16,14 +17,26 @@ logger = structlog.get_logger(__name__)
 TASK_RUN_SELECT_RELATED = ("task", "task__created_by", "team")
 
 
-def find_task_run(pr_url: str | None = None, branch: str | None = None) -> TaskRun | None:
+def find_task_run(
+    pr_url: str | None = None,
+    branch: str | None = None,
+    repository: str | None = None,
+) -> TaskRun | None:
     if pr_url:
         task_run = TaskRun.objects.filter(output__pr_url=pr_url).select_related(*TASK_RUN_SELECT_RELATED).first()
         if task_run:
             return task_run
 
-    if branch:
-        task_run = TaskRun.objects.filter(branch=branch).select_related(*TASK_RUN_SELECT_RELATED).first()
+    # Branch-only lookups must be scoped to the repository the webhook came from.
+    # Without this, a PR opened on an unrelated repo with a colliding branch name
+    # (e.g. "main") gets attributed to whichever TaskRun shares that branch.
+    repository = repository.strip() if repository else None
+    if branch and repository:
+        task_run = (
+            TaskRun.objects.filter(branch=branch, task__repository__iexact=repository)
+            .select_related(*TASK_RUN_SELECT_RELATED)
+            .first()
+        )
         if task_run:
             return task_run
 
@@ -128,7 +141,8 @@ def github_pr_webhook(request: HttpRequest) -> HttpResponse:
         return HttpResponse(status=200)
 
     branch = pull_request.get("head", {}).get("ref")
-    task_run = find_task_run(pr_url=pr_url, branch=branch)
+    repository_full_name = (payload.get("repository") or {}).get("full_name")
+    task_run = find_task_run(pr_url=pr_url, branch=branch, repository=repository_full_name)
 
     if not task_run:
         logger.debug(
@@ -139,9 +153,6 @@ def github_pr_webhook(request: HttpRequest) -> HttpResponse:
         )
         return HttpResponse(status=200)
 
-    # Emit messgae to the task run
-    task_run.emit_console_event("info", f"PR {event_action}: {pr_url}")
-
     logger.info(
         "github_pr_webhook_processed",
         action=action,
@@ -151,6 +162,9 @@ def github_pr_webhook(request: HttpRequest) -> HttpResponse:
         run_id=str(task_run.id),
     )
 
-    task_run.capture_event(analytics_event, {"pr_url": pr_url})
+    # Generate a deterministic UUID from the PR URL and event type so that
+    # duplicate webhook deliveries for the same PR action are deduplicated.
+    event_uuid = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{pr_url}:{analytics_event}"))
+    task_run.capture_event(analytics_event, {"pr_url": pr_url}, event_uuid=event_uuid)
 
     return HttpResponse(status=200)

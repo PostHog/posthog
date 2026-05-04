@@ -17,7 +17,6 @@ class HogFlowBatchJobSerializer(serializers.ModelSerializer):
             "id",
             "status",
             "hog_flow",
-            "scheduled_at",
             "filters",
             "variables",
             "created_at",

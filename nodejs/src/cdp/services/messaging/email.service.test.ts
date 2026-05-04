@@ -300,7 +300,7 @@ describe('EmailService', () => {
             const emails = await mailDevAPI.getEmails()
             expect(emails).toHaveLength(1)
             expect(emails[0].html).toEqual(
-                `<body>Hi! <a href="http://localhost:8010/public/m/redirect?ph_id=ZnVuY3Rpb24tMTppbnZvY2F0aW9uLTE6Mjo&target=https%3A%2F%2Fexample.com">Click me</a><img src="http://localhost:8010/public/m/pixel?ph_id=ZnVuY3Rpb24tMTppbnZvY2F0aW9uLTE6Mjo" style="display: none;" /></body>`
+                `<body>Hi! <a href="http://localhost:8010/public/m/redirect?ph_id=ZnVuY3Rpb24tMTppbnZvY2F0aW9uLTE6Mjo6&target=https%3A%2F%2Fexample.com">Click me</a><img src="http://localhost:8010/public/m/pixel?ph_id=ZnVuY3Rpb24tMTppbnZvY2F0aW9uLTE6Mjo6" style="display: none;" /></body>`
             )
         })
     })
@@ -378,7 +378,7 @@ describe('EmailService', () => {
                   "EmailTags": [
                     {
                       "Name": "ph_id",
-                      "Value": "ZnVuY3Rpb24tMTppbnZvY2F0aW9uLTE6Mjo",
+                      "Value": "ZnVuY3Rpb24tMTppbnZvY2F0aW9uLTE6Mjo6",
                     },
                   ],
                   "FeedbackForwardingEmailAddress": "test@posthog-test.com",

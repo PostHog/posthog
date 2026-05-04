@@ -108,6 +108,16 @@ function Header(): JSX.Element {
                     </AppShortcut>
                 </AccessControlAction>
             )}
+
+            <LemonButton
+                icon={<IconGear />}
+                type="secondary"
+                size="small"
+                to={urls.replaySettings()}
+                data-attr="session-recordings-settings-button"
+            >
+                Settings
+            </LemonButton>
         </div>
     )
 }
@@ -231,16 +241,10 @@ const ReplayPageTabs: ReplayTab[] = [
         key: ReplayTabs.Templates,
         'data-attr': 'session-recordings-templates-tab',
     },
-    {
-        label: 'Settings',
-        key: ReplayTabs.Settings,
-        'data-attr': 'session-recordings-settings-tab',
-    },
 ]
 
 export function SessionRecordingsPageTabs(): JSX.Element {
     const { tab, shouldShowNewBadge } = useValues(sessionReplaySceneLogic)
-
     return (
         <LemonTabs
             activeKey={tab}

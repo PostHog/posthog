@@ -13,29 +13,6 @@ import {
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const AnnotationsListSchema = AnnotationsListQueryParams
-
-const annotationsList = (): ToolBase<
-    typeof AnnotationsListSchema,
-    WithPostHogUrl<Schemas.PaginatedAnnotationList>
-> => ({
-    name: 'annotations-list',
-    schema: AnnotationsListSchema,
-    handler: async (context: Context, params: z.infer<typeof AnnotationsListSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedAnnotationList>({
-            method: 'GET',
-            path: `/api/projects/${projectId}/annotations/`,
-            query: {
-                limit: params.limit,
-                offset: params.offset,
-                search: params.search,
-            },
-        })
-        return await withPostHogUrl(context, result, '/data-management/annotations')
-    },
-})
-
 const AnnotationCreateSchema = AnnotationsCreateBody.omit({
     creation_type: true,
     dashboard_item: true,
@@ -60,8 +37,24 @@ const annotationCreate = (): ToolBase<typeof AnnotationCreateSchema, Schemas.Ann
         }
         const result = await context.api.request<Schemas.Annotation>({
             method: 'POST',
-            path: `/api/projects/${projectId}/annotations/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/annotations/`,
             body,
+        })
+        return result
+    },
+})
+
+const AnnotationDeleteSchema = AnnotationsDestroyParams.omit({ project_id: true })
+
+const annotationDelete = (): ToolBase<typeof AnnotationDeleteSchema, Schemas.Annotation> => ({
+    name: 'annotation-delete',
+    schema: AnnotationDeleteSchema,
+    handler: async (context: Context, params: z.infer<typeof AnnotationDeleteSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.Annotation>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/annotations/${encodeURIComponent(String(params.id))}/`,
+            body: { deleted: true },
         })
         return result
     },
@@ -76,9 +69,32 @@ const annotationRetrieve = (): ToolBase<typeof AnnotationRetrieveSchema, Schemas
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.Annotation>({
             method: 'GET',
-            path: `/api/projects/${projectId}/annotations/${params.id}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/annotations/${encodeURIComponent(String(params.id))}/`,
         })
         return result
+    },
+})
+
+const AnnotationsListSchema = AnnotationsListQueryParams
+
+const annotationsList = (): ToolBase<
+    typeof AnnotationsListSchema,
+    WithPostHogUrl<Schemas.PaginatedAnnotationList>
+> => ({
+    name: 'annotations-list',
+    schema: AnnotationsListSchema,
+    handler: async (context: Context, params: z.infer<typeof AnnotationsListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedAnnotationList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/annotations/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+                search: params.search,
+            },
+        })
+        return await withPostHogUrl(context, result, '/data-management/annotations')
     },
 })
 
@@ -104,33 +120,17 @@ const annotationsPartialUpdate = (): ToolBase<typeof AnnotationsPartialUpdateSch
         }
         const result = await context.api.request<Schemas.Annotation>({
             method: 'PATCH',
-            path: `/api/projects/${projectId}/annotations/${params.id}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/annotations/${encodeURIComponent(String(params.id))}/`,
             body,
         })
         return result
     },
 })
 
-const AnnotationDeleteSchema = AnnotationsDestroyParams.omit({ project_id: true })
-
-const annotationDelete = (): ToolBase<typeof AnnotationDeleteSchema, Schemas.Annotation> => ({
-    name: 'annotation-delete',
-    schema: AnnotationDeleteSchema,
-    handler: async (context: Context, params: z.infer<typeof AnnotationDeleteSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.Annotation>({
-            method: 'PATCH',
-            path: `/api/projects/${projectId}/annotations/${params.id}/`,
-            body: { deleted: true },
-        })
-        return result
-    },
-})
-
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
-    'annotations-list': annotationsList,
     'annotation-create': annotationCreate,
-    'annotation-retrieve': annotationRetrieve,
-    'annotations-partial-update': annotationsPartialUpdate,
     'annotation-delete': annotationDelete,
+    'annotation-retrieve': annotationRetrieve,
+    'annotations-list': annotationsList,
+    'annotations-partial-update': annotationsPartialUpdate,
 }

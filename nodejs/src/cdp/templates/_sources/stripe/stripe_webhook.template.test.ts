@@ -131,6 +131,28 @@ describe('stripe webhook template', () => {
         })
     })
 
+    it.each([null, '', undefined])(
+        'should return 400 if signing_secret is %s and bypass_signature_check is false',
+        async (signing_secret) => {
+            const response = await tester.invoke(
+                {
+                    signing_secret,
+                    bypass_signature_check: false,
+                },
+                {
+                    request: createStripeWebhook('whsec_testsecret'),
+                }
+            )
+
+            expect(response.execResult).toMatchObject({
+                httpResponse: {
+                    status: 400,
+                    body: 'Signing secret not configured',
+                },
+            })
+        }
+    )
+
     it('should bypass the signature check if bypass_signature_check is true', async () => {
         const response = await tester.invoke(
             {

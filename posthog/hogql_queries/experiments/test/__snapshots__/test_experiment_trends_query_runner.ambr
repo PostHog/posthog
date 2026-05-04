@@ -24,7 +24,7 @@
                      toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                      ifNull(nullIf(leftUTF8(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
               FROM events AS e
-              WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), equals(e.event, '$pageview'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''), tuple('control', 'test')))
+              WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), equals(e.event, '$pageview'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''), tuple('control', 'test')))
               GROUP BY day_start,
                        breakdown_value)
            GROUP BY day_start,
@@ -81,7 +81,7 @@
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
                  HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-              WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), equals(e.event, '$feature_flag_called'), and(in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), tuple('control', 'test')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)))
+              WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), equals(e.event, '$feature_flag_called'), and(in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), tuple('control', 'test')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)))
               GROUP BY if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id),
                        breakdown_value)
            GROUP BY day_start,

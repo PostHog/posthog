@@ -7,7 +7,9 @@ import { LemonButton, LemonCard, LemonSelect, LemonTag, Link, Spinner } from '@p
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { TZLabel } from 'lib/components/TZLabel'
+import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
@@ -15,6 +17,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -30,6 +33,7 @@ import { ExceptionsPanel } from './ExceptionsPanel'
 import { PreviousTicketsPanel } from './PreviousTicketsPanel'
 import { RecentEventsPanel } from './RecentEventsPanel'
 import { SessionRecordingPanel } from './SessionRecordingPanel'
+import { StaffActionsPanel } from './StaffActionsPanel'
 import { supportTicketSceneLogic } from './supportTicketSceneLogic'
 import { TicketActivityPanel } from './TicketActivityPanel'
 
@@ -62,6 +66,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         hasUnsavedChanges,
         draftContent,
         draftIsPrivate,
+        snoozedUntil,
         suggesting,
     } = useValues(logic)
     const {
@@ -69,6 +74,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         setPriority,
         setAssignee,
         setTags,
+        setSnoozedUntil,
         sendMessage,
         updateTicket,
         loadOlderMessages,
@@ -77,6 +83,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         suggestReply,
     } = useActions(logic)
 
+    const { user } = useValues(userLogic)
     const aiSuggestionEnabled = useFeatureFlag('PRODUCT_SUPPORT_AI_SUGGESTION')
     const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
     const { preflight } = useValues(preflightLogic)
@@ -367,6 +374,20 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                 </div>
                             )}
                             <div className="flex justify-between items-center">
+                                <span className="text-muted-alt">Snooze</span>
+                                <LemonCalendarSelectInput
+                                    value={snoozedUntil ? dayjs(snoozedUntil) : null}
+                                    onChange={(date) =>
+                                        setSnoozedUntil(date ? date.startOf('minute').toISOString() : null)
+                                    }
+                                    granularity="minute"
+                                    selectionPeriod="upcoming"
+                                    clearable
+                                    placeholder="Not snoozed"
+                                    buttonProps={{ size: 'small', type: 'secondary', fullWidth: false }}
+                                />
+                            </div>
+                            <div className="flex justify-between items-center">
                                 <span className="text-muted-alt">Tags</span>
                                 <TicketTags tags={tags} onChange={setTags} saving={false} />
                             </div>
@@ -382,6 +403,9 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                             </LemonButton>
                         </div>
                     </LemonCard>
+
+                    {/* Staff Actions Panel */}
+                    {user?.is_staff && ticket && <StaffActionsPanel />}
 
                     {/* Activity History Panel */}
                     {ticket?.id && <TicketActivityPanel ticketId={ticket.id} />}

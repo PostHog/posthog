@@ -10,6 +10,8 @@ const EVALUATION_FIELDS = [
     'team_id',
     'name',
     'enabled',
+    'status',
+    'status_reason',
     'evaluation_type',
     'evaluation_config',
     'output_type',

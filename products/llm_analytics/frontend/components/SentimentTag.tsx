@@ -1,3 +1,5 @@
+import './SentimentTag.scss'
+
 import { LemonTag, LemonTagProps, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -40,7 +42,7 @@ export function SentimentTag({ label, score, scores, loading }: SentimentTagProp
 
     return (
         <Tooltip title={<span className="whitespace-pre-line">{buildTagTooltip(label, scores)}</span>}>
-            <LemonTag type={tagType} size="small" className="cursor-default capitalize">
+            <LemonTag type={tagType} size="small" className="LLMASentimentTag cursor-default capitalize">
                 Sentiment: {label} ({formatScore(score)})
             </LemonTag>
         </Tooltip>
@@ -78,7 +80,9 @@ export function SentimentBar({ label, score, loading, size = 'sm', messages }: S
 
     return (
         <Tooltip title={tooltipText}>
-            <span className={`relative my-0.5 inline-block shrink-0 ${size === 'full' ? 'w-3/4' : 'w-10'}`}>
+            <span
+                className={`LLMASentimentBar relative my-0.5 inline-block shrink-0 ${size === 'full' ? 'w-3/4' : 'w-10'}`}
+            >
                 <span className="block h-1.5 bg-border-light rounded-full overflow-hidden">
                     <span
                         className={`block h-full rounded-full ${barColor}`}
@@ -137,7 +141,7 @@ export function MessageSentimentBar({ sentiment }: MessageSentimentBarProps): JS
 
     return (
         <Tooltip title={`${capitalize(sentimentLabel)}: ${formatScore(sentiment.score)}`}>
-            <span className="flex items-center gap-1">
+            <span className="LLMASentimentBar flex items-center gap-1">
                 <span className="w-10 h-1.5 bg-border-light rounded-full overflow-hidden inline-block">
                     <span
                         className={`block h-full rounded-full ${barColor}`}

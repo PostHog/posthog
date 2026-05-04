@@ -5,7 +5,7 @@ import { LemonBanner } from '@posthog/lemon-ui'
 
 import { teamLogic } from 'scenes/teamLogic'
 
-import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
+import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/settings/sidePanelSettingsLogic'
 
 export function HeatmapsWarnings(): JSX.Element | null {
     const { currentTeam } = useValues(teamLogic)

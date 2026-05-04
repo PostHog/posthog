@@ -56,8 +56,8 @@ class TransformerProtocol[T](typing.Protocol):
             # Chunk as that is a concrete type. But we still need the yield for the
             # reason above. And if we have a yield, then we must yield something that
             # fits the type hint for mypy to be happy. But no concrete type fits a
-            # generic. So, the best we can do is to just ignore.
-            yield Chunk(b"", False)  # type: ignore[misc]
+            # generic. So, the best we can do is to just cast.
+            yield typing.cast(T, Chunk(b"", False))
         raise NotImplementedError
 
 
@@ -827,7 +827,11 @@ class PipelineTransformer:
             async for chunk in transformer.iter(record_batches_iter):
                 yield chunk
 
-        pipeline = functools.reduce(generate, iter(self.transformers), record_batches)
+        pipeline: collections.abc.AsyncIterable[Chunk] = functools.reduce(  # ty: ignore[invalid-assignment]
+            generate,
+            iter(self.transformers),
+            record_batches,  # type: ignore[arg-type]
+        )
 
         async for chunk in pipeline:
-            yield chunk  # type: ignore[misc]
+            yield chunk
