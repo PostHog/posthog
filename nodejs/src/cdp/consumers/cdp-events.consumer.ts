@@ -5,8 +5,7 @@ import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
 
 import { convertToHogFunctionInvocationGlobals } from '../../cdp/utils'
 import { KAFKA_EVENTS_JSON } from '../../config/kafka-topics'
-import { KafkaConsumer } from '../../kafka/consumer'
-import { KafkaConsumerV2 } from '../../kafka/consumer-v2'
+import { KafkaConsumerInterface, createKafkaConsumer } from '../../kafka/consumer'
 import { HealthCheckResult, PluginsServerConfig, RawClickHouseEvent } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
@@ -34,7 +33,7 @@ export class CdpEventsConsumer<
     protected name = 'CdpEventsConsumer'
     protected hogTypes: HogFunctionTypeType[] = ['destination']
     private cyclotronJobQueue: CyclotronJobQueue
-    protected kafkaConsumer: KafkaConsumer | KafkaConsumerV2
+    protected kafkaConsumer: KafkaConsumerInterface
 
     private hogRateLimiter: HogRateLimiterService
 
@@ -46,13 +45,10 @@ export class CdpEventsConsumer<
     ) {
         super(config, deps)
         this.cyclotronJobQueue = new CyclotronJobQueue(config.CONSUMER_BATCH_SIZE, config.KAFKA_CLIENT_RACK, config)
-        // NOTE: do not prefix with `KAFKA_CONSUMER_` — that namespace is auto-passed through
-        // to librdkafka as a config property (e.g. `KAFKA_CONSUMER_V2_CDP_EVENTS` would
-        // become `v2.cdp.events` and crash on startup).
-        this.kafkaConsumer =
-            process.env.CONSUMER_V2_CDP_EVENTS === 'true'
-                ? new KafkaConsumerV2({ groupId, topic })
-                : new KafkaConsumer({ groupId, topic })
+        // v1/v2 selection is driven by the CONSUMER_V2_GROUPS env var, e.g.:
+        //   CONSUMER_V2_GROUPS=cdp-processed-events-consumer
+        // See src/kafka/factory.ts.
+        this.kafkaConsumer = createKafkaConsumer({ groupId, topic })
         this.hogRateLimiter = new HogRateLimiterService(
             {
                 bucketSize: config.CDP_RATE_LIMITER_BUCKET_SIZE,

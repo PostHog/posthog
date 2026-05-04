@@ -28,14 +28,15 @@ import { isTestEnv } from '~/utils/env-utils'
 import { parseJSON } from '~/utils/json-parse'
 import { normalizeSessionId } from '~/utils/utils'
 
-import { instrumentFn } from '../common/tracing/tracing-utils'
-import { defaultConfig } from '../config/config'
-import { logger } from '../utils/logger'
-import { captureException } from '../utils/posthog'
-import { retryIfRetriable } from '../utils/retries'
-import { promisifyCallback } from '../utils/utils'
-import { ensureTopicExists } from './admin'
-import { getKafkaConfigFromEnv } from './config'
+import { instrumentFn } from '../../common/tracing/tracing-utils'
+import { defaultConfig } from '../../config/config'
+import { logger } from '../../utils/logger'
+import { captureException } from '../../utils/posthog'
+import { retryIfRetriable } from '../../utils/retries'
+import { promisifyCallback } from '../../utils/utils'
+import { ensureTopicExists } from '../admin'
+import { getKafkaConfigFromEnv } from '../config'
+import { parseBrokerStatistics, trackBrokerMetrics } from '../kafka-client-metrics'
 import {
     consumedBatchBackgroundDuration,
     consumedBatchBackpressureDuration,
@@ -44,8 +45,7 @@ import {
     consumerBatchSize as histogramKafkaBatchSize,
     consumerBatchSizeKb as histogramKafkaBatchSizeKb,
     kafkaConsumerAssignment,
-} from './consumer-metrics'
-import { parseBrokerStatistics, trackBrokerMetrics } from './kafka-client-metrics'
+} from './metrics'
 
 const DEFAULT_BATCH_TIMEOUT_MS = 500
 const SLOW_BATCH_PROCESSING_LOG_THRESHOLD_MS = 10000

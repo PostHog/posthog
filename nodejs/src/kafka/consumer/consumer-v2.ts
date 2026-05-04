@@ -15,13 +15,14 @@ import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, LogLeve
 import { isTestEnv } from '~/utils/env-utils'
 import { parseJSON } from '~/utils/json-parse'
 
-import { defaultConfig } from '../config/config'
-import { logger } from '../utils/logger'
-import { captureException } from '../utils/posthog'
-import { retryIfRetriable } from '../utils/retries'
-import { promisifyCallback } from '../utils/utils'
-import { ensureTopicExists } from './admin'
-import { getKafkaConfigFromEnv } from './config'
+import { defaultConfig } from '../../config/config'
+import { logger } from '../../utils/logger'
+import { captureException } from '../../utils/posthog'
+import { retryIfRetriable } from '../../utils/retries'
+import { promisifyCallback } from '../../utils/utils'
+import { ensureTopicExists } from '../admin'
+import { getKafkaConfigFromEnv } from '../config'
+import { parseBrokerStatistics, trackBrokerMetrics } from '../kafka-client-metrics'
 import {
     consumedBatchBackgroundDuration,
     consumedBatchBackpressureDuration,
@@ -33,8 +34,7 @@ import {
     consumerDrainTimeouts,
     consumerStaleStoreOffsetsSkipped,
     kafkaConsumerAssignment,
-} from './consumer-metrics'
-import { parseBrokerStatistics, trackBrokerMetrics } from './kafka-client-metrics'
+} from './metrics'
 
 const DEFAULT_BATCH_TIMEOUT_MS = 500
 const STATISTICS_INTERVAL_MS = 5000
@@ -243,11 +243,6 @@ export class KafkaConsumerV2 {
             })
         }
         if (this.rdKafkaConsumer.isConnected()) {
-            try {
-                this.rdKafkaConsumer.unsubscribe()
-            } catch {
-                // best-effort
-            }
             await new Promise<void>((res, rej) => this.rdKafkaConsumer.disconnect((e) => (e ? rej(e) : res())))
         }
     }
@@ -309,15 +304,12 @@ export class KafkaConsumerV2 {
         }
 
         const startMs = Date.now()
-        let result: EachBatchResult
-        try {
-            result = await eachBatch(messages)
-        } catch (error) {
-            logger.error('🔥', 'kafka_consumer_v2_each_batch_error', { error: String(error) })
-            captureException(error)
-            // Do not store offsets on failure. Loop continues to the next batch.
-            return
-        }
+        // Match v1 — eachBatch errors are NOT caught here. They propagate up to the loop
+        // catch in connect() which re-throws to kill the process. Failing loud is the
+        // intentional contract: ops sees the pod restart, the batch is re-read from the
+        // last committed offset (at-least-once preserved), and any logic bug is visible
+        // immediately rather than silently dropping offsets.
+        const result: EachBatchResult = await eachBatch(messages)
         consumedBatchDuration.labels(this.config.topic, this.config.groupId).observe(Date.now() - startMs)
 
         // Re-check state once more before tracking. Same reason: REVOKE during eachBatch.

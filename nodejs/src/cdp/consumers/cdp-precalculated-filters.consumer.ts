@@ -8,7 +8,7 @@ import {
 } from '~/utils/realtime-supported-filter-manager-cdp'
 
 import { KAFKA_EVENTS_JSON } from '../../config/kafka-topics'
-import { KafkaConsumer } from '../../kafka/consumer'
+import { KafkaConsumerInterface, createKafkaConsumer } from '../../kafka/consumer'
 import { HealthCheckResult, RawClickHouseEvent } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
@@ -51,12 +51,12 @@ export const histogramBatchProcessingSteps = new Histogram({
 
 export class CdpPrecalculatedFiltersConsumer extends CdpConsumerBase {
     protected name = 'CdpPrecalculatedFiltersConsumer'
-    private eventKafkaConsumer: KafkaConsumer
+    private eventKafkaConsumer: KafkaConsumerInterface
     private realtimeSupportedFilterManager: RealtimeSupportedFilterManagerCDP
 
     constructor(config: CdpConsumerBaseConfig, deps: CdpConsumerBaseDeps) {
         super(config, deps)
-        this.eventKafkaConsumer = new KafkaConsumer({
+        this.eventKafkaConsumer = createKafkaConsumer({
             groupId: 'cdp-precalculated-filters-consumer',
             topic: KAFKA_EVENTS_JSON,
         })

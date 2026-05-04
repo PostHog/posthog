@@ -11,7 +11,7 @@ import { Counter } from 'prom-client'
 
 import { execHog } from '../cdp/utils/hog-exec'
 import { KAFKA_EVENTS_JSON, prefix as KAFKA_PREFIX } from '../config/kafka-topics'
-import { KafkaConsumer } from '../kafka/consumer'
+import { createKafkaConsumer } from '../kafka/consumer'
 import { EvaluationManagerService } from '../llm-analytics/services/evaluation-manager.service'
 import { TemporalService, TemporalServiceConfig } from '../llm-analytics/services/temporal.service'
 import { Evaluation, EvaluationConditionSet } from '../llm-analytics/types'
@@ -214,7 +214,7 @@ export const startEvaluationScheduler = async (
     const temporalService = new TemporalService(config)
     const evaluationManager = new EvaluationManagerService(deps.postgres, deps.pubSub)
 
-    const kafkaConsumer = new KafkaConsumer({
+    const kafkaConsumer = createKafkaConsumer({
         groupId: `${KAFKA_PREFIX}evaluation-scheduler`,
         topic: KAFKA_EVENTS_JSON,
     })

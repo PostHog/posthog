@@ -3,10 +3,10 @@ import { CODES, Message, MessageHeader, KafkaConsumer as RdKafkaConsumer } from 
 import { defaultConfig } from '~/config/config'
 import { createTestEventHeaders } from '~/tests/helpers/event-headers'
 
-import { delay } from '../utils/utils'
-import { KafkaConsumer, parseEventHeaders, parseKafkaHeaders } from './consumer'
+import { delay } from '../../utils/utils'
+import { KafkaConsumer, parseEventHeaders, parseKafkaHeaders } from './consumer-v1'
 
-jest.mock('./admin', () => ({
+jest.mock('../admin', () => ({
     ensureTopicExists: jest.fn().mockResolvedValue(undefined),
 }))
 

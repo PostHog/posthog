@@ -1,9 +1,9 @@
 import { AdminClient, LibrdKafkaError, Message } from 'node-rdkafka'
 import { randomUUID } from 'node:crypto'
 
-import { delay } from '../utils/utils'
+import { delay } from '../../utils/utils'
+import { KafkaProducerWrapper } from '../producer'
 import { KafkaConsumerV2 } from './consumer-v2'
-import { KafkaProducerWrapper } from './producer'
 
 /**
  * Multi-consumer integration tests for KafkaConsumerV2.
