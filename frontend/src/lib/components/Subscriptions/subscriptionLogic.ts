@@ -276,7 +276,16 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
         },
     })),
 
-    events(({ values }) => ({
+    events(({ actions, values }) => ({
+        afterMount: () => {
+            // Load the org-wide AI summary quota once per logic mount so
+            // the paywall conditional in EditSubscription has data to react
+            // to without depending on URL navigation. urlToAction kept its
+            // own loader call in case the user navigates between :id and
+            // /new without unmounting; afterMount covers initial mount and
+            // Storybook (which doesn't navigate the route).
+            actions.loadSummaryQuota()
+        },
         beforeUnmount: () => {
             if (values.previewImageUrl) {
                 URL.revokeObjectURL(values.previewImageUrl)
@@ -295,14 +304,12 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
     urlToAction(({ actions }) => ({
         '/*/*/subscriptions/new': (_, searchParams) => {
             actions.loadSubscriptionSuccess({ ...NEW_SUBSCRIPTION })
-            actions.loadSummaryQuota()
             if (searchParams.target_type) {
                 actions.setSubscriptionValue('target_type', searchParams.target_type)
             }
         },
         '/*/*/subscriptions/:id': () => {
             actions.loadSubscription()
-            actions.loadSummaryQuota()
         },
     })),
 ])
