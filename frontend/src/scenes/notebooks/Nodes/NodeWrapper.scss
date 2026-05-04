@@ -61,10 +61,6 @@
         }
     }
 
-    &--selected {
-        --border-color: var(--border-bold);
-    }
-
     &--auto-hide-metadata {
         --border-color: transparent;
 
@@ -106,8 +102,12 @@
     }
 }
 
-.NotebookNode--in-selection {
-    .NotebookNode__box {
+.ProseMirror.ProseMirror-focused {
+    .NotebookNode--selected {
+        --border-color: var(--border-bold);
+    }
+
+    .NotebookNode--in-selection .NotebookNode__box {
         border-color: Highlight;
         box-shadow: 0 0 0 1px Highlight;
     }
