@@ -8,7 +8,7 @@ from uuid import UUID
 
 from django.core import mail
 from django.core.cache import cache
-from django.db import models, transaction
+from django.db import IntegrityError, models, transaction
 from django.utils import timezone
 
 import requests
@@ -741,8 +741,6 @@ def _get_or_create_github_ticket(team: Team, repo: str, issue_number: int, paylo
     Uses transaction.atomic() + the DB unique constraint
     posthog_con_github_issue_uniq to guarantee exactly one ticket per issue.
     """
-    from django.db import IntegrityError, transaction
-
     existing = _find_github_ticket(team.id, repo, issue_number)
     if existing:
         return existing
@@ -865,27 +863,41 @@ def _handle_github_issue_event(team: Team, repo: str, action: str, payload: dict
         ticket.unread_team_count = 1
         ticket.save(update_fields=["unread_team_count", "updated_at"])
 
-    elif action == "closed":
+    elif action in ("closed", "reopened"):
         existing = _find_github_ticket(team.id, repo, issue_number)
-        if existing and existing.status != Status.RESOLVED:
-            old_status = existing.status
-            existing.status = Status.RESOLVED
-            existing.save(update_fields=["status", "updated_at"])
-            try:
-                capture_ticket_status_changed(existing, old_status, Status.RESOLVED)
-            except Exception:
-                logger.exception("github_event_status_change_event_failed", ticket_id=str(existing.id))
+        if not existing:
+            return
 
-    elif action == "reopened":
-        existing = _find_github_ticket(team.id, repo, issue_number)
-        if existing and existing.status == Status.RESOLVED:
-            old_status = existing.status
-            existing.status = Status.OPEN
-            existing.save(update_fields=["status", "updated_at"])
+        # Reject stale/replayed payloads: skip if the issue event is older
+        # than the ticket's last update (guards against replay after cache TTL)
+        issue_updated_at = issue.get("updated_at")
+        if issue_updated_at and existing.updated_at:
             try:
-                capture_ticket_status_changed(existing, old_status, Status.OPEN)
-            except Exception:
-                logger.exception("github_event_status_change_event_failed", ticket_id=str(existing.id))
+                from datetime import datetime
+
+                event_ts = datetime.fromisoformat(issue_updated_at.replace("Z", "+00:00"))
+                if event_ts < existing.updated_at:
+                    logger.info(
+                        "github_event_stale_status_change",
+                        action=action,
+                        ticket_id=str(existing.id),
+                        event_ts=issue_updated_at,
+                    )
+                    return
+            except (ValueError, TypeError):
+                pass
+
+        new_status = Status.RESOLVED if action == "closed" else Status.OPEN
+        if existing.status == new_status:
+            return
+
+        old_status = existing.status
+        existing.status = new_status
+        existing.save(update_fields=["status", "updated_at"])
+        try:
+            capture_ticket_status_changed(existing, old_status, new_status)
+        except Exception:
+            logger.exception("github_event_status_change_event_failed", ticket_id=str(existing.id))
 
 
 def _handle_github_comment_event(team: Team, repo: str, action: str, payload: dict[str, Any]) -> None:
@@ -923,20 +935,25 @@ def _handle_github_comment_event(team: Team, repo: str, action: str, payload: di
         "github_comment_id": comment_id,
     }
 
-    comment = CommentModel.objects.create(
-        team=team,
-        scope="conversations_ticket",
-        item_id=str(ticket.id),
-        content=body[:50_000],
-        item_context=item_context,
-    )
+    try:
+        with transaction.atomic():
+            comment = CommentModel.objects.create(
+                team=team,
+                scope="conversations_ticket",
+                item_id=str(ticket.id),
+                content=body[:50_000],
+                item_context=item_context,
+            )
 
-    GithubCommentMapping.objects.create(
-        github_comment_id=comment_id,
-        team=team,
-        ticket=ticket,
-        comment=comment,
-    )
+            GithubCommentMapping.objects.create(
+                github_comment_id=comment_id,
+                team=team,
+                ticket=ticket,
+                comment=comment,
+            )
+    except IntegrityError:
+        # unique_github_comment_per_team — another worker already created this mapping
+        return
 
     Ticket.objects.filter(id=ticket.id, team=team).update(
         unread_team_count=models.F("unread_team_count") + 1,
