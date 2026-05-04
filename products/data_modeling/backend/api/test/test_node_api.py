@@ -357,6 +357,23 @@ class TestNodeViewSet(APIBaseTest):
         self.assertNotIn(str(other_table.id), node_ids)
         self.assertNotIn(str(other_view.id), node_ids)
 
+    def test_cannot_bind_node_to_other_teams_dag_via_patch(self):
+        """Regression: PATCH must not accept a DAG pk owned by a different team."""
+        other_team = Team.objects.create(organization=self.organization)
+        foreign_dag = DAG.objects.create(team=other_team, name=f"posthog_{other_team.id}")
+
+        original_dag_id = self.view_node.dag_id
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/",
+            data={"dag": str(foreign_dag.id)},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.view_node.refresh_from_db()
+        self.assertEqual(self.view_node.dag_id, original_dag_id)
+
 
 class TestEdgeViewSet(APIBaseTest):
     def setUp(self):
