@@ -172,11 +172,11 @@ export function EditSubscription({
                             </LemonBanner>
                         )}
 
-                        <div className="flex gap-4 items-center">
+                        <div className="flex gap-4 items-end">
                             <LemonField className="flex-auto" name="title" label="Name">
                                 <LemonInput placeholder="e.g. Weekly team report" />
                             </LemonField>
-                            <LemonField name="enabled">
+                            <LemonField name="enabled" className="pb-2">
                                 {({ value, onChange }) => (
                                     <LemonCheckbox
                                         checked={value !== false}
