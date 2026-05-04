@@ -4,6 +4,8 @@ import pytest
 from posthog.test.base import NonAtomicBaseTest
 from unittest.mock import patch
 
+from asgiref.sync import sync_to_async
+
 from posthog.schema import AlertState
 
 from posthog.models import Insight
@@ -40,7 +42,7 @@ class TestInvestigationVerdictPersistence(NonAtomicBaseTest):
         )
 
     @pytest.mark.asyncio
-    @patch("posthog.temporal.ai.anomaly_investigation.runner.run_investigation")
+    @patch("posthog.temporal.ai.anomaly_investigation.workflow.run_investigation")
     @patch("temporalio.activity.heartbeat")
     @patch("temporalio.activity.info")
     async def test_true_positive_verdict_is_persisted(self, mock_info, _heartbeat, mock_run) -> None:
@@ -65,14 +67,14 @@ class TestInvestigationVerdictPersistence(NonAtomicBaseTest):
             )
         )
 
-        self.alert_check.refresh_from_db()
+        await sync_to_async(self.alert_check.refresh_from_db)()
         assert self.alert_check.investigation_status == InvestigationStatus.DONE
         assert self.alert_check.investigation_verdict == InvestigationVerdict.TRUE_POSITIVE
         assert self.alert_check.investigation_summary == "Confirmed spike caused by campaign launch."
         assert self.alert_check.investigation_notebook_id is not None
 
     @pytest.mark.asyncio
-    @patch("posthog.temporal.ai.anomaly_investigation.runner.run_investigation")
+    @patch("posthog.temporal.ai.anomaly_investigation.workflow.run_investigation")
     @patch("temporalio.activity.heartbeat")
     @patch("temporalio.activity.info")
     async def test_false_positive_verdict_is_persisted(self, mock_info, _heartbeat, mock_run) -> None:
@@ -97,5 +99,5 @@ class TestInvestigationVerdictPersistence(NonAtomicBaseTest):
             )
         )
 
-        self.alert_check.refresh_from_db()
+        await sync_to_async(self.alert_check.refresh_from_db)()
         assert self.alert_check.investigation_verdict == InvestigationVerdict.FALSE_POSITIVE

@@ -18,6 +18,7 @@ from posthog.models.alert import AlertCheck
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.sync import database_sync_to_async
 from posthog.tasks.alerts.checks import AlertCheckException, add_alert_check, check_alert_for_insight
+from posthog.tasks.alerts.investigation_notifications import run_investigation_notification_safety_net
 from posthog.tasks.alerts.schedule_restriction import is_utc_datetime_blocked, next_unblocked_utc
 from posthog.tasks.alerts.utils import (
     disable_invalid_alert,
@@ -308,7 +309,6 @@ async def run_investigation_safety_net() -> int:
 
     Returns the number of checks that were force-notified (for metrics / tests).
     """
-    from posthog.tasks.alerts.investigation_notifications import run_investigation_notification_safety_net
 
     @database_sync_to_async(thread_sensitive=False)
     def _sweep() -> int:
