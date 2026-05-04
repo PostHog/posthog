@@ -12,4 +12,4 @@ the correct fix is to add the missing method to that facade instead.
 If no facade exists yet, invoke the `/isolating-product-facade-contracts` skill to create one
 rather than adding a raw `depends_on`.
 
-Run `tach check` to validate after any change here.
+Run `tach check --dependencies --interfaces` to validate after any change here.

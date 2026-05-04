@@ -4,7 +4,7 @@ paths:
 ---
 
 **Check this product's isolation status before making changes.**
-Look at the product's `package.json`: if `backend:contract-check` is listed under `turbo`,
+Look at the product's `package.json`: if `backend:contract-check` is listed under `scripts`,
 this product is isolated.
 
 - **Isolated:** external code (core, other products) may only import from
@@ -15,4 +15,4 @@ this product is isolated.
 
 If you need to extend what's reachable across a boundary, add a method to the relevant
 `backend/facade/api.py` — not a `depends_on` entry in `tach.toml`.
-Run `tach check` to verify import boundaries are clean.
+Run `tach check --dependencies --interfaces` to verify import boundaries are clean.
