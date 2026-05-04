@@ -58,7 +58,7 @@ export const DisplayTab = (): JSX.Element => {
                 </div>
                 <LemonSwitch
                     className="flex-1 w-full"
-                    label="Show labels"
+                    label="Show tick labels"
                     checked={chartSettings[name]?.showTicks ?? true}
                     onChange={(value) => {
                         updateChartSettings({ [name]: { showTicks: value } })
@@ -156,7 +156,7 @@ export const DisplayTab = (): JSX.Element => {
                                         </div>
                                         <LemonSwitch
                                             className="flex-1 w-full"
-                                            label="Show X-axis labels"
+                                            label="Show X-axis tick labels"
                                             checked={chartSettings.showXAxisTicks ?? true}
                                             onChange={(value) => {
                                                 updateChartSettings({ showXAxisTicks: value })

@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { render, screen, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { BindLogic } from 'kea'
 
@@ -13,6 +13,53 @@ import { displayLogic } from '../displayLogic'
 import { DisplayTab } from './DisplayTab'
 
 describe('DisplayTab', () => {
+    afterEach(() => {
+        cleanup()
+    })
+
+    it('labels Y-axis tick toggles explicitly', async () => {
+        initKeaTests()
+
+        const key = 'display-tab-axis-tick-label-test'
+        const query: DataVisualizationNode = {
+            kind: NodeKind.DataVisualizationNode,
+            source: {
+                kind: NodeKind.HogQLQuery,
+                query: 'select company_size, accounts, revenue from numbers(2)',
+            },
+            display: ChartDisplayType.ActionsBar,
+            chartSettings: {},
+        }
+
+        const props: DataVisualizationLogicProps = {
+            key,
+            query,
+            dataNodeCollectionId: key,
+            setQuery: jest.fn(),
+        }
+
+        dataVisualizationLogic(props).mount()
+        displayLogic({ key }).mount()
+
+        render(
+            <BindLogic logic={dataVisualizationLogic} props={props}>
+                <BindLogic logic={displayLogic} props={{ key }}>
+                    <DisplayTab />
+                </BindLogic>
+            </BindLogic>
+        )
+
+        const user = userEvent.setup()
+
+        await user.click(await screen.findByText('Left Y-axis'))
+        await user.click(screen.getByText('Right Y-axis'))
+
+        expect(screen.getByText('Show X-axis tick labels')).toBeInTheDocument()
+        expect(screen.getAllByText('Show tick labels')).toHaveLength(2)
+        expect(screen.queryByText('Show X-axis labels')).not.toBeInTheDocument()
+        expect(screen.queryByText('Show labels')).not.toBeInTheDocument()
+    })
+
     it('persists chart axis labels without dropping existing axis settings', async () => {
         initKeaTests()
 
