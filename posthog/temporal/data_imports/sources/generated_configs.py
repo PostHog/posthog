@@ -412,7 +412,9 @@ class HubspotSourceConfig(config.Config):
 
 @config.config
 class InstagramSourceConfig(config.Config):
-    pass
+    ig_user_id: str
+    instagram_integration_id: int = config.value(converter=config.str_to_int)
+    sync_lookback_days: int | None = config.value(converter=config.str_to_optional_int, default_factory=lambda: None)
 
 
 @config.config

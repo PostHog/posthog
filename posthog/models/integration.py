@@ -162,6 +162,7 @@ class Integration(models.Model):
         GOOGLE_PUBSUB = "google-pubsub"
         GOOGLE_SHEETS = "google-sheets"
         HUBSPOT = "hubspot"
+        INSTAGRAM = "instagram"
         INTERCOM = "intercom"
         JIRA = "jira"
         LINEAR = "linear"
@@ -298,6 +299,7 @@ class OauthIntegration:
         "tiktok-ads",
         "bing-ads",
         "meta-ads",
+        "instagram",
         "intercom",
         "linear",
         "clickup",
@@ -521,6 +523,25 @@ class OauthIntegration:
                 client_id=settings.META_ADS_APP_CLIENT_ID,
                 client_secret=settings.META_ADS_APP_CLIENT_SECRET,
                 scope="ads_read",
+                id_path="id",
+                name_path="name",
+            )
+        elif kind == "instagram":
+            # Reuses the same Meta/Facebook app credentials as meta-ads, but requests
+            # the Instagram Graph API content scopes instead of ads_read. Meta Ads
+            # already covers paid Instagram activity; this integration covers organic
+            # content (posts, stories, account insights).
+            if not settings.META_ADS_APP_CLIENT_ID or not settings.META_ADS_APP_CLIENT_SECRET:
+                raise NotImplementedError("Meta Ads app (used for Instagram OAuth) not configured")
+
+            return OauthConfig(
+                authorize_url=f"https://www.facebook.com/{InstagramIntegration.api_version}/dialog/oauth",
+                token_url=f"https://graph.facebook.com/{InstagramIntegration.api_version}/oauth/access_token",
+                token_info_url=f"https://graph.facebook.com/{InstagramIntegration.api_version}/me",
+                token_info_config_fields=["id", "name", "email"],
+                client_id=settings.META_ADS_APP_CLIENT_ID,
+                client_secret=settings.META_ADS_APP_CLIENT_SECRET,
+                scope="instagram_basic instagram_manage_insights pages_show_list pages_read_engagement business_management",
                 id_path="id",
                 name_path="name",
             )
@@ -2992,6 +3013,52 @@ class MetaAdsIntegration:
             self.integration.config["refreshed_at"] = int(time.time())
             # not used in CDP yet
             # reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
+            oauth_refresh_counter.labels(self.integration.kind, "success").inc()
+        self.integration.save()
+
+
+class InstagramIntegration:
+    integration: Integration
+    api_version: str = "v23.0"
+
+    def __init__(self, integration: Integration) -> None:
+        if integration.kind != "instagram":
+            raise Exception("InstagramIntegration init called with Integration with wrong 'kind'")
+        self.integration = integration
+
+    def refresh_access_token(self):
+        oauth_config = OauthIntegration.oauth_config_for_kind(self.integration.kind)
+
+        if self.integration.config.get("expires_in") and self.integration.config.get("refreshed_at"):
+            if (
+                time.time()
+                > self.integration.config.get("refreshed_at") + self.integration.config.get("expires_in") - 604800
+            ):
+                return
+
+        res = requests.post(
+            oauth_config.token_url,
+            data={
+                "client_id": oauth_config.client_id,
+                "client_secret": oauth_config.client_secret,
+                "fb_exchange_token": self.integration.sensitive_config["access_token"],
+                "grant_type": "fb_exchange_token",
+                "set_token_expires_in_60_days": True,
+            },
+        )
+
+        config: dict = res.json()
+
+        if res.status_code != 200 or not config.get("access_token"):
+            logger.warning(f"Failed to refresh token for {self}", response=res.text)
+            self.integration.errors = ERROR_TOKEN_REFRESH_FAILED
+            oauth_refresh_counter.labels(self.integration.kind, "failed").inc()
+        else:
+            logger.info(f"Refreshed access token for {self}")
+            self.integration.sensitive_config["access_token"] = config["access_token"]
+            self.integration.errors = ""
+            self.integration.config["expires_in"] = config.get("expires_in")
+            self.integration.config["refreshed_at"] = int(time.time())
             oauth_refresh_counter.labels(self.integration.kind, "success").inc()
         self.integration.save()
 

@@ -58,6 +58,7 @@ the row lists both.
 | google_ads    | gRPC                        | google-ads (googleads.client)                                   | ➖                          |
 | google_sheets | HTTP (vendor SDK)           | gspread                                                         | ✅                          |
 | hubspot       | HTTP                        | requests                                                        | ✅                          |
+| instagram     | HTTP                        | requests                                                        | ✅                          |
 | klaviyo       | HTTP                        | requests                                                        | ✅                          |
 | linear        | HTTP                        | requests                                                        | ✅                          |
 | linkedin_ads  | HTTP (vendor SDK, RESTli)   | linkedin-api (RestliClient)                                     | ⚠️                          |
@@ -109,7 +110,7 @@ ashby, auth0, azure_blob, bamboohr, bigcommerce, box, braintree, braze, brevo, c
 chartmogul, circleci, clickup, close, cockroachdb, confluence, convertkit, copper, datadog,
 drip, dynamodb, elasticsearch, eventbrite, facebook_pages, firebase, freshdesk, freshsales, front,
 fullstory, gitlab, gong, google_analytics, google_drive, gorgias, granola, greenhouse, helpscout,
-instagram, intercom, iterable, jira, kafka, launchdarkly, lever, mailerlite, mailjet, marketo,
+intercom, iterable, jira, kafka, launchdarkly, lever, mailerlite, mailjet, marketo,
 microsoft_teams, mixpanel, monday, netsuite, notion, okta, omnisend, onedrive, oracle, outreach,
 pagerduty, pardot, paypal, pendo, pipedrive, plaid, polar, postmark, productboard, quickbooks, recharge,
 recurly, revenuecat, ringcentral, salesloft, sendgrid, servicenow, sftp, sharepoint, shortcut, smartsheet,
