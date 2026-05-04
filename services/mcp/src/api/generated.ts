@@ -39028,10 +39028,6 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * A search term.
-     */
-    search?: string;
-    /**
      * Multiple values may be separated by commas.
      */
     type?: string[];
@@ -43467,10 +43463,6 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
-    /**
-     * A search term.
-     */
-    search?: string;
     /**
      * Multiple values may be separated by commas.
      */
