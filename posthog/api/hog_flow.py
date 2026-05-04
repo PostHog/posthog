@@ -1251,9 +1251,6 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
         """
         from products.workflows.backend.services.notifications import handle_workflow_rate_limited
 
-        if request.method != "POST":
-            return Response({"error": "Method not allowed"}, status=405)
-
         notification_type = request.data.get("type")
         hog_flow_id = request.data.get("hog_flow_id")
         hog_flow_name = request.data.get("hog_flow_name", "")

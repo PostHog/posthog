@@ -65,30 +65,32 @@ export class NotificationService {
                     const urlTemplate = SCOPE_URL_MAP[scope]
                     const urlPath = urlTemplate.replace('{teamId}', String(payload.teamId))
 
-                    this.internalFetchService
-                        .fetch({
-                            urlPath: urlPath as `/${string}`,
-                            fetchParams: {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({
-                                    type: payload.type,
-                                    hog_flow_id: payload.functionId,
-                                    hog_flow_name: payload.functionName,
-                                    created_by_id: payload.createdById,
-                                    priority: payload.priority ?? 'normal',
-                                    target: payload.target ?? 'owner',
-                                }),
-                            },
-                        })
-                        .catch((error) => {
-                            captureException(error)
-                            logger.error('🔴', 'Failed to send notification', {
-                                err: error,
-                                scope,
+                    const { fetchError } = await this.internalFetchService.fetch({
+                        urlPath: urlPath as `/${string}`,
+                        fetchParams: {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
                                 type: payload.type,
-                            })
+                                hog_flow_id: payload.functionId,
+                                hog_flow_name: payload.functionName,
+                                created_by_id: payload.createdById,
+                                priority: payload.priority ?? 'normal',
+                                target: payload.target ?? 'owner',
+                            }),
+                        },
+                    })
+
+                    if (fetchError) {
+                        // Delete debounce key so the next rate-limit hit retries delivery
+                        await client.del(debounceKey)
+                        captureException(fetchError)
+                        logger.error('🔴', 'Failed to send notification, debounce key cleared', {
+                            err: fetchError,
+                            scope,
+                            type: payload.type,
                         })
+                    }
                 }
             })
         } catch (e) {

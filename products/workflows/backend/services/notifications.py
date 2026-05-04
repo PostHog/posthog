@@ -76,7 +76,7 @@ def handle_workflow_rate_limited(
         NotificationData(
             team_id=team_id,
             notification_type=NotificationType.WORKFLOW_RATE_LIMITED,
-            priority=PRIORITY_MAP.get(priority, Priority.CRITICAL),
+            priority=PRIORITY_MAP.get(priority, Priority.NORMAL),
             title=f"Workflow '{hog_flow_name}' is being rate limited",
             body="Events matching this workflow are being dropped because the rate limit was exceeded.",
             target_type=target_type,

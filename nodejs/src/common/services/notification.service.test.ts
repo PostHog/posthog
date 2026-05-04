@@ -5,6 +5,7 @@ import { NotificationService } from './notification.service'
 describe('NotificationService', () => {
     let service: NotificationService
     let mockRedisSet: jest.Mock
+    let mockRedisDel: jest.Mock
     let mockRedisUseClient: jest.Mock
     let mockFetch: jest.Mock
 
@@ -18,7 +19,10 @@ describe('NotificationService', () => {
 
     beforeEach(() => {
         mockRedisSet = jest.fn().mockResolvedValue('OK')
-        mockRedisUseClient = jest.fn((_opts: any, fn: any) => Promise.resolve(fn({ set: mockRedisSet })))
+        mockRedisDel = jest.fn().mockResolvedValue(1)
+        mockRedisUseClient = jest.fn((_opts: any, fn: any) =>
+            Promise.resolve(fn({ set: mockRedisSet, del: mockRedisDel }))
+        )
         mockFetch = jest.fn().mockResolvedValue({ fetchError: null, fetchResponse: { status: 200 } })
 
         service = new NotificationService({ useClient: mockRedisUseClient } as any, { fetch: mockFetch } as any)
@@ -80,10 +84,12 @@ describe('NotificationService', () => {
         expect(mockFetch).not.toHaveBeenCalled()
     })
 
-    it('should not throw when fetch fails', async () => {
-        mockFetch.mockRejectedValue(new Error('Network error'))
+    it('should clear debounce key when fetch fails so next hit retries', async () => {
+        mockFetch.mockResolvedValue({ fetchError: new Error('Network error'), fetchResponse: null })
 
-        await expect(service.notify('hog_flow', payload)).resolves.toBeUndefined()
+        await service.notify('hog_flow', payload)
+
+        expect(mockRedisDel).toHaveBeenCalledWith('@posthog/notification/hog_flow/workflow_rate_limited/1/flow-123')
     })
 
     it('should not throw when Redis fails', async () => {
