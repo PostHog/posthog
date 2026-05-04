@@ -69,6 +69,7 @@ const PlayerFrameOverlayActions = (): JSX.Element | null => {
 
 const PlayerFrameOverlayContent = (): JSX.Element | null => {
     const { currentPlayerState, endReached, logicProps } = useValues(sessionRecordingPlayerLogic)
+    const { togglePlayPause } = useActions(sessionRecordingPlayerLogic)
 
     let content = null
     const pausedState =
@@ -119,6 +120,10 @@ const PlayerFrameOverlayContent = (): JSX.Element | null => {
                 icon={<IconRewindPlay className="text-6xl text-white" />}
                 aria-label="Rewind recording"
                 data-attr="replay-overlay-rewind"
+                onClick={(e) => {
+                    e.stopPropagation()
+                    togglePlayPause()
+                }}
             />
         ) : (
             <div className="flex flex-col items-center justify-center">
@@ -126,6 +131,10 @@ const PlayerFrameOverlayContent = (): JSX.Element | null => {
                     icon={<IconPlay className="text-6xl text-white" />}
                     aria-label="Resume recording"
                     data-attr="replay-overlay-resume"
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        togglePlayPause()
+                    }}
                 />
                 {showActionsOnOverlay && <PlayerFrameOverlayActions />}
             </div>
