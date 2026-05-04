@@ -92,14 +92,10 @@ export function CupedModal(): JSX.Element {
                             max={MAX_LOOKBACK_DAYS}
                             value={lookbackDays}
                             onChange={(value) => {
-                                if (value === undefined || value === null) {
+                                if (typeof value !== 'number' || !Number.isFinite(value) || value < MIN_LOOKBACK_DAYS) {
                                     return
                                 }
-                                const parsed = Number(value)
-                                if (!Number.isFinite(parsed)) {
-                                    return
-                                }
-                                updateCupedConfig({ lookback_days: parsed })
+                                updateCupedConfig({ lookback_days: value })
                             }}
                             className="w-32"
                         />
