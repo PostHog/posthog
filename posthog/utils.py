@@ -1348,6 +1348,8 @@ class GenericEmails:
         return self.emails.get(email[(at_location + 1) :], False)
 
 
+# maxsize=2 keeps the previous hour's bucket warm so requests interleaved across the
+# top-of-hour boundary don't both pay the ~600-entry pytz walk.
 @lru_cache(maxsize=2)
 def _timezone_offsets_for_hour(year: int, month: int, day: int, hour: int) -> dict[str, float]:
     now = dt.datetime(year, month, day, hour)
