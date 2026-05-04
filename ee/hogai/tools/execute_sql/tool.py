@@ -4,7 +4,14 @@ from uuid import uuid4
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field
 
-from posthog.schema import ArtifactContentType, ArtifactSource, AssistantToolCallMessage, VisualizationArtifactContent
+from posthog.schema import (
+    ArtifactContentType,
+    ArtifactSource,
+    AssistantToolCallMessage,
+    HogQLFilters,
+    HogQLQuery,
+    VisualizationArtifactContent,
+)
 
 from posthog.models import Team, User
 
@@ -33,6 +40,15 @@ from .prompts import (
 
 class ExecuteSQLToolArgs(BaseModel):
     query: str = Field(description="The final SQL query to be executed.")
+    filters: HogQLFilters | None = Field(
+        default=None,
+        description=(
+            "Optional filters applied through `{filters}` placeholders in the query. "
+            "Use this when editing a SQL editor query that already uses `{filters}` and the user asks to change "
+            "dateRange, property filters, or test-account filtering. Set this to an empty object to clear existing "
+            "SQL editor filters while preserving the `{filters}` placeholder."
+        ),
+    )
     viz_title: str = Field(
         description="Short, concise name of the SQL query (2-5 words) that will be displayed as a header in the visualization."
     )
@@ -66,7 +82,7 @@ class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
         return cls(team=team, user=user, state=state, node_path=node_path, config=config, description=prompt)
 
     async def _arun_impl(
-        self, query: str, viz_title: str, viz_description: str
+        self, query: str, viz_title: str, viz_description: str, filters: HogQLFilters | None = None
     ) -> tuple[str, ToolMessagesArtifact | None]:
         parsed_query = self._parse_output({"query": query})
         try:
@@ -76,9 +92,13 @@ class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
         except PydanticOutputParserException as e:
             return format_prompt_string(EXECUTE_SQL_RECOVERABLE_ERROR_PROMPT, error=str(e)), None
 
+        query_model = (
+            HogQLQuery(query=parsed_query.query.query, filters=filters) if filters is not None else parsed_query.query
+        )
+
         # Display an ephemeral visualization message to the user.
         artifact = await self._context_manager.artifacts.acreate(
-            VisualizationArtifactContent(query=parsed_query.query, name=viz_title, description=viz_description),
+            VisualizationArtifactContent(query=query_model, name=viz_title, description=viz_description),
             "SQL Query",
         )
         artifact_message = self._context_manager.artifacts.create_message(
@@ -89,7 +109,7 @@ class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
 
         insight_context = InsightContext(
             team=self._team,
-            query=parsed_query.query,
+            query=query_model,
             name=viz_title,
             description=viz_description,
             insight_id=artifact_message.artifact_id,
@@ -110,7 +130,13 @@ class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
                     content=result,
                     id=str(uuid4()),
                     tool_call_id=self.tool_call_id,
-                    ui_payload={self.get_name(): parsed_query.query.query},
+                    ui_payload={
+                        self.get_name(): (
+                            query_model.model_dump(mode="json", exclude_none=True)
+                            if isinstance(query_model, HogQLQuery)
+                            else query_model.query
+                        )
+                    },
                 ),
             ]
         )

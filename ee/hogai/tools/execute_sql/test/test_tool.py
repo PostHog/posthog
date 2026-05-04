@@ -4,7 +4,14 @@ from unittest.mock import AsyncMock, Mock, patch
 from asgiref.sync import sync_to_async
 from langchain_core.runnables import RunnableConfig
 
-from posthog.schema import ArtifactContentType, AssistantToolCallMessage
+from posthog.schema import (
+    ArtifactContentType,
+    AssistantToolCallMessage,
+    DateRange,
+    HogQLFilters,
+    HogQLQuery,
+    VisualizationArtifactContent,
+)
 
 from posthog.models import Insight
 
@@ -12,7 +19,7 @@ from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.tools.execute_sql.tool import ExecuteSQLTool
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import NodePath
-from ee.models import Conversation
+from ee.models import AgentArtifact, Conversation
 
 
 class TestExecuteSQLTool(ClickhouseTestMixin, NonAtomicBaseTest):
@@ -84,6 +91,58 @@ class TestExecuteSQLTool(ClickhouseTestMixin, NonAtomicBaseTest):
         # Verify artifact_id is included in the second message content
         tool_call_content = artifact_messages.messages[1].content
         self.assertIn(artifact_id, tool_call_content)
+
+    async def test_sql_execution_preserves_filters_in_hogql_query(self) -> None:
+        _create_event(team=self.team, distinct_id="user1", event="test_event")
+        tool = await self._create_tool()
+
+        filters = HogQLFilters(dateRange=DateRange(date_from="-90d"))
+        result_text, artifact_messages = await tool._arun_impl(
+            "SELECT count() FROM events WHERE {filters}",
+            "Recent events",
+            "Events matching the editor filters",
+            filters=filters,
+        )
+
+        self.assertEqual(result_text, "")
+        self.assertIsNotNone(artifact_messages)
+
+        artifact_id = artifact_messages.messages[0].artifact_id
+        self.assertIsNotNone(artifact_id)
+        artifact = await AgentArtifact.objects.aget(short_id=artifact_id, team=self.team)
+        content = VisualizationArtifactContent.model_validate(artifact.data)
+
+        self.assertIsInstance(content.query, HogQLQuery)
+        assert isinstance(content.query, HogQLQuery)
+        self.assertEqual(content.query.filters, filters)
+
+        tool_call_message = artifact_messages.messages[1]
+        self.assertIsInstance(tool_call_message, AssistantToolCallMessage)
+        assert isinstance(tool_call_message, AssistantToolCallMessage)
+        payload = tool_call_message.ui_payload["execute_sql"]
+        self.assertEqual(payload["query"], "SELECT count() FROM events WHERE {filters}")
+        self.assertEqual(payload["filters"]["dateRange"]["date_from"], "-90d")
+
+    async def test_sql_execution_returns_empty_filters_payload(self) -> None:
+        _create_event(team=self.team, distinct_id="user1", event="test_event")
+        tool = await self._create_tool()
+
+        result_text, artifact_messages = await tool._arun_impl(
+            "SELECT count() FROM events WHERE {filters}",
+            "Recent events",
+            "Events matching the editor filters",
+            filters=HogQLFilters(),
+        )
+
+        self.assertEqual(result_text, "")
+        self.assertIsNotNone(artifact_messages)
+
+        tool_call_message = artifact_messages.messages[1]
+        self.assertIsInstance(tool_call_message, AssistantToolCallMessage)
+        assert isinstance(tool_call_message, AssistantToolCallMessage)
+        payload = tool_call_message.ui_payload["execute_sql"]
+        self.assertEqual(payload["query"], "SELECT count() FROM events WHERE {filters}")
+        self.assertEqual(payload["filters"], {})
 
     @patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
     async def test_select_from_system_insights(self):

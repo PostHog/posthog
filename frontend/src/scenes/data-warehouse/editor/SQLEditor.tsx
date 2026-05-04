@@ -31,6 +31,7 @@ import { applyDataVisualizationQueryUpdate } from '~/queries/nodes/DataVisualiza
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { ViewLinkModal } from '../ViewLinkModal'
 import { editorSizingLogic } from './editorSizingLogic'
+import { applyExecuteSqlToolOutput, getExecuteSqlToolContext } from './maxSqlTool'
 import { QueryInfo } from './output-pane-tabs/QueryInfo'
 import { OutputPane } from './OutputPane'
 import { outputPaneLogic } from './outputPaneLogic'
@@ -285,6 +286,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         saveAsView,
         saveAsEndpoint,
         openHistoryModal,
+        setSourceQuery,
         setSuggestedQueryInput,
         reportAIQueryPromptOpen,
     } = useActions(sqlEditorLogic)
@@ -381,15 +383,19 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                 {...titleSectionProps}
                 maxToolProps={{
                     identifier: 'execute_sql',
-                    context: {
-                        current_query: queryInput,
-                    },
+                    context: getExecuteSqlToolContext(queryInput, sourceQuery),
                     contextDescription: {
                         text: 'Current query',
                         icon: iconForType('sql_editor'),
                     },
-                    callback: (toolOutput: string) => {
-                        setSuggestedQueryInput(toolOutput, 'max_ai')
+                    callback: (toolOutput: unknown) => {
+                        applyExecuteSqlToolOutput({
+                            toolOutput,
+                            queryInput,
+                            sourceQuery,
+                            setSourceQuery,
+                            setSuggestedQueryInput,
+                        })
                     },
                     suggestions: [],
                     onMaxOpen: () => {
