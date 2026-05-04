@@ -11,6 +11,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { addProductIntent } from 'lib/utils/product-intents'
 import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
@@ -20,6 +21,8 @@ import {
     AnyResponseType,
     DataTableNode,
     NodeKind,
+    ProductIntentContext,
+    ProductKey,
     TraceNeighborsQuery,
     TraceNeighborsQueryResponse,
     TraceQuery,
@@ -473,6 +476,10 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
     tabAwareUrlToAction(({ actions }) => ({
         [urls.llmAnalyticsTrace(':id')]: ({ id }, { event, timestamp, exception_ts, search, line, tab, msg }) => {
             actions.setTraceId(id ?? '')
+            void addProductIntent({
+                product_type: ProductKey.LLM_ANALYTICS,
+                intent_context: ProductIntentContext.LLM_ANALYTICS_TRACE_VIEWED,
+            })
             actions.setEventId(event || null)
             const parsedMsg = msg ? parseInt(msg, 10) : NaN
             actions.setHighlightMessageIndex(!isNaN(parsedMsg) ? parsedMsg : null)

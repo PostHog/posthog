@@ -754,6 +754,10 @@ def create_posthog_code_task_for_repo_activity(
     except Exception:
         log.warning("posthog_code_slack_permalink_failed", channel=channel, thread_ts=thread_ts)
 
+    # Slack tasks can intentionally start without an attached repository. Keep
+    # PR tooling enabled so an explicit follow-up can clone a repo and publish.
+    allow_pr_creation = True
+
     # 1. Create task + run WITHOUT starting the workflow
     try:
         task = Task.create_and_run(
@@ -763,7 +767,7 @@ def create_posthog_code_task_for_repo_activity(
             origin_product=Task.OriginProduct.SLACK,
             user_id=user_id,
             repository=repository,
-            create_pr=repository is not None,
+            create_pr=allow_pr_creation,
             mode="interactive",
             slack_thread_context=slack_thread_context,
             slack_thread_url=slack_thread_url,
@@ -821,7 +825,7 @@ def create_posthog_code_task_for_repo_activity(
             run_id=str(task_run.id),
             team_id=task.team.id,
             user_id=user_id,
-            create_pr=repository is not None,
+            create_pr=allow_pr_creation,
             slack_thread_context=slack_thread_context,
             posthog_mcp_scopes="full",
         )
@@ -1123,7 +1127,7 @@ def _resume_task_with_new_run(
             run_id=str(new_run.id),
             team_id=mapping.task.team_id,
             user_id=created_by.id,
-            create_pr=mapping.task.repository is not None,
+            create_pr=True,
             slack_thread_context=slack_thread_context,
             posthog_mcp_scopes="full",
         )

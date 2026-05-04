@@ -189,7 +189,7 @@ jobs:
             - name: Run hogli extension tests
               shell: bash
               run: |
-                  pytest tools/hogli-commands/hogli_commands/tests -v --junitxml=junit-hogli-ext.xml
+                  pytest tools/hogli-commands/hogli_commands/tests -v --junitxml=junit-hogli-commands.xml
 
             - name: Upload test results
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
@@ -198,7 +198,7 @@ jobs:
                   name: junit-results-hogli
                   path: |
                       junit-hogli.xml
-                      junit-hogli-ext.xml
+                      junit-hogli-commands.xml
 
             - name: Run dependency detection script tests
               shell: bash

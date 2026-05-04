@@ -123,7 +123,7 @@ const CommentBottomRow = ({ comment }: { comment: CommentType }): JSX.Element =>
     )
 }
 
-const CommentEditingForm = ({ comment }: { comment: CommentType }): JSX.Element | null => {
+const CommentEditingForm = ({ comment }: { comment: CommentType }): JSX.Element => {
     const { editingComment, commentsLoading, editingCommentRichContentEditor, isEditingCommentEmpty } =
         useValues(commentsLogic)
     const {
@@ -133,14 +133,14 @@ const CommentEditingForm = ({ comment }: { comment: CommentType }): JSX.Element 
         onEditingCommentRichContentEditorUpdate,
     } = useActions(commentsLogic)
 
-    return editingComment?.id === comment.id ? (
-        <div className="deprecated-space-y-2 border-t p-2">
+    return (
+        <div className="deprecated-space-y-2">
             <LemonRichContentEditor
                 placeholder="Edit comment"
                 initialContent={comment.rich_content}
                 onCreate={setEditingCommentRichContentEditor}
                 onUpdate={(isEmpty) => {
-                    if (editingCommentRichContentEditor) {
+                    if (editingCommentRichContentEditor && editingComment) {
                         setEditingComment({
                             ...editingComment,
                             rich_content: editingCommentRichContentEditor.getJSON(),
@@ -151,10 +151,10 @@ const CommentEditingForm = ({ comment }: { comment: CommentType }): JSX.Element 
                 onPressCmdEnter={persistEditedComment}
                 disabled={commentsLoading}
             />
-            <div className="flex justify-between items-center gap-2">
-                <div className="flex-1" />
+            <div className="flex justify-end items-center gap-2">
                 <LemonButton
                     type="secondary"
+                    size="small"
                     onClick={() => {
                         setEditingComment(null)
                         setEditingCommentRichContentEditor(null)
@@ -165,15 +165,16 @@ const CommentEditingForm = ({ comment }: { comment: CommentType }): JSX.Element 
                 </LemonButton>
                 <LemonButton
                     type="primary"
+                    size="small"
                     onClick={persistEditedComment}
                     disabledReason={isEditingCommentEmpty ? 'No message' : commentsLoading ? 'Saving...' : null}
                     sideIcon={<KeyboardShortcut command enter />}
                 >
-                    Save changes
+                    Save
                 </LemonButton>
             </div>
         </div>
-    ) : null
+    )
 }
 
 const CommentTopRow = ({ comment }: { comment: CommentType }): JSX.Element => {
@@ -226,7 +227,8 @@ const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
 
     const ref = useRef<HTMLDivElement | null>(null)
 
-    const isHighlighted = replyingCommentId === comment.id || editingComment?.id === comment.id
+    const isEditing = editingComment?.id === comment.id
+    const isHighlighted = replyingCommentId === comment.id || isEditing
 
     useEffect(() => {
         if (isHighlighted) {
@@ -244,15 +246,17 @@ const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
                 <div className="flex-1 flex justify-start gap-2">
                     <ProfilePicture size="xl" user={comment.created_by} />
 
-                    <div className="flex flex-col flex-1">
+                    <div className="flex flex-col flex-1 min-w-0">
                         <CommentTopRow comment={comment} />
-                        <LemonMarkdown lowKeyHeadings>{getText(comment)}</LemonMarkdown>
+                        {isEditing ? (
+                            <CommentEditingForm comment={comment} />
+                        ) : (
+                            <LemonMarkdown lowKeyHeadings>{getText(comment)}</LemonMarkdown>
+                        )}
                     </div>
                 </div>
-                <CommentBottomRow comment={comment} />
+                {!isEditing && <CommentBottomRow comment={comment} />}
             </div>
-
-            <CommentEditingForm comment={comment} />
         </div>
     )
 }

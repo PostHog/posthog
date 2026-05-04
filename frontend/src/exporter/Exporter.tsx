@@ -3,7 +3,7 @@ import './Exporter.scss'
 
 import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useCallback, useEffect } from 'react'
 
 import { Logo } from 'lib/brand/Logo'
 import { HeatmapCanvas } from 'lib/components/heatmaps/HeatmapCanvas'
@@ -23,7 +23,10 @@ import { ExportedInsight } from '~/exporter/ExportedInsight/ExportedInsight'
 import { ExporterLogin } from '~/exporter/ExporterLogin'
 import { ExportType, ExportedData } from '~/exporter/types'
 import { getQueryBasedDashboard } from '~/queries/nodes/InsightViz/utils'
-import { AUTO_REFRESH_INITIAL_INTERVAL_SECONDS } from '~/scenes/dashboard/dashboardUtils'
+import {
+    AUTO_REFRESH_INITIAL_INTERVAL_SECONDS,
+    scheduleSharedDashboardStaleAutoForceIfEligible,
+} from '~/scenes/dashboard/dashboardUtils'
 import { DashboardPlacement } from '~/types'
 
 import { exporterViewLogic } from './exporterViewLogic'
@@ -93,13 +96,26 @@ function ExportHeatmap(): JSX.Element {
 }
 
 function SharedDashboardAutoRefresh({ dashboardId }: { dashboardId: number }): JSX.Element | null {
-    const { setAutoRefresh, setPageVisibility } = dashboardLogic({
-        id: dashboardId,
-        placement: DashboardPlacement.Public,
-    }).actions
+    const logic = dashboardLogic({ id: dashboardId, placement: DashboardPlacement.Public })
+    const { setAutoRefresh, setPageVisibility, triggerDashboardRefresh } = logic.actions
 
-    // Tie dashboard auto-refresh to tab visibility, same as in-app dashboard.
-    usePageVisibilityCb(setPageVisibility)
+    // Tie auto-refresh to tab visibility AND fire a one-shot staleness check when the tab
+    // regains focus — Chrome throttles background timers, so the periodic interval can drift
+    // well past the staleness budget before the next tick. Reading `logic.values` inside the
+    // callback gets the live `effectiveLastRefresh` rather than a stale closure value.
+    const onVisibilityChange = useCallback(
+        (visible: boolean) => {
+            setPageVisibility(visible)
+            if (visible) {
+                scheduleSharedDashboardStaleAutoForceIfEligible({
+                    effectiveLastRefresh: logic.values.effectiveLastRefresh,
+                    triggerDashboardRefresh: () => void triggerDashboardRefresh(),
+                })
+            }
+        },
+        [setPageVisibility, triggerDashboardRefresh, logic]
+    )
+    usePageVisibilityCb(onVisibilityChange)
 
     useEffect(() => {
         setAutoRefresh(true, AUTO_REFRESH_INITIAL_INTERVAL_SECONDS)
