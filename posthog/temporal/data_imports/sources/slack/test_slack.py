@@ -173,46 +173,54 @@ def _make_channel_page(channels: list[dict[str, Any]], next_cursor: str = "") ->
 
 
 class TestFetchChannelsByType:
-    def test_public_uses_conversations_list_and_no_user_param(self) -> None:
-        responses = [_make_response(_make_channel_page([{"id": "C1", "name": "general"}]))]
+    @parameterized.expand(
+        [
+            (
+                "public_with_authed_user_ignores_user_scoping",
+                "public_channel",
+                "U_INSTALLER",
+                "https://slack.com/api/conversations.list",
+                False,
+            ),
+            (
+                "private_with_authed_user_scopes_to_installer",
+                "private_channel",
+                "U_INSTALLER",
+                "https://slack.com/api/users.conversations",
+                True,
+            ),
+            (
+                "private_without_authed_user_omits_user_param",
+                "private_channel",
+                None,
+                "https://slack.com/api/users.conversations",
+                False,
+            ),
+        ]
+    )
+    def test_routes_to_expected_endpoint(
+        self,
+        _name: str,
+        channel_type: str,
+        authed_user: str | None,
+        expected_url: str,
+        expects_user_param: bool,
+    ) -> None:
+        responses = [_make_response(_make_channel_page([{"id": "X1", "name": "x"}]))]
         with patch(
             "posthog.temporal.data_imports.sources.slack.slack._slack_get",
             side_effect=responses,
         ) as mock_get:
-            channels = _fetch_channels_by_type("token", "public_channel", authed_user="U_INSTALLER")
+            channels = _fetch_channels_by_type("token", channel_type, authed_user=authed_user)
 
-        assert channels == [{"id": "C1", "name": "general"}]
-        assert mock_get.call_args.args[0] == "https://slack.com/api/conversations.list"
+        assert channels == [{"id": "X1", "name": "x"}]
+        assert mock_get.call_args.args[0] == expected_url
         params = mock_get.call_args.kwargs["params"]
-        assert params["types"] == "public_channel"
-        assert "user" not in params
-
-    def test_private_uses_users_conversations_with_authed_user(self) -> None:
-        responses = [_make_response(_make_channel_page([{"id": "G1", "name": "secret"}]))]
-        with patch(
-            "posthog.temporal.data_imports.sources.slack.slack._slack_get",
-            side_effect=responses,
-        ) as mock_get:
-            channels = _fetch_channels_by_type("token", "private_channel", authed_user="U_INSTALLER")
-
-        assert channels == [{"id": "G1", "name": "secret"}]
-        assert mock_get.call_args.args[0] == "https://slack.com/api/users.conversations"
-        params = mock_get.call_args.kwargs["params"]
-        assert params["types"] == "private_channel"
-        assert params["user"] == "U_INSTALLER"
-
-    def test_private_without_authed_user_omits_user_param(self) -> None:
-        responses = [_make_response(_make_channel_page([{"id": "G1", "name": "secret"}]))]
-        with patch(
-            "posthog.temporal.data_imports.sources.slack.slack._slack_get",
-            side_effect=responses,
-        ) as mock_get:
-            channels = _fetch_channels_by_type("token", "private_channel", authed_user=None)
-
-        assert channels == [{"id": "G1", "name": "secret"}]
-        assert mock_get.call_args.args[0] == "https://slack.com/api/users.conversations"
-        params = mock_get.call_args.kwargs["params"]
-        assert "user" not in params
+        assert params["types"] == channel_type
+        if expects_user_param:
+            assert params["user"] == authed_user
+        else:
+            assert "user" not in params
 
     def test_paginates_until_cursor_empty(self) -> None:
         pages = [
@@ -266,24 +274,32 @@ class TestSlackSourceChannelsEndpoint:
             authed_user=authed_user,
         )
 
-    def test_uses_fetch_all_channels_and_threads_authed_user(self) -> None:
-        sample = [{"id": "C1", "name": "general"}, {"id": "G1", "name": "secret"}]
+    @parameterized.expand(
+        [
+            (
+                "with_authed_user",
+                "U_INSTALLER",
+                [{"id": "C1", "name": "general"}, {"id": "G1", "name": "secret"}],
+            ),
+            (
+                "without_authed_user",
+                None,
+                [],
+            ),
+        ]
+    )
+    def test_uses_fetch_all_channels_and_threads_authed_user(
+        self,
+        _name: str,
+        authed_user: str | None,
+        sample: list[dict[str, Any]],
+    ) -> None:
         with patch(
             "posthog.temporal.data_imports.sources.slack.slack._fetch_all_channels",
             return_value=sample,
         ) as mock_fetch:
-            response = self._build_source(authed_user="U_INSTALLER")
+            response = self._build_source(authed_user=authed_user)
             items = list(response.items())
 
         assert items == sample
-        mock_fetch.assert_called_once_with("token", "U_INSTALLER")
-
-    def test_passes_none_authed_user_when_unset(self) -> None:
-        with patch(
-            "posthog.temporal.data_imports.sources.slack.slack._fetch_all_channels",
-            return_value=[],
-        ) as mock_fetch:
-            response = self._build_source(authed_user=None)
-            list(response.items())
-
-        mock_fetch.assert_called_once_with("token", None)
+        mock_fetch.assert_called_once_with("token", authed_user)
