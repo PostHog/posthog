@@ -48,28 +48,12 @@ describe('useWorkflowVariableTaxonomicOptions', () => {
         })
     })
 
-    it('returns an empty list when the workflow has no variables', () => {
-        setupWorkflowLogicMock({ variables: [] })
-
-        const { result } = renderHook(() => useWorkflowVariableTaxonomicOptions())
-
-        expect(result.current).toEqual({
-            [TaxonomicFilterGroupType.WorkflowVariables]: [],
-        })
-    })
-
-    it('returns an empty list when workflow itself is null', () => {
-        setupWorkflowLogicMock(null)
-
-        const { result } = renderHook(() => useWorkflowVariableTaxonomicOptions())
-
-        expect(result.current).toEqual({
-            [TaxonomicFilterGroupType.WorkflowVariables]: [],
-        })
-    })
-
-    it('returns an empty list when variables is undefined', () => {
-        setupWorkflowLogicMock({ variables: undefined })
+    it.each([
+        { description: 'workflow has no variables', workflow: { variables: [] } },
+        { description: 'workflow itself is null', workflow: null },
+        { description: 'variables is undefined', workflow: { variables: undefined } },
+    ])('returns an empty list when $description', ({ workflow }) => {
+        setupWorkflowLogicMock(workflow)
 
         const { result } = renderHook(() => useWorkflowVariableTaxonomicOptions())
 

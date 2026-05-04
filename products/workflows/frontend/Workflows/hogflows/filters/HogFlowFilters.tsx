@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { SimpleOption, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { isOperatorSemver } from 'lib/utils'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
@@ -42,7 +42,7 @@ function useSampleGlobals(): Record<string, any> {
 // (always prepended by `TaxonomicPropertyFilter`) can aggregate them alongside event/person properties.
 // Without this the All tab is empty for users on a workflow that hasn't picked up any other matches yet.
 export function useWorkflowVariableTaxonomicOptions(): {
-    [TaxonomicFilterGroupType.WorkflowVariables]: { name: string }[]
+    [TaxonomicFilterGroupType.WorkflowVariables]: SimpleOption[]
 } {
     const { workflow } = useValues(workflowLogic)
     const variables = workflow?.variables ?? []
@@ -72,8 +72,10 @@ export function HogFlowEventFilters({ filters, setFilters, typeKey, buttonCopy }
         actionsTaxonomicGroupTypes.push(TaxonomicFilterGroupType.InternalEvents)
     }
 
-    // WorkflowVariables comes first so `redistributeTopMatches` orders its matches first in the
-    // All/Suggestions tab (which redistributes by `taxonomicGroupTypes` order).
+    // WorkflowVariables comes first so its dedicated tab renders first in the category list.
+    // ActionFilter does not pipe `taxonomicFilterOptionsFromProp`, so the All/Suggestions tab
+    // does not aggregate variables here — variable surfacing in All/Suggestions only kicks in
+    // for the property-level filter (HogFlowPropertyFilters below).
     const propertyTaxonomicGroupTypes = [
         TaxonomicFilterGroupType.WorkflowVariables,
         TaxonomicFilterGroupType.EventProperties,

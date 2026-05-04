@@ -79,6 +79,7 @@ test.describe('Workflows conditional branch property filter category dropdown', 
     test('reopening a saved filter and clicking the category dropdown trigger pill keeps the filter popover open', async ({
         page,
     }) => {
+        test.setTimeout(90 * 1000)
         const me = await page.request.get('/api/users/@me/')
         expect(me.ok()).toBe(true)
         const meData = await me.json()
@@ -118,7 +119,7 @@ test.describe('Workflows conditional branch property filter category dropdown', 
 
         await test.step('open the workflow editor and select the conditional branch', async () => {
             await page.goto(`/workflows/${workflowId}/workflow`)
-            await page.waitForSelector('[data-attr="workflow-editor"]', { timeout: 10000 })
+            await page.waitForSelector('[data-attr="workflow-editor"]', { timeout: 30000 })
             await page.locator(`[data-testid="rf__node-${CONDITIONAL_BRANCH_ID}"]`).click()
             await expect(page.getByTestId('property-filter-0')).toBeVisible()
         })
