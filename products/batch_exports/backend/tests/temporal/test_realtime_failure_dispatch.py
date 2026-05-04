@@ -4,6 +4,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from posthog.batch_exports.models import BatchExport, BatchExportDestination, BatchExportRun
+from posthog.models.utils import UUIDT
 
 from products.batch_exports.backend.temporal.batch_exports import _dispatch_batch_export_failure_realtime
 
@@ -56,7 +57,5 @@ class TestDispatchBatchExportFailureRealtime(BaseTest):
 
     @patch("products.notifications.backend.facade.api.create_notification")
     def test_swallows_missing_run(self, mock_create_notification: MagicMock) -> None:
-        import uuid
-
-        _dispatch_batch_export_failure_realtime(uuid.uuid4())
+        _dispatch_batch_export_failure_realtime(str(UUIDT()))
         mock_create_notification.assert_not_called()
