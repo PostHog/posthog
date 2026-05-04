@@ -38,11 +38,14 @@ BEGIN
     END LOOP;
 END $$;
 
--- GIN index on (team_id, distinct_ids). Postgres propagates the index definition
--- to every hash partition automatically.
+-- GIN index on (team_id, distinct_ids), partial on live rows. Postgres propagates
+-- the index definition to every hash partition automatically. The partial predicate
+-- mirrors the read-path filter so tombstoned rows never produce GIN entries, which
+-- shrinks the index and avoids write amplification as deletions accumulate.
 CREATE INDEX IF NOT EXISTS idx_flags_person_gin
     ON flags_person_lookup
-    USING GIN (team_id, distinct_ids);
+    USING GIN (team_id, distinct_ids)
+    WHERE deleted_at IS NULL;
 
 -- Heartbeat / lag-monitoring table. The CDC consumer will write one row per (source, partition) with
 -- the last Kafka offset / event timestamp it processed; the shadow read path will

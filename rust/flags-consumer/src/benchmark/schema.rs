@@ -40,10 +40,11 @@ pub async fn create_schema(pool: &PgPool) -> anyhow::Result<()> {
         sqlx::query(&ddl).execute(pool).await?;
     }
 
-    tracing::info!("creating GIN index on (team_id, distinct_ids)");
+    tracing::info!("creating GIN index on (team_id, distinct_ids) WHERE deleted_at IS NULL");
     sqlx::query(
         "CREATE INDEX IF NOT EXISTS idx_flags_person_gin \
-         ON flags_person_lookup USING GIN (team_id, distinct_ids)",
+         ON flags_person_lookup USING GIN (team_id, distinct_ids) \
+         WHERE deleted_at IS NULL",
     )
     .execute(pool)
     .await?;

@@ -65,7 +65,8 @@ impl PostgresStorage {
                 SELECT * FROM UNNEST($1::int[], $2::uuid[], $3::jsonb[], $4::bigint[])
             ON CONFLICT (team_id, person_uuid) DO UPDATE SET
                 properties = EXCLUDED.properties,
-                person_version = EXCLUDED.person_version
+                person_version = EXCLUDED.person_version,
+                deleted_at = NULL
             WHERE flags_person_lookup.person_version < EXCLUDED.person_version
             "#,
         )
@@ -161,8 +162,9 @@ impl PostgresStorage {
                     ELSE flags_person_lookup.distinct_ids || $3
                 END,
                 distinct_id_version = GREATEST(flags_person_lookup.distinct_id_version, $4)
-            WHERE flags_person_lookup.distinct_id_version < $4
-               OR NOT ($3 = ANY(flags_person_lookup.distinct_ids))
+            WHERE flags_person_lookup.deleted_at IS NULL
+              AND (flags_person_lookup.distinct_id_version < $4
+                   OR NOT ($3 = ANY(flags_person_lookup.distinct_ids)))
             "#,
         )
         .bind(assignment.team_id)
