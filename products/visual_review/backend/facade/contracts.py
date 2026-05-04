@@ -321,6 +321,14 @@ class SnapshotHistoryEntry:
     diff_percentage: float | None = None
     review_state: str = ""
     current_artifact: Artifact | None = None
+    # Diff classification — see ChangeKind enum. Lets the history view
+    # render categorical chips ('Layout shift' / 'Viewport mismatch')
+    # instead of conflating SSIM dissimilarity with pixel diff %.
+    # `cluster_summary` deliberately omitted here — bbox overlays don't
+    # apply to a list-of-history-rows view; load the full snapshot for
+    # those.
+    ssim_score: float | None = None
+    change_kind: str = ""
 
 
 @dataclass(frozen=True)

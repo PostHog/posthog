@@ -13,7 +13,7 @@ import { urls } from 'scenes/urls'
 
 import type { QuarantinedIdentifierEntryApi, SnapshotApi, ToleratedHashEntryApi } from '../generated/api.schemas'
 import { visualReviewPreferencesLogic } from '../scenes/visualReviewPreferencesLogic'
-import { DiffPercentage } from './DiffPercentage'
+import { SnapshotChangeBadge } from './SnapshotChangeBadge'
 import { SnapshotStatusIndicator } from './SnapshotStatusIndicator'
 
 function DiffMinimap({ url, onClick }: { url: string; onClick?: () => void }): JSX.Element {
@@ -504,10 +504,11 @@ export function SnapshotDiffViewer({
                                     </span>
                                 </div>
                             )}
-                            {snapshot.diff_percentage != null && snapshot.diff_percentage > 0 && (
+                            {(snapshot.change_kind ||
+                                (snapshot.diff_percentage != null && snapshot.diff_percentage > 0)) && (
                                 <div className="flex items-center justify-between text-xs">
-                                    <span className="text-muted">Diff</span>
-                                    <DiffPercentage value={snapshot.diff_percentage} suffix="" />
+                                    <span className="text-muted">Change</span>
+                                    <SnapshotChangeBadge snapshot={snapshot} />
                                 </div>
                             )}
                             {snapshot.baseline_artifact?.content_hash && (

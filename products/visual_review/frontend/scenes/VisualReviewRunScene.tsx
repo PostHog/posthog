@@ -15,6 +15,7 @@ import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardSh
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { SnapshotChangeBadge } from '../components/SnapshotChangeBadge'
 import { SnapshotDiffViewer } from '../components/SnapshotDiffViewer'
 import { SnapshotStatusIndicator } from '../components/SnapshotStatusIndicator'
 import { VisualReviewTabs } from '../components/VisualReviewTabs'
@@ -53,7 +54,14 @@ function SnapshotThumbnail({
 
     const isReviewed = snapshot.review_state === 'approved' || snapshot.review_state === 'tolerated'
     const showBadge = isReviewed || isQuarantined
-    const hasDiff = snapshot.diff_percentage != null && snapshot.diff_percentage > 0
+    // True when we have something the SnapshotChangeBadge will render —
+    // covers `structural`, `viewport_mismatch`, and any positive
+    // pixel-diff (current `pixel` kind or legacy rows without a kind).
+    const kind = snapshot.change_kind ?? ''
+    const hasDiff =
+        kind === 'structural' ||
+        kind === 'viewport_mismatch' ||
+        (snapshot.diff_percentage != null && snapshot.diff_percentage > 0)
 
     const imgSrc = thumbnailSrc ?? fallbackSrc
 
@@ -114,12 +122,7 @@ function SnapshotThumbnail({
             </div>
             <div className="flex items-center gap-1 max-w-[108px] w-full">
                 {hasDiff ? (
-                    <span className="shrink-0 bg-warning-highlight rounded-full px-1.5 py-0.5 text-[10px] font-mono tabular-nums text-warning-dark leading-none">
-                        {snapshot.diff_percentage! < 1
-                            ? snapshot.diff_percentage!.toFixed(1)
-                            : Math.round(snapshot.diff_percentage!)}
-                        %
-                    </span>
+                    <SnapshotChangeBadge snapshot={snapshot} size="small" />
                 ) : (
                     <SnapshotStatusIndicator
                         result={snapshot.result || 'unchanged'}

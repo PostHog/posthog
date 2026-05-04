@@ -377,6 +377,8 @@ def get_snapshot_history(repo_id: UUID, identifier: str, run_type: str) -> list[
             diff_percentage=e.diff_percentage,
             review_state=e.review_state,
             current_artifact=_to_artifact(e.current_artifact, repo_id) if e.current_artifact else None,
+            ssim_score=e.ssim_score,
+            change_kind=e.change_kind or "",
         )
         for e in entries
     ]

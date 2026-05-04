@@ -196,6 +196,9 @@ export interface SnapshotHistoryEntryApi {
     /** @nullable */
     diff_percentage?: number | null
     review_state?: string
+    /** @nullable */
+    ssim_score?: number | null
+    change_kind?: string
 }
 
 export interface PaginatedSnapshotHistoryEntryListApi {

@@ -24625,6 +24625,9 @@ export namespace Schemas {
       /** @nullable */
       diff_percentage?: number | null;
       review_state?: string;
+      /** @nullable */
+      ssim_score?: number | null;
+      change_kind?: string;
     }
 
     export interface PaginatedSnapshotHistoryEntryList {

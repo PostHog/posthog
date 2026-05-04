@@ -11,7 +11,7 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import { DiffPercentage } from '../components/DiffPercentage'
+import { SnapshotChangeBadge } from '../components/SnapshotChangeBadge'
 import { VisualReviewTabs } from '../components/VisualReviewTabs'
 import type { SnapshotHistoryEntryApi } from '../generated/api.schemas'
 import {
@@ -151,10 +151,10 @@ function HistoryRow({
                     ) : (
                         <span className="font-mono">{entry.commit_sha.slice(0, 8)}</span>
                     )}
-                    {entry.diff_percentage != null && entry.diff_percentage > 0 && (
+                    {(entry.change_kind || (entry.diff_percentage != null && entry.diff_percentage > 0)) && (
                         <>
                             <span>·</span>
-                            <DiffPercentage value={entry.diff_percentage} />
+                            <SnapshotChangeBadge snapshot={entry} size="small" />
                         </>
                     )}
                 </div>
