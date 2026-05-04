@@ -85,47 +85,49 @@ describe('HogFlowTaxonomicFilters', () => {
         cleanup()
     })
 
-    it('renders an empty state when the workflow has no variables', () => {
-        setupMocks({ variables: [] })
+    it.each([
+        { description: 'workflow has no variables', variables: [] as Array<Record<string, unknown>> },
+        { description: 'workflow is null', variables: undefined },
+    ])('renders the no-variables empty state when $description', ({ variables }) => {
+        setupMocks({ variables })
         renderComponent()
         expect(screen.getByText('No workflow variables defined.')).toBeInTheDocument()
     })
 
-    it('renders an empty state when workflow is null', () => {
-        setupMocks({ variables: undefined })
+    it.each([
+        {
+            description: 'renders all variables when the search query is empty',
+            variables: [VARIABLE_FOO, VARIABLE_BAR, VARIABLE_BAZ],
+            trimmedSearchQuery: '',
+            visible: ['foo_var', 'bar_var', 'baz_var'],
+            hidden: ['No workflow variables match your search.'],
+        },
+        {
+            description: 'filters by key (case-insensitive)',
+            variables: [VARIABLE_FOO, VARIABLE_BAR],
+            trimmedSearchQuery: 'FOO',
+            visible: ['foo_var'],
+            hidden: ['bar_var'],
+        },
+        {
+            description: 'filters by label',
+            variables: [VARIABLE_FOO, VARIABLE_BAR, VARIABLE_BAZ],
+            trimmedSearchQuery: 'hello',
+            visible: ['baz_var'],
+            hidden: ['foo_var', 'bar_var'],
+        },
+        {
+            description: 'renders a friendly empty state when no variables match the search',
+            variables: [VARIABLE_FOO, VARIABLE_BAR],
+            trimmedSearchQuery: 'nope',
+            visible: ['No workflow variables match your search.'],
+            hidden: ['foo_var'],
+        },
+    ])('$description', ({ variables, trimmedSearchQuery, visible, hidden }) => {
+        setupMocks({ variables, trimmedSearchQuery })
         renderComponent()
-        expect(screen.getByText('No workflow variables defined.')).toBeInTheDocument()
-    })
-
-    it('renders all variables when the search query is empty', () => {
-        setupMocks({ variables: [VARIABLE_FOO, VARIABLE_BAR, VARIABLE_BAZ] })
-        renderComponent()
-        expect(screen.getByText('foo_var')).toBeInTheDocument()
-        expect(screen.getByText('bar_var')).toBeInTheDocument()
-        expect(screen.getByText('baz_var')).toBeInTheDocument()
-        expect(screen.queryByText('No workflow variables match your search.')).not.toBeInTheDocument()
-    })
-
-    it('filters by key (case-insensitive)', () => {
-        setupMocks({ variables: [VARIABLE_FOO, VARIABLE_BAR], trimmedSearchQuery: 'FOO' })
-        renderComponent()
-        expect(screen.getByText('foo_var')).toBeInTheDocument()
-        expect(screen.queryByText('bar_var')).not.toBeInTheDocument()
-    })
-
-    it('filters by label', () => {
-        setupMocks({ variables: [VARIABLE_FOO, VARIABLE_BAR, VARIABLE_BAZ], trimmedSearchQuery: 'hello' })
-        renderComponent()
-        expect(screen.getByText('baz_var')).toBeInTheDocument()
-        expect(screen.queryByText('foo_var')).not.toBeInTheDocument()
-        expect(screen.queryByText('bar_var')).not.toBeInTheDocument()
-    })
-
-    it('renders a friendly empty state when no variables match the search', () => {
-        setupMocks({ variables: [VARIABLE_FOO, VARIABLE_BAR], trimmedSearchQuery: 'nope' })
-        renderComponent()
-        expect(screen.getByText('No workflow variables match your search.')).toBeInTheDocument()
-        expect(screen.queryByText('foo_var')).not.toBeInTheDocument()
+        visible.forEach((text) => expect(screen.getByText(text)).toBeInTheDocument())
+        hidden.forEach((text) => expect(screen.queryByText(text)).not.toBeInTheDocument())
     })
 
     it('calls onChange with the workflow variable filter group when a variable is clicked', () => {
