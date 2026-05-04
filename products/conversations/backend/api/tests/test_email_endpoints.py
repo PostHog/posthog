@@ -919,6 +919,7 @@ class TestEmailInboundDmarcRewrite(BaseTest):
         assert ticket.distinct_id == "alex@strictdmarc.com"
 
         comment = Comment.objects.get(team=self.team, scope="conversations_ticket")
+        assert comment.item_context is not None
         assert comment.item_context["email_from"] == "alex@strictdmarc.com"
         assert comment.item_context["email_from_name"] == "Alex Smith"
 
