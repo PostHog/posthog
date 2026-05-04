@@ -374,6 +374,26 @@ class TestSignalReportListAPI(APIBaseTest):
         row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
         assert row["is_suggested_reviewer"] is True
 
+    def test_is_suggested_reviewer_false_when_failed(self):
+        UserSocialAuth.objects.create(
+            user=self.user,
+            provider="github",
+            uid="github-test-suggested-failed",
+            extra_data={"login": "suggestedgh"},
+        )
+        report = self._create_report(status=SignalReport.Status.FAILED)
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+            content=json.dumps([{"github_login": "suggestedgh"}]),
+        )
+
+        response = self.client.get(self._list_url(status="failed"))
+        assert response.status_code == status.HTTP_200_OK
+        row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
+        assert row["is_suggested_reviewer"] is False
+
     # --- implementation_pr_url ---
 
     def _create_implementation_task_with_run(
