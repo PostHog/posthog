@@ -63,6 +63,7 @@ class NodeSerializer(serializers.ModelSerializer):
             "user_tag",
             "sync_interval",
             "dag_name",
+            "saved_query_id",
         ]
 
     def get_upstream_count(self, node: Node) -> int:
