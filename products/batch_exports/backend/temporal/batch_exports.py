@@ -58,6 +58,63 @@ AsyncBytesGenerator = collections.abc.AsyncGenerator[bytes, None]
 AsyncRecordsGenerator = collections.abc.AsyncGenerator[pa.RecordBatch, None]
 
 
+def _dispatch_batch_export_failure_realtime(batch_export_run_id: str | uuid.UUID) -> None:
+    """Fire one realtime pipeline_failure notification per pipeline-error recipient.
+
+    Per-recipient try/except so one bad write does not drop the rest. Never raises so
+    a realtime failure cannot poison the email side-effect.
+    """
+    from posthog.tasks.email import get_members_to_notify_for_pipeline_error
+
+    from products.notifications.backend.facade.api import (
+        NotificationData,
+        NotificationType,
+        Priority,
+        TargetType,
+        create_notification,
+    )
+    from products.notifications.backend.facade.enums import NotificationOnlyResourceType
+
+    try:
+        run = BatchExportRun.objects.select_related("batch_export__team").get(id=batch_export_run_id)
+        team = run.batch_export.team
+        memberships = get_members_to_notify_for_pipeline_error(team, failure_rate=1.0)
+        if not memberships:
+            return
+        title = f"Batch export {run.batch_export.name} failed"[:100]
+        body = f"Last failure at {run.last_updated_at.strftime('%I:%M%p %Z on %B %d')}"[:200]
+        source_url = f"/project/{team.project_id}/batch_exports/{run.batch_export.id}"
+        for membership in memberships:
+            try:
+                create_notification(
+                    NotificationData(
+                        team_id=team.id,
+                        notification_type=NotificationType.PIPELINE_FAILURE,
+                        priority=Priority.NORMAL,
+                        title=title,
+                        body=body,
+                        target_type=TargetType.USER,
+                        target_id=str(membership.user_id),
+                        resource_type=NotificationOnlyResourceType.PIPELINE,
+                        resource_id=str(run.batch_export.id),
+                        source_url=source_url,
+                    )
+                )
+            except Exception as e:
+                LOGGER.exception(
+                    "batch_export_failure.realtime_failed",
+                    batch_export_run_id=str(batch_export_run_id),
+                    user_id=membership.user_id,
+                    error=str(e),
+                )
+    except Exception as e:
+        LOGGER.exception(
+            "batch_export_failure.realtime_setup_failed",
+            batch_export_run_id=str(batch_export_run_id),
+            error=str(e),
+        )
+
+
 def default_fields() -> list[BatchExportField]:
     """Return list of default batch export Fields."""
     return [
@@ -553,7 +610,6 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
         )
 
     elif batch_export_run.status == BatchExportRun.Status.FAILED:
-        from posthog.tasks._notifications.pipeline_failure import dispatch_batch_export_failure_realtime
         from posthog.tasks.email import send_batch_export_run_failure
 
         try:
@@ -563,7 +619,7 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
         else:
             external_logger.info("Failure notification email for run '%s' has been sent", inputs.id)
 
-        await database_sync_to_async(dispatch_batch_export_failure_realtime)(inputs.id)
+        await database_sync_to_async(_dispatch_batch_export_failure_realtime)(inputs.id)
 
         external_logger.error(
             "Batch export for range %s - %s failed with a non-recoverable error: %s",
