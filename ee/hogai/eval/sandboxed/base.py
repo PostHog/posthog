@@ -5,6 +5,7 @@ import uuid
 import asyncio
 import logging
 from collections.abc import Sequence
+from dataclasses import replace
 from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -158,7 +159,12 @@ async def SandboxedEval(
             continue
         eval_cases.append(
             EvalCase(
-                input={"name": case.name, "prompt": case.prompt, "repo_fixture": case.repo_fixture},
+                input={
+                    "name": case.name,
+                    "prompt": case.prompt,
+                    "repo_fixture": case.repo_fixture,
+                    "use_demo_data": case.use_demo_data,
+                },
                 expected=case.expected,
                 metadata=case.metadata,
             )
@@ -169,14 +175,21 @@ async def SandboxedEval(
             name=input["name"],
             prompt=input["prompt"],
             repo_fixture=input.get("repo_fixture", ""),
+            use_demo_data=input.get("use_demo_data", True),
         )
         original_case = cases_by_name.get(input["name"])
 
         try:
-            # The factory does Django ORM work (fresh org/team/user, ClickHouse
-            # copy SQL, PSQL person sync). Django's async-safety guard rejects
-            # sync ORM calls from async contexts, so run it in a worker thread.
-            sandbox_context = await asyncio.to_thread(sandboxed_demo_data.make_context, eval_case.name)
+            # The factory does Django ORM work. Django's async-safety guard
+            # rejects sync ORM calls from async contexts, so run it in a worker
+            # thread.
+            sandbox_context = await asyncio.to_thread(
+                sandboxed_demo_data.make_context,
+                eval_case.name,
+                use_demo_data=eval_case.use_demo_data,
+            )
+            if not eval_case.repo_fixture:
+                sandbox_context = replace(sandbox_context, repository=None)
 
             seed_result: dict[str, Any] = {}
             if original_case is not None and original_case.setup is not None:

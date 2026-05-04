@@ -207,6 +207,39 @@ def copy_demo_data_to_new_team(
     return org, team, user
 
 
+def create_empty_sandbox_team(
+    django_db_blocker,
+    *,
+    label: str,
+) -> tuple[Organization, Team, User]:
+    """Create a fresh org/team/user without copying ClickHouse demo data."""
+
+    suffix = uuid.uuid4().hex[:8]
+    org_name = f"Sandbox ({label}-{suffix})"
+    email = f"eval-{label}-{suffix}@posthog.test"
+
+    with django_db_blocker.unblock():
+        org = Organization.objects.create(name=org_name)
+        user = User.objects.create_and_join(
+            org,
+            email,
+            None,
+            EVAL_USER_FULL_NAME,
+            OrganizationMembership.Level.ADMIN,
+            theme_mode="system",
+            role_at_organization="engineering",
+        )
+        team = Team.objects.create_with_data(
+            organization=org,
+            initiating_user=user,
+            name="Sandbox eval",
+            ingested_event=True,
+            completed_snippet_onboarding=True,
+        )
+
+    return org, team, user
+
+
 def create_core_memory(team: Team, django_db_blocker) -> CoreMemory:
     """Create or get the core memory for a team."""
     initial_memory = """Hedgebox is a cloud storage service enabling users to store, share, and access files across devices.

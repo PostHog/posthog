@@ -6,18 +6,25 @@ import atexit
 import socket
 import asyncio
 import logging
+import importlib
 import threading
 import subprocess
 from collections.abc import Generator
+from functools import lru_cache
 from pathlib import Path
 
 import pytest
 
 from django.conf import settings
 
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
+
 from posthog.temporal.common.worker import create_worker
 
+from products.tasks.backend.services import sandbox as sandbox_service
 from products.tasks.backend.services.custom_prompt_runner import CustomPromptSandboxContext
+from products.tasks.backend.services.docker_sandbox import DockerSandbox
 from products.tasks.backend.services.local_skills import ENV_LOCAL_SKILLS_HOST_PATH, LocalSkillsCache
 from products.tasks.backend.temporal import (
     ACTIVITIES as TASKS_ACTIVITIES,
@@ -26,7 +33,31 @@ from products.tasks.backend.temporal import (
 
 # We want the PostHog set_up_evals fixture here
 from ee.hogai.eval.conftest import set_up_evals  # noqa: F401
-from ee.hogai.eval.data_setup import copy_demo_data_to_new_team, create_core_memory, ensure_master_demo_team
+from ee.hogai.eval.data_setup import (
+    copy_demo_data_to_new_team,
+    create_core_memory,
+    create_empty_sandbox_team,
+    ensure_master_demo_team,
+)
+
+cleanup_sandbox_activity = importlib.import_module(
+    "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox"
+)
+create_sandbox_from_snapshot_activity = importlib.import_module(
+    "products.tasks.backend.temporal.process_task.activities.create_sandbox_from_snapshot"
+)
+execute_task_in_sandbox_activity = importlib.import_module(
+    "products.tasks.backend.temporal.process_task.activities.execute_task_in_sandbox"
+)
+provision_sandbox_activity = importlib.import_module(
+    "products.tasks.backend.temporal.process_task.activities.provision_sandbox"
+)
+read_sandbox_logs_activity = importlib.import_module(
+    "products.tasks.backend.temporal.process_task.activities.read_sandbox_logs"
+)
+start_agent_server_activity = importlib.import_module(
+    "products.tasks.backend.temporal.process_task.activities.start_agent_server"
+)
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +73,16 @@ LLM_GATEWAY_PORT = 13308  # Non-default port to avoid conflicts with dev LLM gat
 # ``pytest_collection_modifyitems`` below so individual evals don't have
 # to repeat it on every ``@pytest.mark.django_db`` marker.
 SANDBOXED_EVAL_DATABASES = ("default", "persons_db_writer", "persons_db_reader")
+
+
+@lru_cache(maxsize=1)
+def _test_sandbox_jwt_private_key() -> str:
+    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    return private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    ).decode()
 
 
 def pytest_collection_modifyitems(config, items):  # noqa: ARG001
@@ -196,9 +237,17 @@ def _sandbox_settings(_django_live_server, _llm_gateway):
             DEBUG=True,  # Required for sandbox URL validation to allow http://localhost
             SANDBOX_PROVIDER="docker",
             SANDBOX_API_URL=docker_api_url,
+            SANDBOX_JWT_PRIVATE_KEY=settings.SANDBOX_JWT_PRIVATE_KEY or _test_sandbox_jwt_private_key(),
             SANDBOX_LLM_GATEWAY_URL=docker_llm_gateway_url,
             SANDBOX_MCP_URL=f"http://host.docker.internal:{MCP_PORT}/mcp",
         ),
+        patch.object(sandbox_service, "Sandbox", DockerSandbox),
+        patch.object(provision_sandbox_activity, "Sandbox", DockerSandbox),
+        patch.object(start_agent_server_activity, "Sandbox", DockerSandbox),
+        patch.object(execute_task_in_sandbox_activity, "Sandbox", DockerSandbox),
+        patch.object(read_sandbox_logs_activity, "Sandbox", DockerSandbox),
+        patch.object(cleanup_sandbox_activity, "Sandbox", DockerSandbox),
+        patch.object(create_sandbox_from_snapshot_activity, "Sandbox", DockerSandbox),
         patch.object(posthoganalytics, "feature_enabled", return_value=True),
     ):
         yield
@@ -511,9 +560,8 @@ class SandboxedDemoData:
 
     One instance per pytest session: seeds the master Hedgebox team (or reuses
     a healthy one), then produces a fresh isolated ``CustomPromptSandboxContext``
-    for every eval case via ``make_context(label)``. Each call copies the master
-    into a brand-new org/team/user with its own core memory and tasks-API
-    access, so concurrent eval cases can't pollute each other's state.
+    for every eval case via ``make_context(label)``. Cases can opt out of the
+    ClickHouse-heavy demo copy when they only need Postgres entities.
     """
 
     def __init__(self, master_team_id: int, django_db_blocker, agent_model: str | None = None):
@@ -521,10 +569,17 @@ class SandboxedDemoData:
         self._django_db_blocker = django_db_blocker
         self.agent_model = agent_model
 
-    def make_context(self, case_label: str) -> CustomPromptSandboxContext:
+    def make_context(self, case_label: str, *, use_demo_data: bool = True) -> CustomPromptSandboxContext:
         from products.tasks.backend.models import CodeInvite, CodeInviteRedemption
 
-        org, team, user = copy_demo_data_to_new_team(self.master_team_id, self._django_db_blocker, label=case_label)
+        if use_demo_data:
+            org, team, user = copy_demo_data_to_new_team(
+                self.master_team_id,
+                self._django_db_blocker,
+                label=case_label,
+            )
+        else:
+            org, team, user = create_empty_sandbox_team(self._django_db_blocker, label=case_label)
         create_core_memory(team, self._django_db_blocker)
         with self._django_db_blocker.unblock():
             invite, _ = CodeInvite.objects.get_or_create(code="eval-harness", max_redemptions=0, is_active=True)
