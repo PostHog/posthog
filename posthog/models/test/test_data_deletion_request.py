@@ -136,8 +136,9 @@ def test_compile_hogql_predicate_targets_sharded_events(team, snapshot):
 
 def test_compile_hogql_predicate_emits_sharded_events_for_materialized_column(team, snapshot):
     """When a property has a materialized column, the printer emits ``{table}.mat_{prop}``.
-    For a deletion predicate that qualifier must be ``sharded_events`` — it would otherwise
-    point at the Distributed ``events`` proxy, mismatched with the DELETE target.
+    With ``target_data_table=True`` that qualifier must be ``sharded_events`` — without
+    the flag it would point at the Distributed ``events`` proxy, mismatched with a DELETE
+    against the local table.
     """
     from posthog.models.data_deletion_request import compile_hogql_predicate
 
@@ -152,8 +153,11 @@ def test_compile_hogql_predicate_emits_sharded_events_for_materialized_column(te
             hogql_predicate="properties.$current_url LIKE '%message=%'",
         )
     )
-    sql, _ = compile_hogql_predicate(request)
-    assert sql == snapshot
+    events_sql, _ = compile_hogql_predicate(request)
+    sharded_sql, _ = compile_hogql_predicate(request, target_data_table=True)
+    assert "events.`mat_$current_url`" in events_sql
+    assert "sharded_events.`mat_$current_url`" in sharded_sql
+    assert {"events": events_sql, "sharded": sharded_sql} == snapshot
 
 
 def test_rendered_count_query_substitutes_parameters():

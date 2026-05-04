@@ -88,15 +88,20 @@ def _base_params(ctx: DeletionRequestContext) -> dict:
 _EVENT_REMOVAL_TIME_PREDICATE = "team_id = %(team_id)s AND timestamp >= %(start_time)s AND timestamp < %(end_time)s"
 
 
-def _event_removal_where(obj) -> tuple[str, dict]:
+def _event_removal_where(obj, *, target_data_table: bool = False) -> tuple[str, dict]:
     """Full WHERE predicate + params for event-removal queries.
 
     Combines the mandatory team/timestamp bounds, the events filter (skipped
     when ``delete_all_events`` is set), and any compiled HogQL predicate.
+
+    ``target_data_table`` is forwarded to ``compile_hogql_predicate`` — pass
+    ``True`` for queries running against ``sharded_events`` (DELETE, deferred
+    queueing) and leave ``False`` for the Distributed ``events`` proxy
+    (cluster-wide read counts).
     """
     parts = [_EVENT_REMOVAL_TIME_PREDICATE, event_match_sql_fragment(obj)]
     params = event_match_params(obj)
-    hogql_sql, hogql_values = compile_hogql_predicate(obj)
+    hogql_sql, hogql_values = compile_hogql_predicate(obj, target_data_table=target_data_table)
     if hogql_sql:
         parts.append(f"AND ({hogql_sql})")
         params.update(hogql_values)
@@ -239,7 +244,7 @@ def _run_immediate_event_deletion(
         context.log.info(f"Processing shard {shard_num} ({idx}/{len(shards)})")
         shard_start = time.monotonic()
 
-        predicate, parameters = _event_removal_where(deletion_request)
+        predicate, parameters = _event_removal_where(deletion_request, target_data_table=True)
         runner = LightweightDeleteMutationRunner(
             table=table,
             predicate=predicate,
@@ -267,7 +272,7 @@ def _queue_events_for_deferred_deletion(
     source_table = EVENTS_DATA_TABLE()
     db = django_settings.CLICKHOUSE_DATABASE
     shards = sorted(cluster.shards)
-    predicate, params = _event_removal_where(deletion_request)
+    predicate, params = _event_removal_where(deletion_request, target_data_table=True)
     # nosemgrep: clickhouse-fstring-param-audit (all interpolated values are internal constants/settings)
     insert_sql = (
         f"INSERT INTO {db}.{ADHOC_EVENTS_DELETION_TABLE} (team_id, uuid) "

@@ -17,7 +17,7 @@ def jsonhas_expr(prop: str, param_prefix: str) -> str:
     return f"JSONHas(properties, {args})"
 
 
-def compile_hogql_predicate(obj) -> tuple[str, dict]:
+def compile_hogql_predicate(obj, *, target_data_table: bool = False) -> tuple[str, dict]:
     """Parse and compile ``obj.hogql_predicate`` into a ClickHouse SQL fragment.
 
     Returns ``(sql_fragment, extra_params)``. Both are empty when the predicate
@@ -25,6 +25,15 @@ def compile_hogql_predicate(obj) -> tuple[str, dict]:
     decide how to splice it (typically ``AND (<fragment>)``). Raises
     :class:`~django.core.exceptions.ValidationError` on parse, resolution or
     subquery errors — suitable for use inside ``Model.clean()``.
+
+    ``target_data_table`` selects the ClickHouse table the fragment will be
+    spliced against:
+
+    - ``False`` (default): emit ``events.<col>`` qualifiers — for read queries
+      against the Distributed ``events`` proxy (e.g. cluster-wide row counts).
+    - ``True``: emit ``sharded_events.<col>`` qualifiers — for the local
+      ``sharded_events`` MergeTree (DELETE mutations, parts inspection, deferred
+      uuid extraction).
     """
     predicate = (getattr(obj, "hogql_predicate", "") or "").strip()
     if not predicate:
@@ -56,9 +65,12 @@ def compile_hogql_predicate(obj) -> tuple[str, dict]:
         raise ValidationError({"hogql_predicate": "team_id must be set before validating the predicate."})
 
     context = HogQLContext(team_id=obj.team_id, within_non_hogql_query=True, enable_select_queries=False)
+    # Default leaves the events table un-aliased so qualified column references (e.g. mat-column
+    # shortcuts) print as ``events.<col>`` — the right shape for the Distributed proxy used by
+    # read queries. Only the data-table case needs an alias swap.
+    table_alias = "sharded_events" if target_data_table else None
     try:
-        # We tell hogql that `sharded_events` is just an alias for events.
-        sql = translate_hogql(predicate, context, dialect="clickhouse", events_table_alias="sharded_events")
+        sql = translate_hogql(predicate, context, dialect="clickhouse", events_table_alias=table_alias)
     except Exception as exc:
         raise ValidationError({"hogql_predicate": f"Could not compile HogQL: {exc}"}) from exc
 
