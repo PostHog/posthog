@@ -392,6 +392,10 @@ class TestGitHubWebhookFanout(TestCase):
     """Verify that issues/issue_comment events on webhooks/github/pr are
     routed to the conversations dispatch_github_event function."""
 
+    organization: ClassVar[Organization]
+    team: ClassVar[Team]
+    integration: ClassVar[Integration]
+
     @classmethod
     def setUpTestData(cls):
         cls.organization = Organization.objects.create(name="Fanout Org")
