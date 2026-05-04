@@ -1258,6 +1258,8 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
         hog_flow_id = request.data.get("hog_flow_id")
         hog_flow_name = request.data.get("hog_flow_name", "")
         created_by_id = request.data.get("created_by_id")
+        priority = request.data.get("priority", "critical")
+        target = request.data.get("target", "owner")
 
         if not notification_type:
             return Response({"error": "Missing type"}, status=400)
@@ -1278,6 +1280,8 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
                 hog_flow_id=hog_flow_id,
                 hog_flow_name=hog_flow_name,
                 created_by_id=created_by_id,
+                priority=priority,
+                target=target,
             )
             return Response({"status": "ok"})
         except Exception as e:

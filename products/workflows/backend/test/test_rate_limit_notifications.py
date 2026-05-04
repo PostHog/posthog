@@ -102,6 +102,51 @@ class TestHandleWorkflowRateLimited(APIBaseTest):
 
         mock_create.assert_not_called()
 
+    @patch("products.workflows.backend.services.rate_limit_notifications.create_notification")
+    def test_respects_normal_priority(self, mock_create):
+        hog_flow = HogFlow.objects.create(
+            team=self.team,
+            name="My Workflow",
+            status="active",
+            created_by=self.user,
+            trigger={"type": "event", "filters": {}},
+            actions=[],
+        )
+
+        handle_workflow_rate_limited(
+            team_id=self.team.id,
+            hog_flow_id=str(hog_flow.id),
+            hog_flow_name="My Workflow",
+            created_by_id=self.user.id,
+            priority="normal",
+        )
+
+        data = mock_create.call_args[0][0]
+        assert data.priority == Priority.NORMAL
+
+    @patch("products.workflows.backend.services.rate_limit_notifications.create_notification")
+    def test_targets_team_when_requested(self, mock_create):
+        hog_flow = HogFlow.objects.create(
+            team=self.team,
+            name="My Workflow",
+            status="active",
+            created_by=self.user,
+            trigger={"type": "event", "filters": {}},
+            actions=[],
+        )
+
+        handle_workflow_rate_limited(
+            team_id=self.team.id,
+            hog_flow_id=str(hog_flow.id),
+            hog_flow_name="My Workflow",
+            created_by_id=self.user.id,
+            target="team",
+        )
+
+        data = mock_create.call_args[0][0]
+        assert data.target_type == TargetType.TEAM
+        assert data.target_id == str(self.team.id)
+
 
 @override_settings(INTERNAL_API_SECRET="test-secret")
 class TestInternalNotifyEndpoint(APIBaseTest):
@@ -142,6 +187,8 @@ class TestInternalNotifyEndpoint(APIBaseTest):
             hog_flow_id=str(hog_flow.id),
             hog_flow_name="Test Workflow",
             created_by_id=self.user.id,
+            priority="critical",
+            target="owner",
         )
 
     def test_returns_400_without_type(self):

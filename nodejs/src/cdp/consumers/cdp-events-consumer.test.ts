@@ -3,7 +3,6 @@ import { mockProducerObserver } from '../../../tests/helpers/mocks/producer.mock
 import { DateTime } from 'luxon'
 
 import { HogFlow } from '~/schema/hogflow'
-import { parseJSON } from '~/utils/json-parse'
 
 import { createCdpConsumerDeps } from '../../../tests/helpers/cdp'
 import {
@@ -981,8 +980,7 @@ describe('hog flow processing', () => {
 
         describe('rate limit notifications', () => {
             let hogFlow: HogFlow
-            let mockRedisSet: jest.Mock
-            let mockFetch: jest.SpyInstance
+            let mockNotify: jest.SpyInstance
 
             beforeEach(async () => {
                 hogFlow = await insertHogFlow(
@@ -1002,83 +1000,21 @@ describe('hog flow processing', () => {
                     [hogFlow.id, { isRateLimited: true, tokens: 0 }],
                 ])
 
-                // Mock Redis useClient only for the notification debounce call
-                mockRedisSet = jest.fn().mockResolvedValue('OK')
-                const originalUseClient = processor['redis'].useClient.bind(processor['redis'])
-                jest.spyOn(processor['redis'], 'useClient').mockImplementation(async (opts: any, fn: any) => {
-                    if (opts.name === 'rate-limit-notification') {
-                        return fn({ set: mockRedisSet } as any)
-                    }
-                    return originalUseClient(opts, fn)
-                })
-
-                // Mock InternalFetchService
-                mockFetch = jest
-                    .spyOn(processor['internalFetchService'], 'fetch')
-                    .mockResolvedValue({ fetchError: null, fetchResponse: { status: 200 } as any })
+                // Mock the notification service
+                mockNotify = jest.spyOn(processor['notificationService'], 'notify').mockResolvedValue(undefined)
             })
 
-            it('should send notification on first rate limit hit', async () => {
+            it('should call notificationService.notify on rate limit', async () => {
                 const invocations = await processor['createHogFlowInvocations']([globals])
 
                 expect(invocations).toHaveLength(0)
-
-                expect(mockRedisSet).toHaveBeenCalledWith(
-                    `@posthog/cdp-rate-limit-notification/${team.id}/${hogFlow.id}`,
-                    '1',
-                    'EX',
-                    86400,
-                    'NX'
-                )
-
-                expect(mockFetch).toHaveBeenCalledWith({
-                    urlPath: `/api/projects/${team.id}/internal/hog_flows/notify`,
-                    fetchParams: {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: expect.stringContaining(`"hog_flow_id":"${hogFlow.id}"`),
-                    },
-                })
-
-                const callBody = parseJSON(mockFetch.mock.calls[0][0].fetchParams.body)
-                expect(callBody).toMatchObject({
+                expect(mockNotify).toHaveBeenCalledWith('hog_flow', {
                     type: 'workflow_rate_limited',
-                    hog_flow_id: hogFlow.id,
-                    hog_flow_name: hogFlow.name,
+                    teamId: team.id,
+                    functionId: hogFlow.id,
+                    functionName: hogFlow.name,
+                    createdById: expect.any(Number),
                 })
-                expect(callBody.created_by_id).toBeDefined()
-            })
-
-            it('should not send notification when debounce key already exists', async () => {
-                // Redis SET NX returns null when key already exists
-                mockRedisSet.mockResolvedValue(null)
-
-                await processor['createHogFlowInvocations']([globals])
-
-                expect(mockRedisSet).toHaveBeenCalled()
-                expect(mockFetch).not.toHaveBeenCalled()
-            })
-
-            it('should not block rate limiting flow when notification fails', async () => {
-                mockFetch.mockRejectedValue(new Error('Network error'))
-
-                // Should not throw
-                const invocations = await processor['createHogFlowInvocations']([globals])
-                expect(invocations).toHaveLength(0)
-            })
-
-            it('should not block rate limiting flow when redis fails', async () => {
-                const originalUseClient = processor['redis'].useClient.bind(processor['redis'])
-                jest.spyOn(processor['redis'], 'useClient').mockImplementation(async (opts: any, fn: any) => {
-                    if (opts.name === 'rate-limit-notification') {
-                        throw new Error('Redis down')
-                    }
-                    return originalUseClient(opts, fn)
-                })
-
-                // Should not throw
-                const invocations = await processor['createHogFlowInvocations']([globals])
-                expect(invocations).toHaveLength(0)
             })
         })
 
