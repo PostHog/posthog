@@ -145,16 +145,11 @@ export const customerProfileLogic = kea<customerProfileLogicType>([
             ],
             (scopedSidebarContent, scopedAddAttrFunction, featureFlags, scope, attrs) => {
                 const isJourneysEnabled = !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_JOURNEYS]
-                const isSupportEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT]
                 const scopedDefaultContent = (
                     scope === CustomerProfileScope.PERSON
                         ? DEFAULT_PERSON_PROFILE_CONTENT
                         : DEFAULT_GROUP_PROFILE_CONTENT
-                ).filter(
-                    (node) =>
-                        (node.type !== NotebookNodeType.CustomerJourney || isJourneysEnabled) &&
-                        (node.type !== NotebookNodeType.SupportTickets || isSupportEnabled)
-                )
+                ).filter((node) => node.type !== NotebookNodeType.CustomerJourney || isJourneysEnabled)
 
                 const sidebar = scopedSidebarContent.map((node) => scopedAddAttrFunction({ attrs, node }))
                 return scopedDefaultContent.map((node, index) => {

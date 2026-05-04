@@ -343,7 +343,7 @@ def generate_change_summary(
         user_message_length=attached.user_text_length,
     )
 
-    client = get_llm_client(product="product_analytics")
+    client = get_llm_client(product="subscriptions")
 
     instance_region = get_instance_region() or "HOBBY"
     user_tag = f"{instance_region}/subscription-summary-team-{team_id}"

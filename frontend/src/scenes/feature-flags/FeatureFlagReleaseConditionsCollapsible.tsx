@@ -1013,7 +1013,6 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                           label: 'Device',
                                           description:
                                               'Stable assignment per device. Good fit for experiments on anonymous users.',
-                                          badge: { type: 'warning' as const, text: 'BETA' },
                                           learnMoreUrl: 'https://posthog.com/docs/feature-flags/device-bucketing',
                                       },
                                   ]

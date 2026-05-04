@@ -6,8 +6,8 @@ import socket
 import hashlib
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Any, Literal, NamedTuple, Optional
-from urllib.parse import urlencode, urlparse
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple, NoReturn, Optional
+from urllib.parse import urlencode
 
 from products.workflows.backend.providers import MAILDEV_MOCK_DNS_RECORDS
 
@@ -25,6 +25,7 @@ from disposable_email_domains import blocklist as disposable_email_domains_list
 from free_email_domains import whitelist as free_email_domains_list
 from google.auth.transport.requests import Request as GoogleRequest
 from google.oauth2 import service_account
+from opentelemetry import trace
 from prometheus_client import Counter
 from requests.auth import HTTPBasicAuth
 from rest_framework.exceptions import ValidationError
@@ -51,6 +52,7 @@ from posthog.utils import get_instance_region
 from products.workflows.backend.providers import SESProvider, TwilioProvider
 
 logger = structlog.get_logger(__name__)
+tracer = trace.get_tracer(__name__)
 
 
 def _decode_jwt_payload(token: str) -> dict | None:
@@ -91,11 +93,58 @@ def dot_get(d: Any, path: str, default: Any = None) -> Any:
     return d
 
 
+def _extract_oauth_error_message(res: requests.Response) -> str | None:
+    """Pull a human-readable error from a failed OAuth token-exchange response.
+
+    Most providers (Stripe, Google, etc.) return JSON of the shape
+    `{"error": "...", "error_description": "..."}`. Fall back to the raw body
+    (truncated) when the JSON has none of those fields, or when the body isn't
+    JSON at all — better to dump a snippet than to swallow the cause silently
+    and let the caller render a status-code-only message.
+    """
+    try:
+        body = res.json()
+    except Exception:
+        text = (res.text or "").strip()
+        return text[:300] if text else None
+
+    if isinstance(body, dict):
+        description = body.get("error_description") or body.get("message")
+        code = body.get("error")
+        if description and code:
+            return f"{code}: {description}"
+        if description:
+            return str(description)
+        if code:
+            return str(code)
+
+    # Unknown shape — surface a serialized snippet so the customer at least sees what came back.
+    try:
+        snippet = json.dumps(body)
+    except (TypeError, ValueError):
+        snippet = (res.text or "").strip()
+    return snippet[:300] if snippet else None
+
+
+def _raise_oauth_validation_error(kind: str, res: requests.Response) -> NoReturn:
+    """Raise a ValidationError describing a failed OAuth token exchange.
+
+    DRF turns ValidationError into a 400 with a populated `detail`, so the frontend toast renders
+    a useful message instead of the generic "Something went wrong" fallback that follows from a
+    bare Exception (which surfaces as a 500 with no detail).
+    """
+    provider_error = _extract_oauth_error_message(res)
+    if provider_error:
+        raise ValidationError(f"{kind} OAuth failed: {provider_error}")
+    raise ValidationError(f"{kind} OAuth failed (status {res.status_code}). Please try again.")
+
+
 ERROR_TOKEN_REFRESH_FAILED = "TOKEN_REFRESH_FAILED"
 
 
 class Integration(models.Model):
     class IntegrationKind(models.TextChoices):
+        APPLE_PUSH = "apns"
         AZURE_BLOB = "azure-blob"
         BING_ADS = "bing-ads"
         CLICKUP = "clickup"
@@ -177,6 +226,8 @@ class Integration(models.Model):
             return self.integration_id or "unknown ID"
         if self.kind == "email":
             return self.config.get("email", self.integration_id)
+        if self.kind == "apns":
+            return self.config.get("bundle_id", self.integration_id)
 
         return f"ID: {self.integration_id}"
 
@@ -701,7 +752,12 @@ class OauthIntegration:
                 },
             )
 
-        config: dict = res.json()
+        try:
+            config: dict = res.json()
+        except ValueError:
+            # Non-JSON body (e.g. an HTML 502 from a proxy). Keep going so the status-code
+            # branch below can surface a structured ValidationError to the frontend.
+            config = {}
 
         access_token = None
         if kind == "tiktok-ads":
@@ -725,11 +781,14 @@ class OauthIntegration:
                     },
                 )
 
-                config = res.json()
+                try:
+                    config = res.json()
+                except ValueError:
+                    config = {}
 
                 if res.status_code != 200 or not config.get("access_token"):
                     logger.error(f"Oauth error for {kind}", response=res.text)
-                    raise Exception(f"Oauth error for {kind}. Status code = {res.status_code}")
+                    _raise_oauth_validation_error(kind, res)
             else:
                 # Include request context so on-call can compare what we sent against what
                 # the merchant authorized with in Stripe. Code prefix only, full grant is
@@ -742,7 +801,10 @@ class OauthIntegration:
                     redirect_uri=OauthIntegration.redirect_uri(kind),
                     code_prefix=str(params.get("code", ""))[:12],
                 )
-                raise Exception(f"Oauth error. Status code = {res.status_code}")
+                # Surface the provider's error to the frontend toast — without this, DRF turns
+                # the bare Exception into a generic 500 and the user sees "Something went wrong"
+                # with no actionable detail. ValidationError → 400 with `detail` set.
+                _raise_oauth_validation_error(kind, res)
 
         if oauth_config.token_info_url:
             # If token info url is given we call it and check the integration id from there
@@ -1128,13 +1190,17 @@ class SlackIntegration:
     @classmethod
     @cache_for(timedelta(minutes=5))
     def slack_config(cls):
-        config = get_instance_settings(
-            [
-                "SLACK_APP_CLIENT_ID",
-                "SLACK_APP_CLIENT_SECRET",
-                "SLACK_APP_SIGNING_SECRET",
-            ]
-        )
+        # Span only fires on cache miss (cache_for is process-local in-memory).
+        # If preflight.slack_config_main is fast in production traces, this span
+        # will be absent; if it appears, it tells us the DB hit was slow.
+        with tracer.start_as_current_span("slack_integration.slack_config_db"):
+            config = get_instance_settings(
+                [
+                    "SLACK_APP_CLIENT_ID",
+                    "SLACK_APP_CLIENT_SECRET",
+                    "SLACK_APP_SIGNING_SECRET",
+                ]
+            )
 
         return config
 
@@ -1625,6 +1691,82 @@ class FirebaseIntegration:
         if self.access_token_expired():
             self.refresh_access_token()
         return self.integration.sensitive_config.get("access_token", "")
+
+
+class ApplePushIntegration:
+    """
+    Integration for Apple Push Notification Service (APNS).
+
+    config stores:
+      - team_id: Apple Developer Team ID
+      - bundle_id: App bundle identifier (e.g. com.example.app)
+      - key_id: The Key ID for the .p8 signing key
+
+    sensitive_config stores:
+      - signing_key: The .p8 signing key contents
+    """
+
+    integration: Integration
+
+    def __init__(self, integration: Integration) -> None:
+        if integration.kind != "apns":
+            raise Exception("ApplePushIntegration init called with Integration with wrong 'kind'")
+        self.integration = integration
+
+    @classmethod
+    def integration_from_key(
+        cls,
+        signing_key: str,
+        key_id: str,
+        team_id_apple: str,
+        bundle_id: str,
+        team_id: int,
+        created_by: User | None = None,
+    ) -> "Integration":
+        if not all([signing_key, key_id, team_id_apple, bundle_id]):
+            raise ValidationError("All APNS fields are required: signing_key, key_id, team_id_apple, bundle_id")
+
+        integration, created = Integration.objects.update_or_create(
+            team_id=team_id,
+            kind="apns",
+            integration_id=f"{team_id_apple}.{bundle_id}",
+            defaults={
+                "config": {
+                    "team_id": team_id_apple,
+                    "bundle_id": bundle_id,
+                    "key_id": key_id,
+                },
+                "sensitive_config": {
+                    "signing_key": signing_key,
+                },
+            },
+        )
+
+        if created and created_by is not None:
+            integration.created_by = created_by
+            integration.save(update_fields=["created_by"])
+
+        if integration.errors:
+            integration.errors = ""
+            integration.save(update_fields=["errors"])
+
+        return integration
+
+    @property
+    def team_id_apple(self) -> str:
+        return self.integration.config.get("team_id", "")
+
+    @property
+    def bundle_id(self) -> str:
+        return self.integration.config.get("bundle_id", "")
+
+    @property
+    def key_id(self) -> str:
+        return self.integration.config.get("key_id", "")
+
+    @property
+    def signing_key(self) -> str:
+        return self.integration.sensitive_config.get("signing_key", "")
 
 
 class LinkedInAdsIntegration:
@@ -2571,94 +2713,6 @@ class GitHubIntegration(GitHubIntegrationBase):
                 "error": f"Failed to list pull requests: {response.text}",
                 "status_code": response.status_code,
             }
-
-    @staticmethod
-    def parse_pull_request_url(pr_url: str) -> tuple[str, str, int] | None:
-        """Parse a GitHub pull request URL into ``(owner, repo, pr_number)``.
-
-        Returns ``None`` if the URL does not look like a GitHub PR URL.
-        """
-        try:
-            parsed = urlparse(pr_url)
-        except Exception:
-            return None
-        if parsed.netloc not in {"github.com", "www.github.com"}:
-            return None
-        parts = [p for p in parsed.path.split("/") if p]
-        # Expected path: /{owner}/{repo}/pull/{number}[/...]
-        if len(parts) < 4 or parts[2] != "pull":
-            return None
-        owner, repo, _, pr_number_str = parts[:4]
-        try:
-            pr_number = int(pr_number_str)
-        except ValueError:
-            return None
-        return owner, repo, pr_number
-
-    def get_pull_request(self, repository: str, pr_number: int) -> dict[str, Any]:
-        """Fetch a pull request by repository (``owner/repo`` or just ``repo``) and PR number."""
-        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
-
-        response = self._installation_authenticated_get(
-            f"https://api.github.com/repos/{repo_path}/pulls/{pr_number}",
-            endpoint="/repos/{owner}/{repo}/pulls/{pull_number}",
-        )
-        if response is None:
-            return {"success": False, "error": "Network error fetching pull request"}
-        if response.status_code != 200:
-            return {
-                "success": False,
-                "error": f"Failed to fetch pull request: {response.text}",
-                "status_code": response.status_code,
-            }
-        try:
-            pr = response.json()
-        except Exception:
-            logger.warning(
-                "GitHubIntegration: get_pull_request non-JSON response",
-                repository=repo_path,
-                pr_number=pr_number,
-            )
-            return {"success": False, "error": "Failed to parse pull request JSON"}
-
-        head = pr.get("head") or {}
-        base = pr.get("base") or {}
-        user = pr.get("user") or {}
-
-        return {
-            "success": True,
-            "number": pr.get("number"),
-            "title": pr.get("title"),
-            "body": pr.get("body"),
-            "url": pr.get("html_url"),
-            "state": pr.get("state"),
-            "merged": pr.get("merged", False),
-            "draft": pr.get("draft", False),
-            "head_branch": head.get("ref"),
-            "base_branch": base.get("ref"),
-            "head_sha": head.get("sha"),
-            "base_sha": base.get("sha"),
-            "repository": repo_path,
-            "author": user.get("login"),
-            "created_at": pr.get("created_at"),
-            "updated_at": pr.get("updated_at"),
-            "merged_at": pr.get("merged_at"),
-            "closed_at": pr.get("closed_at"),
-            "comments": pr.get("comments", 0),
-            "review_comments": pr.get("review_comments", 0),
-            "commits": pr.get("commits", 0),
-            "additions": pr.get("additions", 0),
-            "deletions": pr.get("deletions", 0),
-            "changed_files": pr.get("changed_files", 0),
-        }
-
-    def get_pull_request_from_url(self, pr_url: str) -> dict[str, Any]:
-        """Fetch a pull request by its HTML URL (e.g. ``https://github.com/owner/repo/pull/123``)."""
-        parsed = self.parse_pull_request_url(pr_url)
-        if parsed is None:
-            return {"success": False, "error": f"Invalid GitHub pull request URL: {pr_url}"}
-        owner, repo, pr_number = parsed
-        return self.get_pull_request(f"{owner}/{repo}", pr_number)
 
 
 class GitLabIntegrationError(Exception):

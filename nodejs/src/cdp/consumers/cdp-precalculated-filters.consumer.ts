@@ -10,6 +10,7 @@ import {
 import { KAFKA_EVENTS_JSON } from '../../config/kafka-topics'
 import { KafkaConsumer } from '../../kafka/consumer'
 import { HealthCheckResult, RawClickHouseEvent } from '../../types'
+import { yieldEach } from '../../utils/event-loop-yield'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { PRECALCULATED_PERSON_PROPERTIES_OUTPUT, PREFILTERED_EVENTS_OUTPUT } from '../outputs/outputs'
@@ -70,9 +71,10 @@ export class CdpPrecalculatedFiltersConsumer extends CdpConsumerBase {
         }
 
         try {
-            const messages = events.map((event) => ({
-                value: Buffer.from(JSON.stringify(event.payload)),
-            }))
+            const messages: { value: Buffer }[] = []
+            await yieldEach('cdp-precalculated-filters-publish', events, (event) => {
+                messages.push({ value: Buffer.from(JSON.stringify(event.payload)) })
+            })
 
             await this.outputs.queueMessages(PREFILTERED_EVENTS_OUTPUT, messages)
         } catch (error) {
@@ -91,9 +93,10 @@ export class CdpPrecalculatedFiltersConsumer extends CdpConsumerBase {
         }
 
         try {
-            const messages = events.map((event) => ({
-                value: Buffer.from(JSON.stringify(event.payload)),
-            }))
+            const messages: { value: Buffer }[] = []
+            await yieldEach('cdp-precalculated-filters-publish', events, (event) => {
+                messages.push({ value: Buffer.from(JSON.stringify(event.payload)) })
+            })
 
             await this.outputs.queueMessages(PRECALCULATED_PERSON_PROPERTIES_OUTPUT, messages)
         } catch (error) {
@@ -171,124 +174,118 @@ export class CdpPrecalculatedFiltersConsumer extends CdpConsumerBase {
         precalculatedEvents: ProducedEvent[]
         precalculatedPersonProperties: ProducedPersonPropertiesEvent[]
     }> {
-        return await this.runWithHeartbeat(async () => {
-            const behavioralEvents: ProducedEvent[] = []
-            const personPropertyEvents: ProducedPersonPropertiesEvent[] = []
+        const behavioralEvents: ProducedEvent[] = []
+        const personPropertyEvents: ProducedPersonPropertiesEvent[] = []
 
-            // Step 1: Parse all messages and group by team_id
-            const eventsByTeam = new Map<number, RawClickHouseEvent[]>()
+        // Step 1: Parse all messages and group by team_id
+        const eventsByTeam = new Map<number, RawClickHouseEvent[]>()
 
-            // Parse and group events by team
-            for (const message of messages) {
-                try {
-                    const clickHouseEvent = parseJSON(message.value!.toString()) as RawClickHouseEvent
+        await yieldEach('cdp-precalculated-filters-parse', messages, (message) => {
+            try {
+                const clickHouseEvent = parseJSON(message.value!.toString()) as RawClickHouseEvent
 
-                    if (!clickHouseEvent.person_id) {
-                        logger.error('Event missing person_id', {
-                            teamId: clickHouseEvent.team_id,
-                            event: clickHouseEvent.event,
-                            uuid: clickHouseEvent.uuid,
-                        })
-                        continue // Skip events without person_id
-                    }
-
-                    if (!eventsByTeam.has(clickHouseEvent.team_id)) {
-                        eventsByTeam.set(clickHouseEvent.team_id, [])
-                    }
-                    eventsByTeam.get(clickHouseEvent.team_id)!.push(clickHouseEvent)
-                } catch (e) {
-                    logger.error('Error parsing message', e)
+                if (!clickHouseEvent.person_id) {
+                    logger.error('Event missing person_id', {
+                        teamId: clickHouseEvent.team_id,
+                        event: clickHouseEvent.event,
+                        uuid: clickHouseEvent.uuid,
+                    })
+                    return // Skip events without person_id
                 }
-            }
 
-            // Step 2: Fetch all realtime supported filters for all teams in one query
-            const teamIds = Array.from(eventsByTeam.keys())
-            const filtersByTeam = await this.realtimeSupportedFilterManager.getRealtimeSupportedFiltersForTeams(teamIds)
-
-            // Step 3: Process each team's events with their realtime supported filters
-            for (const [teamId, teamEvents] of Array.from(eventsByTeam.entries())) {
-                try {
-                    const filters = filtersByTeam[String(teamId)]
-                    if (!filters) {
-                        continue
-                    }
-
-                    const { behavioral: behavioralFilters, person_property: personPropertyFilters } = filters
-
-                    if (behavioralFilters.length === 0 && personPropertyFilters.length === 0) {
-                        // Skip teams with no filters
-                        continue
-                    }
-
-                    // Process each event for this team
-                    for (const clickHouseEvent of teamEvents) {
-                        // Convert to filter globals for filter evaluation
-                        const filterGlobals = convertClickhouseRawEventToFilterGlobals(clickHouseEvent)
-
-                        // Evaluate behavioral filters
-                        for (const filter of behavioralFilters) {
-                            const matches = await this.evaluateEventAgainstRealtimeSupportedFilter(
-                                filterGlobals,
-                                filter
-                            )
-
-                            // Only publish if event matches the filter (don't publish non-matches)
-                            if (matches) {
-                                const preCalculatedEvent: ProducedEvent = {
-                                    payload: {
-                                        uuid: filterGlobals.uuid,
-                                        team_id: clickHouseEvent.team_id,
-                                        person_id: clickHouseEvent.person_id!,
-                                        distinct_id: filterGlobals.distinct_id,
-                                        condition: filter.conditionHash,
-                                        source: `cohort_filter_${filter.conditionHash}`,
-                                    },
-                                }
-
-                                behavioralEvents.push(preCalculatedEvent)
-                            }
-                        }
-
-                        // Evaluate person property filters using person_properties from the event
-                        if (personPropertyFilters.length > 0 && clickHouseEvent.person_properties) {
-                            const personProperties = parseJSON(clickHouseEvent.person_properties)
-
-                            const personGlobals: PersonPropertyFilterGlobals = {
-                                person: {
-                                    id: clickHouseEvent.person_id,
-                                    properties: personProperties,
-                                },
-                                project: {
-                                    id: clickHouseEvent.team_id,
-                                },
-                            }
-
-                            for (const filter of personPropertyFilters) {
-                                const matches = await this.evaluatePersonPropertiesAgainstFilter(personGlobals, filter)
-
-                                // CRITICAL: Always emit - both matches AND non-matches
-                                // Person properties are mutable state, need to track changes
-                                const personPropertyEvent: ProducedPersonPropertiesEvent = {
-                                    payload: {
-                                        distinct_id: clickHouseEvent.distinct_id,
-                                        person_id: clickHouseEvent.person_id!,
-                                        team_id: clickHouseEvent.team_id,
-                                        condition: filter.conditionHash,
-                                        matches: matches,
-                                        source: `cohort_filter_${filter.conditionHash}`,
-                                    },
-                                }
-
-                                personPropertyEvents.push(personPropertyEvent)
-                            }
-                        }
-                    }
-                } catch (e) {
-                    logger.error('Error processing team events', { teamId, error: e })
+                if (!eventsByTeam.has(clickHouseEvent.team_id)) {
+                    eventsByTeam.set(clickHouseEvent.team_id, [])
                 }
+                eventsByTeam.get(clickHouseEvent.team_id)!.push(clickHouseEvent)
+            } catch (e) {
+                logger.error('Error parsing message', e)
             }
-            return { precalculatedEvents: behavioralEvents, precalculatedPersonProperties: personPropertyEvents }
         })
+
+        // Step 2: Fetch all realtime supported filters for all teams in one query
+        const teamIds = Array.from(eventsByTeam.keys())
+        const filtersByTeam = await this.realtimeSupportedFilterManager.getRealtimeSupportedFiltersForTeams(teamIds)
+
+        // Step 3: Process each team's events with their realtime supported filters
+        for (const [teamId, teamEvents] of Array.from(eventsByTeam.entries())) {
+            try {
+                const filters = filtersByTeam[String(teamId)]
+                if (!filters) {
+                    continue
+                }
+
+                const { behavioral: behavioralFilters, person_property: personPropertyFilters } = filters
+
+                if (behavioralFilters.length === 0 && personPropertyFilters.length === 0) {
+                    // Skip teams with no filters
+                    continue
+                }
+
+                // Process each event for this team
+                await yieldEach('cdp-precalculated-filters', teamEvents, async (clickHouseEvent) => {
+                    // Convert to filter globals for filter evaluation
+                    const filterGlobals = convertClickhouseRawEventToFilterGlobals(clickHouseEvent)
+
+                    // Evaluate behavioral filters
+                    for (const filter of behavioralFilters) {
+                        const matches = await this.evaluateEventAgainstRealtimeSupportedFilter(filterGlobals, filter)
+
+                        // Only publish if event matches the filter (don't publish non-matches)
+                        if (matches) {
+                            const preCalculatedEvent: ProducedEvent = {
+                                payload: {
+                                    uuid: filterGlobals.uuid,
+                                    team_id: clickHouseEvent.team_id,
+                                    person_id: clickHouseEvent.person_id!,
+                                    distinct_id: filterGlobals.distinct_id,
+                                    condition: filter.conditionHash,
+                                    source: `cohort_filter_${filter.conditionHash}`,
+                                },
+                            }
+
+                            behavioralEvents.push(preCalculatedEvent)
+                        }
+                    }
+
+                    // Evaluate person property filters using person_properties from the event
+                    if (personPropertyFilters.length > 0 && clickHouseEvent.person_properties) {
+                        const personProperties = parseJSON(clickHouseEvent.person_properties)
+
+                        const personGlobals: PersonPropertyFilterGlobals = {
+                            person: {
+                                id: clickHouseEvent.person_id,
+                                properties: personProperties,
+                            },
+                            project: {
+                                id: clickHouseEvent.team_id,
+                            },
+                        }
+
+                        for (const filter of personPropertyFilters) {
+                            const matches = await this.evaluatePersonPropertiesAgainstFilter(personGlobals, filter)
+
+                            // CRITICAL: Always emit - both matches AND non-matches
+                            // Person properties are mutable state, need to track changes
+                            const personPropertyEvent: ProducedPersonPropertiesEvent = {
+                                payload: {
+                                    distinct_id: clickHouseEvent.distinct_id,
+                                    person_id: clickHouseEvent.person_id!,
+                                    team_id: clickHouseEvent.team_id,
+                                    condition: filter.conditionHash,
+                                    matches: matches,
+                                    source: `cohort_filter_${filter.conditionHash}`,
+                                },
+                            }
+
+                            personPropertyEvents.push(personPropertyEvent)
+                        }
+                    }
+                })
+            } catch (e) {
+                logger.error('Error processing team events', { teamId, error: e })
+            }
+        }
+        return { precalculatedEvents: behavioralEvents, precalculatedPersonProperties: personPropertyEvents }
     }
 
     public override async start(): Promise<void> {
