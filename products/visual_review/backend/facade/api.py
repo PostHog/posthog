@@ -20,6 +20,7 @@ from uuid import UUID
 from django.contrib.auth import get_user_model
 
 from .. import logic
+from ..diff_metadata import DiffMetadata
 from . import contracts
 from .enums import ReviewDecision
 
@@ -55,6 +56,37 @@ def _to_artifact(artifact, repo_id: UUID) -> contracts.Artifact:
     )
 
 
+def _to_cluster_summary(diff_metadata_raw: dict | None) -> contracts.ClusterSummary | None:
+    """Translate the compact storage shape into the verbose wire shape.
+
+    Input is the raw `diff_metadata` JSON column; returns None when the
+    column is empty (legacy rows / not yet diffed) or when no clusters
+    were computed (size mismatch, identical pair).
+    """
+    if not diff_metadata_raw:
+        return None
+    parsed = DiffMetadata.model_validate(diff_metadata_raw)
+    if parsed.cluster_summary is None:
+        return None
+    cs = parsed.cluster_summary
+    return contracts.ClusterSummary(
+        items=[
+            contracts.DiffCluster(
+                x=c.bbox[0],
+                y=c.bbox[1],
+                width=c.bbox[2],
+                height=c.bbox[3],
+                pixel_count=c.px,
+                centroid_x=c.centroid[0],
+                centroid_y=c.centroid[1],
+            )
+            for c in cs.items
+        ],
+        total=cs.total,
+        truncated=cs.truncated,
+    )
+
+
 def _to_snapshot(
     snapshot, repo_id: UUID, user_basic_infos: dict[int, contracts.UserBasicInfo] | None = None
 ) -> contracts.Snapshot:
@@ -76,6 +108,9 @@ def _to_snapshot(
         is_quarantined=snapshot.is_quarantined,
         reviewed_by=reviewed_by,
         metadata=snapshot.metadata or {},
+        ssim_score=snapshot.ssim_score,
+        change_kind=snapshot.change_kind or "",
+        cluster_summary=_to_cluster_summary(snapshot.diff_metadata),
     )
 
 
