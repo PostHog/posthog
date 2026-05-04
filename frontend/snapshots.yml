@@ -1057,9 +1057,9 @@ snapshots:
     components-search--product-recents-and-starred--light:
         hash: v1.k794b7964.6d7ebbb457b003a589697f6dd6c054fdc6405868b4c6b3a616b004b8faa97ebd.klxLctEaGXfv7Ndvi9IfZL2U7iMfOdJjO805z_Kk8-U
     components-search--searching--dark:
-        hash: v1.k794b7964.68ab8bef374ab0313369c61df847587f087b2657f4ec43ebbcc532cce3cb3abc.uoWd0-vG62pjMtGu2nsyYEiFqI3jtQPMv_O-TI5MiTA
+        hash: v1.k794b7964.6bdb745d1eef8c2715e14fa7c3fcf5e2587be684ad61b4c5d508d4480ac16651.KMHF_iUkPFcKN8dxYuB55Dj7rfS92_DNvfTITHBDVgE
     components-search--searching--light:
-        hash: v1.k794b7964.2be6650cb02240a39b0f23299c69dee87714f03945033a4148806f0ee019a28c.A9vA6qIPU4HeLq9Y0466x4vAYIuyzxEObnR5JVl5XNw
+        hash: v1.k794b7964.3d77f5613150c35c1cc81363c28df7174cfecedd49e349affa41ecab43026e9a.wShurb5MR7IrIJVPnZlZwbnhACY1VUswSpMuADwa9po
     components-sentencelist--full-sentence--dark:
         hash: v1.k794b7964.9d72ed5224f75be3f53f1ba8edc2547978e519aa46a57cc97eef9087b403cb7d.3yHHiA7NW-p6vVSlM-2nPx7Nbk7wuTr5SA9Av2nW--g
     components-sentencelist--full-sentence--light:
@@ -5335,9 +5335,9 @@ snapshots:
     scenes-app-sidepanels--side-panel-access-control--light:
         hash: v1.k794b7964.777356b238972f05cbbb8d756b05cbeed404180f4fd941fbf5c51cabe6dd6012.MeIc1YJ6YAQXRKaPGqw3k1I2vUH3tR2ZBCaTWWvxwSI
     scenes-app-sidepanels--side-panel-activity--dark:
-        hash: v1.k794b7964.7d20ed837f40eee2532fee1396f569bafd73a7c47c004e07319ff1bf1eb9a3af.tueE6RbIw4NBfYRfn0x3w61BvmT1eq2NypFydT245TA
+        hash: v1.k794b7964.30121cde2b8e93c94e26f222ca0102e4d4b75a2c9069c1553ea39743c2bc16f0.w5tAMZVSTh0GGtn-f7S5cJt7pWzlEqAsN4ocnzKkkEo
     scenes-app-sidepanels--side-panel-activity--light:
-        hash: v1.k794b7964.d8a51a44687f6f3dfc90518f27ef72f0b13c225580696ae31716f12929a57869.bQecqpC75DWOeIqfeAPyHOwxC6kPFR5dVLkjLyIpkio
+        hash: v1.k794b7964.a443109d2e56f444e3522cc3d034228832ccfe3d2bfc9eeab84c9209b32b6911._r7-lytHSIjxhB70q5N3wqO0pAozdpvf5KJIZ_4XIBk
     scenes-app-sidepanels--side-panel-discussion--dark:
         hash: v1.k794b7964.e1ab04b4156e125a539f49afbd0ef80529be2fc788a7337ded22ae272a6a0d35.C8n8I-wIhaR0Z_813QhUEbHgZbCVVDuL7QRiv4lXaRM
     scenes-app-sidepanels--side-panel-discussion--light:
