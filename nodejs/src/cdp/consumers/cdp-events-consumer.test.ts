@@ -1014,6 +1014,7 @@ describe('hog flow processing', () => {
                     functionId: hogFlow.id,
                     functionName: hogFlow.name,
                     createdById: expect.any(Number),
+                    priority: 'critical',
                 })
             })
         })

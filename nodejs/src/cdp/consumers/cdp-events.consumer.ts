@@ -339,14 +339,17 @@ export class CdpEventsConsumer<
                             personId,
                         })
 
-                        await this.notificationService.notify('hog_flow', {
-                            type: 'workflow_rate_limited',
-                            teamId: item.teamId,
-                            functionId: item.functionId,
-                            functionName: item.hogFlow.name,
-                            createdById: item.hogFlow.created_by_id ?? null,
-                            priority: 'critical',
-                        })
+                        // TODO: remove team allowlist once validated in production
+                        if (item.teamId === 2) {
+                            await this.notificationService.notify('hog_flow', {
+                                type: 'workflow_rate_limited',
+                                teamId: item.teamId,
+                                functionId: item.functionId,
+                                functionName: item.hogFlow.name,
+                                createdById: item.hogFlow.created_by_id ?? null,
+                                priority: 'critical',
+                            })
+                        }
 
                         return
                     }
