@@ -1,6 +1,7 @@
 import json
 import uuid as uuid_module
-from typing import Any, Optional, Union, cast
+from datetime import timedelta
+from typing import Any, Optional, TypedDict, Union, cast
 from urllib.parse import quote, urlencode
 
 from django import forms
@@ -11,6 +12,7 @@ from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.shortcuts import redirect
 from django.urls.base import reverse
+from django.utils import timezone
 
 import structlog
 import posthoganalytics
@@ -34,6 +36,7 @@ from posthog.event_usage import alias_invite_id, report_user_joined_organization
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import EmailValidationHelper, validate_display_name
 from posthog.models import InviteExpiredException, Organization, OrganizationDomain, OrganizationInvite, Team, User
+from posthog.models.organization_invite import INVITE_DAYS_VALIDITY
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.permissions import CanCreateOrg
 from posthog.rate_limit import SignupEmailPrecheckThrottle, SignupIPThrottle
@@ -339,14 +342,25 @@ class SignupEmailPrecheckSerializer(serializers.Serializer):
     email: serializers.Field = serializers.EmailField()
 
 
-def _get_pending_invite_for_email(email: str) -> Optional[dict[str, Any]]:
-    invite = (
-        OrganizationInvite.objects.filter(target_email__iexact=email)
+class PendingInvitePayload(TypedDict):
+    id: str
+    organization_name: str
+
+
+def _get_pending_invite_for_email(email: str) -> Optional[PendingInvitePayload]:
+    # Pre-filter in SQL to a generous validity window for efficiency, then defer to the
+    # model's `is_expired` for the authoritative check so any future expansion of that
+    # method (e.g. revocation flag) automatically applies here.
+    invites = (
+        OrganizationInvite.objects.filter(
+            target_email__iexact=email,
+            created_at__gt=timezone.now() - timedelta(days=INVITE_DAYS_VALIDITY),
+        )
         .select_related("organization")
         .order_by("-created_at")
-        .first()
     )
-    if invite is None or invite.is_expired():
+    invite = next((i for i in invites if not i.is_expired()), None)
+    if invite is None:
         return None
     return {"id": str(invite.id), "organization_name": invite.organization.name}
 

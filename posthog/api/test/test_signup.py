@@ -16,6 +16,7 @@ from django.test import override_settings
 from django.urls.base import reverse
 from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.signup import _save_session_with_recovery, process_social_invite_signup
@@ -2878,43 +2879,51 @@ class TestSignupPrecheckPendingInvite(APIBaseTest):
             invite.save(update_fields=["created_at"])
         return invite
 
-    def test_precheck_returns_pending_invite_for_active_invite(self):
-        invite = self._create_invite("alice@acme.com")
-        response = self.client.post("/api/signup/precheck", {"email": "alice@acme.com"})
+    @parameterized.expand(
+        [
+            ("active_invite", "alice@acme.com", 0, "alice@acme.com", True),
+            ("expired_invite", "alice@acme.com", INVITE_DAYS_VALIDITY + 5, "alice@acme.com", False),
+            ("case_insensitive_match", "alice@acme.com", 0, "Alice@Acme.COM", True),
+            ("no_invite_for_email", "alice@acme.com", 0, "stranger@nowhere.com", False),
+        ]
+    )
+    def test_precheck_pending_invite_lookup(self, _name, invite_email, days_old, lookup_email, should_match):
+        invite = self._create_invite(invite_email, days_old=days_old)
+        response = self.client.post("/api/signup/precheck", {"email": lookup_email})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(
-            response.json(),
-            {
-                "email_exists": False,
-                "pending_invite": {
-                    "id": str(invite.id),
-                    "organization_name": self.organization.name,
-                },
-            },
-        )
+        if should_match:
+            self.assertEqual(
+                response.json()["pending_invite"],
+                {"id": str(invite.id), "organization_name": self.organization.name},
+            )
+        else:
+            self.assertIsNone(response.json()["pending_invite"])
 
-    def test_precheck_returns_null_pending_invite_when_no_invite(self):
-        response = self.client.post("/api/signup/precheck", {"email": "stranger@nowhere.com"})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"email_exists": False, "pending_invite": None})
-
-    def test_precheck_ignores_expired_invites(self):
-        self._create_invite("alice@acme.com", days_old=INVITE_DAYS_VALIDITY + 5)
-        response = self.client.post("/api/signup/precheck", {"email": "alice@acme.com"})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"email_exists": False, "pending_invite": None})
-
-    def test_precheck_matches_email_case_insensitively(self):
-        invite = self._create_invite("alice@acme.com")
-        response = self.client.post("/api/signup/precheck", {"email": "Alice@Acme.COM"})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["pending_invite"]["id"], str(invite.id))
-
-    def test_precheck_returns_most_recent_invite_when_multiple_exist(self):
+    def test_precheck_returns_most_recent_invite_when_multiple_valid_invites_exist(self):
         self._create_invite("alice@acme.com", days_old=2)
         latest = self._create_invite("alice@acme.com")
         response = self.client.post("/api/signup/precheck", {"email": "alice@acme.com"})
         self.assertEqual(response.json()["pending_invite"]["id"], str(latest.id))
+
+    def test_precheck_skips_expired_invite_in_favor_of_older_valid_one(self):
+        # `is_expired` is the authoritative check; if it returns True for the newest row, we
+        # fall through to the next valid invite. With the current time-based implementation
+        # the inversion is impossible to set up with real timestamps, so we mock `is_expired`
+        # to simulate a future expiry signal (e.g. a revocation flag).
+        older_valid = self._create_invite("alice@acme.com", days_old=2)
+        newer = self._create_invite("alice@acme.com")
+
+        original_is_expired = OrganizationInvite.is_expired
+
+        def fake_is_expired(self) -> bool:
+            return self.id == newer.id
+
+        with mock.patch.object(OrganizationInvite, "is_expired", fake_is_expired):
+            response = self.client.post("/api/signup/precheck", {"email": "alice@acme.com"})
+
+        # Sanity check: real method is restored.
+        self.assertIs(OrganizationInvite.is_expired, original_is_expired)
+        self.assertEqual(response.json()["pending_invite"]["id"], str(older_valid.id))
 
     def test_precheck_does_not_return_pending_invite_when_account_exists(self):
         self._create_invite(self.user.email)

@@ -54,7 +54,7 @@ interface SignupEmailPrecheckResponse {
     pending_invite?: PendingInvite | null
 }
 
-function shouldRedirectToInvite(
+function getPendingInviteFromPrecheck(
     response: SignupEmailPrecheckResponse,
     searchParams: Record<string, string>
 ): PendingInvite | null {
@@ -198,7 +198,7 @@ export const signupLogic = kea<signupLogicType>([
                     })
                     return
                 }
-                const pendingInvite = shouldRedirectToInvite(
+                const pendingInvite = getPendingInviteFromPrecheck(
                     precheckResponse,
                     router.values.searchParams as Record<string, string>
                 )
@@ -364,7 +364,7 @@ export const signupLogic = kea<signupLogicType>([
                     actions.setPanel(0)
                     return
                 }
-                const pendingInvite = shouldRedirectToInvite(
+                const pendingInvite = getPendingInviteFromPrecheck(
                     precheckResponse,
                     router.values.searchParams as Record<string, string>
                 )

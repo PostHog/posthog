@@ -415,8 +415,13 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
             </div>
             {fromSignupRedirect && (
                 <div className="mt-2 text-center text-secondary">
-                    <Link to={skipInviteUrl} data-attr="invite-signup-create-own-org">
-                        I'd rather create my own organization →
+                    <Link
+                        to={skipInviteUrl}
+                        data-attr="invite-signup-create-own-org"
+                        className="inline-flex items-center gap-1"
+                    >
+                        I'd rather create my own organization
+                        <IconChevronRight className="text-base" />
                     </Link>
                 </div>
             )}
