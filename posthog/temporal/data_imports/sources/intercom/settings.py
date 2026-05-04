@@ -5,6 +5,7 @@ from products.data_warehouse.backend.types import IncrementalField, IncrementalF
 
 PaginatorKind = Literal["single", "cursor", "next_url", "search"]
 PartitionMode = Literal["md5", "datetime"]
+HttpMethod = Literal["GET", "POST"]
 
 
 @dataclass
@@ -13,6 +14,7 @@ class IntercomEndpointConfig:
     path: str
     data_selector: str
     paginator_kind: PaginatorKind
+    method: HttpMethod = "GET"
     primary_key: str = "id"
     partition_key: str = "created_at"
     partition_mode: PartitionMode = "datetime"
@@ -64,22 +66,36 @@ INTERCOM_ENDPOINTS: dict[str, IntercomEndpointConfig] = {
         paginator_kind="single",
     ),
     "companies": IntercomEndpointConfig(
+        # `POST /companies/list` is the only paginated company-listing
+        # endpoint that's stable in 2.13. `GET /companies` requires a filter
+        # param (it's the "Retrieve Companies" lookup, returns 400 without
+        # one), and `/companies/scroll` only allows one open cursor per
+        # workspace at a time so concurrent or quickly-retried syncs collide.
+        # The next-URL pagination shape matches the other list endpoints
+        # (`pages.next` is a full URL); the framework follows it by mutating
+        # `request.url` while preserving the POST method and body.
+        # per_page max is 60 here, not 150 — Intercom rejects larger values
+        # with `parameter_invalid: Per Page is too big`.
         name="companies",
-        path="/companies",
+        path="/companies/list",
         data_selector="data",
         paginator_kind="next_url",
+        method="POST",
+        page_size=60,
     ),
     "contacts": IntercomEndpointConfig(
         name="contacts",
         path="/contacts/search",
         data_selector="data",
         paginator_kind="search",
+        method="POST",
     ),
     "conversations": IntercomEndpointConfig(
         name="conversations",
         path="/conversations/search",
         data_selector="conversations",
         paginator_kind="search",
+        method="POST",
     ),
     "articles": IntercomEndpointConfig(
         name="articles",

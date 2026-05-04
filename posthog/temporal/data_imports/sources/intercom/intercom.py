@@ -107,9 +107,16 @@ def get_resource(
         "paginator": _build_paginator(cfg),
     }
 
-    if cfg.paginator_kind == "search":
+    if cfg.method == "POST":
         endpoint["method"] = "POST"
+
+    if cfg.paginator_kind == "search":
         endpoint["json"] = _build_search_body(cfg, db_incremental_field_last_value)
+    elif cfg.method == "POST" and cfg.paginator_kind in ("cursor", "next_url"):
+        # POST list endpoints (`/companies/list`) take `per_page` in the body.
+        # The next-URL paginator preserves the POST method and body when it
+        # follows `pages.next`, so the body just needs to be set once.
+        endpoint["json"] = {"per_page": cfg.page_size}
     elif cfg.paginator_kind in ("cursor", "next_url"):
         endpoint["params"] = {"per_page": cfg.page_size}
 
