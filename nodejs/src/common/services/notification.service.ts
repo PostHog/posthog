@@ -3,7 +3,8 @@ import { InternalFetchService } from '~/common/services/internal-fetch'
 import { logger } from '~/utils/logger'
 import { captureException } from '~/utils/posthog'
 
-export type NotificationScope = 'hog_flow' | 'hog_function'
+// Extensible — add new scopes here with their Django internal endpoint when needed
+export type NotificationScope = 'hog_flow'
 export type NotificationPriority = 'normal' | 'critical'
 export type NotificationTarget = 'owner' | 'team'
 
@@ -19,7 +20,6 @@ export interface NotificationPayload {
 
 const SCOPE_URL_MAP: Record<NotificationScope, string> = {
     hog_flow: '/api/projects/{teamId}/internal/hog_flows/notify',
-    hog_function: '/api/projects/{teamId}/internal/hog_functions/notify',
 }
 
 const DEBOUNCE_TTL_SECONDS = 86400 // 24 hours

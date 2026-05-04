@@ -49,16 +49,6 @@ describe('NotificationService', () => {
         })
     })
 
-    it('should POST to the correct URL for hog_function scope', async () => {
-        await service.notify('hog_function', payload)
-
-        expect(mockFetch).toHaveBeenCalledWith(
-            expect.objectContaining({
-                urlPath: '/api/projects/1/internal/hog_functions/notify',
-            })
-        )
-    })
-
     it('should include all payload fields in the request body', async () => {
         await service.notify('hog_flow', { ...payload, priority: 'normal', target: 'team' })
 
