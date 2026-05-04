@@ -2,12 +2,15 @@ import re
 import json
 import uuid
 from datetime import UTC, datetime, timedelta
+from urllib.parse import parse_qsl
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.core.cache import cache
 from django.test import TestCase
+
+from parameterized import parameterized
 
 from products.surveys.backend.models import Survey
 
@@ -21,6 +24,12 @@ class TestExternalSurveys(APIBaseTest):
     def setUp(self):
         super().setUp()
         cache.clear()
+
+    def get_json_script_value(self, content: str, script_id: str) -> object:
+        script_match = re.search(rf'<script[^>]*id="{script_id}"[^>]*>(.*?)</script>', content, re.DOTALL)
+        assert script_match is not None
+
+        return json.loads(script_match.group(1))
 
     def create_external_survey(self, **kwargs):
         """Helper method to create external surveys for testing"""
@@ -285,6 +294,63 @@ class TestExternalSurveys(APIBaseTest):
         project_config = json.loads(config_match.group(1))
         assert "api_host" in project_config
         assert "token" in project_config
+
+    @parameterized.expand(
+        [
+            ("base_locale", "es", "es"),
+            ("locale_with_region", "en-US", "en-US"),
+            ("locale_with_script_and_region", "zh-Hant-TW", "zh-Hant-TW"),
+        ]
+    )
+    def test_valid_display_language_query_param_configures_sdk_override(
+        self, _name: str, locale: str, expected_display_language: str
+    ):
+        survey = self.create_external_survey()
+
+        response = self.client.get(f"/external_surveys/{survey.id}/?display_language={locale}&campaign=spring")
+        assert response.status_code == 200
+
+        content = response.content.decode()
+        assert f'<html lang="{expected_display_language}">' in content
+        assert self.get_json_script_value(content, "display-language") == expected_display_language
+        assert "config.override_display_language = displayLanguage" in content
+
+    @parameterized.expand(
+        [
+            ("javascript_url", "javascript:alert(1)"),
+            ("empty_value", ""),
+            ("overlong_value", "x" * 36),
+            ("numeric_base", "1234"),
+            ("underscore_separator", "pt_BR"),
+        ]
+    )
+    def test_invalid_display_language_query_param_is_ignored(self, _name: str, locale: str):
+        survey = self.create_external_survey()
+
+        response = self.client.get(f"/external_surveys/{survey.id}/?display_language={locale}")
+        assert response.status_code == 200
+
+        content = response.content.decode()
+        assert '<html lang="en">' in content
+        assert self.get_json_script_value(content, "display-language") is None
+
+    def test_display_language_query_param_is_not_added_to_survey_event_properties(self):
+        survey = self.create_external_survey()
+
+        response = self.client.get(f"/external_surveys/{survey.id}/?display_language=es&campaign=spring")
+        assert response.status_code == 200
+
+        content = response.content.decode()
+        ignored_params_match = re.search(r"const URL_PARAMS_TO_IGNORE = \[(.*?)\];", content)
+        assert ignored_params_match is not None
+        ignored_params = re.findall(r"'([^']+)'", ignored_params_match.group(1))
+
+        survey_event_properties = {}
+        for key, value in parse_qsl("display_language=es&campaign=spring"):
+            if key.lower() not in ignored_params and not re.match(r"^q\d+$", key.lower()):
+                survey_event_properties[key] = value
+
+        assert survey_event_properties == {"campaign": "spring"}
 
     # PERFORMANCE & CACHING TESTS
 

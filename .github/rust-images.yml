@@ -35,9 +35,11 @@
   dockerfile: ./rust/Dockerfile
   project: vglf58qgzw
 
-- image: warm-flags-cache
+- image: flags-cache-warmer
+  bin: warm-flags-cache
   dockerfile: ./rust/Dockerfile
   project: vglf58qgzw
+  features: warm-flags-cache
 
 - image: batch-import-worker
   dockerfile: ./rust/Dockerfile

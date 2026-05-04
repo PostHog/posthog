@@ -6,6 +6,7 @@ from django.core.exceptions import ValidationError
 from asgiref.sync import async_to_sync
 
 from posthog.models import OrganizationMembership, User
+from posthog.models.user_integration import UserIntegration
 
 from products.tasks.backend.models import SandboxEnvironment, Task
 from products.tasks.backend.temporal.exceptions import TaskInvalidStateError, TaskNotFoundError
@@ -36,6 +37,7 @@ class TestGetTaskProcessingContextActivity:
     def test_get_task_processing_context_success(self, activity_environment, test_task):
         task_run = test_task.create_run()
         input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
+
         result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
 
         assert isinstance(result, TaskProcessingContext)
@@ -91,6 +93,60 @@ class TestGetTaskProcessingContextActivity:
         assert result.create_pr is False
 
     @pytest.mark.django_db
+    def test_get_task_processing_context_resolves_user_github_integration_without_repository(
+        self, activity_environment, team, user
+    ):
+        user_integration = UserIntegration.objects.create(
+            user=user,
+            kind="github",
+            integration_id="12345",
+            config={"installation_id": "12345"},
+            sensitive_config={"user_access_token": "gho_test", "user_refresh_token": "ghr_test"},
+        )
+        task = Task.objects.create(
+            team=team,
+            created_by=user,
+            title="Slack task without repository",
+            description="Clone a repo later from chat",
+            origin_product=Task.OriginProduct.SLACK,
+        )
+        task_run = task.create_run(extra_state={"interaction_origin": "slack", "pr_authorship_mode": "user"})
+
+        result = async_to_sync(activity_environment.run)(
+            get_task_processing_context,
+            GetTaskProcessingContextInput(run_id=str(task_run.id)),
+        )
+
+        assert result.repository is None
+        assert result.github_integration_id is None
+        assert result.github_user_integration_id == str(user_integration.id)
+        assert result.has_github_credentials is True
+
+    @pytest.mark.django_db
+    def test_get_task_processing_context_uses_team_integration_without_repository(
+        self, activity_environment, team, user, github_integration
+    ):
+        task = Task.objects.create(
+            team=team,
+            created_by=user,
+            title="Slack task without repository",
+            description="Clone a repo later from chat",
+            origin_product=Task.OriginProduct.SLACK,
+            github_integration=github_integration,
+        )
+        task_run = task.create_run(extra_state={"interaction_origin": "slack", "pr_authorship_mode": "bot"})
+
+        result = async_to_sync(activity_environment.run)(
+            get_task_processing_context,
+            GetTaskProcessingContextInput(run_id=str(task_run.id)),
+        )
+
+        assert result.repository is None
+        assert result.github_integration_id == github_integration.id
+        assert result.github_user_integration_id is None
+        assert result.has_github_credentials is True
+
+    @pytest.mark.django_db
     def test_get_task_processing_context_resolves_allowed_domains(self, activity_environment, test_task):
         sandbox_environment = SandboxEnvironment.objects.create(
             team=test_task.team,
@@ -107,6 +163,40 @@ class TestGetTaskProcessingContextActivity:
         assert result.sandbox_environment_id == str(sandbox_environment.id)
         assert result.sandbox_environment_name == "Restricted env"
         assert result.allowed_domains == ["example.com"]
+
+    @pytest.mark.django_db
+    def test_get_task_processing_context_preserves_empty_restricted_domains(self, activity_environment, test_task):
+        sandbox_environment = SandboxEnvironment.objects.create(
+            team=test_task.team,
+            created_by=test_task.created_by,
+            name="Restricted empty env",
+            network_access_level=SandboxEnvironment.NetworkAccessLevel.CUSTOM,
+            allowed_domains=[],
+        )
+        task_run = test_task.create_run(extra_state={"sandbox_environment_id": str(sandbox_environment.id)})
+
+        input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
+        result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
+
+        assert result.sandbox_environment_id == str(sandbox_environment.id)
+        assert result.allowed_domains == []
+
+    @pytest.mark.django_db
+    def test_get_task_processing_context_keeps_full_access_unrestricted(self, activity_environment, test_task):
+        sandbox_environment = SandboxEnvironment.objects.create(
+            team=test_task.team,
+            created_by=test_task.created_by,
+            name="Full access env",
+            network_access_level=SandboxEnvironment.NetworkAccessLevel.FULL,
+            allowed_domains=[],
+        )
+        task_run = test_task.create_run(extra_state={"sandbox_environment_id": str(sandbox_environment.id)})
+
+        input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
+        result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
+
+        assert result.sandbox_environment_id == str(sandbox_environment.id)
+        assert result.allowed_domains is None
 
     @pytest.mark.django_db
     def test_get_task_processing_context_rejects_other_users_private_sandbox_environment(

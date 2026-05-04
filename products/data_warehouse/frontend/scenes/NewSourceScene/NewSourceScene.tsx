@@ -1,4 +1,4 @@
-import { BindLogic, useActions, useValues } from 'kea'
+import { BindLogic, connect, kea, path, props, selectors, useActions, useValues } from 'kea'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { IconCopy, IconQuestion } from '@posthog/icons'
@@ -14,19 +14,21 @@ import {
 } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { nonHogFunctionTemplatesLogic } from 'scenes/data-pipelines/utils/nonHogFunctionTemplatesLogic'
 import { HogFunctionTemplateList } from 'scenes/hog-functions/list/HogFunctionTemplateList'
-import { SceneExport } from 'scenes/sceneTypes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ExternalDataSourceType, SourceConfig } from '~/queries/schema/schema-general'
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, Breadcrumb } from '~/types'
 
 import SchemaForm from '../../shared/components/forms/SchemaForm'
 import SourceForm, { SourceAccessMethodSelector } from '../../shared/components/forms/SourceForm'
@@ -37,8 +39,9 @@ import { SourceIcon } from '../../shared/components/SourceIcon'
 import { availableSourcesLogic } from './availableSourcesLogic'
 import { BillingLimitNotice } from './components/BillingLimitNotice'
 import { SelfManagedSourceForm } from './components/SelfManagedSourceForm'
+import type { newSourceSceneLogicType } from './NewSourceSceneType'
 import { selfManagedSourceLogic } from './selfManagedSourceLogic'
-import { sourceWizardLogic } from './sourceWizardLogic'
+import { type SourceWizardLogicProps, sourceWizardLogic } from './sourceWizardLogic'
 
 export const getEffectiveAccessMethod = (
     currentStep: number,
@@ -51,26 +54,83 @@ export const getEffectiveAccessMethod = (
     return persistedAccessMethod
 }
 
-export const scene: SceneExport = {
-    component: NewSourceScene,
-    // logic: sourceWizardLogic, // NOTE: We can't mount it here as it needs the availableSourcesLogic to be mounted first
+export interface NewSourceSceneLogicProps {
+    tabId: string
 }
 
-export function NewSourceScene(): JSX.Element {
-    const { availableSources, availableSourcesLoading } = useValues(availableSourcesLogic)
+export const newSourceSceneLogic = kea<newSourceSceneLogicType>([
+    path(['products', 'dataWarehouse', 'newSourceSceneLogic']),
+    props({} as NewSourceSceneLogicProps),
+    tabAwareScene(),
+    connect(() => ({
+        values: [availableSourcesLogic, ['availableSources', 'availableSourcesLoading']],
+    })),
+    selectors({
+        breadcrumbs: [
+            () => [],
+            (): Breadcrumb[] => [
+                {
+                    key: Scene.Sources,
+                    name: 'Sources',
+                    path: urls.sources(),
+                    iconType: 'data_pipeline',
+                },
+                {
+                    key: Scene.DataWarehouseSourceNew,
+                    name: 'New data warehouse source',
+                    path: urls.dataWarehouseSourceNew(),
+                    iconType: 'data_pipeline',
+                },
+            ],
+        ],
+    }),
+])
+
+export const scene: SceneExport = {
+    component: NewSourceScene,
+    logic: newSourceSceneLogic,
+}
+
+export function NewSourceScene({ tabId }: { tabId?: string }): JSX.Element {
+    if (!tabId) {
+        throw new Error('NewSourceScene rendered with no tabId')
+    }
+
+    const sceneRootLogic = newSourceSceneLogic({ tabId })
+    const { availableSources, availableSourcesLoading } = useValues(sceneRootLogic)
 
     if (availableSourcesLoading || availableSources === null) {
         return <LemonSkeleton />
     }
 
+    return <MountedNewSourceScene availableSources={availableSources} tabId={tabId} />
+}
+
+function MountedNewSourceScene({
+    availableSources,
+    tabId,
+}: {
+    availableSources: Record<string, SourceConfig>
+    tabId: string
+}): JSX.Element {
+    const sourceWizardLogicProps = useMemo(() => ({ availableSources, tabId }), [availableSources, tabId])
+    const wizardLogic = sourceWizardLogic(sourceWizardLogicProps)
+    const sceneRootLogic = newSourceSceneLogic({ tabId })
+
+    useAttachedLogic(wizardLogic, sceneRootLogic)
+
     return (
-        <BindLogic logic={sourceWizardLogic} props={{ availableSources }}>
-            <InternalNewSourceScene />
+        <BindLogic logic={sourceWizardLogic} props={sourceWizardLogicProps}>
+            <InternalNewSourceScene sourceWizardLogicProps={sourceWizardLogicProps} />
         </BindLogic>
     )
 }
 
-function InternalNewSourceScene(): JSX.Element {
+function InternalNewSourceScene({
+    sourceWizardLogicProps,
+}: {
+    sourceWizardLogicProps: SourceWizardLogicProps
+}): JSX.Element {
     const { closeWizard } = useActions(sourceWizardLogic)
 
     return (
@@ -90,7 +150,7 @@ function InternalNewSourceScene(): JSX.Element {
                     </LemonButton>
                 }
             />
-            <InternalSourcesWizard />
+            <InternalSourcesWizard sourceWizardLogicProps={sourceWizardLogicProps} />
         </SceneContent>
     )
 }
@@ -100,6 +160,7 @@ interface NewSourcesWizardProps {
     allowedSources?: ExternalDataSourceType[] // Filter to only show these source types
     initialSource?: ExternalDataSourceType // Pre-select this source and start on step 2
     hideBackButton?: boolean
+    sourceWizardLogicProps?: SourceWizardLogicProps
 }
 
 export function NewSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
@@ -109,9 +170,14 @@ export function NewSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
         return <LemonSkeleton />
     }
 
+    const sourceWizardLogicProps = {
+        onComplete: props.onComplete,
+        availableSources,
+    }
+
     return (
-        <BindLogic logic={sourceWizardLogic} props={{ onComplete: props.onComplete, availableSources }}>
-            <InternalSourcesWizard {...props} />
+        <BindLogic logic={sourceWizardLogic} props={sourceWizardLogicProps}>
+            <InternalSourcesWizard {...props} sourceWizardLogicProps={sourceWizardLogicProps} />
         </BindLogic>
     )
 }
@@ -130,7 +196,6 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
         isSelfManagedSource,
         source,
         sourceConnectionDetails,
-        featureFlags,
     } = useValues(sourceWizardLogic)
     const { onBack, onSubmit, setInitialConnector, setSourceConnectionDetailsValue, updateSource } =
         useActions(sourceWizardLogic)
@@ -139,10 +204,7 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
         sourceConnectionDetails?.access_method,
         source.access_method
     )
-    const showAccessMethodSelector =
-        currentStep === 2 &&
-        selectedConnector?.name === 'Postgres' &&
-        !!featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]
+    const showAccessMethodSelector = currentStep === 2 && selectedConnector?.name === 'Postgres'
     const { tableLoading: manualLinkIsLoading } = useValues(selfManagedSourceLogic)
 
     const mainContainer = useFloatingContainer()
@@ -255,11 +317,11 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
                 {currentStep === 1 ? (
                     <FirstStep allowedSources={props.allowedSources} />
                 ) : currentStep === 2 ? (
-                    <SecondStep />
+                    <SecondStep sourceWizardLogicProps={props.sourceWizardLogicProps} />
                 ) : currentStep === 3 ? (
                     <ThirdStep />
                 ) : currentStep === 4 ? (
-                    <WebhookSetupStep />
+                    <WebhookSetupStep sourceWizardLogicProps={props.sourceWizardLogicProps} />
                 ) : currentStep === 5 ? (
                     <ProgressStep />
                 ) : (
@@ -425,7 +487,7 @@ function FirstStep({ allowedSources }: NewSourcesWizardProps): JSX.Element {
     )
 }
 
-function SecondStep(): JSX.Element {
+function SecondStep({ sourceWizardLogicProps }: { sourceWizardLogicProps?: SourceWizardLogicProps }): JSX.Element {
     const { selectedConnector, source, sourceConnectionDetails } = useValues(sourceWizardLogic)
     const selectedAccessMethod = getEffectiveAccessMethod(
         2,
@@ -466,6 +528,7 @@ function SecondStep(): JSX.Element {
                 sourceConfig={selectedConnector}
                 initialAccessMethod={sourceConnectionDetails?.access_method ?? source.access_method}
                 showAccessMethodSelector={false}
+                sourceWizardLogicProps={sourceWizardLogicProps}
             />
         </div>
     ) : (
@@ -479,13 +542,17 @@ function ThirdStep(): JSX.Element {
     return <SchemaForm />
 }
 
-function WebhookSetupStep(): JSX.Element {
+function WebhookSetupStep({
+    sourceWizardLogicProps,
+}: {
+    sourceWizardLogicProps?: SourceWizardLogicProps
+}): JSX.Element {
     const { webhookResult, webhookCreating, selectedConnector, databaseSchema } = useValues(sourceWizardLogic)
     const { createWebhook } = useActions(sourceWizardLogic)
 
     const webhookTables = databaseSchema
         .filter((s) => s.supports_webhooks && s.sync_type === 'webhook' && s.should_sync)
-        .map((s) => ({ name: s.table }))
+        .map((s) => ({ name: s.table, label: s.label }))
 
     return (
         <WebhookSetupForm
@@ -495,7 +562,7 @@ function WebhookSetupStep(): JSX.Element {
             webhookResult={webhookResult}
             webhookCreating={webhookCreating}
             onCreateWebhook={createWebhook}
-            formLogic={sourceWizardLogic}
+            formLogic={sourceWizardLogicProps ? sourceWizardLogic(sourceWizardLogicProps) : sourceWizardLogic}
             formKey="webhookFieldInputs"
         />
     )

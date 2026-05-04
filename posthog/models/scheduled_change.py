@@ -44,6 +44,12 @@ class ScheduledChange(RootTeamMixin, models.Model):
     cron_expression = models.CharField(max_length=100, null=True, blank=True)
     # Optional end date for recurring schedules - stops recurring after this date
     end_date = models.DateTimeField(null=True, blank=True)
+    # IANA timezone name captured from the team at creation time. Cron recurrence resolves its
+    # wall-clock fields in this timezone so that "0 9 * * 1-5" keeps firing at 9am local time
+    # across DST transitions, rather than drifting by the project's UTC offset on each run.
+    # NULL on rows created before this column existed; those rows keep their historical
+    # UTC-wall-clock interpretation to avoid retroactively shifting any live schedule.
+    timezone = models.CharField(max_length=240, null=True, blank=True)
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)

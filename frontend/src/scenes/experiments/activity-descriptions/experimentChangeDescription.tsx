@@ -69,11 +69,11 @@ export const getExperimentChangeDescription = (
                     const duration = dayjs.duration(Math.abs(diff), 'minute')
                     const sign = diff > 0 ? 'moved the start date forward' : 'moved the start date back'
 
-                    return `${sign} by ${duration.humanize()} on`
+                    return `${sign} by ${duration.humanize()}`
                 }
             }
 
-            return 'updated the start date of'
+            return 'changed the start date'
         })
         .with({ field: 'end_date' }, ({ action, before, after }) => {
             /**
@@ -83,7 +83,7 @@ export const getExperimentChangeDescription = (
                 return 'stopped experiment'
             }
 
-            return 'updated the end date of'
+            return 'changed the end date'
         })
         .with({ field: 'conclusion' }, ({ action, before, after }) => {
             /**
@@ -102,12 +102,11 @@ export const getExperimentChangeDescription = (
                 return (
                     <span>
                         changed the conclusion to <ExperimentConclusionTag conclusion={after as ExperimentConclusion} />
-                        &nbsp;for
                     </span>
                 )
             }
 
-            return 'updated conclusion for'
+            return 'changed the conclusion'
         })
         .with({ field: 'metrics', action: 'created', before: null }, () => 'added the first metric to')
         .with({ field: 'metrics', action: 'changed' }, ({ before, after }) =>

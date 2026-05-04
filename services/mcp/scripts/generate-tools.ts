@@ -51,6 +51,13 @@ interface OpenApiParam {
     required?: boolean
     description?: string
     schema: OpenApiSchema
+    /**
+     * Set by the Django factories in posthog/api/openapi_parameters.py for
+     * params whose wire format is a URL-encoded JSON string but whose semantic
+     * shape is an object (e.g. variables_override / filters_override). The
+     * codegen widens these into z.union([z.string(), z.record(...)]).
+     */
+    'x-accepts-stringified-json'?: boolean
 }
 
 interface OpenApiSchema {
@@ -102,6 +109,14 @@ interface ResolvedOperation {
 }
 
 // ------------------------------------------------------------------
+// General helpers
+// ------------------------------------------------------------------
+
+function sortKeys<T extends Record<string, unknown>>(obj: T): T {
+    return Object.fromEntries(Object.entries(obj).sort(([a], [b]) => a.localeCompare(b))) as T
+}
+
+// ------------------------------------------------------------------
 // OpenAPI helpers
 // ------------------------------------------------------------------
 
@@ -110,7 +125,40 @@ function loadOpenApi(): OpenApiSpec {
         console.error(`OpenAPI schema not found at ${OPENAPI_PATH}. Run \`hogli build:openapi-schema\` first.`)
         process.exit(1)
     }
-    return JSON.parse(fs.readFileSync(OPENAPI_PATH, 'utf-8')) as OpenApiSpec
+    const spec = JSON.parse(fs.readFileSync(OPENAPI_PATH, 'utf-8')) as OpenApiSpec
+    inlineParameterRefs(spec)
+    return spec
+}
+
+/**
+ * Replace ``{$ref: '#/components/parameters/...'}`` entries in operation parameters with the
+ * fully resolved parameter object. The rest of this script reads ``parameter.in`` /
+ * ``parameter.name`` directly, which would silently return ``undefined`` for ref-only entries
+ * and cause downstream tools to mis-handle path/query params (e.g. dropping the
+ * ``project_id`` / ``organization_id`` auto-resolved omit).
+ */
+function inlineParameterRefs(spec: OpenApiSpec): void {
+    const parameterComponents = (spec.components as { parameters?: Record<string, unknown> } | undefined)?.parameters
+    if (!parameterComponents) {
+        return
+    }
+    for (const methods of Object.values(spec.paths ?? {})) {
+        for (const op of Object.values(methods ?? {}) as Array<{ parameters?: unknown[] }>) {
+            if (!op?.parameters || !Array.isArray(op.parameters)) {
+                continue
+            }
+            op.parameters = op.parameters.map((param) => {
+                if (param && typeof param === 'object' && '$ref' in param && typeof param.$ref === 'string') {
+                    const name = param.$ref.replace('#/components/parameters/', '')
+                    const resolved = parameterComponents[name]
+                    if (resolved) {
+                        return resolved
+                    }
+                }
+                return param
+            })
+        }
+    }
 }
 
 /**
@@ -224,6 +272,16 @@ function toPascalCase(str: string): string {
 function toCamelCase(str: string): string {
     const pascal = toPascalCase(str)
     return pascal.charAt(0).toLowerCase() + pascal.slice(1)
+}
+
+/**
+ * Escape a description string for embedding inside a single-quoted Zod
+ * `.describe('...')` call. Backslashes first, then single quotes, then collapse
+ * line breaks to spaces. Order matters — escape the escape character before
+ * anything else.
+ */
+function escapeForDescribe(desc: string): string {
+    return desc.trim().replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n\s*/g, ' ')
 }
 
 /**
@@ -471,12 +529,7 @@ function composeToolSchema(
                         expr += `.default(${JSON.stringify(override.default)}).optional()`
                     }
                     if (override.description) {
-                        const escaped = override.description
-                            .trim()
-                            .replace(/\\/g, '\\\\')
-                            .replace(/'/g, "\\'")
-                            .replace(/\n\s*/g, ' ')
-                        expr += `.describe('${escaped}')`
+                        expr += `.describe('${escapeForDescribe(override.description)}')`
                     }
                     if (override.optional) {
                         expr += '.optional()'
@@ -501,6 +554,37 @@ function composeToolSchema(
             schemaExpr += `\n    .omit({ '${original}': true })`
             schemaExpr += `\n    .extend({ ${alias}: ${bodyImport}.shape['${original}'] })`
         }
+    }
+
+    // Query params marked `x-accepts-stringified-json` (set by Django factories
+    // in posthog/api/openapi_parameters.py) are stringified-JSON-objects on the
+    // wire but conceptually objects. Widen the schema to accept either shape so
+    // LLM agents can pass the object literal they just read from a sibling
+    // tool's response, without a JSON.stringify round-trip that frequently
+    // breaks on escaping. ApiClient.request() in services/mcp/src/api/client.ts
+    // JSON-stringify-s object query params automatically, so the schema-side
+    // union is sufficient — no handler changes required. Skipped when the YAML
+    // config also defines a param_overrides entry for the field, so explicit
+    // YAML always wins.
+    const explicitOverrideKeys = new Set(Object.keys(config.param_overrides ?? {}))
+    const stringifiedJsonQueryParams = queryParams.filter(
+        (p) =>
+            p['x-accepts-stringified-json'] === true &&
+            // queryParamNames is the post-include/exclude set, so this drops
+            // params the YAML excluded via include_params / exclude_params.
+            queryParamNames.includes(p.name) &&
+            !explicitOverrideKeys.has(p.name)
+    )
+    if (stringifiedJsonQueryParams.length > 0) {
+        const overrideEntries = stringifiedJsonQueryParams.map((p) => {
+            let expr = 'z.union([z.string(), z.record(z.string(), z.unknown())]).optional()'
+            const desc = p.description ?? p.schema?.description
+            if (desc) {
+                expr += `.describe('${escapeForDescribe(desc)}')`
+            }
+            return `${p.name}: ${expr}`
+        })
+        schemaExpr = `(${schemaExpr}).extend({ ${overrideEntries.join(', ')} })`
     }
 
     return {
@@ -702,7 +786,10 @@ function generateToolCode(
 
     const softDeleteField = typeof config.soft_delete === 'string' ? config.soft_delete : 'deleted'
 
-    const hasBody = !isSoftDelete && composition.bodyFieldNames.length > 0
+    const injectBody = config.inject_body ?? {}
+    const injectBodyEntries = Object.entries(injectBody)
+    const hasInjectBody = !isSoftDelete && injectBodyEntries.length > 0
+    const hasBody = !isSoftDelete && (composition.bodyFieldNames.length > 0 || hasInjectBody)
     const hasQuery = composition.queryParamNames.length > 0
 
     if (hasBody) {
@@ -711,7 +798,12 @@ function generateToolCode(
             // If the field was renamed, bf is the alias (used for params access)
             // and bodyKey is the original name (used as the HTTP body key).
             const bodyKey = composition.renamedFields[bf] ?? bf
-            handlerBody += `        if (params.${bf} !== undefined) body['${bodyKey}'] = params.${bf}\n`
+            handlerBody += `        if (params.${bf} !== undefined) body[${JSON.stringify(bodyKey)}] = params.${bf}\n`
+        }
+        // inject_body: hardcoded values that always override caller-supplied params.
+        // Emitted last so they overwrite anything set above.
+        for (const [key, value] of injectBodyEntries) {
+            handlerBody += `        body[${JSON.stringify(key)}] = ${JSON.stringify(value)}\n`
         }
     }
 
@@ -774,7 +866,10 @@ function generateToolCode(
     const appKey = config.ui_app ?? null
 
     const enrichUsesParams = !!config.enrich_url && parseEnrichUrl(config.enrich_url).source === 'params'
-    const paramsUsed = hasBody || hasQuery || composition.pathParamNames.length > 0 || enrichUsesParams
+    // `params` is only referenced when a dynamic body/query/path param reads from it; inject_body
+    // alone doesn't touch params, so don't count it here.
+    const paramsUsed =
+        composition.bodyFieldNames.length > 0 || hasQuery || composition.pathParamNames.length > 0 || enrichUsesParams
     const unusedParamsComment = paramsUsed ? '' : '// eslint-disable-next-line no-unused-vars\n'
 
     const mcpVersionLine = config.mcp_version !== undefined ? `\n    mcpVersion: ${config.mcp_version},` : ''
@@ -1534,13 +1629,14 @@ ${spreads}
     fs.writeFileSync(path.join(GENERATED_DIR, 'index.ts'), barrelCode)
 
     // Tool definitions JSON (merge OpenAPI-based + query wrapper definitions)
-    const definitions = { ...generateDefinitionsJson(allCategories), ...queryWrapperDefinitions }
+    // Sort keys so output is stable regardless of upstream OpenAPI iteration order.
+    const definitions = sortKeys({ ...generateDefinitionsJson(allCategories), ...queryWrapperDefinitions })
     fs.writeFileSync(DEFINITIONS_JSON_PATH, JSON.stringify(definitions, null, 4) + '\n')
 
     // Combined tool definitions for external consumers (docs site)
     const v1Definitions = JSON.parse(fs.readFileSync(TOOL_DEFINITIONS_V1_PATH, 'utf-8'))
     const v2Definitions = JSON.parse(fs.readFileSync(TOOL_DEFINITIONS_V2_PATH, 'utf-8'))
-    const allDefinitions = { ...v1Definitions, ...v2Definitions, ...definitions }
+    const allDefinitions = sortKeys({ ...v1Definitions, ...v2Definitions, ...definitions })
     fs.writeFileSync(ALL_DEFINITIONS_JSON_PATH, JSON.stringify(allDefinitions, null, 4) + '\n')
 
     const totalTools = allCategories.reduce((sum, c) => sum + c.enabledTools.length, 0)

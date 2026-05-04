@@ -285,13 +285,14 @@ class SnowflakeBatchExportInputs(BaseBatchExportInputs):
 class PostgresBatchExportInputs(BaseBatchExportInputs):
     """Inputs for Postgres export workflow."""
 
-    user: str
-    password: str
-    host: str
     database: str
     schema: str = "public"
     table_name: str = "events"
-    port: int = 5432
+
+    user: str | None = None
+    host: str | None = None
+    port: int | None = 5432
+    password: str | None = None
     has_self_signed_cert: bool = False
 
 

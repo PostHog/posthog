@@ -123,7 +123,7 @@ const CommentBottomRow = ({ comment }: { comment: CommentType }): JSX.Element =>
     )
 }
 
-const CommentEditingForm = ({ comment }: { comment: CommentType }): JSX.Element | null => {
+const CommentEditingForm = ({ comment }: { comment: CommentType }): JSX.Element => {
     const { editingComment, commentsLoading, editingCommentRichContentEditor, isEditingCommentEmpty } =
         useValues(commentsLogic)
     const {
@@ -133,14 +133,14 @@ const CommentEditingForm = ({ comment }: { comment: CommentType }): JSX.Element 
         onEditingCommentRichContentEditorUpdate,
     } = useActions(commentsLogic)
 
-    return editingComment?.id === comment.id ? (
-        <div className="deprecated-space-y-2 border-t p-2">
+    return (
+        <div className="deprecated-space-y-2">
             <LemonRichContentEditor
                 placeholder="Edit comment"
                 initialContent={comment.rich_content}
                 onCreate={setEditingCommentRichContentEditor}
                 onUpdate={(isEmpty) => {
-                    if (editingCommentRichContentEditor) {
+                    if (editingCommentRichContentEditor && editingComment) {
                         setEditingComment({
                             ...editingComment,
                             rich_content: editingCommentRichContentEditor.getJSON(),
@@ -151,10 +151,10 @@ const CommentEditingForm = ({ comment }: { comment: CommentType }): JSX.Element 
                 onPressCmdEnter={persistEditedComment}
                 disabled={commentsLoading}
             />
-            <div className="flex justify-between items-center gap-2">
-                <div className="flex-1" />
+            <div className="flex justify-end items-center gap-2">
                 <LemonButton
                     type="secondary"
+                    size="small"
                     onClick={() => {
                         setEditingComment(null)
                         setEditingCommentRichContentEditor(null)
@@ -165,15 +165,16 @@ const CommentEditingForm = ({ comment }: { comment: CommentType }): JSX.Element 
                 </LemonButton>
                 <LemonButton
                     type="primary"
+                    size="small"
                     onClick={persistEditedComment}
                     disabledReason={isEditingCommentEmpty ? 'No message' : commentsLoading ? 'Saving...' : null}
                     sideIcon={<KeyboardShortcut command enter />}
                 >
-                    Save changes
+                    Save
                 </LemonButton>
             </div>
         </div>
-    ) : null
+    )
 }
 
 const CommentTopRow = ({ comment }: { comment: CommentType }): JSX.Element => {
@@ -222,11 +223,16 @@ const CommentTopRow = ({ comment }: { comment: CommentType }): JSX.Element => {
 }
 
 const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
-    const { editingComment, replyingCommentId } = useValues(commentsLogic)
+    const { editingComment, replyingCommentId, selectedCommentId, commentContexts } = useValues(commentsLogic)
+    const { setSelectedComment } = useActions(commentsLogic)
+    const contextText = commentContexts[comment.id]
+    const isInlineComment = comment.item_context?.type === 'mark'
 
     const ref = useRef<HTMLDivElement | null>(null)
 
-    const isHighlighted = replyingCommentId === comment.id || editingComment?.id === comment.id
+    const isEditing = editingComment?.id === comment.id
+    const isHighlighted = selectedCommentId === comment.id || replyingCommentId === comment.id || isEditing
+    const threadId = comment.source_comment ?? comment.id
 
     useEffect(() => {
         if (isHighlighted) {
@@ -237,22 +243,34 @@ const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
     return (
         <div
             ref={ref}
-            className={clsx('Comment border rounded-lg bg-surface-primary px-2 py-1', isHighlighted && 'border-accent')}
+            className={clsx(
+                'Comment border rounded-lg bg-surface-primary px-2 py-1',
+                isHighlighted && 'border-accent',
+                !isEditing && 'cursor-pointer'
+            )}
             data-comment-id={comment.id}
+            onClick={isEditing ? undefined : () => setSelectedComment(threadId)}
         >
             <div className="flex flex-col justify-start gap-2">
                 <div className="flex-1 flex justify-start gap-2">
                     <ProfilePicture size="xl" user={comment.created_by} />
 
-                    <div className="flex flex-col flex-1">
+                    <div className="flex flex-col flex-1 min-w-0">
                         <CommentTopRow comment={comment} />
-                        <LemonMarkdown lowKeyHeadings>{getText(comment)}</LemonMarkdown>
+                        {contextText && !isEditing && isInlineComment && (
+                            <div className="border-l-2 border-border pl-2 my-2">
+                                <span className="block text-muted truncate text-sm">{contextText}</span>
+                            </div>
+                        )}
+                        {isEditing ? (
+                            <CommentEditingForm comment={comment} />
+                        ) : (
+                            <LemonMarkdown lowKeyHeadings>{getText(comment)}</LemonMarkdown>
+                        )}
                     </div>
                 </div>
-                <CommentBottomRow comment={comment} />
+                {!isEditing && <CommentBottomRow comment={comment} />}
             </div>
-
-            <CommentEditingForm comment={comment} />
         </div>
     )
 }

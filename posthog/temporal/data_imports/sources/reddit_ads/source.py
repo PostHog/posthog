@@ -54,6 +54,7 @@ class RedditAdsSource(ResumableSource[RedditAdsSourceConfig, RedditAdsResumeConf
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="Your Reddit Ads account ID",
+                        secret=False,
                     ),
                     SourceFieldOauthConfig(
                         name="reddit_integration_id",

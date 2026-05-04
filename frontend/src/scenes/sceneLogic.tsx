@@ -14,7 +14,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { getRelativeNextPath, identifierToHuman } from 'lib/utils'
 import { getAppContext, getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
 import { NEW_INTERNAL_TAB } from 'lib/utils/newInternalTab'
-import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/router-utils'
+import { addProjectIdIfMissing, removeProjectIdIfPresent, stripTrailingSlash } from 'lib/utils/router-utils'
 import { withForwardedSearchParams } from 'lib/utils/sceneLogicUtils'
 import {
     emptySceneParams,
@@ -43,6 +43,7 @@ import { AccessControlLevel } from '~/types'
 import { handleLoginRedirect } from './authentication/loginLogic'
 import { billingLogic } from './billing/billingLogic'
 import { parseCouponCampaign } from './coupons/utils'
+import { isOnboardingRedirectSuppressed } from './onboarding/onboardingDelegationState'
 import { organizationLogic } from './organizationLogic'
 import { preflightLogic } from './PreflightCheck/preflightLogic'
 import type { sceneLogicType } from './sceneLogicType'
@@ -65,6 +66,14 @@ export type TabCloseSource =
 export interface PersistedPinnedState {
     tabs: SceneTab[]
     homepage: SceneTab | null
+}
+
+interface MountedTabLogic {
+    logic: SceneExport['logic']
+    logicProps: Record<string, any>
+    sceneId: string
+    sceneKey?: string
+    unmount: () => void
 }
 
 const getStorageKey = (key: string): string => {
@@ -242,29 +251,31 @@ const ensureActiveTab = (tabs: SceneTab[]): SceneTab[] => {
     return tabs
 }
 
-const mergePinnedTabs = (storedPinned: PersistedPinnedState | null, fallbackPinned: SceneTab[]): SceneTab[] => {
+export const mergePinnedTabs = (storedPinned: PersistedPinnedState | null, fallbackPinned: SceneTab[]): SceneTab[] => {
     if (!storedPinned) {
         return fallbackPinned.map((tab) => ({ ...tab, pinned: true }))
     }
 
     const storedTabs = storedPinned.tabs ?? []
 
-    const activeById = new Map<string, boolean>()
+    // sceneParams is stripped during persistence (see tabToPersistableSnapshot) because it can be
+    // deep/cyclic. Restore it from in-memory tabs so `paramsToProps` doesn't run against an empty bag.
+    const fallbackById = new Map<string, SceneTab>()
     for (const tab of fallbackPinned) {
-        activeById.set(tab.id, tab.active)
+        fallbackById.set(tab.id, tab)
     }
 
-    const normalized = storedTabs.map((tab) => {
+    return storedTabs.map((tab) => {
         const id = tab.id || generateTabId()
+        const fallback = fallbackById.get(id)
         return {
             ...tab,
             id,
             pinned: true,
-            active: activeById.get(id) ?? false,
+            active: fallback?.active ?? false,
+            sceneParams: fallback?.sceneParams ?? tab.sceneParams,
         }
     })
-
-    return normalized
 }
 
 const composeTabsFromStorage = (storedPinned: PersistedPinnedState | null, baseTabs: SceneTab[]): SceneTab[] => {
@@ -329,7 +340,7 @@ export const sceneLogic = kea<sceneLogicType>([
         values: [billingLogic, ['billing'], organizationLogic, ['organizationBeingDeleted']],
     })),
     afterMount(({ cache }) => {
-        cache.mountedTabLogic = {} as Record<string, () => void>
+        cache.mountedTabLogic = {} as Record<string, MountedTabLogic>
         cache.lastTrackedSceneByTab = {} as Record<string, { sceneId?: string; sceneKey?: string }>
         cache.initialNavigationTabCreated = false
         cache.lastRegisteredTabCount = null as number | null
@@ -1086,9 +1097,12 @@ export const sceneLogic = kea<sceneLogicType>([
             }
             persistTabs(values.tabs, values.homepage)
 
-            // Remove trailing slash
-            if (pathname !== '/' && pathname.endsWith('/')) {
-                router.actions.replace(pathname.replace(/(\/+)$/, ''), search, hash)
+            // Remove trailing slash from the address bar. Route matching itself is handled
+            // upstream via `pathFromWindowToRoutes` in initKea.ts so the scene loads even
+            // before this replace runs.
+            const stripped = stripTrailingSlash(pathname)
+            if (stripped !== pathname) {
+                router.actions.replace(stripped, search, hash)
             }
         },
         setScene: ({ tabId, sceneKey, sceneId, exportedScene, params, scrollToTop }, _, __, previousState) => {
@@ -1129,19 +1143,61 @@ export const sceneLogic = kea<sceneLogicType>([
                 }
             }
 
-            const unmount = cache.mountedTabLogic[tabId]
-            if (unmount) {
-                try {
-                    unmount()
-                } catch (error) {
-                    console.error('Error unmounting previous tab logic:', error)
-                }
-                delete cache.mountedTabLogic[tabId]
-            }
+            let newLogicErrored = false
             if (exportedScene?.logic) {
-                const builtLogicProps = { tabId, ...exportedScene?.paramsToProps?.(params) }
-                const builtLogic = exportedScene?.logic(builtLogicProps)
-                cache.mountedTabLogic[tabId] = builtLogic.mount()
+                try {
+                    const builtLogicProps = { tabId, ...exportedScene?.paramsToProps?.(params) }
+                    const mountedLogic = cache.mountedTabLogic[tabId]
+                    // Re-activating an existing internal tab should not remount its scene logic.
+                    // Child logics attach to this scene root to keep draft state alive while inactive.
+                    const canKeepMountedLogic =
+                        mountedLogic?.logic === exportedScene.logic &&
+                        mountedLogic?.sceneId === sceneId &&
+                        mountedLogic.sceneKey === sceneKey &&
+                        equal(mountedLogic.logicProps, builtLogicProps)
+
+                    if (!canKeepMountedLogic) {
+                        const builtLogic = exportedScene.logic(builtLogicProps)
+
+                        if (mountedLogic) {
+                            try {
+                                mountedLogic.unmount()
+                            } catch (error) {
+                                console.error('Error unmounting previous tab logic:', error)
+                            }
+                            delete cache.mountedTabLogic[tabId]
+                        }
+
+                        cache.mountedTabLogic[tabId] = {
+                            logic: exportedScene.logic,
+                            logicProps: builtLogicProps,
+                            sceneId,
+                            sceneKey,
+                            unmount: builtLogic.mount(),
+                        }
+                    }
+                } catch (error) {
+                    // Scene logic builders (e.g. dashboardLogic.key()) can throw on malformed
+                    // route params like `/dashboard/abc`. Capture so regressions surface, then
+                    // route to Error404 so the user sees a proper 404 instead of a blank crash.
+                    posthog.captureException(error, { extra: { sceneId, sceneKey, tabId } })
+                    newLogicErrored = true
+                }
+            } else {
+                const mountedLogic = cache.mountedTabLogic[tabId]
+                if (mountedLogic) {
+                    try {
+                        mountedLogic.unmount()
+                    } catch (error) {
+                        console.error('Error unmounting previous tab logic:', error)
+                    }
+                    delete cache.mountedTabLogic[tabId]
+                }
+            }
+
+            if (newLogicErrored) {
+                actions.loadScene(Scene.Error404, undefined, tabId, emptySceneParams, 'REPLACE')
+                return
             }
 
             const trackingKey = tabId || '__default__'
@@ -1221,6 +1277,11 @@ export const sceneLogic = kea<sceneLogicType>([
                         !teamLogic.values.currentTeam.is_demo &&
                         !teamLogic.values.hasOnboardedAnyProduct &&
                         !teamLogic.values.currentTeam?.ingested_event &&
+                        // Suppress the redirect when the user has explicitly exited onboarding
+                        // (skipped for later, or delegated to a teammate with a pending invite).
+                        // If the delegation invite is cancelled or expires, the backend clears
+                        // onboarding_delegated_to_invite and the redirect re-fires.
+                        !isOnboardingRedirectSuppressed(user) &&
                         !pathPrefixesOnboardingNotRequiredFor.some((path) =>
                             removeProjectIdIfPresent(location.pathname).startsWith(path)
                         )
@@ -1322,19 +1383,6 @@ export const sceneLogic = kea<sceneLogicType>([
                     }
                 }
                 actions.setExportedScene(exportedScene, sceneId, sceneKey, tabId, params)
-
-                if (exportedScene.logic) {
-                    // initialize the logic and give it 50ms to load before opening the scene
-                    const props = { ...exportedScene.paramsToProps?.(params), tabId }
-                    const unmount = exportedScene.logic.build(props).mount()
-                    try {
-                        await breakpoint(50)
-                    } catch (e) {
-                        // if we change the scene while waiting these 50ms, unmount
-                        unmount()
-                        throw e
-                    }
-                }
             }
             actions.setScene(sceneId, sceneKey, tabId, params, clickedLink || wasNotLoaded, exportedScene)
         },
@@ -1584,10 +1632,10 @@ export const sceneLogic = kea<sceneLogicType>([
                 const { tabIds } = values
                 for (const id of Object.keys(cache.mountedTabLogic)) {
                     if (!tabIds[id]) {
-                        const unmount = cache.mountedTabLogic[id]
-                        if (unmount) {
+                        const mountedLogic = cache.mountedTabLogic[id]
+                        if (mountedLogic) {
                             try {
-                                unmount()
+                                mountedLogic.unmount()
                             } catch (error) {
                                 console.error('Error unmounting tab logic:', error)
                             }
@@ -1632,46 +1680,51 @@ export const sceneLogic = kea<sceneLogicType>([
     }),
 
     afterMount(({ actions, cache, values }) => {
-        cache.disposables.add(() => {
-            const syncPinnedTabsFromStorage = (): void => {
-                const storedPinned = getPersistedPinnedState()
-                const currentTabs = values.tabs
-                const updatedTabs = composeTabsFromStorage(storedPinned, currentTabs)
+        cache.disposables.add(
+            () => {
+                const syncPinnedTabsFromStorage = (): void => {
+                    const storedPinned = getPersistedPinnedState()
+                    const currentTabs = values.tabs
+                    const updatedTabs = composeTabsFromStorage(storedPinned, currentTabs)
 
-                const previousActiveTab = currentTabs.find((tab) => tab.active)
-                const nextActiveTab = updatedTabs.find((tab) => tab.active)
+                    const previousActiveTab = currentTabs.find((tab) => tab.active)
+                    const nextActiveTab = updatedTabs.find((tab) => tab.active)
 
-                cache.skipNextPinnedSync = true
-                actions.setTabs(updatedTabs)
-                actions.setHomepage(storedPinned?.homepage ?? null)
+                    cache.skipNextPinnedSync = true
+                    actions.setTabs(updatedTabs)
+                    actions.setHomepage(storedPinned?.homepage ?? null)
 
-                if (!nextActiveTab?.pinned) {
-                    return
+                    if (!nextActiveTab?.pinned) {
+                        return
+                    }
+
+                    const location = router.values.currentLocation
+                    const pathnameChanged = nextActiveTab.pathname !== location?.pathname
+                    const searchChanged = (nextActiveTab.search ?? '') !== (location?.search ?? '')
+                    const hashChanged = (nextActiveTab.hash ?? '') !== (location?.hash ?? '')
+
+                    // When the active pinned tab changes remotely, make sure the local window navigates too.
+                    // Use replace instead of push to avoid growing the history stack in idle
+                    // tabs that receive cross-tab sync events (history state is non-heap memory).
+                    if (previousActiveTab?.id !== nextActiveTab.id || pathnameChanged || searchChanged || hashChanged) {
+                        router.actions.replace(nextActiveTab.pathname, nextActiveTab.search, nextActiveTab.hash)
+                    }
                 }
 
-                const location = router.values.currentLocation
-                const pathnameChanged = nextActiveTab.pathname !== location?.pathname
-                const searchChanged = (nextActiveTab.search ?? '') !== (location?.search ?? '')
-                const hashChanged = (nextActiveTab.hash ?? '') !== (location?.hash ?? '')
-
-                // When the active pinned tab changes remotely, make sure the local window navigates too.
-                // Use replace instead of push to avoid growing the history stack in idle
-                // tabs that receive cross-tab sync events (history state is non-heap memory).
-                if (previousActiveTab?.id !== nextActiveTab.id || pathnameChanged || searchChanged || hashChanged) {
-                    router.actions.replace(nextActiveTab.pathname, nextActiveTab.search, nextActiveTab.hash)
+                const onStorage = (event: StorageEvent): void => {
+                    if (event.key !== getStorageKey(PINNED_TAB_STATE_KEY)) {
+                        return
+                    }
+                    syncPinnedTabsFromStorage()
                 }
-            }
 
-            const onStorage = (event: StorageEvent): void => {
-                if (event.key !== getStorageKey(PINNED_TAB_STATE_KEY)) {
-                    return
-                }
                 syncPinnedTabsFromStorage()
-            }
-
-            syncPinnedTabsFromStorage()
-            window.addEventListener('storage', onStorage)
-            return () => window.removeEventListener('storage', onStorage)
-        }, 'pinnedTabsStorageListener')
+                window.addEventListener('storage', onStorage)
+                return () => window.removeEventListener('storage', onStorage)
+            },
+            'pinnedTabsStorageListener',
+            // Passive storage listener — no need to tear down/re-setup on visibility change.
+            { pauseOnPageHidden: false }
+        )
     }),
 ])

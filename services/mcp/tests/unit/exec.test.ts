@@ -199,13 +199,34 @@ describe('exec tool', () => {
         })
     })
 
+    describe('deprecated tool redirects', () => {
+        it.each([
+            ['entity-search', 'execute-sql'],
+            ['event-definitions-list', 'read-data-schema'],
+            ['properties-list', 'read-data-schema'],
+            ['property-definitions', 'read-data-schema'],
+            ['query-generate-hogql-from-question', 'execute-sql'],
+            ['query-run', 'execute-sql'],
+        ])('throws redirect when calling deprecated %s', async (deprecated, replacement) => {
+            const exec = createExec()
+            await expect(exec.handler(mockContext, { command: `call ${deprecated} {}` })).rejects.toThrow(
+                new RegExp(`removed in MCP v2[\\s\\S]*${replacement}`)
+            )
+        })
+
+        it('lists available query-* tools when query-run is called', async () => {
+            const queryTrends = makeMockTool({ name: 'query-trends', description: 'Run a trends query' })
+            const exec = createExec([queryTrends])
+            await expect(exec.handler(mockContext, { command: 'call query-run {}' })).rejects.toThrow(/query-trends/)
+        })
+    })
+
     describe('schema snapshot', () => {
         function createSnapshotContext(): Context {
             return {
                 api: {} as any,
                 cache: {} as any,
                 env: {
-                    INKEEP_API_KEY: 'test-key',
                     MCP_APPS_BASE_URL: undefined,
                     POSTHOG_ANALYTICS_API_KEY: undefined,
                     POSTHOG_ANALYTICS_HOST: undefined,
