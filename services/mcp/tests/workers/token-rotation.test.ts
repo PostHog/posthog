@@ -17,8 +17,8 @@ import type { MCP } from '@/mcp'
 // `rotateCachedApiToken` primitive, so warm-setName coverage is handled by the
 // unit tests in `tests/unit/mcp-api-caching.test.ts` — attempting to exercise
 // it end-to-end here would require full cold-start `init()` to complete, which
-// pulls in every PostHog endpoint + context-mill + MCPCat and is better
-// covered at the HTTP layer in a future test.
+// pulls in every PostHog endpoint + MCPCat and is better covered at the HTTP
+// layer in a future test.
 
 const propsFor = (apiToken: string): { userHash: string; apiToken: string; clientUserAgent: string } => ({
     userHash: 'user-hash',
