@@ -179,9 +179,10 @@
                toTimeZone(toDateTime(toUInt64(af_tuple.1), 'UTC'), 'UTC') AS entrance_period_start,
                af_tuple.2 AS success_bool,
                af_tuple.3 AS breakdown,
-               groupArray(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS user_events,
+               groupArray(tuple(timestamp, uuid, `$session_id`, `$window_id`, arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)]))) AS user_events,
                mapFromArrays(arrayMap(x -> x.2, user_events), user_events) AS user_events_map,
-               [user_events_map[af_tuple.4]] AS matching_events,
+               arrayFilter(e -> and(ifNull(notEquals(e.3, ''), 1), ifNull(greater(length(e.5), 0), 0), ifNull(lessOrEquals(e.1, (user_events_map[af_tuple.4]).1), 0)), arraySort(e -> e.1, user_events)) AS session_events,
+               [if(ifNull(greater(length(session_events), 0), 0), session_events[-1], user_events_map[af_tuple.4])] AS matching_events,
                aggregation_target AS aggregation_target
         FROM
           (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
@@ -260,9 +261,10 @@
                toTimeZone(toDateTime(toUInt64(af_tuple.1), 'UTC'), 'UTC') AS entrance_period_start,
                af_tuple.2 AS success_bool,
                af_tuple.3 AS breakdown,
-               groupArray(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS user_events,
+               groupArray(tuple(timestamp, uuid, `$session_id`, `$window_id`, arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)]))) AS user_events,
                mapFromArrays(arrayMap(x -> x.2, user_events), user_events) AS user_events_map,
-               [user_events_map[af_tuple.4]] AS matching_events,
+               arrayFilter(e -> and(ifNull(notEquals(e.3, ''), 1), ifNull(greater(length(e.5), 0), 0), ifNull(lessOrEquals(e.1, (user_events_map[af_tuple.4]).1), 0)), arraySort(e -> e.1, user_events)) AS session_events,
+               [if(ifNull(greater(length(session_events), 0), 0), session_events[-1], user_events_map[af_tuple.4])] AS matching_events,
                aggregation_target AS aggregation_target
         FROM
           (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
@@ -341,9 +343,10 @@
                toTimeZone(toDateTime(toUInt64(af_tuple.1), 'UTC'), 'UTC') AS entrance_period_start,
                af_tuple.2 AS success_bool,
                af_tuple.3 AS breakdown,
-               groupArray(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS user_events,
+               groupArray(tuple(timestamp, uuid, `$session_id`, `$window_id`, arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)]))) AS user_events,
                mapFromArrays(arrayMap(x -> x.2, user_events), user_events) AS user_events_map,
-               [user_events_map[af_tuple.4]] AS matching_events,
+               arrayFilter(e -> and(ifNull(notEquals(e.3, ''), 1), ifNull(greater(length(e.5), 0), 0), ifNull(lessOrEquals(e.1, (user_events_map[af_tuple.4]).1), 0)), arraySort(e -> e.1, user_events)) AS session_events,
+               [if(ifNull(greater(length(session_events), 0), 0), session_events[-1], user_events_map[af_tuple.4])] AS matching_events,
                aggregation_target AS aggregation_target
         FROM
           (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
