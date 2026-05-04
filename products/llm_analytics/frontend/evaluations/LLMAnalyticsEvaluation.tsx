@@ -150,9 +150,9 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
         : evaluation.evaluation_config.prompt.trim().length > 0
     const hasName = evaluation.name.length > 0
     const basicFieldsValid = hasName && configValid
-    const percentageUnset = evaluation.conditions.some((c) => c.rollout_percentage === 0)
+    const percentageUnset = evaluation.conditions.some((c) => (c.rollout_percentage ?? 0) === 0)
     const percentageOutOfRange = evaluation.conditions.some(
-        (c) => c.rollout_percentage > 100 || c.rollout_percentage < 0
+        (c) => (c.rollout_percentage ?? 0) > 100 || (c.rollout_percentage ?? 0) < 0
     )
     const hasConditions = evaluation.conditions.length > 0
     const saveButtonDisabledReason = !hasName

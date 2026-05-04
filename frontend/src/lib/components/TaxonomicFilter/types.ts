@@ -91,12 +91,6 @@ export interface TaxonomicFilterProps {
     showNumericalPropsOnly?: boolean
     dataWarehousePopoverFields?: DataWarehousePopoverField[]
     maxContextOptions?: MaxContextTaxonomicFilterOption[]
-    /**
-     * Controls the layout of taxonomic groups.
-     * When undefined (default), vertical/columnar layout is automatically used when there are more than VERTICAL_LAYOUT_THRESHOLD (4) groups.
-     * Set to true to force vertical/columnar layout, or false to force horizontal layout.
-     */
-    useVerticalLayout?: boolean
     initialSearchQuery?: string
     /** Allow users to select events that haven't been captured yet (default: false) */
     allowNonCapturedEvents?: boolean
@@ -111,7 +105,7 @@ export interface TaxonomicFilterProps {
     /** Override the "Suggested filters" tab label for specific contexts. */
     suggestedFiltersLabel?: string
     /** Hide the built-in search input when an external input drives the search query.
-     *  Note: the pill/icon category-dropdown affordance lives inside the built-in input,
+     *  Note: the pill category-dropdown affordance lives inside the built-in input,
      *  so when you hide it the host is responsible for rendering `CategoryDropdown` itself
      *  (e.g. as the suffix of its external input, under a shared `taxonomicFilterLogicKey`). */
     hideSearchInput?: boolean
@@ -324,7 +318,7 @@ export type TaxonomicDefinitionTypes =
     | MaxContextTaxonomicFilterOption
     | QuickFilterItem
 
-export const CATEGORY_DROPDOWN_VARIANTS = ['control', 'pill', 'icon'] as const
+export const CATEGORY_DROPDOWN_VARIANTS = ['control', 'pill'] as const
 
 export type CategoryDropdownVariant = (typeof CATEGORY_DROPDOWN_VARIANTS)[number]
 

@@ -1,46 +1,17 @@
+import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 import { HogFunctionSubTemplateIdType } from '~/types'
 
-export type ErrorTrackingRecommendationType = 'cross_sell' | 'alerts'
+export type ErrorTrackingRecommendationType = 'alerts' | 'long_running_issues'
 
 export interface ErrorTrackingRecommendation<TMeta extends Record<string, unknown> = Record<string, unknown>> {
     id: string
     type: ErrorTrackingRecommendationType
     meta: TMeta
+    completed: boolean
     computed_at: string | null
     dismissed_at: string | null
-    next_refresh_at: string | null
     created_at: string
     updated_at: string
-}
-
-export interface CrossSellProduct {
-    key: string
-    enabled: boolean
-}
-
-export interface CrossSellRecommendationMeta extends Record<string, unknown> {
-    products: CrossSellProduct[]
-}
-
-export type CrossSellRecommendation = ErrorTrackingRecommendation<CrossSellRecommendationMeta>
-
-export interface CrossSellProductInfo {
-    name: string
-    enable_url: string
-    reason: string
-}
-
-export const CROSS_SELL_PRODUCT_INFO: Record<string, CrossSellProductInfo> = {
-    session_replay: {
-        name: 'Session replay',
-        enable_url: '/replay/home',
-        reason: 'See what the user did right before the error happened.',
-    },
-    logs: {
-        name: 'Logs',
-        enable_url: '/logs',
-        reason: 'Jump straight to application output around the failure.',
-    },
 }
 
 export interface AlertRecommendationItem {
@@ -73,3 +44,18 @@ export const ALERT_RECOMMENDATION_INFO: Record<string, AlertRecommendationInfo> 
         reason: 'Get notified when an issue starts occurring more frequently than usual.',
     },
 }
+
+export interface LongRunningIssueItem {
+    id: string
+    name: string
+    description: string | null
+    created_at: string
+    occurrences: number
+    status: ErrorTrackingIssue['status']
+}
+
+export interface LongRunningIssuesRecommendationMeta extends Record<string, unknown> {
+    issues: LongRunningIssueItem[]
+}
+
+export type LongRunningIssuesRecommendation = ErrorTrackingRecommendation<LongRunningIssuesRecommendationMeta>

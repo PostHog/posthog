@@ -3,7 +3,8 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from posthog.resource_limits import LimitKey, check_count_limit, get_limit
+from posthog.constants import AvailableFeature
+from posthog.resource_limits import LimitKey, check_count_limit, get_limit, get_organization_limit
 from posthog.resource_limits.registry import REGISTRY, LimitDefinition
 
 
@@ -59,6 +60,43 @@ class TestCheckCountLimit(BaseTest):
                 user=None,
             )
         report.assert_not_called()
+
+
+class TestGetOrganizationLimit(BaseTest):
+    @parameterized.expand(
+        [
+            ("free_no_features", [], 10),
+            ("paid_with_subscriptions", [{"key": AvailableFeature.SUBSCRIPTIONS}], 20),
+            ("enterprise_with_saml", [{"key": AvailableFeature.SAML}], 100),
+        ]
+    )
+    def test_resolves_tiered_limit(
+        self,
+        _name: str,
+        available_product_features: list,
+        expected_limit: int,
+    ) -> None:
+        self.organization.available_product_features = available_product_features
+        self.organization.save()
+        assert (
+            get_organization_limit(
+                organization=self.organization,
+                key=LimitKey.MAX_ACTIVE_AI_SUMMARIES_PER_ORG,
+            )
+            == expected_limit
+        )
+
+    def test_falls_back_to_default_when_no_tier_overrides(self) -> None:
+        # MAX_DASHBOARDS_PER_TEAM has no by_plan_tier, so any org sees the catalog default.
+        self.organization.available_product_features = [{"key": AvailableFeature.SAML}]
+        self.organization.save()
+        assert (
+            get_organization_limit(
+                organization=self.organization,
+                key=LimitKey.MAX_DASHBOARDS_PER_TEAM,
+            )
+            == 500
+        )
 
 
 class TestRegistryShape:

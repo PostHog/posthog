@@ -5,7 +5,7 @@ import { useActions, useValues } from 'kea'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { IconArrowRight, IconCheck, IconChevronLeft, IconChevronRight, IconPlus } from '@posthog/icons'
-import { LemonButton, Link } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { Logomark } from 'lib/brand/Logomark'
 import {
@@ -22,10 +22,10 @@ import {
     SurprisedHog,
 } from 'lib/components/hedgehogs'
 import { getFeatureFlagPayload } from 'lib/logic/featureFlagLogic'
-import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { OnboardingExitAction } from '../../exit'
 import { availableOnboardingProducts, getProductIcon, toSentenceCase } from '../../utils'
 import { type RecommendationSource, productSelectionLogic } from '../productSelectionLogic'
 
@@ -303,7 +303,6 @@ export function ProductCarousel({ mode, recommendationSource }: ProductCarouselP
         setRecommendationSource,
         handleStartOnboarding,
     } = useActions(productSelectionLogic)
-    const { showInviteModal } = useActions(inviteLogic)
 
     const allProducts = Object.keys(availableOnboardingProducts) as AvailableOnboardingProductKey[]
 
@@ -719,11 +718,9 @@ export function ProductCarousel({ mode, recommendationSource }: ProductCarouselP
                             </span>
                         </div>
                         <p className="text-muted text-xs mb-2">You can always add more from Settings.</p>
-                        <p className="text-muted text-sm">
-                            Need help from a team member? <Link onClick={() => showInviteModal()}>Invite them</Link>
-                        </p>
                     </>
                 )}
+                <OnboardingExitAction />
             </div>
         </div>
     )
