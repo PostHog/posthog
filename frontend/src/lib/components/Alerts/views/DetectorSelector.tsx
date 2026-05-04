@@ -101,7 +101,7 @@ const DETECTOR_OPTIONS: Array<{ value: string; label: string; tooltip: string }>
         value: DetectorType.MAD,
         label: 'MAD',
         tooltip:
-            'Like Z-Score but uses the median instead of the mean. Choose this if your data already contains spikes you don\'t want skewing the baseline.',
+            "Like Z-Score but uses the median instead of the mean. Choose this if your data already contains spikes you don't want skewing the baseline.",
     },
     {
         value: DetectorType.OCSVM,
@@ -113,7 +113,7 @@ const DETECTOR_OPTIONS: Array<{ value: string; label: string; tooltip: string }>
         value: DetectorType.PCA,
         label: 'PCA',
         tooltip:
-            'Reduces data to its main patterns and flags points that don\'t fit. Useful when normal behavior has a few dominant trends.',
+            "Reduces data to its main patterns and flags points that don't fit. Useful when normal behavior has a few dominant trends.",
     },
     {
         value: DetectorType.THRESHOLD,
@@ -125,7 +125,7 @@ const DETECTOR_OPTIONS: Array<{ value: string; label: string; tooltip: string }>
         value: DetectorType.ZSCORE,
         label: 'Z-Score',
         tooltip:
-            'Flags points that are unusually far from the rolling average. Good general-purpose detector — start here if you\'re not sure which to pick.',
+            "Flags points that are unusually far from the rolling average. Good general-purpose detector — start here if you're not sure which to pick.",
     },
 ]
 
