@@ -6,11 +6,13 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { IconBook, IconChevronDown, IconDownload, IconX } from '@posthog/icons'
 import { LemonModal, Spinner } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
 import { DatabaseTree } from '~/layout/panel-layout/DatabaseTree/DatabaseTree'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
@@ -27,22 +29,36 @@ import {
 } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { displayLogic } from '~/queries/nodes/DataVisualization/displayLogic'
 import { applyDataVisualizationQueryUpdate } from '~/queries/nodes/DataVisualization/queryUpdateUtils'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { ViewLinkModal } from '../ViewLinkModal'
 import { editorSizingLogic } from './editorSizingLogic'
 import { QueryInfo } from './output-pane-tabs/QueryInfo'
+import { OutputPane } from './OutputPane'
 import { outputPaneLogic } from './outputPaneLogic'
 import { QueryHistoryModal } from './QueryHistoryModal'
 import { QueryWindow } from './QueryWindow'
 import { sqlEditorLogic } from './sqlEditorLogic'
 import { SQLEditorMode } from './sqlEditorModes'
 
+export enum SQLEditorPanel {
+    Full = 'full',
+    Query = 'query',
+    Output = 'output',
+}
+
 interface SQLEditorProps {
     tabId?: string
     mode?: SQLEditorMode
     showDatabaseTree?: boolean
     defaultShowDatabaseTree?: boolean
+    panel?: SQLEditorPanel
+    showOutputToolbar?: boolean
+    onRunQuery?: () => void
+    runQueryLoading?: boolean
+    runQueryDisabledReason?: string
+    runQueryTooltip?: string
 }
 
 export function SQLEditor({
@@ -50,6 +66,12 @@ export function SQLEditor({
     mode = SQLEditorMode.FullScene,
     showDatabaseTree,
     defaultShowDatabaseTree = true,
+    panel = SQLEditorPanel.Full,
+    showOutputToolbar = true,
+    onRunQuery,
+    runQueryLoading,
+    runQueryDisabledReason,
+    runQueryTooltip,
 }: SQLEditorProps): JSX.Element {
     const ref = useRef(null)
     const navigatorRef = useRef(null)
@@ -59,6 +81,10 @@ export function SQLEditor({
     const [hasShownDatabaseTree, setHasShownDatabaseTree] = useState(defaultShowDatabaseTree)
 
     const shouldShowDatabaseTree = showDatabaseTree ?? hasShownDatabaseTree
+    const showQueryPanel = panel !== SQLEditorPanel.Output
+    const showOutputPanel = panel !== SQLEditorPanel.Query
+    const showSceneTitle = panel === SQLEditorPanel.Full
+    const showDatabaseTreePanel = showQueryPanel && shouldShowDatabaseTree
 
     const editorSizingLogicProps = useMemo(
         () => ({
@@ -164,41 +190,53 @@ export function SQLEditor({
     }
 
     return (
-        <BindLogic logic={editorSizingLogic} props={editorSizingLogicProps}>
-            <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
-                <BindLogic logic={dataVisualizationLogic} props={dataVisualizationLogicProps}>
-                    <BindLogic logic={displayLogic} props={{ key: dataVisualizationLogicProps.key }}>
-                        <BindLogic logic={variablesLogic} props={variablesLogicProps}>
-                            <BindLogic logic={variableModalLogic} props={{ key: dataVisualizationLogicProps.key }}>
-                                <BindLogic logic={outputPaneLogic} props={{ tabId }}>
-                                    <BindLogic logic={sqlEditorLogic} props={{ tabId, mode, monaco, editor }}>
-                                        <VariablesQuerySync />
+        <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
+            <BindLogic logic={dataVisualizationLogic} props={dataVisualizationLogicProps}>
+                <BindLogic logic={displayLogic} props={{ key: dataVisualizationLogicProps.key }}>
+                    <BindLogic logic={variablesLogic} props={variablesLogicProps}>
+                        <BindLogic logic={variableModalLogic} props={{ key: dataVisualizationLogicProps.key }}>
+                            <BindLogic logic={outputPaneLogic} props={{ tabId }}>
+                                <BindLogic logic={sqlEditorLogic} props={{ tabId, mode, monaco, editor }}>
+                                    <VariablesQuerySync />
+                                    {panel === SQLEditorPanel.Output ? (
                                         <div className="flex h-full min-h-0 flex-col overflow-hidden">
-                                            <SQLEditorSceneTitle />
-                                            <div className="flex min-h-0 flex-1">
-                                                {shouldShowDatabaseTree && (
-                                                    <DatabaseTree databaseTreeRef={databaseTreeRef} />
-                                                )}
-                                                <div
-                                                    data-attr="editor-scene"
-                                                    className="EditorScene flex min-h-0 grow flex-row overflow-hidden"
-                                                    ref={ref}
-                                                >
-                                                    <QueryWindow
-                                                        mode={mode}
-                                                        tabId={tabId || ''}
-                                                        showDatabaseTree={shouldShowDatabaseTree}
-                                                        onShowDatabaseTree={() => setHasShownDatabaseTree(true)}
-                                                        onSetMonacoAndEditor={(nextMonaco, nextEditor) =>
-                                                            setMonacoAndEditor([nextMonaco, nextEditor])
-                                                        }
-                                                    />
+                                            <OutputPane tabId={tabId || ''} showToolbar={showOutputToolbar} />
+                                        </div>
+                                    ) : (
+                                        <BindLogic logic={editorSizingLogic} props={editorSizingLogicProps}>
+                                            <div className="flex h-full min-h-0 flex-col overflow-hidden">
+                                                {showSceneTitle ? <SQLEditorSceneTitle /> : null}
+                                                <div className="flex min-h-0 flex-1">
+                                                    {showDatabaseTreePanel && (
+                                                        <DatabaseTree databaseTreeRef={databaseTreeRef} />
+                                                    )}
+                                                    <div
+                                                        data-attr="editor-scene"
+                                                        className="EditorScene flex min-h-0 grow flex-row overflow-hidden"
+                                                        ref={ref}
+                                                    >
+                                                        <QueryWindow
+                                                            mode={mode}
+                                                            tabId={tabId || ''}
+                                                            showDatabaseTree={showDatabaseTreePanel}
+                                                            onShowDatabaseTree={() => setHasShownDatabaseTree(true)}
+                                                            showQueryPanel={showQueryPanel}
+                                                            showOutputPanel={showOutputPanel}
+                                                            onSetMonacoAndEditor={(nextMonaco, nextEditor) =>
+                                                                setMonacoAndEditor([nextMonaco, nextEditor])
+                                                            }
+                                                            onRunQuery={onRunQuery}
+                                                            runQueryLoading={runQueryLoading}
+                                                            runQueryDisabledReason={runQueryDisabledReason}
+                                                            runQueryTooltip={runQueryTooltip}
+                                                        />
+                                                    </div>
                                                 </div>
                                             </div>
-                                        </div>
-                                        <MaterializationModal tabId={tabId || ''} />
-                                        {!mode || mode === SQLEditorMode.FullScene ? <ViewLinkModal /> : null}
-                                    </BindLogic>
+                                        </BindLogic>
+                                    )}
+                                    <MaterializationModal tabId={tabId || ''} />
+                                    {!mode || mode === SQLEditorMode.FullScene ? <ViewLinkModal /> : null}
                                 </BindLogic>
                             </BindLogic>
                         </BindLogic>
@@ -268,6 +306,11 @@ function SQLEditorSceneTitle(): JSX.Element | null {
     const { response, responseError, responseLoading } = useValues(dataNodeLogic)
     const { updatingDataWarehouseSavedQuery } = useValues(dataWarehouseViewsLogic)
 
+    const saveAsViewAccessDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.WarehouseObjects,
+        AccessControlLevel.Editor
+    )
+
     const secondarySaveMenuItems = useMemo(
         () =>
             saveAsMenuItems.secondary.map((item) => ({
@@ -285,8 +328,9 @@ function SQLEditorSceneTitle(): JSX.Element | null {
 
                     saveAsView()
                 },
+                accessDisabledReason: item.action === 'view' ? saveAsViewAccessDisabledReason : undefined,
             })),
-        [saveAsEndpoint, saveAsInsight, saveAsMenuItems.secondary, saveAsView]
+        [saveAsEndpoint, saveAsInsight, saveAsMenuItems.secondary, saveAsView, saveAsViewAccessDisabledReason]
     )
 
     const onPrimarySaveClick = (): void => {
@@ -389,57 +433,65 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                 >
                                     History
                                 </LemonButton>
-                                <LemonButton
-                                    onClick={() =>
-                                        updateView({
-                                            id: editingView.id,
-                                            query: {
-                                                ...sourceQuery.source,
-                                                query: queryInput ?? '',
-                                            },
-                                            types: response && 'types' in response ? (response?.types ?? []) : [],
-                                            shouldRematerialize: isMaterializedView,
-                                            edited_history_id: inProgressViewEdits[editingView.id],
-                                        })
-                                    }
-                                    disabledReason={editingViewDisabledReason}
-                                    icon={<EditingViewButtonIcon />}
-                                    type="primary"
-                                    size="small"
-                                    sideAction={{
-                                        icon: <IconChevronDown />,
-                                        dropdown: {
-                                            placement: 'bottom-end',
-                                            overlay: (
-                                                <LemonMenuOverlay
-                                                    items={[
-                                                        {
-                                                            label: 'Save as new insight...',
-                                                            disabledReason: saveAsDisabledReason,
-                                                            onClick: () => saveAsInsight(),
-                                                        },
-                                                        {
-                                                            label: 'Save as new view...',
-                                                            disabledReason: saveAsDisabledReason,
-                                                            onClick: () => saveAsView(),
-                                                        },
-                                                        ...(featureFlags[FEATURE_FLAGS.ENDPOINTS]
-                                                            ? [
-                                                                  {
-                                                                      label: 'Save as endpoint...',
-                                                                      disabledReason: saveAsDisabledReason,
-                                                                      onClick: () => saveAsEndpoint(),
-                                                                  },
-                                                              ]
-                                                            : []),
-                                                    ]}
-                                                />
-                                            ),
-                                        },
-                                    }}
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.WarehouseObjects}
+                                    minAccessLevel={AccessControlLevel.Editor}
+                                    userAccessLevel={editingView.user_access_level}
                                 >
-                                    {isMaterializedView ? 'Update and re-materialize view' : 'Update view'}
-                                </LemonButton>
+                                    <LemonButton
+                                        onClick={() =>
+                                            updateView({
+                                                id: editingView.id,
+                                                query: {
+                                                    ...sourceQuery.source,
+                                                    query: queryInput ?? '',
+                                                },
+                                                types: response && 'types' in response ? (response?.types ?? []) : [],
+                                                shouldRematerialize: isMaterializedView,
+                                                edited_history_id: inProgressViewEdits[editingView.id],
+                                            })
+                                        }
+                                        disabledReason={editingViewDisabledReason}
+                                        icon={<EditingViewButtonIcon />}
+                                        type="primary"
+                                        size="small"
+                                        sideAction={{
+                                            icon: <IconChevronDown />,
+                                            dropdown: {
+                                                placement: 'bottom-end',
+                                                overlay: (
+                                                    <LemonMenuOverlay
+                                                        items={[
+                                                            {
+                                                                label: 'Save as new insight...',
+                                                                disabledReason: saveAsDisabledReason,
+                                                                onClick: () => saveAsInsight(),
+                                                            },
+                                                            {
+                                                                label: 'Save as new view...',
+                                                                disabledReason:
+                                                                    saveAsDisabledReason ??
+                                                                    saveAsViewAccessDisabledReason,
+                                                                onClick: () => saveAsView(),
+                                                            },
+                                                            ...(featureFlags[FEATURE_FLAGS.ENDPOINTS]
+                                                                ? [
+                                                                      {
+                                                                          label: 'Save as endpoint...',
+                                                                          disabledReason: saveAsDisabledReason,
+                                                                          onClick: () => saveAsEndpoint(),
+                                                                      },
+                                                                  ]
+                                                                : []),
+                                                        ]}
+                                                    />
+                                                ),
+                                            },
+                                        }}
+                                    >
+                                        {isMaterializedView ? 'Update and re-materialize view' : 'Update view'}
+                                    </LemonButton>
+                                </AccessControlAction>
                                 <LemonButton
                                     onClick={() => closeEditingObject()}
                                     icon={<IconX />}
@@ -477,7 +529,8 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                                         },
                                                         {
                                                             label: 'Save as new view...',
-                                                            disabledReason: saveAsDisabledReason,
+                                                            disabledReason:
+                                                                saveAsDisabledReason ?? saveAsViewAccessDisabledReason,
                                                             onClick: () => saveAsView(),
                                                         },
                                                         ...(featureFlags[FEATURE_FLAGS.ENDPOINTS]
@@ -522,7 +575,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                             <LemonMenuOverlay
                                                 items={secondarySaveMenuItems.map((item) => ({
                                                     ...item,
-                                                    disabledReason: saveAsDisabledReason,
+                                                    disabledReason: saveAsDisabledReason ?? item.accessDisabledReason,
                                                 }))}
                                             />
                                         ),

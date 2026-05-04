@@ -29,37 +29,35 @@ export class CdpDatawarehouseEventsConsumer extends CdpEventsConsumer {
 
     @instrumented('cdpConsumer.handleEachBatch.parseKafkaMessages')
     public override async _parseKafkaBatch(messages: Message[]): Promise<HogFunctionInvocationGlobals[]> {
-        return await this.runWithHeartbeat(async () => {
-            const events: HogFunctionInvocationGlobals[] = []
+        const events: HogFunctionInvocationGlobals[] = []
 
-            await Promise.all(
-                messages.map(async (message) => {
-                    try {
-                        const kafkaEvent = parseJSON(message.value!.toString()) as unknown
-                        const event = CdpDataWarehouseEventSchema.parse(kafkaEvent)
+        await Promise.all(
+            messages.map(async (message) => {
+                try {
+                    const kafkaEvent = parseJSON(message.value!.toString()) as unknown
+                    const event = CdpDataWarehouseEventSchema.parse(kafkaEvent)
 
-                        const [teamHogFunctions, teamHogFlows, team] = await Promise.all([
-                            this.hogFunctionManager.getHogFunctionsForTeam(event.team_id, this.hogTypes),
-                            this.hogFlowManager.getHogFlowsForTeam(event.team_id),
-                            this.deps.teamManager.getTeam(event.team_id),
-                        ])
+                    const [teamHogFunctions, teamHogFlows, team] = await Promise.all([
+                        this.hogFunctionManager.getHogFunctionsForTeam(event.team_id, this.hogTypes),
+                        this.hogFlowManager.getHogFlowsForTeam(event.team_id),
+                        this.deps.teamManager.getTeam(event.team_id),
+                    ])
 
-                        if ((!teamHogFunctions.length && !teamHogFlows.length) || !team) {
-                            return
-                        }
-
-                        events.push(
-                            convertDataWarehouseEventToHogFunctionInvocationGlobals(event, team, this.config.SITE_URL)
-                        )
-                    } catch (e) {
-                        logger.error('Error parsing message', e)
-                        counterParseError.labels({ error: e.message }).inc()
+                    if ((!teamHogFunctions.length && !teamHogFlows.length) || !team) {
+                        return
                     }
-                })
-            )
 
-            return events
-        })
+                    events.push(
+                        convertDataWarehouseEventToHogFunctionInvocationGlobals(event, team, this.config.SITE_URL)
+                    )
+                } catch (e) {
+                    logger.error('Error parsing message', e)
+                    counterParseError.labels({ error: e.message }).inc()
+                }
+            })
+        )
+
+        return events
     }
 }
 

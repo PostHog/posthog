@@ -111,6 +111,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str]]:
         "StaticDevice",
         "TOTPDevice",
         "UserSocialAuth",
+        "UserIntegration",
         "MCPOAuthState",
         "MCPServerTemplate",
         "MCPServerInstallationTool",

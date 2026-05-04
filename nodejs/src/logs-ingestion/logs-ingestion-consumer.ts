@@ -1,4 +1,6 @@
+import { trace } from '@opentelemetry/api'
 import { Message } from 'node-rdkafka'
+import pLimit from 'p-limit'
 import { Counter } from 'prom-client'
 
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
@@ -7,6 +9,7 @@ import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
 import { AppMetricsOutput } from '~/ingestion/common/outputs'
 import { IngestionOutputs } from '~/ingestion/outputs/ingestion-outputs'
+import type { LogsSettings } from '~/types'
 
 import { KafkaConsumer, parseKafkaHeaders } from '../kafka/consumer'
 import { HealthCheckResult, PluginServerService } from '../types'
@@ -17,12 +20,17 @@ import { LogsIngestionConsumerConfig } from './config'
 import { type PiiScrubStats } from './log-pii-scrub'
 import { processLogMessageBuffer } from './log-record-avro'
 import { LOGS_DLQ_OUTPUT, LOGS_OUTPUT, LogsDlqOutput, LogsOutput } from './outputs/outputs'
+import type { CompiledRuleSet } from './sampling/evaluate'
+import { processBufferWithSampling } from './sampling/process-buffer-with-sampling'
+import { SamplingRulesCache } from './sampling/sampling-rules-cache'
 import { LogsRateLimiterService } from './services/logs-rate-limiter.service'
 import { LogsIngestionMessage } from './types'
 
 export interface LogsIngestionConsumerDeps {
     teamManager: TeamManager
     quotaLimiting: QuotaLimiting
+    /** When set, enabled teams may run head sampling before ClickHouse Kafka produce. */
+    samplingRulesCache?: SamplingRulesCache
     /**
      * Resolved outputs registry — must include `LOGS_OUTPUT`, `LOGS_DLQ_OUTPUT`,
      * and `APP_METRICS_OUTPUT`. The producer + topic for each is wired by the
@@ -40,6 +48,8 @@ export type UsageStats = {
     bytesDropped: number
     recordsDropped: number
     piiReplacements: number
+    /** Log lines dropped by head sampling / drop rules (not quota or rate limit). */
+    samplingRecordsDropped: number
 }
 
 const DEFAULT_USAGE_STATS: UsageStats = {
@@ -50,12 +60,16 @@ const DEFAULT_USAGE_STATS: UsageStats = {
     bytesDropped: 0,
     recordsDropped: 0,
     piiReplacements: 0,
+    samplingRecordsDropped: 0,
 }
 
 export type UsageStatsByTeam = Map<number, UsageStats>
 
 /** Ingestion default when `logs_settings.retention_days` is unset; must be in `TeamSerializer.VALID_RETENTION_DAYS`. */
 export const DEFAULT_LOGS_RETENTION_DAYS = 14
+
+/** Cap concurrent per-message processing within a single kafka batch. */
+const MAX_CONCURRENT_MESSAGE_PROCESSES = 50
 
 export const logMessageDroppedCounter = new Counter({
     name: 'logs_ingestion_message_dropped_count',
@@ -101,12 +115,20 @@ export const logsRecordsDroppedCounter = new Counter({
     labelNames: ['team_id'],
 })
 
+export const logsSamplingRecordsDroppedCounter = new Counter({
+    name: 'logs_ingestion_sampling_records_dropped_total',
+    help: 'Log records dropped by head sampling rules',
+    labelNames: ['team_id'],
+})
+
 export class LogsIngestionConsumer {
     protected name = 'LogsIngestionConsumer'
     protected kafkaConsumer: KafkaConsumer
     private appMetricsAggregator: AppMetricsAggregator
     private redis: RedisV2
     private rateLimiter: LogsRateLimiterService
+    private readonly samplingEnabledTeamsRaw: string
+    private readonly samplingKillswitch: boolean
 
     protected groupId: string
     protected topic: string
@@ -140,6 +162,100 @@ export class LogsIngestionConsumer {
             poolMaxSize: config.REDIS_POOL_MAX_SIZE,
         })
         this.rateLimiter = new LogsRateLimiterService(config, this.redis)
+        this.samplingEnabledTeamsRaw = overrides.LOGS_SAMPLING_ENABLED_TEAMS ?? config.LOGS_SAMPLING_ENABLED_TEAMS
+        this.samplingKillswitch = overrides.LOGS_SAMPLING_KILLSWITCH ?? config.LOGS_SAMPLING_KILLSWITCH
+    }
+
+    private isSamplingEvalEnabledForTeam(teamId: number): boolean {
+        if (this.samplingKillswitch) {
+            return false
+        }
+        const raw = (this.samplingEnabledTeamsRaw || '').trim()
+        if (!raw) {
+            return false
+        }
+        if (raw === '*') {
+            return true
+        }
+        return raw
+            .split(',')
+            .map((s) => parseInt(s.trim(), 10))
+            .filter((n) => !Number.isNaN(n))
+            .includes(teamId)
+    }
+
+    /**
+     * Decode + optional head sampling, or passthrough `processLogMessageBuffer`.
+     * `sampling_all_dropped` means do not enqueue to logs output (message fully sampled out).
+     */
+    private async resolveLogMessageBufferWithOptionalSampling(
+        message: LogsIngestionMessage,
+        logsSettings: LogsSettings
+    ): Promise<
+        | {
+              outcome: 'produce'
+              processedValue: Buffer
+              pii: PiiScrubStats
+              recordsDropped: number
+              recordsDroppedByRuleId: Map<string, number>
+          }
+        | {
+              outcome: 'sampling_all_dropped'
+              pii: PiiScrubStats
+              recordsDropped: number
+              recordsDroppedByRuleId: Map<string, number>
+          }
+    > {
+        const samplingCache = this.deps.samplingRulesCache
+        const samplingEvalEnabled = this.isSamplingEvalEnabledForTeam(message.teamId)
+        let ruleSet: CompiledRuleSet | null = null
+        if (samplingCache && samplingEvalEnabled) {
+            ruleSet = await samplingCache.getCompiledRuleSet(message.teamId)
+        }
+        const useSamplingPipeline = Boolean(ruleSet && ruleSet.rules.length > 0)
+
+        trace.getActiveSpan()?.setAttributes({
+            'logs.sampling.killswitch': this.samplingKillswitch,
+            'logs.sampling.enabled_teams_configured': Boolean((this.samplingEnabledTeamsRaw || '').trim()),
+            'logs.sampling.enabled_teams_is_wildcard': (this.samplingEnabledTeamsRaw || '').trim() === '*',
+            'logs.sampling.cache_present': Boolean(samplingCache),
+            'logs.sampling.eval_enabled_for_team': samplingEvalEnabled,
+            'logs.sampling.compiled_rule_count': ruleSet?.rules.length ?? 0,
+            'logs.sampling.pipeline': useSamplingPipeline
+                ? 'decode_sample_encode'
+                : 'passthrough_processLogMessageBuffer',
+        })
+
+        if (useSamplingPipeline && ruleSet) {
+            const sampled = await processBufferWithSampling(message.message.value!, logsSettings, ruleSet)
+            if (sampled.recordsDropped > 0) {
+                logsSamplingRecordsDroppedCounter.inc({ team_id: message.teamId.toString() }, sampled.recordsDropped)
+            }
+            if (sampled.allDropped) {
+                return {
+                    outcome: 'sampling_all_dropped',
+                    pii: sampled.pii,
+                    recordsDropped: sampled.recordsDropped,
+                    recordsDroppedByRuleId: sampled.recordsDroppedByRuleId,
+                }
+            }
+            return {
+                outcome: 'produce',
+                processedValue: sampled.value,
+                pii: sampled.pii,
+                recordsDropped: sampled.recordsDropped,
+                recordsDroppedByRuleId: sampled.recordsDroppedByRuleId,
+            }
+        }
+
+        const res = await processLogMessageBuffer(message.message.value!, logsSettings)
+        return {
+            outcome: 'produce',
+            processedValue: res.value,
+            pii: res.pii,
+            recordsDropped: 0,
+            recordsDroppedByRuleId: new Map(),
+        }
     }
 
     public get service(): PluginServerService {
@@ -243,6 +359,15 @@ export class LogsIngestionConsumer {
         usage.set(teamId, row)
     }
 
+    private addSamplingRecordsDroppedIntoUsage(usage: UsageStatsByTeam, teamId: number, count: number): void {
+        if (count === 0) {
+            return
+        }
+        const row = usage.get(teamId) || { ...DEFAULT_USAGE_STATS }
+        row.samplingRecordsDropped += count
+        usage.set(teamId, row)
+    }
+
     private async filterQuotaLimitedMessages(
         messages: LogsIngestionMessage[]
     ): Promise<{ quotaAllowedMessages: LogsIngestionMessage[]; quotaDroppedMessages: LogsIngestionMessage[] }> {
@@ -301,46 +426,70 @@ export class LogsIngestionConsumer {
         messages: LogsIngestionMessage[],
         usageStats: UsageStatsByTeam
     ): Promise<void> {
+        const limit = pLimit(MAX_CONCURRENT_MESSAGE_PROCESSES)
         const results = await Promise.allSettled(
-            messages.map(async (message) => {
-                try {
-                    // Fetch team to get logs_settings
-                    const team = await this.deps.teamManager.getTeam(message.teamId)
-                    const logsSettings = team?.logs_settings || {}
+            messages.map((message) =>
+                limit(async () => {
+                    try {
+                        // Fetch team to get logs_settings
+                        const team = await this.deps.teamManager.getTeam(message.teamId)
+                        const logsSettings = team?.logs_settings || {}
 
-                    // Extract settings with defaults
-                    const jsonParse = logsSettings.json_parse_logs ?? false
-                    const retentionDays = logsSettings.retention_days ?? DEFAULT_LOGS_RETENTION_DAYS
+                        // Extract settings with defaults
+                        const jsonParse = logsSettings.json_parse_logs ?? false
+                        const retentionDays = logsSettings.retention_days ?? DEFAULT_LOGS_RETENTION_DAYS
 
-                    // ignore empty messages
-                    if (message.message.value === null) {
-                        return Promise.resolve()
-                    }
-                    const { value: processedValue, pii } = await processLogMessageBuffer(
-                        message.message.value,
-                        logsSettings
-                    )
-                    this.addPiiStatsIntoUsage(usageStats, message.teamId, pii)
-
-                    // Await so a rejection here lands in the catch and routes to the DLQ.
-                    await this.deps.outputs.queueMessages(LOGS_OUTPUT, [
-                        {
-                            value: processedValue,
-                            key: null,
-                            headers: {
-                                ...parseKafkaHeaders(message.message.headers),
-                                token: message.token,
-                                team_id: message.teamId.toString(),
-                                'json-parse': jsonParse.toString(),
-                                'retention-days': retentionDays.toString(),
+                        // ignore empty messages
+                        if (message.message.value === null) {
+                            return Promise.resolve()
+                        }
+                        const resolved = await instrumentFn(
+                            {
+                                key: 'logsIngestion.sampling.resolveLogMessageBuffer',
+                                measureTime: false,
+                                sendException: false,
+                                getLoggingContext: () => ({
+                                    team_id: message.teamId,
+                                    inbound_bytes: message.message.value?.length ?? 0,
+                                }),
                             },
-                        },
-                    ])
-                } catch (error) {
-                    await this.produceToDlq(message, error)
-                    throw error
-                }
-            })
+                            async () => this.resolveLogMessageBufferWithOptionalSampling(message, logsSettings)
+                        )
+                        if (resolved.outcome === 'sampling_all_dropped') {
+                            logMessageDroppedCounter.inc(
+                                { reason: 'sampling_all_dropped', team_id: message.teamId.toString() },
+                                1
+                            )
+                            this.addPiiStatsIntoUsage(usageStats, message.teamId, resolved.pii)
+                            this.addSamplingRecordsDroppedIntoUsage(usageStats, message.teamId, resolved.recordsDropped)
+                            this.queueSamplingRecordsDroppedByRule(message.teamId, resolved.recordsDroppedByRuleId)
+                            return Promise.resolve()
+                        }
+                        const { processedValue, pii, recordsDropped, recordsDroppedByRuleId } = resolved
+                        this.addPiiStatsIntoUsage(usageStats, message.teamId, pii)
+                        this.addSamplingRecordsDroppedIntoUsage(usageStats, message.teamId, recordsDropped)
+                        this.queueSamplingRecordsDroppedByRule(message.teamId, recordsDroppedByRuleId)
+
+                        // Await so a rejection here lands in the catch and routes to the DLQ.
+                        await this.deps.outputs.queueMessages(LOGS_OUTPUT, [
+                            {
+                                value: processedValue,
+                                key: null,
+                                headers: {
+                                    ...parseKafkaHeaders(message.message.headers),
+                                    token: message.token,
+                                    team_id: message.teamId.toString(),
+                                    'json-parse': jsonParse.toString(),
+                                    'retention-days': retentionDays.toString(),
+                                },
+                            },
+                        ])
+                    } catch (error) {
+                        await this.produceToDlq(message, error)
+                        throw error
+                    }
+                })
+            )
         )
 
         const failures = results.filter((r) => r.status === 'rejected')
@@ -382,10 +531,6 @@ export class LogsIngestionConsumer {
     }
 
     private async emitUsageMetrics(usageStats: UsageStatsByTeam): Promise<void> {
-        if (usageStats.size === 0) {
-            return
-        }
-
         for (const [teamId, stats] of usageStats) {
             this.queueUsageMetric(teamId, 'bytes_received', stats.bytesReceived)
             this.queueUsageMetric(teamId, 'records_received', stats.recordsReceived)
@@ -394,6 +539,7 @@ export class LogsIngestionConsumer {
             this.queueUsageMetric(teamId, 'bytes_dropped', stats.bytesDropped)
             this.queueUsageMetric(teamId, 'records_dropped', stats.recordsDropped)
             this.queueUsageMetric(teamId, 'pii_replacements', stats.piiReplacements)
+            this.queueUsageMetric(teamId, 'sampling_records_dropped', stats.samplingRecordsDropped)
         }
 
         // Best-effort: don't let metric failures block ingestion
@@ -417,6 +563,24 @@ export class LogsIngestionConsumer {
             metric_name: metricName,
             count,
         })
+    }
+
+    /** Per-rule head sampling drops; `instance_id` is the LogsExclusionRule UUID (app_metrics2 dimension). */
+    private queueSamplingRecordsDroppedByRule(teamId: number, byRule: Map<string, number>): void {
+        for (const [ruleId, count] of byRule) {
+            if (count <= 0) {
+                continue
+            }
+            this.appMetricsAggregator.queue({
+                team_id: teamId,
+                app_source: 'logs',
+                app_source_id: '',
+                instance_id: ruleId,
+                metric_kind: 'usage',
+                metric_name: 'sampling_records_dropped_by_rule',
+                count,
+            })
+        }
     }
 
     @instrumented('logsIngestionConsumer.handleEachBatch.parseKafkaMessages')

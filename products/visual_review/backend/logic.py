@@ -7,15 +7,17 @@ Called by api/api.py facade. Do not call from outside this module.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING
 from uuid import UUID
 
 from django.db import (
+    connections,
     models as db_models,
     transaction,
 )
-from django.db.models import Count, F, Q
+from django.db.models import Avg, Count, F, Q
 from django.utils import timezone
 
 import structlog
@@ -23,10 +25,11 @@ import structlog
 if TYPE_CHECKING:
     from posthog.models.integration import GitHubIntegration
 
+from posthog.models.integration import GitHubRateLimitError
+
 from .classifier import SnapshotClassifier
-from .db import WRITER_DB
+from .db import READER_DB, WRITER_DB
 from .facade.enums import ReviewDecision, ReviewState, RunPurpose, RunStatus, SnapshotResult, ToleratedReason
-from .github import GitHubRateLimitError  # noqa: F401 — re-exported for facade
 from .models import Artifact, QuarantinedIdentifier, Repo, Run, RunSnapshot, ToleratedHash
 from .signing import sign_snapshot_hash, verify_signed_hash
 from .storage import ArtifactStorage
@@ -237,15 +240,32 @@ REVIEW_STATE_FILTERS: dict[str, Q] = {
 }
 
 
-def list_runs_for_team(team_id: int, review_state: str | None = None) -> db_models.QuerySet[Run]:
+def list_runs_for_team(
+    team_id: int,
+    review_state: str | None = None,
+    repo_id: UUID | None = None,
+    pr_number: int | None = None,
+    commit_sha: str | None = None,
+    branch: str | None = None,
+) -> db_models.QuerySet[Run]:
     qs = Run.objects.filter(team_id=team_id).select_related("repo").order_by("-created_at")
+    if repo_id is not None:
+        qs = qs.filter(repo_id=repo_id)
     if review_state and review_state in REVIEW_STATE_FILTERS:
         qs = qs.filter(REVIEW_STATE_FILTERS[review_state])
+    if pr_number is not None:
+        qs = qs.filter(pr_number=pr_number)
+    if commit_sha:
+        qs = qs.filter(commit_sha=commit_sha)
+    if branch:
+        qs = qs.filter(branch=branch)
     return qs
 
 
-def get_review_state_counts(team_id: int) -> dict[str, int]:
+def get_review_state_counts(team_id: int, repo_id: UUID | None = None) -> dict[str, int]:
     qs = Run.objects.filter(team_id=team_id)
+    if repo_id is not None:
+        qs = qs.filter(repo_id=repo_id)
     return qs.aggregate(
         needs_review=Count("id", filter=REVIEW_STATE_FILTERS["needs_review"]),
         clean=Count("id", filter=REVIEW_STATE_FILTERS["clean"]),
@@ -360,7 +380,7 @@ def _get_merge_base_sha(github: GitHubIntegration, repo_full_name: str, base: st
 
     from .github import github_request
 
-    access_token = github.integration.sensitive_config["access_token"]
+    access_token = github.get_access_token()
     try:
         response = github_request(
             "GET",
@@ -399,7 +419,7 @@ def _get_default_branch(github: GitHubIntegration, repo_full_name: str) -> str:
 
     from .github import github_request
 
-    access_token = github.integration.sensitive_config["access_token"]
+    access_token = github.get_access_token()
     try:
         response = github_request(
             "GET",
@@ -1148,7 +1168,7 @@ def _resolve_repo_by_id(github, repo_external_id: int) -> str | None:
     """
     from .github import github_request
 
-    access_token = github.integration.sensitive_config["access_token"]
+    access_token = github.get_access_token()
     response = github_request(
         "GET",
         f"https://api.github.com/repositories/{repo_external_id}",
@@ -1181,10 +1201,7 @@ def _github_api_request(
     safe_path = "/".join(quote(segment, safe="") for segment in path.split("/"))
 
     github = get_github_integration_for_repo(repo)
-    if github.access_token_expired():
-        github.refresh_access_token()
-
-    access_token = github.integration.sensitive_config["access_token"]
+    access_token = github.get_access_token()
 
     url = f"https://api.github.com/repos/{repo.repo_full_name}/{safe_path}"
     response = github_request(method, url, access_token=access_token, **kwargs)
@@ -1215,7 +1232,7 @@ def _get_pr_info(github, repo_full_name: str, pr_number: int) -> dict:
     """
     from .github import github_request
 
-    access_token = github.integration.sensitive_config["access_token"]
+    access_token = github.get_access_token()
 
     response = github_request(
         "GET",
@@ -1250,7 +1267,7 @@ def _fetch_baseline_file(
 
     from .github import github_request
 
-    access_token = github.integration.sensitive_config["access_token"]
+    access_token = github.get_access_token()
 
     response = github_request(
         "GET",
@@ -1355,7 +1372,7 @@ def _post_commit_status(
         logger.debug("visual_review.status_check_skipped", run_id=str(run.id), reason="no_github_integration")
         return
 
-    access_token = github.integration.sensitive_config["access_token"]
+    access_token = github.get_access_token()
     target_url = f"{settings.SITE_URL}/project/{repo.team_id}/visual_review/runs/{run.id}"
 
     try:
@@ -1383,7 +1400,25 @@ def _post_commit_status(
         logger.warning("visual_review.status_check_error", run_id=str(run.id), exc_info=True)
 
 
-def _commit_baseline_to_github(run: Run, repo: Repo, approved_snapshots: list[dict]) -> dict:
+def _get_coauthor_trailer(user_id: int, installation_id: str) -> str | None:
+    """Return a `Co-authored-by` trailer for the approver, if they have a personal
+    GitHub integration for the same installation. Returns None when no match exists.
+    """
+    from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
+
+    user_integration = UserIntegration.objects.filter(
+        user_id=user_id,
+        kind=UserIntegration.IntegrationKind.GITHUB,
+        integration_id=installation_id,
+    ).first()
+    if user_integration is None:
+        return None
+    return UserGitHubIntegration(user_integration).coauthor_trailer
+
+
+def _commit_baseline_to_github(
+    run: Run, repo: Repo, approved_snapshots: list[dict], approver_user_id: int | None = None
+) -> dict:
     """
     Commit updated baseline file to GitHub.
 
@@ -1436,6 +1471,12 @@ def _commit_baseline_to_github(run: Run, repo: Repo, approved_snapshots: list[di
         parts.append(f"{removed_count} removed")
     summary = ", ".join(parts)
     commit_message = f"chore(visual): update {run.run_type} baselines\n\n{summary}\nRun: {run.id}"
+
+    installation_id = github.integration.integration_id
+    if approver_user_id is not None and isinstance(installation_id, str) and installation_id:
+        trailer = _get_coauthor_trailer(approver_user_id, installation_id)
+        if trailer:
+            commit_message = f"{commit_message}\n\n{trailer}"
 
     result = github.update_file(
         repository=repo_name,
@@ -1685,7 +1726,7 @@ def approve_run(
 
     # Commit to GitHub first — do this before DB changes so we can fail cleanly
     if commit_to_github and run.pr_number and repo.repo_full_name:
-        _commit_baseline_to_github(run, repo, approved_snapshots)
+        _commit_baseline_to_github(run, repo, approved_snapshots, approver_user_id=user_id)
 
     # Mark approved snapshots
     now = timezone.now()
@@ -1746,6 +1787,38 @@ def _validate_approval(run: Run, approvals: dict[str, str]) -> None:
 # --- Snapshot Operations ---
 
 
+def get_thumbnail_hash_for_identifier(repo_id: UUID, identifier: str) -> str | None:
+    """Look up the thumbnail content hash for a snapshot identifier.
+
+    Finds the most recent artifact with a thumbnail for this identifier
+    across all runs. Returns the thumbnail's content_hash or None.
+    """
+    snapshot = (
+        RunSnapshot.objects.filter(
+            run__repo_id=repo_id,
+            identifier=identifier,
+            current_artifact__thumbnail__isnull=False,
+        )
+        .select_related("current_artifact__thumbnail")
+        .order_by("-run__created_at")
+        .first()
+    )
+
+    if snapshot is None:
+        return None
+
+    artifact = snapshot.current_artifact
+    if artifact is None or artifact.thumbnail is None:
+        return None
+
+    return artifact.thumbnail.content_hash
+
+
+def read_thumbnail_bytes(repo_id: UUID, content_hash: str) -> bytes | None:
+    storage = ArtifactStorage(str(repo_id))
+    return storage.read(content_hash)
+
+
 def get_run_snapshots(run_id: UUID, team_id: int | None = None) -> list[RunSnapshot]:
     run = get_run(run_id, team_id=team_id)
     return list(
@@ -1759,26 +1832,400 @@ def get_run_snapshots(run_id: UUID, team_id: int | None = None) -> list[RunSnaps
     )
 
 
-def get_snapshot_history(repo_id: UUID, identifier: str, limit: int = 15) -> list[dict]:
-    """Recent runs where this snapshot identifier appeared, most recent first."""
-    entries = (
-        RunSnapshot.objects.filter(
-            run__repo_id=repo_id,
-            identifier=identifier,
+# Default-branch fallback. We don't track repos' actual default branch, so we
+# include both candidates and assume nobody has both — whichever has rows wins.
+# When `trunk`/`develop`-style defaults show up, this becomes a `Repo` field.
+_DEFAULT_BRANCHES = ("master", "main")
+
+
+_SNAPSHOT_HISTORY_DEDUP_SQL = """
+WITH ordered AS (
+    SELECT rs.id,
+           rs.baseline_artifact_id,
+           LAG(rs.baseline_artifact_id) OVER (ORDER BY r.created_at) AS prev_baseline_id,
+           r.created_at
+    FROM visual_review_runsnapshot rs
+    JOIN visual_review_run r ON r.id = rs.run_id
+    WHERE r.repo_id = %s
+      AND r.run_type = %s
+      AND r.branch = ANY(%s)
+      AND r.status = 'completed'
+      AND rs.identifier = %s
+)
+SELECT id
+FROM ordered
+WHERE prev_baseline_id IS DISTINCT FROM baseline_artifact_id
+ORDER BY created_at DESC
+"""
+
+
+def get_snapshot_history(repo_id: UUID, identifier: str, run_type: str) -> list[RunSnapshot]:
+    """Baseline timeline for a snapshot identifier on the default branch.
+
+    Returns one entry per *baseline transition* — every time the committed
+    `.snapshots.yml` baseline actually moved. LAG-on-`baseline_artifact_id`
+    (over ASC ordering) keeps the FIRST run of each baseline period, so the
+    user sees the inception event plus every change since.
+
+    Why LAG on `baseline_artifact_id` and not `current_artifact_id`:
+      - `current_artifact_id` is the bytes captured by THIS run. Pixel jitter
+        and tolerated drift produce different content_hash → different Artifact
+        rows even though the *baseline* didn't move. Keying on current_ caused
+        a prod regression (252 fake history events on a single tolerated-drift
+        story) because the artifact alternated between near-identical hashes
+        the matcher kept absorbing. LAG-on-current-with-result-filter (the
+        prior fix) hid those false events but also hid genuine first-appearance
+        rows whose `result=unchanged` against an existing YAML baseline.
+      - `baseline_artifact_id` reflects the YAML state at run time. It only
+        changes when a baseline-update PR merges. Pixel jitter and tolerated
+        drift leave it untouched, so LAG dedup naturally collapses noise while
+        catching every real baseline flip — without needing a `result` filter.
+
+    DB-level filters:
+      - branch ∈ master/main, run_type, repo: scope to default-branch runs of
+        this kind
+      - status=completed: drop pre-classification rows where the baseline FK
+        hasn't been hydrated yet (pending/processing leave NULL baseline_artifact)
+    """
+    with connections[READER_DB].cursor() as cursor:
+        cursor.execute(
+            _SNAPSHOT_HISTORY_DEDUP_SQL,
+            [str(repo_id), run_type, list(_DEFAULT_BRANCHES), identifier],
         )
-        .select_related("run")
-        .order_by("-run__created_at")[:limit]
+        ordered_ids: list[UUID] = [row[0] for row in cursor.fetchall()]
+
+    if not ordered_ids:
+        return []
+
+    # `id__in` doesn't preserve order, so look rows up by id and re-emit in the
+    # cursor's order. Fetched count equals the deduped baseline-event count
+    # (typically <20), so this hydration is cheap regardless of raw history size.
+    rows_by_id: dict[UUID, RunSnapshot] = {
+        row.id: row for row in RunSnapshot.objects.filter(id__in=ordered_ids).select_related("run", "current_artifact")
+    }
+    return [rows_by_id[rid] for rid in ordered_ids if rid in rows_by_id]
+
+
+def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
+    """Universe of identifiers with a current baseline, plus aggregates.
+
+    The "current baseline" universe is anchored on the latest non-superseded run
+    on the default branch (master/main) for each `run_type`. One row per
+    `(run_type, identifier)` — the closest thing to "what we'd compare a new
+    capture against right now".
+
+    Performance shape:
+      - 1 query for the universe runs (one row per run_type, indexed)
+      - 1 query for the universe rows (with thumbnail + artifact prefetch)
+      - 2 grouped queries for tolerate counts (30d + 90d)
+      - 1 grouped query for active quarantines
+      - 1 grouped query for lifetime baseline-flip count
+      - 2 queries for the recent-drift average (resolve last-N runs, aggregate)
+      - 3 cheap aggregate queries for totals
+    """
+    from collections import Counter
+    from datetime import timedelta
+
+    from .facade.contracts import BASELINE_DRIFT_RECENT_RUN_COUNT, BASELINE_OVERVIEW_MAX_ENTRIES
+
+    now = timezone.now()
+
+    # 1. Find the latest *completed* run on the default branch per (repo,
+    # branch, run_type). Filtering on `superseded_by IS NULL` looks tempting
+    # but is wrong here: a freshly started PENDING/PROCESSING master run is
+    # un-superseded yet has zero (or sparse) RunSnapshots ingested, and would
+    # collapse the universe to whatever it has loaded so far. `status=completed`
+    # makes the universe fall through to the most recent fully-ingested run.
+    universe_runs = list(
+        Run.objects.filter(
+            repo_id=repo_id,
+            branch__in=_DEFAULT_BRANCHES,
+            status=RunStatus.COMPLETED,
+        )
+        .order_by("repo_id", "branch", "run_type", "-created_at")
+        .distinct("repo_id", "branch", "run_type")
+        .only("id", "run_type", "completed_at", "created_at")
     )
-    return [
-        {
-            "run_id": entry.run_id,
-            "result": entry.result,
-            "branch": entry.run.branch,
-            "commit_sha": entry.run.commit_sha,
-            "created_at": entry.run.created_at,
+    universe_run_ids = [r.id for r in universe_runs]
+    if not universe_run_ids:
+        return _BaselineOverviewRaw(
+            entries=[],
+            tolerate_30d_by_id={},
+            tolerate_90d_by_id={},
+            quarantined_ids=set(),
+            change_count_by_key={},
+            recent_drift_by_key={},
+            totals_all=0,
+            totals_recent=0,
+            totals_frequent=0,
+            totals_quarantined=0,
+            by_run_type={},
+            truncated=False,
+            generated_at=now,
+        )
+
+    # 2. Pull the universe rows. select_related the chain we need for thumbnails.
+    universe_qs = (
+        RunSnapshot.objects.filter(run_id__in=universe_run_ids)
+        .select_related("run", "current_artifact__thumbnail")
+        .only(
+            "identifier",
+            "metadata",
+            "run__id",
+            "run__run_type",
+            "run__completed_at",
+            "run__created_at",
+            "current_artifact__width",
+            "current_artifact__height",
+            "current_artifact__thumbnail__content_hash",
+        )
+        # Stable ordering so truncation is deterministic; newest baselines first.
+        .order_by("-run__completed_at", "identifier")
+    )
+    total_universe = universe_qs.count()
+    truncated = total_universe > BASELINE_OVERVIEW_MAX_ENTRIES
+    universe = list(universe_qs[:BASELINE_OVERVIEW_MAX_ENTRIES]) if truncated else list(universe_qs)
+    # Per-entry aggregates (tolerate counts, sparklines) only need to cover the
+    # entries we'll return. Totals must scope across the *full* universe,
+    # otherwise truncation makes them undercount in misleading ways (a 6000-id
+    # repo would show 0 frequently-tolerated if all of them sat past the slice).
+    universe_identifiers = list({s.identifier for s in universe})
+    if truncated:
+        full_universe_identifiers = list(universe_qs.values_list("identifier", flat=True).distinct())
+    else:
+        full_universe_identifiers = universe_identifiers
+
+    # 3a. Tolerate counts in 30d / 90d windows. Single grouped query each.
+    # Scope to HUMAN/AGENT reasons only — AUTO_THRESHOLD rows are auto-minted
+    # by the diff pipeline as a tolerated-hash cache for sub-threshold pixel
+    # jitter and don't represent a deliberate "we accept this drift" decision.
+    # Including them inflated the "Tolerated drift" tile with rendering noise.
+    intentional_tolerate_reasons = (ToleratedReason.HUMAN, ToleratedReason.AGENT)
+    tolerate_30d_by_id: dict[str, int] = {}
+    tolerate_90d_by_id: dict[str, int] = {}
+    if universe_identifiers:
+        tol_30d_cutoff = now - timedelta(days=30)
+        tol_90d_cutoff = now - timedelta(days=90)
+        for identifier, count in (
+            ToleratedHash.objects.filter(
+                repo_id=repo_id,
+                identifier__in=universe_identifiers,
+                reason__in=intentional_tolerate_reasons,
+                created_at__gte=tol_30d_cutoff,
+            )
+            .values_list("identifier")
+            .annotate(c=Count("id"))
+            .values_list("identifier", "c")
+        ):
+            tolerate_30d_by_id[identifier] = count
+        for identifier, count in (
+            ToleratedHash.objects.filter(
+                repo_id=repo_id,
+                identifier__in=universe_identifiers,
+                reason__in=intentional_tolerate_reasons,
+                created_at__gte=tol_90d_cutoff,
+            )
+            .values_list("identifier")
+            .annotate(c=Count("id"))
+            .values_list("identifier", "c")
+        ):
+            tolerate_90d_by_id[identifier] = count
+
+    # 3b. Active quarantines for this repo, scoped to the universe identifiers
+    # AND the run_types they live on (quarantine is per (repo, run_type, id)).
+    quarantined_pairs: set[tuple[str, str]] = set()
+    if universe_identifiers:
+        quarantined_pairs = {
+            (run_type, identifier)
+            for run_type, identifier in QuarantinedIdentifier.objects.filter(
+                repo_id=repo_id,
+                identifier__in=universe_identifiers,
+            )
+            .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now))
+            .values_list("run_type", "identifier")
         }
-        for entry in entries
-    ]
+
+    # 3c. Per-baseline stability signals: a lifetime baseline-flip count and a
+    # smoothed recent-drift average. Replaces a daily-bucket sparkline that
+    # had to scan millions of RunSnapshot rows on every request (~7s, OOMed on
+    # the web pod for repos with thousands of identifiers — see git history).
+    # Both queries here are scoped tightly enough to finish in tens of ms:
+    #
+    #   change_count_by_key: COUNT(*) WHERE result IN ('changed','removed')
+    #     across all completed master/main runs ever. Real baseline flips on
+    #     master leave a CHANGED/REMOVED row in the run that introduced them
+    #     (subsequent runs see UNCHANGED against the new YAML baseline), so
+    #     this count IS the number of times the YAML moved. Postgres uses
+    #     the `snapshot_run_result` index on (run_id, result) to bitmap-scan
+    #     straight to the rare event rows (~1k of millions). No window
+    #     function, no per-row LAG comparison.
+    #
+    #   recent_drift_by_key: AVG(diff_percentage) over the last 10 master/
+    #     main completed runs per (run_type). Bounded by run count, not by
+    #     time window — caps the scanned set regardless of CI cadence. We
+    #     resolve the run IDs first (sub-ms) and aggregate via PK-indexed
+    #     run_id__in, otherwise the planner inlines a CTE that produces a
+    #     ROW_NUMBER plan over the full RunSnapshot table.
+    change_count_by_key: dict[tuple[str, str], int] = {}
+    recent_drift_by_key: dict[tuple[str, str], float] = {}
+    if universe_identifiers:
+        for identifier, run_type, c in (
+            RunSnapshot.objects.filter(
+                run__repo_id=repo_id,
+                run__branch__in=_DEFAULT_BRANCHES,
+                run__status=RunStatus.COMPLETED,
+                result__in=(SnapshotResult.CHANGED, SnapshotResult.REMOVED),
+            )
+            .values("identifier", "run__run_type")
+            .annotate(c=Count("id"))
+            .values_list("identifier", "run__run_type", "c")
+        ):
+            change_count_by_key[(run_type, identifier)] = c
+
+        # Top-N per run_type via window function. There's no pure-ORM
+        # equivalent: Postgres doesn't allow filtering on a window result,
+        # and a per-run_type loop balloons to thousands of queries on repos
+        # where each Storybook story registers as its own run_type
+        # (benchmarked: 4ms raw vs 5.6s loop on a 30k-run repo with 2154
+        # run_types). The query is parameterized — every dynamic value
+        # passes through %s binding, no string concatenation, table name
+        # comes from the model. nosemgrep is required because the rule
+        # blanket-flags any .raw() use.
+        recent_run_sql = f"""
+            SELECT id, run_type FROM (
+                SELECT id, run_type,
+                       ROW_NUMBER() OVER (PARTITION BY run_type ORDER BY created_at DESC) AS rn
+                FROM {Run._meta.db_table}
+                WHERE repo_id = %s AND branch = ANY(%s) AND status = %s
+            ) ranked WHERE rn <= %s
+        """  # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql
+        recent_run_ids = list(
+            Run.objects.raw(  # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql
+                recent_run_sql,
+                [str(repo_id), list(_DEFAULT_BRANCHES), RunStatus.COMPLETED, BASELINE_DRIFT_RECENT_RUN_COUNT],
+            )
+        )
+        if recent_run_ids:
+            for identifier, run_type, drift_avg in (
+                RunSnapshot.objects.filter(run_id__in=[r.id for r in recent_run_ids])
+                .values("identifier", "run__run_type")
+                .annotate(drift_avg=Avg("diff_percentage", filter=Q(diff_percentage__gt=0)))
+                .values_list("identifier", "run__run_type", "drift_avg")
+            ):
+                if drift_avg is not None:
+                    recent_drift_by_key[(run_type, identifier)] = drift_avg
+
+    # 4. Totals computed across the *full* universe (not the truncated slice)
+    # so the stat row stays correct when the entries are clipped.
+    if truncated:
+        # Re-issue a small COUNT-only query for accurate totals across the
+        # universe; we already have the truncated list in memory.
+        totals_all = total_universe
+    else:
+        totals_all = len(universe)
+
+    # Recently / frequently tolerated — counts of distinct identifiers with
+    # ≥1 (or ≥3) intentional tolerations in the rolling window. Scope across
+    # the *full* universe so the stat row stays correct under truncation, and
+    # match the per-entry counts above by excluding AUTO_THRESHOLD.
+    recent_cutoff = now - timedelta(days=30)
+    frequent_cutoff = now - timedelta(days=90)
+    recent_ids: set[str] = set()
+    frequent_ids: set[str] = set()
+    if full_universe_identifiers:
+        recent_ids = set(
+            ToleratedHash.objects.filter(
+                repo_id=repo_id,
+                identifier__in=full_universe_identifiers,
+                reason__in=intentional_tolerate_reasons,
+                created_at__gte=recent_cutoff,
+            )
+            .values_list("identifier", flat=True)
+            .distinct()
+        )
+        frequent_grouped = (
+            ToleratedHash.objects.filter(
+                repo_id=repo_id,
+                identifier__in=full_universe_identifiers,
+                reason__in=intentional_tolerate_reasons,
+                created_at__gte=frequent_cutoff,
+            )
+            .values("identifier")
+            .annotate(c=Count("id"))
+            .filter(c__gte=3)
+            .values_list("identifier", flat=True)
+        )
+        frequent_ids = set(frequent_grouped)
+
+    # `quarantined_pairs` was built from the truncated set above (per-entry
+    # attached). Re-query for the totals so they cover the full universe.
+    if truncated and full_universe_identifiers:
+        quarantined_id_count = (
+            QuarantinedIdentifier.objects.filter(
+                repo_id=repo_id,
+                identifier__in=full_universe_identifiers,
+            )
+            .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now))
+            .values("identifier")
+            .distinct()
+            .count()
+        )
+    else:
+        quarantined_id_count = len({identifier for _, identifier in quarantined_pairs})
+
+    # by_run_type counts every entry in the universe. Aggregate query under
+    # truncation so it doesn't undercount; in-memory Counter when not truncated
+    # (we already paid for the row hydration).
+    if truncated:
+        by_run_type = dict(
+            universe_qs.values_list("run__run_type")
+            .order_by()
+            .annotate(c=Count("id"))
+            .values_list("run__run_type", "c")
+        )
+    else:
+        by_run_type = dict(Counter(s.run.run_type for s in universe))
+
+    return _BaselineOverviewRaw(
+        entries=universe,
+        tolerate_30d_by_id=tolerate_30d_by_id,
+        tolerate_90d_by_id=tolerate_90d_by_id,
+        quarantined_ids=quarantined_pairs,
+        change_count_by_key=change_count_by_key,
+        recent_drift_by_key=recent_drift_by_key,
+        totals_all=totals_all,
+        totals_recent=len(recent_ids),
+        totals_frequent=len(frequent_ids),
+        totals_quarantined=quarantined_id_count,
+        by_run_type=by_run_type,
+        truncated=truncated,
+        generated_at=now,
+    )
+
+
+@dataclass
+class _BaselineOverviewRaw:
+    """Internal raw shape — the facade layer reshapes this into the public DTOs.
+
+    Kept private to logic.py so that contract changes don't ripple through here.
+    """
+
+    entries: list[RunSnapshot]
+    tolerate_30d_by_id: dict[str, int]
+    tolerate_90d_by_id: dict[str, int]
+    quarantined_ids: set[tuple[str, str]]
+    # Stability signals keyed by `(run_type, identifier)` because the same
+    # identifier in different run types is a different baseline; merging would
+    # bleed storybook stability into playwright stability.
+    change_count_by_key: dict[tuple[str, str], int]
+    recent_drift_by_key: dict[tuple[str, str], float]
+    totals_all: int
+    totals_recent: int
+    totals_frequent: int
+    totals_quarantined: int
+    by_run_type: dict[str, int]
+    truncated: bool
+    generated_at: datetime
 
 
 @transaction.atomic(using=WRITER_DB)

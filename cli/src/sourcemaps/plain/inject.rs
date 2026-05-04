@@ -3,14 +3,15 @@ use anyhow::Result;
 use walkdir::DirEntry;
 
 use crate::{
+    api::releases::Release,
     invocation_context::context,
     sourcemaps::inject::{inject_impl, InjectArgs},
 };
 
-pub fn inject(args: &InjectArgs) -> Result<()> {
+pub fn inject(args: &InjectArgs, existing_release: Option<&Release>) -> Result<()> {
     context().capture_command_invoked("sourcemap_inject");
     args.validate()?;
-    inject_impl(args, is_javascript_file)
+    inject_impl(args, is_javascript_file, existing_release)
 }
 
 pub fn is_javascript_file(entry: &DirEntry) -> bool {

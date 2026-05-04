@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-04-27 20:20:40 UTC
+// Generated at: 2026-05-01 20:15:02 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -7,6 +7,7 @@ export type CanonicalProvider =
     | 'aion-labs'
     | 'aion-labs-bf16'
     | 'akashml-fp8'
+    | 'akashml-int4'
     | 'alibaba'
     | 'alibaba-opensource'
     | 'amazon-bedrock'
@@ -26,7 +27,6 @@ export type CanonicalProvider =
     | 'chutes-fp8'
     | 'chutes-int4'
     | 'clarifai-bf16'
-    | 'clarifai-fp4'
     | 'cloudflare'
     | 'cloudflare-fp8'
     | 'cohere'
@@ -45,6 +45,7 @@ export type CanonicalProvider =
     | 'gmicloud-fp8'
     | 'google-ai-studio'
     | 'google-vertex'
+    | 'google-vertex-eu'
     | 'google-vertex-europe'
     | 'google-vertex-global'
     | 'google-vertex-us'
@@ -94,6 +95,7 @@ export type CanonicalProvider =
     | 'parasail-int8'
     | 'perplexity'
     | 'phala'
+    | 'poolside-fp8'
     | 'reka-bf16'
     | 'reka-fp8'
     | 'relace-bf16'
@@ -107,6 +109,7 @@ export type CanonicalProvider =
     | 'siliconflow'
     | 'siliconflow-fp8'
     | 'siliconflow-int4'
+    | 'stealth-int8'
     | 'stepfun-fp8'
     | 'streamlake'
     | 'switchpoint'
@@ -118,7 +121,6 @@ export type CanonicalProvider =
     | 'venice'
     | 'venice-beta'
     | 'venice-bf16'
-    | 'venice-e2ee'
     | 'venice-fp16'
     | 'venice-fp4'
     | 'venice-fp8'

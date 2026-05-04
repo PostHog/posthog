@@ -10,6 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Optional
 
 import certifi
+import structlog
 from bson import Binary, DatetimeMS, ObjectId
 from bson.codec_options import DatetimeConversion
 from pymongo import MongoClient
@@ -125,6 +126,30 @@ def get_indexes(collection: Collection) -> list[str]:
         return [field for index in index_cursor for field in index["key"].keys()]
     except Exception:
         return []
+
+
+def get_leading_index_keys(collection: Collection) -> set[str] | None:
+    """Return the set of fields that are the first key of any index.
+
+    `WHERE field >= last_max` queries are only accelerated by indexes whose
+    leading key is `field`; non-leading positions in compound indexes don't
+    support this access pattern. Returns None when index discovery fails so
+    the caller can default to no warning.
+    """
+    try:
+        index_cursor = collection.list_indexes()
+        result: set[str] = set()
+        for index in index_cursor:
+            keys = index.get("key")
+            if not keys:
+                continue
+            leading = next(iter(keys.keys()), None)
+            if leading is not None:
+                result.add(leading)
+        return result
+    except Exception as e:
+        structlog.get_logger().warning("Failed to detect leading index keys for MongoDB collection", exc_info=e)
+        return None
 
 
 def filter_mongo_incremental_fields(

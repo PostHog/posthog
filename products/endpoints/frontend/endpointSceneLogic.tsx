@@ -14,7 +14,7 @@ import { urls } from 'scenes/urls'
 
 import { DataTableNode, EndpointRunRequest, InsightVizNode, Node, NodeKind } from '~/queries/schema/schema-general'
 import { isHogQLQuery, isInsightQueryNode } from '~/queries/utils'
-import { Breadcrumb, DataModelingSyncInterval, EndpointType, EndpointVersionType } from '~/types'
+import { Breadcrumb, EndpointType, EndpointVersionType } from '~/types'
 
 import { endpointLogic } from './endpointLogic'
 import type { endpointSceneLogicType } from './endpointSceneLogicType'
@@ -22,6 +22,9 @@ import type { endpointSceneLogicType } from './endpointSceneLogicType'
 export interface EndpointSceneLogicProps {
     tabId: string
 }
+
+// Default data freshness when none is set on the endpoint version (must match backend DEFAULT_DATA_FRESHNESS_SECONDS)
+const DEFAULT_DATA_FRESHNESS_SECONDS = 86400
 
 // Query types that support user-configurable breakdown filtering
 const BREAKDOWN_SUPPORTED_QUERY_TYPES = new Set([NodeKind.TrendsQuery, NodeKind.RetentionQuery])
@@ -135,8 +138,7 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
         setActiveTab: (tab: EndpointTab) => ({ tab }),
         setPayloadJson: (value: string) => ({ value }),
         setPayloadJsonError: (error: string | null) => ({ error }),
-        setCacheAge: (cacheAge: number | null) => ({ cacheAge }),
-        setSyncFrequency: (syncFrequency: DataModelingSyncInterval | null) => ({ syncFrequency }),
+        setDataFreshness: (dataFreshness: number) => ({ dataFreshness }),
         setIsMaterialized: (isMaterialized: boolean | null) => ({ isMaterialized }),
         setEndpointName: (name: string | null) => ({ name }),
         setViewingVersion: (version: EndpointVersionType | null) => ({ version }),
@@ -178,18 +180,12 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
                 updateEndpointSuccess: () => null,
             },
         ],
-        cacheAge: [
-            null as number | null,
+        dataFreshness: [
+            DEFAULT_DATA_FRESHNESS_SECONDS as number,
             {
-                setCacheAge: (_, { cacheAge }) => cacheAge,
-                loadEndpoint: () => null,
-            },
-        ],
-        syncFrequency: [
-            '24hour' as DataModelingSyncInterval | null,
-            {
-                setSyncFrequency: (_, { syncFrequency }) => syncFrequency,
-                loadEndpoint: () => null,
+                setDataFreshness: (_, { dataFreshness }) => dataFreshness,
+                loadEndpointSuccess: (_, { endpoint }) =>
+                    endpoint?.data_freshness_seconds ?? DEFAULT_DATA_FRESHNESS_SECONDS,
             },
         ],
         isMaterialized: [
@@ -356,8 +352,7 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
         loadEndpointSuccess: async ({ endpoint }: { endpoint: EndpointVersionType | null; payload?: string }) => {
             const initialPayload = generateInitialPayloadJson(endpoint)
             actions.setPayloadJson(initialPayload)
-            actions.setCacheAge(endpoint?.cache_age_seconds ?? null)
-            actions.setSyncFrequency(endpoint?.materialization?.sync_frequency ?? null)
+            actions.setDataFreshness(endpoint?.data_freshness_seconds ?? DEFAULT_DATA_FRESHNESS_SECONDS)
 
             const { searchParams, hashParams } = getTabSceneParams(props.tabId)
 
@@ -405,13 +400,18 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
         setViewingVersion: ({ version }) => {
             // Reset local state so viewed version's data shows through
             actions.setLocalQuery(null)
-            actions.setCacheAge(null)
-            actions.setSyncFrequency(null)
             actions.setIsMaterialized(null)
             actions.clearMaterializationStatus()
 
             // Reset bucket overrides to viewed version's values
             actions.resetBucketOverrides(version?.bucket_overrides ?? values.endpoint?.bucket_overrides ?? {})
+
+            // Reset data freshness to viewed version's value (or endpoint's if going back to current)
+            actions.setDataFreshness(
+                version?.data_freshness_seconds ??
+                    values.endpoint?.data_freshness_seconds ??
+                    DEFAULT_DATA_FRESHNESS_SECONDS
+            )
 
             // Reset description to viewed version's description (or endpoint's if going back to current)
             if (version) {

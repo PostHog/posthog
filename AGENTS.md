@@ -3,7 +3,7 @@
 ## Codebase Structure
 
 - Key entry points: `posthog/api/__init__.py` (URL routing), `posthog/settings/web.py` (Django settings, INSTALLED_APPS), `products/` (product apps)
-- [Monorepo layout](docs/internal/monorepo-layout.md) - high-level directory structure (products, services, common)
+- [Monorepo layout](docs/internal/monorepo-layout.md) - high-level directory structure (products, services, common, tools)
 - [Products README](products/README.md) - how to create and structure products
 - [Products architecture](products/architecture.md) - DTOs, facades, isolated testing
 
@@ -24,7 +24,7 @@
   - TypeScript check: `pnpm --filter=@posthog/frontend typescript:check`
 - Build:
   - Frontend: `pnpm --filter=@posthog/frontend build`
-  - Start dev: `./bin/start`
+  - Start dev: `./bin/start` or `hogli start` (interactive TUI). Detached mode: `hogli up -d` paired with `hogli wait` / `hogli down`
 - OpenAPI/types: `hogli build:openapi` (regenerate after changing serializers/viewsets)
 - New product: `bin/hogli product:bootstrap <name>`
 - LSP: Pyright is configured against the flox venv. Prefer LSP (`goToDefinition`, `findReferences`, `hover`) over grep when navigating or refactoring Python code.
@@ -66,6 +66,10 @@ Keep descriptions high-level, focusing on rationale and architecture for the hum
 - Scope is optional but encouraged when the change is specific to a feature area
 - Description should be lowercase and not end with a period
 - Keep the first line under 72 characters
+
+### Pushing to remote
+
+Pushes trigger CI, which burns runner credits. Refrain from pushing unless explicitly instructed or until the task is complete — batch local commits and push once at the end rather than after every change. If you're mid-task or iterating, keep work local.
 
 ### Public open source repo guidance
 
@@ -109,6 +113,7 @@ See [.agents/security.md](.agents/security.md) for SQL, HogQL, and semgrep secur
 ## Code Style
 
 - Python: Write as if mypy `--strict` is enabled — annotate all function signatures (arguments + return types), avoid `Any`, use `TYPE_CHECKING` imports for type-only references. Do not run mypy locally (too slow); CI runs it on every PR. The config isn't fully strict yet, but new code should be
+- Python imports: Place all imports at the top of the file (module level). Do not put imports inside functions, methods, or conditionals. Inline imports hide dependencies from static analysis, slow down hot paths with repeated lookups, and obscure circular-import problems instead of fixing them. The only acceptable reasons to defer an import are (1) breaking a true unavoidable circular import — fix the structure first if you can, and (2) `TYPE_CHECKING` blocks for type-only references. If you reach for an inline import to dodge an import-time side effect or startup cost, fix the offending module instead
 - Frontend: TypeScript required, explicit return types
 - Frontend: If there is a kea logic file, write all business logic there, avoid React hooks at all costs.
 - Imports: Use oxfmt import sorting (automatically runs on format), avoid direct dayjs imports (use lib/dayjs)

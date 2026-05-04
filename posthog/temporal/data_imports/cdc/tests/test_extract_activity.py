@@ -29,6 +29,7 @@ def _make_source(source_id=None, job_inputs=None):
     source.id = source_id or uuid.uuid4()
     source.team_id = 1
     source.source_type = "Postgres"
+    source.deleted = False
     source.job_inputs = (
         job_inputs
         if job_inputs is not None

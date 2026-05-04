@@ -122,12 +122,6 @@ const approvals = feature(
     'Approvals',
     'Require approval workflows for changes to feature flags and other resources.'
 )
-const productAnalyticsAi = feature(
-    'product_analytics_ai',
-    'Product Analytics AI',
-    'Insight suggestions and other AI features in product analytics.',
-    { entitlement_only: true }
-)
 const supportResponseTime = (note: string): AddonPlanFeature =>
     feature('support_response_time', 'Target support response time', 'Get help from our team!', {
         note,
@@ -178,7 +172,6 @@ const TEAMS_FEATURES: AddonPlanFeature[] = [
     organizationInviteSettings,
     organizationSecuritySettings,
     sessionReplayDataRetention(12),
-    productAnalyticsAi,
 ]
 
 const BOOST_FEATURES: AddonPlanFeature[] = [
@@ -202,7 +195,6 @@ const SCALE_FEATURES: AddonPlanFeature[] = [
     prioritySupport(),
     saml,
     approvals,
-    productAnalyticsAi,
     projects,
     ssoEnforcement,
     twoFaEnforcement,
@@ -242,7 +234,6 @@ const ENTERPRISE_FEATURES: AddonPlanFeature[] = [
     organizationSecuritySettings,
     prioritySupport('Target response time 8 hours'),
     saml,
-    productAnalyticsAi,
     approvals,
 ]
 

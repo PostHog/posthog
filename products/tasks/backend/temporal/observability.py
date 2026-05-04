@@ -1,4 +1,4 @@
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from typing import Any, Optional
 
@@ -95,6 +95,7 @@ def log_with_workflow_context(message: str, **extra_context: Any) -> None:
 def log_activity_execution(
     activity_name: str,
     distinct_id: Optional[str] = None,
+    activity_failure: Callable[[], tuple[str, str] | None] | None = None,
     **context: Any,
 ) -> Iterator[None]:
     """Context manager for activity execution with automatic logging and analytics.
@@ -135,6 +136,28 @@ def log_activity_execution(
 
     try:
         yield
+        failure = activity_failure() if activity_failure else None
+        if failure:
+            error_type, error_message = failure
+            bound_logger.warning(
+                f"{activity_name} completed unsuccessfully",
+                error_type=error_type,
+                error_message=error_message,
+            )
+
+            if distinct_id:
+                track_event(
+                    "process_task_activity_failed",
+                    distinct_id=distinct_id,
+                    properties={
+                        "activity_name": activity_name,
+                        "error_type": error_type,
+                        "error_message": error_message[:500],
+                        **context,
+                    },
+                )
+            return
+
         bound_logger.info(f"{activity_name} completed successfully")
 
         if distinct_id:

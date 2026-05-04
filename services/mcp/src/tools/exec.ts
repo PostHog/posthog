@@ -40,7 +40,7 @@ function parseCommand(input: string): { verb: string; rest: string } {
 // don't carry "use X instead" guidance.
 const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[]) => string> = {
     'entity-search': () =>
-        'Tool "entity-search" was removed in MCP v2. Use "execute-sql" to search PostHog data via HogQL. Consult the `query-examples` skill for system-table patterns (system.insights, system.dashboards, system.cohorts, ...).',
+        'Tool "entity-search" was removed in MCP v2. Use "execute-sql" to search PostHog data via HogQL. Consult the `querying-posthog-data` skill for system-table patterns (system.insights, system.dashboards, system.cohorts, ...).',
     'event-definitions-list': () =>
         'Tool "event-definitions-list" was removed in MCP v2. Use "read-data-schema" with input { "query": { "kind": "events" } } to list event definitions.',
     'properties-list': () =>
@@ -48,7 +48,7 @@ const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[])
     'property-definitions': () =>
         'Tool "property-definitions" was removed in MCP v2. Use "read-data-schema" with the appropriate kind: "event_properties", "entity_properties", or "action_properties" — see its info schema for required fields.',
     'query-generate-hogql-from-question': () =>
-        'Tool "query-generate-hogql-from-question" was removed in MCP v2. Write the HogQL yourself and run it via "execute-sql". Consult the `query-examples` skill for HogQL patterns.',
+        'Tool "query-generate-hogql-from-question" was removed in MCP v2. Write the HogQL yourself and run it via "execute-sql". Consult the `querying-posthog-data` skill for HogQL patterns.',
     'query-run': (allTools) => {
         const queryTools = allTools
             .filter((t) => t.name.startsWith('query-'))

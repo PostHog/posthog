@@ -3,6 +3,7 @@ import {
     BuiltLogic,
     actions,
     afterMount,
+    beforeUnmount,
     connect,
     kea,
     key,
@@ -350,6 +351,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         tabLeft: true,
         tabRight: true,
         setSearchQuery: (searchQuery: string) => ({ searchQuery }),
+        markUserInteraction: true,
+        recordPaste: (pastedLength: number) => ({ pastedLength }),
         setActiveTab: (activeTab: TaxonomicFilterGroupType) => ({ activeTab }),
         selectItem: (
             group: TaxonomicFilterGroup,
@@ -405,6 +408,22 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 moveDown: () => false,
                 setActiveTab: () => true,
                 enableMouseInteractions: () => true,
+            },
+        ],
+        hadInteraction: [
+            // Any genuine user-driven action flips this. Read in `beforeUnmount` to gate the
+            // `taxonomic filter closed` capture so involuntary mounts (popovers/side panels
+            // rendered before the picker is shown, route transitions) don't fire phantom closes.
+            // New interaction sources should be added here, not by mutating cache from listeners.
+            false,
+            {
+                moveUp: () => true,
+                moveDown: () => true,
+                tabLeft: () => true,
+                tabRight: () => true,
+                setActiveTab: () => true,
+                selectItem: () => true,
+                markUserInteraction: () => true,
             },
         ],
         topMatchItems: [
@@ -912,6 +931,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         type: TaxonomicFilterGroupType.LogAttributes,
                         endpoint: combineUrl(`api/environments/${projectId}/logs/attributes`, {
                             attribute_type: 'log',
+                            search_values: 'true',
                             ...endpointFilters,
                         }).url,
                         valuesEndpoint: (key) =>
@@ -930,6 +950,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         type: TaxonomicFilterGroupType.LogResourceAttributes,
                         endpoint: combineUrl(`api/environments/${projectId}/logs/attributes`, {
                             attribute_type: 'resource',
+                            search_values: 'true',
                             ...endpointFilters,
                         }).url,
                         valuesEndpoint: (key) =>
@@ -1688,10 +1709,26 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             },
         ],
     }),
-    afterMount(({ actions, props }) => {
+    afterMount(({ actions, props, cache }) => {
+        cache.openedAt = Date.now()
+        cache.hadSelection = false
         // Initial fire — the model dedupes against taxonomy defaults and already-loaded names.
         if (props.eventNames?.length) {
             actions.ensureLoadedForEvents(props.eventNames)
+        }
+    }),
+    beforeUnmount(({ values, cache }) => {
+        // Only capture when there's evidence the user actually engaged with the picker. The logic
+        // mounts in many places where the picker isn't visibly opened (popover contents rendered
+        // before the popover shows, side panels tied to scene lifecycle, route transitions), so
+        // without this gate every involuntary mount/unmount fires a close with hadSelection=false
+        // and inflates the abandonment metric (top sessions hit 100+ closes pre-gate).
+        if (values.hadInteraction) {
+            posthog.capture('taxonomic filter closed', {
+                dwellMs: Date.now() - (cache.openedAt ?? Date.now()),
+                hadSelection: !!cache.hadSelection,
+                groupType: values.activeTab,
+            })
         }
     }),
     propsChanged(({ actions, props }, oldProps) => {
@@ -1701,7 +1738,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             actions.ensureLoadedForEvents(props.eventNames)
         }
     }),
-    listeners(({ actions, values, props }) => ({
+    listeners(({ actions, values, props, cache }) => ({
         selectItem: ({ group, value, item, meta }) => {
             if (item) {
                 const sourceGroupType = hasRecentContext(item) ? item._recentContext.sourceGroupType : group.type
@@ -1763,8 +1800,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     }, 0)
                 }
 
+                cache.hadSelection = true
                 props.onChange?.(group, value, item)
             } else if (group.type === TaxonomicFilterGroupType.HogQLExpression && value) {
+                cache.hadSelection = true
                 props.onChange?.(group, value, item)
             } else if (props.onEnter) {
                 props.onEnter(values.searchQuery)
@@ -1828,14 +1867,25 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             }
         },
 
+        recordPaste: ({ pastedLength }) => {
+            cache.pastedCharsSinceLastCapture = (cache.pastedCharsSinceLastCapture ?? 0) + Math.max(0, pastedLength)
+        },
+
         setSearchQuery: async ({ searchQuery }, breakpoint) => {
             const { activeTaxonomicGroup } = values
 
             await breakpoint(500)
+            const pastedChars = cache.pastedCharsSinceLastCapture ?? 0
+            cache.pastedCharsSinceLastCapture = 0
             if (searchQuery) {
+                const totalLength = searchQuery.length
+                const inputMode: 'pasted' | 'mixed' | 'typed' =
+                    pastedChars >= totalLength && pastedChars > 0 ? 'pasted' : pastedChars > 0 ? 'mixed' : 'typed'
                 posthog.capture('taxonomic_filter_search_query', {
                     searchQuery,
                     groupType: activeTaxonomicGroup?.type,
+                    inputMode,
+                    pastedFraction: totalLength > 0 ? Math.min(1, pastedChars / totalLength) : 0,
                 })
             }
         },

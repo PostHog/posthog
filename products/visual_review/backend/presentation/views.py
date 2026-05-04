@@ -13,6 +13,9 @@ No business logic here - that belongs in logic.py via the facade.
 from typing import cast
 from uuid import UUID
 
+from django.http import HttpResponse
+from django.utils.cache import get_conditional_response, patch_cache_control, patch_vary_headers
+
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
@@ -40,6 +43,7 @@ from .serializers import (
     AddSnapshotsResultSerializer,
     ApproveRunInputSerializer,
     AutoApproveResultSerializer,
+    BaselineOverviewSerializer,
     CreateRepoInputSerializer,
     CreateRunInputSerializer,
     CreateRunResultSerializer,
@@ -69,7 +73,13 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     scope_object = "visual_review"
     scope_object_write_actions = ["create", "partial_update", "quarantine", "unquarantine"]
-    scope_object_read_actions = ["list", "retrieve", "list_quarantined"]
+    scope_object_read_actions = [
+        "list",
+        "retrieve",
+        "list_quarantined",
+        "thumbnail",
+        "baselines",
+    ]
 
     @extend_schema(responses={200: RepoSerializer(many=True)})
     def list(self, request: Request, **kwargs) -> Response:
@@ -131,6 +141,50 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @extend_schema(
         parameters=[
+            OpenApiParameter("id", OpenApiTypes.STR, OpenApiParameter.PATH),
+            OpenApiParameter("identifier", OpenApiTypes.STR, OpenApiParameter.PATH),
+        ],
+        responses={200: OpenApiResponse(description="WebP thumbnail image")},
+    )
+    @action(detail=True, methods=["get"], url_path=r"thumbnails/(?P<identifier>.+[^/])")
+    def thumbnail(self, request: Request, pk: str, identifier: str, **kwargs) -> HttpResponse:
+        """Serve a snapshot thumbnail by identifier. Returns WebP with ETag caching."""
+        try:
+            api.get_repo(UUID(pk), team_id=self.team_id)
+        except api.RepoNotFoundError:
+            resp = HttpResponse(status=404)
+            patch_cache_control(resp, no_store=True)
+            return resp
+
+        thumb_hash = api.get_thumbnail_hash_for_identifier(UUID(pk), identifier)
+        if thumb_hash is None:
+            resp = HttpResponse(status=404)
+            patch_cache_control(resp, no_store=True)
+            return resp
+
+        etag = f'"{thumb_hash}"'
+        not_modified = get_conditional_response(request._request, etag=etag)
+        if not_modified:
+            # Shared caches must key on credentials — see thumbnail success path below.
+            patch_vary_headers(not_modified, ["Authorization", "Cookie"])
+            return not_modified
+
+        thumb_bytes = api.read_thumbnail_bytes(UUID(pk), thumb_hash)
+        if thumb_bytes is None:
+            resp = HttpResponse(status=404)
+            patch_cache_control(resp, no_store=True)
+            return resp
+
+        response = HttpResponse(thumb_bytes, content_type="image/webp")
+        response["ETag"] = etag
+        # Endpoint is auth-scoped (team), so Vary on credential headers prevents shared
+        # caches from serving the same URL across tenants.
+        patch_vary_headers(response, ["Authorization", "Cookie"])
+        patch_cache_control(response, public=True, max_age=300, stale_while_revalidate=3600)
+        return response
+
+    @extend_schema(
+        parameters=[
             OpenApiParameter(
                 name="identifier", type=str, required=False, description="Filter by identifier (returns full history)"
             ),
@@ -187,6 +241,111 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return Response({"detail": "Repo not found"}, status=status.HTTP_404_NOT_FOUND)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
+    @extend_schema(
+        parameters=[OpenApiParameter("id", OpenApiTypes.STR, OpenApiParameter.PATH)],
+        responses={200: BaselineOverviewSerializer},
+        description=(
+            "Snapshots overview for a repo: every identifier with a current baseline (latest "
+            "non-superseded master/main run per run_type), plus tolerate counts, active "
+            "quarantine state, and a 30-day stability sparkline. Capped at "
+            f"{contracts.BASELINE_OVERVIEW_MAX_ENTRIES} entries — sets `truncated` and "
+            "returns the most recently active when exceeded. Filtering / faceting / search are "
+            "all done client-side; this endpoint takes no filter query params."
+        ),
+    )
+    @action(detail=True, methods=["get"], url_path="baselines")
+    def baselines(self, request: Request, pk: str, **kwargs) -> Response:
+        try:
+            api.get_repo(UUID(pk), team_id=self.team_id)
+        except api.RepoNotFoundError:
+            return Response({"detail": "Repo not found"}, status=status.HTTP_404_NOT_FOUND)
+        result = api.get_baselines_overview(UUID(pk))
+        return Response(BaselineOverviewSerializer(instance=result).data)
+
+
+@extend_schema(tags=[VISUAL_REVIEW_TAG])
+class SnapshotViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    """Snapshot identities under a repo, keyed by (run_type, identifier).
+
+    A "snapshot identity" doesn't have a single canonical row — it's a series
+    of `RunSnapshot` rows over time. The retrieve-style endpoint returns the
+    deduped baseline timeline for that identity, which is the most useful view.
+
+    `identifier` is a path segment — clients must percent-encode before sending
+    (`encodeURIComponent`). Django/ASGI URL-decode the kwarg automatically.
+    """
+
+    scope_object = "visual_review"
+    scope_object_read_actions = ["timeline"]
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter("run_type", str, OpenApiParameter.PATH, description="Run type (storybook, playwright)"),
+            OpenApiParameter(
+                "identifier",
+                str,
+                OpenApiParameter.PATH,
+                description="Snapshot identifier; clients must percent-encode before sending",
+            ),
+        ],
+        responses={200: SnapshotHistoryEntrySerializer(many=True)},
+    )
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path=r"(?P<run_type>[^/]+)/(?P<identifier>[^/]+)",
+    )
+    def timeline(self, request: Request, run_type: str, identifier: str, **kwargs) -> Response:
+        """Deduped baseline timeline for a snapshot identity. Newest first."""
+        repo_id = UUID(self.parents_query_dict["repo_id"])
+        try:
+            api.get_repo(repo_id, team_id=self.team_id)
+        except api.RepoNotFoundError:
+            return Response({"detail": "Repo not found"}, status=status.HTTP_404_NOT_FOUND)
+        history = api.get_snapshot_history(repo_id, identifier, run_type)
+        page = self.paginate_queryset(history)
+        if page is not None:
+            return self.get_paginated_response(SnapshotHistoryEntrySerializer(instance=page, many=True).data)
+        return Response(SnapshotHistoryEntrySerializer(instance=history, many=True).data)
+
+
+@extend_schema(tags=[VISUAL_REVIEW_TAG])
+class RepoRunsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    """Listing/aggregation of runs scoped to a single repo.
+
+    Run-by-id actions (retrieve, snapshots, approve, complete, etc.) live on
+    the flat `RunViewSet` so that direct links by run id keep working without
+    forcing the repo into the path.
+    """
+
+    scope_object = "visual_review"
+    scope_object_read_actions = ["list", "counts"]
+    serializer_class = RunSerializer
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter("review_state", str, required=False, description="Filter by review state"),
+        ],
+        responses={200: RunSerializer(many=True)},
+    )
+    def list(self, request: Request, **kwargs) -> Response:
+        """List runs in this repo, optionally filtered by review state."""
+        review_state = request.query_params.get("review_state")
+        repo_id = UUID(self.parents_query_dict["repo_id"])
+        runs = api.list_runs(self.team_id, review_state=review_state, repo_id=repo_id)
+        page = self.paginate_queryset(runs)
+        if page is not None:
+            serializer = RunSerializer(instance=page, many=True)
+            return self.get_paginated_response(serializer.data)
+        return Response(RunSerializer(instance=runs, many=True).data)
+
+    @extend_schema(responses={200: ReviewStateCountsSerializer})
+    @action(detail=False, methods=["get"])
+    def counts(self, request: Request, **kwargs) -> Response:
+        """Review state counts for runs in this repo."""
+        repo_id = UUID(self.parents_query_dict["repo_id"])
+        return Response(api.get_review_state_counts(self.team_id, repo_id=repo_id))
+
 
 @extend_schema(tags=[VISUAL_REVIEW_TAG])
 class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
@@ -198,17 +357,32 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     scope_object = "visual_review"
     scope_object_write_actions = ["create", "complete", "approve", "auto_approve", "add_snapshots", "recompute"]
-    scope_object_read_actions = ["list", "retrieve", "snapshots", "counts"]
+    scope_object_read_actions = ["list", "retrieve", "snapshots", "counts", "snapshot_history", "tolerated_hashes"]
     serializer_class = RunSerializer
 
     @extend_schema(
-        parameters=[OpenApiParameter("review_state", str, required=False, description="Filter by review state")],
+        parameters=[
+            OpenApiParameter("review_state", str, required=False, description="Filter by review state"),
+            OpenApiParameter("pr_number", int, required=False, description="Filter by GitHub PR number"),
+            OpenApiParameter("commit_sha", str, required=False, description="Filter by full commit SHA"),
+            OpenApiParameter("branch", str, required=False, description="Filter by branch name"),
+        ],
         responses={200: RunSerializer(many=True)},
     )
     def list(self, request: Request, **kwargs) -> Response:
-        """List runs for the team, optionally filtered by review state."""
-        review_state = request.query_params.get("review_state")
-        runs = api.list_runs(self.team_id, review_state=review_state)
+        """List runs for the team, optionally filtered by review state, PR number, commit SHA, or branch."""
+        pr_number_raw = request.query_params.get("pr_number")
+        try:
+            pr_number = int(pr_number_raw) if pr_number_raw is not None else None
+        except ValueError:
+            return Response({"detail": "pr_number must be an integer"}, status=status.HTTP_400_BAD_REQUEST)
+        runs = api.list_runs(
+            self.team_id,
+            review_state=request.query_params.get("review_state"),
+            pr_number=pr_number,
+            commit_sha=request.query_params.get("commit_sha"),
+            branch=request.query_params.get("branch"),
+        )
         page = self.paginate_queryset(runs)
         if page is not None:
             serializer = RunSerializer(instance=page, many=True)
@@ -329,7 +503,10 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         except api.RunNotFoundError:
             return Response({"detail": "Run not found"}, status=status.HTTP_404_NOT_FOUND)
 
-        history = api.get_snapshot_history(run.repo_id, identifier)
+        history = api.get_snapshot_history(run.repo_id, identifier, run.run_type)
+        page = self.paginate_queryset(history)
+        if page is not None:
+            return self.get_paginated_response(SnapshotHistoryEntrySerializer(instance=page, many=True).data)
         return Response(SnapshotHistoryEntrySerializer(instance=history, many=True).data)
 
     @extend_schema(request=None, responses={200: RunSerializer})

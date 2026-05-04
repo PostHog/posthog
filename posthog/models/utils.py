@@ -104,11 +104,14 @@ class UUIDT(uuid.UUID):
     def is_valid_uuid(cls, candidate: Any) -> bool:
         if not isinstance(candidate, str):
             return False
-        hex = candidate.replace("urn:", "").replace("uuid:", "")
-        hex = hex.strip("{}").replace("-", "")
-        if len(hex) != 32:
+        hex_str = candidate.replace("urn:", "").replace("uuid:", "")
+        hex_str = hex_str.strip("{}").replace("-", "")
+        if len(hex_str) != 32:
             return False
-        return 0 <= int(hex, 16) < 1 << 128
+        try:
+            return 0 <= int(hex_str, 16) < (1 << 128)
+        except ValueError:
+            return False
 
 
 # Delete this when we can use the version from the stdlib directly, see https://github.com/python/cpython/issues/102461

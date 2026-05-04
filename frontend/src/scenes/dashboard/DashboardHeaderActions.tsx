@@ -21,7 +21,7 @@ import { DashboardLoadAction, dashboardLogic } from './dashboardLogic'
 
 export function EditModeActions(): JSX.Element {
     const { dashboardLoading, canEditDashboard } = useValues(dashboardLogic)
-    const { setDashboardMode } = useActions(dashboardLogic)
+    const { setDashboardMode, cancelEditMode } = useActions(dashboardLogic)
 
     return (
         <>
@@ -35,7 +35,7 @@ export function EditModeActions(): JSX.Element {
                 <LemonButton
                     data-attr="dashboard-edit-mode-discard"
                     type="secondary"
-                    onClick={() => setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)}
+                    onClick={() => cancelEditMode()}
                     size="small"
                     tooltip="Discard changes and exit edit mode"
                 >
