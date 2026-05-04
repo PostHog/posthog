@@ -5,7 +5,6 @@ from posthog.temporal.data_imports.sources.generated_configs import (
     GoogleAdsSourceConfig,
     GoogleSheetsSourceConfig,
     HubspotSourceConfig,
-    IntercomSourceConfig,
     MetaAdsSourceConfig,
     MongoDBSourceConfig,
     MSSQLSourceConfig,
@@ -77,11 +76,6 @@ def test_google_sheets_config():
 def test_hubspot_config():
     config = HubspotSourceConfig.from_dict({"hubspot_integration_id": 1})
     assert config.hubspot_integration_id == 1
-
-
-def test_intercom_config():
-    config = IntercomSourceConfig.from_dict({"intercom_integration_id": 1})
-    assert config.intercom_integration_id == 1
 
 
 def test_mssql_config():
