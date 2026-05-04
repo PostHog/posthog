@@ -306,6 +306,7 @@ def update_group_type_mapping_fields(
     instance: GroupTypeMapping,
     *,
     fields: dict[str, Any],
+    operation: str = "group_type_update",
 ) -> None:
     """Update specific fields on a GroupTypeMapping via personhog, falling back to ORM.
 
@@ -337,13 +338,11 @@ def update_group_type_mapping_fields(
                     kwargs["default_columns"] = json.dumps(fields["default_columns"]).encode()
 
             client.update_group_type_mapping(UpdateGroupTypeMappingRequest(**kwargs))
-            PERSONHOG_ROUTING_TOTAL.labels(
-                operation="update_group_type_mapping", source="personhog", client_name=get_client_name()
-            ).inc()
+            PERSONHOG_ROUTING_TOTAL.labels(operation=operation, source="personhog", client_name=get_client_name()).inc()
             return
         except Exception:
             PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
-                operation="update_group_type_mapping",
+                operation=operation,
                 source="personhog",
                 error_type="grpc_error",
                 client_name=get_client_name(),
@@ -355,9 +354,7 @@ def update_group_type_mapping_fields(
                 exc_info=True,
             )
 
-    PERSONHOG_ROUTING_TOTAL.labels(
-        operation="update_group_type_mapping", source="django_orm", client_name=get_client_name()
-    ).inc()
+    PERSONHOG_ROUTING_TOTAL.labels(operation=operation, source="django_orm", client_name=get_client_name()).inc()
     for field_name, value in fields.items():
         setattr(instance, field_name, value)
     instance.save()

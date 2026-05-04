@@ -773,7 +773,7 @@ class TestSaveGroup(SimpleTestCase):
         assert b'"name": "Acme"' in req.group_properties
         group.save.assert_not_called()
         mock_routing_counter.labels.assert_called_with(
-            operation="save_group", source="personhog", client_name="posthog-django"
+            operation="group_save", source="personhog", client_name="posthog-django"
         )
 
     @patch(_ROUTING_TOTAL_PATCH)
@@ -786,7 +786,7 @@ class TestSaveGroup(SimpleTestCase):
 
         group.save.assert_called_once()
         mock_routing_counter.labels.assert_called_with(
-            operation="save_group", source="django_orm", client_name="posthog-django"
+            operation="group_save", source="django_orm", client_name="posthog-django"
         )
 
     @parameterized.expand(
@@ -810,7 +810,7 @@ class TestSaveGroup(SimpleTestCase):
 
         group.save.assert_called_once()
         mock_errors_counter.labels.assert_called_once_with(
-            operation="save_group",
+            operation="group_save",
             source="personhog",
             error_type="grpc_error",
             client_name="posthog-django",

@@ -129,7 +129,7 @@ class GroupsTypesViewSet(
             if "name_plural" in serializer.validated_data:
                 fields["name_plural"] = serializer.validated_data["name_plural"]
             if fields:
-                update_group_type_mapping_fields(instance, fields=fields)
+                update_group_type_mapping_fields(instance, fields=fields, operation="group_type_update_metadata")
 
         invalidate_group_types_cache(self.team.project_id)
         return self.list(request, *args, **kwargs)
@@ -150,7 +150,11 @@ class GroupsTypesViewSet(
             )
 
         dashboard = create_group_type_mapping_detail_dashboard(group_type_mapping, request.user)
-        update_group_type_mapping_fields(group_type_mapping, fields={"detail_dashboard_id": dashboard.id})
+        update_group_type_mapping_fields(
+            group_type_mapping,
+            fields={"detail_dashboard_id": dashboard.id},
+            operation="group_type_create_detail_dashboard",
+        )
         group_type_mapping.detail_dashboard_id = dashboard.id
         invalidate_group_types_cache(self.team.project_id)
         return response.Response(self.get_serializer(group_type_mapping).data)
@@ -169,7 +173,9 @@ class GroupsTypesViewSet(
             raise NotFound(detail="Group type not found")
 
         update_group_type_mapping_fields(
-            group_type_mapping, fields={"default_columns": request.data["default_columns"]}
+            group_type_mapping,
+            fields={"default_columns": request.data["default_columns"]},
+            operation="group_type_set_default_columns",
         )
         group_type_mapping.default_columns = request.data["default_columns"]
         invalidate_group_types_cache(self.team.project_id)
@@ -464,7 +470,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             create_or_update = "update" if property_key in group.group_properties else "create"
             original_value = group.group_properties.get(property_key, None)
             group.group_properties[property_key] = property_value
-            save_group(group)
+            save_group(group, operation="group_update_property")
 
             create_property_definition(
                 team_id=self.team.pk,
@@ -547,7 +553,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             group_type_mapping = self.get_group_type_mapping_or_404(cast(GroupTypeIndex, group.group_type_index))
             original_value = group.group_properties[property_key]
             del group.group_properties[property_key]
-            save_group(group)
+            save_group(group, operation="group_delete_property")
 
             # Need to update ClickHouse too
             timestamp = timezone.now()

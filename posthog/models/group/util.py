@@ -120,7 +120,7 @@ def create_group(
     return group
 
 
-def save_group(group: Group) -> None:
+def save_group(group: Group, *, operation: str = "group_save") -> None:
     """Save a Group's group_properties via personhog, falling back to ORM.
 
     Only group_properties is synced on the personhog path. The ORM fallback
@@ -142,13 +142,11 @@ def save_group(group: Group) -> None:
                     group_properties=json.dumps(group.group_properties).encode(),
                 )
             )
-            PERSONHOG_ROUTING_TOTAL.labels(
-                operation="save_group", source="personhog", client_name=get_client_name()
-            ).inc()
+            PERSONHOG_ROUTING_TOTAL.labels(operation=operation, source="personhog", client_name=get_client_name()).inc()
             return
         except Exception:
             PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
-                operation="save_group",
+                operation=operation,
                 source="personhog",
                 error_type="grpc_error",
                 client_name=get_client_name(),
@@ -161,7 +159,7 @@ def save_group(group: Group) -> None:
                 exc_info=True,
             )
 
-    PERSONHOG_ROUTING_TOTAL.labels(operation="save_group", source="django_orm", client_name=get_client_name()).inc()
+    PERSONHOG_ROUTING_TOTAL.labels(operation=operation, source="django_orm", client_name=get_client_name()).inc()
     group.save()
 
 

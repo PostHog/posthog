@@ -624,7 +624,7 @@ class TestUpdateGroupTypeMappingFields(SimpleTestCase):
         assert req.name_plural == "Orgs"
         instance.save.assert_not_called()
         mock_routing_counter.labels.assert_called_with(
-            operation="update_group_type_mapping", source="personhog", client_name="posthog-django"
+            operation="group_type_update", source="personhog", client_name="posthog-django"
         )
 
     @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
@@ -637,7 +637,7 @@ class TestUpdateGroupTypeMappingFields(SimpleTestCase):
 
         instance.save.assert_called_once()
         mock_routing_counter.labels.assert_called_with(
-            operation="update_group_type_mapping", source="django_orm", client_name="posthog-django"
+            operation="group_type_update", source="django_orm", client_name="posthog-django"
         )
 
     @parameterized.expand(
@@ -661,7 +661,7 @@ class TestUpdateGroupTypeMappingFields(SimpleTestCase):
 
         instance.save.assert_called_once()
         mock_errors_counter.labels.assert_called_once_with(
-            operation="update_group_type_mapping",
+            operation="group_type_update",
             source="personhog",
             error_type="grpc_error",
             client_name="posthog-django",
