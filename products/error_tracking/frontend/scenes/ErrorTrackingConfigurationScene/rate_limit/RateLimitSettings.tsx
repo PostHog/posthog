@@ -31,10 +31,10 @@ export function RateLimitSettings(): JSX.Element {
     return (
         <div className="space-y-4">
             <div>
-                <h3 className="font-semibold text-base mb-1">Project wide rate limiting</h3>
+                <h3 className="font-semibold text-base mb-1">Project wide rate limit</h3>
                 <p className="text-muted-foreground">
-                    This rate limit applies to your entire project. It specifies how many exceptions per hour we will
-                    accept at most. Anything above that is dropped.
+                    This limit applies across the entire project. Exceptions received above the configured hourly rate
+                    are dropped at ingestion.
                 </p>
             </div>
 
@@ -55,7 +55,7 @@ export function RateLimitSettings(): JSX.Element {
                             )}
                         </LemonField>
                         <p className="text-muted-foreground text-xs">
-                            Maximum number of exception events to accept per hour. Leave empty to disable.
+                            The maximum number of exceptions accepted each hour. Leave empty for no limit.
                         </p>
 
                         <div className="flex justify-start pt-2">
@@ -71,9 +71,7 @@ export function RateLimitSettings(): JSX.Element {
                     </div>
 
                     <div className="md:col-span-7">
-                        <div className="text-sm font-medium mb-1">
-                            Reference - per hour rates for this project for the last 7 days
-                        </div>
+                        <div className="text-sm font-medium mb-1">Hourly exception volume — last 7 days</div>
                         {volumeLoading ? (
                             <LemonSkeleton className="w-full h-64" />
                         ) : (
@@ -144,7 +142,7 @@ function RateLimitSimulationChart({
             rateLimit && rateLimit > 0
                 ? [
                       {
-                          label: `Rate limit (${rateLimit}/hour)`,
+                          label: `Limit: ${rateLimit}/hour`,
                           value: rateLimit,
                           displayLabel: true,
                       },
