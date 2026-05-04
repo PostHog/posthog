@@ -212,12 +212,15 @@ class OrganizationMemberViewSet(
             if "updated_after" in params:
                 queryset = queryset.filter(updated_at__gt=params["updated_after"])
 
-            search = self.request.GET.get("search")
-            if search:
-                if len(search) > MAX_SEARCH_LENGTH:
-                    raise serializers.ValidationError(
-                        {"search": f"Search query must be {MAX_SEARCH_LENGTH} characters or fewer."}
-                    )
+            search = self.request.GET.get("search", "")
+            if len(search) > MAX_SEARCH_LENGTH:
+                raise serializers.ValidationError(
+                    {"search": f"Search query must be {MAX_SEARCH_LENGTH} characters or fewer."}
+                )
+            # Normalize before deciding so whitespace-only queries fall through to default
+            # ordering rather than reaching `_apply_search` and returning the queryset
+            # without any order applied.
+            if normalize_search_term(search):
                 queryset = self._apply_search(queryset, search)
             else:
                 order = self.request.GET.get("order")

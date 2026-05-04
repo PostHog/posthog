@@ -502,14 +502,11 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         [
             ("plain symbols", "&|!"),
             ("sql-injection-shaped", "'; DROP TABLE--"),
+            ("nul bytes", "\x00\x00\x00"),
         ]
     )
     def test_list_organization_members_pathological_search_does_not_500(self, _name, search):
         response = self.client.get("/api/organizations/@current/members/", {"search": search})
-        assert response.status_code == status.HTTP_200_OK
-
-    def test_list_organization_members_search_nul_bytes_do_not_500(self):
-        response = self.client.get("/api/organizations/@current/members/", {"search": "\x00\x00\x00"})
         assert response.status_code == status.HTTP_200_OK
 
     @parameterized.expand(

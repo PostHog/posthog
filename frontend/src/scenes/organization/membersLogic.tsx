@@ -24,6 +24,7 @@ export const membersLogic = kea<membersLogicType>([
         ensureAllMembersLoaded: true,
         loadAllMembers: true,
         loadMemberUpdates: true,
+        loadSearchedMembers: true,
         loadMemberScopedApiKeys: (member: OrganizationMemberType) => ({ member }),
         setSearch: (search) => ({ search }),
         changeMemberAccessLevel: (member: OrganizationMemberType, level: OrganizationMembershipLevel) => ({
@@ -36,20 +37,11 @@ export const membersLogic = kea<membersLogicType>([
         members: {
             __default: null as OrganizationMemberType[] | null,
             loadAllMembers: async () => {
-                const search = values.search?.trim() || undefined
                 return await api.organizationMembers.listAll({
                     limit: PAGINATION_LIMIT,
-                    search,
                 })
             },
             loadMemberUpdates: async () => {
-                // Skip incremental updates while a search is active — `members` currently
-                // holds the search-filtered set, and merging arbitrary recently-updated
-                // members into it would surface unrelated rows in the search results.
-                if (values.search?.trim()) {
-                    return values.members
-                }
-
                 const newestMemberUpdate = values.members?.sort((a, b) => (a.updated_at > b.updated_at ? -1 : 1))?.[0]
 
                 if (!newestMemberUpdate || !values.members) {
@@ -119,6 +111,22 @@ export const membersLogic = kea<membersLogicType>([
                 }
             },
         },
+        // Server-side search results — separate from the canonical `members` store so
+        // other consumers (rolesLogic, hedgehogModeLogic, etc.) keep seeing the full org
+        // when the user has a search term active in the org-settings members page.
+        searchedMembers: {
+            __default: null as OrganizationMemberType[] | null,
+            loadSearchedMembers: async () => {
+                const search = values.search?.trim()
+                if (!search) {
+                    return null
+                }
+                return await api.organizationMembers.listAll({
+                    limit: PAGINATION_LIMIT,
+                    search,
+                })
+            },
+        },
     })),
     reducers({
         search: ['', { setSearch: (_, { search }) => search }],
@@ -134,13 +142,8 @@ export const membersLogic = kea<membersLogicType>([
             },
         ],
         meFirstMembers: [
-            (s) => [s.sortedMembers, s.user, s.search],
-            (members, user, search): OrganizationMemberType[] => {
-                // When the user is searching for someone else, don't pin themselves to the
-                // top — the search results are the answer to the query, me-first is noise.
-                if (search?.trim()) {
-                    return members ?? []
-                }
+            (s) => [s.sortedMembers, s.user],
+            (members, user): OrganizationMemberType[] => {
                 const me = user && members?.find((member) => member.user.uuid === user.uuid)
                 const result: OrganizationMemberType[] = me ? [me] : []
                 for (const member of members ?? []) {
@@ -151,7 +154,20 @@ export const membersLogic = kea<membersLogicType>([
                 return result
             },
         ],
-        filteredMembers: [(s) => [s.meFirstMembers], (members): OrganizationMemberType[] => members ?? []],
+        filteredMembers: [
+            (s) => [s.meFirstMembers, s.searchedMembers, s.search],
+            (members, searched, search): OrganizationMemberType[] => {
+                // When a search term is set, return the (server-filtered) searchedMembers
+                // — this avoids polluting the canonical `members` store with a filtered
+                // subset, so other consumers (rolesLogic, hedgehogModeLogic) keep seeing
+                // the full org. me-first is dropped during search because the user is
+                // looking for someone else, not themselves.
+                if (search?.trim()) {
+                    return searched ?? []
+                }
+                return members ?? []
+            },
+        ],
         memberCount: [
             (s) => [s.user, s.sortedMembers],
             (user, members): number => {
@@ -182,7 +198,7 @@ export const membersLogic = kea<membersLogicType>([
 
         setSearch: async (_, breakpoint) => {
             await breakpoint(250)
-            actions.loadAllMembers()
+            actions.loadSearchedMembers()
         },
     })),
 
