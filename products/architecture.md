@@ -123,9 +123,27 @@ Each product defines its public interface as **frozen dataclasses** in `backend/
 - Small, hashable, stable
 - Facades accept them as inputs and return them as outputs
 
+### Choosing a dataclass flavor
+
+Stdlib `dataclasses.dataclass` is the baseline.
+`pydantic.dataclasses.dataclass` is the preferred upgrade when construction-time validation is useful:
+it keeps full dataclass semantics (passes `is_dataclass()`, works with `DataclassSerializer`, identical kwargs construction, `frozen=True`, `field(default_factory=...)`)
+and adds Pydantic's runtime type validation as a 1-line import swap.
+
+Use `pydantic.BaseModel` only when a contract genuinely needs features that dataclasses don't have — field aliases (e.g., camelCase wire / snake_case Python), computed fields exposed in the schema, custom validators, discriminated unions.
+Stay with one of the dataclass flavors otherwise;
+switching to `BaseModel` loses `is_dataclass()`-based tooling.
+
+DTO validation is **best-effort, not HTTP validation**.
+DRF serializers (or Pydantic schemas at the HTTP boundary) own the contract for untrusted input.
+Pydantic dataclass validation catches construction-site mistakes inside the backend — wrong types from mappers, malformed data from internal callers — close to the bug rather than at the wire.
+
 ### Example
 
 ```python
+from pydantic.dataclasses import dataclass
+
+
 @dataclass(frozen=True)
 class Artifact:
     id: UUID
