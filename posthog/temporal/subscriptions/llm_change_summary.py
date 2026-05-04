@@ -321,7 +321,7 @@ def _attach_images_to_user_message(
 def _get_openai_client() -> OpenAI:
     if not os.environ.get("OPENAI_API_KEY"):
         raise ValueError("OPENAI_API_KEY environment variable not set")
-    return OpenAI(posthog_client=posthoganalytics, base_url=settings.OPENAI_BASE_URL)
+    return OpenAI(posthog_client=posthoganalytics, base_url=settings.OPENAI_BASE_URL, max_retries=3)
 
 
 def generate_change_summary(
@@ -363,12 +363,11 @@ def generate_change_summary(
     posthog_properties: dict[str, object] = {"ai_product": "subscription_summary"}
     if delivery_id:
         posthog_properties["delivery_id"] = delivery_id
-    if team is not None:
-        posthog_properties["$ai_billable"] = True
-        posthog_properties["team_id"] = team.id
 
     extra_capture_kwargs: dict[str, object] = {}
     if team is not None:
+        posthog_properties["$ai_billable"] = True
+        posthog_properties["team_id"] = team.id
         extra_capture_kwargs["posthog_groups"] = {"project": str(team.id)}
 
     result = client.chat.completions.create(
