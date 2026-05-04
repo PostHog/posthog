@@ -3431,6 +3431,13 @@ export const SubscriptionsListTargetType = {
     Webhook: 'webhook',
 } as const
 
+export type SubscriptionsSummaryQuotaRetrieve200 = {
+    active_count: number
+    /** @nullable */
+    limit: number | null
+    at_limit: boolean
+}
+
 export type UsersListParams = {
     email?: string
     is_staff?: boolean

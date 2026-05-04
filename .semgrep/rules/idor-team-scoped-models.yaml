@@ -138,6 +138,7 @@ rules:
                               |Insight
                               |InsightVariable
                               |Integration
+                              |IntegrationRepositoryCacheEntry
                               |Link
                               |LiveDebuggerBreakpoint
                               |LogsAlertConfiguration
@@ -342,6 +343,7 @@ rules:
                         |Insight
                         |InsightVariable
                         |Integration
+                        |IntegrationRepositoryCacheEntry
                         |Link
                         |LiveDebuggerBreakpoint
                         |LLMModelConfiguration

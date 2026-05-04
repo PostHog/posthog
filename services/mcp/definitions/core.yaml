@@ -245,8 +245,8 @@ tools:
     event-definitions-partial-update:
         operation: event_definitions_partial_update
         enabled: false
-    event-definitions-promoted-properties-retrieve:
-        operation: event_definitions_promoted_properties_retrieve
+    event-definitions-primary-properties-retrieve:
+        operation: event_definitions_primary_properties_retrieve
         enabled: false
     event-definitions-python-retrieve:
         operation: event_definitions_python_retrieve
@@ -666,6 +666,9 @@ tools:
         description: >
             Get a specific subscription by ID. Returns the full subscription configuration including target type and
             value, schedule details, next delivery date, and associated insight or dashboard.
+    subscriptions-summary-quota-retrieve:
+        operation: subscriptions_summary_quota_retrieve
+        enabled: false
     subscriptions-test-delivery-create:
         operation: subscriptions_test_delivery_create
         enabled: true

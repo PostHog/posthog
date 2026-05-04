@@ -46,6 +46,7 @@ interface QueryWindowProps {
     runQueryLoading?: boolean
     runQueryDisabledReason?: string
     runQueryTooltip?: string
+    onShareTab?: () => void
 }
 
 export function QueryWindow({
@@ -60,8 +61,10 @@ export function QueryWindow({
     runQueryLoading,
     runQueryDisabledReason,
     runQueryTooltip,
+    onShareTab,
 }: QueryWindowProps): JSX.Element {
     const codeEditorKey = `hogql-editor-${tabId}`
+    const logic = sqlEditorLogic({ tabId })
 
     const {
         queryInput,
@@ -73,7 +76,7 @@ export function QueryWindow({
         activeQueryOffset,
         selectedConnectionId,
         sendRawQueryEnabled,
-    } = useValues(sqlEditorLogic)
+    } = useValues(logic)
 
     const {
         setQueryInput,
@@ -84,9 +87,9 @@ export function QueryWindow({
         setMetadataLoading,
         setSendRawQuery,
         openMaterializationModal,
-    } = useActions(sqlEditorLogic)
+    } = useActions(logic)
 
-    const { setSuggestedQueryInput, reportAIQueryPromptOpen } = useActions(sqlEditorLogic)
+    const { setSuggestedQueryInput, reportAIQueryPromptOpen } = useActions(logic)
     const vimModeFeatureEnabled = useFeatureFlag('SQL_EDITOR_VIM_MODE')
     const { editorVimModeEnabled } = useValues(userPreferencesLogic)
     const { setEditorVimModeEnabled } = useActions(userPreferencesLogic)
@@ -166,7 +169,7 @@ export function QueryWindow({
                             runQueryDisabledReason={runQueryDisabledReason}
                             runQueryTooltip={runQueryTooltip}
                         />
-                        <CollapsedConnectionSelector mode={mode} />
+                        <CollapsedConnectionSelector tabId={tabId} mode={mode} />
                         <LemonDivider vertical />
                         <QueryVariablesMenu
                             disabledReason={editingView ? 'Variables are not allowed in views.' : undefined}
@@ -285,7 +288,7 @@ export function QueryWindow({
                 />
             ) : null}
 
-            {showOutputPanel ? <InternalQueryWindow tabId={tabId} /> : null}
+            {showOutputPanel ? <InternalQueryWindow tabId={tabId} onShareTab={onShareTab} /> : null}
         </div>
     )
 }
@@ -425,22 +428,28 @@ function RunButton({
     )
 }
 
-const InternalQueryWindow = memo(function InternalQueryWindow({ tabId }: { tabId: string }): JSX.Element | null {
+const InternalQueryWindow = memo(function InternalQueryWindow({
+    tabId,
+    onShareTab,
+}: {
+    tabId: string
+    onShareTab?: () => void
+}): JSX.Element | null {
     const { finishedLoading } = useValues(sqlEditorLogic)
 
     if (finishedLoading) {
         return null
     }
 
-    return <OutputPane tabId={tabId} />
+    return <OutputPane tabId={tabId} onShareTab={onShareTab} />
 })
 
-function CollapsedConnectionSelector({ mode }: { mode?: SQLEditorMode }): JSX.Element | null {
+function CollapsedConnectionSelector({ tabId, mode }: { tabId: string; mode?: SQLEditorMode }): JSX.Element | null {
     const { isDatabaseTreeCollapsed } = useValues(editorSizingLogic)
 
     if (!isDatabaseTreeCollapsed || (mode && mode !== SQLEditorMode.FullScene)) {
         return null
     }
 
-    return <ConnectionSelector />
+    return <ConnectionSelector tabId={tabId} />
 }

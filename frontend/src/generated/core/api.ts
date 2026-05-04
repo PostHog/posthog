@@ -55,6 +55,7 @@ import type {
     SubscriptionDeliveryApi,
     SubscriptionsDeliveriesListParams,
     SubscriptionsListParams,
+    SubscriptionsSummaryQuotaRetrieve200,
     UserApi,
     UsersListParams,
 } from './api.schemas'
@@ -1702,6 +1703,20 @@ export const subscriptionsTestDeliveryCreate = async (
     return apiMutator<void>(getSubscriptionsTestDeliveryCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getSubscriptionsSummaryQuotaRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/subscriptions/summary_quota/`
+}
+
+export const subscriptionsSummaryQuotaRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<SubscriptionsSummaryQuotaRetrieve200> => {
+    return apiMutator<SubscriptionsSummaryQuotaRetrieve200>(getSubscriptionsSummaryQuotaRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 
