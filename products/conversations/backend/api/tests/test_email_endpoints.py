@@ -820,101 +820,107 @@ class TestEmailInboundDmarcRewrite(BaseTest):
             "stripped-text": "Where is my order?",
         }
 
+    @parameterized.expand(
+        [
+            (
+                "x_original_from",
+                {
+                    "from": "'Alex Smith' via Merch <merch@posthog.com>",
+                    "X-Original-From": "Alex Smith <alex@strictdmarc.com>",
+                },
+                "alex@strictdmarc.com",
+                "Alex Smith",
+            ),
+            (
+                "x_original_sender",
+                {"from": "'Bob' via Merch <merch@posthog.com>", "X-Original-Sender": "bob@company.io"},
+                "bob@company.io",
+                "bob",
+            ),
+            (
+                "reply_to_with_name",
+                {"from": "'Jane Doe' via Merch <merch@posthog.com>", "Reply-To": "Jane Doe <jane@strictdmarc.com>"},
+                "jane@strictdmarc.com",
+                "Jane Doe",
+            ),
+            (
+                "reply_to_bare_email",
+                {"from": "'Someone' via Merch <merch@posthog.com>", "Reply-To": "someone@example.org"},
+                "someone@example.org",
+                "someone",
+            ),
+            (
+                "x_original_from_over_reply_to",
+                {
+                    "from": "'Charlie' via Merch <merch@posthog.com>",
+                    "X-Original-From": "Charlie <charlie@real.com>",
+                    "Reply-To": "charlie-alt@other.com",
+                },
+                "charlie@real.com",
+                "Charlie",
+            ),
+            (
+                "no_recovery_headers_strips_via",
+                {"from": "'Alex Smith' via Merch <merch@posthog.com>"},
+                "merch@posthog.com",
+                "Alex Smith",
+            ),
+            (
+                "reply_to_matching_config_falls_through",
+                {"from": "'Alice' via Merch <merch@posthog.com>", "Reply-To": "merch@posthog.com"},
+                "merch@posthog.com",
+                "Alice",
+            ),
+            (
+                "non_rewritten_from_unchanged",
+                {"from": "Regular User <regular@gmail.com>"},
+                "regular@gmail.com",
+                "Regular User",
+            ),
+            (
+                "forged_from_no_via_skips_recovery",
+                {"from": "Attacker <merch@posthog.com>", "X-Original-From": "attacker@evil.com"},
+                "merch@posthog.com",
+                "Attacker",
+            ),
+            (
+                "malformed_x_original_from_rejected",
+                {"from": "'Eve' via Merch <merch@posthog.com>", "X-Original-From": "not-an-email"},
+                "merch@posthog.com",
+                "Eve",
+            ),
+            (
+                "malformed_reply_to_rejected",
+                {"from": "'Eve' via Merch <merch@posthog.com>", "Reply-To": "bad@"},
+                "merch@posthog.com",
+                "Eve",
+            ),
+        ]
+    )
     @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
-    def test_x_original_from_recovers_sender(self, _mock_sig: MagicMock):
-        data = self._base_data("<dmarc-xorig@test.com>")
+    def test_dmarc_sender_recovery(self, _name, extra_headers, expected_email, expected_name, _mock_sig):
+        data = self._base_data(f"<dmarc-{_name}@test.com>")
+        data.update(extra_headers)
+        self.client.post("/api/conversations/v1/email/inbound", data)
+
+        ticket = Ticket.objects.get(team=self.team)
+        assert ticket.email_from == expected_email
+        assert ticket.anonymous_traits["email"] == expected_email
+        assert ticket.anonymous_traits["name"] == expected_name
+
+    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    def test_recovered_sender_flows_to_comment_context(self, _mock_sig: MagicMock):
+        data = self._base_data("<dmarc-ctx@test.com>")
         data["from"] = "'Alex Smith' via Merch <merch@posthog.com>"
         data["X-Original-From"] = "Alex Smith <alex@strictdmarc.com>"
         self.client.post("/api/conversations/v1/email/inbound", data)
 
         ticket = Ticket.objects.get(team=self.team)
-        assert ticket.email_from == "alex@strictdmarc.com"
-        assert ticket.anonymous_traits["email"] == "alex@strictdmarc.com"
-        assert ticket.anonymous_traits["name"] == "Alex Smith"
         assert ticket.distinct_id == "alex@strictdmarc.com"
 
         comment = Comment.objects.get(team=self.team, scope="conversations_ticket")
         assert comment.item_context["email_from"] == "alex@strictdmarc.com"
         assert comment.item_context["email_from_name"] == "Alex Smith"
-
-    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
-    def test_reply_to_recovers_sender_when_no_x_original(self, _mock_sig: MagicMock):
-        data = self._base_data("<dmarc-replyto@test.com>")
-        data["from"] = "'Jane Doe' via Merch <merch@posthog.com>"
-        data["Reply-To"] = "Jane Doe <jane@strictdmarc.com>"
-        self.client.post("/api/conversations/v1/email/inbound", data)
-
-        ticket = Ticket.objects.get(team=self.team)
-        assert ticket.email_from == "jane@strictdmarc.com"
-        assert ticket.anonymous_traits["email"] == "jane@strictdmarc.com"
-        assert ticket.anonymous_traits["name"] == "Jane Doe"
-
-    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
-    def test_reply_to_bare_email_recovers_sender(self, _mock_sig: MagicMock):
-        data = self._base_data("<dmarc-bare@test.com>")
-        data["from"] = "'Someone' via Merch <merch@posthog.com>"
-        data["Reply-To"] = "someone@example.org"
-        self.client.post("/api/conversations/v1/email/inbound", data)
-
-        ticket = Ticket.objects.get(team=self.team)
-        assert ticket.email_from == "someone@example.org"
-        assert ticket.anonymous_traits["name"] == "someone"
-
-    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
-    def test_via_suffix_stripped_when_no_recovery_headers(self, _mock_sig: MagicMock):
-        data = self._base_data("<dmarc-nohdr@test.com>")
-        data["from"] = "'Alex Smith' via Merch <merch@posthog.com>"
-        self.client.post("/api/conversations/v1/email/inbound", data)
-
-        ticket = Ticket.objects.get(team=self.team)
-        # Can't recover email, but at least clean up the name
-        assert ticket.email_from == "merch@posthog.com"
-        assert ticket.anonymous_traits["name"] == "Alex Smith"
-
-    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
-    def test_non_rewritten_from_passes_through(self, _mock_sig: MagicMock):
-        data = self._base_data("<dmarc-normal@test.com>")
-        data["from"] = "Regular User <regular@gmail.com>"
-        self.client.post("/api/conversations/v1/email/inbound", data)
-
-        ticket = Ticket.objects.get(team=self.team)
-        assert ticket.email_from == "regular@gmail.com"
-        assert ticket.anonymous_traits["name"] == "Regular User"
-
-    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
-    def test_x_original_sender_also_works(self, _mock_sig: MagicMock):
-        data = self._base_data("<dmarc-xsender@test.com>")
-        data["from"] = "'Bob' via Merch <merch@posthog.com>"
-        data["X-Original-Sender"] = "bob@company.io"
-        self.client.post("/api/conversations/v1/email/inbound", data)
-
-        ticket = Ticket.objects.get(team=self.team)
-        assert ticket.email_from == "bob@company.io"
-        assert ticket.anonymous_traits["name"] == "bob"
-
-    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
-    def test_reply_to_matching_config_email_ignored(self, _mock_sig: MagicMock):
-        data = self._base_data("<dmarc-selfrt@test.com>")
-        data["from"] = "'Alice' via Merch <merch@posthog.com>"
-        data["Reply-To"] = "merch@posthog.com"
-        self.client.post("/api/conversations/v1/email/inbound", data)
-
-        ticket = Ticket.objects.get(team=self.team)
-        # Reply-To is the same as config, so fall through to name cleanup
-        assert ticket.email_from == "merch@posthog.com"
-        assert ticket.anonymous_traits["name"] == "Alice"
-
-    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
-    def test_x_original_from_takes_priority_over_reply_to(self, _mock_sig: MagicMock):
-        data = self._base_data("<dmarc-priority@test.com>")
-        data["from"] = "'Charlie' via Merch <merch@posthog.com>"
-        data["X-Original-From"] = "Charlie <charlie@real.com>"
-        data["Reply-To"] = "charlie-alt@other.com"
-        self.client.post("/api/conversations/v1/email/inbound", data)
-
-        ticket = Ticket.objects.get(team=self.team)
-        assert ticket.email_from == "charlie@real.com"
-        assert ticket.anonymous_traits["name"] == "Charlie"
 
 
 class TestEmailInboundCcParticipants(BaseTest):
