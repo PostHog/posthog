@@ -26,11 +26,8 @@ const DEFAULT_OPTIONS: Required<Omit<DOMSerializerOptions, 'document' | 'window'
     maxTextLength: 100,
 }
 
-/**
- * Tags whose internals are not useful to the LLM.
- * `<svg>` is rendered as a self-closing leaf so the tree stays compact.
- */
-const SKIP_CHILDREN_TAGS = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'SVG'])
+/** `<svg>` is rendered as a self-closing leaf so the tree stays compact. */
+const SKIP_CHILDREN_TAGS = new Set(['SVG'])
 
 /** Tag names that are entirely skipped (not rendered, not descended). */
 const SKIP_ENTIRELY_TAGS = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT'])

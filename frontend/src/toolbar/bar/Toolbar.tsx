@@ -446,6 +446,8 @@ export function Toolbar(): JSX.Element | null {
 
     const showSidebar = selectedTourId !== null && !isPreviewing
     const showAISidebar = isAuthenticated && showAI && visibleMenu === 'ai'
+    const extraButtonCount =
+        (showExperiments ? 1 : 0) + (showProductTours ? 1 : 0) + (showSurveys ? 1 : 0) + (showAI ? 1 : 0)
 
     return (
         <>
@@ -458,30 +460,10 @@ export function Toolbar(): JSX.Element | null {
                     'Toolbar--minimized': minimized,
                     'Toolbar--hedgehog-mode': hedgehogMode,
                     'Toolbar--dragging': isDragging,
-                    'Toolbar--extra-buttons-1':
-                        (showExperiments ? 1 : 0) +
-                            (showProductTours ? 1 : 0) +
-                            (showSurveys ? 1 : 0) +
-                            (showAI ? 1 : 0) ===
-                        1,
-                    'Toolbar--extra-buttons-2':
-                        (showExperiments ? 1 : 0) +
-                            (showProductTours ? 1 : 0) +
-                            (showSurveys ? 1 : 0) +
-                            (showAI ? 1 : 0) ===
-                        2,
-                    'Toolbar--extra-buttons-3':
-                        (showExperiments ? 1 : 0) +
-                            (showProductTours ? 1 : 0) +
-                            (showSurveys ? 1 : 0) +
-                            (showAI ? 1 : 0) ===
-                        3,
-                    'Toolbar--extra-buttons-4':
-                        (showExperiments ? 1 : 0) +
-                            (showProductTours ? 1 : 0) +
-                            (showSurveys ? 1 : 0) +
-                            (showAI ? 1 : 0) ===
-                        4,
+                    'Toolbar--extra-buttons-1': extraButtonCount === 1,
+                    'Toolbar--extra-buttons-2': extraButtonCount === 2,
+                    'Toolbar--extra-buttons-3': extraButtonCount === 3,
+                    'Toolbar--extra-buttons-4': extraButtonCount === 4,
                 })}
                 onMouseDown={(e) => onMouseOrTouchDown(e.nativeEvent)}
                 onTouchStart={(e) => onMouseOrTouchDown(e.nativeEvent)}

@@ -96,6 +96,7 @@ export const toolbarAILogic = kea<toolbarAILogicType>([
 
     actions({
         submitMessage: (content: string) => ({ content }),
+        setDraft: (draft: string) => ({ draft }),
         /** Append a thread item (user/assistant/reasoning/failure). */
         addThreadItem: (item: ThreadItem) => ({ item }),
         /** Replace the thread item at `index`. Used when the server re-emits a message with the same id. */
@@ -114,6 +115,9 @@ export const toolbarAILogic = kea<toolbarAILogicType>([
         clearSelectedElementContext: true,
         cancelStream: true,
         reset: true,
+        /** Register DOM refs so listeners can scroll/focus without component-level effects. */
+        setScrollEl: (el: HTMLDivElement | null) => ({ el }),
+        setInputEl: (el: HTMLTextAreaElement | null) => ({ el }),
     }),
 
     reducers({
@@ -180,11 +184,18 @@ export const toolbarAILogic = kea<toolbarAILogicType>([
                 reset: () => null,
             },
         ],
+        draft: [
+            '',
+            {
+                setDraft: (_, { draft }) => draft,
+                submitMessage: () => '',
+                reset: () => '',
+            },
+        ],
     }),
 
     selectors({
         isBusy: [(s) => [s.isCapturingContext, s.isStreaming], (capturing, streaming) => capturing || streaming],
-        canSubmit: [(s) => [s.isBusy], (isBusy: boolean) => !isBusy],
         /**
          * The user-facing view of the thread: empty assistant messages are
          * dropped, tool-result messages are folded into their parent assistant
@@ -241,6 +252,40 @@ export const toolbarAILogic = kea<toolbarAILogicType>([
     }),
 
     listeners(({ actions, values, cache }) => ({
+        setScrollEl: ({ el }) => {
+            cache.scrollEl = el
+        },
+        setInputEl: ({ el }) => {
+            cache.inputEl = el
+        },
+        addThreadItem: () => {
+            // Auto-scroll to bottom when new content arrives.
+            const el = cache.scrollEl as HTMLDivElement | null
+            if (el) {
+                el.scrollTop = el.scrollHeight
+            }
+        },
+        replaceThreadItem: () => {
+            const el = cache.scrollEl as HTMLDivElement | null
+            if (el) {
+                el.scrollTop = el.scrollHeight
+            }
+        },
+        setIsCapturingContext: ({ isCapturing }) => {
+            const el = cache.scrollEl as HTMLDivElement | null
+            if (el) {
+                el.scrollTop = el.scrollHeight
+            }
+            // Refocus the input once the busy state clears so the user can keep typing.
+            if (!isCapturing && !values.isStreaming) {
+                ;(cache.inputEl as HTMLTextAreaElement | null)?.focus()
+            }
+        },
+        setIsStreaming: ({ isStreaming }) => {
+            if (!isStreaming && !values.isCapturingContext) {
+                ;(cache.inputEl as HTMLTextAreaElement | null)?.focus()
+            }
+        },
         submitMessage: async ({ content }) => {
             const trimmed = content.trim()
             if (!trimmed || values.isBusy) {
@@ -431,7 +476,9 @@ export const toolbarAILogic = kea<toolbarAILogicType>([
 
     afterMount(({ actions, cache }) => {
         // Reset the conversation when the user navigates within the SPA so we don't
-        // mix DOM contexts from different pages in a single thread.
+        // mix DOM contexts from different pages in a single thread. `popstate` only
+        // fires on back/forward, so we also patch pushState/replaceState which are
+        // what most SPA routers (React Router, Vue Router, etc.) actually use.
         cache.lastPathname = window.location.pathname
         cache.disposables.add(() => {
             const onNavigation = (): void => {
@@ -440,8 +487,22 @@ export const toolbarAILogic = kea<toolbarAILogicType>([
                 }
                 cache.lastPathname = window.location.pathname
             }
+            const origPush = window.history.pushState.bind(window.history)
+            const origReplace = window.history.replaceState.bind(window.history)
+            window.history.pushState = (...args) => {
+                origPush(...args)
+                onNavigation()
+            }
+            window.history.replaceState = (...args) => {
+                origReplace(...args)
+                onNavigation()
+            }
             window.addEventListener('popstate', onNavigation)
-            return () => window.removeEventListener('popstate', onNavigation)
+            return () => {
+                window.removeEventListener('popstate', onNavigation)
+                window.history.pushState = origPush
+                window.history.replaceState = origReplace
+            }
         }, 'navigationListener')
     }),
 ])

@@ -310,15 +310,29 @@ function truncate(s: string, max: number): string {
 }
 
 export function ToolbarAIMenu(): JSX.Element {
-    const { thread, viewItems, isStreaming, isCapturingContext, isBusy, error, pickMode, selectedElementContext } =
-        useValues(toolbarAILogic)
-    const { submitMessage, cancelStream, reset, startElementPick, cancelElementPick, clearSelectedElementContext } =
-        useActions(toolbarAILogic)
+    const {
+        thread,
+        viewItems,
+        isStreaming,
+        isCapturingContext,
+        isBusy,
+        error,
+        pickMode,
+        selectedElementContext,
+        draft,
+    } = useValues(toolbarAILogic)
+    const {
+        submitMessage,
+        setDraft,
+        cancelStream,
+        reset,
+        startElementPick,
+        cancelElementPick,
+        clearSelectedElementContext,
+        setScrollEl,
+        setInputEl,
+    } = useActions(toolbarAILogic)
     const { setVisibleMenu } = useActions(toolbarLogic)
-
-    const [draft, setDraft] = useState('')
-    const scrollRef = useRef<HTMLDivElement | null>(null)
-    const inputRef = useRef<HTMLTextAreaElement | null>(null)
 
     const lastAssistantIndex = useMemo(() => {
         for (let i = viewItems.length - 1; i >= 0; i--) {
@@ -373,28 +387,11 @@ export function ToolbarAIMenu(): JSX.Element {
         }
     }, [])
 
-    // Auto-scroll to bottom when new content arrives.
-    useEffect(() => {
-        const el = scrollRef.current
-        if (el) {
-            el.scrollTop = el.scrollHeight
-        }
-    }, [viewItems, isCapturingContext])
-
-    // Refocus the input after a turn completes so users can type the next question
-    // without clicking back into the textarea.
-    useEffect(() => {
-        if (!isBusy) {
-            inputRef.current?.focus()
-        }
-    }, [isBusy])
-
     const onSubmit = (): void => {
         if (!draft.trim() || isBusy) {
             return
         }
         submitMessage(draft)
-        setDraft('')
     }
 
     const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
@@ -436,7 +433,7 @@ export function ToolbarAIMenu(): JSX.Element {
                 </div>
             </header>
 
-            <div ref={scrollRef} className="ToolbarAIMenu__scroll">
+            <div ref={setScrollEl} className="ToolbarAIMenu__scroll">
                 {viewItems.length === 0 ? (
                     <div className="ToolbarAIMenu__empty">
                         <IconAI className="text-3xl mb-2" />
@@ -494,7 +491,7 @@ export function ToolbarAIMenu(): JSX.Element {
                             </div>
                         ) : null}
                         <textarea
-                            ref={inputRef}
+                            ref={setInputEl}
                             id="toolbar-ai-input"
                             className="ToolbarAIMenu__input"
                             value={draft}
