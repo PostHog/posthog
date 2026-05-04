@@ -56,12 +56,86 @@ GITHUB_REPOSITORY_CACHE_TTL_SECONDS = 60 * 60
 GITHUB_BRANCH_CACHE_TTL_SECONDS = 60 * 10
 GITHUB_BRANCH_CACHE_TIMEOUT_SECONDS = 60 * 60 * 24
 
+# Author associations that GitHub reports for actors who are part of the repo's
+# org/team. These are the only associations we consider trustworthy when
+# `trusted_only` filtering is requested on PR comment/review fetches — anything
+# else (CONTRIBUTOR, FIRST_TIME_CONTRIBUTOR, NONE, MANNEQUIN) could be a
+# drive-by user attempting prompt injection.
+TRUSTED_PR_AUTHOR_ASSOCIATIONS: frozenset[str] = frozenset({"OWNER", "MEMBER", "COLLABORATOR"})
+
+# Bot accounts whose review output we treat as trusted. These are well-known
+# code-review bots that produce structured review feedback. Logins are matched
+# case-insensitively. Add new bots here as they're integrated.
+TRUSTED_PR_REVIEW_BOTS: frozenset[str] = frozenset(
+    {
+        "greptile-apps[bot]",
+        "greptileai[bot]",
+        "graphite-app[bot]",
+        "coderabbitai[bot]",
+        "sourcery-ai[bot]",
+    }
+)
+
+# How many pages of comments to fetch when trusted-only filtering is on. Each
+# page is up to 100 comments, so 3 pages = 300 max. Bounded so a noisy PR can't
+# blow up the prompt size we feed to the agent.
+GITHUB_PR_COMMENT_MAX_PAGES = 3
+
 
 @dataclass(frozen=True)
 class GitHubCommitAuthor:
     login: str
     name: str | None
     commit_url: str
+
+
+@dataclass(frozen=True)
+class GitHubPullRequestComment:
+    """A single PR comment (review, review-comment, or issue-comment) normalized.
+
+    `kind` is one of: "review" (formal review summary), "review_comment" (inline
+    diff comment), "issue_comment" (top-level conversation comment).
+    """
+
+    kind: str
+    id: int
+    author: str | None
+    author_association: str | None
+    body: str
+    created_at: str | None
+    html_url: str | None
+    path: str | None = None
+    line: int | None = None
+    state: str | None = None
+
+
+def is_trusted_pr_actor(
+    *,
+    login: str | None,
+    author_association: str | None,
+    pr_author: str | None,
+) -> bool:
+    """Whether a PR comment / review actor should be treated as trusted.
+
+    Trust comes from one of three sources, in order of preference:
+      1. The actor opened the PR — they own the diff.
+      2. The actor's `author_association` is OWNER / MEMBER / COLLABORATOR.
+      3. The actor is a known code-review bot in TRUSTED_PR_REVIEW_BOTS.
+
+    Anything else (drive-by CONTRIBUTOR, FIRST_TIME_CONTRIBUTOR, NONE,
+    MANNEQUIN, unknown bots) is untrusted — its prose can mention bugs but
+    must not be followed as instructions.
+    """
+    if not login:
+        return False
+    login_norm = login.casefold()
+    if pr_author and login_norm == pr_author.casefold():
+        return True
+    if author_association and author_association.upper() in TRUSTED_PR_AUTHOR_ASSOCIATIONS:
+        return True
+    if login_norm in {bot.casefold() for bot in TRUSTED_PR_REVIEW_BOTS}:
+        return True
+    return False
 
 
 class GitHubIntegrationError(Exception):
@@ -501,6 +575,256 @@ class GitHubIntegrationBase:
             return {"success": False, "error": f"Invalid GitHub pull request URL: {pr_url}"}
         owner, repo, pr_number = parsed
         return self.get_pull_request(f"{owner}/{repo}", pr_number)
+
+    # --- PR comment / review fetches ---
+    #
+    # The `trusted_only` flag on each method below filters out comments from
+    # actors GitHub doesn't report as part of the repo's org/team and that
+    # aren't on our allow-list of code-review bots. This is the only safe way
+    # to surface PR comments to an LLM that may act on them — anything else
+    # opens us to prompt-injection from drive-by contributors on public repos.
+
+    def _paginated_pr_endpoint(
+        self,
+        repository: str,
+        pr_number: int,
+        *,
+        endpoint_path: str,
+        endpoint_template: str,
+        max_pages: int,
+    ) -> list[dict[str, Any]] | None:
+        """Fetch up to `max_pages` of a PR sub-resource. Returns None on hard failure."""
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+        all_items: list[dict[str, Any]] = []
+        for page in range(1, max(1, max_pages) + 1):
+            response = self._installation_authenticated_get(
+                f"https://api.github.com/repos/{repo_path}/pulls/{pr_number}/{endpoint_path}?per_page=100&page={page}",
+                endpoint=endpoint_template,
+            )
+            if response is None:
+                return None
+            if response.status_code != 200:
+                logger.warning(
+                    "GitHubIntegration: PR sub-resource fetch failed",
+                    repository=repo_path,
+                    pr_number=pr_number,
+                    endpoint=endpoint_template,
+                    status_code=response.status_code,
+                )
+                return None
+            try:
+                body = response.json()
+            except Exception:
+                logger.warning(
+                    "GitHubIntegration: PR sub-resource non-JSON response",
+                    repository=repo_path,
+                    pr_number=pr_number,
+                    endpoint=endpoint_template,
+                )
+                return None
+            if not isinstance(body, list):
+                return None
+            all_items.extend(item for item in body if isinstance(item, dict))
+            if len(body) < 100:
+                break
+        return all_items
+
+    def _paginated_issue_comments(
+        self,
+        repository: str,
+        pr_number: int,
+        *,
+        max_pages: int,
+    ) -> list[dict[str, Any]] | None:
+        """Issue comments live under the issues namespace, not pulls."""
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+        all_items: list[dict[str, Any]] = []
+        for page in range(1, max(1, max_pages) + 1):
+            response = self._installation_authenticated_get(
+                f"https://api.github.com/repos/{repo_path}/issues/{pr_number}/comments?per_page=100&page={page}",
+                endpoint="/repos/{owner}/{repo}/issues/{issue_number}/comments",
+            )
+            if response is None:
+                return None
+            if response.status_code != 200:
+                logger.warning(
+                    "GitHubIntegration: issue comments fetch failed",
+                    repository=repo_path,
+                    pr_number=pr_number,
+                    status_code=response.status_code,
+                )
+                return None
+            try:
+                body = response.json()
+            except Exception:
+                logger.warning(
+                    "GitHubIntegration: issue comments non-JSON response",
+                    repository=repo_path,
+                    pr_number=pr_number,
+                )
+                return None
+            if not isinstance(body, list):
+                return None
+            all_items.extend(item for item in body if isinstance(item, dict))
+            if len(body) < 100:
+                break
+        return all_items
+
+    @staticmethod
+    def _normalize_comment(item: dict[str, Any], kind: str) -> GitHubPullRequestComment | None:
+        comment_id = item.get("id")
+        if not isinstance(comment_id, int):
+            return None
+        user = item.get("user") if isinstance(item.get("user"), dict) else {}
+        login = user.get("login") if isinstance(user, dict) else None
+        return GitHubPullRequestComment(
+            kind=kind,
+            id=comment_id,
+            author=str(login) if isinstance(login, str) else None,
+            author_association=item.get("author_association")
+            if isinstance(item.get("author_association"), str)
+            else None,
+            body=str(item.get("body") or ""),
+            created_at=str(item["created_at"]) if isinstance(item.get("created_at"), str) else None,
+            html_url=str(item["html_url"]) if isinstance(item.get("html_url"), str) else None,
+            path=str(item["path"]) if isinstance(item.get("path"), str) else None,
+            line=int(item["line"]) if isinstance(item.get("line"), int) else None,
+            state=str(item["state"]) if isinstance(item.get("state"), str) else None,
+        )
+
+    def _filter_trusted(
+        self,
+        items: list[GitHubPullRequestComment],
+        *,
+        trusted_only: bool,
+        pr_author: str | None,
+    ) -> list[GitHubPullRequestComment]:
+        if not trusted_only:
+            return items
+        return [
+            item
+            for item in items
+            if is_trusted_pr_actor(
+                login=item.author,
+                author_association=item.author_association,
+                pr_author=pr_author,
+            )
+        ]
+
+    def list_pull_request_review_comments(
+        self,
+        repository: str,
+        pr_number: int,
+        *,
+        trusted_only: bool = False,
+        pr_author: str | None = None,
+        max_pages: int = GITHUB_PR_COMMENT_MAX_PAGES,
+    ) -> list[GitHubPullRequestComment] | None:
+        """Inline diff review comments. Returns None on a hard fetch failure."""
+        raw = self._paginated_pr_endpoint(
+            repository,
+            pr_number,
+            endpoint_path="comments",
+            endpoint_template="/repos/{owner}/{repo}/pulls/{pull_number}/comments",
+            max_pages=max_pages,
+        )
+        if raw is None:
+            return None
+        normalized = [c for c in (self._normalize_comment(item, "review_comment") for item in raw) if c is not None]
+        return self._filter_trusted(normalized, trusted_only=trusted_only, pr_author=pr_author)
+
+    def list_pull_request_reviews(
+        self,
+        repository: str,
+        pr_number: int,
+        *,
+        trusted_only: bool = False,
+        pr_author: str | None = None,
+        max_pages: int = GITHUB_PR_COMMENT_MAX_PAGES,
+    ) -> list[GitHubPullRequestComment] | None:
+        """Formal review summaries (approvals, change-requests, etc)."""
+        raw = self._paginated_pr_endpoint(
+            repository,
+            pr_number,
+            endpoint_path="reviews",
+            endpoint_template="/repos/{owner}/{repo}/pulls/{pull_number}/reviews",
+            max_pages=max_pages,
+        )
+        if raw is None:
+            return None
+        normalized: list[GitHubPullRequestComment] = []
+        for item in raw:
+            comment = self._normalize_comment(item, "review")
+            if comment is None:
+                continue
+            # Reviews without a body are typically just an approval click —
+            # nothing actionable to surface to the agent.
+            if not comment.body.strip():
+                continue
+            normalized.append(comment)
+        return self._filter_trusted(normalized, trusted_only=trusted_only, pr_author=pr_author)
+
+    def list_pull_request_issue_comments(
+        self,
+        repository: str,
+        pr_number: int,
+        *,
+        trusted_only: bool = False,
+        pr_author: str | None = None,
+        max_pages: int = GITHUB_PR_COMMENT_MAX_PAGES,
+    ) -> list[GitHubPullRequestComment] | None:
+        """Top-level conversation comments on the PR."""
+        raw = self._paginated_issue_comments(repository, pr_number, max_pages=max_pages)
+        if raw is None:
+            return None
+        normalized = [c for c in (self._normalize_comment(item, "issue_comment") for item in raw) if c is not None]
+        return self._filter_trusted(normalized, trusted_only=trusted_only, pr_author=pr_author)
+
+    def get_pull_request_feedback(
+        self,
+        repository: str,
+        pr_number: int,
+        *,
+        trusted_only: bool = False,
+        pr_author: str | None = None,
+    ) -> dict[str, Any]:
+        """Fetch reviews + review comments + issue comments for a PR.
+
+        When `trusted_only=True`, untrusted actors (drive-by users, unknown
+        bots) are filtered out. This is what callers should use whenever the
+        result feeds back into an LLM prompt — see
+        :func:`is_trusted_pr_actor` for the trust model.
+
+        If `pr_author` is omitted but `trusted_only=True`, the PR is fetched
+        first to resolve the author so they're always counted as trusted on
+        their own PR.
+        """
+        if trusted_only and pr_author is None:
+            pr = self.get_pull_request(repository, pr_number)
+            if pr.get("success"):
+                author = pr.get("author")
+                if isinstance(author, str):
+                    pr_author = author
+
+        review_comments = self.list_pull_request_review_comments(
+            repository, pr_number, trusted_only=trusted_only, pr_author=pr_author
+        )
+        reviews = self.list_pull_request_reviews(repository, pr_number, trusted_only=trusted_only, pr_author=pr_author)
+        issue_comments = self.list_pull_request_issue_comments(
+            repository, pr_number, trusted_only=trusted_only, pr_author=pr_author
+        )
+
+        # If any sub-fetch failed, surface a partial result so callers can
+        # decide whether to skip or proceed. The prompt builder treats `None`
+        # as "no comments available" rather than "no comments exist".
+        return {
+            "success": review_comments is not None and reviews is not None and issue_comments is not None,
+            "trusted_only": trusted_only,
+            "pr_author": pr_author,
+            "review_comments": review_comments or [],
+            "reviews": reviews or [],
+            "issue_comments": issue_comments or [],
+        }
 
     def list_repositories(self, *, page: int = 1, per_page: int = 100) -> tuple[list[dict], bool]:
         """List one page of installation repositories from the GitHub API.

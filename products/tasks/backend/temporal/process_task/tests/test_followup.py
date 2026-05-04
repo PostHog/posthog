@@ -289,7 +289,11 @@ class TestCIFollowUpLoop:
 
         assert result.success is True
         assert len(_ci_followup_calls) == MAX_CI_REPETITIONS
-        assert all(msg == DEFAULT_CI_MESSAGE for msg in _ci_followup_calls)
+        # The base CI message is always followed by the pre-filtered trusted-feedback
+        # section (even when there are no trusted comments), so we assert each follow-up
+        # starts with DEFAULT_CI_MESSAGE rather than equaling it.
+        assert all(msg.startswith(DEFAULT_CI_MESSAGE) for msg in _ci_followup_calls)
+        assert all("Trusted PR feedback" in msg for msg in _ci_followup_calls)
         timeout_updates = [(s, e) for s, e in _status_updates if "timed out" in (e or "")]
         assert timeout_updates, f"expected an inactivity-timeout completion, got {_status_updates}"
 
@@ -314,7 +318,8 @@ class TestCIFollowUpLoop:
                 await handle.result()
 
         assert _ci_followup_calls
-        assert all(msg == custom_prompt for msg in _ci_followup_calls)
+        assert all(msg.startswith(custom_prompt) for msg in _ci_followup_calls)
+        assert all("Trusted PR feedback" in msg for msg in _ci_followup_calls)
 
     @pytest.mark.parametrize(
         "create_pr, pr_loop_enabled",
@@ -545,7 +550,8 @@ class TestFollowupGuards:
                 await handle.result()
 
         assert len(_ci_followup_calls) == MAX_CI_REPETITIONS
-        assert all(msg == DEFAULT_CI_MESSAGE for msg in _ci_followup_calls)
+        assert all(msg.startswith(DEFAULT_CI_MESSAGE) for msg in _ci_followup_calls)
+        assert all("Trusted PR feedback" in msg for msg in _ci_followup_calls)
         assert _pr_context_overrides.get("_call_count") == 4, (
             f"expected 4 get_pr_context calls (fire, skip, fire, fire) — broken persistence "
             f"would yield 3. Got {_pr_context_overrides.get('_call_count')}"

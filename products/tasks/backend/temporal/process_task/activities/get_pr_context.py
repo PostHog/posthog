@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from django.core.exceptions import ObjectDoesNotExist
@@ -6,6 +6,7 @@ from django.core.exceptions import ObjectDoesNotExist
 from temporalio import activity
 
 from posthog.models import Integration
+from posthog.models.github_integration_base import GitHubPullRequestComment
 from posthog.models.integration import GitHubIntegration
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 from posthog.temporal.common.utils import close_db_connections
@@ -22,10 +23,44 @@ class GetPrContextInput:
 
 
 @dataclass
+class TrustedPrComment:
+    """Serialization-safe representation of a trusted PR comment for Temporal payloads."""
+
+    kind: str
+    author: str | None
+    author_association: str | None
+    body: str
+    html_url: str | None
+    path: str | None = None
+    line: int | None = None
+    state: str | None = None
+
+
+@dataclass
 class GetPrContextOutput:
     pr_url: str
     pr_state: str
     fingerprint: str
+    pr_author: str | None = None
+    # Pre-filtered comments (trusted actors only). Defaulted so older workflow
+    # histories that scheduled this activity before the comment fetch existed
+    # still deserialize cleanly.
+    trusted_review_comments: list[TrustedPrComment] = field(default_factory=list)
+    trusted_reviews: list[TrustedPrComment] = field(default_factory=list)
+    trusted_issue_comments: list[TrustedPrComment] = field(default_factory=list)
+
+
+def _to_trusted_comment(comment: GitHubPullRequestComment) -> TrustedPrComment:
+    return TrustedPrComment(
+        kind=comment.kind,
+        author=comment.author,
+        author_association=comment.author_association,
+        body=comment.body,
+        html_url=comment.html_url,
+        path=comment.path,
+        line=comment.line,
+        state=comment.state,
+    )
 
 
 def compute_pr_fingerprint(pr: dict[str, Any]) -> str:
@@ -104,8 +139,43 @@ def get_pr_context(input: GetPrContextInput) -> GetPrContextOutput | None:
                 cause=e,
             )
 
+        pr_author_raw = pull_request.get("author")
+        pr_author = pr_author_raw if isinstance(pr_author_raw, str) else None
+        repository = pull_request.get("repository")
+        pr_number = pull_request.get("number")
+
+        trusted_review_comments: list[TrustedPrComment] = []
+        trusted_reviews: list[TrustedPrComment] = []
+        trusted_issue_comments: list[TrustedPrComment] = []
+        # Fetch pre-filtered comments so the workflow can embed them in the CI
+        # follow-up prompt without ever exposing untrusted prose to the LLM.
+        # A failure to fetch is non-fatal: we still return the PR context so
+        # the change-detection fingerprint stays correct, and the prompt
+        # builder treats the empty list as "no trusted feedback yet".
+        if isinstance(repository, str) and isinstance(pr_number, int):
+            try:
+                feedback = github_integration.get_pull_request_feedback(
+                    repository,
+                    pr_number,
+                    trusted_only=True,
+                    pr_author=pr_author,
+                )
+                trusted_review_comments = [_to_trusted_comment(c) for c in feedback.get("review_comments", [])]
+                trusted_reviews = [_to_trusted_comment(c) for c in feedback.get("reviews", [])]
+                trusted_issue_comments = [_to_trusted_comment(c) for c in feedback.get("issue_comments", [])]
+            except Exception:
+                activity.logger.warning(
+                    "get_pr_context_feedback_fetch_failed",
+                    pr_url=pr_url,
+                    exc_info=True,
+                )
+
         return GetPrContextOutput(
             pr_url=pr_url,
             pr_state=pull_request.get("state", "unknown"),
             fingerprint=fingerprint,
+            pr_author=pr_author,
+            trusted_review_comments=trusted_review_comments,
+            trusted_reviews=trusted_reviews,
+            trusted_issue_comments=trusted_issue_comments,
         )

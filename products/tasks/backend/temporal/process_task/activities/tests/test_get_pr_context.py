@@ -5,10 +5,13 @@ from unittest.mock import MagicMock, patch
 
 from django.core.exceptions import ObjectDoesNotExist
 
+from posthog.models.github_integration_base import GitHubPullRequestComment
+
 from products.tasks.backend.temporal.exceptions import TaskInvalidStateError
 from products.tasks.backend.temporal.process_task.activities.get_pr_context import (
     GetPrContextInput,
     GetPrContextOutput,
+    TrustedPrComment,
     compute_pr_fingerprint,
     get_github_integration,
     get_pr_context,
@@ -184,6 +187,116 @@ class TestGetPrContextActivity:
         with patch(f"{GET_PR_CONTEXT_MODULE}.get_github_integration", return_value=integration):
             with pytest.raises(TaskInvalidStateError):
                 self._run(ctx)
+
+    @pytest.mark.django_db
+    def test_fetches_trusted_comments_when_pr_response_carries_repo_and_number(self, test_task_run):
+        pr_url = "https://github.com/org/repo/pull/42"
+        test_task_run.output = {"pr_url": pr_url}
+        test_task_run.save(update_fields=["output"])
+
+        integration = MagicMock()
+        integration.get_pull_request_from_url.return_value = {
+            "success": True,
+            "url": pr_url,
+            "state": "open",
+            "updated_at": "2026-04-23T10:00:00Z",
+            "author": "octocat",
+            "repository": "org/repo",
+            "number": 42,
+        }
+        integration.get_pull_request_feedback.return_value = {
+            "success": True,
+            "trusted_only": True,
+            "pr_author": "octocat",
+            "review_comments": [
+                GitHubPullRequestComment(
+                    kind="review_comment",
+                    id=1,
+                    author="alice",
+                    author_association="MEMBER",
+                    body="rename this",
+                    created_at=None,
+                    html_url=None,
+                    path="src/x.py",
+                    line=5,
+                )
+            ],
+            "reviews": [],
+            "issue_comments": [],
+        }
+
+        ctx = self._ctx(run_id=str(test_task_run.id))
+        with patch(f"{GET_PR_CONTEXT_MODULE}.get_github_integration", return_value=integration):
+            result = self._run(ctx)
+
+        assert isinstance(result, GetPrContextOutput)
+        assert result.pr_author == "octocat"
+        # Comments must be the serialization-safe TrustedPrComment, not the
+        # raw GitHubPullRequestComment from the integration layer — Temporal
+        # has to deserialize the activity output cleanly.
+        assert all(isinstance(c, TrustedPrComment) for c in result.trusted_review_comments)
+        assert [c.author for c in result.trusted_review_comments] == ["alice"]
+        # And the integration was asked to filter — we never want untrusted prose.
+        integration.get_pull_request_feedback.assert_called_once_with(
+            "org/repo", 42, trusted_only=True, pr_author="octocat"
+        )
+
+    @pytest.mark.django_db
+    def test_skips_feedback_fetch_when_pr_response_lacks_repo_or_number(self, test_task_run):
+        pr_url = "https://github.com/org/repo/pull/42"
+        test_task_run.output = {"pr_url": pr_url}
+        test_task_run.save(update_fields=["output"])
+
+        integration = MagicMock()
+        integration.get_pull_request_from_url.return_value = {
+            "success": True,
+            "url": pr_url,
+            "state": "open",
+            "updated_at": "2026-04-23T10:00:00Z",
+        }
+
+        ctx = self._ctx(run_id=str(test_task_run.id))
+        with patch(f"{GET_PR_CONTEXT_MODULE}.get_github_integration", return_value=integration):
+            result = self._run(ctx)
+
+        assert result is not None
+        # No repository / number means we can't safely call the comment endpoint —
+        # better to return empty trusted lists than guess.
+        integration.get_pull_request_feedback.assert_not_called()
+        assert result.trusted_review_comments == []
+        assert result.trusted_reviews == []
+        assert result.trusted_issue_comments == []
+
+    @pytest.mark.django_db
+    def test_feedback_fetch_failure_is_non_fatal(self, test_task_run):
+        pr_url = "https://github.com/org/repo/pull/42"
+        test_task_run.output = {"pr_url": pr_url}
+        test_task_run.save(update_fields=["output"])
+
+        integration = MagicMock()
+        integration.get_pull_request_from_url.return_value = {
+            "success": True,
+            "url": pr_url,
+            "state": "open",
+            "updated_at": "2026-04-23T10:00:00Z",
+            "author": "octocat",
+            "repository": "org/repo",
+            "number": 42,
+        }
+        integration.get_pull_request_feedback.side_effect = RuntimeError("github exploded")
+
+        ctx = self._ctx(run_id=str(test_task_run.id))
+        with patch(f"{GET_PR_CONTEXT_MODULE}.get_github_integration", return_value=integration):
+            result = self._run(ctx)
+
+        # Hard failure on the comment fetch must NOT take down the whole CI
+        # follow-up loop — the fingerprint is still valid for change detection
+        # and the prompt builder will fall back to "no trusted feedback yet".
+        assert result is not None
+        assert result.fingerprint
+        assert result.trusted_review_comments == []
+        assert result.trusted_reviews == []
+        assert result.trusted_issue_comments == []
 
     @pytest.mark.django_db
     def test_different_updated_at_yields_different_fingerprint(self, test_task_run):
