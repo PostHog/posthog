@@ -65,7 +65,7 @@ export const modelsSceneLogic = kea<modelsSceneLogicType>([
                 actions._setCurrentTab(DEFAULT_MODELS_SCENE_TAB)
             }
         },
-        '/models/dags': () => {
+        [urls.models('dags')]: () => {
             if (values.currentTab !== 'dags') {
                 actions._setCurrentTab('dags')
             }

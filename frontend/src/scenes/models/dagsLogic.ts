@@ -1,4 +1,4 @@
-import { kea, listeners, path, selectors } from 'kea'
+import { kea, listeners, path } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -27,7 +27,7 @@ export const dagsLogic = kea<dagsLogicType>([
             __default: [] as DataModelingDAG[],
             loadDags: async (): Promise<DataModelingDAG[]> => {
                 const response = await api.dataModelingDags.list()
-                return [...response.results].sort((a, b) => a.name.localeCompare(b.name))
+                return response.results
             },
             updateDag: async (dag: DataModelingDAG): Promise<DataModelingDAG[]> => {
                 const updated = await api.dataModelingDags.update(dag.id, {
@@ -57,7 +57,4 @@ export const dagsLogic = kea<dagsLogicType>([
             lemonToast.error(`Failed to delete DAG: ${error?.message ?? 'Unknown error'}`)
         },
     })),
-    selectors({
-        dagsCount: [(s) => [s.dags], (dags: DataModelingDAG[]): number => dags.length],
-    }),
 ])

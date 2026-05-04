@@ -55,6 +55,11 @@ class DAGSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(f"Invalid sync frequency: {value}")
         return value
 
+    def validate_name(self, value: str) -> str:
+        if self.instance is not None and self.instance.is_default and value != self.instance.name:
+            raise serializers.ValidationError("The default DAG cannot be renamed.")
+        return value
+
     def create(self, validated_data: dict) -> DAG:
         validated_data["team_id"] = self.context["team_id"]
         sync_frequency = validated_data.pop("sync_frequency", None)

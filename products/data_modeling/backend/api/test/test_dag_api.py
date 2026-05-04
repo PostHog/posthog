@@ -66,6 +66,18 @@ class TestDAGViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertTrue(DAG.objects.filter(team=self.team, id=dag.id).exists())
 
+    def test_cannot_rename_default_dag(self):
+        dag = DAG.get_or_create_default(self.team)
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/data_modeling_dags/{dag.id}/",
+            {"name": "renamed"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        dag.refresh_from_db()
+        self.assertEqual(dag.name, "Default")
+
     def test_node_count_reflects_nodes(self):
         dag = DAG.objects.create(team=self.team, name="my_dag")
         Node.objects.create(team=self.team, dag=dag, name="events", type=NodeType.TABLE)
