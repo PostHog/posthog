@@ -108,7 +108,10 @@ async def eval_input_structured(sandboxed_demo_data, pytestconfig, posthog_clien
                 "line, code fence, and quote exactly:\n\n"
                 f"{NOTEBOOK_BODY}"
             ),
-            expected={"target_tool": NOTEBOOK_TOOL},
+            expected={
+                "called_target_tool": {"tool": NOTEBOOK_TOOL},
+                "preferred_exec_form_structured": {"tool": NOTEBOOK_TOOL},
+            },
         ),
         SandboxedEvalCase(
             name="skill_with_long_markdown",
@@ -118,7 +121,10 @@ async def eval_input_structured(sandboxed_demo_data, pytestconfig, posthog_clien
                 "preserve every line, code fence, and quote:\n\n"
                 f"{SKILL_BODY}"
             ),
-            expected={"target_tool": SKILL_TOOL},
+            expected={
+                "called_target_tool": {"tool": SKILL_TOOL},
+                "preferred_exec_form_structured": {"tool": SKILL_TOOL},
+            },
         ),
     ]
 
@@ -149,7 +155,10 @@ async def eval_input_either(sandboxed_demo_data, pytestconfig, posthog_client, m
                 "Create a PostHog dashboard named 'Onboarding signals' with description "
                 "'Top-of-funnel checks for the onboarding flow.'"
             ),
-            expected={"target_tool": DASHBOARD_TOOL},
+            expected={
+                "called_target_tool": {"tool": DASHBOARD_TOOL},
+                "preferred_exec_form_either": {"tool": DASHBOARD_TOOL},
+            },
         ),
         SandboxedEvalCase(
             name="insight_create_short",
@@ -157,7 +166,10 @@ async def eval_input_either(sandboxed_demo_data, pytestconfig, posthog_client, m
                 "Create a PostHog trends insight named 'Daily pageviews' that counts "
                 "the $pageview event over the last 7 days."
             ),
-            expected={"target_tool": INSIGHT_TOOL},
+            expected={
+                "called_target_tool": {"tool": INSIGHT_TOOL},
+                "preferred_exec_form_either": {"tool": INSIGHT_TOOL},
+            },
         ),
     ]
 
