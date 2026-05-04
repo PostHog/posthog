@@ -531,7 +531,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
     },
     diagnose_missing_recordings: {
         name: 'Diagnose missing recordings',
-        description: "Diagnose why session recordings aren't being captured",
+        description: "Diagnose missing recordings to find out why session replays aren't being captured",
         product: Scene.Replay,
         icon: iconForType('session_replay'),
         modes: [AgentMode.SessionReplay],
