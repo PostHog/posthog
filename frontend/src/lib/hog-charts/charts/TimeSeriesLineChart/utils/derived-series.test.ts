@@ -72,30 +72,32 @@ describe('buildMovingAverageSeries', () => {
 })
 
 describe('buildTrendLineSeries', () => {
-    it('builds a linear-fit dotted series at reduced opacity', () => {
+    it('keys, labels, and styles a dotted dimmed overlay', () => {
         const tl = buildTrendLineSeries({ sourceSeries: SOURCE, kind: 'linear' })
         expect(tl.key).toBe('visits__trendline')
         expect(tl.label).toBe('Visits')
-        // Source is a perfect linear ramp, so the fit should match.
-        expect(tl.data).toEqual([10, 12, 14, 16, 18, 20, 22])
         expect(tl.color).toMatch(/^rgba\(/)
         expect(tl.stroke?.pattern).toEqual([1, 3])
         expect(tl.visibility?.fromStack).toBe(true)
     })
 
-    it('falls back to linear for exponential when values are non-positive', () => {
-        const negative: Series = { ...SOURCE, key: 'neg', data: [-1, 0, 1, 2] }
-        const tl = buildTrendLineSeries({ sourceSeries: negative, kind: 'exponential' })
-        expect(tl.data).toHaveLength(4)
+    it.each([
+        ['linear', [10, 12, 14, 16, 18, 20, 22], 'linear', 10, 22],
+        // y = 2^x — log-linear in x, so the exponential fit recovers the input.
+        ['exponential, all positive', [1, 2, 4, 8, 16, 32, 64], 'exponential', 1, 64],
+        // Non-positive values are forbidden in log-space, so the helper falls back to linear.
+        // For a ramp that includes -1, 0, the linear fit is y = x - 1.
+        ['exponential, non-positive falls back to linear', [-1, 0, 1, 2], 'exponential', -1, 2],
+        // Zero in the in-progress tail must NOT trigger the fallback when fitUpTo
+        // excludes it — the prefix [1, 2, 4, 8] is positive and fits exponentially.
+        ['exponential, zero in tail with fitUpTo prefix', [1, 2, 4, 8, 0], 'exponential', 1, 16],
+    ] as const)('fits %s', (_label, data, kind, expectedFirst, expectedLast) => {
+        const fitUpTo = data.includes(0) && kind === 'exponential' ? 4 : undefined
+        const tl = buildTrendLineSeries({ sourceSeries: { ...SOURCE, data: [...data] }, kind, fitUpTo })
+        expect(tl.data).toHaveLength(data.length)
         expect(tl.data.every(Number.isFinite)).toBe(true)
-    })
-
-    it('produces an exponential fit when all values are positive', () => {
-        // y = 2^x — log-linear in x, so the fit should recover the input.
-        const expSource: Series = { ...SOURCE, key: 'exp', data: [1, 2, 4, 8, 16, 32, 64] }
-        const tl = buildTrendLineSeries({ sourceSeries: expSource, kind: 'exponential' })
-        expect(tl.data[0]).toBeCloseTo(1, 4)
-        expect(tl.data[6]).toBeCloseTo(64, 2)
+        expect(tl.data[0]).toBeCloseTo(expectedFirst, 2)
+        expect(tl.data[data.length - 1]).toBeCloseTo(expectedLast, 2)
     })
 })
 
@@ -104,14 +106,12 @@ describe('applyComparisonDimming', () => {
     const A_PREV: Series = { key: 'a-prev', label: 'A (prev)', data: [1, 2], color: '#112233' }
     const B: Series = { key: 'b', label: 'B', data: [3, 4], color: '#445566' }
 
-    it('returns the same reference when comparisonOf is undefined', () => {
+    it.each([
+        ['undefined', undefined],
+        ['empty', {}],
+    ] as const)('returns the same reference when comparisonOf is %s', (_label, comparisonOf) => {
         const series = [A, B]
-        expect(applyComparisonDimming(series, undefined)).toBe(series)
-    })
-
-    it('returns the same reference when comparisonOf is empty', () => {
-        const series = [A, B]
-        expect(applyComparisonDimming(series, {})).toBe(series)
+        expect(applyComparisonDimming(series, comparisonOf)).toBe(series)
     })
 
     it('rewrites comparison series to a dimmed rgba colour, leaves primaries alone', () => {

@@ -92,10 +92,12 @@ export function buildTrendLineSeries<Meta = unknown>(input: BuildTrendLineSeries
 
 function exponentialTrend(values: number[], fitUpTo?: number): number[] {
     const n = values.length
-    if (n < 2 || values.some((v) => v <= 0)) {
+    const fitEnd = fitUpTo != null ? Math.max(2, Math.min(fitUpTo, n)) : n
+    // Only the prefix `[0, fitEnd)` contributes to the regression, so the positivity
+    // guard checks that range — a 0 in the in-progress tail mustn't force a fallback.
+    if (n < 2 || values.slice(0, fitEnd).some((v) => v <= 0)) {
         return trendLine(values, fitUpTo)
     }
-    const fitEnd = fitUpTo != null ? Math.max(2, Math.min(fitUpTo, n)) : n
     const coords: [number, number][] = values.slice(0, fitEnd).map((y, x) => [x, Math.log(y)])
     const { m, b } = linearRegression(coords)
     return values.map((_, x) => Math.exp(m * x + b))
