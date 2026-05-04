@@ -18,7 +18,7 @@ const pendingJobsGauge = new Gauge({
 
 const queuedJobsLookupColumnsCounter = new Counter({
     name: 'cdp_cyclotron_v2_queued_jobs_lookup_columns_total',
-    help: 'Postgres-v2 jobs queued, split by whether the distinct_id and action_id columns were populated on the row.',
+    help: 'Postgres-v2 jobs queued, split by whether distinct_id and action_id were populated.',
     labelNames: ['has_distinct_id', 'has_action_id'],
 })
 
@@ -259,22 +259,11 @@ function invocationToV2JobInit(invocation: CyclotronJobInvocation): CyclotronV2J
     }
 }
 
-/**
- * Extract distinct_id from invocation state for the top-level column.
- * Event-triggered hogflow jobs have state.event.distinct_id; batch-triggered
- * hogflow jobs have state.personId. Generic hog jobs have neither, in which
- * case the column stays NULL and the partial index excludes the row.
- */
 export function extractDistinctId(invocation: CyclotronJobInvocation): string | null {
     const state = invocation.state as { event?: { distinct_id?: string }; personId?: string } | null | undefined
     return state?.event?.distinct_id || state?.personId || null
 }
 
-/**
- * Extract action_id (the currently parked workflow step) for the top-level
- * column. Hogflow jobs carry it in state.currentAction.id; non-hogflow jobs
- * leave it null.
- */
 export function extractActionId(invocation: CyclotronJobInvocation): string | null {
     const state = invocation.state as { currentAction?: { id?: string } } | null | undefined
     return state?.currentAction?.id || null
