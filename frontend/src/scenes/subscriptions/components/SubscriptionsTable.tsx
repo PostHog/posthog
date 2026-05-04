@@ -196,7 +196,7 @@ function buildColumns(renderRowActions: (sub: SubscriptionApi) => JSX.Element): 
             sorter: true,
         },
         {
-            title: 'Enabled',
+            title: 'Status',
             key: 'enabled',
             dataIndex: 'enabled',
             render: (_value: unknown, sub: SubscriptionApi) =>
