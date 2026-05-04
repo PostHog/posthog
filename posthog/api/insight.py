@@ -402,9 +402,15 @@ class TrendingInsightSerializer(InsightBasicSerializer):
         read_only=True,
         help_text="Up to 3 of the most recent users who viewed this insight in the time window.",
     )
+    # Surfaced here (not on InsightBasicSerializer) so agents ranking trending insights can see
+    # who is currently iterating on each — useful context alongside the view-count signal.
+    last_modified_by = UserBasicSerializer(
+        read_only=True,
+        help_text="User who last modified this insight, or null if never modified after creation.",
+    )
 
     class Meta(InsightBasicSerializer.Meta):
-        fields = [*InsightBasicSerializer.Meta.fields, "view_count", "viewers"]
+        fields = [*InsightBasicSerializer.Meta.fields, "view_count", "viewers", "last_modified_by"]
 
 
 class _InsightQuerySchema(RootModel):
@@ -1532,6 +1538,7 @@ class InsightViewSet(
 
         queryset = (
             Insight.objects.filter(team__project_id=self.team.project_id)
+            .select_related("created_by", "last_modified_by", "team")
             .annotate(
                 view_count=Count(
                     "insightviewed",

@@ -25865,6 +25865,8 @@ export namespace Schemas {
       readonly view_count: number;
       /** Up to 3 of the most recent users who viewed this insight in the time window. */
       readonly viewers: readonly UserBasic[];
+      /** User who last modified this insight, or null if never modified after creation. */
+      readonly last_modified_by: UserBasic;
     }
 
     export interface PaginatedTrendingInsightList {
