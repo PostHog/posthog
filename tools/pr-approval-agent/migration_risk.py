@@ -12,11 +12,9 @@ migrations in the PR):
     neutral → at least one Needs Review (may have performance impact)
     failure → at least one Blocked (locks, breaks compatibility, or no rollback)
 
-Race story: GitHub check runs are bound to a commit SHA at the API level —
-`pr.check_runs` only returns checks attached to the current head commit, so a
-stale check from an earlier commit can't be read here by construction. The
-function falls back to "no info" (empty result → deny-list still fires) when
-the check is missing, in-flight, or has any non-success conclusion.
+GitHub check runs are bound to a commit SHA at the API level — `pr.check_runs`
+only returns checks attached to the current head commit, so a stale check from
+an earlier commit can't be read here by construction.
 """
 
 from pathlib import Path
@@ -44,8 +42,10 @@ def safe_migration_files(check_runs: list[dict], pr_file_paths: list[str]) -> se
 def migration_check_pending(check_runs: list[dict], pr_file_paths: list[str]) -> bool:
     """True when the PR touches migrations and the analyzer's verdict isn't in yet.
 
-    Distinguishes "CI hasn't classified yet" from "CI says don't bypass." Used by
-    `is_waiting_for_migration_check` to drive the WAITING state.
+    Distinguishes "CI hasn't classified yet" from "CI says don't bypass," so
+    the caller can emit a deny message that points the user at the Migration
+    risk check (and asks them to re-apply the label) instead of the generic
+    deny-list one.
 
     Returns False when there are no migration files in the PR (nothing to wait
     for), or when a `Migration risk` check has reached `status=completed`
@@ -54,31 +54,6 @@ def migration_check_pending(check_runs: list[dict], pr_file_paths: list[str]) ->
     if not any(_is_migration_file(p) for p in pr_file_paths):
         return False
     return _latest_completed(check_runs, CHECK_NAME) is None
-
-
-def is_waiting_for_migration_check(
-    deny_categories: list[str],
-    non_deny_gate_failures: list[str],
-    check_runs: list[dict],
-    pr_file_paths: list[str],
-) -> bool:
-    """True when stamphog should hold off until the analyzer classifies the head.
-
-    The WAITING state lets the bridge workflow auto-retrigger review when the
-    Migration risk check completes — the stamphog label stays on, no verdict
-    is posted, no LLM credit is burned.
-
-    Conditions (all must hold):
-      - `migrations` is the only deny-list category that fired (other denies
-        like auth or crypto won't clear when the analyzer finishes)
-      - no non-deny-list gates are failing (size, prerequisites — same reason)
-      - the migration check is pending for the current head commit
-    """
-    if deny_categories != ["migrations"]:
-        return False
-    if non_deny_gate_failures:
-        return False
-    return migration_check_pending(check_runs, pr_file_paths)
 
 
 def _all_safe(check_runs: list[dict]) -> bool:

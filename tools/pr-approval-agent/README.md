@@ -104,7 +104,7 @@ Deny-listed categories where even a small diff can have high blast radius:
 
 The **migrations** deny-list is bypassed when the `Migration risk` check on the head commit concludes `success` (all migrations classified Safe). See [migration_analysis/README.md](../../posthog/management/migration_analysis/README.md) for the check contract — the analyzer doesn't know stamphog reads it; we just consume the same CI signal humans see in the PR.
 
-If the check is still pending when stamphog runs (CI's analyzer hasn't finished yet), stamphog returns a `WAITING` verdict — no review is posted, the `stamphog` label stays on, and a separate workflow ([`pr-approval-agent-on-migration-check.yml`](../../.github/workflows/pr-approval-agent-on-migration-check.yml)) bounces the label when the check completes, retriggering review automatically. The two are coupled only through the public check contract; neither side names the other.
+If the check hasn't completed yet when stamphog runs, stamphog refuses with a message asking the user to wait for the `Migration risk` check and re-apply the `stamphog` label. The label-strip on non-approved verdicts breaks the auto-rerun loop, so the next labeling action is the one that triggers a fresh review against the now-classified head commit.
 
 ### Ownership
 

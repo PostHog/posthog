@@ -99,12 +99,6 @@ jobs:
                       "${SHA_ARGS[@]}" \
                       -f event=APPROVE \
                       -f body="$REASONING"
-                  elif [ "$VERDICT" = "WAITING" ]; then
-                    # Migration risk check on the head commit hasn't completed
-                    # yet. Don't post a verdict and don't strip the label — the
-                    # pr-approval-agent-on-migration-check.yml bridge retriggers
-                    # this workflow when the check finishes.
-                    echo "WAITING — will be retriggered when Migration risk check completes"
                   elif [ -n "$REASONING" ]; then
                     gh api \
                       -X POST "repos/$REPO/pulls/$PR/reviews" \
@@ -119,9 +113,8 @@ jobs:
 
                   # Non-APPROVED verdict removes the label, breaking the
                   # auto-rerun loop until a human re-applies it after
-                  # addressing the feedback. WAITING is the exception — the
-                  # bridge workflow needs the label to remain to retrigger.
-                  if [ "$VERDICT" != "APPROVED" ] && [ "$VERDICT" != "WAITING" ]; then
+                  # addressing the feedback.
+                  if [ "$VERDICT" != "APPROVED" ]; then
                     gh pr edit "$PR" --remove-label stamphog \
                       --repo "$REPO"
                   fi

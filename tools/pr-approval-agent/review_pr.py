@@ -43,7 +43,7 @@ from gates import (
     test_only,
 )
 from github import PRData, check_team_membership, fetch_pr
-from migration_risk import is_waiting_for_migration_check, safe_migration_files
+from migration_risk import migration_check_pending, safe_migration_files
 from reviewer import Reviewer
 
 try:
@@ -129,15 +129,8 @@ class Pipeline:
         self._classify()
         self._run_gates()
 
-        if self._waiting_for_migration_check():
-            # Migration analyzer hasn't classified the head commit yet. The
-            # `pr-approval-agent-on-migration-check.yml` bridge will retrigger
-            # this workflow when the check completes — leave the label on by
-            # surfacing WAITING (the workflow's label-strip step skips it).
-            self.final_verdict = "WAITING"
-            print(f"\n{_warn('WAITING')} — Migration risk check pending; will retry on completion")
-            self._capture_review_completed("WAITING", "")
-            return self.final_verdict
+        if self._only_pending_migration_check():
+            return self._refuse_pending_migration_check()
 
         gate_verdict = self._gate_verdict()
 
@@ -148,13 +141,35 @@ class Pipeline:
         self._llm_review(gate_verdict)
         return self.final_verdict
 
-    def _waiting_for_migration_check(self) -> bool:
-        return is_waiting_for_migration_check(
-            deny_categories=self.classification.get("deny_categories", []),
-            non_deny_gate_failures=[r.gate for r in self.gate_results if not r.passed and r.gate != "deny-list"],
-            check_runs=self.pr.check_runs,
-            pr_file_paths=self.pr.file_paths,
-        )
+    def _only_pending_migration_check(self) -> bool:
+        """True when the only thing blocking approval is a pending Migration risk check.
+
+        Lets us emit a specific deny reason ("wait for the check, re-label")
+        instead of the generic deny-list one. Other denies (auth, crypto) or
+        gate failures (size, prerequisites) won't clear when the analyzer
+        finishes, so we shouldn't promise a re-label will help.
+        """
+        if self.classification.get("deny_categories", []) != ["migrations"]:
+            return False
+        if any(not r.passed and r.gate != "deny-list" for r in self.gate_results):
+            return False
+        return migration_check_pending(self.pr.check_runs, self.pr.file_paths)
+
+    def _refuse_pending_migration_check(self) -> str:
+        self.final_verdict = "REFUSED"
+        self.reviewer_output = {
+            "verdict": "REFUSE",
+            "reasoning": (
+                "The `Migration risk` check has not completed for this commit. "
+                "Wait for it to finish (visible in the PR's Checks tab), then "
+                "re-apply the `stamphog` label to retry."
+            ),
+            "risk": "unknown",
+            "issues": [],
+        }
+        print(f"\n{_warn('REFUSED')} — Migration risk check pending; re-label after it completes")
+        self._capture_review_completed("DENIED", "PENDING-MIGRATION-CHECK")
+        return self.final_verdict
 
     def _gate_verdict(self) -> str:
         """Determine what gates say — this is authoritative."""
