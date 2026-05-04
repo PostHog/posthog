@@ -182,80 +182,32 @@ function HorizontalReferenceLine({
     )
 }
 
-function VerticalReferenceLine({
-    xLabel,
+// Renders a vertical stripe at a resolved x-pixel — used by both the categorical-x
+// reference line (string xLabel) and the horizontal-axis-chart numeric variant
+// (scales.y(value) returns an x-pixel in horizontal bar charts).
+//
+// `fillBefore` / `fillAfter` are direction-neutral: callers translate their own
+// fillSide enum into these so we don't have to know whether the half-plane is
+// "left/right" (categorical) or "below/above value threshold" (horizontal-axis).
+function VerticalStripe({
+    x,
     resolved,
-    fillSide,
+    fillBefore,
+    fillAfter,
     fillColor,
     fillOpacity,
     label,
     labelPosition,
-}: ResolvedProps & { xLabel: string }): React.ReactElement | null {
-    const { scales, dimensions } = useChartLayout()
+}: Omit<ResolvedProps, 'fillSide'> & {
+    x: number
+    fillBefore: boolean
+    fillAfter: boolean
+}): React.ReactElement | null {
+    const { dimensions } = useChartLayout()
     const { plotLeft, plotTop, plotWidth, plotHeight, height: containerHeight } = dimensions
     const plotRight = plotLeft + plotWidth
     const plotBottom = plotTop + plotHeight
 
-    const x = scales.x(xLabel)
-    if (x == null || !isFinite(x) || x < plotLeft || x > plotRight) {
-        return null
-    }
-
-    const lineStyle: React.CSSProperties = {
-        left: x - resolved.width / 2,
-        top: plotTop,
-        width: 0,
-        height: plotHeight,
-        borderLeftWidth: resolved.width,
-        borderLeftStyle: resolved.stroke,
-        borderLeftColor: resolved.color,
-    }
-    const labelStyle: React.CSSProperties = {
-        left: x + LABEL_PADDING,
-        ...(labelPosition === 'end'
-            ? { bottom: containerHeight - plotBottom + LABEL_PADDING }
-            : { top: plotTop + LABEL_PADDING }),
-        color: resolved.color,
-    }
-
-    let fillRect: React.CSSProperties | null = null
-    if (fillSide === 'left') {
-        fillRect = { left: plotLeft, top: plotTop, width: x - plotLeft, height: plotHeight }
-    } else if (fillSide === 'right') {
-        fillRect = { left: x, top: plotTop, width: plotRight - x, height: plotHeight }
-    }
-
-    return (
-        <ReferenceLineView
-            fillRect={fillRect}
-            fillColor={fillColor}
-            fillOpacity={fillOpacity}
-            lineStyle={lineStyle}
-            label={label}
-            labelStyle={labelStyle}
-        />
-    )
-}
-
-// Horizontal-axis chart variant: numeric value, drawn as a vertical stripe at the
-// x-pixel returned by `scales.y(value)` (since in horizontal bar charts `scales.y` is
-// the value scale producing x-pixels). `fillSide` mirrors the vertical-line semantics:
-// `'above'` fills the right half-plane (values above the threshold), `'below'` the left.
-function HorizontalAxisValueReferenceLine({
-    value,
-    resolved,
-    fillSide,
-    fillColor,
-    fillOpacity,
-    label,
-    labelPosition,
-}: ResolvedProps & { value: number }): React.ReactElement | null {
-    const { scales, dimensions } = useChartLayout()
-    const { plotLeft, plotTop, plotWidth, plotHeight, height: containerHeight } = dimensions
-    const plotRight = plotLeft + plotWidth
-    const plotBottom = plotTop + plotHeight
-
-    const x = scales.y(value)
     if (!isFinite(x) || x < plotLeft || x > plotRight) {
         return null
     }
@@ -278,10 +230,10 @@ function HorizontalAxisValueReferenceLine({
     }
 
     let fillRect: React.CSSProperties | null = null
-    if (fillSide === 'above') {
-        fillRect = { left: x, top: plotTop, width: plotRight - x, height: plotHeight }
-    } else if (fillSide === 'below') {
+    if (fillBefore) {
         fillRect = { left: plotLeft, top: plotTop, width: x - plotLeft, height: plotHeight }
+    } else if (fillAfter) {
+        fillRect = { left: x, top: plotTop, width: plotRight - x, height: plotHeight }
     }
 
     return (
@@ -292,6 +244,38 @@ function HorizontalAxisValueReferenceLine({
             lineStyle={lineStyle}
             label={label}
             labelStyle={labelStyle}
+        />
+    )
+}
+
+function VerticalReferenceLine({
+    xLabel,
+    fillSide,
+    ...rest
+}: ResolvedProps & { xLabel: string }): React.ReactElement | null {
+    const { scales } = useChartLayout()
+    const x = scales.x(xLabel)
+    if (x == null) {
+        return null
+    }
+    return <VerticalStripe x={x} fillBefore={fillSide === 'left'} fillAfter={fillSide === 'right'} {...rest} />
+}
+
+// Horizontal-axis chart variant: numeric value, mapped through scales.y because
+// in horizontal bar charts scales.y is the value scale producing x-pixels.
+// `'above'` (value above the threshold) → right half-plane, `'below'` → left.
+function HorizontalAxisValueReferenceLine({
+    value,
+    fillSide,
+    ...rest
+}: ResolvedProps & { value: number }): React.ReactElement | null {
+    const { scales } = useChartLayout()
+    return (
+        <VerticalStripe
+            x={scales.y(value)}
+            fillBefore={fillSide === 'below'}
+            fillAfter={fillSide === 'above'}
+            {...rest}
         />
     )
 }

@@ -259,39 +259,25 @@ describe('TrendsBarChart overlays', () => {
         })
     })
 
-    it('renders a goal line as a horizontal reference line for vertical bars', async () => {
-        renderInsight({
-            query: buildTrendsQuery({
-                trendsFilter: {
-                    display: ChartDisplayType.ActionsBar,
-                    goalLines: [{ label: 'Target', value: 150, displayIfCrossed: true }],
-                },
-            }),
-            featureFlags: HOG_CHARTS_FLAG,
-        })
+    // For ActionsBarValue (horizontal aggregated), axisOrientation='horizontal' flips the
+    // line geometry to a vertical stripe at the value-axis x-pixel.
+    it.each<{ display: ChartDisplayType; value: number; expectedOrientation: 'horizontal' | 'vertical' }>([
+        { display: ChartDisplayType.ActionsBar, value: 150, expectedOrientation: 'horizontal' },
+        { display: ChartDisplayType.ActionsBarValue, value: 100, expectedOrientation: 'vertical' },
+    ])(
+        'renders a goal line with $expectedOrientation orientation for $display',
+        async ({ display, value, expectedOrientation }) => {
+            renderInsight({
+                query: buildTrendsQuery({
+                    trendsFilter: { display, goalLines: [{ label: 'Target', value, displayIfCrossed: true }] },
+                }),
+                featureFlags: HOG_CHARTS_FLAG,
+            })
 
-        await screen.findByRole('img', { name: /chart with/i })
-        const lines = getHogChart().referenceLines()
-        expect(lines.map((l) => l.label)).toEqual(['Target'])
-        expect(lines[0].orientation).toBe('horizontal')
-    })
-
-    it('renders a goal line as a vertical reference line for horizontal aggregated bars', async () => {
-        renderInsight({
-            query: buildTrendsQuery({
-                trendsFilter: {
-                    display: ChartDisplayType.ActionsBarValue,
-                    goalLines: [{ label: 'Target', value: 100, displayIfCrossed: true }],
-                },
-            }),
-            featureFlags: HOG_CHARTS_FLAG,
-        })
-
-        await screen.findByRole('img', { name: /chart with/i })
-        const lines = getHogChart().referenceLines()
-        expect(lines.map((l) => l.label)).toEqual(['Target'])
-        // axisOrientation='horizontal' flips the line geometry to a vertical stripe at
-        // the value-axis x-pixel.
-        expect(lines[0].orientation).toBe('vertical')
-    })
+            await screen.findByRole('img', { name: /chart with/i })
+            const lines = getHogChart().referenceLines()
+            expect(lines.map((l) => l.label)).toEqual(['Target'])
+            expect(lines[0].orientation).toBe(expectedOrientation)
+        }
+    )
 })
