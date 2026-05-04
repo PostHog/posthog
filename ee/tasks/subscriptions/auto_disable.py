@@ -15,24 +15,42 @@ UNSUPPORTED_TARGET_TYPE_REASON = "Unsupported delivery channel"
 logger = structlog.get_logger(__name__)
 
 
-def validate_re_enable(target_type: str | None, integration_id: int | None) -> str | None:
-    """Validate that a subscription with this target configuration can be re-enabled.
-    Returns None when re-enable is OK, or a user-facing error message when it would
-    fail (rejected up-front so the next delivery doesn't just auto-disable again).
-    Mirrors the `validate_alert_config` pattern in posthog.tasks.alerts.utils.
+def get_subscription_disable_reason(target_type: str | None, integration_id: int | None) -> str | None:
+    """Single source of truth for "what target configuration is permanently broken".
+    Returns the disable reason constant if the target can never deliver, else None.
+
+    Used by:
+    - `validate_re_enable` (serializer): translate to user-facing message and reject up-front
+    - `deliver_subscription` activity (unsupported_target branch): decide whether to auto-disable
+
+    Note: the activity's slack-missing-integration branch has additional team-fallback
+    logic (tries `get_slack_integration_for_team` before auto-disabling), so this helper
+    is intentionally conservative on the slack case — it only returns a reason when
+    `integration_id` is None on the row itself.
     """
-    # Defer to downstream serializer validation when target_type is missing — this
-    # function only encodes the "what makes a target type permanently broken" rules.
     if not target_type:
         return None
     if target_type not in SUPPORTED_TARGET_TYPES:
+        return UNSUPPORTED_TARGET_TYPE_REASON
+    if target_type == Subscription.SubscriptionTarget.SLACK and not integration_id:
+        return SLACK_INTEGRATION_DISCONNECTED_REASON
+    return None
+
+
+def validate_re_enable(target_type: str | None, integration_id: int | None) -> str | None:
+    """User-facing wrapper around `get_subscription_disable_reason` — translates the
+    reason constant into an actionable error message for the API serializer to surface.
+    Returns None when re-enable is OK.
+    """
+    reason = get_subscription_disable_reason(target_type, integration_id)
+    if reason is None:
+        return None
+    if reason == UNSUPPORTED_TARGET_TYPE_REASON:
         return (
             f"Cannot re-enable {target_type} subscription: this delivery channel is not currently supported. "
             "Switch to email or Slack."
         )
-    if target_type == Subscription.SubscriptionTarget.SLACK and not integration_id:
-        return "Cannot re-enable Slack subscription: no integration configured. Reconnect Slack first."
-    return None
+    return "Cannot re-enable Slack subscription: no integration configured. Reconnect Slack first."
 
 
 def disable_invalid_subscription(subscription: Subscription, reason: str) -> None:

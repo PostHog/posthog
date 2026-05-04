@@ -590,6 +590,38 @@ async def test_no_assets_does_not_auto_disable(team, user):
     assert result.recipient_results[0].error["type"] == "no_assets"
 
 
+@pytest.mark.asyncio
+async def test_deliver_subscription_skips_when_already_disabled(team, user):
+    """Activity-retry idempotency: a Temporal redispatch (e.g. worker crash mid-acknowledge)
+    after the auto-disable UPDATE committed must NOT re-fire side effects. UUID4 campaign
+    keys mean MessagingRecord wouldn't dedup the duplicate disable email."""
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="dis-skip", name="Already disabled")
+    asset = await sync_to_async(ExportedAsset.objects.create)(
+        team=team, insight=insight, export_format="image/png", content_location="s3://bucket/skip.png"
+    )
+    subscription = await sync_to_async(create_subscription)(
+        team=team,
+        insight=insight,
+        created_by=user,
+        target_type="slack",
+        target_value="C12345|#test-channel",
+        enabled=False,
+    )
+
+    env = ActivityEnvironment()
+    with patch("ee.tasks.subscriptions.auto_disable.disable_invalid_subscription") as disable_mock:
+        result = await env.run(
+            deliver_subscription,
+            DeliverSubscriptionInputs(
+                subscription_id=subscription.id, exported_asset_ids=[asset.id], total_insight_count=1
+            ),
+        )
+
+    # Must return cleanly with empty recipient_results — no side effects re-fired.
+    assert result.recipient_results == []
+    disable_mock.assert_not_called()
+
+
 @patch("posthog.slo.events.posthoganalytics")
 @freeze_time("2022-02-02T08:55:00.000Z")
 @pytest.mark.asyncio

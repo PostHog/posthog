@@ -34,11 +34,12 @@ from posthog.temporal.subscriptions.types import (
 
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
-from ee.tasks.subscriptions import SLACK_USER_CONFIG_ERRORS, SUPPORTED_TARGET_TYPES, _capture_delivery_failed_event
+from ee.tasks.subscriptions import SLACK_USER_CONFIG_ERRORS, _capture_delivery_failed_event
 from ee.tasks.subscriptions.auto_disable import (
     SLACK_INTEGRATION_DISCONNECTED_REASON,
     UNSUPPORTED_TARGET_TYPE_REASON,
     disable_invalid_subscription,
+    get_subscription_disable_reason,
 )
 from ee.tasks.subscriptions.email_subscriptions import send_email_subscription_report
 from ee.tasks.subscriptions.slack_subscriptions import (
@@ -331,6 +332,14 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSubs
         thread_sensitive=False,
     )(pk=inputs.subscription_id)
 
+    # Activity-retry idempotency: if a previous attempt already auto-disabled this
+    # subscription (UPDATE committed) and Temporal redispatched the activity (e.g.
+    # worker crash mid-acknowledge), don't re-fire the disable side effects — UUID4
+    # campaign keys mean MessagingRecord wouldn't dedup the duplicate email.
+    if not subscription.enabled:
+        LOGGER.info("deliver_subscription.skipped_disabled", subscription_id=inputs.subscription_id)
+        return DeliverSubscriptionResult(recipient_results=[])
+
     await LOGGER.ainfo(
         "deliver_subscription.starting",
         subscription_id=inputs.subscription_id,
@@ -339,7 +348,10 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSubs
         is_new=inputs.is_new_subscription_target,
     )
 
-    if subscription.target_type not in SUPPORTED_TARGET_TYPES:
+    if (
+        get_subscription_disable_reason(subscription.target_type, subscription.integration_id)
+        == UNSUPPORTED_TARGET_TYPE_REASON
+    ):
         LOGGER.warning(
             "deliver_subscription.unsupported_target",
             subscription_id=inputs.subscription_id,
