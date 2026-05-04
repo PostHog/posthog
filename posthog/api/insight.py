@@ -1574,7 +1574,7 @@ class InsightViewSet(
                 bucket.append(viewer.user)
 
         for insight in insights:
-            insight.viewers = viewers_by_insight.get(insight.pk, [])  # type: ignore[attr-defined]
+            insight.viewers = viewers_by_insight.get(insight.pk, [])
 
         data = TrendingInsightSerializer(insights, many=True, context=self.get_serializer_context()).data
         # Wrap in the standard paginated envelope so the response shape matches the auto-generated
