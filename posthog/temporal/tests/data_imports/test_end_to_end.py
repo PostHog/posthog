@@ -148,7 +148,7 @@ class _PostgresQueueReplay:
                        resource_name, is_resume, is_first_ever_sync, metadata
                 FROM {BATCH_TABLE}
                 WHERE run_uuid = %s
-                ORDER BY id ASC
+                ORDER BY created_at ASC, batch_index ASC
                 """,
                 [run_uuid],
             )

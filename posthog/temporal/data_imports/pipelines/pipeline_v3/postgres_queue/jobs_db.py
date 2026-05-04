@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import time
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
 import psycopg
@@ -54,6 +55,7 @@ class PendingBatch:
     is_first_ever_sync: bool
     metadata: dict[str, Any]
     latest_attempt: int
+    created_at: datetime | None = None
 
     def to_export_signal(self) -> dict[str, Any]:
         """Temporary bridge: convert a PendingBatch into an ExportSignalMessage dict
@@ -190,7 +192,8 @@ class BatchQueue:
                         b.is_final_batch, b.total_batches, b.total_rows, b.sync_type,
                         b.cumulative_row_count, b.resource_name, b.is_resume,
                         b.is_first_ever_sync, b.metadata,
-                        COALESCE(s.attempt, 0) AS latest_attempt
+                        COALESCE(s.attempt, 0) AS latest_attempt,
+                        b.created_at
                     FROM {BATCH_TABLE} b
                     LEFT JOIN {STATUS_VIEW} s ON b.id = s.batch_id
                     WHERE
@@ -203,13 +206,13 @@ class BatchQueue:
                             WHERE b2.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
                                 AND s2.job_state = 'failed'
                         )
-                    ORDER BY b.id ASC
+                    ORDER BY b.created_at ASC, b.batch_index ASC
                     LIMIT %(limit)s
                 )
                 SELECT c.*
                 FROM candidates c
                 WHERE pg_try_advisory_lock({ADVISORY_LOCK_NAMESPACE}, hashtext(c.team_id::text || ':' || c.schema_id))
-                ORDER BY c.id ASC
+                ORDER BY c.created_at ASC, c.batch_index ASC
                 """,
                 {"limit": limit},
             )
@@ -258,18 +261,19 @@ class BatchQueue:
                         b.is_final_batch, b.total_batches, b.total_rows, b.sync_type,
                         b.cumulative_row_count, b.resource_name, b.is_resume,
                         b.is_first_ever_sync, b.metadata,
-                        COALESCE(s.attempt, 0) AS latest_attempt
+                        COALESCE(s.attempt, 0) AS latest_attempt,
+                        b.created_at
                     FROM {BATCH_TABLE} b
                     JOIN {STATUS_VIEW} s ON b.id = s.batch_id
                     WHERE
                         b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
                         AND s.job_state = 'executing'
-                    ORDER BY b.id ASC
+                    ORDER BY b.created_at ASC, b.batch_index ASC
                 )
                 SELECT c.*
                 FROM candidates c
                 WHERE pg_try_advisory_lock({ADVISORY_LOCK_NAMESPACE}, hashtext(c.team_id::text || ':' || c.schema_id))
-                ORDER BY c.id ASC
+                ORDER BY c.created_at ASC, c.batch_index ASC
                 """,
             )
             rows = await cur.fetchall()
