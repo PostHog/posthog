@@ -45,9 +45,6 @@ export class CdpEventsConsumer<
     ) {
         super(config, deps)
         this.cyclotronJobQueue = new CyclotronJobQueue(config.CONSUMER_BATCH_SIZE, config.KAFKA_CLIENT_RACK, config)
-        // v1/v2 selection is driven by the CONSUMER_V2_GROUPS env var, e.g.:
-        //   CONSUMER_V2_GROUPS=cdp-processed-events-consumer
-        // See src/kafka/factory.ts.
         this.kafkaConsumer = createKafkaConsumer({ groupId, topic })
         this.hogRateLimiter = new HogRateLimiterService(
             {
