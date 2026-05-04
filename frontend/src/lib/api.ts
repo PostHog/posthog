@@ -4134,7 +4134,7 @@ const api = {
         },
 
         async getRateLimitConfig(): Promise<ErrorTrackingRateLimitConfig> {
-            return await new ApiRequest().errorTrackingRateLimitConfig().get()
+            return await new ApiRequest().errorTrackingRateLimitConfig().withAction('retrieve_config').get()
         },
 
         async updateRateLimitConfig(

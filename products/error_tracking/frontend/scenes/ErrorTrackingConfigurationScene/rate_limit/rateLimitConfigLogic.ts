@@ -66,7 +66,8 @@ export const rateLimitConfigLogic = kea<rateLimitConfigLogicType>([
         volumeBucketMinutes: [
             DEFAULT_BUCKET_MINUTES,
             {
-                loadVolumeSuccess: (state, { payload }: { payload?: number }) => payload ?? state,
+                loadVolumeSuccess: (state, { payload: requestedBucketMinutes }: { payload?: number }) =>
+                    requestedBucketMinutes ?? state,
             },
         ],
     }),
@@ -120,11 +121,7 @@ export const rateLimitConfigLogic = kea<rateLimitConfigLogicType>([
             }),
             submit: async ({ project_rate_limit_value, project_rate_limit_bucket_size_minutes }) => {
                 try {
-                    const payload = {
-                        project_rate_limit_value,
-                        project_rate_limit_bucket_size_minutes:
-                            project_rate_limit_value === null ? null : project_rate_limit_bucket_size_minutes,
-                    }
+                    const payload = { project_rate_limit_value, project_rate_limit_bucket_size_minutes }
                     const updated = await api.errorTracking.updateRateLimitConfig(payload)
                     actions.loadConfigSuccess(updated)
                     posthog.capture('error_tracking_rate_limit_settings_updated', payload)

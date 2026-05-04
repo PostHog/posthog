@@ -1,4 +1,3 @@
-import structlog
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
@@ -9,8 +8,6 @@ from posthog.schema import ProductKey
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from products.error_tracking.backend.models import ErrorTrackingRateLimitConfig
-
-logger = structlog.get_logger(__name__)
 
 
 class ErrorTrackingRateLimitConfigSerializer(serializers.ModelSerializer):
@@ -41,7 +38,8 @@ class ErrorTrackingRateLimitConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ViewS
         return config
 
     @extend_schema(responses={200: ErrorTrackingRateLimitConfigSerializer})
-    def list(self, request, *args, **kwargs):
+    @action(detail=False, methods=["get"])
+    def retrieve_config(self, request, *args, **kwargs):
         config = self._get_or_create_config()
         serializer = ErrorTrackingRateLimitConfigSerializer(config)
         return Response(serializer.data)

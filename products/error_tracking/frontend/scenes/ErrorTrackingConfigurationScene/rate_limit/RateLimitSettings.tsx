@@ -143,9 +143,6 @@ function fillBuckets(volume: ExceptionVolumeBucket[], bucketMinutes: number): Ex
 
 function formatBucketLabel(iso: string, bucketMinutes: number): string {
     const ts = dayjs(iso)
-    if (bucketMinutes >= 10080) {
-        return ts.format('MMM D')
-    }
     if (bucketMinutes >= 1440) {
         return ts.format('MMM D')
     }
