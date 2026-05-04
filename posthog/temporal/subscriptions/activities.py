@@ -28,6 +28,7 @@ from posthog.temporal.subscriptions.types import (
     DeliverSubscriptionResult,
     FetchDueSubscriptionsActivityInputs,
     RecipientResult,
+    SubscriptionAbortInfo,
     SubscriptionInfo,
     UpdateDeliveryRecordInputs,
 )
@@ -167,8 +168,8 @@ async def fetch_due_subscriptions_activity(inputs: FetchDueSubscriptionsActivity
 
 
 @temporalio.activity.defn
-async def validate_subscription_for_delivery(subscription_id: int) -> bool:
-    """Returns True when delivery should be aborted; auto-disables on permanent misconfiguration."""
+async def validate_subscription_for_delivery(subscription_id: int) -> SubscriptionAbortInfo | None:
+    """Returns abort info when delivery should not proceed; None to continue."""
     subscription = await database_sync_to_async(
         Subscription.objects.select_related("created_by", "integration").get,
         thread_sensitive=False,
@@ -178,11 +179,11 @@ async def validate_subscription_for_delivery(subscription_id: int) -> bool:
     # prior auto-disable committed must not re-fire side effects.
     if not subscription.enabled:
         await LOGGER.ainfo("validate_subscription.already_disabled_skipping", subscription_id=subscription_id)
-        return True
+        return SubscriptionAbortInfo()
 
     reason = get_subscription_disable_reason(subscription.target_type, subscription.integration_id)
     if reason is None:
-        return False
+        return None
 
     LOGGER.warning(
         "validate_subscription.invalid_auto_disabling",
@@ -192,7 +193,13 @@ async def validate_subscription_for_delivery(subscription_id: int) -> bool:
     )
     _capture_delivery_failed_event(subscription, Exception(reason.description))
     await database_sync_to_async(disable_invalid_subscription, thread_sensitive=False)(subscription, reason)
-    return True
+    return SubscriptionAbortInfo(
+        failed_recipient=RecipientResult(
+            recipient=subscription.target_value,
+            status="failed",
+            error={"message": reason.description, "type": reason.key},
+        )
+    )
 
 
 @temporalio.activity.defn
@@ -415,10 +422,10 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSubs
                 error={"message": NO_ASSETS_REASON, "type": "no_assets"},
             )
         )
-        _capture_delivery_failed_event(
-            subscription,
-            ApplicationError(NO_ASSETS_REASON, non_retryable=True),
-        )
+        # Plain Exception — `_capture_delivery_failed_event` only reads `str(e)` and
+        # `type(e).__name__`, and the activity returns cleanly so retry semantics on
+        # ApplicationError would be misleading (matches `_auto_disable_and_return`).
+        _capture_delivery_failed_event(subscription, Exception(NO_ASSETS_REASON))
         return DeliverSubscriptionResult(recipient_results=recipient_results)
 
     if subscription.target_type == "email":

@@ -461,11 +461,19 @@ async def test_process_subscription_records_missing_slack_integration_failure(
             )
 
     row = await sync_to_async(SubscriptionDelivery.objects.filter(subscription_id=subscription.id).latest)("created_at")
-    # Workflow short-circuits before deliver_subscription, so the row is SKIPPED
-    # and recipient_results stays empty — the disable email + analytics event
-    # carry the failure detail.
-    assert row.status == SubscriptionDelivery.Status.SKIPPED
-    assert row.recipient_results == []  # Model default; finally block doesn't overwrite when nothing was delivered.
+    # Validate auto-disabled the sub: row is FAILED with the disable reason in
+    # recipient_results so support/debugging can read the failure detail directly.
+    assert row.status == SubscriptionDelivery.Status.FAILED
+    assert row.recipient_results == [
+        {
+            "recipient": "C12345|#test-channel",
+            "status": "failed",
+            "error": {
+                "message": "Slack integration disconnected",
+                "type": "missing_integration",
+            },
+        }
+    ]
     mock_get_slack.assert_not_called()
 
     # Subscription is auto-disabled and owner is notified.
@@ -651,7 +659,7 @@ async def test_deliver_subscription_retry_idempotent_after_auto_disable(team, us
 
 
 @pytest.mark.parametrize(
-    "label,target_type,target_value,initial_enabled,expected_abort,expected_disable_called,expected_final_enabled",
+    "label,target_type,target_value,initial_enabled,expected_aborts,expects_failed_recipient,expected_final_enabled",
     [
         ("valid_email_no_abort", "email", "ok@example.com", True, False, False, True),
         ("unsupported_webhook_auto_disables", "webhook", "https://example.com/hook", True, True, True, False),
@@ -666,8 +674,8 @@ async def test_validate_subscription_for_delivery(
     target_type,
     target_value,
     initial_enabled,
-    expected_abort,
-    expected_disable_called,
+    expected_aborts,
+    expects_failed_recipient,
     expected_final_enabled,
 ):
     insight = await sync_to_async(Insight.objects.create)(team=team, short_id=f"vld-{label[:5]}", name=label)
@@ -685,11 +693,20 @@ async def test_validate_subscription_for_delivery(
         patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription") as send_mock,
         patch("posthog.temporal.subscriptions.activities._capture_delivery_failed_event") as capture_mock,
     ):
-        should_abort = await env.run(validate_subscription_for_delivery, subscription.id)
+        abort_info = await env.run(validate_subscription_for_delivery, subscription.id)
 
-    assert should_abort is expected_abort
-    assert send_mock.called is expected_disable_called
-    assert capture_mock.called is expected_disable_called
+    if expected_aborts:
+        assert abort_info is not None
+        if expects_failed_recipient:
+            assert abort_info.failed_recipient is not None
+            assert abort_info.failed_recipient.recipient == target_value
+            assert abort_info.failed_recipient.status == "failed"
+        else:
+            assert abort_info.failed_recipient is None
+    else:
+        assert abort_info is None
+    assert send_mock.called is expects_failed_recipient
+    assert capture_mock.called is expects_failed_recipient
     await sync_to_async(subscription.refresh_from_db)()
     assert subscription.enabled is expected_final_enabled
 

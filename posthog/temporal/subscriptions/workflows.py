@@ -3,6 +3,7 @@ import uuid
 import typing
 import asyncio
 import datetime as dt
+import dataclasses
 
 import temporalio.common
 import temporalio.workflow
@@ -279,7 +280,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
             # Validate up-front: if the subscription is already disabled or its target
             # configuration is permanently broken, auto-disable and short-circuit before
             # the export pipeline runs.
-            should_abort = await temporalio.workflow.execute_activity(
+            abort_info = await temporalio.workflow.execute_activity(
                 validate_subscription_for_delivery,
                 inputs.subscription_id,
                 start_to_close_timeout=dt.timedelta(minutes=1),
@@ -289,7 +290,11 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                     maximum_attempts=3,
                 ),
             )
-            if should_abort:
+            if abort_info is not None:
+                # Just-disabled → FAILED with reason. Already-disabled (no failed_recipient) → SKIPPED default.
+                if abort_info.failed_recipient is not None:
+                    delivery_recipient_results = [dataclasses.asdict(abort_info.failed_recipient)]
+                    final_status = DeliveryStatus.FAILED
                 return
 
             # Phase 1: Prepare — create ExportedAssets and persist insight snapshots
