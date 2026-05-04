@@ -9947,13 +9947,13 @@ export type InsightsRetrieveParams = {
     filters_override?: string
     format?: InsightsRetrieveFormat
     /**
- *
+ * 
 Only if loading an insight in the context of a dashboard: The relevant dashboard's ID.
 When set, the specified dashboard's filters and date range override will be applied.
  */
     from_dashboard?: number
     /**
- *
+ * 
 Whether to refresh the insight, how aggresively, and if sync or async:
 - `'force_cache'` - return cached data or a cache miss; always completes immediately as it never calculates
 - `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache
