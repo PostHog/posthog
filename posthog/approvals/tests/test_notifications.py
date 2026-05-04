@@ -483,85 +483,63 @@ class TestEmailTemplateRendering(TestApprovalNotifications):
                 )
 
 
-class TestDispatchApprovalResolvedRealtime(TestApprovalNotifications):
-    @patch("posthog.approvals.realtime.create_notification")
-    def test_dispatch_approval_resolved_realtime_dispatches_to_requester(self, mock_create_notification):
-        from posthog.approvals.realtime import dispatch_approval_resolved_realtime
+class TestRealtimeDispatchOnResolve(TestApprovalNotifications):
+    @patch("posthog.approvals.notifications.create_notification")
+    @patch("posthog.approvals.notifications._send_approval_email")
+    def test_decision_approved_dispatches_realtime(self, _mock_email, mock_create_notification):
+        approval = self._create_approval(self.change_request, decision="approved")
 
-        change_request = self._create_change_request_with_approvers([])
-        dispatch_approval_resolved_realtime(change_request, title="Approved", body="Action: feature_flag.update")
+        send_approval_decision_notification(self.change_request, approval)
 
         data = mock_create_notification.call_args.args[0]
         assert data.notification_type.value == "approval_resolved"
-        assert data.target_id == str(change_request.created_by_id)
-        assert data.resource_type.value == "approval"
-
-    @patch("posthog.approvals.realtime.create_notification")
-    def test_dispatch_approval_resolved_realtime_skips_when_no_requester(self, mock_create_notification):
-        from posthog.approvals.realtime import dispatch_approval_resolved_realtime
-
-        change_request = self._create_change_request_with_approvers([])
-        change_request.created_by = None
-        change_request.save()
-        dispatch_approval_resolved_realtime(change_request, title="x", body="y")
-
-        mock_create_notification.assert_not_called()
-
-
-class TestRealtimeDispatchOnResolve(TestApprovalNotifications):
-    @patch("posthog.approvals.realtime.create_notification")
-    @patch("posthog.approvals.notifications._send_approval_email")
-    def test_decision_approved_dispatches_realtime(self, _mock_email, mock_create_notification):
-        from posthog.approvals.services import ChangeRequestService
-
-        change_request = self._create_change_request_with_approvers([])
-        approval = self._create_approval(change_request, decision="approved")
-        service = ChangeRequestService(change_request, self.approver)
-        service._send_decision_notification(change_request, approval)
-
-        data = mock_create_notification.call_args.args[0]
         assert "approved" in data.title.lower()
+        assert data.target_id == str(self.user.id)
+        assert data.resource_type.value == "approval"
+        assert data.source_url == f"/project/{self.team.project_id}/approvals/{self.change_request.id}"
 
-    @patch("posthog.approvals.realtime.create_notification")
+    @patch("posthog.approvals.notifications.create_notification")
     @patch("posthog.approvals.notifications._send_approval_email")
     def test_decision_rejected_dispatches_realtime(self, _mock_email, mock_create_notification):
-        from posthog.approvals.services import ChangeRequestService
+        approval = self._create_approval(self.change_request, decision="rejected")
 
-        change_request = self._create_change_request_with_approvers([])
-        approval = self._create_approval(change_request, decision="rejected")
-        service = ChangeRequestService(change_request, self.approver)
-        service._send_decision_notification(change_request, approval)
+        send_approval_decision_notification(self.change_request, approval)
 
         data = mock_create_notification.call_args.args[0]
         assert "declined" in data.title.lower()
 
-    @patch("posthog.approvals.realtime.create_notification")
-    @patch("posthog.approvals.services.send_approval_applied_notification")
-    @patch("posthog.approvals.services.get_action")
-    def test_applied_dispatches_realtime(self, mock_get_action, _mock_email, mock_create_notification):
-        from posthog.approvals.services import apply_change_request
-
-        change_request = self._create_change_request_with_approvers([])
-        action_class = MagicMock()
-        action_class.prepare_context.return_value = {}
-        action_class.validate_intent.return_value = (True, [])
-        action_class.apply.return_value = MagicMock(id="applied-resource", version=1)
-        mock_get_action.return_value = action_class
-
-        apply_change_request(change_request)
+    @patch("posthog.approvals.notifications.create_notification")
+    @patch("posthog.approvals.notifications._send_approval_email")
+    def test_applied_dispatches_realtime(self, _mock_email, mock_create_notification):
+        send_approval_applied_notification(self.change_request)
 
         data = mock_create_notification.call_args.args[0]
         assert "live" in data.title.lower()
 
-    @patch("posthog.approvals.realtime.create_notification")
-    @patch("posthog.approvals.tasks.send_approval_expired_notification")
+    @patch("posthog.approvals.notifications.create_notification")
+    @patch("posthog.approvals.notifications._send_approval_email")
     def test_expired_dispatches_realtime(self, _mock_email, mock_create_notification):
-        from posthog.approvals.tasks import expire_old_change_requests
-
-        self.change_request.expires_at = timezone.now() - timedelta(hours=1)
-        self.change_request.save()
-
-        expire_old_change_requests()
+        send_approval_expired_notification(self.change_request)
 
         data = mock_create_notification.call_args.args[0]
         assert "expired" in data.title.lower()
+
+    @patch("posthog.approvals.notifications.create_notification")
+    @patch("posthog.approvals.notifications._send_approval_email")
+    def test_skips_realtime_when_no_requester(self, _mock_email, mock_create_notification):
+        self.change_request.created_by = None
+        self.change_request.save()
+
+        send_approval_applied_notification(self.change_request)
+        send_approval_expired_notification(self.change_request)
+
+        mock_create_notification.assert_not_called()
+
+    @patch("posthog.approvals.notifications.create_notification")
+    @patch("posthog.approvals.notifications._send_approval_email")
+    def test_email_failure_does_not_block_realtime(self, mock_email, mock_create_notification):
+        mock_email.side_effect = RuntimeError("smtp down")
+
+        send_approval_applied_notification(self.change_request)
+
+        mock_create_notification.assert_called_once()

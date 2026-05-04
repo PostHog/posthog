@@ -14,12 +14,7 @@ from posthog.approvals.exceptions import (
     ReasonRequiredError,
 )
 from posthog.approvals.models import Approval, ApprovalDecision, ChangeRequest, ChangeRequestState
-from posthog.approvals.notifications import (
-    _get_user_display_name,
-    send_approval_applied_notification,
-    send_approval_decision_notification,
-)
-from posthog.approvals.realtime import dispatch_approval_resolved_realtime
+from posthog.approvals.notifications import send_approval_applied_notification, send_approval_decision_notification
 from posthog.event_usage import report_user_action
 from posthog.models import User
 
@@ -125,11 +120,6 @@ def apply_change_request(change_request: ChangeRequest, request=None) -> Any:
             )
 
         send_approval_applied_notification(change_request)
-        dispatch_approval_resolved_realtime(
-            change_request,
-            title="Your change is now live",
-            body=f"Action: {change_request.action_key}",
-        )
 
         return result
 
@@ -401,9 +391,3 @@ class ChangeRequestService:
                     "error": str(e),
                 },
             )
-
-        is_approved = approval.decision == ApprovalDecision.APPROVED
-        approver_name = _get_user_display_name(approval.created_by, fallback="Someone")
-        title = f"{approver_name} approved your change" if is_approved else "Your change request was declined"
-        body = f"Action: {change_request.action_key}" if is_approved else f"Declined by {approver_name}"
-        dispatch_approval_resolved_realtime(change_request, title=title, body=body)
