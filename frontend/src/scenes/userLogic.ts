@@ -263,18 +263,10 @@ export const userLogic = kea<userLogicType>([
             if (user && user.uuid) {
                 if (posthog) {
                     posthog.identify(user.distinct_id)
-                    // Backend used to ship a per-render Celery identify_task that called
-                    // posthoganalytics.capture("update user properties", $set=...). The
-                    // broker write was on the request path and spiked to ~500ms+ under
-                    // load. The same property bundle now arrives in user.analytics_metadata
-                    // (server-side User.get_analytics_metadata, which already includes email
-                    // with the anonymize_data guard and realm) and we hand it to
-                    // posthog.people.set here — no backend latency, the posthog-js SDK
-                    // debounces these for us. Bundle is gated to self-retrievals only;
-                    // staff retrieving another user gets null and no properties are set.
-                    if (user.analytics_metadata) {
-                        posthog.people.set(user.analytics_metadata)
-                    }
+                    posthog.people.set({
+                        email: user.anonymize_data ? null : user.email,
+                        realm: user.realm,
+                    })
 
                     posthog.register({
                         is_demo_project: user.team?.is_demo,

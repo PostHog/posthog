@@ -342,13 +342,6 @@ export interface UserType extends UserBaseType {
     team: TeamBasicType | null
     organizations: OrganizationBasicType[]
     realm?: Realm
-    /**
-     * Person-property bundle the frontend hands to `posthog.people.set` in userLogic
-     * on `loadUserSuccess`. Replaces the per-render Celery identify_task that paid
-     * a broker round-trip on the request path. Only present when the serialized
-     * user is the requesting user.
-     */
-    analytics_metadata?: Record<string, unknown> | null
     is_email_verified?: boolean | null
     pending_email?: string | null
     is_2fa_enabled: boolean

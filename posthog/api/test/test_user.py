@@ -132,32 +132,6 @@ class TestUserAPI(APIBaseTest):
             ],
         )
 
-    def test_current_user_includes_analytics_metadata(self):
-        # The analytics_metadata bundle is the dict the frontend hands to
-        # posthog.people.set in userLogic.loadUserSuccess. It replaces the per-render
-        # Celery identify_task, so the response MUST carry it for self-retrievals.
-        response = self.client.get("/api/users/@me/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        metadata = response.json()["analytics_metadata"]
-        assert metadata is not None
-        assert metadata["email"] == self.user.email
-        assert metadata["is_signed_up"] is True
-        assert "joined_at" in metadata
-        assert "organization_id" in metadata
-
-    def test_staff_retrieving_other_user_does_not_leak_analytics_metadata(self):
-        # The bundle includes social_providers, organization_id and other per-user
-        # state. Staff retrieving another account must NOT seed that user's analytics
-        # via this response shape — gate is request.user.id == instance.id.
-        other_user = self._create_user("someone-else@example.com")
-        self.user.is_staff = True
-        self.user.save()
-
-        response = self.client.get(f"/api/users/{other_user.uuid}/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        assert response.json()["analytics_metadata"] is None
-
     def test_current_user_includes_pending_invites(self):
         from posthog.models import OrganizationInvite
 
@@ -365,7 +339,10 @@ class TestUserAPI(APIBaseTest):
         self.assertEqual(user.has_seen_product_intro_for, {"feature_flags": True})
         self.assertEqual(user.role_at_organization, "engineering")
 
-        mock_capture.assert_called_once_with(
+        # UserSerializer.to_representation also fires posthoganalytics.capture
+        # for the "update user properties" identify, so use assert_any_call to
+        # find the "user updated" event we actually care about here.
+        mock_capture.assert_any_call(
             event="user updated",
             distinct_id=user.distinct_id,
             properties={
@@ -767,7 +744,7 @@ class TestUserAPI(APIBaseTest):
         self.assertEqual(self.user.current_organization, self.new_org)
         self.assertEqual(self.user.current_team, self.new_project)
 
-        mock_capture.assert_called_once_with(
+        mock_capture.assert_any_call(
             event="user updated",
             distinct_id=self.user.distinct_id,
             properties={"updated_attrs": ["current_organization", "current_team"], "$set": mock.ANY},
@@ -794,7 +771,7 @@ class TestUserAPI(APIBaseTest):
         self.assertEqual(self.user.current_organization, self.new_org)
         self.assertEqual(self.user.current_team, team)
 
-        mock_capture.assert_called_once_with(
+        mock_capture.assert_any_call(
             event="user updated",
             distinct_id=self.user.distinct_id,
             properties={"updated_attrs": ["current_organization", "current_team"], "$set": mock.ANY},
@@ -1035,7 +1012,7 @@ class TestUserAPI(APIBaseTest):
         user.refresh_from_db()
         self.assertTrue(user.check_password("a_new_password"))
 
-        mock_capture.assert_called_once_with(
+        mock_capture.assert_any_call(
             event="user updated",
             distinct_id=user.distinct_id,
             properties={"updated_attrs": ["password"], "$set": mock.ANY},
@@ -1077,7 +1054,7 @@ class TestUserAPI(APIBaseTest):
         user.refresh_from_db()
         self.assertTrue(user.check_password("a_new_password"))
 
-        mock_capture.assert_called_once_with(
+        mock_capture.assert_any_call(
             event="user updated",
             distinct_id=user.distinct_id,
             properties={"updated_attrs": ["password"], "$set": mock.ANY},
@@ -1140,7 +1117,11 @@ class TestUserAPI(APIBaseTest):
         # Password was not changed
         self.user.refresh_from_db()
         self.assertTrue(self.user.check_password(self.CONFIG_PASSWORD))
-        mock_capture.assert_not_called()
+        # The GET on /api/users/@me/ fires the inline identify ("update user properties")
+        # via UserSerializer.to_representation. The 4xx PATCH must NOT fire "user updated"
+        # because the update was rejected.
+        update_calls = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "user updated"]
+        assert update_calls == []
 
     def test_user_cannot_update_password_without_current_password(self):
         response = self.client.patch("/api/users/@me/", {"password": "12345678"})
