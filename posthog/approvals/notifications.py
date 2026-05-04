@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
-def _get_user_display_name(user: User | None, fallback: str = "A team member") -> str:
+def get_user_display_name(user: User | None, fallback: str = "A team member") -> str:
     """Get display name for a user, falling back to email or default."""
     if not user:
         return fallback
@@ -93,7 +93,7 @@ def send_approval_requested_notification(change_request: "ChangeRequest") -> Non
         return
 
     approvers = User.objects.filter(id__in=approver_ids)
-    requester_name = _get_user_display_name(change_request.created_by)
+    requester_name = get_user_display_name(change_request.created_by)
 
     for approver in approvers:
         try:
@@ -129,7 +129,7 @@ def send_approval_decision_notification(
 
     is_approved = approval.decision == "approved"
     template_name = "approval_approved" if is_approved else "approval_rejected"
-    approver_name = _get_user_display_name(approval.created_by, fallback="Someone")
+    approver_name = get_user_display_name(approval.created_by, fallback="Someone")
     subject = f"{approver_name} approved your change" if is_approved else "Your change request was declined"
 
     try:

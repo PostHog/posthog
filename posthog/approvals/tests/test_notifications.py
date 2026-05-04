@@ -203,6 +203,17 @@ class TestDispatchApprovalRequestedRealtime(TestApprovalNotifications):
         dispatch_approval_requested_realtime(self.change_request)
 
     @patch("posthog.approvals.realtime.create_notification")
+    def test_failure_for_one_approver_does_not_block_others(self, mock_create_notification):
+        # First call raises; remaining approvers must still receive their notification.
+        mock_create_notification.side_effect = [RuntimeError("boom"), None]
+
+        dispatch_approval_requested_realtime(self.change_request)
+
+        self.assertEqual(mock_create_notification.call_count, 2)
+        target_ids = [call.args[0].target_id for call in mock_create_notification.call_args_list]
+        self.assertEqual(set(target_ids), {str(self.approver.id), str(self.approver2.id)})
+
+    @patch("posthog.approvals.realtime.create_notification")
     def test_no_realtime_dispatch_when_no_approvers(self, mock_create_notification):
         self.policy.approver_config = {"users": [], "quorum": 1}
         self.policy.save()
