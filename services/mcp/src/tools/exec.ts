@@ -135,29 +135,33 @@ export function createExecTool(
                     }
                     const tool = findTool(allTools, infoArgs)
                     const fullSchema = z.toJSONSchema(tool.schema)
-                    const serialize = (payload: Record<string, unknown>): string =>
-                        forceJson ? JSON.stringify(payload) : stringifyYaml(payload, { lineWidth: 0 })
+                    // YAML for the top shape, but inputSchema stays as a JSON
+                    // string dumped inside the YAML — JSON Schema is conventionally
+                    // JSON and converting it to YAML obscures `$ref`, `oneOf`, etc.
+                    const serialize = (payload: Record<string, unknown>, schema: unknown): string => {
+                        if (forceJson) {
+                            return JSON.stringify({ ...payload, inputSchema: schema })
+                        }
+                        return stringifyYaml(
+                            { ...payload, inputSchema: JSON.stringify(schema, null, 2) },
+                            { lineWidth: 0 }
+                        )
+                    }
 
-                    const fullOutput = serialize({
+                    const topShape = {
                         name: tool.name,
                         title: tool.title,
                         description: tool.description,
                         annotations: tool.annotations,
-                        inputSchema: fullSchema,
-                    })
+                    }
+                    const fullOutput = serialize(topShape, fullSchema)
 
                     if (fullOutput.length <= TOKEN_CHAR_LIMIT) {
                         return fullOutput
                     }
 
                     // Schema too large — return summary with drill-down hints
-                    return serialize({
-                        name: tool.name,
-                        title: tool.title,
-                        description: tool.description,
-                        annotations: tool.annotations,
-                        inputSchema: summarizeSchema(fullSchema as Record<string, unknown>, tool.name),
-                    })
+                    return serialize(topShape, summarizeSchema(fullSchema as Record<string, unknown>, tool.name))
                 }
 
                 case 'schema': {

@@ -200,16 +200,29 @@ describe('exec tool', () => {
     })
 
     describe('info command', () => {
-        it('returns YAML by default', async () => {
-            const exec = createExec()
+        it('returns YAML for the top shape with the input schema embedded as JSON', async () => {
+            const tool = makeMockTool({ schema: z.object({ name: z.string().describe('Person name') }) })
+            const exec = createExec([tool])
             const result = (await exec.handler(mockContext, { command: 'info mock-tool' })) as string
             expect(typeof result).toBe('string')
-            // YAML output uses "key: value" lines, not JSON braces
+            // YAML lines for the top shape
             expect(result).toContain('name: mock-tool')
             expect(result).toContain('title: Mock tool')
-            expect(result).not.toMatch(/^\{/)
-            // Confirm it's not parseable as JSON
+            // The whole envelope is not JSON
             expect(() => JSON.parse(result)).toThrow()
+            // inputSchema is dumped as a JSON string within the YAML — pull it
+            // out of the YAML block scalar and confirm it parses as JSON.
+            const lines = result.split('\n')
+            const schemaIdx = lines.findIndex((l) => l.startsWith('inputSchema:'))
+            expect(schemaIdx).toBeGreaterThanOrEqual(0)
+            const schemaBlock = lines
+                .slice(schemaIdx + 1)
+                .filter((l) => l.startsWith('  '))
+                .map((l) => l.slice(2))
+                .join('\n')
+            const parsedSchema = JSON.parse(schemaBlock)
+            expect(parsedSchema.type).toBe('object')
+            expect(parsedSchema.properties.name.description).toBe('Person name')
         })
 
         it('returns JSON with --json flag', async () => {
@@ -219,7 +232,8 @@ describe('exec tool', () => {
             expect(parsed.name).toBe('mock-tool')
             expect(parsed.title).toBe('Mock tool')
             expect(parsed.description).toBe('A mock tool for testing')
-            expect(parsed.inputSchema).not.toBeUndefined()
+            // In --json mode, inputSchema is a real object, not a JSON string
+            expect(typeof parsed.inputSchema).toBe('object')
         })
 
         it('throws usage error for bare info', async () => {
