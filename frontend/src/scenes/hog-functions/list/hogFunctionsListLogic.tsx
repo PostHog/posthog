@@ -204,6 +204,9 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
             await breakpoint(250)
             actions.loadHogFunctions()
         },
+        resetFilters: () => {
+            actions.loadHogFunctions()
+        },
         saveHogFunctionOrderSuccess: () => {
             actions.setReorderModalOpen(false)
             lemonToast.success('Order updated successfully')

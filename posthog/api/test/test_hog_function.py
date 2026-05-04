@@ -1797,6 +1797,28 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/", {"search": "\x00\x00\x00"})
         assert response.status_code == status.HTTP_200_OK
 
+    def test_list_filter_by_search_handles_null_name_with_description_match(self):
+        named_match = HogFunction.objects.create(
+            team=self.team, name="Marketing webhook", type="destination", hog="return event"
+        )
+        unnamed_match = HogFunction.objects.create(
+            team=self.team,
+            name=None,
+            description="A marketing-focused destination",
+            type="destination",
+            hog="return event",
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?search=marketing")
+        assert response.status_code == status.HTTP_200_OK
+        result_ids = [r["id"] for r in response.json()["results"]]
+
+        assert str(named_match.id) in result_ids
+        assert str(unnamed_match.id) in result_ids
+        assert result_ids.index(str(named_match.id)) < result_ids.index(str(unnamed_match.id)), (
+            f"named match should rank above unnamed description match, got {result_ids}"
+        )
+
     @parameterized.expand(
         [
             ("at cap (200)", 200, status.HTTP_200_OK),
