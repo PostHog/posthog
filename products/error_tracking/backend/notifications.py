@@ -41,12 +41,14 @@ def dispatch_issue_assigned_realtime(
     Never raises — caller's email enqueue must succeed independently.
     """
     try:
-        if assignment.team_id is None or assignment.team is None:
+        if assignment.team_id is None:
             return
+        team = assignment.team
+        assert team is not None  # team_id is set, so the FK is non-null (Django stubs disagree)
         issue = assignment.issue
         title = f"{assigner.first_name or assigner.email} assigned an issue to you"[:100]
         body = (issue.name or "")[:200]
-        source_url = f"/project/{assignment.team.project_id}/error_tracking/{issue.id}"
+        source_url = f"/project/{team.project_id}/error_tracking/{issue.id}"
 
         if assignee["type"] == "user":
             if int(assignee["id"]) == assigner.id:
