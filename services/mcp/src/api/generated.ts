@@ -7518,7 +7518,6 @@ export namespace Schemas {
     * `teams_bot_mention` - Teams bot mention
     * `widget_embedded` - Widget
     * `widget_api` - API
-    * `github_issue` - GitHub issue
      */
     export type ChannelDetailEnum = typeof ChannelDetailEnum[keyof typeof ChannelDetailEnum];
 
@@ -7531,7 +7530,6 @@ export namespace Schemas {
       TeamsBotMention: 'teams_bot_mention',
       WidgetEmbedded: 'widget_embedded',
       WidgetApi: 'widget_api',
-      GithubIssue: 'github_issue',
     } as const;
 
     /**
@@ -7539,7 +7537,6 @@ export namespace Schemas {
     * `email` - Email
     * `slack` - Slack
     * `teams` - Microsoft Teams
-    * `github` - GitHub
      */
     export type ChannelSourceEnum = typeof ChannelSourceEnum[keyof typeof ChannelSourceEnum];
 
@@ -7549,7 +7546,6 @@ export namespace Schemas {
       Email: 'email',
       Slack: 'slack',
       Teams: 'teams',
-      Github: 'github',
     } as const;
 
     export type DisplayType = typeof DisplayType[keyof typeof DisplayType];
@@ -14244,16 +14240,6 @@ export namespace Schemas {
       CosineDistance: 'cosineDistance',
     } as const;
 
-    export interface DocsSearchRequest {
-      /** Natural-language description of what to find in the PostHog documentation. Inkeep performs hybrid (semantic + full-text) RAG, so phrase the query the way a user would ask the question. */
-      query: string;
-    }
-
-    export interface DocsSearchResponse {
-      /** Markdown-formatted documentation results. Each block has a title, URL and excerpt; an empty result set returns guidance to navigate to https://posthog.com/docs. */
-      content: string;
-    }
-
     export type DocumentSimilarityQueryKind = typeof DocumentSimilarityQueryKind[keyof typeof DocumentSimilarityQueryKind];
 
 
@@ -15200,7 +15186,7 @@ export namespace Schemas {
        * @maxLength 400
        * @nullable
        */
-      primary_property?: string | null;
+      promoted_property?: string | null;
       readonly is_action: boolean;
       readonly action_id: number;
       readonly is_calculating: boolean;
@@ -16133,7 +16119,7 @@ export namespace Schemas {
        * @maxLength 400
        * @nullable
        */
-      primary_property?: string | null;
+      promoted_property?: string | null;
       readonly is_action: boolean;
       readonly action_id: number;
       readonly is_calculating: boolean;
@@ -25695,10 +25681,6 @@ export namespace Schemas {
       /** @nullable */
       readonly email_to: string | null;
       readonly cc_participants: unknown;
-      /** @nullable */
-      readonly github_repo: string | null;
-      /** @nullable */
-      readonly github_issue_number: number | null;
       readonly person: TicketPerson | null;
       tags?: unknown[];
     }
@@ -27189,7 +27171,7 @@ export namespace Schemas {
        * @maxLength 400
        * @nullable
        */
-      primary_property?: string | null;
+      promoted_property?: string | null;
       readonly is_action?: boolean;
       readonly action_id?: number;
       readonly is_calculating?: boolean;
@@ -31241,10 +31223,6 @@ export namespace Schemas {
       /** @nullable */
       readonly email_to?: string | null;
       readonly cc_participants?: unknown;
-      /** @nullable */
-      readonly github_repo?: string | null;
-      /** @nullable */
-      readonly github_issue_number?: number | null;
       readonly person?: TicketPerson | null;
       tags?: unknown[];
     }
@@ -31634,16 +31612,6 @@ export namespace Schemas {
       tabs?: PinnedSceneTab[];
       /** Tab descriptor for the user's chosen home page — the destination opened when they click the PostHog logo or hit `/`. Set to a tab descriptor to pick a homepage, send `null` or `{}` to clear it and fall back to the project default. */
       homepage?: PinnedSceneTab | null;
-    }
-
-    /**
-     * Mapping from event name to the team-configured primary property for that event. Names without a configured primary property are omitted; callers should fall back to the core taxonomy defaults for those.
-     */
-    export type PrimaryPropertiesResponsePrimaryProperties = {[key: string]: string};
-
-    export interface PrimaryPropertiesResponse {
-      /** Mapping from event name to the team-configured primary property for that event. Names without a configured primary property are omitted; callers should fall back to the core taxonomy defaults for those. */
-      primary_properties: PrimaryPropertiesResponsePrimaryProperties;
     }
 
     /**
@@ -32470,6 +32438,16 @@ export namespace Schemas {
       /** @nullable */
       proactive_tasks_enabled?: boolean | null;
       readonly available_setup_task_ids: readonly AvailableSetupTaskIdsEnum[];
+    }
+
+    /**
+     * Mapping from event name to the team-configured promoted property for that event. Names without a configured promoted property are omitted; callers should fall back to the core taxonomy defaults for those.
+     */
+    export type PromotedPropertiesResponsePromotedProperties = {[key: string]: string};
+
+    export interface PromotedPropertiesResponse {
+      /** Mapping from event name to the team-configured promoted property for that event. Names without a configured promoted property are omitted; callers should fall back to the core taxonomy defaults for those. */
+      promoted_properties: PromotedPropertiesResponsePromotedProperties;
     }
 
     /**
@@ -38163,12 +38141,12 @@ export namespace Schemas {
 
     export type EnvironmentsDashboardsRetrieveParams = {
     /**
-     * Object (or pre-encoded JSON string) to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
+     * JSON object to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
      */
     filters_override?: string;
     format?: EnvironmentsDashboardsRetrieveFormat;
     /**
-     * Object (or pre-encoded JSON string) to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
+     * JSON object to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
      */
     variables_override?: string;
     };
@@ -38267,7 +38245,7 @@ export namespace Schemas {
 
     export type EnvironmentsDashboardsRunInsightsRetrieveParams = {
     /**
-     * Object (or pre-encoded JSON string) to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
+     * JSON object to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
      */
     filters_override?: string;
     format?: EnvironmentsDashboardsRunInsightsRetrieveFormat;
@@ -38280,7 +38258,7 @@ export namespace Schemas {
      */
     refresh?: EnvironmentsDashboardsRunInsightsRetrieveRefresh;
     /**
-     * Object (or pre-encoded JSON string) to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
+     * JSON object to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
      */
     variables_override?: string;
     };
@@ -38324,7 +38302,7 @@ export namespace Schemas {
 
     export type EnvironmentsDashboardsStreamTilesRetrieveParams = {
     /**
-     * Object (or pre-encoded JSON string) to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
+     * JSON object to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
      */
     filters_override?: string;
     format?: EnvironmentsDashboardsStreamTilesRetrieveFormat;
@@ -38333,7 +38311,7 @@ export namespace Schemas {
      */
     layoutSize?: EnvironmentsDashboardsStreamTilesRetrieveLayoutSize;
     /**
-     * Object (or pre-encoded JSON string) to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
+     * JSON object to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
      */
     variables_override?: string;
     };
@@ -39051,6 +39029,10 @@ export namespace Schemas {
      */
     offset?: number;
     /**
+     * A search term.
+     */
+    search?: string;
+    /**
      * Multiple values may be separated by commas.
      */
     type?: string[];
@@ -39365,7 +39347,7 @@ export namespace Schemas {
 
     export type EnvironmentsInsightsRetrieveParams = {
     /**
-     * Object (or pre-encoded JSON string) to override the insight's filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
+     * JSON object to override the insight's filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
      */
     filters_override?: string;
     format?: EnvironmentsInsightsRetrieveFormat;
@@ -39388,7 +39370,7 @@ export namespace Schemas {
      */
     refresh?: EnvironmentsInsightsRetrieveRefresh;
     /**
-     * Object (or pre-encoded JSON string) to override the insight's HogQL variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `insight-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
+     * JSON object to override the insight's HogQL variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `insight-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
      */
     variables_override?: string;
     };
@@ -40272,13 +40254,6 @@ export namespace Schemas {
       Slack: 'slack',
       Webhook: 'webhook',
     } as const;
-
-    export type EnvironmentsSubscriptionsSummaryQuotaRetrieve200 = {
-      active_count: number;
-      /** @nullable */
-      limit: number | null;
-      at_limit: boolean;
-    };
 
     export type EnvironmentsUserProductListListParams = {
     /**
@@ -42211,7 +42186,6 @@ export namespace Schemas {
 
 
     export const ConversationsTicketsListChannelDetail = {
-      GithubIssue: 'github_issue',
       SlackBotMention: 'slack_bot_mention',
       SlackChannelMessage: 'slack_channel_message',
       SlackEmojiReaction: 'slack_emoji_reaction',
@@ -42226,7 +42200,6 @@ export namespace Schemas {
 
     export const ConversationsTicketsListChannelSource = {
       Email: 'email',
-      Github: 'github',
       Slack: 'slack',
       Teams: 'teams',
       Widget: 'widget',
@@ -42311,12 +42284,12 @@ export namespace Schemas {
 
     export type DashboardsRetrieveParams = {
     /**
-     * Object (or pre-encoded JSON string) to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
+     * JSON object to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
      */
     filters_override?: string;
     format?: DashboardsRetrieveFormat;
     /**
-     * Object (or pre-encoded JSON string) to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
+     * JSON object to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
      */
     variables_override?: string;
     };
@@ -42415,7 +42388,7 @@ export namespace Schemas {
 
     export type DashboardsRunInsightsRetrieveParams = {
     /**
-     * Object (or pre-encoded JSON string) to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
+     * JSON object to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
      */
     filters_override?: string;
     format?: DashboardsRunInsightsRetrieveFormat;
@@ -42428,7 +42401,7 @@ export namespace Schemas {
      */
     refresh?: DashboardsRunInsightsRetrieveRefresh;
     /**
-     * Object (or pre-encoded JSON string) to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
+     * JSON object to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
      */
     variables_override?: string;
     };
@@ -42472,7 +42445,7 @@ export namespace Schemas {
 
     export type DashboardsStreamTilesRetrieveParams = {
     /**
-     * Object (or pre-encoded JSON string) to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
+     * JSON object to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
      */
     filters_override?: string;
     format?: DashboardsStreamTilesRetrieveFormat;
@@ -42481,7 +42454,7 @@ export namespace Schemas {
      */
     layoutSize?: DashboardsStreamTilesRetrieveLayoutSize;
     /**
-     * Object (or pre-encoded JSON string) to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
+     * JSON object to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
      */
     variables_override?: string;
     };
@@ -42718,9 +42691,9 @@ export namespace Schemas {
     name: string;
     };
 
-    export type EventDefinitionsPrimaryPropertiesRetrieveParams = {
+    export type EventDefinitionsPromotedPropertiesRetrieveParams = {
     /**
-     * Optional: restrict the response to these event names. Repeat the parameter for multiple names (e.g. `?names=a&names=b`). When omitted, returns every team-configured primary property.
+     * Optional: restrict the response to these event names. Repeat the parameter for multiple names (e.g. `?names=a&names=b`). When omitted, returns every team-configured promoted property.
      */
     names?: string[];
     };
@@ -43504,6 +43477,10 @@ export namespace Schemas {
      */
     offset?: number;
     /**
+     * A search term.
+     */
+    search?: string;
+    /**
      * Multiple values may be separated by commas.
      */
     type?: string[];
@@ -43818,7 +43795,7 @@ export namespace Schemas {
 
     export type InsightsRetrieveParams = {
     /**
-     * Object (or pre-encoded JSON string) to override the insight's filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
+     * JSON object to override the insight's filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
      */
     filters_override?: string;
     format?: InsightsRetrieveFormat;
@@ -43841,7 +43818,7 @@ export namespace Schemas {
      */
     refresh?: InsightsRetrieveRefresh;
     /**
-     * Object (or pre-encoded JSON string) to override the insight's HogQL variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `insight-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
+     * JSON object to override the insight's HogQL variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `insight-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
      */
     variables_override?: string;
     };
@@ -45075,13 +45052,6 @@ export namespace Schemas {
       Webhook: 'webhook',
     } as const;
 
-    export type SubscriptionsSummaryQuotaRetrieve200 = {
-      active_count: number;
-      /** @nullable */
-      limit: number | null;
-      at_limit: boolean;
-    };
-
     export type SurveysListParams = {
     archived?: boolean;
     /**
@@ -45092,10 +45062,6 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
-    /**
-     * A search term.
-     */
-    search?: string;
     };
 
     export type SurveysStatsRetrieveParams = {

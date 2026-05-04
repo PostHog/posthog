@@ -316,7 +316,6 @@ const surveysGetAll = (): ToolBase<typeof SurveysGetAllSchema, WithPostHogUrl<Sc
                     archived: params.archived,
                     limit: params.limit,
                     offset: params.offset,
-                    search: params.search,
                 },
             })
             return await withPostHogUrl(
