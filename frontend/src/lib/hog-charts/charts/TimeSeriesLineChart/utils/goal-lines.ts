@@ -18,8 +18,7 @@ export function computeSeriesNonZeroMax(series: Series[]): number {
         }
         for (const raw of s.data) {
             const value = Number(raw)
-            // `!value` covers both 0 and NaN (since `!NaN === true`)
-            if (!value) {
+            if (value === 0 || !Number.isFinite(value)) {
                 continue
             }
             if (value > max) {

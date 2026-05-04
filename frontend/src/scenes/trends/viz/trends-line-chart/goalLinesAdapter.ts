@@ -17,6 +17,17 @@ function schemaToGoalLineConfig(line: SchemaGoalLine): GoalLineConfig {
     }
 }
 
+function schemaToReferenceLine(line: SchemaGoalLine, variant: 'goal' | 'alert'): ReferenceLineProps {
+    return {
+        value: line.value,
+        orientation: 'horizontal',
+        label: line.displayLabel === false ? undefined : line.label,
+        labelPosition: line.position ?? 'start',
+        variant,
+        style: line.borderColor ? { color: line.borderColor } : undefined,
+    }
+}
+
 /** Map persisted {@link SchemaGoalLine}s to {@link ReferenceLineProps} for the hog-charts
  *  primitive, preserving the `displayIfCrossed` filter. The filter drops a goal when
  *  `displayIfCrossed` is explicitly `false` *and* the line sits below the series peak —
@@ -40,12 +51,5 @@ export function alertThresholdsToReferenceLines(
     if (!alertThresholdLines?.length) {
         return []
     }
-    return alertThresholdLines.map((line) => ({
-        value: line.value,
-        orientation: 'horizontal',
-        label: line.displayLabel === false ? undefined : line.label,
-        labelPosition: line.position ?? 'start',
-        variant: 'alert',
-        style: line.borderColor ? { color: line.borderColor } : undefined,
-    }))
+    return alertThresholdLines.map((line) => schemaToReferenceLine(line, 'alert'))
 }
