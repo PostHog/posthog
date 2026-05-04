@@ -129,6 +129,7 @@ export function DagsTab(): JSX.Element {
             columns={columns}
             emptyState="No DAGs yet"
             rowKey="id"
+            rowClassName="[&>td]:py-2"
         />
     )
 }
