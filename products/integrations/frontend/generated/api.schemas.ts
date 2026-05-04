@@ -171,6 +171,7 @@ export interface RoleLookupResponseApi {
  * `google-pubsub` - Google Pubsub
  * `google-sheets` - Google Sheets
  * `hubspot` - Hubspot
+ * `instagram` - Instagram
  * `intercom` - Intercom
  * `jira` - Jira
  * `linear` - Linear
@@ -209,6 +210,7 @@ export const IntegrationKindEnumApi = {
     GooglePubsub: 'google-pubsub',
     GoogleSheets: 'google-sheets',
     Hubspot: 'hubspot',
+    Instagram: 'instagram',
     Intercom: 'intercom',
     Jira: 'jira',
     Linear: 'linear',

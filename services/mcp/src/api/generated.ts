@@ -20726,6 +20726,7 @@ export namespace Schemas {
     * `google-pubsub` - Google Pubsub
     * `google-sheets` - Google Sheets
     * `hubspot` - Hubspot
+    * `instagram` - Instagram
     * `intercom` - Intercom
     * `jira` - Jira
     * `linear` - Linear
@@ -20765,6 +20766,7 @@ export namespace Schemas {
       GooglePubsub: 'google-pubsub',
       GoogleSheets: 'google-sheets',
       Hubspot: 'hubspot',
+      Instagram: 'instagram',
       Intercom: 'intercom',
       Jira: 'jira',
       Linear: 'linear',
