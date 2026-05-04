@@ -44,12 +44,6 @@ class HogQLContext:
     values: dict = field(default_factory=dict)
     # Are we small part of a non-HogQL query? If so, use custom syntax for accessed person properties.
     within_non_hogql_query: bool = False
-    # Hack used by ``DataDeletionRequest`` predicate compilation: when True,
-    # ``EventsTable.to_printed_clickhouse`` emits ``sharded_events`` instead of
-    # ``events`` so the predicate fragment can be spliced into a
-    # ``DELETE FROM sharded_events`` statement and any synthesised JOIN
-    # references the local table directly.
-    target_sharded_events: bool = False
     # Enable full SELECT queries and subqueries in ClickHouse
     enable_select_queries: bool = False
     # Do we apply a limit of MAX_SELECT_RETURNED_ROWS=10000 to the topmost select query?

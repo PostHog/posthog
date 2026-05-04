@@ -55,18 +55,10 @@ def compile_hogql_predicate(obj) -> tuple[str, dict]:
     if obj.team_id is None:
         raise ValidationError({"hogql_predicate": "team_id must be set before validating the predicate."})
 
-    # ``target_sharded_events`` makes ``EventsTable.to_printed_clickhouse`` emit
-    # ``sharded_events`` instead of ``events`` so the resulting fragment is safe to
-    # splice into ``DELETE FROM sharded_events WHERE …`` (and any synthesised JOIN
-    # references the local table directly, matching the table the DELETE runs against).
-    context = HogQLContext(
-        team_id=obj.team_id,
-        within_non_hogql_query=True,
-        enable_select_queries=True,
-        target_sharded_events=True,
-    )
+    context = HogQLContext(team_id=obj.team_id, within_non_hogql_query=True, enable_select_queries=False)
     try:
-        sql = translate_hogql(predicate, context, dialect="clickhouse")
+        # We tell hogql that `sharded_events` is just an alias for events.
+        sql = translate_hogql(predicate, context, dialect="clickhouse", events_table_alias="sharded_events")
     except Exception as exc:
         raise ValidationError({"hogql_predicate": f"Could not compile HogQL: {exc}"}) from exc
 

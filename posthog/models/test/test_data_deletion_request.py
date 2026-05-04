@@ -134,6 +134,28 @@ def test_compile_hogql_predicate_targets_sharded_events(team, snapshot):
     assert sql == snapshot
 
 
+def test_compile_hogql_predicate_emits_sharded_events_for_materialized_column(team, snapshot):
+    """When a property has a materialized column, the printer emits ``{table}.mat_{prop}``.
+    For a deletion predicate that qualifier must be ``sharded_events`` — it would otherwise
+    point at the Distributed ``events`` proxy, mismatched with the DELETE target.
+    """
+    from posthog.models.data_deletion_request import compile_hogql_predicate
+
+    from ee.clickhouse.materialized_columns.analyze import materialize
+
+    materialize("events", "$current_url")
+
+    request = DataDeletionRequest(
+        **_base_kwargs(
+            team_id=team.id,
+            events=["$pageview"],
+            hogql_predicate="properties.$current_url LIKE '%message=%'",
+        )
+    )
+    sql, _ = compile_hogql_predicate(request)
+    assert sql == snapshot
+
+
 def test_rendered_count_query_substitutes_parameters():
     from posthog.admin.admins.data_deletion_request_admin import build_deletion_count_query
     from posthog.clickhouse.client.escape import substitute_params_for_display
