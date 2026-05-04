@@ -121,7 +121,12 @@ def create_group(
 
 
 def save_group(group: Group) -> None:
-    """Save a Group's properties via personhog, falling back to ORM."""
+    """Save a Group's group_properties via personhog, falling back to ORM.
+
+    Only group_properties is synced on the personhog path. The ORM fallback
+    calls group.save() which persists all fields, but once the fallback is
+    removed this will only write group_properties.
+    """
     from posthog.personhog_client.client import get_personhog_client
     from posthog.personhog_client.proto import UpdateGroupRequest
 
