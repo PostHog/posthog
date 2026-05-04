@@ -55,7 +55,7 @@ class EmptyAgentTurnError(RuntimeError):
         self.printed_lines = printed_lines
 
 
-async def _create_task_and_trigger(
+async def create_task_and_trigger(
     description: str,
     context: CustomPromptSandboxContext,
     branch: str | None = None,
@@ -87,7 +87,7 @@ async def _create_task_and_trigger(
     return task, task_run
 
 
-async def _poll_for_turn(
+async def poll_for_turn(
     task_run,
     *,
     skip_lines: int = 0,
