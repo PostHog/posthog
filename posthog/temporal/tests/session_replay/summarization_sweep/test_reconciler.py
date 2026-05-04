@@ -287,6 +287,88 @@ async def test_reconcile_workflow_isolates_per_team_failures():
 
 
 @pytest.mark.asyncio
+async def test_reconcile_workflow_fails_when_every_fanout_fails():
+    fp = compute_schedule_fingerprint({})
+
+    @activity.defn(name="list_enabled_teams_activity")
+    async def list_enabled_mocked() -> dict[int, str]:
+        return {1: fp, 2: fp}
+
+    @activity.defn(name="list_summarization_schedule_team_ids_activity")
+    async def list_schedules_mocked() -> dict[int, str | None]:
+        return {3: fp, 4: fp}
+
+    @activity.defn(name="upsert_team_schedule_activity")
+    async def upsert_mocked(inputs: UpsertTeamScheduleInput) -> None:
+        raise RuntimeError("upsert boom")
+
+    @activity.defn(name="delete_team_schedule_activity")
+    async def delete_mocked(inputs: DeleteTeamScheduleInput) -> None:
+        raise RuntimeError("delete boom")
+
+    from temporalio.client import WorkflowFailureError
+
+    task_queue = str(uuid.uuid4())
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=task_queue,
+            workflows=[ReconcileSummarizationSchedulesWorkflow],
+            activities=[list_enabled_mocked, list_schedules_mocked, upsert_mocked, delete_mocked],
+            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+        ):
+            with pytest.raises(WorkflowFailureError):
+                await env.client.execute_workflow(
+                    RECONCILER_WORKFLOW_NAME,
+                    ReconcileSchedulesInputs(),
+                    id=str(uuid.uuid4()),
+                    task_queue=task_queue,
+                )
+
+
+@pytest.mark.asyncio
+async def test_reconcile_workflow_succeeds_when_at_least_one_fanout_succeeds():
+    fp = compute_schedule_fingerprint({})
+
+    @activity.defn(name="list_enabled_teams_activity")
+    async def list_enabled_mocked() -> dict[int, str]:
+        return {1: fp, 2: fp}
+
+    @activity.defn(name="list_summarization_schedule_team_ids_activity")
+    async def list_schedules_mocked() -> dict[int, str | None]:
+        return {3: fp}
+
+    @activity.defn(name="upsert_team_schedule_activity")
+    async def upsert_mocked(inputs: UpsertTeamScheduleInput) -> None:
+        if inputs.team_id == 1:
+            raise RuntimeError("partial boom")
+
+    @activity.defn(name="delete_team_schedule_activity")
+    async def delete_mocked(inputs: DeleteTeamScheduleInput) -> None:
+        raise RuntimeError("delete boom")
+
+    task_queue = str(uuid.uuid4())
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=task_queue,
+            workflows=[ReconcileSummarizationSchedulesWorkflow],
+            activities=[list_enabled_mocked, list_schedules_mocked, upsert_mocked, delete_mocked],
+            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+        ):
+            result = await env.client.execute_workflow(
+                RECONCILER_WORKFLOW_NAME,
+                ReconcileSchedulesInputs(),
+                id=str(uuid.uuid4()),
+                task_queue=task_queue,
+            )
+
+    assert result["upserted"] == 1
+    assert result["failed_upsert"] == 1
+    assert result["failed_delete"] == 1
+
+
+@pytest.mark.asyncio
 async def test_reconcile_workflow_rewrites_drifted_schedules():
     upserted_ids: list[int] = []
     deleted_ids: list[int] = []
