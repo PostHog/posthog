@@ -10,6 +10,7 @@ import structlog
 
 from posthog.models.instance_setting import get_instance_setting
 
+from products.conversations.backend.api.github_events import dispatch_github_event
 from products.tasks.backend.models import TaskRun
 
 logger = structlog.get_logger(__name__)
@@ -112,8 +113,13 @@ def github_pr_webhook(request: HttpRequest) -> HttpResponse:
         return HttpResponse("Invalid JSON", status=400)
 
     event_type = request.headers.get("X-GitHub-Event")
+
+    # Fan out issues / issue_comment events to the conversations product
+    if event_type in ("issues", "issue_comment"):
+        return dispatch_github_event(request, event_type, payload)
+
     if event_type != "pull_request":
-        # Not a PR event, acknowledge but don't process, shouldnt happen becuase of github app permissions
+        # Not a PR event/issues/issue_comment event, acknowledge but don't process, shouldnt happen becuase of github app permissions
         return HttpResponse(status=200)
 
     action = payload.get("action")
