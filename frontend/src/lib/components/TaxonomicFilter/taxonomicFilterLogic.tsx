@@ -643,6 +643,11 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         type: TaxonomicFilterGroupType.WorkflowVariables,
                         categoryLabel: () => 'Workflow variables',
                         render: HogFlowTaxonomicFilters,
+                        // Populated via optionsFromProp from the workflow scene so the All/Suggestions
+                        // tab can aggregate workflow variables alongside other groups. The render
+                        // override above still drives the dedicated tab UI.
+                        getName: (option: SimpleOption) => option.name,
+                        getValue: (option: SimpleOption) => option.name,
                         getPopoverHeader: () => 'Workflow variables',
                     },
                     {

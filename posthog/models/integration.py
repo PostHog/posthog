@@ -270,22 +270,16 @@ POSTHOG_SLACK_SCOPE = ",".join(
         "groups:read",
         "chat:write",
         "chat:write.customize",
-        *(
-            [  # New scopes that came with the update adding PostHog AI integration with Slack
-                "app_mentions:read",
-                "channels:history",
-                "groups:history",
-                "links:read",
-                "links:write",
-                "reactions:read",
-                "reactions:write",
-                "team:read",
-                "users:read",
-                "users:read.email",
-            ]
-            if settings.DEBUG or settings.CLOUD_DEPLOYMENT == "DEV"
-            else []
-        ),
+        "app_mentions:read",
+        "channels:history",
+        "groups:history",
+        "links:read",
+        "links:write",
+        "reactions:read",
+        "reactions:write",
+        "team:read",
+        "users:read",
+        "users:read.email",
     ]
 )
 
