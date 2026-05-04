@@ -24,6 +24,7 @@ from products.conversations.backend.services.region_routing import is_primary_re
 logger = structlog.get_logger(__name__)
 
 INBOUND_TOKEN_PATTERN = re.compile(r"^team-([a-f0-9]+)@")
+_VIA_SUFFIX_RE = re.compile(r"\s+via\s+\S+$", re.IGNORECASE)
 MAX_EMAIL_BODY_LENGTH = 50_000
 MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024  # 10 MB per file
 MAX_ATTACHMENTS = 20
@@ -156,6 +157,55 @@ def _build_content_with_attachments(text: str, attachments: list[dict[str, Any]]
     return content, rich_content
 
 
+def _recover_dmarc_rewritten_sender(
+    request: HttpRequest,
+    config: EmailChannel,
+    sender_email: str,
+    sender_name: str,
+) -> tuple[str, str]:
+    """Recover the original sender when DMARC-compliant forwarding rewrote From.
+
+    Google Groups / Workspace and other forwarders rewrite the From header to
+    the group address when the original sender's domain has a strict DMARC
+    policy (p=quarantine or p=reject).  The rewritten From looks like:
+
+        "'Real Name' via GroupName" <group@example.com>
+
+    The original sender is preserved in X-Original-From or Reply-To.
+    We detect the rewrite by checking if sender_email matches the channel's
+    own from_email — a real customer would never legitimately send from the
+    team's own support address.
+    """
+    if sender_email.lower() != config.from_email.lower():
+        return sender_email, sender_name
+
+    logger.info(
+        "email_inbound_dmarc_rewrite_detected",
+        team_id=config.team_id,
+        from_header=request.POST.get("from", ""),
+    )
+
+    # 1. Try X-Original-From (set by Google Groups/Workspace)
+    x_original = request.POST.get("X-Original-From", "") or request.POST.get("X-Original-Sender", "")
+    if x_original:
+        orig_name, orig_email = parseaddr(x_original)
+        if orig_email:
+            return orig_email, orig_name or orig_email.split("@")[0]
+
+    # 2. Try Reply-To (most forwarding services preserve this)
+    reply_to = request.POST.get("Reply-To", "")
+    if reply_to:
+        rt_name, rt_email = parseaddr(reply_to)
+        if rt_email and rt_email.lower() != config.from_email.lower():
+            return rt_email, rt_name or rt_email.split("@")[0]
+
+    # 3. Strip " via <GroupName>" suffix from display name as a cosmetic fix
+    #    even if we couldn't recover the email address
+    sender_name = _VIA_SUFFIX_RE.sub("", sender_name).strip("'\"").strip()
+
+    return sender_email, sender_name
+
+
 @csrf_exempt
 def email_inbound_handler(request: HttpRequest) -> HttpResponse:
     if request.method != "POST":
@@ -216,6 +266,11 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
         sender_email = request.POST.get("sender", "")
     if not sender_name:
         sender_name = sender_email.split("@")[0] if sender_email else "Unknown"
+
+    # 6a. Recover original sender when From was rewritten by DMARC-compliant
+    # forwarding (e.g. Google Groups rewrites From to the group address for
+    # senders whose domain has p=quarantine or p=reject).
+    sender_email, sender_name = _recover_dmarc_rewritten_sender(request, config, sender_email, sender_name)
 
     # 6b. Parse CC recipients
     cc_header = request.POST.get("Cc", "")
