@@ -2,6 +2,7 @@ import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { urls } from 'scenes/urls'
 
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
 import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
@@ -164,7 +165,6 @@ export const surveysToolbarLogic = kea<surveysToolbarLogicType>([
         submitQuickCreateFailure: true,
         // Live preview
         previewLiveSurvey: (surveyId: string) => ({ surveyId }),
-        stopLivePreview: true,
     }),
 
     loaders(({ values }) => ({
@@ -227,14 +227,6 @@ export const surveysToolbarLogic = kea<surveysToolbarLogicType>([
                 submitQuickCreateFailure: () => false,
             },
         ],
-        livePreviewSurveyId: [
-            null as string | null,
-            {
-                previewLiveSurvey: (_, { surveyId }) => surveyId,
-                stopLivePreview: () => null,
-                startQuickCreate: () => null,
-            },
-        ],
     }),
 
     selectors({
@@ -250,6 +242,9 @@ export const surveysToolbarLogic = kea<surveysToolbarLogicType>([
                     name: form.name || 'Untitled survey',
                 }
                 const payload = buildSurveyPayload(previewForm)
+                // Build the minimal shape that the surveys preview renderer reads.
+                // Cast through `unknown` so we don't have to pretend to satisfy
+                // every Survey field (created_by, archived, linked_flag_id, etc.).
                 return {
                     id: 'preview',
                     name: previewForm.name,
@@ -261,20 +256,10 @@ export const surveysToolbarLogic = kea<surveysToolbarLogicType>([
                     start_date: null,
                     end_date: null,
                     created_at: new Date().toISOString(),
-                    feature_flag_keys: null,
-                    linked_flag_key: null,
-                    targeting_flag_key: null,
-                    internal_targeting_flag_key: null,
                     linked_flag: null,
                     targeting_flag: null,
-                    internal_targeting_flag: null,
                     responses_limit: null,
-                    iteration_count: null,
-                    iteration_frequency_days: null,
-                    iteration_start_dates: null,
-                    current_iteration: null,
-                    current_iteration_start_date: null,
-                } as Survey
+                } as unknown as Survey
             },
         ],
         canProceed: [
@@ -316,9 +301,6 @@ export const surveysToolbarLogic = kea<surveysToolbarLogicType>([
             })
             toolbarPosthogJS.capture('toolbar survey previewed', { survey_id: surveyId })
         },
-        stopLivePreview: () => {
-            toolbarLogic.actions.toggleMinimized(false)
-        },
         submitQuickCreate: async ({ launch }) => {
             const payload = buildSurveyPayload(values.quickForm)
             if (launch) {
@@ -341,7 +323,7 @@ export const surveysToolbarLogic = kea<surveysToolbarLogicType>([
                     launched: launch,
                 })
                 const { uiHost } = toolbarConfigLogic.values
-                const surveyUrl = joinWithUiHost(uiHost, `/surveys/${saved.id}`)
+                const surveyUrl = joinWithUiHost(uiHost, urls.survey(saved.id))
                 lemonToast.success(launch ? 'Survey launched!' : 'Survey draft created!', {
                     button: {
                         label: 'Open in PostHog',

@@ -4,11 +4,10 @@ import { useEffect, useRef } from 'react'
 
 import { Survey } from '~/types'
 
+import { SIDEBAR_WIDTH } from './constants'
 import { surveysToolbarLogic } from './surveysToolbarLogic'
 
 const PREVIEW_CONTAINER_ID = '__posthog_toolbar_survey_preview__'
-
-const SIDEBAR_WIDTH = 380
 
 const PREVIEW_POSITION_STYLES: React.CSSProperties = {
     position: 'fixed',

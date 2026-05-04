@@ -9,10 +9,10 @@ import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 
+import { SIDEBAR_WIDTH } from './constants'
 import { SurveyLivePreview } from './SurveyLivePreview'
 import { FREQUENCY_OPTIONS, type QuickSurveyQuestionType, surveysToolbarLogic } from './surveysToolbarLogic'
 
-const SIDEBAR_WIDTH = 380
 const SIDEBAR_TRANSITION_MS = 200
 
 const QUESTION_TYPE_OPTIONS = [
@@ -350,6 +350,10 @@ export function SurveySidebar(): JSX.Element | null {
 
                 {/* Scrollable form body */}
                 <div className="flex-1 overflow-y-auto p-4 space-y-6">
+                    <p className="text-xs text-muted m-0">
+                        Quick-create a single-question survey. For multi-question surveys, branching, or advanced
+                        display rules, create your survey in PostHog instead.
+                    </p>
                     <QuestionSection />
                     <div className="border-t border-border-bold-3000" />
                     <WhereSection />
