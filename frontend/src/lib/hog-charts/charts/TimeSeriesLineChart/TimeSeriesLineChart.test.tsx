@@ -2,6 +2,7 @@ import { cleanup } from '@testing-library/react'
 
 import type { ChartTheme, Series } from '../../core/types'
 import { renderHogChart, setupJsdom, setupSyncRaf } from '../../testing'
+import type { AnomalyMarker } from './overlays/AnomalyPointsLayer'
 import { TimeSeriesLineChart } from './TimeSeriesLineChart'
 
 const THEME: ChartTheme = { colors: ['#111', '#222', '#333'], backgroundColor: '#ffffff' }
@@ -216,6 +217,37 @@ describe('TimeSeriesLineChart', () => {
             expect(lines).toHaveLength(1)
             expect(lines[0].orientation).toBe('horizontal')
             expect(lines[0].label).toBe('Target')
+        })
+    })
+
+    describe('config.anomalies', () => {
+        it.each([
+            ['omitted', undefined],
+            ['empty', [] as AnomalyMarker[]],
+        ])('does not render anomaly points when anomalies is %s', (_, anomalies) => {
+            const { container } = renderHogChart(
+                <TimeSeriesLineChart
+                    series={SERIES}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={anomalies === undefined ? undefined : { anomalies }}
+                />
+            )
+            expect(container.querySelectorAll('[data-attr="hog-chart-anomaly-point"]')).toHaveLength(0)
+        })
+
+        it('renders one anomaly point per marker', () => {
+            const markers: AnomalyMarker[] = [
+                { dataIndex: 1, value: 2, color: '#f00', yAxisId: 'left' },
+                { dataIndex: 2, value: 3, color: '#0f0', yAxisId: 'left' },
+            ]
+            const { container } = renderHogChart(
+                <TimeSeriesLineChart series={SERIES} labels={LABELS} theme={THEME} config={{ anomalies: markers }} />
+            )
+            const dots = container.querySelectorAll<HTMLElement>('[data-attr="hog-chart-anomaly-point"]')
+            expect(dots).toHaveLength(2)
+            expect(dots[0].style.backgroundColor).toBe('rgb(255, 0, 0)')
+            expect(dots[1].style.backgroundColor).toBe('rgb(0, 255, 0)')
         })
     })
 

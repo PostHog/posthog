@@ -1,9 +1,18 @@
 /* eslint-disable react/forbid-dom-props -- dynamic pixel positions from d3 scales */
 import React from 'react'
 
-import { useChartLayout } from 'lib/hog-charts'
+import { useChartLayout } from '../../../core/chart-context'
 
-import type { AnomalyMarker } from './anomalyPointsAdapter'
+export interface AnomalyMarker {
+    /** Index along the x-axis (into the chart's `labels` array). */
+    dataIndex: number
+    /** y-value at the marker (used to position via the y-scale). */
+    value: number
+    /** Color to fill the marker (typically the source series's color). */
+    color: string
+    /** y-axis id the marker is positioned against. */
+    yAxisId: string
+}
 
 interface AnomalyPointsLayerProps {
     markers: AnomalyMarker[]
@@ -43,6 +52,7 @@ export function AnomalyPointsLayer({ markers, radius = 3 }: AnomalyPointsLayerPr
         dots.push(
             <div
                 key={`${marker.dataIndex}-${marker.yAxisId}`}
+                data-attr="hog-chart-anomaly-point"
                 className="absolute pointer-events-none rounded-full"
                 style={{
                     left: x - radius,
