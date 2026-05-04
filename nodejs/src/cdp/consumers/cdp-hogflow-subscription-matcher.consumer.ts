@@ -102,7 +102,33 @@ export class CdpHogflowSubscriptionMatcherConsumer extends CdpConsumerBase {
         const teamIds = [...new Set([...globalsByKey.values()].map((g) => g.project.id))]
         const distinctIds = [...new Set([...globalsByKey.values()].map((g) => g.event.distinct_id))]
 
-        const candidates = await this.findParkedJobs(teamIds, distinctIds)
+        // Batch-triggered jobs store the person UUID in the distinct_id column
+        // (the person was selected by UUID, not via an event). Resolve each
+        // incoming event's distinct_id to a person UUID via personsManager and
+        // include it in the lookup set so we match those jobs in the same query.
+        // personUuidToDistinctId maps each resolved UUID back to the originating
+        // event's distinct_id so we can look up the matching globals later.
+        const personUuidToDistinctId = new Map<string, string>()
+        await Promise.all(
+            [...globalsByKey.values()].map(async (g) => {
+                const person = await this.personsManager.getCyclotronPerson(
+                    g.project.id,
+                    g.event.distinct_id,
+                    'distinct_id'
+                )
+                if (person?.id) {
+                    personUuidToDistinctId.set(`${g.project.id}:${person.id}`, g.event.distinct_id)
+                }
+            })
+        )
+        const lookupKeys = [
+            ...new Set([
+                ...distinctIds,
+                ...[...personUuidToDistinctId.keys()].map((k) => k.split(':').slice(1).join(':')),
+            ]),
+        ]
+
+        const candidates = await this.findParkedJobs(teamIds, lookupKeys)
         if (candidates.length === 0) {
             return
         }
@@ -118,7 +144,16 @@ export class CdpHogflowSubscriptionMatcherConsumer extends CdpConsumerBase {
                 continue
             }
 
-            const globals = globalsByKey.get(`${candidate.teamId}:${candidate.distinctId}`)
+            // candidate.distinctId is either the event's distinct_id (event-triggered jobs)
+            // or a person UUID (batch-triggered jobs). Try direct lookup first, then via
+            // the person UUID resolution if direct misses.
+            const directGlobals = globalsByKey.get(`${candidate.teamId}:${candidate.distinctId}`)
+            const resolvedDistinctId = candidate.distinctId
+                ? personUuidToDistinctId.get(`${candidate.teamId}:${candidate.distinctId}`)
+                : undefined
+            const globals =
+                directGlobals ??
+                (resolvedDistinctId ? globalsByKey.get(`${candidate.teamId}:${resolvedDistinctId}`) : undefined)
             if (!globals) {
                 continue
             }
