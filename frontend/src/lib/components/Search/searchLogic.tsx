@@ -41,6 +41,23 @@ const getProductIconColorByType = (): Map<string, FileSystemIconColor> => {
     return cachedProductIconColorByType
 }
 
+const fileSystemEntryToSearchItem = (
+    item: FileSystemEntry,
+    overrides: { id: string; category: string; searchKeywords?: string[] }
+): SearchItem => {
+    const name = splitPath(item.path).pop()
+    const productIconColor = item.type ? getProductIconColorByType().get(item.type) : undefined
+    const baseRecord = item as unknown as Record<string, unknown>
+    return {
+        name: name ? unescapePath(name) : item.path,
+        href: item.href || '#',
+        lastViewedAt: item.last_viewed_at ?? null,
+        itemType: item.type ?? null,
+        record: { ...baseRecord, iconColor: productIconColor ?? baseRecord.iconColor },
+        ...overrides,
+    }
+}
+
 // Types for command search results
 export interface SearchItem {
     id: string
@@ -268,51 +285,22 @@ export const searchLogic = kea<searchLogicType>([
             (s) => [s.searchedRecents, s.cachedRecents, s.search],
             (searchedRecents, cachedRecents, search): SearchItem[] => {
                 const source = search.trim() ? (searchedRecents ?? []) : cachedRecents.slice(0, RECENTS_LIMIT)
-                const productIconColorByType = getProductIconColorByType()
-                return source.map((item) => {
-                    const name = splitPath(item.path).pop()
-                    const productIconColor = item.type ? productIconColorByType.get(item.type) : undefined
-                    const baseRecord = item as unknown as Record<string, unknown>
-                    return {
-                        id: item.path,
-                        name: name ? unescapePath(name) : item.path,
-                        category: 'recents',
-                        href: item.href || '#',
-                        lastViewedAt: item.last_viewed_at ?? null,
-                        itemType: item.type ?? null,
-                        record: {
-                            ...baseRecord,
-                            iconColor: productIconColor ?? baseRecord.iconColor,
-                        },
-                    }
-                })
+                return source.map((item) => fileSystemEntryToSearchItem(item, { id: item.path, category: 'recents' }))
             },
         ],
         starredItems: [
             (s) => [s.cachedStarred],
             (cachedStarred): SearchItem[] => {
-                const productIconColorByType = getProductIconColorByType()
                 return cachedStarred
                     .filter((e) => e.type !== 'folder')
                     .slice(0, STARRED_LIMIT)
-                    .map((item) => {
-                        const name = splitPath(item.path).pop()
-                        const productIconColor = item.type ? productIconColorByType.get(item.type) : undefined
-                        const baseRecord = item as unknown as Record<string, unknown>
-                        return {
+                    .map((item) =>
+                        fileSystemEntryToSearchItem(item, {
                             id: `starred-${item.id}`,
-                            name: name ? unescapePath(name) : item.path,
                             category: 'starred',
-                            href: item.href || '#',
-                            lastViewedAt: item.last_viewed_at ?? null,
-                            itemType: item.type ?? null,
                             searchKeywords: ['starred', 'favorite', 'favourite', 'shortcut'],
-                            record: {
-                                ...baseRecord,
-                                iconColor: productIconColor ?? baseRecord.iconColor,
-                            },
-                        }
-                    })
+                        })
+                    )
             },
         ],
         appsItems: [
