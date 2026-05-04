@@ -748,17 +748,34 @@ class PostHogFeatureFlagPermission(BasePermission):
                     return True
 
                 org_id = str(organization.id)
+                groups: dict[str, str] = {"organization": org_id}
+                group_properties: dict[str, dict[str, str]] = {"organization": {"id": org_id}}
+                # Match in-app flag evaluation: posthog-js often has project (team) context; server-only org
+                # groups miss per-environment rollouts (e.g. logs-settings-drop-rules for project 2 only).
+                try:
+                    team_for_flag = view.team
+                except (ValueError, KeyError, AttributeError):
+                    team_for_flag = None
+                if team_for_flag is not None:
+                    project_id = str(team_for_flag.id)
+                    groups["project"] = project_id
+                    group_properties["project"] = {"id": project_id}
 
                 enabled = posthoganalytics.feature_enabled(
                     required_flag,
                     str(user.distinct_id),
-                    groups={"organization": org_id},
-                    group_properties={"organization": {"id": org_id}},
+                    groups=groups,
+                    group_properties=group_properties,
                     only_evaluate_locally=False,
                     send_feature_flag_events=False,
                 )
 
-                return enabled or False
+                if enabled:
+                    return True
+                self.message = (
+                    f"This action requires feature flag {required_flag!r} to be enabled for your organization."
+                )
+                return False
 
         return True
 
