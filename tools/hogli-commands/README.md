@@ -4,9 +4,9 @@ Custom Python commands for the PostHog monorepo. They extend hogli with PostHog-
 
 ## How It Works
 
-Each command module is imported **on first use**, not at hogli startup. The hogli framework reads `config.commands_dir` from `/hogli.yaml`; manifest entries with a `click:` field are resolved by Click when the user invokes the command, runs per-command `--help`, or runs `hogli meta:check`.
+Each command module is imported **on first use**, not at hogli startup. The hogli framework reads `config.commands_dir` from `/hogli.yaml`; manifest entries with a `click:` field are resolved by Click when the user invokes the command or runs per-command `--help`.
 
-Boot-time registrations (precheck handlers, telemetry hooks, post-command hooks) live in their own modules listed under `config.boot_modules:` in `hogli.yaml`. Those modules **must** be cheap to import — keep heavy dependencies behind lazy imports inside handler bodies.
+Boot-time registrations (precheck handlers, telemetry hooks, post-command hooks) live in their own modules listed under `config.boot_modules:` in `hogli.yaml`. Those modules **must** be cheap to import — keep heavy dependencies behind deferred imports inside handler bodies.
 
 ## Adding a Command
 
@@ -32,7 +32,9 @@ tools:
     description: One-line summary shown in `hogli --help`.
 ```
 
-The Click command name must match the manifest key. `hogli meta:check` validates the import string, target type, and name.
+The Click command name must match the manifest key — drift surfaces as a `ClickException` on resolution. The hogli test suite parametrizes a `--help` invocation over every `click:` entry, which is Click's recommended sanity check.
+
+Mark a command hidden by setting `hidden: true` on the manifest entry. Don't use `@click.command(hidden=True)`; the manifest is the only source of truth.
 
 3. Test it:
 

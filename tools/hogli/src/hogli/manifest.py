@@ -261,6 +261,14 @@ class Manifest:
                 return category[command_name]
         return None
 
+    def is_command_hidden(self, command_name: str) -> bool:
+        """Whether a command should be hidden from help. Manifest is the only source of truth.
+
+        Set ``hidden: true`` on the manifest entry; do not use ``@click.command(hidden=True)``.
+        """
+        config = self.get_command_config(command_name) or {}
+        return bool(config.get("hidden", False))
+
     def get_children_for_command(self, command_name: str) -> list[str]:
         """Get child commands that extend this command."""
         return self._children_map.get(command_name, [])

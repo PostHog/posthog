@@ -11,25 +11,8 @@ import click
 from click.testing import CliRunner
 from hogli.cli import cli
 from hogli.manifest import get_manifest
-from hogli.validate import find_boot_module_errors, find_click_command_errors
 
 runner = CliRunner()
-
-
-class _FakeManifest:
-    def __init__(
-        self,
-        data: dict[str, object] | None = None,
-        config: dict[str, object] | None = None,
-    ) -> None:
-        self.data = data or {}
-        self.config = config or {}
-        self.commands_dir = None
-
-
-@click.command(name="mismatched")
-def _mismatched_command() -> None:
-    pass
 
 
 def _manifest_click_commands() -> list[str]:
@@ -89,17 +72,6 @@ class TestMetaCheckCommand:
         # Should either pass or report missing entries clearly
         assert "bin script" in result.output.lower() or "✓" in result.output
 
-    @patch("hogli.cli.find_missing_manifest_entries", return_value=set())
-    @patch("hogli.cli.find_manifest_validation_errors", return_value=["command 'broken' could not import 'nope'"])
-    def test_meta_check_reports_manifest_validation_errors(
-        self, _mock_validation_errors: MagicMock, _mock_missing: MagicMock
-    ) -> None:
-        result = runner.invoke(cli, ["meta:check"])
-
-        assert result.exit_code == 1
-        assert "manifest validation error" in result.output
-        assert "command 'broken' could not import 'nope'" in result.output
-
 
 class TestMetaConceptsCommand:
     """Test meta:concepts command."""
@@ -145,16 +117,14 @@ class TestDynamicCommandRegistration:
 
 
 class TestLazyClickCommands:
-    def test_manifest_click_commands_resolve_and_render_help(self) -> None:
-        with click.Context(cli) as ctx:
-            for command_name in _manifest_click_commands():
-                command = cli.get_command(ctx, command_name)
-                assert isinstance(command, click.Command), command_name
-                assert command.name == command_name
-
-                result = runner.invoke(cli, [command_name, "--help"])
-                assert result.exit_code == 0, f"{command_name}: {result.output}"
-                assert "Usage:" in result.output
+    @pytest.mark.parametrize("command_name", _manifest_click_commands())
+    def test_lazy_click_command_help_loads(self, command_name: str) -> None:
+        # Click's recommended sanity check: every lazy command's --help must
+        # succeed. Catches bad `click:` import strings, missing modules,
+        # missing attrs, wrong types, and Click-name drift in one shot.
+        result = runner.invoke(cli, [command_name, "--help"])
+        assert result.exit_code == 0, f"{command_name}: {result.output}"
+        assert "Usage:" in result.output
 
     def test_top_level_help_does_not_import_lazy_command_modules(self, monkeypatch: pytest.MonkeyPatch) -> None:
         lazy_modules = [
@@ -183,35 +153,6 @@ class TestLazyClickCommands:
         with click.Context(cli) as ctx:
             assert hidden_command not in cli.list_commands(ctx)
             assert isinstance(cli.get_command(ctx, hidden_command), click.Command)
-
-    def test_click_command_validation_rejects_name_drift(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setitem(sys.modules, "hogli_test_commands", sys.modules[__name__])
-        manifest = _FakeManifest(
-            {
-                "tools": {
-                    "expected:name": {
-                        "click": "hogli_test_commands:_mismatched_command",
-                    }
-                }
-            }
-        )
-        monkeypatch.setattr("hogli.validate.get_manifest", lambda: manifest)
-
-        errors = find_click_command_errors()
-
-        assert errors == [
-            "command 'expected:name' resolved 'hogli_test_commands:_mismatched_command' "
-            "with Click name 'mismatched'; the names must match"
-        ]
-
-    def test_boot_module_validation_reports_import_errors(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        manifest = _FakeManifest(config={"boot_modules": ["hogli_test_missing_boot_module"]})
-        monkeypatch.setattr("hogli.validate.get_manifest", lambda: manifest)
-
-        errors = find_boot_module_errors()
-
-        assert len(errors) == 1
-        assert errors[0].startswith("boot module 'hogli_test_missing_boot_module' could not import:")
 
 
 class TestCommandInjectionPrevention:

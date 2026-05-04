@@ -2,12 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
-from typing import Any
-
 import yaml
 
-from hogli.lazy_commands import LazyCommandError, add_commands_dir_to_path, resolve_boot_module, resolve_click_command
 from hogli.manifest import MANIFEST_FILE, get_manifest
 
 
@@ -47,63 +43,6 @@ def get_manifest_scripts() -> set[str]:
                 scripts.add(script)
 
     return scripts
-
-
-def _iter_manifest_commands() -> Iterator[tuple[str, dict[str, Any]]]:
-    """Yield every command config from the manifest."""
-    manifest = get_manifest()
-    for category_key, commands in manifest.data.items():
-        if category_key in {"metadata", "config"} or not isinstance(commands, dict):
-            continue
-        for command_name, command_config in commands.items():
-            if isinstance(command_config, dict):
-                yield command_name, command_config
-
-
-def _ensure_commands_dir_importable() -> None:
-    """Put the configured commands package parent on sys.path."""
-    add_commands_dir_to_path(get_manifest().commands_dir)
-
-
-def find_click_command_errors() -> list[str]:
-    """Validate lazy ``click:`` command targets in the manifest."""
-    _ensure_commands_dir_importable()
-    errors: list[str] = []
-
-    for command_name, command_config in _iter_manifest_commands():
-        import_string = command_config.get("click")
-        if import_string is None:
-            continue
-
-        try:
-            resolve_click_command(command_name, import_string)
-        except LazyCommandError as exc:
-            errors.append(str(exc))
-
-    return errors
-
-
-def find_boot_module_errors() -> list[str]:
-    """Validate boot modules listed under ``config.boot_modules``."""
-    _ensure_commands_dir_importable()
-    manifest = get_manifest()
-    boot_modules = manifest.config.get("boot_modules", [])
-    if not isinstance(boot_modules, list):
-        return ["config.boot_modules must be a list of module paths"]
-
-    errors: list[str] = []
-    for module_path in boot_modules:
-        try:
-            resolve_boot_module(module_path)
-        except LazyCommandError as exc:
-            errors.append(str(exc))
-
-    return errors
-
-
-def find_manifest_validation_errors() -> list[str]:
-    """Validate manifest references that help output intentionally leaves lazy."""
-    return [*find_boot_module_errors(), *find_click_command_errors()]
 
 
 def find_missing_manifest_entries() -> set[str]:

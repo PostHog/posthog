@@ -117,9 +117,11 @@ my:command:
 
 For complex logic, define plain Click commands and reference them from `hogli.yaml` with `click: module.path:attribute`.
 
-Click command modules are lazy-loaded. Top-level `hogli --help` uses the manifest description without importing Python command modules; `hogli <command> --help`, command execution, and `hogli meta:check` import and validate the target command.
+Click command modules are lazy-loaded. Top-level `hogli --help` uses the manifest description without importing Python command modules; `hogli <command> --help` and command execution import the target on demand.
 
-The Click command name must match the manifest key. `hogli meta:check` validates that the import resolves to a `click.Command` and catches name drift.
+The Click command name must match the manifest key — drift surfaces as a `ClickException` on resolution. The framework follows Click's recommendation that lazy loading be paired with a test that runs `--help` on each subcommand; PostHog's test suite parametrizes over every `click:` entry in `hogli.yaml` to do exactly that.
+
+Mark commands hidden via `hidden: true` in `hogli.yaml`. Don't use `@click.command(hidden=True)` — the manifest is the single source of truth.
 
 ### Minimal: one importable package
 
@@ -269,7 +271,7 @@ metadata:
 ## Built-in Commands
 
 - `hogli quickstart` - Getting started guide
-- `hogli meta:check` - Validate manifest, find undocumented scripts, and verify lazy imports
+- `hogli meta:check` - Validate manifest against bin scripts (for CI)
 - `hogli meta:concepts` - Show infrastructure concepts (if defined)
 
 ## Requirements

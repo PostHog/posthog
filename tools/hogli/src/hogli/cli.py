@@ -11,6 +11,7 @@ import sys
 import time as _time
 import shutil
 import platform
+import importlib
 from collections import defaultdict
 from typing import Any
 
@@ -19,9 +20,9 @@ import click
 from hogli import telemetry
 from hogli.command_types import BinScriptCommand, CompositeCommand, DirectCommand, HogliCommand
 from hogli.hooks import post_command_hooks, telemetry_property_hooks
-from hogli.lazy_commands import LazyCommandError, add_commands_dir_to_path, resolve_boot_module, resolve_click_command
+from hogli.lazy_commands import add_commands_dir_to_path, resolve_click_command
 from hogli.manifest import get_category_for_command, get_manifest, get_services_for_command, load_manifest
-from hogli.validate import auto_update_manifest, find_manifest_validation_errors, find_missing_manifest_entries
+from hogli.validate import auto_update_manifest, find_missing_manifest_entries
 
 _DEFAULT_HELP = "Developer CLI framework with YAML-based command definitions."
 
@@ -40,22 +41,18 @@ class CategorizedGroup(click.Group):
             return command
 
         config = get_manifest().get_command_config(cmd_name)
-        if not config:
+        if not config or "click" not in config:
             return None
 
-        if "click" not in config:
-            return None
-
-        return self._load_click_command(cmd_name, config["click"])
+        return resolve_click_command(cmd_name, config["click"])
 
     def list_commands(self, ctx: click.Context) -> list[str]:
-        commands = {name for name in super().list_commands(ctx) if not self._is_registered_command_hidden(ctx, name)}
         manifest_obj = get_manifest()
+        commands = {name for name in super().list_commands(ctx) if not manifest_obj.is_command_hidden(name)}
         for cmd_name in manifest_obj.get_all_commands():
             config = manifest_obj.get_command_config(cmd_name)
-            if not config or "click" not in config or config.get("hidden", False):
-                continue
-            commands.add(cmd_name)
+            if config and "click" in config and not manifest_obj.is_command_hidden(cmd_name):
+                commands.add(cmd_name)
         return sorted(commands)
 
     def invoke(self, ctx: click.Context) -> Any:
@@ -98,8 +95,7 @@ class CategorizedGroup(click.Group):
         grouped_command_names: set[str] = set()
         for cmd_name, cmd in self.commands.items():
             # Skip hidden commands (they're still callable, just not shown in help)
-            hogli_config = getattr(cmd, "hogli_config", {})
-            if hogli_config.get("hidden", False):
+            if manifest_obj.is_command_hidden(cmd_name):
                 continue
 
             # Skip child commands - they'll be rendered under their parent
@@ -118,7 +114,7 @@ class CategorizedGroup(click.Group):
 
         for cmd_name in manifest_obj.get_all_commands():
             config = manifest_obj.get_command_config(cmd_name)
-            if not config or "click" not in config or config.get("hidden", False):
+            if not config or "click" not in config or manifest_obj.is_command_hidden(cmd_name):
                 continue
             if cmd_name in grouped_command_names or cmd_name in child_commands:
                 continue
@@ -154,19 +150,6 @@ class CategorizedGroup(click.Group):
             if rows:
                 with formatter.section(category_title):
                     formatter.write_dl(rows)
-
-    def _is_registered_command_hidden(self, ctx: click.Context, cmd_name: str) -> bool:
-        command = super().get_command(ctx, cmd_name)
-        if command is None:
-            return False
-        hogli_config = getattr(command, "hogli_config", {})
-        return bool(command.hidden or hogli_config.get("hidden", False))
-
-    def _load_click_command(self, cmd_name: str, import_string: Any) -> click.Command:
-        try:
-            return resolve_click_command(cmd_name, import_string)
-        except LazyCommandError as exc:
-            raise click.ClickException(f"hogli: {exc}") from exc
 
 
 def _auto_update_manifest() -> None:
@@ -204,26 +187,18 @@ def cli(ctx: click.Context) -> None:
         )
 
 
-@cli.command(name="meta:check", help="Validate manifest scripts, lazy commands, and boot modules")
+@cli.command(name="meta:check", help="Validate manifest against bin scripts (for CI)")
 def meta_check() -> None:
-    """Validate manifest script coverage and lazy Python references."""
+    """Validate that all bin scripts are in the manifest."""
     missing = find_missing_manifest_entries()
-    validation_errors = find_manifest_validation_errors()
 
-    if not missing and not validation_errors:
+    if not missing:
         click.echo("✓ All bin scripts are in the manifest")
-        click.echo("✓ All Click commands and boot modules resolve")
         return
 
-    if missing:
-        click.echo(f"✗ Found {len(missing)} bin script(s) not in manifest:")
-        for script in sorted(missing):
-            click.echo(f"  - {script}")
-
-    if validation_errors:
-        click.echo(f"✗ Found {len(validation_errors)} manifest validation error(s):")
-        for error in validation_errors:
-            click.echo(f"  - {error}")
+    click.echo(f"✗ Found {len(missing)} bin script(s) not in manifest:")
+    for script in sorted(missing):
+        click.echo(f"  - {script}")
 
     raise SystemExit(1)
 
@@ -327,17 +302,16 @@ def _load_boot_modules() -> None:
     Boot modules register precheck handlers, telemetry property hooks, and
     post-command hooks against ``hogli.hooks``. They run eagerly so the hooks
     are populated before the first command dispatches. They must be cheap to
-    import — keep heavy work behind lazy imports inside handler bodies.
+    import — keep heavy work behind lazy imports inside handler bodies. Any
+    import failure aborts hogli, so these are validated implicitly by every
+    test that invokes the CLI.
     """
     manifest = get_manifest()
-    commands_dir = manifest.commands_dir
-
-    add_commands_dir_to_path(commands_dir)
+    add_commands_dir_to_path(manifest.commands_dir)
 
     for module_path in manifest.config.get("boot_modules", []):
-        if module_path in sys.modules:
-            continue
-        resolve_boot_module(module_path)
+        if module_path not in sys.modules:
+            importlib.import_module(module_path)
 
 
 # Register all script commands from manifest, then trigger boot modules so
