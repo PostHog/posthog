@@ -1,4 +1,3 @@
-import { JSONContent } from '@tiptap/core'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { useEffect, useMemo } from 'react'
 
@@ -12,7 +11,7 @@ import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
-import { DataTableNode, InsightQueryNode, InsightVizNode, NodeKind, QuerySchema } from '~/queries/schema/schema-general'
+import { DataTableNode, InsightVizNode, NodeKind, QuerySchema } from '~/queries/schema/schema-general'
 import {
     containsHogQLQuery,
     isDataTableNode,
@@ -411,17 +410,3 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
         return text
     },
 })
-
-export function buildInsightVizQueryContent(source: InsightQueryNode): JSONContent {
-    return buildNodeQueryContent({ kind: NodeKind.InsightVizNode, source: source })
-}
-
-export function buildNodeQueryContent(query: QuerySchema): JSONContent {
-    return {
-        type: NotebookNodeType.Query,
-        attrs: {
-            query: query,
-            showSettings: true,
-        },
-    }
-}

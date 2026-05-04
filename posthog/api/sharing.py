@@ -621,7 +621,7 @@ def _compute_inline_query_results_for_shared_notebook(notebook: Notebook, team: 
         # with `error` populated. Don't ship those to anonymous viewers — the placeholder is a
         # better surface than a serialized validation traceback.
         if serialized is None:
-            continue
+            continue  # noqa
         if serialized.get("error"):
             logger.warning(
                 "shared_notebook_inline_query_returned_error",
@@ -852,7 +852,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                 return get_content_response(resource, request.query_params.get("download") == "true")
             exported_data["type"] = "image"
 
-        add_og_tags = resource.insight or resource.dashboard or resource.notebook
+        add_og_tags = resource.insight or resource.dashboard
         asset_description = ""
 
         # Check both query params (legacy) and settings for configuration options
