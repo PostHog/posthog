@@ -28,6 +28,11 @@ from posthog.models.data_deletion_request import (
     jsonhas_expr,
 )
 from posthog.models.event.sql import EVENTS_DATA_TABLE
+from posthog.models.person.bulk_delete import (
+    delete_persons_profile,
+    queue_person_recording_deletion,
+    resolve_persons_for_deletion,
+)
 
 from ee.clickhouse.materialized_columns.columns import MaterializedColumnDetails
 
@@ -49,6 +54,19 @@ class DeletionRequestContext:
     execution_mode: str = ExecutionMode.IMMEDIATE.value
     delete_all_events: bool = False
     hogql_predicate: str = ""
+
+
+@dataclass
+class PersonRemovalContext:
+    request_id: str
+    team_id: int
+    person_uuids: list[str]
+    person_distinct_ids: list[str]
+    drop_profiles: bool
+    drop_events: bool
+    drop_recordings: bool
+    start_time: datetime | None = None
+    end_time: datetime | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -528,6 +546,208 @@ def cleanup_temp_tables(
 
 
 # ---------------------------------------------------------------------------
+# Person removal ops
+# ---------------------------------------------------------------------------
+
+
+@dagster.op(tags=OWNER_TAG)
+def load_person_removal_request(
+    context: dagster.OpExecutionContext,
+    config: DataDeletionRequestConfig,
+) -> PersonRemovalContext:
+    """Load and validate a person_removal request, transition to IN_PROGRESS."""
+    from django.db import transaction
+
+    with transaction.atomic():
+        request = (
+            DataDeletionRequest.objects.select_for_update()
+            .filter(
+                pk=config.request_id,
+                status=RequestStatus.APPROVED,
+                request_type=RequestType.PERSON_REMOVAL,
+            )
+            .first()
+        )
+
+        if not request:
+            raise dagster.Failure(
+                f"Request {config.request_id} is not an approved person_removal request.",
+            )
+
+        # Defense-in-depth: model.clean() enforces this, but a corrupt row would silently lose
+        # one of the selectors in resolve_persons_for_deletion (which uses if/elif).
+        if request.person_uuids and request.person_distinct_ids:
+            raise dagster.Failure(
+                f"Request {config.request_id} has both person_uuids and person_distinct_ids set; "
+                "they are mutually exclusive."
+            )
+
+        request.status = RequestStatus.IN_PROGRESS
+        request.save(update_fields=["status", "updated_at"])
+
+    # The fields are nullable on the model (NULL for non-person_removal rows), but
+    # PersonRemovalContext and the downstream `if not drop_x` consumers want plain bools.
+    # model.clean() guarantees at least one is True for person_removal requests.
+    drop_profiles = bool(request.person_drop_profiles)
+    drop_events = bool(request.person_drop_events)
+    drop_recordings = bool(request.person_drop_recordings)
+
+    context.log.info(
+        f"Processing person_removal request {request.pk}: "
+        f"team_id={request.team_id}, "
+        f"uuids={len(request.person_uuids)}, distinct_ids={len(request.person_distinct_ids)}, "
+        f"drop_profiles={drop_profiles}, "
+        f"drop_events={drop_events}, "
+        f"drop_recordings={drop_recordings}"
+    )
+    context.add_output_metadata(
+        {
+            "team_id": dagster.MetadataValue.int(request.team_id),
+            "uuid_count": dagster.MetadataValue.int(len(request.person_uuids)),
+            "distinct_id_count": dagster.MetadataValue.int(len(request.person_distinct_ids)),
+            "drop_profiles": dagster.MetadataValue.bool(drop_profiles),
+            "drop_events": dagster.MetadataValue.bool(drop_events),
+            "drop_recordings": dagster.MetadataValue.bool(drop_recordings),
+        }
+    )
+
+    return PersonRemovalContext(
+        request_id=str(request.pk),
+        team_id=request.team_id,
+        person_uuids=[str(u) for u in request.person_uuids],
+        person_distinct_ids=list(request.person_distinct_ids),
+        drop_profiles=drop_profiles,
+        drop_events=drop_events,
+        drop_recordings=drop_recordings,
+        start_time=request.start_time,
+        end_time=request.end_time,
+    )
+
+
+def _person_event_predicate(ctx: PersonRemovalContext) -> tuple[str, dict]:
+    """Build WHERE predicate + params for events linked to the targeted persons."""
+    parts = ["team_id = %(team_id)s AND person_id IN %(person_ids)s"]
+    params: dict = {"team_id": ctx.team_id, "person_ids": ctx.person_uuids}
+    if ctx.start_time is not None and ctx.end_time is not None:
+        parts.append("AND timestamp >= %(start_time)s AND timestamp < %(end_time)s")
+        params["start_time"] = ctx.start_time
+        params["end_time"] = ctx.end_time
+    return " ".join(parts), params
+
+
+@dagster.op(tags=OWNER_TAG)
+def delete_person_events_op(
+    context: dagster.OpExecutionContext,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+    person_removal: PersonRemovalContext,
+) -> PersonRemovalContext:
+    """Per-shard lightweight delete of events for the targeted persons."""
+    if not person_removal.drop_events:
+        context.log.info("drop_events=False, skipping event deletion")
+        return person_removal
+    # The CH events table is keyed by person_id (UUID), so resolve distinct_ids → uuids when
+    # the request was submitted by distinct_id. Selectors are mutually exclusive (enforced in
+    # DataDeletionRequest._clean_person_removal and re-checked in load_person_removal_request).
+    if person_removal.person_distinct_ids:
+        persons = resolve_persons_for_deletion(
+            person_removal.team_id,
+            uuids=None,
+            distinct_ids=person_removal.person_distinct_ids,
+        )
+        person_removal.person_uuids = [str(p.uuid) for p in persons]
+    if not person_removal.person_uuids:
+        context.log.info("No persons resolved; nothing to delete")
+        return person_removal
+
+    table = EVENTS_DATA_TABLE()
+    predicate, params = _person_event_predicate(person_removal)
+    shards = sorted(cluster.shards)
+    context.log.info(f"Deleting events for {len(person_removal.person_uuids)} persons across {len(shards)} shards")
+
+    for idx, shard_num in enumerate(shards, 1):
+        context.log.info(f"Processing shard {shard_num} ({idx}/{len(shards)})")
+        shard_start = time.monotonic()
+        runner = LightweightDeleteMutationRunner(
+            table=table,
+            predicate=predicate,
+            parameters=params,
+            settings={"lightweight_deletes_sync": 0},
+        )
+        shard_result = cluster.map_any_host_in_shards({shard_num: runner}).result()
+        _host, waiter = next(iter(shard_result.items()))
+        cluster.map_all_hosts_in_shard(shard_num, waiter.wait).result()
+        context.log.info(f"Shard {shard_num} complete in {time.monotonic() - shard_start:.1f}s")
+
+    context.add_output_metadata({"shards_processed": dagster.MetadataValue.int(len(shards))})
+    return person_removal
+
+
+@dagster.op(tags=OWNER_TAG)
+def delete_person_recordings_op(
+    context: dagster.OpExecutionContext,
+    person_removal: PersonRemovalContext,
+) -> PersonRemovalContext:
+    """Queue recording deletion via Temporal for the targeted persons."""
+    if not person_removal.drop_recordings:
+        context.log.info("drop_recordings=False, skipping recording deletion")
+        return person_removal
+
+    persons = resolve_persons_for_deletion(
+        person_removal.team_id,
+        uuids=person_removal.person_uuids or None,
+        distinct_ids=person_removal.person_distinct_ids or None,
+    )
+    if not persons:
+        context.log.info("No persons resolved; nothing to delete")
+        return person_removal
+
+    queue_person_recording_deletion(person_removal.team_id, persons, actor=None)
+    context.add_output_metadata({"recording_workflows": dagster.MetadataValue.int(len(persons))})
+    return person_removal
+
+
+@dagster.op(tags=OWNER_TAG)
+def delete_person_profiles_op(
+    context: dagster.OpExecutionContext,
+    person_removal: PersonRemovalContext,
+) -> PersonRemovalContext:
+    """Tombstone Person rows in CH and delete from Postgres, last.
+
+    On per-person failures, errors are recorded in op metadata and the request is allowed to
+    transition to COMPLETED — Postgres rows remain for the failed UUIDs and the operator can
+    submit a follow-up request for them. This mirrors the best-effort semantics of the
+    `POST /api/projects/:id/persons/bulk_delete/` endpoint and avoids flipping the whole
+    request to FAILED after upstream events/recordings ops have already done their work.
+    """
+    if not person_removal.drop_profiles:
+        context.log.info("drop_profiles=False, skipping profile deletion")
+        return person_removal
+
+    persons = resolve_persons_for_deletion(
+        person_removal.team_id,
+        uuids=person_removal.person_uuids or None,
+        distinct_ids=person_removal.person_distinct_ids or None,
+    )
+    if not persons:
+        context.log.info("No persons resolved; nothing to delete")
+        return person_removal
+
+    result = delete_persons_profile(person_removal.team_id, persons, actor=None)
+    metadata: dict[str, dagster.MetadataValue] = {
+        "deleted_count": dagster.MetadataValue.int(result.deleted_count),
+        "errors": dagster.MetadataValue.int(len(result.errors)),
+    }
+    if result.errors:
+        context.log.warning(
+            f"Person profile deletion had {len(result.errors)} per-person failures; "
+            f"Postgres rows remain for failed UUIDs and can be retried via a follow-up request"
+        )
+        metadata["error_uuids"] = dagster.MetadataValue.text(", ".join(str(u) for u in result.errors))
+    context.add_output_metadata(metadata)
+    return person_removal
+
+
+# ---------------------------------------------------------------------------
 # Shared ops
 # ---------------------------------------------------------------------------
 
@@ -556,6 +776,22 @@ def finalize_deletion_request(
     context.log.info(f"Deletion request {deletion_request.request_id} marked as {next_status.value}.")
 
 
+@dagster.op(tags=OWNER_TAG)
+def finalize_person_removal(
+    context: dagster.OpExecutionContext,
+    person_removal: PersonRemovalContext,
+) -> None:
+    """Mark a person_removal request as COMPLETED."""
+    from django.utils import timezone
+
+    DataDeletionRequest.objects.filter(
+        pk=person_removal.request_id,
+        status=RequestStatus.IN_PROGRESS,
+    ).update(status=RequestStatus.COMPLETED, updated_at=timezone.now())
+
+    context.log.info(f"Person removal request {person_removal.request_id} marked as completed.")
+
+
 @dagster.failure_hook()
 def mark_deletion_failed(context: dagster.HookContext) -> None:
     """Mark the deletion request as failed if any op fails."""
@@ -570,10 +806,12 @@ def mark_deletion_failed(context: dagster.HookContext) -> None:
         return
 
     ops_config = run_config.get("ops", {})
-    # Check both job types
-    request_id = ops_config.get("load_deletion_request", {}).get("config", {}).get("request_id") or ops_config.get(
-        "load_property_removal_request", {}
-    ).get("config", {}).get("request_id")
+    # Check all job types
+    request_id = (
+        ops_config.get("load_deletion_request", {}).get("config", {}).get("request_id")
+        or ops_config.get("load_property_removal_request", {}).get("config", {}).get("request_id")
+        or ops_config.get("load_person_removal_request", {}).get("config", {}).get("request_id")
+    )
     if not request_id:
         return
 
@@ -628,6 +866,20 @@ def data_deletion_request_property_removal():
     finalize_deletion_request(request)
 
 
+@dagster.job(tags=OWNER_TAG, hooks={mark_deletion_failed})
+def data_deletion_request_person_removal():
+    """Execute an approved person_removal request: events → recordings → profiles.
+
+    Profiles are deleted last so that earlier ops can still resolve person UUIDs and
+    distinct_ids from the Postgres Person row while running.
+    """
+    request = load_person_removal_request()
+    request = delete_person_events_op(request)
+    request = delete_person_recordings_op(request)
+    request = delete_person_profiles_op(request)
+    finalize_person_removal(request)
+
+
 # ---------------------------------------------------------------------------
 # Pickup sensor: scans for APPROVED requests and launches jobs (max 1 at a time)
 # ---------------------------------------------------------------------------
@@ -635,11 +887,16 @@ def data_deletion_request_property_removal():
 _DELETION_JOB_NAMES = [
     data_deletion_request_event_removal.name,
     data_deletion_request_property_removal.name,
+    data_deletion_request_person_removal.name,
 ]
 
 
 @dagster.sensor(
-    jobs=[data_deletion_request_event_removal, data_deletion_request_property_removal],
+    jobs=[
+        data_deletion_request_event_removal,
+        data_deletion_request_property_removal,
+        data_deletion_request_person_removal,
+    ],
     minimum_interval_seconds=600,
     default_status=dagster.DefaultSensorStatus.STOPPED,
 )
@@ -670,11 +927,11 @@ def data_deletion_request_pickup_sensor(context: dagster.SensorEvaluationContext
         return dagster.SkipReason("No approved deletion requests to process.")
 
     if next_request.request_type == RequestType.EVENT_REMOVAL:
-        job = data_deletion_request_event_removal
-        load_op = "load_deletion_request"
+        job, load_op = data_deletion_request_event_removal, "load_deletion_request"
     elif next_request.request_type == RequestType.PROPERTY_REMOVAL:
-        job = data_deletion_request_property_removal
-        load_op = "load_property_removal_request"
+        job, load_op = data_deletion_request_property_removal, "load_property_removal_request"
+    elif next_request.request_type == RequestType.PERSON_REMOVAL:
+        job, load_op = data_deletion_request_person_removal, "load_person_removal_request"
     else:
         return dagster.SkipReason(f"Unknown request_type for request {next_request.pk}: {next_request.request_type}")
 

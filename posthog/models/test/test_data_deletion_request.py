@@ -218,6 +218,12 @@ def test_person_removal_caps_total_selectors_at_1000():
         request.clean()
 
 
+def test_person_removal_rejects_both_selectors():
+    request = DataDeletionRequest(**_person_kwargs(person_uuids=[str(uuid_lib.uuid4())], person_distinct_ids=["did-1"]))
+    with pytest.raises(ValidationError, match="not both"):
+        request.clean()
+
+
 @pytest.mark.parametrize(
     "overrides, match",
     [

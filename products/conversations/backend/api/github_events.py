@@ -1,36 +1,23 @@
-"""GitHub webhook endpoint for Conversations GitHub Issues channel."""
+"""GitHub event dispatch for Conversations GitHub Issues channel.
 
-import hmac
-import json
+The entry point is ``dispatch_github_event``, called from the GitHub App
+webhook fan-out in ``posthog.urls.github_webhook`` after signature verification
+and JSON parsing.
+"""
+
 import hashlib
 from typing import Any, cast
 
 from django.http import HttpRequest, HttpResponse
-from django.views.decorators.csrf import csrf_exempt
 
 import structlog
 
-from posthog.models.instance_setting import get_instance_setting
 from posthog.models.integration import Integration
 
 from products.conversations.backend.services.region_routing import is_primary_region, proxy_to_secondary_region
 from products.conversations.backend.tasks import process_github_event
 
 logger = structlog.get_logger(__name__)
-
-GITHUB_HANDLED_EVENTS = {"issues", "issue_comment"}
-
-
-def _get_github_webhook_secret() -> str | None:
-    secret = get_instance_setting("GITHUB_WEBHOOK_SECRET")
-    return secret if secret else None
-
-
-def _verify_github_signature(payload: bytes, signature: str | None, secret: str) -> bool:
-    if not signature or not signature.startswith("sha256="):
-        return False
-    expected = "sha256=" + hmac.new(secret.encode("utf-8"), payload, hashlib.sha256).hexdigest()
-    return hmac.compare_digest(expected, signature)
 
 
 def _team_for_github_installation(installation_id: str) -> tuple[int | None, bool]:
@@ -55,7 +42,6 @@ def _team_for_github_installation(installation_id: str) -> tuple[int | None, boo
         expected_integration_id = settings_dict.get("github_integration_id")
         if expected_integration_id is not None and expected_integration_id != integration.id:
             continue
-        # Require explicit binding — skip if github_integration_id was never set
         if expected_integration_id is None:
             continue
         return integration.team_id, True
@@ -63,35 +49,12 @@ def _team_for_github_installation(installation_id: str) -> tuple[int | None, boo
     return None, False
 
 
-@csrf_exempt
-def github_issues_webhook(request: HttpRequest) -> HttpResponse:
-    """Handle incoming GitHub webhook events for the Issues channel.
+def dispatch_github_event(request: HttpRequest, event_type: str, data: dict[str, Any]) -> HttpResponse:
+    """Route a pre-verified GitHub event to the conversations Celery pipeline.
 
-    Verifies HMAC-SHA256 signature, resolves the team via installation ID,
-    checks that the repo is monitored, and dispatches to a Celery task.
+    Called from ``posthog.urls.github_webhook`` after signature verification
+    and JSON parsing are already done.
     """
-    if request.method != "POST":
-        return HttpResponse(status=405)
-
-    secret = _get_github_webhook_secret()
-    if not secret:
-        logger.warning("github_issues_webhook_no_secret")
-        return HttpResponse(status=503)
-
-    signature = request.headers.get("X-Hub-Signature-256")
-    if not _verify_github_signature(request.body, signature, secret):
-        logger.warning("github_issues_webhook_invalid_signature")
-        return HttpResponse("Invalid signature", status=403)
-
-    event_type = request.headers.get("X-GitHub-Event", "")
-    if event_type not in GITHUB_HANDLED_EVENTS:
-        return HttpResponse(status=200)
-
-    try:
-        data: dict[str, Any] = json.loads(request.body)
-    except json.JSONDecodeError:
-        return HttpResponse("Invalid JSON", status=400)
-
     installation_id = str(data.get("installation", {}).get("id", ""))
     if not installation_id:
         logger.warning("github_issues_webhook_no_installation")

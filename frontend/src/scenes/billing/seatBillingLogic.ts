@@ -10,7 +10,7 @@ import { membersLogic } from 'scenes/organization/membersLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { CODE_FREE_PLAN_PREFIX, CODE_PRO_PLAN_PREFIX, CODE_PRODUCT_KEY } from './constants'
+import { CODE_FREE_PLAN_PREFIX, CODE_PLAN_ALPHA_PRO, CODE_PRO_PLAN_PREFIX, CODE_PRODUCT_KEY } from './constants'
 import type { seatBillingLogicType } from './seatBillingLogicType'
 import type { SeatData } from './types'
 
@@ -20,6 +20,10 @@ export function isProPlanKey(planKey: string | null | undefined): boolean {
 
 export function isFreePlanKey(planKey: string | null | undefined): boolean {
     return !!planKey && planKey.startsWith(CODE_FREE_PLAN_PREFIX)
+}
+
+export function canReactivateSeat(seat: Pick<SeatData, 'plan_key' | 'status'> | null | undefined): boolean {
+    return !!seat && seat.status === 'canceling' && seat.plan_key !== CODE_PLAN_ALPHA_PRO
 }
 
 // TODO: Replace with `seat.price` once billing exposes it via SeatSerializer
@@ -112,7 +116,7 @@ export const seatBillingLogic = kea<seatBillingLogicType>([
             (mySeat): boolean => !!mySeat && mySeat.status === 'active' && isFreePlanKey(mySeat.plan_key),
         ],
         canCancel: [(s) => [s.mySeat], (mySeat): boolean => !!mySeat && mySeat.status === 'active'],
-        canReactivate: [(s) => [s.mySeat], (mySeat): boolean => !!mySeat && mySeat.status === 'canceling'],
+        canReactivate: [(s) => [s.mySeat], (mySeat): boolean => canReactivateSeat(mySeat)],
         displaySeats: [
             (s) => [s.orgSeats],
             (orgSeats): SeatData[] => {

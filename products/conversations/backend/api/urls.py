@@ -11,7 +11,6 @@ from .email_settings import (
     EmailVerifyDomainView,
 )
 from .external import ExternalTicketView
-from .github_events import github_issues_webhook
 from .github_setup import (
     GithubConnectView,
     GithubCreateIssueView,
@@ -59,7 +58,6 @@ urlpatterns = [
     re_path(r"^v1/email/verify-domain/?$", EmailVerifyDomainView.as_view(), name="email-verify-domain"),
     re_path(r"^v1/email/send-test/?$", EmailSendTestView.as_view(), name="email-send-test"),
     # GitHub Issues channel
-    re_path(r"^v1/github/events/?$", github_issues_webhook, name="github-issues-events"),
     re_path(r"^v1/github/status/?$", GithubStatusView.as_view(), name="github-status"),
     re_path(r"^v1/github/connect/?$", GithubConnectView.as_view(), name="github-connect"),
     re_path(r"^v1/github/disconnect/?$", GithubDisconnectView.as_view(), name="github-disconnect"),
