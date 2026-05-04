@@ -646,6 +646,31 @@ class TestIntegrationAPIKeyAccess:
         # Sensitive credentials never round-trip via the retrieve serializer.
         assert "sensitive_config" not in body
 
+    @pytest.mark.parametrize(
+        "url_suffix,method",
+        [
+            ("github_repos/", "get"),
+            ("github_repos/refresh/", "post"),
+            ("github_branches/?repo=org/repo", "get"),
+        ],
+    )
+    def test_github_actions_on_non_github_integration_return_400(self, url_suffix, method, client: HttpClient):
+        key_value = "test_key_non_github"
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["integration:read", "integration:write"],
+        )
+
+        response = getattr(client, method)(
+            f"/api/environments/{self.team.pk}/integrations/{self.twilio_integration.id}/{url_suffix}",
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "GitHub" in response.json()["detail"]
+
     @patch("posthog.models.integration.GitHubIntegration.list_cached_repositories")
     def test_github_repos_with_scope_succeeds(self, mock_list_repos, client: HttpClient):
         mock_list_repos.return_value = (
@@ -882,11 +907,10 @@ class TestIntegrationAPIKeyAccess:
             ("slack", "integration:read", status.HTTP_200_OK, None),
             ("slack-posthog-code", "integration:read", status.HTTP_200_OK, None),
             ("slack", "feature_flag:read", status.HTTP_403_FORBIDDEN, "integration:read"),
-            # GitHub passes the queryset filter (it's a read-allowed kind) but the channels
-            # action's kind guard rejects it with a 400 before SlackIntegration is constructed.
+            # GitHub and Twilio resolve via the queryset, but the channels action's kind
+            # guard rejects them with a 400 before SlackIntegration is constructed.
             ("github", "integration:read", status.HTTP_400_BAD_REQUEST, "Slack"),
-            # Twilio is filtered out of the queryset entirely for API-key callers — 404.
-            ("twilio", "integration:read", status.HTTP_404_NOT_FOUND, None),
+            ("twilio", "integration:read", status.HTTP_400_BAD_REQUEST, "Slack"),
         ],
     )
     @patch("posthog.api.integration.SlackIntegration")

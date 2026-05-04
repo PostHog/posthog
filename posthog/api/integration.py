@@ -890,7 +890,10 @@ class IntegrationViewSet(
         limit = query_serializer.validated_data["limit"]
         offset = query_serializer.validated_data["offset"]
 
-        github = GitHubIntegration(self.get_object())
+        instance = self.get_object()
+        if instance.kind != "github":
+            raise ValidationError("github_repos endpoint is only supported for GitHub integrations")
+        github = GitHubIntegration(instance)
         repositories, has_more = github.list_cached_repositories(search=search, limit=limit, offset=offset)
 
         return Response({"repositories": repositories, "has_more": has_more})
@@ -1050,7 +1053,10 @@ class IntegrationViewSet(
     @extend_schema(request=None, responses={200: GitHubReposRefreshResponseSerializer})
     @action(methods=["POST"], detail=True, url_path="github_repos/refresh")
     def refresh_github_repos(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        github = GitHubIntegration(self.get_object())
+        instance = self.get_object()
+        if instance.kind != "github":
+            raise ValidationError("refresh_github_repos endpoint is only supported for GitHub integrations")
+        github = GitHubIntegration(instance)
         repositories = github.sync_repository_cache(
             min_refresh_interval_seconds=GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS
         )
@@ -1073,7 +1079,10 @@ class IntegrationViewSet(
 
         validate_github_repository_name(repo)
 
-        github = GitHubIntegration(self.get_object())
+        instance = self.get_object()
+        if instance.kind != "github":
+            raise ValidationError("github_branches endpoint is only supported for GitHub integrations")
+        github = GitHubIntegration(instance)
         branches, default_branch, has_more = github.list_cached_branches(
             repo,
             search=search,
