@@ -14,6 +14,5 @@ this product is isolated.
   facades when they exist rather than importing internals.
 
 If you need to extend what's reachable across a boundary, add a method to the relevant
-`backend/facade/api.py` — not a `depends_on` entry in `tach.toml`. If the target product
-has no facade yet, invoke the `/isolating-product-facade-contracts` skill to create one.
+`backend/facade/api.py` — not a `depends_on` entry in `tach.toml`.
 Run `tach check` to verify import boundaries are clean.
