@@ -833,6 +833,10 @@ class TestEmailInboundDmarcRewrite(BaseTest):
         assert ticket.anonymous_traits["name"] == "Alex Smith"
         assert ticket.distinct_id == "alex@strictdmarc.com"
 
+        comment = Comment.objects.get(team=self.team, scope="conversations_ticket")
+        assert comment.item_context["email_from"] == "alex@strictdmarc.com"
+        assert comment.item_context["email_from_name"] == "Alex Smith"
+
     @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
     def test_reply_to_recovers_sender_when_no_x_original(self, _mock_sig: MagicMock):
         data = self._base_data("<dmarc-replyto@test.com>")
