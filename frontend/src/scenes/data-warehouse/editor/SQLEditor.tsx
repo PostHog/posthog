@@ -62,9 +62,6 @@ interface SQLEditorProps {
     runQueryDisabledReason?: string
     runQueryTooltip?: string
     onShareTab?: () => void
-    /** When true, the visualization output fills its container instead of using the 60vh preset.
-     *  Used for embedded contexts like notebook nodes whose parent already constrains height. */
-    fitOutputToContainer?: boolean
 }
 
 export function SQLEditor({
@@ -79,7 +76,6 @@ export function SQLEditor({
     runQueryDisabledReason,
     runQueryTooltip,
     onShareTab,
-    fitOutputToContainer,
 }: SQLEditorProps): JSX.Element {
     const ref = useRef(null)
     const navigatorRef = useRef(null)
@@ -213,7 +209,6 @@ export function SQLEditor({
                                                 tabId={tabId || ''}
                                                 showToolbar={showOutputToolbar}
                                                 onShareTab={onShareTab}
-                                                fitOutputToContainer={fitOutputToContainer}
                                             />
                                         </div>
                                     ) : (

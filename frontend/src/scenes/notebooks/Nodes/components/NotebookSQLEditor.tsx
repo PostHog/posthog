@@ -166,7 +166,6 @@ export function NotebookSQLEditorOutput<T extends { query: QuerySchema }>({
                 panel={SQLEditorPanel.Output}
                 defaultShowDatabaseTree={false}
                 showOutputToolbar={showOutputToolbar}
-                fitOutputToContainer
             />
         </div>
     )

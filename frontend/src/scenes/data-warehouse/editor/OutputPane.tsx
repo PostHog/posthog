@@ -529,16 +529,9 @@ interface OutputPaneProps {
     tabId: string
     showToolbar?: boolean
     onShareTab?: () => void
-    /** When true, the visualization output fills its container instead of using the 60vh preset. */
-    fitOutputToContainer?: boolean
 }
 
-export function OutputPane({
-    tabId,
-    showToolbar = true,
-    onShareTab,
-    fitOutputToContainer,
-}: OutputPaneProps): JSX.Element {
+export function OutputPane({ tabId, showToolbar = true, onShareTab }: OutputPaneProps): JSX.Element {
     const { activeTab } = useValues(outputPaneLogic)
     const { setActiveTab } = useActions(outputPaneLogic)
 
@@ -749,7 +742,7 @@ export function OutputPane({
         setProgress,
         progress: queryId ? progressCache[queryId] : undefined,
         showVisualizationSettings: showToolbar && isChartSettingsPanelOpen,
-        fitOutputToContainer,
+        isEmbeddedMode,
     }
     const sharedActionsProps = {
         response,
@@ -851,7 +844,7 @@ export function OutputPane({
 }
 
 function InternalDataTableVisualization(
-    props: DataTableVisualizationProps & { showSettingsPanel: boolean; fitOutputToContainer?: boolean }
+    props: DataTableVisualizationProps & { showSettingsPanel: boolean }
 ): JSX.Element | null {
     const {
         query,
@@ -869,9 +862,9 @@ function InternalDataTableVisualization(
     const { seriesBreakdownData } = useValues(seriesBreakdownLogic({ key: dataVisualizationProps.key }))
     const { goalLines } = useValues(displayLogic)
 
-    // When the caller (e.g., notebook node) constrains height itself, force the chart to
-    // fit its container instead of using the 60vh viewport-relative preset.
-    const effectivePresetChartHeight = props.fitOutputToContainer ? false : presetChartHeight
+    // When the host already constrains height (embedded contexts like notebook nodes),
+    // force the chart to fill its container instead of using the 60vh viewport-relative preset.
+    const effectivePresetChartHeight = props.embedded ? false : presetChartHeight
 
     let component: JSX.Element | null = null
 
@@ -994,7 +987,7 @@ const Content = ({
     progress,
     insightLoading,
     showVisualizationSettings,
-    fitOutputToContainer,
+    isEmbeddedMode,
 }: any): JSX.Element | null => {
     const [sortColumns, setSortColumns] = useState<SortColumn[]>([])
 
@@ -1062,8 +1055,8 @@ const Content = ({
                     cachedResults={undefined}
                     exportContext={exportContext}
                     editMode
+                    embedded={isEmbeddedMode}
                     showSettingsPanel={showVisualizationSettings}
-                    fitOutputToContainer={fitOutputToContainer}
                 />
             </div>
         )
