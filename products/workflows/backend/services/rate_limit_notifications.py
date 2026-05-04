@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from django.contrib.auth import get_user_model
-
 import structlog
 
 from posthog.models.hog_flow.hog_flow import HogFlow
@@ -16,8 +14,6 @@ from products.notifications.backend.facade.api import (
 from products.notifications.backend.facade.enums import NotificationOnlyResourceType, SourceType
 
 logger = structlog.get_logger(__name__)
-
-User = get_user_model()
 
 
 def handle_workflow_rate_limited(
@@ -49,18 +45,6 @@ def handle_workflow_rate_limited(
             hog_flow_id=hog_flow_id,
             team_id=team_id,
         )
-        return
-
-    # Check user notification preferences
-    try:
-        user = User.objects.only("partial_notification_settings").get(id=created_by_id)
-    except User.DoesNotExist:
-        return
-
-    settings = user.notification_settings
-    if settings.get("workflows_notifications_disabled", False):
-        return
-    if not settings.get("workflow_rate_limited", True):
         return
 
     create_notification(
