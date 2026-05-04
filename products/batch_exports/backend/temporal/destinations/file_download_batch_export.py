@@ -68,7 +68,7 @@ async def _get_temporary_credentials_for_multipart_upload(
 async def _get_temporary_credentials_to_head_object(
     bucket: str, prefix: str, /, role_arn: str, duration: int = 900
 ) -> Credentials:
-    """Get temporary AWS credentials to generate pre-signed URLs for keys under prefix."""
+    """Get temporary AWS credentials for HEAD object requests for keys under prefix."""
     creds = await _get_temporary_credentials_for_bucket_prefix(
         bucket,
         prefix,
@@ -286,9 +286,9 @@ class FileDownloadBatchExportWorkflow(PostHogWorkflow):
     """Workflow to generate files for download from an S3 bucket.
 
     The workflow works by executing what is essentially an S3 batch export, but
-    targeting one of our own buckets. Afterwards, the workflow generates pre-signed
-    URLs so that the files in our own bucket can be downloaded by anybody with the URL.
-    These URLs are stored in our database so they can be served to users of PostHog.
+    targeting one of our own buckets. Afterwards, the workflow generates file-download
+    models so that the files in our own bucket can be downloaded after generating a
+    pre-signed URL.
     """
 
     @staticmethod
