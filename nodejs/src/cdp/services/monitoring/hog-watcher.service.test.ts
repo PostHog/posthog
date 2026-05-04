@@ -402,6 +402,18 @@ describe('HogWatcher', () => {
             })
         })
 
+        it('should not create Redis keys on read-only access', async () => {
+            const unknownId = 'never-executed-function'
+            await watcher.getPersistedState(unknownId)
+            await watcher.getPersistedState(unknownId)
+
+            // Verify no key was created — reads should be side-effect-free
+            const exists = await redis.useClient({ name: 'test-check' }, async (client) => {
+                return await client.exists(`${BASE_REDIS_KEY}/tokens/${unknownId}`)
+            })
+            expect(exists).toEqual(0)
+        })
+
         it('should cap refill at bucketSize after large time gap', async () => {
             await watcher.observeResults([createResult({ duration: 10000, kind: 'async_function' })])
             expect((await watcher.getPersistedState(hogFunctionId)).tokens).toBeLessThan(10000)
