@@ -525,8 +525,11 @@ enum ChunkOutcome {
 
 /// Execute one pipeline chunk and classify the result. Moves `chunk_entries`
 /// into `requeue` on a `BailOnError` error so those entries retry next tick;
-/// clears `chunk_entries` otherwise. `flushed_counts` / `dropped_counts` are
-/// updated in place so the caller can reconcile `in_flight_uncredited`.
+/// clears `chunk_entries` otherwise. `flushed_counts` is updated in place so
+/// the caller can reconcile `in_flight_uncredited`. Dropped counts in
+/// `BestEffort` mode are not tracked here — the residual in
+/// `in_flight_uncredited` after the loop equals the total dropped, and the
+/// caller credits it under `flush_dropped_on_error`.
 ///
 /// Treats any `Ok(_)` from `execute_pipeline` as a fully-successful chunk —
 /// per-command inner errors inside the returned vector are not inspected.
@@ -534,7 +537,6 @@ enum ChunkOutcome {
 /// pre-existing hash key, which cannot fail at the per-command level.
 /// Adding non-`HINCRBY` operations to this pipeline requires revisiting this
 /// assumption to avoid silent over-crediting of `entries_flushed_total`.
-#[allow(clippy::too_many_arguments)]
 async fn flush_chunk(
     inner: &Arc<Inner>,
     commands: Vec<PipelineCommand>,
@@ -542,7 +544,6 @@ async fn flush_chunk(
     chunk_entries: &mut Vec<(AggregationKey, u64)>,
     policy: FlushPolicy,
     flushed_counts: &mut u64,
-    dropped_counts: &mut u64,
     requeue: &mut Vec<(AggregationKey, u64)>,
 ) -> ChunkOutcome {
     match inner.redis.execute_pipeline(commands).await {
@@ -563,7 +564,6 @@ async fn flush_chunk(
                     ChunkOutcome::ErrBail
                 }
                 FlushPolicy::BestEffort => {
-                    *dropped_counts += chunk_counts;
                     chunk_entries.clear();
                     ChunkOutcome::Err
                 }
@@ -651,7 +651,6 @@ async fn flush_once(inner: &Arc<Inner>, policy: FlushPolicy) {
     let mut chunk_entries: Vec<(AggregationKey, u64)> = Vec::with_capacity(batch_size);
     let mut buffer_counts: u64 = 0;
     let mut flushed_counts: u64 = 0;
-    let mut dropped_counts: u64 = 0;
     let mut any_error = false;
     let mut requeue: Vec<(AggregationKey, u64)> = Vec::new();
 
@@ -687,7 +686,6 @@ async fn flush_once(inner: &Arc<Inner>, policy: FlushPolicy) {
                 &mut chunk_entries,
                 policy,
                 &mut flushed_counts,
-                &mut dropped_counts,
                 &mut requeue,
             )
             .await;
@@ -733,7 +731,6 @@ async fn flush_once(inner: &Arc<Inner>, policy: FlushPolicy) {
             &mut chunk_entries,
             policy,
             &mut flushed_counts,
-            &mut dropped_counts,
             &mut requeue,
         )
         .await;
@@ -808,8 +805,26 @@ async fn flush_once(inner: &Arc<Inner>, policy: FlushPolicy) {
         }
     }
 
+    // Zero `in_flight_uncredited` *before* crediting `flush_dropped_on_error`
+    // so a concurrent `record_shutdown_drops` cannot read both: a non-zero
+    // residual *and* the about-to-happen FlushDroppedOnError credit. Without
+    // this swap-before-credit ordering, a shutdown deadline firing between
+    // the credit and the zero would re-credit `dropped_counts` as
+    // `shutdown_drop`, double-counting in
+    // `flags_billing_unflushed_requests_total`.
+    //
+    // After the swap, exactly one of the two paths sees the residual:
+    //   - this thread credits FlushDroppedOnError(dropped),
+    //   - or `record_shutdown_drops` reads in_flight=0 and credits only
+    //     remaining_pending under ShutdownDrop.
+    //
+    // `AcqRel` because this is a read-modify-write whose Release half pairs
+    // with any later observer of `in_flight_uncredited` — Relaxed would
+    // permit the credit to be reordered before the swap on weak-memory
+    // architectures, reintroducing the race the swap is meant to close.
+    let in_flight_residual = inner.in_flight_uncredited.swap(0, Ordering::AcqRel);
     if any_error {
-        inc_unflushed(UnflushedCause::FlushDroppedOnError, dropped_counts);
+        inc_unflushed(UnflushedCause::FlushDroppedOnError, in_flight_residual);
     } else {
         // Record the successful-flush timestamp so the metrics sampler can
         // compute `seconds_since_successful_flush`. Stamp on any fully
@@ -821,13 +836,6 @@ async fn flush_once(inner: &Arc<Inner>, policy: FlushPolicy) {
             .last_successful_flush_epoch_ms
             .store(now_epoch_ms(), Ordering::Relaxed);
     }
-
-    // All counts are either credited to `entries_flushed_total`,
-    // `unflushed_requests_total{cause="flush_dropped_on_error"}`, or
-    // re-queued into `pending` (where they are not "in flight" any more)
-    // at this point — clear the in-flight marker so a subsequent shutdown
-    // doesn't double-count this batch.
-    inner.in_flight_uncredited.store(0, Ordering::Relaxed);
 }
 
 /// Emit `FLUSH_ERRORS` (1 per failed chunk, classified by `error_type`) and
