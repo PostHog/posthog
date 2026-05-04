@@ -92,17 +92,8 @@ export const sourceFieldToElement = (
     field: SourceFieldConfig,
     sourceConfig: SourceConfig,
     lastValue?: any,
-    isUpdateMode?: boolean,
-    serverValue?: unknown
+    isUpdateMode?: boolean
 ): JSX.Element => {
-    // HogFunctionSerializer returns set secrets as `{secret: true}`. When editing
-    // an existing config, render a placeholder hint instead of an empty input so
-    // users can see the field is already configured.
-    const isExistingSecret =
-        !!serverValue &&
-        typeof serverValue === 'object' &&
-        !Array.isArray(serverValue) &&
-        (serverValue as { secret?: boolean }).secret === true
     // It doesn't make sense for this to show on an update to an existing connection since we likely just want to change
     // a field or two. There is also some divergence in creates vs. updates that make this a bit more complex to handle.
     if (field.type === 'text' && field.name === 'connection_string') {
@@ -270,19 +261,13 @@ export const sourceFieldToElement = (
             key={field.name}
             name={field.name}
             label={field.label}
-            help={
-                isExistingSecret ? (
-                    'Enter a new value to replace the configured secret. Leave blank to keep the existing value.'
-                ) : field.caption ? (
-                    <LemonMarkdown className="text-xs">{field.caption}</LemonMarkdown>
-                ) : undefined
-            }
+            help={field.caption ? <LemonMarkdown className="text-xs">{field.caption}</LemonMarkdown> : undefined}
         >
             {({ value, onChange }) => (
                 <LemonInput
                     className="ph-ignore-input"
                     data-attr={field.name}
-                    placeholder={isExistingSecret ? 'Configured — enter a new value to change' : field.placeholder}
+                    placeholder={field.placeholder}
                     type={field.type as 'text'}
                     value={value || ''}
                     onChange={onChange}

@@ -106,11 +106,7 @@ export function WebhookTab({ id, tabId }: { id: string; tabId?: string }): JSX.E
             )}
             <WebhookDetailsSection webhookInfo={webhookInfo} />
             {sourceConfig && (sourceConfig.webhookFields?.length ?? 0) > 0 && (
-                <WebhookConfigurationSection
-                    sourceConfig={sourceConfig}
-                    formLogicProps={logicProps}
-                    serverInputs={webhookInfo.inputs ?? {}}
-                />
+                <WebhookConfigurationSection sourceConfig={sourceConfig} formLogicProps={logicProps} />
             )}
             {webhookInfo.hog_function?.id && <WebhookMetricsSection hogFunctionId={webhookInfo.hog_function.id} />}
             {mappedTables.length > 0 && <MappedTablesSection mappedTables={mappedTables} />}
@@ -122,11 +118,9 @@ export function WebhookTab({ id, tabId }: { id: string; tabId?: string }): JSX.E
 function WebhookConfigurationSection({
     sourceConfig,
     formLogicProps,
-    serverInputs,
 }: {
     sourceConfig: SourceConfig
     formLogicProps: { id: string; tabId?: string }
-    serverInputs: Record<string, unknown>
 }): JSX.Element {
     const { webhookFieldInputs, isWebhookFieldInputsSubmitting } = useValues(webhookTabLogic(formLogicProps))
     const webhookFields = sourceConfig.webhookFields ?? []
@@ -137,13 +131,7 @@ function WebhookConfigurationSection({
             <Form logic={webhookTabLogic} props={formLogicProps} formKey="webhookFieldInputs" enableFormOnSubmit>
                 <div className="space-y-3 ph-no-capture">
                     {webhookFields.map((field: SourceFieldConfig) =>
-                        sourceFieldToElement(
-                            field,
-                            sourceConfig,
-                            webhookFieldInputs[field.name],
-                            true,
-                            serverInputs[field.name]
-                        )
+                        sourceFieldToElement(field, sourceConfig, webhookFieldInputs[field.name], true)
                     )}
                     <LemonButton type="primary" htmlType="submit" loading={isWebhookFieldInputsSubmitting}>
                         Save changes
