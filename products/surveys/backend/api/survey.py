@@ -1643,6 +1643,15 @@ class SurveySerializerCreateUpdateOnlySchema(SurveySerializerCreateUpdateOnly):
 @extend_schema_view(
     create=extend_schema(request=SurveySerializerCreateUpdateOnlySchema),
     partial_update=extend_schema(request=SurveySerializerCreateUpdateOnlySchema),
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="search",
+                type=OpenApiTypes.STR,
+                description="Fuzzy match against survey `name` and `description` using Postgres trigram word similarity. Supports typos and prefix-as-you-type.",
+            ),
+        ],
+    ),
 )
 class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     scope_object = "survey"
