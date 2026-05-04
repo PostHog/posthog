@@ -81,8 +81,9 @@ def _dispatch_batch_export_failure_realtime(batch_export_run_id: str | uuid.UUID
         memberships = get_members_to_notify_for_pipeline_error(team, failure_rate=1.0)
         if not memberships:
             return
-        title = f"Batch export {run.batch_export.name} failed"[:100]
-        body = f"Last failure at {run.last_updated_at.strftime('%I:%M%p %Z on %B %d')}"[:200]
+        name = (run.batch_export.name or "")[:80]
+        title = f"Batch export {name} failed"
+        body = f"Last failure at {run.last_updated_at.strftime('%I:%M%p %Z on %B %d, %Y')}"
         source_url = f"/project/{team.project_id}/batch_exports/{run.batch_export.id}"
         for membership in memberships:
             try:

@@ -30,7 +30,7 @@ def _dispatch_plugin_disabled_realtime(plugin_config_id: int, error: str) -> Non
     a realtime failure cannot poison the email side-effect.
     """
     try:
-        plugin_config = PluginConfig.objects.prefetch_related("plugin", "team").get(id=plugin_config_id)
+        plugin_config = PluginConfig.objects.select_related("plugin", "team").get(id=plugin_config_id)
         team = plugin_config.team
         if team is None:
             return

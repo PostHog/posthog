@@ -36,7 +36,7 @@ class TestDispatchBatchExportFailureRealtime(BaseTest):
         "products.notifications.backend.facade.api.create_notification",
         side_effect=RuntimeError("kafka"),
     )
-    def test_swallows_per_recipient_exceptions(self, _mock_create: MagicMock) -> None:
+    def test_swallows_per_recipient_exceptions(self, mock_create: MagicMock) -> None:
         destination = BatchExportDestination.objects.create(
             type=BatchExportDestination.Destination.S3, config={"bucket_name": "my_bucket"}
         )
@@ -50,6 +50,9 @@ class TestDispatchBatchExportFailureRealtime(BaseTest):
         )
         # Should not raise.
         _dispatch_batch_export_failure_realtime(batch_export_run.id)
+        # Confirms the function actually attempted the dispatch before swallowing,
+        # so a silent early-return would not mask a regression here.
+        assert mock_create.call_count >= 1
 
     @patch("products.notifications.backend.facade.api.create_notification")
     def test_swallows_missing_run(self, mock_create_notification: MagicMock) -> None:

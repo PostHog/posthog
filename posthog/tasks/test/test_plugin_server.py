@@ -29,11 +29,14 @@ class TestDispatchPluginDisabledRealtime(BaseTest):
         assert first.source_url == f"/project/{self.team.project_id}/pipeline/transformations/{plugin_config.id}"
 
     @patch("posthog.tasks.plugin_server.create_notification", side_effect=RuntimeError("kafka"))
-    def test_swallows_per_recipient_exceptions(self, _mock_create: MagicMock) -> None:
+    def test_swallows_per_recipient_exceptions(self, mock_create: MagicMock) -> None:
         plugin = Plugin.objects.create(organization=self.organization, name="GeoIP")
         plugin_config = PluginConfig.objects.create(plugin=plugin, team=self.team, enabled=True, order=1)
         # Should not raise.
         _dispatch_plugin_disabled_realtime(plugin_config.id, "boom")
+        # Confirms the function actually attempted the dispatch before swallowing,
+        # so a silent early-return would not mask a regression here.
+        assert mock_create.call_count >= 1
 
     @patch("posthog.tasks.plugin_server.create_notification")
     def test_swallows_missing_plugin_config(self, mock_create_notification: MagicMock) -> None:
