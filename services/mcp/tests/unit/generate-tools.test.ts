@@ -437,6 +437,115 @@ describe('generateToolCode without input_schema', () => {
     })
 })
 
+describe('inject_body', () => {
+    const injectBodyResolved = (): ResolvedOperation =>
+        makeResolved({
+            method: 'POST',
+            operation: {
+                operationId: 'things_create',
+                parameters: [],
+                requestBody: {
+                    content: {
+                        'application/json': {
+                            schema: {
+                                properties: {
+                                    name: { type: 'string' },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        })
+
+    it('emits hardcoded body assignments for inject_body entries', () => {
+        const config: ToolConfig = {
+            operation: 'things_create',
+            enabled: true,
+            inject_body: { created_via: 'mcp' },
+        }
+
+        const result = generateToolCode(
+            'things-create',
+            config,
+            injectBodyResolved(),
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+
+        expect(result.code).toContain(`body["created_via"] = "mcp"`)
+    })
+
+    it('emits inject_body after dynamic body builder so it overrides caller input', () => {
+        const config: ToolConfig = {
+            operation: 'things_create',
+            enabled: true,
+            inject_body: { created_via: 'mcp' },
+        }
+
+        const result = generateToolCode(
+            'things-create',
+            config,
+            injectBodyResolved(),
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+
+        const nameIdx = result.code.indexOf(`body["name"]`)
+        const injectIdx = result.code.indexOf(`body["created_via"]`)
+        expect(nameIdx).toBeGreaterThan(-1)
+        expect(injectIdx).toBeGreaterThan(nameIdx)
+    })
+
+    it('initializes body even when inject_body is the only source', () => {
+        const config: ToolConfig = {
+            operation: 'things_create',
+            enabled: true,
+            exclude_params: ['name'],
+            inject_body: { created_via: 'mcp' },
+        }
+
+        const result = generateToolCode(
+            'things-create',
+            config,
+            injectBodyResolved(),
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+
+        expect(result.code).toContain('const body: Record<string, unknown> = {}')
+        expect(result.code).toContain(`body["created_via"] = "mcp"`)
+        expect(result.code).toContain('body,')
+    })
+
+    it('escapes inject_body keys that contain special characters', () => {
+        const config: ToolConfig = {
+            operation: 'things_create',
+            enabled: true,
+            inject_body: { "weird'key": 'safe' },
+        }
+
+        const result = generateToolCode(
+            'things-create',
+            config,
+            injectBodyResolved(),
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+
+        // JSON.stringify escapes the single quote so the generated TS stays valid.
+        expect(result.code).toContain(`body["weird'key"] = "safe"`)
+    })
+})
+
 describe('rename_params', () => {
     it('swaps field names in schema expression and tracks renames', () => {
         const config: ToolConfig = {
@@ -508,7 +617,7 @@ describe('rename_params', () => {
         )
 
         expect(result.code).toContain('params.property_key !== undefined')
-        expect(result.code).toContain("body['$unset'] = params.property_key")
+        expect(result.code).toContain('body["$unset"] = params.property_key')
         expect(result.code).not.toContain('params.$unset')
     })
 })

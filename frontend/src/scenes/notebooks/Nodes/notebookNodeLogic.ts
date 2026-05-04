@@ -58,6 +58,7 @@ import {
     buildPythonExecutionRunning,
     mergeExecutionVariables,
 } from './pythonExecution'
+import { buildNotebookNodeClipboardHTML } from './utils'
 
 export type PythonRunMode = 'auto' | 'cell_upstream' | 'cell' | 'cell_downstream'
 export type DuckSqlRunMode = 'auto' | 'cell_upstream' | 'cell' | 'cell_downstream'
@@ -1426,34 +1427,10 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         },
 
         copyToClipboard: async () => {
-            const { nodeAttributes } = values
-
-            const htmlAttributesString = Object.entries(nodeAttributes)
-                .map(([key, value]) => {
-                    if (key === 'nodeId' || key.startsWith('__')) {
-                        return ''
-                    }
-
-                    if (value === null || value === undefined) {
-                        return ''
-                    }
-
-                    if (key === 'title') {
-                        return `title='${JSON.stringify(value)}'`
-                    }
-
-                    return `${key}='${btoa(JSON.stringify(value))}'`
-                })
-                .filter((x) => !!x)
-                .join(' ')
-
-            const html = `<${props.nodeType} ${htmlAttributesString} data-pm-slice="0 0 []"></${props.nodeType}>`
-
+            const html = buildNotebookNodeClipboardHTML(props.nodeType, values.nodeAttributes)
             const type = 'text/html'
             const blob = new Blob([html], { type })
-            const data = [new ClipboardItem({ [type]: blob })]
-
-            await window.navigator.clipboard.write(data)
+            await window.navigator.clipboard.write([new ClipboardItem({ [type]: blob })])
         },
         convertToBacklink: ({ href }) => {
             const pos = props.getPos?.()

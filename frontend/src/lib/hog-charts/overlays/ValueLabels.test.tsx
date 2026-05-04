@@ -38,6 +38,8 @@ function makeContext(series: ResolvedSeries[], overrides: Partial<BaseChartConte
         theme: DEFAULT_THEME,
         resolveValue: DEFAULT_RESOLVE,
         canvasBounds: () => null,
+        axisOrientation: 'vertical',
+        isPercent: false,
         hoverIndex: -1,
         ...overrides,
     }
@@ -110,13 +112,13 @@ describe('ValueLabels', () => {
         const { container } = renderInChart(makeContext(series), <ValueLabels />)
         const divs = labelDivs(container)
         expect(divs).toHaveLength(5)
-        // positive values (50, 25, 75) render above → transform includes 'calc(-100%'
+        // positive values (50, 25, 75) render above → transform translates up by full height
         // negative values (-50, -25) render below → transform is plain translateX
         const values = [50, -50, 25, -25, 75]
         divs.forEach((d, i) => {
             const value = values[i]
             if (value >= 0) {
-                expect(d.style.transform).toContain('calc(-100%')
+                expect(d.style.transform).toBe('translate(-50%, -100%)')
             } else {
                 expect(d.style.transform).toBe('translateX(-50%)')
             }
@@ -246,5 +248,99 @@ describe('ValueLabels', () => {
         const divs = labelDivs(container)
         expect(divs).toHaveLength(1)
         expect(divs[0].style.borderColor).toBe('#222222')
+    })
+
+    it.each<[string, number, string, string]>([
+        ['positive value past the right edge', 50, '192px', 'translateY(-50%)'],
+        ['negative value past the left edge', -50, '544px', 'translate(-100%, -50%)'],
+    ])('horizontal: places %s', (_name, value, expectedLeft, expectedTransform) => {
+        const series: ResolvedSeries[] = [{ key: 's', label: 'S', color: '#f00', data: [value] }]
+        const ctx = makeContext(series, {
+            axisOrientation: 'horizontal',
+            labels: ['Mon'],
+            scales: { x: () => 60, y: yScale, yTicks: () => [0, 50, 100] },
+        })
+        const divs = labelDivs(renderInChart(ctx, <ValueLabels />).container)
+        expect(divs[0].style.left).toBe(expectedLeft)
+        expect(divs[0].style.transform).toBe(expectedTransform)
+    })
+
+    it('horizontal: drops vertically overlapping labels via per-series collision avoidance', () => {
+        const series: ResolvedSeries[] = [{ key: 's', label: 'S', color: '#f00', data: [40, 60] }]
+        const ctx = makeContext(series, {
+            axisOrientation: 'horizontal',
+            labels: ['A', 'B'],
+            scales: { x: () => 200, y: yScale, yTicks: () => [0, 50, 100] },
+        })
+        expect(labelDivs(renderInChart(ctx, <ValueLabels />).container)).toHaveLength(1)
+    })
+
+    describe('stack-total mode', () => {
+        it('honours maxPointsPerSeries against the number of bands', () => {
+            const series: ResolvedSeries[] = [{ key: 's', label: 'S', color: '#f00', data: [10, 20, 30, 40, 50] }]
+            const { container } = renderInChart(
+                makeContext(series),
+                <ValueLabels mode="stack-total" maxPointsPerSeries={3} />
+            )
+            expect(labelDivs(container)).toHaveLength(0)
+        })
+
+        it('skips mixed-sign bands (no single visual stack apex)', () => {
+            const series: ResolvedSeries[] = [
+                { key: 'a', label: 'A', color: '#a00', data: [30, 30] },
+                { key: 'b', label: 'B', color: '#0a0', data: [-10, 5] },
+            ]
+            const ctx = makeContext(series, { labels: ['Mon', 'Tue'] })
+            const divs = labelDivs(renderInChart(ctx, <ValueLabels mode="stack-total" />).container)
+            // Mon is mixed-sign (skipped); Tue is all-positive total=35.
+            expect(divs.map((d) => d.textContent)).toEqual(['35'])
+        })
+
+        it('sums visible series per band, skips zero totals and excluded series', () => {
+            const series: ResolvedSeries[] = [
+                { key: 'a', label: 'A', color: '#112233', data: [10, 0, 30] },
+                { key: 'b', label: 'B', color: '#445566', data: [5, 0, 5] },
+                { key: 'c', label: 'C', color: '#778899', data: [99, 99, 99], visibility: { fromValueLabels: true } },
+            ]
+            const ctx = makeContext(series, { labels: ['Mon', 'Tue', 'Wed'] })
+            const divs = labelDivs(renderInChart(ctx, <ValueLabels mode="stack-total" />).container)
+            expect(divs.map((d) => d.textContent)).toEqual(['15', '35'])
+            // Total label uses the topmost visible series color.
+            expect(divs[0].style.backgroundColor).toBe('rgb(68, 85, 102)')
+        })
+    })
+
+    describe('minBarSize', () => {
+        const barPrivate = { __barChart: { band: () => 0, value: () => 0 } as unknown }
+        const barScales = { x: xScale, y: yScale, yTicks: () => [0, 50, 100], _private: barPrivate }
+
+        it.each<[string, number[], string[], { minBarSize?: number; bar?: boolean; mode?: 'stack-total' }]>([
+            ['filters narrow segments by default on bar charts', [1, 2, 50, 1, 2], ['50'], { bar: true }],
+            ['minBarSize=0 keeps everything', [1, 50], ['1', '50'], { minBarSize: 0, bar: true }],
+            ['ignored on non-bar charts', [1, 2], ['1', '2'], {}],
+        ])('%s', (_name, data, expected, { minBarSize, bar }) => {
+            const series: ResolvedSeries[] = [{ key: 's', label: 'S', color: '#f00', data }]
+            const labels = data.length === 5 ? LABELS : ['Mon', 'Tue']
+            const ctx = makeContext(series, bar ? { labels, scales: barScales } : { labels })
+            const { container } = renderInChart(ctx, <ValueLabels minBarSize={minBarSize} />)
+            expect(labelDivs(container).map((d) => d.textContent)).toEqual(expected)
+        })
+
+        it('drops bands whose stack-total size is below minBarSize', () => {
+            const series: ResolvedSeries[] = [
+                { key: 'a', label: 'A', color: '#a00', data: [1, 50] },
+                { key: 'b', label: 'B', color: '#0a0', data: [1, 5] },
+            ]
+            const ctx = makeContext(series, { labels: ['Mon', 'Tue'], scales: barScales })
+            const divs = labelDivs(renderInChart(ctx, <ValueLabels mode="stack-total" />).container)
+            expect(divs.map((d) => d.textContent)).toEqual(['55'])
+        })
+    })
+
+    it('isPercent on context is informational — consumers supply their own formatter', () => {
+        const series: ResolvedSeries[] = [{ key: 's', label: 'S', color: '#f00', data: [0.25, 0.5, 0.75] }]
+        const ctx = makeContext(series, { isPercent: true, labels: ['Mon', 'Tue', 'Wed'] })
+        const { container } = renderInChart(ctx, <ValueLabels valueFormatter={(v) => `${(v * 100).toFixed(1)}%`} />)
+        expect(labelDivs(container).map((d) => d.textContent)).toEqual(['25.0%', '50.0%', '75.0%'])
     })
 })

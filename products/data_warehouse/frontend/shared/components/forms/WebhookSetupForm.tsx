@@ -13,11 +13,22 @@ import { SourceConfig, SourceFieldConfig } from '~/queries/schema/schema-general
 
 import { sourceFieldToElement } from './SourceForm'
 
+export interface WebhookCreateResult {
+    success: boolean
+    webhook_url: string
+    error?: string
+    /**
+     * `webhookFields` keys the user still needs to fill in after a successful auto-create
+     * (e.g. for sources whose API doesn't return the signing secret on create).
+     */
+    pending_inputs?: string[]
+}
+
 interface WebhookSetupFormProps {
     sourceName: string
     sourceConfig?: SourceConfig | null
     webhookTables?: { name: string; label?: string | null }[]
-    webhookResult?: { success: boolean; webhook_url: string; error?: string } | null
+    webhookResult?: WebhookCreateResult | null
     webhookCreating: boolean
     onCreateWebhook: () => void
     /** kea-forms logic and formKey for the manual webhook field inputs form */
@@ -102,13 +113,42 @@ export function WebhookSetupForm({
     }
 
     if (webhookResult?.success) {
+        const pendingKeys = new Set(webhookResult.pending_inputs ?? [])
+        const pendingFields = webhookFields.filter((f) => pendingKeys.has(f.name))
+
+        if (pendingFields.length === 0) {
+            return (
+                <WebhookSetupCard>
+                    <h3 className="text-lg font-semibold">Webhook created for {sourceName}</h3>
+                    <LemonBanner type="success">
+                        Webhook registered successfully. The tables below will now sync automatically when data changes
+                        in your {sourceName} account.
+                    </LemonBanner>
+                    {webhookTablesList}
+                </WebhookSetupCard>
+            )
+        }
+
         return (
             <WebhookSetupCard>
-                <h3 className="text-lg font-semibold">Webhook created for {sourceName}</h3>
+                <h3 className="text-lg font-semibold">Almost done — finish setting up your {sourceName} webhook</h3>
                 <LemonBanner type="success">
-                    Webhook registered successfully. The tables below will now sync automatically when data changes in
-                    your {sourceName} account.
+                    Webhook created in {sourceName}. We just need a couple more details from your {sourceName} dashboard
+                    to start receiving events.
                 </LemonBanner>
+                {sourceConfig?.webhookSetupCaption && (
+                    <LemonMarkdown className="text-sm">{sourceConfig.webhookSetupCaption}</LemonMarkdown>
+                )}
+                {sourceConfig && formLogic && formKey && (
+                    <Form logic={formLogic} formKey={formKey} enableFormOnSubmit>
+                        <div className="space-y-3 ph-no-capture">
+                            {pendingFields.map((field: SourceFieldConfig) => sourceFieldToElement(field, sourceConfig))}
+                            <LemonButton type="primary" htmlType="submit">
+                                Save
+                            </LemonButton>
+                        </div>
+                    </Form>
+                )}
                 {webhookTablesList}
             </WebhookSetupCard>
         )

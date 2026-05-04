@@ -9,6 +9,7 @@ import {
     InsightsPartialUpdateBody,
     InsightsPartialUpdateParams,
     InsightsRetrieveParams,
+    InsightsRetrieveQueryParams,
 } from '@/generated/product_analytics/api'
 import { withPostHogUrl, omitResponseFields, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
@@ -164,7 +165,9 @@ const insightDelete = (): ToolBase<typeof InsightDeleteSchema, Schemas.Insight> 
     },
 })
 
-const InsightGetSchema = InsightsRetrieveParams.omit({ project_id: true })
+const InsightGetSchema = InsightsRetrieveParams.omit({ project_id: true }).extend(
+    InsightsRetrieveQueryParams.omit({ format: true, from_dashboard: true, refresh: true }).shape
+)
 
 const insightGet = (): ToolBase<typeof InsightGetSchema, WithPostHogUrl<Schemas.Insight>> => ({
     name: 'insight-get',
@@ -174,6 +177,10 @@ const insightGet = (): ToolBase<typeof InsightGetSchema, WithPostHogUrl<Schemas.
         const result = await context.api.request<Schemas.Insight>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/insights/${encodeURIComponent(String(params.id))}/`,
+            query: {
+                filters_override: params.filters_override,
+                variables_override: params.variables_override,
+            },
         })
         const filtered = omitResponseFields(result, [
             'result',

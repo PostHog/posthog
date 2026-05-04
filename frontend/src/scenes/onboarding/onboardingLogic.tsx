@@ -340,24 +340,26 @@ export const onboardingLogic = kea<onboardingLogicType>([
             }
         },
         skipOnboarding: () => {
-            actions.openGlobalSetup()
+            // Quick Start does not auto-open here. The button remains in the scene title
+            // bar so users can open it manually. Auto-opening it conflicted with the welcome
+            // dialog mounted in GlobalModals for invitees (delegates and ordinary members),
+            // creating two competing "what to do next" surfaces.
             router.actions.push(values.onCompleteOnboardingRedirectUrl)
         },
         updateCurrentTeamSuccess: () => {
+            // See `skipOnboarding`: Quick Start no longer auto-opens after onboarding completes.
             if (values.isAwaitingPostOnboardingModal && values.productKey) {
                 actions.setAwaitingPostOnboardingModal(false)
-                // Experiment branch: variant shows modal, control shows Quick Start
+                // Experiment variant still shows its modal (it's gated by `modalShown` so it
+                // only fires once per user), but the control branch no longer auto-opens
+                // Quick Start.
                 const isVariant =
                     values.receivedFeatureFlags &&
                     values.featureFlags[FEATURE_FLAGS.POST_ONBOARDING_MODAL_EXPERIMENT] === 'test'
 
                 if (isVariant && !values.modalShown) {
                     actions.openPostOnboardingModal(values.productKey)
-                } else {
-                    actions.openGlobalSetup()
                 }
-            } else {
-                actions.openGlobalSetup()
             }
         },
         setAllOnboardingSteps: () => {

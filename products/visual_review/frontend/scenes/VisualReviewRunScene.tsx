@@ -163,7 +163,7 @@ function RunInProgressEmptyState({
             data-attr="visual-review-run-in-progress"
         >
             {isStale ? (
-                <LemonBanner type="warning" className="max-w-lg mb-4">
+                <LemonBanner type="warning" className="w-full max-w-lg mb-4">
                     The CI job hasn't reported back.{' '}
                     {ciJobUrl ? (
                         <Link to={ciJobUrl} target="_blank" className="font-semibold">

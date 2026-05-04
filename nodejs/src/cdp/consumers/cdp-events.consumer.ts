@@ -125,7 +125,6 @@ export class CdpEventsConsumer<
 
                     this.hogFunctionMonitoringService.queueAppMetrics(metrics, 'hog_function')
                     this.hogFunctionMonitoringService.queueLogs(logs, 'hog_function')
-                    this.heartbeat()
 
                     return invocations
                 })
@@ -282,7 +281,6 @@ export class CdpEventsConsumer<
 
                     this.hogFunctionMonitoringService.queueAppMetrics(metrics, 'hog_flow')
                     this.hogFunctionMonitoringService.queueLogs(logs, 'hog_flow')
-                    this.heartbeat()
 
                     return invocations
                 })

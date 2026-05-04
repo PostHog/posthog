@@ -46,15 +46,7 @@ export interface PatchedUpdateRepoRequestInputApi {
     enable_pr_comments?: boolean | null
 }
 
-export interface BaselineSparklineDayApi {
-    clean: number
-    tolerated: number
-    changed: number
-    quarantined: number
-}
-
 export interface BaselineEntryApi {
-    sparkline: BaselineSparklineDayApi[]
     identifier: string
     run_type: string
     /** @nullable */
@@ -69,8 +61,9 @@ export interface BaselineEntryApi {
     tolerate_count_90d: number
     is_quarantined: boolean
     last_run_at: string
+    baseline_change_count: number
     /** @nullable */
-    recent_diff_avg: number | null
+    recent_drift_avg: number | null
 }
 
 export type BaselineTotalsApiByRunType = { [key: string]: number }
@@ -400,6 +393,48 @@ export type VisualReviewReposRunsListParams = {
 }
 
 export type VisualReviewReposSnapshotsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type VisualReviewRunsListParams = {
+    /**
+     * Filter by branch name
+     */
+    branch?: string
+    /**
+     * Filter by full commit SHA
+     */
+    commit_sha?: string
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Filter by GitHub PR number
+     */
+    pr_number?: number
+    /**
+     * Filter by review state
+     */
+    review_state?: string
+}
+
+export type VisualReviewRunsSnapshotHistoryListParams = {
+    /**
+     * Snapshot identifier
+     */
+    identifier: string
     /**
      * Number of results to return per page.
      */
