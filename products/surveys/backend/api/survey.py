@@ -1,4 +1,5 @@
 import re
+import builtins
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional, TypedDict, cast
@@ -1735,7 +1736,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
 
         return super().destroy(request, *args, **kwargs)
 
-    def _get_partial_responses_filter(self, base_conditions_sql: list[str]) -> str:
+    def _get_partial_responses_filter(self, base_conditions_sql: builtins.list[str]) -> str:
         unique_uuids_subquery = get_unique_survey_event_uuids_sql_subquery(
             base_conditions_sql=base_conditions_sql,
         )
@@ -1857,7 +1858,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
             )
 
     def _process_survey_results(
-        self, results: list[tuple[str, int, int, datetime | None, datetime | None]]
+        self, results: builtins.list[tuple[str, int, int, datetime | None, datetime | None]]
     ) -> SurveyStats:
         """Process raw survey event results into stats format.
 
