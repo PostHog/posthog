@@ -1464,13 +1464,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             const source = values.connectors?.find((s) => s?.name?.toLowerCase?.() === kind)
             const manualSource = values.manualConnectors?.find((s) => s?.type?.toLowerCase() === kind)
 
-            // Bail on noise URL changes (e.g. child components writing pagination/filter params).
-            // Without this, any URL push past step 1 would re-trigger setStep(2) and yank the
-            // user back to credentials.
+            // Bail on noise URL changes (e.g. child components writing pagination/filter
+            // params). Without this, any URL push past step 1 would re-trigger setStep(2)
+            // and yank the user back to credentials.
             if (manualSource && values.manualLinkingProvider === manualSource.type) {
-                return
-            }
-            if (source && values.selectedConnector?.name === source.name) {
                 return
             }
 
@@ -1481,11 +1478,27 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             }
 
             if (source) {
-                // selectConnector forwards accessMethod to `resetSourceForm`, which seeds the
-                // connector's defaults and restores any OAuth-saved form state — saved
-                // access_method wins over the URL one (the OAuth callback URL doesn't carry it).
+                // Always propagate URL-driven access_method changes — covers both first
+                // selection and deep-link swaps (warehouse↔direct) on an already-selected
+                // connector.
+                const currentAccessMethod = (values.sourceConnectionDetails as Record<string, unknown> | undefined)
+                    ?.access_method
+                if (currentAccessMethod !== accessMethod) {
+                    actions.updateSource({ access_method: accessMethod })
+                    actions.setSourceConnectionDetailsValue('access_method', accessMethod)
+                }
+
+                // Connector unchanged — bail on step reset / re-selection so noise URL
+                // pushes don't yank the user back to credentials.
+                if (values.selectedConnector?.name === source.name) {
+                    return
+                }
+
+                // selectConnector forwards accessMethod to `resetSourceForm`, which seeds
+                // the connector's defaults and restores any OAuth-saved form state — saved
+                // access_method wins over the URL one (the OAuth callback URL doesn't
+                // carry it).
                 actions.selectConnector(source, accessMethod)
-                actions.updateSource({ access_method: accessMethod })
                 actions.handleRedirect(source.name)
                 actions.setStep(2)
                 return
