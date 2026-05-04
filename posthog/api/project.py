@@ -1,4 +1,3 @@
-from datetime import timedelta
 from functools import cached_property
 from typing import Any, Optional, cast
 
@@ -20,6 +19,7 @@ from posthog.api.shared import ProjectBackwardCompatBasicSerializer
 from posthog.api.team import (
     TEAM_CONFIG_FIELDS_SET,
     TeamSerializer,
+    get_or_mint_live_events_token,
     handle_conversations_token_on_update,
     validate_team_attrs,
 )
@@ -29,7 +29,6 @@ from posthog.constants import AvailableFeature
 from posthog.decorators import disallow_if_impersonated
 from posthog.event_usage import report_user_action
 from posthog.geoip import get_geoip_properties
-from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import (
     Change,
@@ -356,17 +355,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
         team = project.teams.get(pk=project.pk)
         request = self.context.get("request")
         user_id = request.user.id if request and hasattr(request, "user") and request.user.is_authenticated else None
-        claims = {
-            "team_id": team.id,
-            "api_token": team.api_token,
-            "user_id": user_id,
-            "organization_id": str(team.organization_id),
-        }
-        return encode_jwt(
-            claims,
-            timedelta(days=7),
-            PosthogJwtAudience.LIVESTREAM,
-        )
+        return get_or_mint_live_events_token(team, user_id)
 
     @extend_schema_field(
         {

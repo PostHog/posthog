@@ -42,6 +42,10 @@ interface QueryWindowProps {
     onShowDatabaseTree: () => void
     showQueryPanel?: boolean
     showOutputPanel?: boolean
+    onRunQuery?: () => void
+    runQueryLoading?: boolean
+    runQueryDisabledReason?: string
+    runQueryTooltip?: string
 }
 
 export function QueryWindow({
@@ -52,6 +56,10 @@ export function QueryWindow({
     onShowDatabaseTree,
     showQueryPanel = true,
     showOutputPanel = true,
+    onRunQuery,
+    runQueryLoading,
+    runQueryDisabledReason,
+    runQueryTooltip,
 }: QueryWindowProps): JSX.Element {
     const codeEditorKey = `hogql-editor-${tabId}`
 
@@ -152,7 +160,12 @@ export function QueryWindow({
                             showDatabaseTree={showDatabaseTree}
                             onShowDatabaseTree={onShowDatabaseTree}
                         />
-                        <RunButton />
+                        <RunButton
+                            onRunQuery={onRunQuery}
+                            runQueryLoading={runQueryLoading}
+                            runQueryDisabledReason={runQueryDisabledReason}
+                            runQueryTooltip={runQueryTooltip}
+                        />
                         <CollapsedConnectionSelector mode={mode} />
                         <LemonDivider vertical />
                         <QueryVariablesMenu
@@ -240,13 +253,25 @@ export function QueryWindow({
                             onSetMonacoAndEditor(monaco, editor)
                         },
                         onPressCmdEnter: (value, selectionType) => {
+                            if (onRunQuery) {
+                                if (!runQueryLoading) {
+                                    onRunQuery()
+                                }
+                                return
+                            }
                             if (value && selectionType === 'selection') {
                                 runQuery(value)
                             } else {
                                 runQuery()
                             }
                         },
-                        onPressCmdShiftEnter: runSubquery,
+                        onPressCmdShiftEnter: onRunQuery
+                            ? () => {
+                                  if (!runQueryLoading) {
+                                      onRunQuery()
+                                  }
+                              }
+                            : runSubquery,
                         onError: (error) => {
                             setError(error)
                         },
@@ -296,15 +321,30 @@ function ExpandDatabaseTreeButton({
     )
 }
 
-function RunButton(): JSX.Element {
+function RunButton({
+    onRunQuery,
+    runQueryLoading,
+    runQueryDisabledReason,
+    runQueryTooltip,
+}: {
+    onRunQuery?: () => void
+    runQueryLoading?: boolean
+    runQueryDisabledReason?: string
+    runQueryTooltip?: string
+}): JSX.Element {
     const { runQuery, runSubquery } = useActions(sqlEditorLogic)
     const { cancelQuery } = useActions(dataNodeLogic)
     const { responseLoading } = useValues(dataNodeLogic)
     const { metadata, queryInput, isSourceQueryLastRun } = useValues(sqlEditorLogic)
 
     const isUsingIndices = metadata?.isUsingIndices === 'yes'
+    const isRunning = onRunQuery ? !!runQueryLoading : responseLoading
 
     const [iconColor, tooltipContent] = useMemo(() => {
+        if (onRunQuery) {
+            return ['var(--success)', runQueryTooltip ?? 'Run query']
+        }
+
         if (isSourceQueryLastRun) {
             return ['var(--primary)', 'No changes to run']
         }
@@ -318,11 +358,11 @@ function RunButton(): JSX.Element {
             : undefined
 
         return ['var(--warning)', tooltip]
-    }, [metadata, isUsingIndices, queryInput, isSourceQueryLastRun])
+    }, [metadata, isUsingIndices, queryInput, isSourceQueryLastRun, onRunQuery, runQueryTooltip])
 
     const sideAction = useMemo(
         () =>
-            responseLoading
+            responseLoading || onRunQuery
                 ? undefined
                 : {
                       dropdown: {
@@ -347,33 +387,39 @@ function RunButton(): JSX.Element {
                           ),
                       },
                   },
-        [responseLoading, runQuery, runSubquery]
+        [onRunQuery, responseLoading, runQuery, runSubquery]
     )
 
     return (
         <AppShortcut
             name="SQLEditorRun"
             keybind={[keyBinds.run]}
-            intent={responseLoading ? 'Cancel query' : 'Run query'}
+            intent={isRunning && !onRunQuery ? 'Cancel query' : 'Run query'}
             interaction="click"
             scope={Scene.SQLEditor}
         >
             <LemonButton
                 data-attr="sql-editor-run-button"
                 onClick={() => {
-                    if (responseLoading) {
+                    if (onRunQuery) {
+                        if (!runQueryLoading) {
+                            onRunQuery()
+                        }
+                    } else if (responseLoading) {
                         cancelQuery()
                     } else {
                         runQuery()
                     }
                 }}
-                icon={responseLoading ? <IconCancel /> : <IconPlayFilled color={iconColor} />}
+                icon={isRunning && !onRunQuery ? <IconCancel /> : <IconPlayFilled color={iconColor} />}
                 type="primary"
                 size="small"
                 tooltip={tooltipContent}
                 sideAction={sideAction}
+                loading={isRunning && !!onRunQuery}
+                disabledReason={runQueryDisabledReason}
             >
-                {responseLoading ? 'Cancel' : 'Run'}
+                {isRunning && !onRunQuery ? 'Cancel' : 'Run'}
             </LemonButton>
         </AppShortcut>
     )

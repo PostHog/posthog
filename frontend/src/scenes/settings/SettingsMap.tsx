@@ -1052,7 +1052,6 @@ export const SETTINGS_MAP: SettingSection[] = [
         id: 'environment-conversations',
         title: 'Support',
         group: 'Products',
-        flag: 'PRODUCT_SUPPORT',
         settings: [
             {
                 id: 'conversations-general',

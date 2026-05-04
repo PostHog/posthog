@@ -18,72 +18,22 @@ Run via hogli: `hogli build:openapi-mcp-scopes` (also runs as part of
 
 from __future__ import annotations
 
-import ast
 import sys
-import importlib.util
+import runpy
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCOPES_PY = REPO_ROOT / "posthog" / "scopes.py"
 OUTPUT_TS = REPO_ROOT / "services" / "mcp" / "src" / "lib" / "oauth-scopes.generated.ts"
 
-# `posthog/scopes.py` must stay a leaf module so this script can load it via
-# importlib without triggering posthog/__init__.py (which imports Celery + Django
-# settings). If a maintainer adds a non-stdlib import, fail loudly here so they
-# either roll it back or update the codegen, instead of producing a stale file.
-# `__future__` is allowed: it's a compile-time directive with no runtime effect.
-ALLOWED_IMPORT_ROOTS: frozenset[str] = frozenset({"__future__", "typing", "collections", "enum"})
-
-
-def _assert_scopes_module_is_leaf() -> None:
-    tree = ast.parse(SCOPES_PY.read_text())
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            modules = [n.name for n in node.names]
-        elif isinstance(node, ast.ImportFrom):
-            # Relative imports (level > 0) are forbidden; absolute imports of
-            # `posthog.*` would re-trigger __init__.py.
-            modules = [node.module or ""] if node.level == 0 else ["<relative>"]
-        else:
-            continue
-        for module in modules:
-            root = module.split(".", 1)[0]
-            if root not in ALLOWED_IMPORT_ROOTS:
-                raise RuntimeError(
-                    f"{SCOPES_PY} imports {module!r}, but this script loads "
-                    f"scopes.py via importlib without Django setup. Add "
-                    f"{root!r} to ALLOWED_IMPORT_ROOTS in {Path(__file__).name} "
-                    f"after confirming it is safe to import without "
-                    f"posthog/__init__.py side effects, or move scopes.py back "
-                    f"to leaf-only imports."
-                )
-
-
-def _load_scopes_module():
-    """Import posthog/scopes.py without triggering posthog/__init__.py.
-
-    posthog/__init__.py imports Celery and pulls in Django settings, which
-    requires a running database. scopes.py itself only depends on stdlib, so
-    we can load it directly via importlib.
-    """
-    spec = importlib.util.spec_from_file_location("_posthog_scopes", SCOPES_PY)
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"Could not load {SCOPES_PY}")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules["_posthog_scopes"] = module
-    try:
-        spec.loader.exec_module(module)
-        return module
-    finally:
-        # Avoid leaking the side-channel module name if the script is ever
-        # imported (vs run as __main__).
-        sys.modules.pop("_posthog_scopes", None)
-
 
 def main() -> int:
-    _assert_scopes_module_is_leaf()
-    scopes_module = _load_scopes_module()
-    all_scopes: list[str] = scopes_module.get_oauth_scopes_supported()
+    # runpy.run_path loads the file by filesystem path, bypassing the normal
+    # import machinery and therefore posthog/__init__.py (which pulls in
+    # Celery and Django settings). Any import that scopes.py doesn't satisfy
+    # from stdlib will raise ImportError here, failing the build loudly.
+    scopes_globals = runpy.run_path(str(SCOPES_PY))
+    all_scopes: list[str] = scopes_globals["get_oauth_scopes_supported"]()
 
     # oxfmt enforces single quotes; format manually rather than json.dumps so
     # the generator output is byte-stable regardless of formatter rules. Scope

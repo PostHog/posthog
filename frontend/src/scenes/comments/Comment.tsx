@@ -223,12 +223,14 @@ const CommentTopRow = ({ comment }: { comment: CommentType }): JSX.Element => {
 }
 
 const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
-    const { editingComment, replyingCommentId } = useValues(commentsLogic)
+    const { editingComment, replyingCommentId, selectedCommentId } = useValues(commentsLogic)
+    const { setSelectedComment } = useActions(commentsLogic)
 
     const ref = useRef<HTMLDivElement | null>(null)
 
     const isEditing = editingComment?.id === comment.id
-    const isHighlighted = replyingCommentId === comment.id || isEditing
+    const isHighlighted = selectedCommentId === comment.id || replyingCommentId === comment.id || isEditing
+    const threadId = comment.source_comment ?? comment.id
 
     useEffect(() => {
         if (isHighlighted) {
@@ -239,8 +241,13 @@ const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
     return (
         <div
             ref={ref}
-            className={clsx('Comment border rounded-lg bg-surface-primary px-2 py-1', isHighlighted && 'border-accent')}
+            className={clsx(
+                'Comment border rounded-lg bg-surface-primary px-2 py-1',
+                isHighlighted && 'border-accent',
+                !isEditing && 'cursor-pointer'
+            )}
             data-comment-id={comment.id}
+            onClick={isEditing ? undefined : () => setSelectedComment(threadId)}
         >
             <div className="flex flex-col justify-start gap-2">
                 <div className="flex-1 flex justify-start gap-2">

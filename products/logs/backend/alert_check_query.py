@@ -167,7 +167,7 @@ class AlertCheckQuery:
     SETTINGS = HogQLGlobalSettings(
         max_execution_time=30,
         # Defence-in-depth against large-cohort batched queries: caps a single batched/per-alert
-        # query well below worker memory headroom. Cohort chunking (`MAX_COHORT_CHUNK_SIZE`)
+        # query well below worker memory headroom. Cohort chunking (`MAX_ALERT_COHORT_SIZE`)
         # keeps per-query reads bounded at the source; this setting is the safety net if a
         # chunk surprises us.
         max_bytes_to_read=5_000_000_000,  # 5GB
