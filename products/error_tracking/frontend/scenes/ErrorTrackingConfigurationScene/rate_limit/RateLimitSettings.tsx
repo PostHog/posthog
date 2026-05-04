@@ -1,0 +1,159 @@
+import { useValues } from 'kea'
+import { Form } from 'kea-forms'
+import { useMemo } from 'react'
+
+import { LemonBanner } from '@posthog/lemon-ui'
+
+import { dayjs } from 'lib/dayjs'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonInput } from 'lib/lemon-ui/LemonInput'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+
+import { LineGraph } from '~/queries/nodes/DataVisualization/Components/Charts/LineGraph'
+import { ChartDisplayType } from '~/types'
+
+import { ExceptionVolumeBucket, rateLimitConfigLogic } from './rateLimitConfigLogic'
+
+export function RateLimitSettings(): JSX.Element {
+    const { configLoading, configFormChanged, isConfigFormSubmitting, configForm, volume, volumeLoading } =
+        useValues(rateLimitConfigLogic)
+
+    if (configLoading) {
+        return (
+            <div className="space-y-4">
+                <LemonSkeleton className="w-full h-10" />
+                <LemonSkeleton className="w-full h-64" />
+            </div>
+        )
+    }
+
+    return (
+        <div className="space-y-8">
+            <Form logic={rateLimitConfigLogic} formKey="configForm" enableFormOnSubmit className="space-y-4">
+                <LemonBanner type="info">
+                    Rate limiting caps how many exception events are ingested per hour. Events over the limit are
+                    dropped. Leave empty to disable.
+                </LemonBanner>
+
+                <div className="grid grid-cols-3 gap-4">
+                    <LemonField
+                        name="rate_limit_per_hour"
+                        label="Events per hour"
+                        info="Maximum number of exception events to accept per hour. Empty means unlimited."
+                    >
+                        {({ value, onChange }) => (
+                            <LemonInput
+                                type="number"
+                                min={1}
+                                value={value ?? undefined}
+                                onChange={(v) => onChange(v ?? null)}
+                                placeholder="Unlimited"
+                                fullWidth
+                                data-attr="rate-limit-per-hour"
+                            />
+                        )}
+                    </LemonField>
+                </div>
+
+                <div className="flex justify-end">
+                    <LemonButton
+                        type="primary"
+                        htmlType="submit"
+                        disabledReason={!configFormChanged ? 'No changes to save' : undefined}
+                        loading={isConfigFormSubmitting}
+                    >
+                        Save
+                    </LemonButton>
+                </div>
+            </Form>
+
+            <div>
+                <h3 className="font-semibold mb-2">Simulation — last 7 days</h3>
+                <p className="text-muted-foreground text-sm mb-3">
+                    Hourly exception volume for this project. The line shows where the rate limit would sit.
+                </p>
+                {volumeLoading ? (
+                    <LemonSkeleton className="w-full h-64" />
+                ) : (
+                    <RateLimitSimulationChart volume={volume} rateLimit={configForm.rate_limit_per_hour} />
+                )}
+            </div>
+        </div>
+    )
+}
+
+function RateLimitSimulationChart({
+    volume,
+    rateLimit,
+}: {
+    volume: ExceptionVolumeBucket[]
+    rateLimit: number | null
+}): JSX.Element {
+    const { xData, yData } = useMemo(() => {
+        const labels = volume.map((b) => dayjs(b.hour).format('MMM D, HH:mm'))
+        const counts = volume.map((b) => b.count)
+        return {
+            xData: {
+                column: {
+                    name: 'hour',
+                    type: { name: 'STRING' as const, isNumerical: false },
+                    label: 'Hour',
+                    dataIndex: 0,
+                },
+                data: labels,
+            },
+            yData: [
+                {
+                    column: {
+                        name: 'count',
+                        type: { name: 'INTEGER' as const, isNumerical: true },
+                        label: 'Exceptions',
+                        dataIndex: 0,
+                    },
+                    data: counts,
+                    settings: {
+                        display: {
+                            displayType: 'bar' as const,
+                        },
+                    },
+                },
+            ],
+        }
+    }, [volume])
+
+    const goalLines = useMemo(
+        () =>
+            rateLimit && rateLimit > 0
+                ? [
+                      {
+                          label: `Rate limit (${rateLimit}/hour)`,
+                          value: rateLimit,
+                          displayLabel: true,
+                      },
+                  ]
+                : [],
+        [rateLimit]
+    )
+
+    if (volume.length === 0) {
+        return (
+            <div className="border rounded h-64 flex items-center justify-center text-muted-foreground">
+                No exception events in the last 7 days
+            </div>
+        )
+    }
+
+    return (
+        <div className="border rounded p-2 h-80">
+            <LineGraph
+                className="h-full"
+                xData={xData}
+                yData={yData}
+                visualizationType={ChartDisplayType.ActionsBar}
+                chartSettings={{}}
+                goalLines={goalLines}
+            />
+        </div>
+    )
+}

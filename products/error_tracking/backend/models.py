@@ -578,6 +578,19 @@ class ErrorTrackingSpikeDetectionConfig(models.Model):
         db_table = "posthog_errortrackingspikedetectionconfig"
 
 
+class ErrorTrackingRateLimitConfig(models.Model):
+    team = models.OneToOneField(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        primary_key=True,
+        related_name="error_tracking_rate_limit_config",
+    )
+    rate_limit_per_hour = models.IntegerField(null=True, blank=True)
+
+    class Meta:
+        db_table = "posthog_errortrackingratelimitconfig"
+
+
 class ErrorTrackingSpikeEvent(UUIDModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     issue = models.ForeignKey(ErrorTrackingIssue, on_delete=models.CASCADE, related_name="spike_events")

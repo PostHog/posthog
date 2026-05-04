@@ -155,6 +155,10 @@ export interface ErrorTrackingSpikeDetectionConfig {
     threshold: number
 }
 
+export interface ErrorTrackingRateLimitConfig {
+    rate_limit_per_hour: number | null
+}
+
 export interface ErrorTrackingSpikeEventIssue {
     id: string
     name: string | null

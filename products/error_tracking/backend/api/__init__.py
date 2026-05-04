@@ -4,6 +4,7 @@ from .fingerprints import ErrorTrackingFingerprintViewSet
 from .git_provider_file_link_resolver import GitProviderFileLinksViewSet
 from .grouping_rules import ErrorTrackingGroupingRuleViewSet
 from .issues import ErrorTrackingIssueViewSet
+from .rate_limit_config import ErrorTrackingRateLimitConfigViewSet
 from .recommendations import ErrorTrackingRecommendationViewSet
 from .releases import ErrorTrackingReleaseViewSet
 from .spike_detection_config import ErrorTrackingSpikeDetectionConfigViewSet
@@ -20,6 +21,7 @@ __all__ = [
     "ErrorTrackingSymbolSetViewSet",
     "ErrorTrackingFingerprintViewSet",
     "ErrorTrackingGroupingRuleViewSet",
+    "ErrorTrackingRateLimitConfigViewSet",
     "ErrorTrackingReleaseViewSet",
     "ErrorTrackingSpikeDetectionConfigViewSet",
     "ErrorTrackingSpikeEventViewSet",
