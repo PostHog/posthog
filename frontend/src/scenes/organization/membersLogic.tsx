@@ -43,6 +43,13 @@ export const membersLogic = kea<membersLogicType>([
                 })
             },
             loadMemberUpdates: async () => {
+                // Skip incremental updates while a search is active — `members` currently
+                // holds the search-filtered set, and merging arbitrary recently-updated
+                // members into it would surface unrelated rows in the search results.
+                if (values.search?.trim()) {
+                    return values.members
+                }
+
                 const newestMemberUpdate = values.members?.sort((a, b) => (a.updated_at > b.updated_at ? -1 : 1))?.[0]
 
                 if (!newestMemberUpdate || !values.members) {
@@ -127,8 +134,13 @@ export const membersLogic = kea<membersLogicType>([
             },
         ],
         meFirstMembers: [
-            (s) => [s.sortedMembers, s.user],
-            (members, user): OrganizationMemberType[] => {
+            (s) => [s.sortedMembers, s.user, s.search],
+            (members, user, search): OrganizationMemberType[] => {
+                // When the user is searching for someone else, don't pin themselves to the
+                // top — the search results are the answer to the query, me-first is noise.
+                if (search?.trim()) {
+                    return members ?? []
+                }
                 const me = user && members?.find((member) => member.user.uuid === user.uuid)
                 const result: OrganizationMemberType[] = me ? [me] : []
                 for (const member of members ?? []) {
