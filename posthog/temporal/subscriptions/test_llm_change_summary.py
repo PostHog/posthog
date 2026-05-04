@@ -436,7 +436,7 @@ class TestGenerateChangeSummary:
         call_kwargs = mock_client.chat.completions.create.call_args.kwargs
         assert call_kwargs["posthog_properties"]["$ai_billable"] is True
         assert call_kwargs["posthog_properties"]["team_id"] == 42
-        assert call_kwargs["posthog_properties"]["ai_product"] == "subscription_summary"
+        assert call_kwargs["posthog_properties"]["ai_product"] == "subscriptions"
         assert call_kwargs["posthog_properties"]["delivery_id"] == "abc-123"
         assert call_kwargs["posthog_groups"] == {"project": "42"}
         assert call_kwargs["posthog_distinct_id"] == call_kwargs["user"]

@@ -360,7 +360,7 @@ def generate_change_summary(
     if delivery_id:
         user_tag = f"{user_tag}-delivery-{delivery_id}"
 
-    posthog_properties: dict[str, object] = {"ai_product": "subscription_summary"}
+    posthog_properties: dict[str, object] = {"ai_product": "subscriptions"}
     if delivery_id:
         posthog_properties["delivery_id"] = delivery_id
 
