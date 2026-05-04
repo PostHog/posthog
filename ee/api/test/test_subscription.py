@@ -1016,6 +1016,9 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert subscription.enabled is True
         assert subscription.next_delivery_date is not None
         assert subscription.next_delivery_date > timezone.now()
+        # Re-enable also fires the immediate TARGET_CHANGE confirmation delivery —
+        # the date reset prevents the *scheduler* from firing a second one moments later.
+        temporal_mock.return_value.start_workflow.assert_called_once()
 
     def test_get_returns_enabled_field(self):
         subscription = Subscription.objects.create(
@@ -1035,6 +1038,7 @@ class TestSubscriptionTemporal(APILicensedTest):
         [
             # Locks the workflow-trigger matrix across all four (initial, final) enabled states.
             ("enabled_to_enabled_field_edit", True, {"title": "renamed"}, True),
+            ("redundant_enable", True, {"enabled": True}, True),
             ("disable_enabled", True, {"enabled": False}, False),
             ("redundant_disable", False, {"enabled": False}, False),
             ("enable_disabled", False, {"enabled": True}, True),

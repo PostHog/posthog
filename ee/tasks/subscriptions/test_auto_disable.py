@@ -8,7 +8,7 @@ from parameterized import parameterized
 from posthog.models.subscription import Subscription
 
 from ee.tasks.subscriptions.auto_disable import (
-    SLACK_INTEGRATION_DISCONNECTED_REASON,
+    SLACK_DISCONNECTED_DISABLE_REASON,
     disable_invalid_subscription,
     send_notifications_for_disabled_subscription,
     validate_re_enable,
@@ -63,11 +63,11 @@ class TestDisableInvalidSubscription(APIBaseTest):
         sub = self._make_subscription()
 
         with patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription") as send_mock:
-            disable_invalid_subscription(sub, SLACK_INTEGRATION_DISCONNECTED_REASON)
+            disable_invalid_subscription(sub, SLACK_DISCONNECTED_DISABLE_REASON)
 
         sub.refresh_from_db()
         assert sub.enabled is False
-        send_mock.assert_called_once_with(sub, SLACK_INTEGRATION_DISCONNECTED_REASON, [self.user.email])
+        send_mock.assert_called_once_with(sub, SLACK_DISCONNECTED_DISABLE_REASON.description, [self.user.email])
 
     @parameterized.expand(
         [
@@ -84,7 +84,7 @@ class TestDisableInvalidSubscription(APIBaseTest):
             sub = self._make_subscription(created_by=None)
 
         with patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription") as send_mock:
-            disable_invalid_subscription(sub, SLACK_INTEGRATION_DISCONNECTED_REASON)
+            disable_invalid_subscription(sub, SLACK_DISCONNECTED_DISABLE_REASON)
 
         sub.refresh_from_db()
         assert sub.enabled is False
@@ -94,8 +94,12 @@ class TestDisableInvalidSubscription(APIBaseTest):
         sub = self._make_subscription()
 
         with patch("ee.tasks.subscriptions.auto_disable.EmailMessage") as email_cls:
-            send_notifications_for_disabled_subscription(sub, SLACK_INTEGRATION_DISCONNECTED_REASON, [self.user.email])
-            send_notifications_for_disabled_subscription(sub, SLACK_INTEGRATION_DISCONNECTED_REASON, [self.user.email])
+            send_notifications_for_disabled_subscription(
+                sub, SLACK_DISCONNECTED_DISABLE_REASON.description, [self.user.email]
+            )
+            send_notifications_for_disabled_subscription(
+                sub, SLACK_DISCONNECTED_DISABLE_REASON.description, [self.user.email]
+            )
 
         first_key = email_cls.call_args_list[0].kwargs["campaign_key"]
         second_key = email_cls.call_args_list[1].kwargs["campaign_key"]
@@ -122,7 +126,7 @@ class TestDisableInvalidSubscription(APIBaseTest):
             ) as send_mock,
             patch("ee.tasks.subscriptions.auto_disable.capture_exception") as capture_mock,
         ):
-            disable_invalid_subscription(sub, SLACK_INTEGRATION_DISCONNECTED_REASON)
+            disable_invalid_subscription(sub, SLACK_DISCONNECTED_DISABLE_REASON)
 
         sub.refresh_from_db()
         assert sub.enabled is False

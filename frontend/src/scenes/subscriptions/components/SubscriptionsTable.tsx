@@ -20,12 +20,6 @@ export function subscriptionName(sub: SubscriptionApi): string {
     return sub.title?.trim() || sub.resource_name?.trim() || 'Untitled subscription'
 }
 
-// Treat `undefined` as enabled — pre-`enabled`-field cached API responses don't
-// include the field, but those subscriptions are functionally enabled. The
-// generated `SubscriptionApi.enabled?: boolean` permits undefined so this guard
-// stays in place until the field becomes required at the schema level.
-// Structurally typed so legacy `SubscriptionType` (the hand-written interface in
-// `~/types`) and the generated `SubscriptionApi` both flow through.
 export function isSubscriptionEnabled(sub: { enabled?: boolean | null }): boolean {
     return sub.enabled !== false
 }

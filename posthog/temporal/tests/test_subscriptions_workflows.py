@@ -25,7 +25,7 @@ from posthog.errors import CHQueryErrorS3Error
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.insight import Insight
 from posthog.models.instance_setting import set_instance_setting
-from posthog.models.subscription import SubscriptionDelivery
+from posthog.models.subscription import Subscription, SubscriptionDelivery
 from posthog.slo.types import SloArea, SloConfig, SloOperation, SloOutcome
 from posthog.tasks.exports.failure_handler import ExcelColumnLimitExceeded
 from posthog.temporal.common.slo_interceptor import SloInterceptor
@@ -549,8 +549,10 @@ async def test_deliver_subscription_auto_disables_invalid_subscriptions(
 async def test_no_assets_does_not_auto_disable(team, user):
     """Empty `assets` at delivery time is a transient export-pipeline failure
     (genuine deletion is filtered upstream). Subscription stays enabled, the next
-    scheduled cycle retries. The non-fatal failure is surfaced via the workflow's
-    SLO completion event (workflow tags `error_type` from recipient_results)."""
+    scheduled cycle retries. The failure is surfaced via the per-recipient result
+    on the SubscriptionDelivery record and a `subscription_delivery_failed` analytics
+    event — SLO outcome is owned by the workflow (asset-level errors only) so it
+    isn't asserted at this activity boundary."""
     insight = await sync_to_async(Insight.objects.create)(team=team, short_id="dis-noast", name="no_assets")
     subscription = await sync_to_async(create_subscription)(
         team=team,
@@ -593,35 +595,58 @@ async def test_no_assets_does_not_auto_disable(team, user):
 
 
 @pytest.mark.asyncio
-async def test_deliver_subscription_skips_when_already_disabled(team, user):
-    """Activity-retry idempotency: a Temporal redispatch (e.g. worker crash mid-acknowledge)
-    after the auto-disable UPDATE committed must NOT re-fire side effects. UUID4 campaign
-    keys mean MessagingRecord wouldn't dedup the duplicate disable email."""
-    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="dis-skip", name="Already disabled")
+async def test_deliver_subscription_retry_idempotent_after_auto_disable(team, user):
+    """Simulates a Temporal redispatch after a successful auto-disable: first call
+    auto-disables, second call must observe the entry guard and return without
+    re-firing the disable email or analytics. UUID4 campaign keys mean
+    MessagingRecord wouldn't dedup the duplicate email otherwise."""
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="retry-skip", name="retry idempotency")
     asset = await sync_to_async(ExportedAsset.objects.create)(
-        team=team, insight=insight, export_format="image/png", content_location="s3://bucket/skip.png"
+        team=team, insight=insight, export_format="image/png", content_location="s3://bucket/retry.png"
     )
+    # webhook is unsupported, so the first call hits the auto-disable branch.
     subscription = await sync_to_async(create_subscription)(
         team=team,
         insight=insight,
         created_by=user,
-        target_type="slack",
-        target_value="C12345|#test-channel",
-        enabled=False,
+        target_type="webhook",
+        target_value="https://example.com/hook",
+        enabled=True,
     )
 
     env = ActivityEnvironment()
-    with patch("ee.tasks.subscriptions.auto_disable.disable_invalid_subscription") as disable_mock:
-        result = await env.run(
-            deliver_subscription,
-            DeliverSubscriptionInputs(
-                subscription_id=subscription.id, exported_asset_ids=[asset.id], total_insight_count=1
-            ),
-        )
+    inputs = DeliverSubscriptionInputs(
+        subscription_id=subscription.id, exported_asset_ids=[asset.id], total_insight_count=1
+    )
 
-    # Must return cleanly with empty recipient_results — no side effects re-fired.
-    assert result.recipient_results == []
-    disable_mock.assert_not_called()
+    # First call: unsupported_target triggers auto-disable + per-recipient failure.
+    with (
+        patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription") as send_mock,
+        patch("posthog.temporal.subscriptions.activities._capture_delivery_failed_event") as capture_mock,
+    ):
+        first_result = await env.run(deliver_subscription, inputs)
+
+    assert first_result.recipient_results[0].status == "failed"
+    error = first_result.recipient_results[0].error
+    assert error is not None
+    assert error["type"] == "unsupported_target"
+    send_mock.assert_called_once()
+    capture_mock.assert_called_once()
+
+    await sync_to_async(subscription.refresh_from_db)()
+    assert subscription.enabled is False
+
+    # Second call simulates the Temporal redispatch — the entry guard short-circuits
+    # so the disable email and analytics event do NOT fire again.
+    with (
+        patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription") as send_mock,
+        patch("posthog.temporal.subscriptions.activities._capture_delivery_failed_event") as capture_mock,
+    ):
+        second_result = await env.run(deliver_subscription, inputs)
+
+    assert second_result.recipient_results == []
+    send_mock.assert_not_called()
+    capture_mock.assert_not_called()
 
 
 @patch("posthog.slo.events.posthoganalytics")
@@ -1691,8 +1716,6 @@ async def test_workflow_survives_large_insight_snapshot(
 
 
 async def test_fetch_due_subscriptions_excludes_disabled(team, user):
-    from posthog.models.subscription import Subscription
-
     dashboard = await sync_to_async(Dashboard.objects.create)(team=team, name="dashboard", created_by=user)
 
     now = datetime.now(tz=ZoneInfo("UTC"))
