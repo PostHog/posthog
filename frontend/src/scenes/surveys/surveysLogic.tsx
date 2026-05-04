@@ -90,12 +90,11 @@ function mergeSearchSurveysData(
     response: CountedPaginatedResponse<Survey>,
     appendResults = false
 ): SurveyDataState {
-    if (response.results.length === 0) {
+    if (appendResults && response.results.length === 0) {
         return currentData
     }
 
-    const searchSurveys =
-        appendResults && response.results ? [...currentData.searchSurveys, ...response.results] : response.results
+    const searchSurveys = appendResults ? [...currentData.searchSurveys, ...response.results] : response.results
 
     return {
         ...currentData,
