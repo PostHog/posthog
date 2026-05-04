@@ -47,13 +47,12 @@ const fileSystemEntryToSearchItem = (
 ): SearchItem => {
     const name = splitPath(item.path).pop()
     const productIconColor = item.type ? getProductIconColorByType().get(item.type) : undefined
-    const baseRecord = item as unknown as Record<string, unknown>
     return {
         name: name ? unescapePath(name) : item.path,
         href: item.href || '#',
         lastViewedAt: item.last_viewed_at ?? null,
         itemType: item.type ?? null,
-        record: { ...baseRecord, iconColor: productIconColor ?? baseRecord.iconColor },
+        record: { ...item, iconColor: productIconColor },
         ...overrides,
     }
 }
