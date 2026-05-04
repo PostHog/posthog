@@ -27,7 +27,7 @@ from posthog.models import Team, User
 from posthog.permissions import AccessControlPermission
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 
-from products.llm_analytics.backend.models.score_definitions import ScoreDefinition
+from products.llm_analytics.backend.models.score_definitions import ScoreDefinition, StaleScoreDefinitionVersion
 from products.llm_analytics.backend.score_definition_configs import ScoreDefinitionConfigField
 
 HUMAN_REVIEWS_FEATURE_FLAG = "llma-trace-review"
@@ -64,6 +64,11 @@ class ScoreDefinitionSerializer(serializers.ModelSerializer):
         read_only=True,
         help_text="Current immutable configuration version number.",
     )
+    current_version_id = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text="UUID of the current version row. Matches `system.score_definitions.current_version_id` in HogQL.",
+    )
     config = ScoreDefinitionConfigField(
         source="current_version.config",
         read_only=True,
@@ -79,6 +84,7 @@ class ScoreDefinitionSerializer(serializers.ModelSerializer):
             "kind",
             "archived",
             "current_version",
+            "current_version_id",
             "config",
             "created_by",
             "created_at",
@@ -141,6 +147,15 @@ class ScoreDefinitionMetadataSerializer(serializers.Serializer):
 
 class ScoreDefinitionNewVersionSerializer(serializers.Serializer):
     config = ScoreDefinitionConfigField(help_text="Next immutable scorer configuration.")
+    base_version = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        help_text=(
+            "Version number the caller observed before requesting this bump. "
+            "If provided and it does not match the scorer's current version, the request fails with 409. "
+            "Omit to skip the optimistic-concurrency check."
+        ),
+    )
 
 
 class ScoreDefinitionFilter(django_filters.FilterSet):
@@ -199,9 +214,19 @@ class ScoreDefinitionViewSet(
     def safely_get_queryset(
         self, queryset: QuerySet[ScoreDefinition, ScoreDefinition]
     ) -> QuerySet[ScoreDefinition, ScoreDefinition]:
-        return (
+        queryset = (
             queryset.filter(team_id=self.team_id).select_related("current_version", "created_by").order_by("name", "id")
         )
+
+        # Default the list view to active scorers only — callers must opt in to archived rows
+        # by passing `?archived=true` (only archived) or `?archived=false` (only active, the default).
+        # Treat empty / whitespace `?archived=` the same as omitted to avoid silently bypassing the default.
+        if self.action == "list":
+            archived_param = (self.request.query_params.get("archived") or "").strip()
+            if not archived_param:
+                queryset = queryset.filter(archived=False)
+
+        return queryset
 
     @staticmethod
     def _event_properties(definition: ScoreDefinition) -> dict[str, str | bool | int]:
@@ -251,7 +276,11 @@ class ScoreDefinitionViewSet(
     def _create_definition_version(
         self, definition: ScoreDefinition, validated_data: dict[str, Any]
     ) -> ScoreDefinition:
-        definition.create_new_version(config=validated_data["config"], created_by=cast(User, self.request.user))
+        definition.create_new_version(
+            config=validated_data["config"],
+            created_by=cast(User, self.request.user),
+            base_version=validated_data.get("base_version"),
+        )
         definition.refresh_from_db(fields=["current_version", "updated_at"])
         return definition
 
@@ -331,7 +360,12 @@ class ScoreDefinitionViewSet(
         return Response(self.get_serializer(definition).data, status=status.HTTP_200_OK)
 
     @extend_schema(request=ScoreDefinitionNewVersionSerializer, responses=ScoreDefinitionSerializer)
-    @action(detail=True, methods=["post"], url_path="new_version")
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="new_version",
+        required_scopes=["llm_analytics:write"],
+    )
     def new_version(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         definition = self.get_object()
         serializer = ScoreDefinitionNewVersionSerializer(
@@ -339,7 +373,17 @@ class ScoreDefinitionViewSet(
             context={**self.get_serializer_context(), "score_definition_kind": definition.kind},
         )
         serializer.is_valid(raise_exception=True)
-        definition = self._create_definition_version(definition, dict(serializer.validated_data))
+
+        try:
+            definition = self._create_definition_version(definition, dict(serializer.validated_data))
+        except StaleScoreDefinitionVersion as err:
+            return Response(
+                {
+                    "detail": "The scorer changed since you opened it. Reload the latest version and try again.",
+                    "current_version": err.current_version,
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
 
         report_user_action(
             request.user,

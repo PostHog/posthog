@@ -901,6 +901,24 @@ trace_review_scores: PostgresTable = PostgresTable(
     },
 )
 
+score_definitions: PostgresTable = PostgresTable(
+    name="score_definitions",
+    postgres_table_name="llm_analytics_scoredefinition",
+    access_scope="llm_analytics",
+    fields={
+        "id": UUIDDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "name": StringDatabaseField(name="name"),
+        "description": StringDatabaseField(name="description"),
+        "kind": StringDatabaseField(name="kind"),
+        "archived": BooleanDatabaseField(name="archived"),
+        "current_version_id": UUIDDatabaseField(name="current_version_id", nullable=True),
+        "created_by_id": IntegerDatabaseField(name="created_by_id", nullable=True),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at", nullable=True),
+    },
+)
+
 early_access_features: PostgresTable = PostgresTable(
     name="early_access_features",
     postgres_table_name="posthog_earlyaccessfeature",
@@ -1075,6 +1093,7 @@ class SystemTables(TableNode):
         "sandbox_environments": TableNode(name="sandbox_environments", table=sandbox_environments),
         "review_queue_items": TableNode(name="review_queue_items", table=review_queue_items),
         "review_queues": TableNode(name="review_queues", table=review_queues),
+        "score_definitions": TableNode(name="score_definitions", table=score_definitions),
         "session_recording_playlists": TableNode(name="session_recording_playlists", table=session_recording_playlists),
         "session_recordings": TableNode(name="session_recordings", table=session_recordings),
         "source_schemas": TableNode(name="source_schemas", table=source_schemas),

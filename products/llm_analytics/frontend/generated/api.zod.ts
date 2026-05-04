@@ -1067,6 +1067,13 @@ export const LlmAnalyticsScoreDefinitionsNewVersionCreateBody = /* @__PURE__ */ 
             }),
         ])
         .describe('Next immutable scorer configuration.'),
+    base_version: zod
+        .number()
+        .min(1)
+        .optional()
+        .describe(
+            "Version number the caller observed before requesting this bump. If provided and it does not match the scorer's current version, the request fails with 409. Omit to skip the optimistic-concurrency check."
+        ),
 })
 
 export const llmAnalyticsSentimentCreateBodyIdsMax = 5
