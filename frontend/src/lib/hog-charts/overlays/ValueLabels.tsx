@@ -128,8 +128,11 @@ function buildStackTotal(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
     if (visible.length === 0) {
         return out
     }
-    const yScale = resolveYScale(visible[0], scales)
-    const topColor = visible[visible.length - 1].color
+    // Match the topmost visible series — its color is what we draw, and on the rare chart
+    // that mixes y-axes, this puts the total on the same scale as the cap segment.
+    const topSeries = visible[visible.length - 1]
+    const yScale = resolveYScale(topSeries, scales)
+    const topColor = topSeries.color
     const baseline = isBarChart && minBarSize > 0 ? yScale(0) : NaN
 
     for (let dIdx = 0; dIdx < labels.length; dIdx++) {
