@@ -36,8 +36,9 @@ from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
 from ee.tasks.subscriptions import SLACK_USER_CONFIG_ERRORS, _capture_delivery_failed_event
 from ee.tasks.subscriptions.auto_disable import (
-    SLACK_INTEGRATION_DISCONNECTED_REASON,
-    UNSUPPORTED_TARGET_TYPE_REASON,
+    SLACK_DISCONNECTED_DISABLE_REASON,
+    UNSUPPORTED_TARGET_DISABLE_REASON,
+    DisableReason,
     disable_invalid_subscription,
     get_subscription_disable_reason,
 )
@@ -188,6 +189,26 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
         target_type=subscription.target_type,
     )
 
+    # Mirrors the alert pattern: validate up-front and auto-disable on permanent
+    # misconfiguration so the workflow short-circuits before running the export
+    # pipeline. Only unsupported-target is caught here — the slack-disconnected
+    # branch is handled in `deliver_subscription` after the team-integration fallback.
+    if (
+        subscription.enabled
+        and get_subscription_disable_reason(subscription.target_type, subscription.integration_id)
+        == UNSUPPORTED_TARGET_DISABLE_REASON
+    ):
+        LOGGER.warning(
+            "create_export_assets.unsupported_target_auto_disabling",
+            subscription_id=inputs.subscription_id,
+            target_type=subscription.target_type,
+        )
+        _capture_delivery_failed_event(subscription, Exception(UNSUPPORTED_TARGET_DISABLE_REASON.description))
+        await database_sync_to_async(disable_invalid_subscription, thread_sensitive=False)(
+            subscription, UNSUPPORTED_TARGET_DISABLE_REASON
+        )
+        return CreateExportAssetsResult(exported_asset_ids=[], total_insight_count=0, team_id=team.id)
+
     # Early exit if target value hasn't changed — avoids creating orphaned assets
     if inputs.previous_value is not None and subscription.target_value == inputs.previous_value:
         await LOGGER.ainfo(
@@ -303,8 +324,7 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
 
 async def _auto_disable_and_return(
     subscription: Subscription,
-    reason: str,
-    error_type: str,
+    reason: DisableReason,
     recipient_results: list[RecipientResult],
 ) -> DeliverSubscriptionResult:
     """Permanent-failure exit path: record per-recipient failure, capture analytics,
@@ -313,12 +333,12 @@ async def _auto_disable_and_return(
         RecipientResult(
             recipient=subscription.target_value,
             status="failed",
-            error={"message": reason, "type": error_type},
+            error={"message": reason.description, "type": reason.key},
         )
     )
     # `_capture_delivery_failed_event` only reads `str(e)` and `type(e).__name__`,
     # so a plain Exception conveys the same info without implying retry semantics.
-    _capture_delivery_failed_event(subscription, Exception(reason))
+    _capture_delivery_failed_event(subscription, Exception(reason.description))
     await database_sync_to_async(disable_invalid_subscription, thread_sensitive=False)(subscription, reason)
     return DeliverSubscriptionResult(recipient_results=recipient_results)
 
@@ -350,16 +370,14 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSubs
 
     if (
         get_subscription_disable_reason(subscription.target_type, subscription.integration_id)
-        == UNSUPPORTED_TARGET_TYPE_REASON
+        == UNSUPPORTED_TARGET_DISABLE_REASON
     ):
         LOGGER.warning(
             "deliver_subscription.unsupported_target",
             subscription_id=inputs.subscription_id,
             target_type=subscription.target_type,
         )
-        return await _auto_disable_and_return(
-            subscription, UNSUPPORTED_TARGET_TYPE_REASON, "unsupported_target", recipient_results
-        )
+        return await _auto_disable_and_return(subscription, UNSUPPORTED_TARGET_DISABLE_REASON, recipient_results)
 
     assets_by_id = await database_sync_to_async(
         lambda: {
@@ -477,10 +495,7 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSubs
                 )
                 # Slack integration disconnected — auto-disable, mirrors the alert pattern.
                 return await _auto_disable_and_return(
-                    subscription,
-                    SLACK_INTEGRATION_DISCONNECTED_REASON,
-                    "missing_integration",
-                    recipient_results,
+                    subscription, SLACK_DISCONNECTED_DISABLE_REASON, recipient_results
                 )
 
             LOGGER.info("deliver_subscription.sending_slack_message", subscription_id=subscription.id)

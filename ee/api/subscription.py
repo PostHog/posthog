@@ -185,8 +185,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
 
         # Reject re-enables of subscriptions whose delivery prerequisite is still
         # permanently broken — otherwise the next delivery would just auto-disable
-        # them again. Shared helper covers both webhook (unsupported) and slack-
-        # without-integration cases.
+        # them again.
         is_re_enabling = self.instance is not None and attrs.get("enabled") is True and self.instance.enabled is False
         if is_re_enabling:
             error_message = validate_re_enable(target_type, integration_id)
@@ -578,9 +577,6 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
         subscription = self.get_object()
         if subscription.deleted:
             return Response(status=status.HTTP_404_NOT_FOUND)
-        # The activity does not check `enabled` at entry, so without this 409 a test
-        # delivery on a disabled sub would silently run the full delivery path and
-        # could re-fire the auto-disable side effects. Surface the precondition up front.
         if not subscription.enabled:
             return Response(
                 {"detail": "Subscription is disabled. Re-enable it before sending a test delivery."},
