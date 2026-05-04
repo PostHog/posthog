@@ -5,8 +5,11 @@ export { LineChart } from './charts/LineChart'
 export type { LineChartProps } from './charts/LineChart'
 export { TimeSeriesLineChart } from './charts/TimeSeriesLineChart/TimeSeriesLineChart'
 export type {
+    ConfidenceIntervalConfig,
+    MovingAverageConfig,
     TimeSeriesLineChartConfig,
     TimeSeriesLineChartProps,
+    TrendLineConfig,
     ValueLabelsConfig,
 } from './charts/TimeSeriesLineChart/TimeSeriesLineChart'
 export type { InProgressConfig } from './charts/TimeSeriesLineChart/utils/in-progress'
