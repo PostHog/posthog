@@ -23,7 +23,10 @@ from temporalio.client import (
 from posthog.hogql_queries.ai.vector_search_query_runner import LATEST_ACTIONS_EMBEDDING_VERSION
 from posthog.temporal.ai import SyncVectorsInputs
 from posthog.temporal.ai.sync_vectors import EmbeddingVersion
-from posthog.temporal.alerts.schedule import create_schedule_due_alert_checks_schedule
+from posthog.temporal.alerts.schedule import (
+    create_run_investigation_safety_net_schedule,
+    create_schedule_due_alert_checks_schedule,
+)
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.schedule import a_create_schedule, a_delete_schedule, a_schedule_exists, a_update_schedule
 from posthog.temporal.data_imports.signals.conversations_schedule import (
@@ -61,6 +64,7 @@ from posthog.temporal.salesforce_enrichment.usage_workflow import UsageEnrichmen
 from posthog.temporal.salesforce_enrichment.workflow import SalesforceEnrichmentInputs
 from posthog.temporal.session_replay.delete_recordings.types import PurgeDeletedMetadataInput
 from posthog.temporal.session_replay.enforce_max_replay_retention.types import EnforceMaxReplayRetentionInput
+from posthog.temporal.session_replay.gemini_cleanup_sweep import create_gemini_cleanup_sweep_schedule
 from posthog.temporal.session_replay.replay_count_metrics.types import ReplayCountMetricsInput
 from posthog.temporal.session_replay.summarization_sweep.reconciler import (
     create_summarization_sweep_reconciler_schedule,
@@ -554,7 +558,13 @@ schedules = [
     create_wa_weekly_digest_schedule,
     create_logs_alert_check_schedule,
     create_schedule_due_alert_checks_schedule,
+    create_run_investigation_safety_net_schedule,
 ]
+
+if settings.CLOUD_DEPLOYMENT:
+    # Sweeper compares the deployment prefix on each Gemini file's display_name against its own
+    # CLOUD_DEPLOYMENT, so it can't run unscoped (would risk reaping sibling deployments' files).
+    schedules.append(create_gemini_cleanup_sweep_schedule)
 
 if settings.EE_AVAILABLE:
     schedules.append(create_schedule_all_subscriptions_schedule)

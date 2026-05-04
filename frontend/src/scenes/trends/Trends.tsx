@@ -23,7 +23,12 @@ const TrendsCalendarHeatMap = lazy(() =>
 )
 const BoxPlotChart = lazy(() => import('scenes/insights/views/BoxPlot').then((m) => ({ default: m.BoxPlotChart })))
 // Flag-gated — keep full d3 out of the eager Trends/Dashboard bundle
-const TrendsLineChart = lazy(() => import('./viz/TrendsLineChart').then((m) => ({ default: m.TrendsLineChart })))
+const TrendsLineChart = lazy(() =>
+    import('./viz/trends-line-chart/TrendsLineChart').then((m) => ({ default: m.TrendsLineChart }))
+)
+const TrendsBarChart = lazy(() =>
+    import('./viz/trends-bar-chart/TrendsBarChart').then((m) => ({ default: m.TrendsBarChart }))
+)
 
 interface Props {
     view: InsightType
@@ -38,9 +43,16 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
     const showPersonsModal = insightLogicShowPersonsModal && !inSharedMode
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const { display, series, breakdownFilter, hasBreakdownMore, breakdownValuesLoading } = useValues(
-        trendsDataLogic(insightProps)
-    )
+    const {
+        display,
+        series,
+        breakdownFilter,
+        trendsFilter,
+        hasBreakdownMore,
+        breakdownValuesLoading,
+        isLifecycle,
+        isStickiness,
+    } = useValues(trendsDataLogic(insightProps))
     const { updateBreakdownFilter } = useActions(trendsDataLogic(insightProps))
 
     const commonProps = {
@@ -50,6 +62,15 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
         inSharedMode,
     }
 
+    // TrendsBarChart does not yet wire up showValuesOnSeries, goal lines, alert
+    // thresholds, or annotations — fall back to legacy when the insight needs them.
+    const canRouteThroughHogChartsBar =
+        featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_BAR] &&
+        !isLifecycle &&
+        !isStickiness &&
+        !trendsFilter?.showValuesOnSeries &&
+        !trendsFilter?.goalLines?.length
+
     const renderViz = (): JSX.Element | undefined => {
         if (
             !display ||
@@ -57,12 +78,15 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
             display === ChartDisplayType.ActionsLineGraphCumulative ||
             display === ChartDisplayType.ActionsAreaGraph
         ) {
-            if (featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS]) {
+            if (featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS] && !isLifecycle && !isStickiness) {
                 return <TrendsLineChart context={context} inSharedMode={inSharedMode} />
             }
             return <ActionsLineGraph {...commonProps} />
         }
         if (display === ChartDisplayType.ActionsBar || display === ChartDisplayType.ActionsUnstackedBar) {
+            if (canRouteThroughHogChartsBar && display === ChartDisplayType.ActionsBar) {
+                return <TrendsBarChart context={context} />
+            }
             return <ActionsLineGraph {...commonProps} />
         }
         if (display === ChartDisplayType.BoldNumber) {
@@ -83,6 +107,9 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
             return <ActionsPie {...commonProps} />
         }
         if (display === ChartDisplayType.ActionsBarValue) {
+            if (canRouteThroughHogChartsBar) {
+                return <TrendsBarChart context={context} />
+            }
             return <ActionsHorizontalBar {...commonProps} />
         }
         if (display === ChartDisplayType.WorldMap) {

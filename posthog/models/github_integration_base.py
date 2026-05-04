@@ -10,6 +10,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Literal, cast
+from urllib.parse import urlparse
 
 from django.conf import settings
 from django.core.cache import cache
@@ -119,6 +120,36 @@ class GitHubIntegrationBase:
                 "X-GitHub-Api-Version": "2022-11-28",
             },
         )
+
+    @staticmethod
+    def verify_user_installation_access(installation_id: str, user_access_token: str) -> bool:
+        """Check that a GitHub user has access to the given App installation.
+
+        Calls ``GET /user/installations/{id}/repositories`` with the user's
+        OAuth token.  Returns ``True`` when the user has access, ``False``
+        when GitHub returns 404 (no access).  Raises on network errors or
+        unexpected status codes so callers can surface an appropriate error.
+        """
+        response = requests.get(  # nosemgrep: python.django.security.injection.ssrf.ssrf-injection-requests.ssrf-injection-requests -- installation_id is validated as digits-only by callers
+            f"https://api.github.com/user/installations/{installation_id}/repositories",
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {user_access_token}",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+            params={"per_page": 1},
+            timeout=10,
+        )
+        if response.status_code == 200:
+            return True
+        if response.status_code == 404:
+            return False
+        logger.warning(
+            "verify_user_installation_access: unexpected status",
+            installation_id=installation_id,
+            status_code=response.status_code,
+        )
+        raise requests.RequestException(f"Unexpected status {response.status_code} verifying installation access")
 
     @staticmethod
     def _rate_limit_header(headers: Mapping[str, str] | None, name: str) -> float | None:
@@ -241,7 +272,11 @@ class GitHubIntegrationBase:
             self._record_github_api_exception("POST", endpoint)
             raise
         self._record_github_api_response(response, "POST", endpoint)
-        data = response.json()
+        try:
+            data = response.json()
+        except ValueError:
+            self._on_token_refresh_failed(response)
+            raise Exception(f"Non-JSON response when refreshing installation token: {response.text[:500]}") from None
 
         if response.status_code != 201 or not data.get("token"):
             self._on_token_refresh_failed(response)
@@ -379,15 +414,104 @@ class GitHubIntegrationBase:
         commit_url = data.get("html_url", f"https://github.com/{repository}/commit/{sha}")
         return GitHubCommitAuthor(login=author["login"], name=name, commit_url=commit_url)
 
-    def list_repositories(self, *, limit: int = 100, offset: int = 0) -> tuple[list[dict], bool]:
-        """List installation repositories via the GitHub API.
+    @staticmethod
+    def parse_pull_request_url(pr_url: str) -> tuple[str, str, int] | None:
+        """Parse a GitHub pull request URL into ``(owner, repo, pr_number)``.
 
-        Fetches only the GitHub pages needed to satisfy the requested
-        ``[offset, offset+limit)`` window. Returns a tuple of
-        ``(repositories, has_more)`` where *has_more* indicates whether
-        additional repositories exist beyond the returned window.
+        Returns ``None`` if the URL does not look like a GitHub PR URL.
         """
-        GITHUB_PER_PAGE = 100
+        try:
+            parsed = urlparse(pr_url)
+        except Exception:
+            return None
+        if parsed.netloc not in {"github.com", "www.github.com"}:
+            return None
+        parts = [p for p in parsed.path.split("/") if p]
+        # Expected path: /{owner}/{repo}/pull/{number}[/...]
+        if len(parts) < 4 or parts[2] != "pull":
+            return None
+        owner, repo, _, pr_number_str = parts[:4]
+        try:
+            pr_number = int(pr_number_str)
+        except ValueError:
+            return None
+        return owner, repo, pr_number
+
+    def get_pull_request(self, repository: str, pr_number: int) -> dict[str, Any]:
+        """Fetch a pull request by repository (``owner/repo`` or just ``repo``) and PR number."""
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+
+        response = self._installation_authenticated_get(
+            f"https://api.github.com/repos/{repo_path}/pulls/{pr_number}",
+            endpoint="/repos/{owner}/{repo}/pulls/{pull_number}",
+        )
+        if response is None:
+            return {"success": False, "error": "Network error fetching pull request"}
+        if response.status_code != 200:
+            return {
+                "success": False,
+                "error": f"Failed to fetch pull request: {response.text}",
+                "status_code": response.status_code,
+            }
+        try:
+            pr = response.json()
+        except Exception:
+            logger.warning(
+                "GitHubIntegration: get_pull_request non-JSON response",
+                repository=repo_path,
+                pr_number=pr_number,
+            )
+            return {"success": False, "error": "Failed to parse pull request JSON"}
+
+        head = pr.get("head") or {}
+        base = pr.get("base") or {}
+        user = pr.get("user") or {}
+
+        return {
+            "success": True,
+            "number": pr.get("number"),
+            "title": pr.get("title"),
+            "body": pr.get("body"),
+            "url": pr.get("html_url"),
+            "state": pr.get("state"),
+            "merged": pr.get("merged", False),
+            "draft": pr.get("draft", False),
+            "head_branch": head.get("ref"),
+            "base_branch": base.get("ref"),
+            "head_sha": head.get("sha"),
+            "base_sha": base.get("sha"),
+            "repository": repo_path,
+            "author": user.get("login"),
+            "created_at": pr.get("created_at"),
+            "updated_at": pr.get("updated_at"),
+            "merged_at": pr.get("merged_at"),
+            "closed_at": pr.get("closed_at"),
+            "comments": pr.get("comments", 0),
+            "review_comments": pr.get("review_comments", 0),
+            "commits": pr.get("commits", 0),
+            "additions": pr.get("additions", 0),
+            "deletions": pr.get("deletions", 0),
+            "changed_files": pr.get("changed_files", 0),
+        }
+
+    def get_pull_request_from_url(self, pr_url: str) -> dict[str, Any]:
+        """Fetch a pull request by its HTML URL (e.g. ``https://github.com/owner/repo/pull/123``)."""
+        parsed = self.parse_pull_request_url(pr_url)
+        if parsed is None:
+            return {"success": False, "error": f"Invalid GitHub pull request URL: {pr_url}"}
+        owner, repo, pr_number = parsed
+        return self.get_pull_request(f"{owner}/{repo}", pr_number)
+
+    def list_repositories(self, *, page: int = 1, per_page: int = 100) -> tuple[list[dict], bool]:
+        """List one page of installation repositories from the GitHub API.
+
+        Uses GitHub's ``page`` and ``per_page`` query parameters
+        (``per_page`` is clamped to 1–100, the API maximum). Returns
+        ``(repositories, has_more)`` where *has_more* is true when the page is
+        full, so another page may exist.
+        """
+        page = max(1, page)
+        per_page = max(1, min(100, per_page))
 
         try:
             if self.access_token_expired():
@@ -395,10 +519,10 @@ class GitHubIntegrationBase:
         except Exception:
             logger.warning("GitHubIntegration: token refresh pre-check failed", exc_info=True)
 
-        def fetch(page: int) -> requests.Response:
+        def fetch() -> requests.Response:
             access_token = (self.integration.sensitive_config or {}).get("access_token")
             return self._github_api_get(
-                f"https://api.github.com/installation/repositories?page={page}&per_page={GITHUB_PER_PAGE}",
+                f"https://api.github.com/installation/repositories?page={page}&per_page={per_page}",
                 endpoint="/installation/repositories",
                 headers={
                     "Accept": "application/vnd.github+json",
@@ -438,18 +562,11 @@ class GitHubIntegrationBase:
             )
             raise GitHubIntegrationError(message)
 
-        # Work out which GitHub pages cover the requested window.
-        first_page = offset // GITHUB_PER_PAGE + 1
-        skip = offset % GITHUB_PER_PAGE
-        needed = skip + limit
-
-        # Fetch the first required page with 401-retry and transient-error retry.
         transient_status_codes = {502, 503, 504}
-        current_page = first_page
 
         for attempt in range(2):
             try:
-                response = fetch(current_page)
+                response = fetch()
             except requests.RequestException:
                 raise_repository_error("GitHubIntegration: list_repositories network error", exc_info=True)
 
@@ -459,7 +576,7 @@ class GitHubIntegrationBase:
                 except Exception:
                     raise_repository_error("GitHubIntegration: token refresh after 401 failed", exc_info=True)
                 try:
-                    response = fetch(current_page)
+                    response = fetch()
                 except requests.RequestException:
                     raise_repository_error("GitHubIntegration: list_repositories network error on retry", exc_info=True)
 
@@ -481,9 +598,8 @@ class GitHubIntegrationBase:
 
             if response.status_code == 200 and isinstance(body, dict):
                 page_repos = extract_repos(body)
-                all_fetched = page_repos
-                has_next_page = len(page_repos) == GITHUB_PER_PAGE
-                break
+                has_more = len(page_repos) == per_page
+                return page_repos, has_more
 
             if response.status_code in transient_status_codes and attempt == 0:
                 logger.info(
@@ -500,64 +616,22 @@ class GitHubIntegrationBase:
                 error=body if isinstance(body, dict) else None,
             )
             raise GitHubIntegrationError("GitHubIntegration: failed to list repositories")
-        else:
-            raise GitHubIntegrationError("GitHubIntegration: failed to list repositories after retries")
-
-        # Fetch subsequent pages until we have enough items.
-        while len(all_fetched) < needed and has_next_page:
-            current_page += 1
-            try:
-                response = fetch(current_page)
-            except requests.RequestException:
-                logger.warning(
-                    "GitHubIntegration: list_repositories network error on page",
-                    integration_id=self.integration.id,
-                    page=current_page,
-                    exc_info=True,
-                )
-                raise GitHubIntegrationError("GitHubIntegration: list_repositories network error on page")
-            try:
-                body = response.json()
-            except Exception:
-                logger.warning(
-                    "GitHubIntegration: list_repositories non-JSON response on page",
-                    integration_id=self.integration.id,
-                    page=current_page,
-                    status_code=response.status_code,
-                )
-                raise GitHubIntegrationError("GitHubIntegration: list_repositories non-JSON response on page")
-            if response.status_code != 200 or not isinstance(body, dict):
-                logger.warning(
-                    "GitHubIntegration: failed to list repositories on page",
-                    integration_id=self.integration.id,
-                    page=current_page,
-                    status_code=response.status_code,
-                    error=body if isinstance(body, dict) else None,
-                )
-                raise GitHubIntegrationError("GitHubIntegration: failed to list repositories on page")
-            page_repos = extract_repos(body)
-            all_fetched.extend(page_repos)
-            has_next_page = len(page_repos) == GITHUB_PER_PAGE
-
-        result = all_fetched[skip : skip + limit]
-        has_more = has_next_page or (skip + limit < len(all_fetched))
-
-        return result, has_more
+        raise GitHubIntegrationError("GitHubIntegration: failed to list repositories after retries")
 
     def list_all_repositories(self) -> list[dict]:
         """Fetch all accessible repositories, paginating through GitHub's API."""
         all_repositories: list[dict] = []
-        offset = 0
-        page_size = 100
+        page = 1
+        per_page = 100
 
         while True:
-            repositories, has_more = self.list_repositories(limit=page_size, offset=offset)
+            repositories, has_more = self.list_repositories(page=page, per_page=per_page)
             all_repositories.extend(repositories)
 
             if not has_more or not repositories:
                 return all_repositories
 
-            offset += len(repositories)
+            page += 1
 
     def list_branches(self, repo: str, *, limit: int = 100, offset: int = 0) -> tuple[list[str], bool]:
         """List branches for a given repository via the GitHub API.

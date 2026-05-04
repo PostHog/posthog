@@ -51,7 +51,6 @@ import {
     ExperimentsFilters,
     experimentsLogic,
     getExperimentStatus,
-    isExperimentPaused,
     getShippedVariantKey,
     isSingleVariantShipped,
 } from './experimentsLogic'
@@ -141,7 +140,8 @@ const ExperimentsTableFilters = ({
                             [
                                 { label: 'All', value: 'all' },
                                 { label: 'Draft', value: ExperimentStatus.Draft },
-                                { label: 'Running / Paused', value: ExperimentStatus.Running },
+                                { label: 'Running', value: ExperimentStatus.Running },
+                                { label: 'Paused', value: ExperimentStatus.Paused },
                                 { label: 'Complete', value: ExperimentStatus.Stopped },
                             ] as { label: string; value: string }[]
                         }
@@ -319,7 +319,7 @@ const ExperimentsTable = ({
             title: 'Status',
             key: 'status',
             render: function Render(_, experiment: Experiment) {
-                return <StatusTag status={getExperimentStatus(experiment)} isPaused={isExperimentPaused(experiment)} />
+                return <StatusTag status={getExperimentStatus(experiment)} />
             },
             align: 'center',
             sorter: (a, b) => {
@@ -329,7 +329,8 @@ const ExperimentsTable = ({
                 const score: Record<ExperimentStatus, number> = {
                     [ExperimentStatus.Draft]: 1,
                     [ExperimentStatus.Running]: 2,
-                    [ExperimentStatus.Stopped]: 3,
+                    [ExperimentStatus.Paused]: 3,
+                    [ExperimentStatus.Stopped]: 4,
                 }
                 return score[statusA] > score[statusB] ? 1 : -1
             },

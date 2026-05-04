@@ -79,7 +79,7 @@ import type {
 import { QueryContext } from '~/queries/types'
 
 import { CyclotronInputType } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
-import { HogFlow } from 'products/workflows/frontend/Workflows/hogflows/types'
+import type { HogFlow } from 'products/workflows/frontend/Workflows/hogflows/types'
 
 import { PluginConfigSchema } from './legacy-plugin-scaffold'
 import { InferredSelector } from './toolbar/product-tours/elementInference'
@@ -194,7 +194,6 @@ export enum AvailableFeature {
     AUTOCAPTURE = 'autocapture',
     DATA_VISUALIZATION = 'data_visualization',
     PRODUCT_ANALYTICS_SQL_QUERIES = 'product_analytics_sql_queries',
-    PRODUCT_ANALYTICS_AI = 'product_analytics_ai',
     TWOFA_ENFORCEMENT = '2fa_enforcement',
     AUDIT_LOGS = 'audit_logs',
     APPROVALS = 'approvals',
@@ -285,6 +284,8 @@ export enum AccessControlResourceType {
     Experiment = 'experiment',
     ExperimentSavedMetric = 'experiment_saved_metric',
     ExternalDataSource = 'external_data_source',
+    WarehouseObjects = 'warehouse_objects',
+    WarehouseTable = 'warehouse_table',
     WebAnalytics = 'web_analytics',
     ActivityLog = 'activity_log',
     ErrorTracking = 'error_tracking',
@@ -317,6 +318,10 @@ export interface SceneDashboardChoice {
 
 export type UserTheme = 'light' | 'dark' | 'system'
 export type UserShortcutPosition = 'above' | 'below' | 'hidden'
+// Mirrors posthog.models.user.OnboardingSkippedReason. Kept as a union here to avoid a
+// hard dependency on generated types; when adopting generated `UserApi`, switch to
+// `OnboardingSkippedReasonEnumApi` from `~/generated/core/api.schemas`.
+export type OnboardingSkippedReason = 'delegated' | 'later' | 'other' | null
 
 /** Full User model. */
 export interface UserType extends UserBaseType {
@@ -350,6 +355,12 @@ export interface UserType extends UserBaseType {
     allow_sidebar_suggestions?: boolean
     role_at_organization?: UserRole | null
     passkeys_enabled_for_2fa?: boolean
+    onboarding_skipped_at?: string | null
+    onboarding_skipped_reason?: OnboardingSkippedReason
+    onboarding_skipped_organization_id?: string | null
+    onboarding_delegated_to_invite?: string | null
+    onboarding_delegated_to_organization_id?: string | null
+    onboarding_delegation_accepted_at?: string | null
     is_organization_first_user?: boolean
     pending_invites?: PendingInviteForCurrentUser[]
 }
@@ -664,6 +675,9 @@ export interface ConversationsSettings {
     teams_team_name?: string | null
     teams_channel_id?: string | null
     teams_channel_name?: string | null
+    github_enabled?: boolean
+    github_integration_id?: number | null
+    github_repos?: string[] | null
 }
 
 export interface LogsSettings {
@@ -966,6 +980,7 @@ export enum ProgressStatus {
 export enum ExperimentStatus {
     Draft = 'draft',
     Running = 'running',
+    Paused = 'paused',
     Stopped = 'stopped',
 }
 
@@ -2101,6 +2116,7 @@ export interface BillingProductV2AddonType {
     display_decimals: number | null // Decimal places in display (e.g., 2 for "27.65 GB")
     display_divisor: number | null // Divide raw value by this for display (e.g., 1000 for MB->GB)
     unit_amount_usd: string | null
+    default_unit_amount_usd?: string | null // Product's default (undiscounted) unit price
     current_amount_usd: string | null
     current_usage: number
     projected_usage: number | null
@@ -2392,6 +2408,7 @@ export interface EndpointVersionMaterializationType {
     error?: string
     last_materialized_at?: string
     saved_query_id?: string
+    sync_frequency?: DataModelingSyncInterval
 }
 
 export interface DashboardBasicType extends WithAccessControl {
@@ -5054,6 +5071,7 @@ export const INTEGRATION_KINDS = [
     'google-sheets',
     'linkedin-ads',
     'snapchat',
+    'stripe',
     'intercom',
     'email',
     'twilio',
@@ -5317,6 +5335,7 @@ export type APIScopeObject =
     | 'usage_metric'
     | 'user'
     | 'visual_review'
+    | 'warehouse_objects'
     | 'warehouse_table'
     | 'warehouse_view'
     | 'web_analytics'
@@ -5543,6 +5562,7 @@ export interface DataWarehouseTable {
     external_data_source?: ExternalDataSource
     external_schema?: SimpleExternalDataSourceSchema
     options?: { csv_allow_double_quotes?: boolean | null }
+    user_access_level?: AccessControlLevel
 }
 
 export type DataWarehouseTableTypes = 'CSV' | 'Parquet' | 'JSON' | 'CSVWithNames'
@@ -5631,6 +5651,7 @@ export interface DataWarehouseSavedQuery {
     origin?: DataWarehouseSavedQueryOrigin
     is_test?: boolean
     expires_at?: string
+    user_access_level?: AccessControlLevel
 }
 
 export interface DataWarehouseSavedQueryFolder {
@@ -5693,6 +5714,7 @@ export interface ExternalDataSourceCreatePayload {
     prefix?: string
     description?: string
     access_method?: 'warehouse' | 'direct'
+    created_via: 'web' | 'api' | 'mcp'
     payload: Record<string, any>
 }
 
@@ -5719,6 +5741,7 @@ export interface ExternalDataSource {
     prefix: string | null
     description: string | null
     access_method?: 'warehouse' | 'direct'
+    created_via: 'web' | 'api' | 'mcp' | null
     engine?: 'duckdb' | 'postgres' | null
     latest_error: string | null
     last_run_at?: Dayjs
@@ -5804,10 +5827,12 @@ export interface IncrementalField {
     field: string // the actual database field name
     field_type: IncrementalFieldType // the actual database field type
     nullable?: boolean // whether the field allows null values
+    is_indexed?: boolean // leading column of an index/clustering/sort/partition key on the source
 }
 
 export interface ExternalDataSourceSyncSchema {
     table: string
+    label?: string | null
     rows?: number | null
     should_sync: boolean
     sync_time_of_day: string | null

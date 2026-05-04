@@ -131,12 +131,16 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
             current_time = now()
             start_of_month = current_time.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
-            existing_full_video_exports_count = ExportedAsset.objects.filter(
-                team_id=self.context["team_id"],
-                export_format__in=["video/mp4", "video/webm", "image/gif"],
-                export_context__session_recording_id__isnull=False,
-                created_at__gte=start_of_month,
-            ).count()
+            existing_full_video_exports_count = (
+                ExportedAsset.objects.filter(
+                    team_id=self.context["team_id"],
+                    export_format__in=["video/mp4", "video/webm", "image/gif"],
+                    export_context__session_recording_id__isnull=False,
+                    created_at__gte=start_of_month,
+                )
+                .exclude(is_system=True)
+                .count()
+            )
 
             # Plan-tier default with an optional per-team override that acts as a floor.
             # Taking max() preserves the override's original purpose — bumping a team above

@@ -23,6 +23,7 @@ class AIEventType(StrEnum):
     FIELD_AI_METRIC = "$ai_metric"
     FIELD_AI_FEEDBACK = "$ai_feedback"
     FIELD_AI_EVALUATION = "$ai_evaluation"
+    FIELD_AI_TAG = "$ai_tag"
     FIELD_AI_TRACE_SUMMARY = "$ai_trace_summary"
     FIELD_AI_GENERATION_SUMMARY = "$ai_generation_summary"
     FIELD_AI_TRACE_CLUSTERS = "$ai_trace_clusters"
@@ -2249,6 +2250,7 @@ class FileSystemIconType(StrEnum):
     SDK_DOCTOR = "sdk_doctor"
     PIPELINE_STATUS = "pipeline_status"
     LLM_EVALUATIONS = "llm_evaluations"
+    LLM_TAGS = "llm_tags"
     LLM_DATASETS = "llm_datasets"
     LLM_PLAYGROUND = "llm_playground"
     LLM_PROMPTS = "llm_prompts"
@@ -2657,6 +2659,7 @@ class IntegrationKind(StrEnum):
     GOOGLE_SHEETS = "google-sheets"
     LINKEDIN_ADS = "linkedin-ads"
     SNAPCHAT = "snapchat"
+    STRIPE = "stripe"
     INTERCOM = "intercom"
     EMAIL = "email"
     TWILIO = "twilio"
@@ -2763,6 +2766,19 @@ class LinkedinAdsTableKeywords(StrEnum):
     CAMPAIGN_GROUPS = "campaign_groups"
 
 
+class LlmEvalReportSignalExtra(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    evaluation_description: str
+    evaluation_id: str
+    evaluation_name: str
+    period_end: str
+    period_start: str
+    report_id: str
+    report_run_id: str
+
+
 class LlmEvalSignalExtra(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2773,6 +2789,18 @@ class LlmEvalSignalExtra(BaseModel):
     target_event_id: str | None = None
     target_event_type: str | None = None
     trace_id: str
+
+
+class LlmEvaluationReportSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: LlmEvalReportSignalExtra
+    source_id: str
+    source_product: Literal["llm_analytics"] = "llm_analytics"
+    source_type: Literal["evaluation_report"] = "evaluation_report"
+    weight: float
 
 
 class LlmEvaluationSignalInput(BaseModel):
@@ -2793,6 +2821,27 @@ class LoadingBlock(BaseModel):
     )
     artifact_id: str = Field(..., description="The artifact ID that is being loaded")
     type: Literal["loading"] = "loading"
+
+
+class MatchedOn(StrEnum):
+    KEY = "key"
+    VALUE = "value"
+
+
+class LogAttributeResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    matchedOn: MatchedOn = Field(
+        ...,
+        description=("Whether this row matched the search by attribute key or by attribute value."),
+    )
+    matchedValue: str | None = Field(
+        default=None,
+        description=("Sample value that matched the search — only set when matchedOn is 'value'."),
+    )
+    name: str
+    propertyFilterType: str = Field(..., description="Either 'log_attribute' or 'log_resource_attribute'.")
 
 
 class LogPropertyFilterType(StrEnum):
@@ -3601,6 +3650,7 @@ class ProductIntentContext(StrEnum):
     ERROR_TRACKING_DOCS_VIEWED = "error_tracking_docs_viewed"
     ERROR_TRACKING_ISSUE_EXPLAINED = "error_tracking_issue_explained"
     LLM_ANALYTICS_VIEWED = "llm_analytics_viewed"
+    LLM_ANALYTICS_TRACE_VIEWED = "llm_analytics_trace_viewed"
     LLM_ANALYTICS_DOCS_VIEWED = "llm_analytics_docs_viewed"
     LLM_CLUSTER_EXPLORED = "llm_cluster_explored"
     LLM_DATASET_CREATED = "llm_dataset_created"
@@ -4380,6 +4430,7 @@ class SignalSourceType(StrEnum):
     SESSION_ANALYSIS_CLUSTER = "session_analysis_cluster"
     SESSION_PROBLEM = "session_problem"
     EVALUATION = "evaluation"
+    EVALUATION_REPORT = "evaluation_report"
     ISSUE = "issue"
     TICKET = "ticket"
     ISSUE_CREATED = "issue_created"
@@ -4850,6 +4901,7 @@ class UserProductListReason(StrEnum):
     USED_ON_SEPARATE_TEAM = "used_on_separate_team"
     NEW_PRODUCT = "new_product"
     SALES_LED = "sales_led"
+    ONBOARDING_DELEGATED = "onboarding_delegated"
 
 
 class VectorSearchResponseItem(BaseModel):
@@ -8185,6 +8237,7 @@ class SignalInput(
     RootModel[
         SessionProblemSignalInput
         | LlmEvaluationSignalInput
+        | LlmEvaluationReportSignalInput
         | ZendeskTicketSignalInput
         | GithubIssueSignalInput
         | LinearIssueSignalInput
@@ -8196,13 +8249,14 @@ class SignalInput(
     root: (
         SessionProblemSignalInput
         | LlmEvaluationSignalInput
+        | LlmEvaluationReportSignalInput
         | ZendeskTicketSignalInput
         | GithubIssueSignalInput
         | LinearIssueSignalInput
         | ConversationsTicketSignalInput
         | ErrorTrackingSignalInput
         | EndpointExecutionFailedSignalInput
-    ) = Field(..., discriminator="source_product")
+    )
 
 
 class SourceFieldFileUploadConfig(BaseModel):
@@ -10120,6 +10174,48 @@ class AssistantTrendsEventsNode(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
+class AssistantTrendsGroupNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    custom_name: str | None = None
+    kind: Literal["GroupNode"] = "GroupNode"
+    math: (
+        BaseMathType
+        | FunnelMathType
+        | PropertyMathType
+        | CountPerActorMathType
+        | ExperimentMetricMathType
+        | CalendarHeatmapMathType
+        | Literal["unique_group"]
+        | Literal["hogql"]
+        | None
+    ) = Field(
+        default=None,
+        description=(
+            "Math aggregation for the combined series. The engine reads aggregation from here, not from inner nodes."
+        ),
+    )
+    math_group_type_index: MathGroupTypeIndex | None = None
+    math_hogql: str | None = Field(
+        default=None,
+        description="Custom HogQL aggregation. When set, `math` must be `hogql`.",
+    )
+    math_multiplier: float | None = None
+    math_property: str | None = None
+    math_property_type: str | None = None
+    name: str | None = Field(default=None, description="Display name for the combined series.")
+    nodes: list[AssistantTrendsEventsNode | AssistantTrendsActionsNode] = Field(
+        ...,
+        description=(
+            "Events and actions combined into the series. Mirror the group's `math*` on"
+            " each node for UI round-trip; they're ignored at execution time."
+        ),
+        min_length=2,
+    )
+    operator: Literal["OR"] = Field(default="OR", description="Only `OR` is supported.")
+
+
 class AssistantTrendsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -10184,9 +10280,18 @@ class AssistantTrendsQuery(BaseModel):
         default=None,
         description="Sampling rate from 0 to 1 where 1 is 100% of the data.",
     )
-    series: list[AssistantTrendsEventsNode | AssistantTrendsActionsNode] = Field(
+    series: list[AssistantTrendsEventsNode | AssistantTrendsActionsNode | AssistantTrendsGroupNode] = Field(
         ...,
-        description=("Events or actions to include. Prioritize the more popular and fresh events and actions."),
+        description=(
+            "Events, actions, or groups of events/actions to include. Prioritize the"
+            " more popular and fresh events and actions.\n\nUse a top-level"
+            " `EventsNode` or `ActionsNode` entry for each independent series (one line"
+            " per entry on the chart). Use an `AssistantTrendsGroupNode` to combine"
+            " multiple events or actions into a single series joined by `OR` — for"
+            ' example, treating "Pageview OR Pageleave" as one line. Only `OR` grouping'
+            " is supported; pick groups only when the user wants the events counted"
+            " together, otherwise prefer separate series."
+        ),
     )
     trendsFilter: AssistantTrendsFilter | None = Field(
         default=None, description="Properties specific to the trends insight"
@@ -14826,7 +14931,7 @@ class LogAttributesQueryResponse(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[dict[str, Any]]
+    results: list[LogAttributeResult]
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
@@ -16919,7 +17024,7 @@ class QueryResponseAlternative76(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[dict[str, Any]]
+    results: list[LogAttributeResult]
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
@@ -20721,6 +20826,10 @@ class LogAttributesQuery(BaseModel):
     offset: int | None = None
     response: LogAttributesQueryResponse | None = None
     search: str | None = None
+    searchValues: bool | None = Field(
+        default=None,
+        description=("When true, the search query also matches attribute values (not just keys)."),
+    )
     serviceNames: list[str] | None = None
     severityLevels: list[LogSeverityLevel] | None = None
     tags: QueryLogTags | None = None
@@ -23366,6 +23475,15 @@ class SourceConfig(BaseModel):
         ]
         | None
     ) = None
+    webhookManualOnly: bool | None = Field(
+        default=None,
+        description=(
+            "If true, the source does not support automatic webhook registration via"
+            " API (e.g. Slack — the user must paste the URL into the source's app"
+            " settings). Adjusts the setup UI copy to avoid promising automatic"
+            " registration."
+        ),
+    )
     webhookSetupCaption: str | None = None
 
 

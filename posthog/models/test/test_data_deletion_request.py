@@ -114,6 +114,52 @@ def test_compile_hogql_predicate_empty_returns_empty():
     assert compile_hogql_predicate(request) == ("", {})
 
 
+def test_compile_hogql_predicate_targets_sharded_events(team, snapshot):
+    """Predicate is spliced into ``DELETE FROM sharded_events WHERE …``, so the
+    compiled SQL must not reference the Distributed ``events`` proxy.
+
+    Snapshots the full SQL fragment so any regression that re-introduces an
+    ``events.`` table prefix (or any other shape change) is caught.
+    """
+    from posthog.models.data_deletion_request import compile_hogql_predicate
+
+    request = DataDeletionRequest(
+        **_base_kwargs(
+            team_id=team.id,
+            events=["$pageview"],
+            hogql_predicate="properties.$browser = 'Chrome' AND event = '$pageview'",
+        )
+    )
+    sql, _ = compile_hogql_predicate(request)
+    assert sql == snapshot
+
+
+def test_compile_hogql_predicate_emits_sharded_events_for_materialized_column(team, snapshot):
+    """When a property has a materialized column, the printer emits ``{table}.mat_{prop}``.
+    With ``target_data_table=True`` that qualifier must be ``sharded_events`` — without
+    the flag it would point at the Distributed ``events`` proxy, mismatched with a DELETE
+    against the local table.
+    """
+    from posthog.models.data_deletion_request import compile_hogql_predicate
+
+    from ee.clickhouse.materialized_columns.analyze import materialize
+
+    materialize("events", "$current_url")
+
+    request = DataDeletionRequest(
+        **_base_kwargs(
+            team_id=team.id,
+            events=["$pageview"],
+            hogql_predicate="properties.$current_url LIKE '%message=%'",
+        )
+    )
+    events_sql, _ = compile_hogql_predicate(request)
+    sharded_sql, _ = compile_hogql_predicate(request, target_data_table=True)
+    assert "events.`mat_$current_url`" in events_sql
+    assert "sharded_events.`mat_$current_url`" in sharded_sql
+    assert {"events": events_sql, "sharded": sharded_sql} == snapshot
+
+
 def test_rendered_count_query_substitutes_parameters():
     from posthog.admin.admins.data_deletion_request_admin import build_deletion_count_query
     from posthog.clickhouse.client.escape import substitute_params_for_display
@@ -215,6 +261,12 @@ def test_person_removal_requires_at_least_one_action():
 def test_person_removal_caps_total_selectors_at_1000():
     request = DataDeletionRequest(**_person_kwargs(person_uuids=[str(uuid_lib.uuid4()) for _ in range(1001)]))
     with pytest.raises(ValidationError, match="1000"):
+        request.clean()
+
+
+def test_person_removal_rejects_both_selectors():
+    request = DataDeletionRequest(**_person_kwargs(person_uuids=[str(uuid_lib.uuid4())], person_distinct_ids=["did-1"]))
+    with pytest.raises(ValidationError, match="not both"):
         request.clean()
 
 

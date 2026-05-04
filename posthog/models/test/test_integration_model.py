@@ -193,6 +193,57 @@ class TestOauthIntegrationModel(BaseTest):
                 "id_token": None,
             }
 
+    @parameterized.expand(
+        [
+            (
+                "json_error_body",
+                400,
+                {
+                    "error": "invalid_grant",
+                    "error_description": "Authorization code does not exist or has expired.",
+                },
+                None,
+                '{"error":"invalid_grant","error_description":"Authorization code does not exist or has expired."}',
+                ["invalid_grant", "Authorization code does not exist"],
+            ),
+            (
+                "non_json_error_body",
+                502,
+                None,
+                ValueError("not json"),
+                "<html>Bad Gateway</html>",
+                ["salesforce"],
+            ),
+        ]
+    )
+    @patch("posthog.models.integration.requests.post")
+    def test_oauth_token_exchange_failure_raises_validation_error(
+        self, _name, status_code, json_return, json_side_effect, body_text, expected_in_message, mock_post
+    ):
+        """A failed token exchange must surface a ValidationError (→ DRF 400 with `detail`) so the
+        frontend toast renders something useful. Covers both well-formed JSON error bodies (where
+        we extract `error_description`) and non-JSON bodies (where the helper falls back to the
+        raw text or a status-only message)."""
+        with self.settings(**self.mock_settings):
+            mock_post.return_value.status_code = status_code
+            if json_side_effect is not None:
+                mock_post.return_value.json.side_effect = json_side_effect
+            else:
+                mock_post.return_value.json.return_value = json_return
+            mock_post.return_value.text = body_text
+
+            with pytest.raises(ValidationError) as e:
+                OauthIntegration.integration_from_oauth_response(
+                    "salesforce",
+                    self.team.id,
+                    self.user,
+                    {"code": "code", "state": "next=/projects/test"},
+                )
+
+            message = str(e.value).lower()
+            for fragment in expected_in_message:
+                assert fragment.lower() in message
+
     @patch("posthog.models.integration.requests.post")
     def test_integration_errors_if_id_cannot_be_generated(self, mock_post):
         with self.settings(**self.mock_settings):
@@ -591,7 +642,8 @@ class TestOauthIntegrationModel(BaseTest):
         with self.settings(
             STRIPE_APP_CLIENT_ID="ca_live_clientid",
             STRIPE_APP_SANDBOX_CLIENT_ID="ca_sandbox_clientid",
-            STRIPE_APP_SECRET_KEY="sk_test_secret",
+            STRIPE_APP_SECRET_KEY="sk_live_secret",
+            STRIPE_APP_SANDBOX_SECRET_KEY="sk_test_sandbox_secret",
             STRIPE_APP_OVERRIDE_AUTHORIZE_URL="",
         ):
             url = OauthIntegration.authorize_url("stripe", token="state_token", next="/projects/test")
@@ -602,21 +654,139 @@ class TestOauthIntegrationModel(BaseTest):
         with self.settings(
             STRIPE_APP_CLIENT_ID="ca_live_clientid",
             STRIPE_APP_SANDBOX_CLIENT_ID="ca_sandbox_clientid",
-            STRIPE_APP_SECRET_KEY="sk_test_secret",
+            STRIPE_APP_SECRET_KEY="sk_live_secret",
+            STRIPE_APP_SANDBOX_SECRET_KEY="sk_test_sandbox_secret",
             STRIPE_APP_OVERRIDE_AUTHORIZE_URL="",
         ):
             url = OauthIntegration.authorize_url("stripe", token="state_token", next="/projects/test", is_sandbox=True)
             assert "client_id=ca_sandbox_clientid" in url
             assert "client_id=ca_live_clientid" not in url
 
+    def test_stripe_oauth_config_uses_sandbox_secret_when_is_sandbox(self):
+        with self.settings(
+            STRIPE_APP_CLIENT_ID="ca_live_clientid",
+            STRIPE_APP_SANDBOX_CLIENT_ID="ca_sandbox_clientid",
+            STRIPE_APP_SECRET_KEY="sk_live_secret",
+            STRIPE_APP_SANDBOX_SECRET_KEY="sk_test_sandbox_secret",
+        ):
+            live_cfg = OauthIntegration.oauth_config_for_kind("stripe")
+            sandbox_cfg = OauthIntegration.oauth_config_for_kind("stripe", is_sandbox=True)
+            assert live_cfg.client_secret == "sk_live_secret"
+            assert sandbox_cfg.client_secret == "sk_test_sandbox_secret"
+
     def test_stripe_authorize_url_raises_when_sandbox_requested_but_not_configured(self):
         with self.settings(
             STRIPE_APP_CLIENT_ID="ca_live_clientid",
             STRIPE_APP_SANDBOX_CLIENT_ID="",
-            STRIPE_APP_SECRET_KEY="sk_test_secret",
+            STRIPE_APP_SANDBOX_SECRET_KEY="",
+            STRIPE_APP_SECRET_KEY="sk_live_secret",
         ):
             with pytest.raises(NotImplementedError, match="sandbox"):
                 OauthIntegration.authorize_url("stripe", token="state_token", is_sandbox=True)
+
+    def test_stripe_authorize_url_raises_when_sandbox_secret_missing(self):
+        with self.settings(
+            STRIPE_APP_CLIENT_ID="ca_live_clientid",
+            STRIPE_APP_SANDBOX_CLIENT_ID="ca_sandbox_clientid",
+            STRIPE_APP_SANDBOX_SECRET_KEY="",
+            STRIPE_APP_SECRET_KEY="sk_live_secret",
+        ):
+            with pytest.raises(NotImplementedError, match="sandbox"):
+                OauthIntegration.authorize_url("stripe", token="state_token", is_sandbox=True)
+
+    @patch("posthog.models.integration.requests.post")
+    def test_stripe_token_exchange_falls_back_to_sandbox_on_does_not_belong_error(self, mock_post):
+        # First call (live secret) returns 400 with the marker error - second call should
+        # retry with sandbox config and succeed.
+        first_response = MagicMock(
+            status_code=400,
+            text='{"error":"invalid_grant","error_description":"Authorization code provided does not belong to you"}',
+        )
+        first_response.json.return_value = {
+            "error": "invalid_grant",
+            "error_description": "Authorization code provided does not belong to you",
+        }
+        second_response = MagicMock(status_code=200)
+        second_response.json.return_value = {
+            "access_token": "FAKE_SANDBOX_ACCESS",
+            "refresh_token": "FAKE_SANDBOX_REFRESH",
+            "stripe_user_id": "acct_sandbox_123",
+            "account_name": "Sandbox Account",
+            "expires_in": 3600,
+        }
+        mock_post.side_effect = [first_response, second_response]
+
+        with self.settings(
+            STRIPE_APP_CLIENT_ID="ca_live_clientid",
+            STRIPE_APP_SANDBOX_CLIENT_ID="ca_sandbox_clientid",
+            STRIPE_APP_SECRET_KEY="sk_live_secret",
+            STRIPE_APP_SANDBOX_SECRET_KEY="sk_test_sandbox_secret",
+        ):
+            OauthIntegration.integration_from_oauth_response(
+                "stripe",
+                self.team.id,
+                self.user,
+                {"code": "ac_sandbox_code"},
+            )
+
+        assert mock_post.call_count == 2
+        first_call_secret = mock_post.call_args_list[0].kwargs["auth"].username
+        second_call_secret = mock_post.call_args_list[1].kwargs["auth"].username
+        assert first_call_secret == "sk_live_secret"
+        assert second_call_secret == "sk_test_sandbox_secret"
+
+    @patch("posthog.models.integration.requests.post")
+    def test_stripe_token_exchange_does_not_retry_when_sandbox_secret_unset(self, mock_post):
+        first_response = MagicMock(
+            status_code=400,
+            text='{"error":"invalid_grant","error_description":"Authorization code provided does not belong to you"}',
+        )
+        first_response.json.return_value = {"error": "invalid_grant"}
+        mock_post.return_value = first_response
+
+        with self.settings(
+            STRIPE_APP_CLIENT_ID="ca_live_clientid",
+            STRIPE_APP_SANDBOX_CLIENT_ID="",
+            STRIPE_APP_SECRET_KEY="sk_live_secret",
+            STRIPE_APP_SANDBOX_SECRET_KEY="",
+        ):
+            with pytest.raises(ValidationError, match="OAuth failed"):
+                OauthIntegration.integration_from_oauth_response(
+                    "stripe",
+                    self.team.id,
+                    self.user,
+                    {"code": "ac_some_code"},
+                )
+
+        assert mock_post.call_count == 1
+
+    @patch("posthog.models.integration.requests.post")
+    def test_stripe_token_exchange_does_not_retry_when_only_sandbox_secret_set(self, mock_post):
+        # If the sandbox secret is set but the sandbox client_id is not, the retry guard
+        # must fail closed - oauth_config_for_kind would otherwise raise NotImplementedError
+        # and mask the original Stripe error.
+        first_response = MagicMock(
+            status_code=400,
+            text='{"error":"invalid_grant","error_description":"Authorization code provided does not belong to you"}',
+        )
+        first_response.json.return_value = {"error": "invalid_grant"}
+        mock_post.return_value = first_response
+
+        with self.settings(
+            STRIPE_APP_CLIENT_ID="ca_live_clientid",
+            STRIPE_APP_SANDBOX_CLIENT_ID="",
+            STRIPE_APP_SECRET_KEY="sk_live_secret",
+            STRIPE_APP_SANDBOX_SECRET_KEY="sk_test_sandbox_secret",
+        ):
+            with pytest.raises(ValidationError, match="OAuth failed"):
+                OauthIntegration.integration_from_oauth_response(
+                    "stripe",
+                    self.team.id,
+                    self.user,
+                    {"code": "ac_some_code"},
+                )
+
+        assert mock_post.call_count == 1
 
     @patch("posthog.models.integration.reload_integrations_on_workers")
     @patch("posthog.models.integration.requests.post")
@@ -1093,7 +1263,7 @@ class TestGitHubIntegrationModel(BaseTest):
 
     @patch("posthog.models.github_integration_base.requests.get")
     @patch("posthog.models.integration.GitHubIntegration.access_token_expired", return_value=False)
-    def test_list_repositories_raises_when_follow_up_page_fails(self, _mock_expired, mock_get):
+    def test_list_all_repositories_raises_when_later_page_fails(self, _mock_expired, mock_get):
         integration = self.create_integration(
             {"installation_id": "INSTALL", "account": {"name": "PostHog"}},
             {"access_token": "ACCESS_TOKEN"},
@@ -1109,12 +1279,13 @@ class TestGitHubIntegrationModel(BaseTest):
         second_page.status_code = 502
         second_page.json.return_value = {"message": "bad gateway"}
 
-        mock_get.side_effect = [first_page, second_page]
+        # Page-1 succeeds. Page-2 fetch is retried once after transient 502.
+        mock_get.side_effect = [first_page, second_page, second_page]
 
-        with pytest.raises(GitHubIntegrationError, match="failed to list repositories on page"):
-            GitHubIntegration(integration).list_repositories(limit=150, offset=0)
+        with pytest.raises(GitHubIntegrationError, match="failed to list repositories"):
+            GitHubIntegration(integration).list_all_repositories()
 
-        assert mock_get.call_count == 2
+        assert mock_get.call_count == 3
 
     @patch("posthog.models.integration.GitHubIntegration.list_repositories")
     def test_list_all_repositories_fetches_all_pages(self, mock_list):
@@ -1135,8 +1306,8 @@ class TestGitHubIntegrationModel(BaseTest):
         assert len(repos) == 130
         assert repos == first_page + second_page
         assert mock_list.call_args_list == [
-            call(limit=100, offset=0),
-            call(limit=100, offset=100),
+            call(page=1, per_page=100),
+            call(page=2, per_page=100),
         ]
 
     @patch("posthog.models.integration.GitHubIntegration.list_all_repositories")
