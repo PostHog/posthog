@@ -9,6 +9,7 @@ from posthog.schema import (
     ArtifactSource,
     AssistantDataVisualizationChartSettings,
     AssistantDataVisualizationDisplayType,
+    AssistantHogQLQuery,
     AssistantToolCallMessage,
     ChartDisplayType,
     ChartSettings,
@@ -100,7 +101,7 @@ class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
         except PydanticOutputParserException as e:
             return format_prompt_string(EXECUTE_SQL_RECOVERABLE_ERROR_PROMPT, error=str(e)), None
 
-        artifact_query = parsed_query.query
+        artifact_query: AssistantHogQLQuery | DataVisualizationNode = parsed_query.query
         if display or chart_settings:
             if isinstance(chart_settings, AssistantDataVisualizationChartSettings):
                 chart_settings_data = chart_settings.model_dump(mode="json", exclude_none=True)

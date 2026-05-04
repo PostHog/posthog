@@ -4,7 +4,13 @@ from unittest.mock import AsyncMock, Mock, patch
 from asgiref.sync import sync_to_async
 from langchain_core.runnables import RunnableConfig
 
-from posthog.schema import ArtifactContentType, AssistantToolCallMessage, ChartDisplayType, VisualizationArtifactContent
+from posthog.schema import (
+    ArtifactContentType,
+    AssistantToolCallMessage,
+    ChartDisplayType,
+    DataVisualizationNode,
+    VisualizationArtifactContent,
+)
 
 from posthog.models import Insight
 
@@ -97,12 +103,20 @@ class TestExecuteSQLTool(ClickhouseTestMixin, NonAtomicBaseTest):
         artifact = await AgentArtifact.objects.aget(short_id=artifact_messages.messages[0].artifact_id)
         content = VisualizationArtifactContent.model_validate(artifact.data)
 
-        self.assertEqual(content.query.kind, "DataVisualizationNode")
-        self.assertEqual(content.query.display, ChartDisplayType.ACTIONS_BAR)
-        self.assertEqual(content.query.chartSettings.xAxisLabel, "Event name")
-        self.assertEqual(content.query.chartSettings.leftYAxisSettings.label, "Events")
-        self.assertEqual(content.query.chartSettings.rightYAxisSettings.label, "People")
-        self.assertEqual(content.query.chartSettings.rightYAxisSettings.showTicks, False)
+        query = content.query
+        assert isinstance(query, DataVisualizationNode)
+        chart_settings = query.chartSettings
+        assert chart_settings is not None
+        left_y_axis_settings = chart_settings.leftYAxisSettings
+        assert left_y_axis_settings is not None
+        right_y_axis_settings = chart_settings.rightYAxisSettings
+        assert right_y_axis_settings is not None
+
+        self.assertEqual(query.display, ChartDisplayType.ACTIONS_BAR)
+        self.assertEqual(chart_settings.xAxisLabel, "Event name")
+        self.assertEqual(left_y_axis_settings.label, "Events")
+        self.assertEqual(right_y_axis_settings.label, "People")
+        self.assertEqual(right_y_axis_settings.showTicks, False)
 
     async def test_artifact_id_in_output(self):
         _create_event(team=self.team, distinct_id="user1", event="test_event")
