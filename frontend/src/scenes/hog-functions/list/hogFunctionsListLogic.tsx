@@ -151,9 +151,15 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
     selectors({
         loading: [(s) => [s.hogFunctionsLoading], (hogFunctionsLoading) => hogFunctionsLoading],
         sortedHogFunctions: [
-            (s) => [s.hogFunctions, (_, props) => props.manualFunctions ?? EMPTY_MANUAL_FUNCTIONS],
-            (hogFunctions, manualFunctions): HogFunctionType[] => {
-                const enabledFirst = [...hogFunctions, ...manualFunctions].sort(
+            (s) => [s.hogFunctions, s.filters, (_, props) => props.manualFunctions ?? EMPTY_MANUAL_FUNCTIONS],
+            (hogFunctions, filters, manualFunctions): HogFunctionType[] => {
+                const search = filters.search?.trim().toLowerCase()
+                const filteredManual = search
+                    ? manualFunctions.filter(
+                          (f) => f.name?.toLowerCase().includes(search) || f.description?.toLowerCase().includes(search)
+                      )
+                    : manualFunctions
+                const enabledFirst = [...hogFunctions, ...filteredManual].sort(
                     (a, b) => Number(b.enabled) - Number(a.enabled)
                 )
                 return enabledFirst
