@@ -38,6 +38,7 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.insight import DashboardTileBasicSerializer, InsightSerializer, InsightViewSet
 from posthog.api.insight_suggestions import summarize_insight_result
 from posthog.api.monitoring import Feature, monitor
+from posthog.api.openapi_parameters import make_filters_override_param, make_variables_override_param
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_model
 from posthog.api.shared import UserBasicSerializer
@@ -48,6 +49,13 @@ from posthog.constants import GENERATED_DASHBOARD_PREFIX
 from posthog.event_usage import get_request_analytics_properties, report_user_action
 from posthog.helpers import create_dashboard_from_template
 from posthog.helpers.dashboard_templates import create_from_template, dashboard_template_from_creation_payload
+from posthog.helpers.trigram_search import (
+    DESCRIPTION_SCORE_WEIGHT,
+    MAX_SEARCH_LENGTH,
+    MIN_DESCRIPTION_TRIGRAM_SIMILARITY,
+    MIN_NAME_TRIGRAM_SIMILARITY,
+    normalize_search_term,
+)
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Insight
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
@@ -107,51 +115,11 @@ DASHBOARD_SHARED_FIELDS = [
 ]
 
 
-# Shared OpenAPI parameter definitions for the variables_override / filters_override
-# query params. These three semantics are easy to miss without reading
-# posthog/utils.py and posthog/api/insight_variable.py:
-#   1. Each variable entry needs `code_name` to match — `map_stale_to_latest` drops
-#      entries that lack it, so an override of `{"value": ...}` alone silently no-ops.
-#   2. Both helpers shallow-merge — top-level keys replace wholesale, nested values
-#      are not deep-merged.
-#   3. Both helpers ignore overrides when the request is authenticated via a
-#      dashboard sharing token, returning the persisted state with no error.
-VARIABLES_OVERRIDE_PARAM = OpenApiParameter(
-    "variables_override",
-    OpenApiTypes.STR,
-    description=(
-        "JSON object to override dashboard variables for this request only (not persisted). "
-        'Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. '
-        "Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call "
-        "`dashboard-get` first, copy the matching entry from the response's `variables` field, and mutate `value`. "
-        "Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a dashboard sharing token."
-    ),
-)
-FILTERS_OVERRIDE_PARAM = OpenApiParameter(
-    "filters_override",
-    OpenApiTypes.STR,
-    description=(
-        "JSON object to override dashboard filters for this request only (not persisted). "
-        "Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. "
-        "See the dashboard filters schema for available keys (e.g., `date_from`, `date_to`, `properties`). "
-        "Ignored when accessed via a dashboard sharing token."
-    ),
-)
+VARIABLES_OVERRIDE_PARAM = make_variables_override_param(subject_label="dashboard", tool_name="dashboard-get")
+FILTERS_OVERRIDE_PARAM = make_filters_override_param(subject_label="dashboard")
 
 
 tracer = trace.get_tracer(__name__)
-
-# Minimum trigram word similarity for a name match. Calibrated against the
-# `test_list_filter_by_search_*` tests in posthog/api/test/dashboards/test_dashboard.py.
-# Tighten it and typo cases stop matching, loosen it and unrelated rows leak in.
-MIN_NAME_TRIGRAM_SIMILARITY = 0.3
-# Description thresholds run higher because descriptions are freeform prose where short
-# queries (3-5 chars) can clear a 0.3 threshold against any sufficiently long passage.
-MIN_DESCRIPTION_TRIGRAM_SIMILARITY = 0.4
-# Hard cap on the `?search=` query parameter — protects against pathological inputs
-# burning CPU on trigram comparisons against a long string (and against operational
-# `dashboard.name` is bounded at 400 chars so 200 covers any realistic prefix-as-you-type).
-MAX_SEARCH_LENGTH = 200
 
 
 def serialize_tile_with_context(tile, order: int, context: dict) -> tuple[int, dict]:
@@ -1109,7 +1077,7 @@ class DashboardsViewSet(
         # telemetry — flag empty results (loosen) and high counts (tighten).
         if request.query_params.get("search"):
             data = response.data if isinstance(response.data, dict) else {}
-            results_len = len(data.get("results", [])) if "results" in data else 0
+            results_len = data.get("count", len(data.get("results", [])))
             span = trace.get_current_span()
             span.set_attribute("dashboard.search.result_count", results_len)
             span.set_attribute("dashboard.search.empty", results_len == 0)
@@ -1118,8 +1086,7 @@ class DashboardsViewSet(
     @staticmethod
     @tracer.start_as_current_span("DashboardViewSet._apply_search")
     def _apply_search(queryset: QuerySet, search: str) -> QuerySet:
-        # Postgres rejects NUL bytes in text parameters; strip before they hit the query.
-        search = search.replace("\x00", "").strip()
+        search = normalize_search_term(search)
         span = trace.get_current_span()
         span.set_attribute("dashboard.search.length", len(search))
         if not search:
@@ -1150,7 +1117,7 @@ class DashboardsViewSet(
                 _name_match_score=F("_name_word") + F("_name_full"),
                 _description_match_score=F("_description_word"),
             )
-            .annotate(_search_score=F("_name_match_score") + F("_description_match_score") * 0.5)
+            .annotate(_search_score=F("_name_match_score") + F("_description_match_score") * DESCRIPTION_SCORE_WEIGHT)
             .order_by("-_search_score", "-pinned", "name")
         )
 

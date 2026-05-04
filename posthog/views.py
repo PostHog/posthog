@@ -177,8 +177,9 @@ def render_query(request: HttpRequest) -> HttpResponse:
 
 @never_cache
 def preflight_check(request: HttpRequest) -> JsonResponse:
-    with tracer.start_as_current_span("preflight.slack_config"):
+    with tracer.start_as_current_span("preflight.slack_config_main"):
         slack_client_id = SlackIntegration.slack_config().get("SLACK_APP_CLIENT_ID")
+    with tracer.start_as_current_span("preflight.posthog_code_slack_config"):
         posthog_code_slack_config = SlackIntegration.posthog_code_slack_config()
         posthog_code_slack_client_id = posthog_code_slack_config.get("SLACK_POSTHOG_CODE_CLIENT_ID")
         posthog_code_slack_signing_secret = posthog_code_slack_config.get("SLACK_POSTHOG_CODE_SIGNING_SECRET")

@@ -1,6 +1,7 @@
 import re
 import json
 import math
+import hashlib
 import secrets
 from datetime import timedelta
 from functools import cached_property
@@ -69,7 +70,14 @@ from posthog.session_recordings.data_retention import (
     validate_retention_period,
 )
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
-from posthog.utils import get_instance_realm, get_instance_region, get_ip_address, get_week_start_for_country_code
+from posthog.utils import (
+    get_instance_realm,
+    get_instance_region,
+    get_ip_address,
+    get_safe_cache,
+    get_week_start_for_country_code,
+    safe_cache_set,
+)
 
 from products.customer_analytics.backend.models.team_customer_analytics_config import TeamCustomerAnalyticsConfig
 from products.feature_flags.backend.models import TeamFeatureFlagDefaultsConfig
@@ -403,6 +411,47 @@ def _reset_default_data_color_theme_id_cache() -> None:
     _default_theme_id_cache = None
 
 
+LIVE_EVENTS_TOKEN_TTL_SECONDS = 24 * 60 * 60
+
+
+def _live_events_token_cache_key(team: Team, user_id: int | None) -> str:
+    """Build the cache key for the live-events JWT.
+
+    Includes a short fingerprint of `settings.SECRET_KEY` so that rotating the
+    signing secret automatically partitions the cache namespace - cached tokens
+    signed with the old key become unreachable rather than served until TTL.
+    Hashing also defends the cache key against future api-token formats that
+    might contain the `:` separator we use between components.
+    """
+    signing_fingerprint = hashlib.sha256(settings.SECRET_KEY.encode()).hexdigest()[:16]
+    return f"live_events_token:{signing_fingerprint}:{team.id}:{user_id}:{team.api_token}:{team.organization_id}"
+
+
+def get_or_mint_live_events_token(team: Team, user_id: int | None) -> str:
+    """Return a cached live-events JWT for this (team, user) pair, minting one if missing.
+
+    The JWT itself is valid for 7 days. The cache TTL is 24h, so any token returned
+    from cache still has at least 6 days of remaining validity. The cache key includes
+    every field that ends up in the claims so api-token rotations or organization
+    moves automatically force a fresh mint, plus a SECRET_KEY fingerprint so signing-
+    key rotation auto-partitions the cache namespace (no manual flush needed).
+    """
+    cache_key = _live_events_token_cache_key(team, user_id)
+    cached = get_safe_cache(cache_key)
+    if cached is not None:
+        return cached
+
+    claims = {
+        "team_id": team.id,
+        "api_token": team.api_token,
+        "user_id": user_id,
+        "organization_id": str(team.organization_id),
+    }
+    token = encode_jwt(claims, timedelta(days=7), PosthogJwtAudience.LIVESTREAM)
+    safe_cache_set(cache_key, token, timeout=LIVE_EVENTS_TOKEN_TTL_SECONDS)
+    return token
+
+
 class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin):
     instance: Team | None
 
@@ -498,17 +547,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     def get_live_events_token(self, team: Team) -> str | None:
         request = self.context.get("request")
         user_id = request.user.id if request and hasattr(request, "user") and request.user.is_authenticated else None
-        claims = {
-            "team_id": team.id,
-            "api_token": team.api_token,
-            "user_id": user_id,
-            "organization_id": str(team.organization_id),
-        }
-        return encode_jwt(
-            claims,
-            timedelta(days=7),
-            PosthogJwtAudience.LIVESTREAM,
-        )
+        return get_or_mint_live_events_token(team, user_id)
 
     @extend_schema_field(serializers.ListField(child=serializers.DictField()))
     @tracer.start_as_current_span("team_serializer.product_intents")

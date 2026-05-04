@@ -613,13 +613,15 @@ class UserSerializer(serializers.ModelSerializer):
         return instance
 
     def to_representation(self, instance: Any) -> Any:
-        user_identify.identify_task.delay(user_id=instance.id)
+        with tracer.start_as_current_span("user_serializer.identify_task_delay"):
+            user_identify.identify_task.delay(user_id=instance.id)
         with tracer.start_as_current_span("user_serializer.default_fields"):
             data = super().to_representation(instance)
 
         # Backfill shortcut_position default for frontend if null
-        if data.get("shortcut_position") is None:
-            data["shortcut_position"] = ShortcutPosition.ABOVE.value
+        with tracer.start_as_current_span("user_serializer.shortcut_position_backfill"):
+            if data.get("shortcut_position") is None:
+                data["shortcut_position"] = ShortcutPosition.ABOVE.value
 
         return data
 

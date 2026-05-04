@@ -1348,9 +1348,11 @@ class GenericEmails:
         return self.emails.get(email[(at_location + 1) :], False)
 
 
-@lru_cache(maxsize=1)
-def get_available_timezones_with_offsets() -> dict[str, float]:
-    now = dt.datetime.now()
+# maxsize=2 keeps the previous hour's bucket warm so requests interleaved across the
+# top-of-hour boundary don't both pay the ~600-entry pytz walk.
+@lru_cache(maxsize=2)
+def _timezone_offsets_for_hour(year: int, month: int, day: int, hour: int) -> dict[str, float]:
+    now = dt.datetime(year, month, day, hour)
     result = {}
     for tz in pytz.common_timezones:
         try:
@@ -1360,6 +1362,13 @@ def get_available_timezones_with_offsets() -> dict[str, float]:
         offset_hours = int(offset.total_seconds()) / 3600
         result[tz] = offset_hours
     return result
+
+
+def get_available_timezones_with_offsets() -> dict[str, float]:
+    # Bucket by hour so the ~600-pytz-timezone walk only runs at most once per hour
+    # per process. Hourly granularity is enough to catch DST transitions promptly.
+    now = dt.datetime.now()
+    return _timezone_offsets_for_hour(now.year, now.month, now.day, now.hour)
 
 
 def refresh_requested_by_client(request: Request) -> bool | str:

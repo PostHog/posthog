@@ -1048,6 +1048,10 @@ snapshots:
         hash: v1.k794b7964.c30111430d8ea4d04c000cef06117cbfaddc35d878eabf460107e789d4c2e924.Ka1P3kDjRlH3ASfWAuc8YPXrw_kwFeB3X_4ytUd-Nzg
     components-search--default--light:
         hash: v1.k794b7964.5e6e91e6bae311ce2310a2192f3aaff14c143b1209da18aa0dd15b30ed378c23.we_dzaxMCPNMypRkaKFEQdAyzjTfZeI4dA-hl-fLBZo
+    components-search--product-recents-and-starred--dark:
+        hash: v1.k794b7964.1c842fd127209581e6f4237e29b6c192e9554eca6d7cef676228aa8349c9558e.ejiFyOdHt-040qSjQ97L9VY73QuA59vgzAuXTJa6Zg0
+    components-search--product-recents-and-starred--light:
+        hash: v1.k794b7964.6d7ebbb457b003a589697f6dd6c054fdc6405868b4c6b3a616b004b8faa97ebd.klxLctEaGXfv7Ndvi9IfZL2U7iMfOdJjO805z_Kk8-U
     components-search--searching--dark:
         hash: v1.k794b7964.68ab8bef374ab0313369c61df847587f087b2657f4ec43ebbcc532cce3cb3abc.uoWd0-vG62pjMtGu2nsyYEiFqI3jtQPMv_O-TI5MiTA
     components-search--searching--light:

@@ -1,6 +1,6 @@
 import json
 import base64
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, cast
 from zoneinfo import ZoneInfo
 
@@ -169,6 +169,24 @@ class TestGeneralUtils(TestCase):
     def test_available_timezones(self):
         timezones = get_available_timezones_with_offsets()
         self.assertEqual(timezones.get("Europe/Moscow"), 3)
+
+    def test_available_timezones_buckets_by_hour(self):
+        from posthog.utils import _timezone_offsets_for_hour
+
+        _timezone_offsets_for_hour.cache_clear()
+
+        with patch("posthog.utils.dt") as mock_dt:
+            mock_dt.datetime.now.return_value = datetime(2026, 5, 3, 10, 30)
+            mock_dt.datetime.side_effect = lambda *args, **kw: datetime(*args, **kw)
+            mock_dt.timedelta = timedelta
+
+            first = get_available_timezones_with_offsets()
+            second = get_available_timezones_with_offsets()
+            assert first is second  # same hour -> single inner-cache entry
+
+            mock_dt.datetime.now.return_value = datetime(2026, 5, 3, 11, 0)
+            third = get_available_timezones_with_offsets()
+            assert third is not first  # crossed an hour boundary -> recomputed
 
     @patch("os.getenv")
     def test_fetching_env_var_parsed_as_int(self, mock_env):

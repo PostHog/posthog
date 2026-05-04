@@ -2321,7 +2321,7 @@
         }
     },
     "insight-get": {
-        "description": "Fetch a saved insight by its numeric `id` or 8-character `short_id`. Returns the insight metadata and query definition, but NOT the query results. To retrieve the actual data, call the insight-query tool with the same identifier.",
+        "description": "Fetch a saved insight by its numeric `id` or 8-character `short_id`. Returns the insight metadata and query definition, but NOT the query results. To retrieve the actual data, call the insight-query tool with the same identifier. Optionally accepts `variables_override` and `filters_override` to apply one-off overrides to the returned query definition without mutating the saved insight.",
         "category": "Product analytics",
         "feature": "product_analytics",
         "summary": "Get insight",
@@ -2336,7 +2336,7 @@
         }
     },
     "insight-query": {
-        "description": "Execute a saved insight's query and return results. THIS IS THE ONLY WAY TO RETRIEVE INSIGHT RESULTS — the insights-list, insight-get, insight-create, and insight-update tools all return metadata and query definitions but never the actual data. Call insight-query whenever the user asks to see, analyze, summarize, or compare data from a saved insight, and immediately after creating or updating an insight if they want to verify the output. Supports two output formats: 'optimized' (default) returns a human-readable summary from server-side formatters ideal for analysis, while 'json' returns the raw query results.",
+        "description": "Execute a saved insight's query and return results. THIS IS THE ONLY WAY TO RETRIEVE INSIGHT RESULTS — the insights-list, insight-get, insight-create, and insight-update tools all return metadata and query definitions but never the actual data. Call insight-query whenever the user asks to see, analyze, summarize, or compare data from a saved insight, and immediately after creating or updating an insight if they want to verify the output. Supports two output formats: 'optimized' (default) returns a human-readable summary from server-side formatters ideal for analysis, while 'json' returns the raw query results. Optionally accepts `variables_override` and `filters_override` to run the insight with one-off overrides without mutating the saved definition.",
         "category": "Insights & analytics",
         "feature": "insights",
         "summary": "Run a saved insight's query and return results.",

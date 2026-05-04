@@ -1,11 +1,10 @@
 import React, { useCallback, useMemo } from 'react'
 
-import { computeBarAtIndex, computeSeriesBars } from '../core/bar-layout'
+import { type BarChartPrivate, computeBarAtIndex, computeSeriesBars } from '../core/bar-layout'
 import { type BarRect, drawBarHighlight, drawBars, drawGrid, type DrawContext } from '../core/canvas-renderer'
 import { Chart } from '../core/Chart'
 import { ChartErrorBoundary } from '../core/ChartErrorBoundary'
 import {
-    type BarScaleSet,
     computePercentStackData,
     computeStackData,
     createBarScales,
@@ -26,14 +25,7 @@ import type {
 } from '../core/types'
 import { DEFAULT_Y_AXIS_ID } from '../core/types'
 
-// Brand for the private ChartScales._private slot used by BarChart. The base Chart
-// and other chart types treat this as opaque; BarChart's draw callbacks narrow back to it.
-// Mirrors the LineChart pattern — see ARCHITECTURE.md "Passing chart-type-private state to drawStatic".
-interface BarChartPrivate {
-    __barChart: BarScaleSet
-}
-
-function bandCenter(scales: BarScaleSet, label: string): number | undefined {
+function bandCenter(scales: BarChartPrivate['__barChart'], label: string): number | undefined {
     const start = scales.band(label)
     return start == null ? undefined : start + scales.band.bandwidth() / 2
 }
@@ -274,6 +266,7 @@ function BarChartInner<Meta = unknown>({
             className={className}
             dataAttr={dataAttr}
             resolveValue={resolveValue}
+            isPercent={barLayout === 'percent'}
         >
             {children}
         </Chart>

@@ -25,6 +25,7 @@ from disposable_email_domains import blocklist as disposable_email_domains_list
 from free_email_domains import whitelist as free_email_domains_list
 from google.auth.transport.requests import Request as GoogleRequest
 from google.oauth2 import service_account
+from opentelemetry import trace
 from prometheus_client import Counter
 from requests.auth import HTTPBasicAuth
 from rest_framework.exceptions import ValidationError
@@ -51,6 +52,7 @@ from posthog.utils import get_instance_region
 from products.workflows.backend.providers import SESProvider, TwilioProvider
 
 logger = structlog.get_logger(__name__)
+tracer = trace.get_tracer(__name__)
 
 
 def _decode_jwt_payload(token: str) -> dict | None:
@@ -1194,13 +1196,17 @@ class SlackIntegration:
     @classmethod
     @cache_for(timedelta(minutes=5))
     def slack_config(cls):
-        config = get_instance_settings(
-            [
-                "SLACK_APP_CLIENT_ID",
-                "SLACK_APP_CLIENT_SECRET",
-                "SLACK_APP_SIGNING_SECRET",
-            ]
-        )
+        # Span only fires on cache miss (cache_for is process-local in-memory).
+        # If preflight.slack_config_main is fast in production traces, this span
+        # will be absent; if it appears, it tells us the DB hit was slow.
+        with tracer.start_as_current_span("slack_integration.slack_config_db"):
+            config = get_instance_settings(
+                [
+                    "SLACK_APP_CLIENT_ID",
+                    "SLACK_APP_CLIENT_SECRET",
+                    "SLACK_APP_SIGNING_SECRET",
+                ]
+            )
 
         return config
 

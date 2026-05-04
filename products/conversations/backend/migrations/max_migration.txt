@@ -1,1 +1,1 @@
-0035_ticket_teams_thread_idx
+0036_github_issues_channel
