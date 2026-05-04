@@ -39,13 +39,9 @@ export function RateLimitSettings(): JSX.Element {
             </div>
 
             <Form logic={rateLimitConfigLogic} formKey="configForm" enableFormOnSubmit>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div className="space-y-4">
-                        <LemonField
-                            name="rate_limit_per_hour"
-                            label="Exceptions per hour"
-                            info="Maximum number of exception events to accept per hour. Empty means unlimited."
-                        >
+                <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
+                    <div className="md:col-span-1 space-y-2">
+                        <LemonField name="rate_limit_per_hour" label="Exceptions per hour">
                             {({ value, onChange }) => (
                                 <LemonInput
                                     type="number"
@@ -58,8 +54,11 @@ export function RateLimitSettings(): JSX.Element {
                                 />
                             )}
                         </LemonField>
+                        <p className="text-muted-foreground text-xs">
+                            Maximum number of exception events to accept per hour. Leave empty to disable.
+                        </p>
 
-                        <div className="flex justify-end">
+                        <div className="flex justify-start pt-2">
                             <LemonButton
                                 type="primary"
                                 htmlType="submit"
@@ -71,8 +70,10 @@ export function RateLimitSettings(): JSX.Element {
                         </div>
                     </div>
 
-                    <div>
-                        <div className="text-sm font-medium mb-1">Simulation — last 7 days</div>
+                    <div className="md:col-span-4">
+                        <div className="text-sm font-medium mb-1">
+                            Reference - per hour rates for this project for the last 7 days
+                        </div>
                         {volumeLoading ? (
                             <LemonSkeleton className="w-full h-64" />
                         ) : (
@@ -153,13 +154,13 @@ function RateLimitSimulationChart({
     )
 
     return (
-        <div className="border rounded p-2 h-80">
+        <div className="border rounded p-1 h-80">
             <LineGraph
                 className="h-full"
                 xData={xData}
                 yData={yData}
                 visualizationType={ChartDisplayType.ActionsBar}
-                chartSettings={{}}
+                chartSettings={{ showXAxisTicks: false, showXAxisBorder: false }}
                 goalLines={goalLines}
             />
         </div>
