@@ -35,7 +35,7 @@ export interface CyclotronV2DequeuedJob {
 
     ack(): Promise<void>
     fail(): Promise<void>
-    reschedule(options?: { scheduledAt?: Date; state?: Buffer | null }): Promise<void>
+    reschedule(options?: { scheduledAt?: Date; state?: Buffer | null; actionId?: string | null }): Promise<void>
     cancel(): Promise<void>
     heartbeat(): Promise<void>
 }

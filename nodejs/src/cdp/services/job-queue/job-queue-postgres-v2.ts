@@ -182,6 +182,7 @@ export class CyclotronJobQueuePostgresV2 {
                     await job.reschedule({
                         state: stateBuffer,
                         scheduledAt: result.invocation.queueScheduledAt?.toJSDate(),
+                        actionId: extractActionId(result.invocation),
                     })
                 }
             })
