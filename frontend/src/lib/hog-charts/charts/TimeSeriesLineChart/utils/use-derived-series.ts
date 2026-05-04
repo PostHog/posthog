@@ -42,6 +42,14 @@ export interface DerivedSeriesOptions {
  *  derived-series options are set. */
 export function useDerivedSeries<Meta>(source: Series<Meta>[], options: DerivedSeriesOptions): Series<Meta>[] {
     const { confidenceIntervals, movingAverage, trendLines, comparisonOf } = options
+    // Reduce each config to a primitive signature so callers passing inline configs
+    // (`config={{ trendLines: [...] }}`) don't reallocate the dep refs on every render
+    // and miss the cache. CI's lower/upper data arrays aren't included — we assume the
+    // caller hands us stable references when the underlying numbers haven't changed.
+    const ciSignature = ciSig(confidenceIntervals)
+    const maSignature = maSig(movingAverage)
+    const tlSignature = tlSig(trendLines)
+    const cmpSignature = cmpSig(comparisonOf)
     return useMemo(() => {
         const hasDerived =
             (confidenceIntervals && confidenceIntervals.length > 0) ||
@@ -93,5 +101,53 @@ export function useDerivedSeries<Meta>(source: Series<Meta>[], options: DerivedS
         }
 
         return applyComparisonDimming([...ciSeries, ...source, ...maSeries, ...tlSeries], comparisonOf)
-    }, [source, confidenceIntervals, movingAverage, trendLines, comparisonOf])
+        // The signatures above stand in for the four reference-typed config inputs; the
+        // raw refs are intentionally absent so inline-config callers don't bust the cache.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [source, ciSignature, maSignature, tlSignature, cmpSignature])
+}
+
+function ciSig(ci: ConfidenceIntervalConfig[] | undefined): string {
+    if (!ci?.length) {
+        return ''
+    }
+    // Identity of CI inputs: which series, and the lower/upper array refs.
+    // We avoid serialising the data arrays — array reference equality is the
+    // caller's contract for "values haven't changed."
+    return ci.map((c) => `${c.seriesKey}|${refKey(c.lower)}|${refKey(c.upper)}`).join(';')
+}
+
+function maSig(ma: MovingAverageConfig[] | undefined): string {
+    if (!ma?.length) {
+        return ''
+    }
+    return ma.map((m) => `${m.seriesKey}|${m.window}|${m.label ?? ''}`).join(';')
+}
+
+function tlSig(tl: TrendLineConfig[] | undefined): string {
+    if (!tl?.length) {
+        return ''
+    }
+    return tl.map((t) => `${t.seriesKey}|${t.kind}|${t.label ?? ''}`).join(';')
+}
+
+function cmpSig(cmp: Record<string, string> | undefined): string {
+    if (!cmp) {
+        return ''
+    }
+    return Object.entries(cmp)
+        .map(([k, v]) => `${k}=${v}`)
+        .sort()
+        .join(';')
+}
+
+const refIds = new WeakMap<object, number>()
+let nextRefId = 1
+function refKey(arr: number[]): number {
+    let id = refIds.get(arr)
+    if (id === undefined) {
+        id = nextRefId++
+        refIds.set(arr, id)
+    }
+    return id
 }

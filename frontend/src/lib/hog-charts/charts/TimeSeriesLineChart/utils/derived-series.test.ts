@@ -56,7 +56,6 @@ describe('buildMovingAverageSeries', () => {
         expect(ma.key).toBe('visits-ma')
         expect(ma.label).toBe('Visits (Moving avg)')
         expect(ma.data).toHaveLength(SOURCE.data.length)
-        // Centered moving average — middle value averages the surrounding points.
         expect(ma.data[3]).toBeCloseTo((14 + 16 + 18) / 3, 5)
         expect(ma.color).toBe(SOURCE.color)
         expect(ma.yAxisId).toBe(SOURCE.yAxisId)
@@ -82,17 +81,11 @@ describe('buildTrendLineSeries', () => {
     })
 
     it.each([
-        ['linear', [10, 12, 14, 16, 18, 20, 22], 'linear', 10, 22],
-        // y = 2^x — log-linear in x, so the exponential fit recovers the input.
-        ['exponential, all positive', [1, 2, 4, 8, 16, 32, 64], 'exponential', 1, 64],
-        // Non-positive values are forbidden in log-space, so the helper falls back to linear.
-        // For a ramp that includes -1, 0, the linear fit is y = x - 1.
-        ['exponential, non-positive falls back to linear', [-1, 0, 1, 2], 'exponential', -1, 2],
-        // Zero in the in-progress tail must NOT trigger the fallback when fitUpTo
-        // excludes it — the prefix [1, 2, 4, 8] is positive and fits exponentially.
-        ['exponential, zero in tail with fitUpTo prefix', [1, 2, 4, 8, 0], 'exponential', 1, 16],
-    ] as const)('fits %s', (_label, data, kind, expectedFirst, expectedLast) => {
-        const fitUpTo = data.includes(0) && kind === 'exponential' ? 4 : undefined
+        ['linear', [10, 12, 14, 16, 18, 20, 22], 'linear', undefined, 10, 22],
+        ['exponential, all positive (y=2^x)', [1, 2, 4, 8, 16, 32, 64], 'exponential', undefined, 1, 64],
+        ['exponential, non-positive falls back to linear y=x-1', [-1, 0, 1, 2], 'exponential', undefined, -1, 2],
+        ['exponential, zero in tail with fitUpTo skipping it', [1, 2, 4, 8, 0], 'exponential', 4, 1, 16],
+    ] as const)('fits %s', (_label, data, kind, fitUpTo, expectedFirst, expectedLast) => {
         const tl = buildTrendLineSeries({ sourceSeries: { ...SOURCE, data: [...data] }, kind, fitUpTo })
         expect(tl.data).toHaveLength(data.length)
         expect(tl.data.every(Number.isFinite)).toBe(true)

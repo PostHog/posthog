@@ -22,8 +22,6 @@ export interface BuildConfidenceIntervalSeriesInput<Meta = unknown> {
     excluded?: boolean
 }
 
-/** Filled band rendered behind the main series. The math (ciRanges) is the caller's
- *  responsibility — this helper only handles styling and the fill-between contract. */
 export function buildConfidenceIntervalSeries<Meta = unknown>(
     input: BuildConfidenceIntervalSeriesInput<Meta>
 ): Series<Meta> {
@@ -45,7 +43,6 @@ export interface BuildMovingAverageSeriesInput<Meta = unknown> {
     label?: string
 }
 
-/** Dashed overlay computed via the shared movingAverage helper. */
 export function buildMovingAverageSeries<Meta = unknown>(input: BuildMovingAverageSeriesInput<Meta>): Series<Meta> {
     const { sourceSeries, window } = input
     return {
@@ -71,8 +68,10 @@ export interface BuildTrendLineSeriesInput<Meta = unknown> {
 }
 
 /** Linear or exponential regression rendered as a dimmed dotted line. Exponential is
- *  fitted in log-space and exp'd back, so it requires strictly-positive values; if any
- *  value is non-positive we fall back to linear rather than emitting NaNs. */
+ *  fitted in log-space and exp'd back, so it falls back to linear when any value in the
+ *  fit range is non-positive (log-space is undefined there). Colour dimming is applied
+ *  only to hex source colours; non-hex inputs are passed through untouched (mirrors
+ *  `applyComparisonDimming`). */
 export function buildTrendLineSeries<Meta = unknown>(input: BuildTrendLineSeriesInput<Meta>): Series<Meta> {
     const { sourceSeries, kind, fitUpTo } = input
     const data =
@@ -82,7 +81,7 @@ export function buildTrendLineSeries<Meta = unknown>(input: BuildTrendLineSeries
         key: `${sourceSeries.key}__trendline`,
         label: input.label ?? sourceSeries.label,
         data,
-        color: baseColor ? hexToRGBA(baseColor, TREND_LINE_DIM_OPACITY) : undefined,
+        color: dimHex(baseColor, TREND_LINE_DIM_OPACITY),
         yAxisId: sourceSeries.yAxisId,
         meta: sourceSeries.meta,
         stroke: { pattern: TREND_LINE_DASH_PATTERN },
@@ -92,13 +91,21 @@ export function buildTrendLineSeries<Meta = unknown>(input: BuildTrendLineSeries
 
 function exponentialTrend(values: number[], fitUpTo?: number): number[] {
     const n = values.length
-    const fitEnd = fitUpTo != null ? Math.max(2, Math.min(fitUpTo, n)) : n
-    // Only the prefix `[0, fitEnd)` contributes to the regression, so the positivity
-    // guard checks that range — a 0 in the in-progress tail mustn't force a fallback.
-    if (n < 2 || values.slice(0, fitEnd).some((v) => v <= 0)) {
+    if (n < 2) {
         return trendLine(values, fitUpTo)
     }
-    const coords: [number, number][] = values.slice(0, fitEnd).map((y, x) => [x, Math.log(y)])
+    const fitEnd = fitUpTo != null ? Math.max(2, Math.min(fitUpTo, n)) : n
+    // Single pass: build the log-space coords and bail on the first non-positive value.
+    // The prefix `[0, fitEnd)` is the only region that contributes to the regression,
+    // so a 0 in the in-progress tail mustn't force a fallback.
+    const coords: [number, number][] = []
+    for (let x = 0; x < fitEnd; x++) {
+        const y = values[x]
+        if (y <= 0) {
+            return trendLine(values, fitUpTo)
+        }
+        coords.push([x, Math.log(y)])
+    }
     const { m, b } = linearRegression(coords)
     return values.map((_, x) => Math.exp(m * x + b))
 }
@@ -114,9 +121,19 @@ export function applyComparisonDimming<Meta = unknown>(
         return series
     }
     return series.map((s) => {
-        if (!(s.key in comparisonOf) || !s.color || !s.color.startsWith('#')) {
+        if (!(s.key in comparisonOf)) {
             return s
         }
-        return { ...s, color: hexToRGBA(s.color, COMPARISON_DIM_OPACITY) }
+        const dimmed = dimHex(s.color, COMPARISON_DIM_OPACITY)
+        return dimmed === s.color ? s : { ...s, color: dimmed }
     })
+}
+
+/** Apply alpha dimming to a hex colour. Returns the input unchanged for non-hex inputs
+ *  (CSS variables, `rgba(...)`, undefined) since `hexToRGBA` only handles hex. */
+function dimHex(color: string | undefined, alpha: number): string | undefined {
+    if (!color || !color.startsWith('#')) {
+        return color
+    }
+    return hexToRGBA(color, alpha)
 }
