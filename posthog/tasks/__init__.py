@@ -25,7 +25,6 @@ from . import (
     tasks,
     team_access_cache_tasks,
     usage_report,
-    user_identify,
     verify_persons_data_in_sync,
     warehouse,
 )
@@ -55,7 +54,6 @@ __all__ = [
     "tasks",
     "team_access_cache_tasks",
     "usage_report",
-    "user_identify",
     "verify_persons_data_in_sync",
     "warehouse",
 ]
