@@ -270,10 +270,7 @@ export class KafkaConsumerV2 {
                 if ((this.state as State) === 'CONSUMING') {
                     await this.fetchAndDispatch(eachBatch)
                 } else {
-                    // IDLE — no partitions assigned. We poll consume() to drive the
-                    // group-join protocol; without it librdkafka never sends JoinGroup
-                    // and the initial ASSIGN never arrives. consume(1) returns no
-                    // messages because we have no assignments — nothing is discarded.
+                    // IDLE — see consumeKeepalive() for why we still poll.
                     await this.consumeKeepalive()
                 }
             }
@@ -296,8 +293,9 @@ export class KafkaConsumerV2 {
             return
         }
 
-        // CRITICAL — re-check state after the await. A REVOKE may have arrived during consume();
-        // we must NOT push a new task while DRAINING. Skip and let the rebalance event run next tick.
+        // Bail out if disconnect() ran during consume(). State transitions from rebalance
+        // events only happen inside handleRebalanceEvent (top of loop), so the only way
+        // we can land here non-CONSUMING is STOPPED.
         if ((this.state as State) !== 'CONSUMING') {
             return
         }
@@ -629,11 +627,7 @@ function sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-/**
- * For each (topic, partition) in `messages`, return the next offset to commit
- * (highest seen + 1). Pure function — kept here to avoid pulling v1's metrics
- * via a module-level import.
- */
+/** For each (topic, partition) in `messages`, return the next offset to commit (highest seen + 1). */
 function findOffsetsToCommit(messages: TopicPartitionOffset[]): TopicPartitionOffset[] {
     const grouped = new Map<string, Map<number, number>>()
     for (const m of messages) {
