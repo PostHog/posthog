@@ -246,6 +246,37 @@ describe('featureFlagIntentWarningLogic', () => {
                 unreachableGroups: new Set(expectedUnreachable),
             })
         })
+
+        it('respects explicit null aggregation on a condition even when flag-level aggregation is set', async () => {
+            // Mixed flag: flag-level aggregation_group_type_index is 2, but condition 0 explicitly opts into
+            // user-targeting via aggregation_group_type_index: null. A broad user-targeted condition followed by a
+            // group-type-2 condition must not flag the group condition as unreachable.
+            flagLogic.actions.setFeatureFlag({
+                ...NEW_FLAG,
+                filters: {
+                    ...NEW_FLAG.filters,
+                    aggregation_group_type_index: 2,
+                    groups: [
+                        {
+                            properties: [],
+                            rollout_percentage: 100,
+                            variant: null,
+                            aggregation_group_type_index: null,
+                        },
+                        {
+                            properties: [],
+                            rollout_percentage: 100,
+                            variant: null,
+                            aggregation_group_type_index: 2,
+                        },
+                    ] as FeatureFlagGroupType[],
+                },
+            })
+
+            await expectLogic(warningLogic).toMatchValues({
+                unreachableGroups: new Set(),
+            })
+        })
     })
 
     describe('local eval intent', () => {

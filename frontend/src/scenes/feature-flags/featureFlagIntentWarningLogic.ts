@@ -85,7 +85,11 @@ export const featureFlagIntentWarningLogic = kea<featureFlagIntentWarningLogicTy
                 const broadAggregations = new Set<number | null>()
                 for (let i = 0; i < groups.length; i++) {
                     const group = groups[i]
-                    const aggregation = group.aggregation_group_type_index ?? flagAggregation
+                    // Distinguish "not provided" (undefined → inherit flag-level) from "explicitly user-targeted" (null).
+                    const aggregation =
+                        group.aggregation_group_type_index !== undefined
+                            ? group.aggregation_group_type_index
+                            : flagAggregation
                     if (broadAggregations.has(aggregation)) {
                         unreachable.add(i)
                     } else if (isGroupBroad(group)) {
