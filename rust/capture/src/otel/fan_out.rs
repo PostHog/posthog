@@ -94,6 +94,17 @@ fn filter_resource_attributes(attrs: &[KeyValue]) -> serde_json::Map<String, Val
         .collect()
 }
 
+fn apply_geoip_default(properties: &mut serde_json::Map<String, Value>) {
+    if properties.contains_key("$geoip_disable") {
+        return;
+    }
+    let alias = properties.remove("posthog.geoip_disable");
+    properties.insert(
+        "$geoip_disable".to_string(),
+        alias.unwrap_or(Value::Bool(true)),
+    );
+}
+
 fn nanos_to_datetime(nanos: u64) -> Option<DateTime<Utc>> {
     if nanos == 0 {
         return None;
@@ -142,6 +153,8 @@ pub fn expand_into_events(
 
                 let mut properties = resource_attrs.clone();
                 properties.extend(span_attrs);
+
+                apply_geoip_default(&mut properties);
 
                 properties.insert(
                     "$ai_trace_id".to_string(),
@@ -641,5 +654,92 @@ mod tests {
         };
         let events = expand_into_events(&request, "fallback-id");
         assert_eq!(events[0].distinct_id, "fallback-id");
+    }
+
+    fn make_minimal_request(
+        extra_resource_attrs: Vec<KeyValue>,
+        extra_span_attrs: Vec<KeyValue>,
+    ) -> ExportTraceServiceRequest {
+        let mut span_attrs = vec![make_kv(
+            "gen_ai.request.model",
+            any_value::Value::StringValue("gpt-4".to_string()),
+        )];
+        span_attrs.extend(extra_span_attrs);
+
+        ExportTraceServiceRequest {
+            resource_spans: vec![ResourceSpans {
+                resource: Some(Resource {
+                    attributes: extra_resource_attrs,
+                    dropped_attributes_count: 0,
+                }),
+                scope_spans: vec![ScopeSpans {
+                    scope: None,
+                    spans: vec![make_span(
+                        vec![0; 16],
+                        vec![0; 8],
+                        vec![],
+                        0,
+                        0,
+                        "",
+                        span_attrs,
+                    )],
+                    schema_url: String::new(),
+                }],
+                schema_url: String::new(),
+            }],
+        }
+    }
+
+    #[test]
+    fn test_geoip_disabled_by_default() {
+        let request = make_minimal_request(vec![], vec![]);
+        let events = expand_into_events(&request, "user");
+        let props = events[0].properties.as_object().unwrap();
+        assert_eq!(props["$geoip_disable"], Value::Bool(true));
+        assert!(!props.contains_key("posthog.geoip_disable"));
+    }
+
+    #[test]
+    fn test_user_can_opt_into_geoip_via_canonical_property() {
+        let request = make_minimal_request(
+            vec![],
+            vec![make_kv(
+                "$geoip_disable",
+                any_value::Value::BoolValue(false),
+            )],
+        );
+        let events = expand_into_events(&request, "user");
+        let props = events[0].properties.as_object().unwrap();
+        assert_eq!(props["$geoip_disable"], Value::Bool(false));
+    }
+
+    #[test]
+    fn test_user_can_opt_into_geoip_via_otel_alias() {
+        let request = make_minimal_request(
+            vec![make_kv(
+                "posthog.geoip_disable",
+                any_value::Value::BoolValue(false),
+            )],
+            vec![],
+        );
+        let events = expand_into_events(&request, "user");
+        let props = events[0].properties.as_object().unwrap();
+        assert_eq!(props["$geoip_disable"], Value::Bool(false));
+        // Alias is consumed so it doesn't leak as a duplicate property.
+        assert!(!props.contains_key("posthog.geoip_disable"));
+    }
+
+    #[test]
+    fn test_canonical_property_wins_over_alias() {
+        let request = make_minimal_request(
+            vec![make_kv(
+                "posthog.geoip_disable",
+                any_value::Value::BoolValue(false),
+            )],
+            vec![make_kv("$geoip_disable", any_value::Value::BoolValue(true))],
+        );
+        let events = expand_into_events(&request, "user");
+        let props = events[0].properties.as_object().unwrap();
+        assert_eq!(props["$geoip_disable"], Value::Bool(true));
     }
 }
