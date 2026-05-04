@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconEye } from '@posthog/icons'
+import { IconPencil } from '@posthog/icons'
 import { LemonBadge } from '@posthog/lemon-ui'
 
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
@@ -12,15 +12,15 @@ import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { joinWithUiHost } from '~/toolbar/utils'
 import { Survey } from '~/types'
 
-import { PREVIEWABLE_TYPES, STATUS_COLORS, SURVEY_TYPE_LABELS } from './constants'
-import { getSurveyStatus, surveysToolbarLogic } from './surveysToolbarLogic'
+import { STATUS_COLORS, SURVEY_TYPE_LABELS } from './constants'
+import { getSurveyStatus, isQuickEditable, surveysToolbarLogic } from './surveysToolbarLogic'
 
 export function SurveyRow({ survey }: { survey: Survey }): JSX.Element {
     const { uiHost } = useValues(toolbarConfigLogic)
-    const { previewLiveSurvey } = useActions(surveysToolbarLogic)
+    const { startQuickEdit } = useActions(surveysToolbarLogic)
     const status = getSurveyStatus(survey)
     const typeLabel = SURVEY_TYPE_LABELS[survey.type] ?? survey.type
-    const canPreview = PREVIEWABLE_TYPES.has(survey.type)
+    const canEdit = isQuickEditable(survey)
 
     return (
         <div className="flex items-center gap-2 py-1.5 px-1 -mx-1 rounded hover:bg-fill-primary-hover">
@@ -50,13 +50,13 @@ export function SurveyRow({ survey }: { survey: Survey }): JSX.Element {
                     )}
                 </div>
             </div>
-            {canPreview && (
+            {canEdit && (
                 <LemonButton
                     size="xsmall"
                     type="secondary"
-                    icon={<IconEye />}
-                    onClick={() => previewLiveSurvey(survey.id)}
-                    tooltip="Preview on this page"
+                    icon={<IconPencil />}
+                    onClick={() => startQuickEdit(survey)}
+                    tooltip="Edit in toolbar"
                     className="shrink-0"
                 />
             )}

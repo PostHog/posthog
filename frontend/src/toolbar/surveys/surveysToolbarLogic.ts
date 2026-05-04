@@ -20,6 +20,8 @@ export type TargetingMode = 'all' | 'specific'
 export type FrequencyOption = 'once' | 'yearly' | 'quarterly' | 'monthly'
 export type TriggerMode = 'pageview' | 'event'
 
+const SURVEYS_PAGE_SIZE = 20
+
 export const FREQUENCY_OPTIONS: { value: FrequencyOption; days: number | undefined; label: string }[] = [
     { value: 'once', days: undefined, label: 'Once' },
     { value: 'yearly', days: 365, label: 'Yearly' },
@@ -70,6 +72,98 @@ export function getSurveyStatus(survey: Survey): SurveyStatus {
         return 'complete'
     }
     return 'active'
+}
+
+/**
+ * Whether the quick-create form can represent this survey faithfully. Used to
+ * gate the edit button — we only allow editing single-question popover surveys
+ * whose question type maps to one of our form options.
+ */
+export function isQuickEditable(survey: Survey): boolean {
+    if (survey.type !== SurveyType.Popover) {
+        return false
+    }
+    if (survey.questions.length !== 1) {
+        return false
+    }
+    const q = survey.questions[0]
+    return (
+        q.type === SurveyQuestionType.Open ||
+        q.type === SurveyQuestionType.Rating ||
+        q.type === SurveyQuestionType.SingleChoice
+    )
+}
+
+function surveyToForm(survey: Survey): QuickSurveyForm {
+    const q = survey.questions[0]
+    let questionType: QuickSurveyQuestionType = 'open'
+    let ratingScale: 5 | 10 = 5
+    let ratingLowerLabel = EMPTY_FORM.ratingLowerLabel
+    let ratingUpperLabel = EMPTY_FORM.ratingUpperLabel
+    let choices: string[] = ['', '']
+
+    if (q.type === SurveyQuestionType.Rating) {
+        questionType = 'rating'
+        ratingScale = q.scale === 10 ? 10 : 5
+        ratingLowerLabel = q.lowerBoundLabel ?? ratingLowerLabel
+        ratingUpperLabel = q.upperBoundLabel ?? ratingUpperLabel
+    } else if (q.type === SurveyQuestionType.SingleChoice) {
+        questionType = 'single_choice'
+        choices = q.choices && q.choices.length >= 2 ? [...q.choices] : ['', '']
+    }
+
+    const conditions = survey.conditions ?? null
+    const targetingMode: TargetingMode = conditions?.url ? 'specific' : 'all'
+    const urlMatch = conditions?.url ?? ''
+
+    let frequency: FrequencyOption = 'once'
+    if (conditions?.seenSurveyWaitPeriodInDays) {
+        frequency = FREQUENCY_OPTIONS.find((o) => o.days === conditions.seenSurveyWaitPeriodInDays)?.value ?? 'once'
+    }
+
+    let triggerMode: TriggerMode = 'pageview'
+    let triggerEventName = ''
+    const eventValues = conditions?.events?.values
+    if (eventValues && eventValues.length > 0) {
+        triggerMode = 'event'
+        triggerEventName = eventValues[0].name
+    }
+
+    const delaySeconds = ((survey.appearance as SurveyAppearance | null)?.surveyPopupDelaySeconds as number) || 0
+
+    return {
+        name: survey.name,
+        questionType,
+        questionText: q.question,
+        ratingScale,
+        ratingLowerLabel,
+        ratingUpperLabel,
+        choices,
+        targetingMode,
+        urlMatch,
+        frequency,
+        triggerMode,
+        triggerEventName,
+        delaySeconds,
+    }
+}
+
+async function patchAndRefreshSurvey(
+    surveyId: string,
+    payload: Record<string, unknown>,
+    successMessage: string
+): Promise<void> {
+    try {
+        const response = await toolbarFetch(`/api/projects/@current/surveys/${surveyId}/`, 'PATCH', payload)
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({}))
+            lemonToast.error(error.detail || 'Failed to update survey')
+            return
+        }
+        lemonToast.success(successMessage)
+    } catch {
+        lemonToast.error('Failed to update survey')
+    }
 }
 
 function buildSurveyPayload(form: QuickSurveyForm): Record<string, unknown> {
@@ -156,34 +250,64 @@ export const surveysToolbarLogic = kea<surveysToolbarLogicType>([
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         showButtonSurveys: true,
         hideButtonSurveys: true,
-        // Quick-create flow
+        // Quick-create / quick-edit flow (shares the same sidebar form)
         startQuickCreate: true,
+        startQuickEdit: (survey: Survey) => ({ survey }),
         cancelQuickCreate: true,
         setFormField: (field: keyof QuickSurveyForm, value: unknown) => ({ field, value }),
         submitQuickCreate: (launch: boolean = false) => ({ launch }),
         submitQuickCreateSuccess: true,
         submitQuickCreateFailure: true,
-        // Live preview
-        previewLiveSurvey: (surveyId: string) => ({ surveyId }),
+        // Lifecycle (launch / stop / resume / archive)
+        launchSurvey: (survey: Survey) => ({ survey }),
+        stopSurvey: (survey: Survey) => ({ survey }),
+        resumeSurvey: (survey: Survey) => ({ survey }),
+        archiveSurvey: (survey: Survey) => ({ survey }),
+        // Pagination — loadMoreSurveys is auto-declared by the loader below
+        setHasMoreSurveys: (hasMore: boolean) => ({ hasMore }),
     }),
 
-    loaders(({ values }) => ({
+    loaders(({ values, actions }) => ({
         allSurveys: [
             [] as Survey[],
             {
                 loadSurveys: async () => {
                     const params = new URLSearchParams()
                     params.set('archived', 'false')
+                    params.set('limit', String(SURVEYS_PAGE_SIZE))
+                    params.set('offset', '0')
                     if (values.searchTerm) {
                         params.set('search', values.searchTerm)
                     }
                     const url = `/api/projects/@current/surveys/?${params}`
                     const response = await toolbarFetch(url)
                     if (!response.ok) {
+                        actions.setHasMoreSurveys(false)
                         return []
                     }
                     const data = await response.json()
+                    actions.setHasMoreSurveys(!!data.next)
                     return data.results ?? data
+                },
+                loadMoreSurveys: async () => {
+                    if (!values.hasMoreSurveys || values.allSurveysLoading) {
+                        return values.allSurveys
+                    }
+                    const params = new URLSearchParams()
+                    params.set('archived', 'false')
+                    params.set('limit', String(SURVEYS_PAGE_SIZE))
+                    params.set('offset', String(values.allSurveys.length))
+                    if (values.searchTerm) {
+                        params.set('search', values.searchTerm)
+                    }
+                    const url = `/api/projects/@current/surveys/?${params}`
+                    const response = await toolbarFetch(url)
+                    if (!response.ok) {
+                        return values.allSurveys
+                    }
+                    const data = await response.json()
+                    actions.setHasMoreSurveys(!!data.next)
+                    return [...values.allSurveys, ...(data.results ?? [])]
                 },
             },
         ],
@@ -200,8 +324,18 @@ export const surveysToolbarLogic = kea<surveysToolbarLogicType>([
             false,
             {
                 startQuickCreate: () => true,
+                startQuickEdit: () => true,
                 cancelQuickCreate: () => false,
                 submitQuickCreateSuccess: () => false,
+            },
+        ],
+        editingSurveyId: [
+            null as string | null,
+            {
+                startQuickCreate: () => null,
+                startQuickEdit: (_, { survey }) => survey.id,
+                cancelQuickCreate: () => null,
+                submitQuickCreateSuccess: () => null,
             },
         ],
         quickForm: [
@@ -211,6 +345,7 @@ export const surveysToolbarLogic = kea<surveysToolbarLogicType>([
                     ...EMPTY_FORM,
                     urlMatch: window.location.pathname,
                 }),
+                startQuickEdit: (_, { survey }) => surveyToForm(survey),
                 cancelQuickCreate: () => ({ ...EMPTY_FORM }),
                 setFormField: (state, { field, value }) => ({
                     ...state,
@@ -225,6 +360,13 @@ export const surveysToolbarLogic = kea<surveysToolbarLogicType>([
                 submitQuickCreate: () => true,
                 submitQuickCreateSuccess: () => false,
                 submitQuickCreateFailure: () => false,
+            },
+        ],
+        hasMoreSurveys: [
+            false,
+            {
+                setHasMoreSurveys: (_, { hasMore }) => hasMore,
+                loadSurveys: () => false,
             },
         ],
     }),
@@ -279,43 +421,57 @@ export const surveysToolbarLogic = kea<surveysToolbarLogicType>([
         startQuickCreate: () => {
             toolbarLogic.actions.setVisibleMenu('none')
         },
+        startQuickEdit: () => {
+            toolbarLogic.actions.setVisibleMenu('none')
+        },
         setSearchTerm: async (_, breakpoint) => {
             await breakpoint(300)
             actions.loadSurveys()
         },
-        previewLiveSurvey: ({ surveyId }) => {
-            const { posthog } = toolbarConfigLogic.values
-            if (!posthog?.surveys) {
-                lemonToast.error('PostHog JS SDK not available')
-                return
-            }
-            if (typeof posthog.surveys.displaySurvey !== 'function') {
-                lemonToast.error('Survey preview requires a newer version of posthog-js')
-                return
-            }
-            toolbarLogic.actions.toggleMinimized(true)
-            posthog.surveys.displaySurvey(surveyId, {
-                ignoreConditions: true,
-                ignoreDelay: true,
-                displayType: 'popover',
-            })
-            toolbarPosthogJS.capture('toolbar survey previewed', { survey_id: surveyId })
+        launchSurvey: async ({ survey }) => {
+            await patchAndRefreshSurvey(survey.id, { start_date: new Date().toISOString() }, 'Survey launched')
+            actions.loadSurveys()
+            actions.cancelQuickCreate()
+        },
+        stopSurvey: async ({ survey }) => {
+            await patchAndRefreshSurvey(survey.id, { end_date: new Date().toISOString() }, 'Survey stopped')
+            actions.loadSurveys()
+            actions.cancelQuickCreate()
+        },
+        resumeSurvey: async ({ survey }) => {
+            await patchAndRefreshSurvey(survey.id, { end_date: null }, 'Survey resumed')
+            actions.loadSurveys()
+            actions.cancelQuickCreate()
+        },
+        archiveSurvey: async ({ survey }) => {
+            await patchAndRefreshSurvey(survey.id, { archived: true }, 'Survey archived')
+            actions.loadSurveys()
+            actions.cancelQuickCreate()
         },
         submitQuickCreate: async ({ launch }) => {
+            const editingId = values.editingSurveyId
             const payload = buildSurveyPayload(values.quickForm)
+            // When editing, "Launch" forces start_date to now; "Save" preserves
+            // the survey's current launch state (don't sneak-launch or sneak-end).
             if (launch) {
                 payload.start_date = new Date().toISOString()
+            } else if (editingId) {
+                delete payload.start_date
             }
             try {
-                const response = await toolbarFetch('/api/projects/@current/surveys/', 'POST', payload)
+                const response = await toolbarFetch(
+                    editingId ? `/api/projects/@current/surveys/${editingId}/` : '/api/projects/@current/surveys/',
+                    editingId ? 'PATCH' : 'POST',
+                    payload
+                )
                 if (!response.ok) {
                     const error = await response.json()
-                    lemonToast.error(error.detail || 'Failed to create survey')
+                    lemonToast.error(error.detail || (editingId ? 'Failed to save survey' : 'Failed to create survey'))
                     actions.submitQuickCreateFailure()
                     return
                 }
                 const saved = await response.json()
-                toolbarPosthogJS.capture('toolbar survey created', {
+                toolbarPosthogJS.capture(editingId ? 'toolbar survey edited' : 'toolbar survey created', {
                     question_type: values.quickForm.questionType,
                     has_url_targeting: values.quickForm.targetingMode === 'specific',
                     frequency: values.quickForm.frequency,
@@ -324,7 +480,14 @@ export const surveysToolbarLogic = kea<surveysToolbarLogicType>([
                 })
                 const { uiHost } = toolbarConfigLogic.values
                 const surveyUrl = joinWithUiHost(uiHost, urls.survey(saved.id))
-                lemonToast.success(launch ? 'Survey launched!' : 'Survey draft created!', {
+                const message = editingId
+                    ? launch
+                        ? 'Survey saved and launched!'
+                        : 'Survey saved!'
+                    : launch
+                      ? 'Survey launched!'
+                      : 'Survey draft created!'
+                lemonToast.success(message, {
                     button: {
                         label: 'Open in PostHog',
                         action: () => window.open(surveyUrl, '_blank'),
@@ -333,7 +496,7 @@ export const surveysToolbarLogic = kea<surveysToolbarLogicType>([
                 actions.submitQuickCreateSuccess()
                 actions.loadSurveys()
             } catch {
-                lemonToast.error('Failed to create survey')
+                lemonToast.error(editingId ? 'Failed to save survey' : 'Failed to create survey')
                 actions.submitQuickCreateFailure()
             }
         },

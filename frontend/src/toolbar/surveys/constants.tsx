@@ -14,6 +14,4 @@ export const STATUS_COLORS: Record<string, 'primary' | 'muted' | 'danger'> = {
     complete: 'muted',
 }
 
-export const PREVIEWABLE_TYPES = new Set([SurveyType.Popover, SurveyType.Widget, SurveyType.FullScreen])
-
 export const SIDEBAR_WIDTH = 380

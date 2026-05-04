@@ -1,17 +1,28 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconPlus, IconRocket, IconTrash, IconX } from '@posthog/icons'
+import { IconArchive, IconEllipsis, IconExternal, IconPlus, IconRocket, IconTrash, IconX } from '@posthog/icons'
 import { LemonButton, LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
+import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
+import { Link } from 'lib/lemon-ui/Link'
+import { urls } from 'scenes/urls'
+
+import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+import { joinWithUiHost } from '~/toolbar/utils'
 
 import { SIDEBAR_WIDTH } from './constants'
 import { SurveyLivePreview } from './SurveyLivePreview'
-import { FREQUENCY_OPTIONS, type QuickSurveyQuestionType, surveysToolbarLogic } from './surveysToolbarLogic'
+import {
+    FREQUENCY_OPTIONS,
+    getSurveyStatus,
+    type QuickSurveyQuestionType,
+    surveysToolbarLogic,
+} from './surveysToolbarLogic'
 
 const SIDEBAR_TRANSITION_MS = 200
 
@@ -190,20 +201,6 @@ function WhereSection(): JSX.Element {
                         </div>
                     )}
                 </div>
-
-                <div>
-                    <p className="text-xs text-muted mb-2">How often can someone see this?</p>
-                    <LemonSegmentedButton
-                        value={quickForm.frequency}
-                        onChange={(v) => setFormField('frequency', v)}
-                        options={FREQUENCY_OPTIONS.map((opt) => ({
-                            value: opt.value,
-                            label: opt.label,
-                        }))}
-                        fullWidth
-                        size="small"
-                    />
-                </div>
             </div>
         </section>
     )
@@ -252,6 +249,20 @@ function WhenSection(): JSX.Element {
                 </div>
 
                 <div>
+                    <p className="text-xs text-muted mb-2">How often can someone see this?</p>
+                    <LemonSegmentedButton
+                        value={quickForm.frequency}
+                        onChange={(v) => setFormField('frequency', v)}
+                        options={FREQUENCY_OPTIONS.map((opt) => ({
+                            value: opt.value,
+                            label: opt.label,
+                        }))}
+                        fullWidth
+                        size="small"
+                    />
+                </div>
+
+                <div>
                     <p className="text-xs font-medium text-muted mb-1">Delay before showing</p>
                     <div className="flex items-center gap-2">
                         <LemonInput
@@ -271,8 +282,13 @@ function WhenSection(): JSX.Element {
 }
 
 export function SurveySidebar(): JSX.Element | null {
-    const { isCreating, isSubmitting, canProceed } = useValues(surveysToolbarLogic)
-    const { cancelQuickCreate, submitQuickCreate } = useActions(surveysToolbarLogic)
+    const { isCreating, isSubmitting, canProceed, editingSurveyId, allSurveys } = useValues(surveysToolbarLogic)
+    const { cancelQuickCreate, submitQuickCreate, stopSurvey, resumeSurvey, archiveSurvey } =
+        useActions(surveysToolbarLogic)
+    const { uiHost } = useValues(toolbarConfigLogic)
+    const editingSurvey = editingSurveyId ? allSurveys.find((s) => s.id === editingSurveyId) : null
+    const isEditing = !!editingSurveyId
+    const status = editingSurvey ? getSurveyStatus(editingSurvey) : null
 
     useEffect(() => {
         if (isCreating) {
@@ -312,47 +328,179 @@ export function SurveySidebar(): JSX.Element | null {
                 onClick={(e) => e.stopPropagation()}
             >
                 {/* Header */}
-                <div className="p-4 border-b border-border-bold-3000 bg-bg-light">
-                    <div className="flex items-center justify-between mb-3">
-                        <h2 className="m-0 text-sm font-semibold">New survey</h2>
-                        <button
-                            type="button"
-                            onClick={cancelQuickCreate}
-                            className="p-1 rounded border-none bg-transparent cursor-pointer text-muted-3000 hover:text-text-3000 flex items-center justify-center"
-                        >
-                            <IconX className="w-4 h-4" />
-                        </button>
+                <div className="px-4 pt-4 pb-3 border-b border-border-bold-3000 bg-bg-light">
+                    {/* Title row — identity is dominant; status is a typographic signal, not a button */}
+                    <div className="flex items-start justify-between gap-2 mb-3">
+                        <div className="min-w-0 flex-1">
+                            <h2 className="m-0 text-sm font-semibold leading-tight truncate">
+                                {isEditing ? 'Edit survey' : 'New survey'}
+                            </h2>
+                            {isEditing && status && (
+                                <p
+                                    className={`text-xs font-medium m-0 mt-0.5 ${
+                                        status === 'active'
+                                            ? 'text-success-3000'
+                                            : status === 'draft'
+                                              ? 'text-warning'
+                                              : 'text-muted'
+                                    }`}
+                                >
+                                    {status === 'active'
+                                        ? 'Live on your site'
+                                        : status === 'draft'
+                                          ? 'Draft — not yet launched'
+                                          : 'Ended'}
+                                </p>
+                            )}
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                            {isEditing && editingSurvey && (
+                                <LemonMenu
+                                    placement="bottom-end"
+                                    items={[
+                                        {
+                                            label: 'Archive survey',
+                                            icon: <IconArchive />,
+                                            status: 'danger',
+                                            onClick: () => {
+                                                if (
+                                                    window.confirm(
+                                                        'Archive this survey? It will be hidden from the toolbar list. You can unarchive it from PostHog.'
+                                                    )
+                                                ) {
+                                                    archiveSurvey(editingSurvey)
+                                                }
+                                            },
+                                        },
+                                    ]}
+                                >
+                                    <LemonButton
+                                        size="xsmall"
+                                        type="tertiary"
+                                        icon={<IconEllipsis />}
+                                        tooltip="More actions"
+                                    />
+                                </LemonMenu>
+                            )}
+                            <button
+                                type="button"
+                                onClick={cancelQuickCreate}
+                                aria-label="Close"
+                                className="p-1 rounded border-none bg-transparent cursor-pointer text-muted-3000 hover:text-text-3000 flex items-center justify-center"
+                            >
+                                <IconX className="w-4 h-4" />
+                            </button>
+                        </div>
                     </div>
-                    <div className="flex gap-2">
-                        <LemonButton
-                            type="secondary"
-                            center
-                            className="flex-1"
-                            loading={isSubmitting}
-                            disabledReason={!canProceed ? 'Fill in the name and question' : undefined}
-                            onClick={() => submitQuickCreate(false)}
-                        >
-                            Save draft
-                        </LemonButton>
-                        <LemonButton
-                            type="primary"
-                            center
-                            className="flex-1"
-                            icon={<IconRocket />}
-                            loading={isSubmitting}
-                            disabledReason={!canProceed ? 'Fill in the name and question' : undefined}
-                            onClick={() => submitQuickCreate(true)}
-                        >
-                            Launch
-                        </LemonButton>
-                    </div>
+
+                    {/* One primary action. Lifecycle toggle (Stop/Resume) sits beside it as a peer when relevant. */}
+                    {isEditing && editingSurvey ? (
+                        <div className="flex gap-2">
+                            {status === 'draft' && (
+                                <>
+                                    <LemonButton
+                                        type="tertiary"
+                                        center
+                                        className="flex-1"
+                                        loading={isSubmitting}
+                                        disabledReason={!canProceed ? 'Fill in the name and question' : undefined}
+                                        onClick={() => submitQuickCreate(false)}
+                                    >
+                                        Save changes
+                                    </LemonButton>
+                                    <LemonButton
+                                        type="primary"
+                                        center
+                                        className="flex-1"
+                                        icon={<IconRocket />}
+                                        loading={isSubmitting}
+                                        disabledReason={!canProceed ? 'Fill in the name and question' : undefined}
+                                        onClick={() => submitQuickCreate(true)}
+                                    >
+                                        Launch
+                                    </LemonButton>
+                                </>
+                            )}
+                            {status === 'active' && (
+                                <>
+                                    <LemonButton
+                                        type="tertiary"
+                                        center
+                                        className="flex-1"
+                                        onClick={() => stopSurvey(editingSurvey)}
+                                    >
+                                        End survey
+                                    </LemonButton>
+                                    <LemonButton
+                                        type="primary"
+                                        center
+                                        className="flex-1"
+                                        loading={isSubmitting}
+                                        disabledReason={!canProceed ? 'Fill in the name and question' : undefined}
+                                        onClick={() => submitQuickCreate(false)}
+                                    >
+                                        Save changes
+                                    </LemonButton>
+                                </>
+                            )}
+                            {status === 'complete' && (
+                                <>
+                                    <LemonButton
+                                        type="tertiary"
+                                        center
+                                        className="flex-1"
+                                        onClick={() => resumeSurvey(editingSurvey)}
+                                    >
+                                        Resume
+                                    </LemonButton>
+                                    <LemonButton
+                                        type="primary"
+                                        center
+                                        className="flex-1"
+                                        loading={isSubmitting}
+                                        disabledReason={!canProceed ? 'Fill in the name and question' : undefined}
+                                        onClick={() => submitQuickCreate(false)}
+                                    >
+                                        Save changes
+                                    </LemonButton>
+                                </>
+                            )}
+                        </div>
+                    ) : (
+                        <div className="flex gap-2">
+                            <LemonButton
+                                type="tertiary"
+                                center
+                                className="flex-1"
+                                loading={isSubmitting}
+                                disabledReason={!canProceed ? 'Fill in the name and question' : undefined}
+                                onClick={() => submitQuickCreate(false)}
+                            >
+                                Save draft
+                            </LemonButton>
+                            <LemonButton
+                                type="primary"
+                                center
+                                className="flex-1"
+                                icon={<IconRocket />}
+                                loading={isSubmitting}
+                                disabledReason={!canProceed ? 'Fill in the name and question' : undefined}
+                                onClick={() => submitQuickCreate(true)}
+                            >
+                                Launch
+                            </LemonButton>
+                        </div>
+                    )}
                 </div>
 
                 {/* Scrollable form body */}
-                <div className="flex-1 overflow-y-auto p-4 space-y-6">
-                    <p className="text-xs text-muted m-0">
-                        Quick-create a single-question survey. For multi-question surveys, branching, or advanced
-                        display rules, create your survey in PostHog instead.
+                <div className="flex-1 overflow-y-auto p-4 space-y-5">
+                    {/* Compact info strip — quiet caption, doesn't compete with the form. */}
+                    <p className="text-xs text-muted m-0 leading-snug">
+                        Quick form for single-question surveys. Need branching or multiple questions?{' '}
+                        <Link to={joinWithUiHost(uiHost, urls.surveys())} target="_blank" subtle>
+                            Open in PostHog <IconExternal className="inline w-3 h-3" />
+                        </Link>
                     </p>
                     <QuestionSection />
                     <div className="border-t border-border-bold-3000" />

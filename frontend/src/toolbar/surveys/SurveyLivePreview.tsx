@@ -2,8 +2,6 @@ import { useValues } from 'kea'
 import { renderSurveysPreview } from 'posthog-js/dist/surveys-preview'
 import { useEffect, useRef } from 'react'
 
-import { Survey } from '~/types'
-
 import { SIDEBAR_WIDTH } from './constants'
 import { surveysToolbarLogic } from './surveysToolbarLogic'
 
@@ -56,7 +54,7 @@ export function SurveyLivePreview(): JSX.Element | null {
 
         try {
             renderSurveysPreview({
-                survey: previewSurvey as Survey,
+                survey: previewSurvey,
                 parentElement: container,
                 previewPageIndex: 0,
                 positionStyles: PREVIEW_POSITION_STYLES,
@@ -66,7 +64,5 @@ export function SurveyLivePreview(): JSX.Element | null {
         }
     }, [previewSurvey, isCreating])
 
-    // This component doesn't render React DOM — it imperatively manages
-    // a container on document.body and calls renderSurveysPreview into it
     return null
 }

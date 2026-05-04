@@ -12,8 +12,8 @@ import { SurveyRow } from './SurveyRow'
 import { surveysToolbarLogic } from './surveysToolbarLogic'
 
 export function SurveyListView(): JSX.Element {
-    const { searchTerm, allSurveys, allSurveysLoading } = useValues(surveysToolbarLogic)
-    const { setSearchTerm, loadSurveys, startQuickCreate } = useActions(surveysToolbarLogic)
+    const { searchTerm, allSurveys, allSurveysLoading, hasMoreSurveys } = useValues(surveysToolbarLogic)
+    const { setSearchTerm, loadSurveys, loadMoreSurveys, startQuickCreate } = useActions(surveysToolbarLogic)
 
     useOnMountEffect(() => {
         loadSurveys()
@@ -44,12 +44,28 @@ export function SurveyListView(): JSX.Element {
             </ToolbarMenu.Header>
             <ToolbarMenu.Body>
                 <div className="mt-1">
-                    {allSurveysLoading ? (
+                    {allSurveysLoading && allSurveys.length === 0 ? (
                         <div className="flex justify-center py-4">
                             <Spinner className="text-2xl" />
                         </div>
                     ) : allSurveys.length > 0 ? (
-                        allSurveys.map((survey: Survey) => <SurveyRow key={survey.id} survey={survey} />)
+                        <>
+                            {allSurveys.map((survey: Survey) => (
+                                <SurveyRow key={survey.id} survey={survey} />
+                            ))}
+                            {hasMoreSurveys && (
+                                <div className="flex justify-center py-2">
+                                    <LemonButton
+                                        size="xsmall"
+                                        type="secondary"
+                                        loading={allSurveysLoading}
+                                        onClick={loadMoreSurveys}
+                                    >
+                                        Load more
+                                    </LemonButton>
+                                </div>
+                            )}
+                        </>
                     ) : (
                         <div className="text-muted text-sm text-center py-4">
                             {searchTerm ? 'No matching surveys found.' : 'No surveys found in this project.'}
