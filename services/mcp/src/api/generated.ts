@@ -7929,6 +7929,22 @@ export namespace Schemas {
       readonly elements_chain: string;
     }
 
+    export interface DiffCluster {
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      pixel_count: number;
+      centroid_x: number;
+      centroid_y: number;
+    }
+
+    export interface ClusterSummary {
+      items: DiffCluster[];
+      total: number;
+      truncated: boolean;
+    }
+
     /**
      * * `trace` - trace
     * `generation` - generation
@@ -24627,6 +24643,7 @@ export namespace Schemas {
       baseline_artifact?: Artifact | null;
       diff_artifact?: Artifact | null;
       reviewed_by?: UserBasicInfo | null;
+      cluster_summary?: ClusterSummary | null;
       id: string;
       identifier: string;
       result: string;
@@ -24643,6 +24660,9 @@ export namespace Schemas {
       tolerated_hash_id?: string | null;
       is_quarantined?: boolean;
       metadata?: SnapshotMetadata;
+      /** @nullable */
+      ssim_score?: number | null;
+      change_kind?: string;
     }
 
     export interface PaginatedSnapshotList {
