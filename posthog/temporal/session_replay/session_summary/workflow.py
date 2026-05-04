@@ -454,17 +454,6 @@ async def ensure_llm_single_session_summary(
         # Storage is the canonical record (fatal on failure); embed/emit/tag are best-effort.
         _set_phase(progress, "saving_summary")
         problems = collect_session_problems(consolidated_analysis.segments)
-        logger.info(
-            "session problem signals pre-emission",
-            team_id=inputs.team_id,
-            session_id=inputs.session_id,
-            workflow_id=trace_id,
-            total_consolidated_segments=len(consolidated_analysis.segments),
-            problem_segment_count=len(problems),
-            problems=[p.model_dump(include={"problem_type", "start_time", "end_time"}) for p in problems[:30]],
-            will_run_emit_activity=bool(problems),
-            signals_type="session-summaries",
-        )
 
         embed_coro = temporalio.workflow.execute_activity(
             embed_and_store_segments_activity,

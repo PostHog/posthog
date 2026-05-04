@@ -627,19 +627,22 @@ class TestExports(APIBaseTest):
             ("content", "/api/projects/{team_id}/exports/{export_id}/content"),
         ]
     )
-    def test_cannot_access_other_users_export(self, _name, url_template) -> None:
+    def test_teammate_can_access_other_users_export_by_id(self, _name, url_template) -> None:
         export = ExportedAsset.objects.create(
             team=self.team,
             dashboard_id=self.dashboard.id,
             export_format="image/png",
             created_by=self.user,
+            content=b"fakepng-bytes-for-content",
         )
 
         other_user = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
         self.client.force_login(other_user)
 
         response = self.client.get(url_template.format(team_id=self.team.id, export_id=export.id))
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        if "/content" in url_template:
+            self.assertEqual(response.content, b"fakepng-bytes-for-content")
 
     @parameterized.expand(
         [
@@ -703,6 +706,98 @@ class TestExports(APIBaseTest):
         self.client.force_login(other_user)
         response = self.client.get(url_template.format(team_id=self.team.id, export_id=export.id))
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_teammate_can_access_system_session_video_export_content(self) -> None:
+        from posthog.session_recordings.models.session_recording import SessionRecording
+
+        owner = self.user
+        teammate = User.objects.create_and_join(self.organization, "signal-session-viewer@posthog.com", "password")
+        SessionRecording.objects.create(team=self.team, session_id="signal-sess-shared")
+
+        export = ExportedAsset.objects.create(
+            team=self.team,
+            export_format="video/mp4",
+            export_context={"session_recording_id": "signal-sess-shared"},
+            created_by=owner,
+            is_system=True,
+            content=b"videobytes",
+        )
+
+        self.client.force_login(teammate)
+        response = self.client.get(f"/api/projects/{self.team.id}/exports/{export.id}/content/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.content, b"videobytes")
+
+    def test_teammate_blocked_from_system_video_export_when_no_session_access(self) -> None:
+        """Session recording RBAC still gates system (signals pipeline) video exports."""
+        from posthog.session_recordings.models.session_recording import SessionRecording
+
+        owner = self.user
+        teammate = User.objects.create_and_join(self.organization, "signal-session-blocked@posthog.com", "password")
+        recording = SessionRecording.objects.create(team=self.team, session_id="signal-sess-private")
+
+        export = ExportedAsset.objects.create(
+            team=self.team,
+            export_format="video/mp4",
+            export_context={"session_recording_id": "signal-sess-private"},
+            created_by=owner,
+            is_system=True,
+            content=b"videobytes",
+        )
+
+        self.organization.available_product_features = [{"key": "advanced_permissions", "name": "Advanced permissions"}]
+        self.organization.save()
+
+        AccessControl.objects.create(
+            resource="session_recording",
+            resource_id=str(recording.id),
+            team=self.team,
+            access_level="none",
+        )
+
+        self.client.force_login(teammate)
+        response = self.client.get(f"/api/projects/{self.team.id}/exports/{export.id}/content/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_list_exports_with_session_recording_only_shows_own_matching_exports(self) -> None:
+        from posthog.session_recordings.models.session_recording import SessionRecording
+
+        owner = self.user
+        teammate = User.objects.create_and_join(self.organization, "signal-session-lister@posthog.com", "password")
+        SessionRecording.objects.create(team=self.team, session_id="lookup-sess-filter")
+
+        export = ExportedAsset.objects.create(
+            team=self.team,
+            export_format="video/mp4",
+            export_context={"session_recording_id": "lookup-sess-filter"},
+            created_by=owner,
+            is_system=True,
+            content=b"x",
+        )
+
+        self.client.force_login(teammate)
+        url = f"/api/projects/{self.team.id}/exports/?session_recording_id=lookup-sess-filter&export_format=video/mp4"
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ids = {r["id"] for r in response.json().get("results", [])}
+        self.assertNotIn(export.id, ids)
+
+    def test_list_exports_without_session_filter_hides_others_system_exports(self) -> None:
+        owner = self.user
+        teammate = User.objects.create_and_join(self.organization, "solo-exports@posthog.com", "password")
+        system_export = ExportedAsset.objects.create(
+            team=self.team,
+            export_format="video/mp4",
+            export_context={"session_recording_id": "nosy-sess"},
+            created_by=owner,
+            is_system=True,
+        )
+
+        self.client.force_login(teammate)
+        response = self.client.get(f"/api/projects/{self.team.id}/exports/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ids = {r["id"] for r in response.json().get("results", [])}
+        self.assertNotIn(system_export.id, ids)
 
     @parameterized.expand(
         [

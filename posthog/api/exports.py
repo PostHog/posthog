@@ -388,9 +388,21 @@ class ExportedAssetViewSet(
     serializer_class = ExportedAssetSerializer
 
     def safely_get_queryset(self, queryset):
-        queryset = queryset.filter(created_by=self.request.user)
+        """
+        List shows only exports you created (quota + history are per user).
 
+        Retrieve / content fetch any export in this project by id; safely_get_object still
+        enforces dashboard, insight, or session recording viewer access when applicable.
+        """
         if self.action == "list":
+            queryset = queryset.filter(created_by=self.request.user)
+
+            session_recording_filter = self.request.query_params.get("session_recording_id")
+            if session_recording_filter:
+                queryset = queryset.filter(
+                    export_context__session_recording_id=session_recording_filter,
+                )
+
             context_path_filter = self.request.query_params.get("context_path")
             if context_path_filter:
                 queryset = queryset.filter(export_context__path__icontains=context_path_filter)
@@ -399,6 +411,8 @@ class ExportedAssetViewSet(
             export_format_filter = self.request.query_params.get("export_format")
             if export_format_filter and export_format_filter in ExportedAsset.get_supported_format_values():
                 queryset = queryset.filter(export_format=export_format_filter)
+
+            return queryset
 
         return queryset
 
