@@ -199,6 +199,44 @@ describe('exec tool', () => {
         })
     })
 
+    describe('info command', () => {
+        it('returns YAML by default', async () => {
+            const exec = createExec()
+            const result = (await exec.handler(mockContext, { command: 'info mock-tool' })) as string
+            expect(typeof result).toBe('string')
+            // YAML output uses "key: value" lines, not JSON braces
+            expect(result).toContain('name: mock-tool')
+            expect(result).toContain('title: Mock tool')
+            expect(result).not.toMatch(/^\{/)
+            // Confirm it's not parseable as JSON
+            expect(() => JSON.parse(result)).toThrow()
+        })
+
+        it('returns JSON with --json flag', async () => {
+            const exec = createExec()
+            const result = (await exec.handler(mockContext, { command: 'info --json mock-tool' })) as string
+            const parsed = JSON.parse(result)
+            expect(parsed.name).toBe('mock-tool')
+            expect(parsed.title).toBe('Mock tool')
+            expect(parsed.description).toBe('A mock tool for testing')
+            expect(parsed.inputSchema).not.toBeUndefined()
+        })
+
+        it('throws usage error for bare info', async () => {
+            const exec = createExec()
+            await expect(exec.handler(mockContext, { command: 'info' })).rejects.toThrow(
+                'Usage: info [--json] <tool_name>'
+            )
+        })
+
+        it('throws usage error for info --json with no tool name', async () => {
+            const exec = createExec()
+            await expect(exec.handler(mockContext, { command: 'info --json' })).rejects.toThrow(
+                'Usage: info [--json] <tool_name>'
+            )
+        })
+    })
+
     describe('deprecated tool redirects', () => {
         it.each([
             ['entity-search', 'execute-sql'],

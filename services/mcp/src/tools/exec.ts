@@ -1,3 +1,4 @@
+import { stringify as stringifyYaml } from 'yaml'
 import { z } from 'zod'
 
 import { markExecPayload, buildToolResultPayload } from '@/lib/build-tool-result'
@@ -125,11 +126,19 @@ export function createExecTool(
 
                 case 'info': {
                     if (!rest) {
-                        throw new Error('Usage: info <tool_name>')
+                        throw new Error('Usage: info [--json] <tool_name>')
                     }
-                    const tool = findTool(allTools, rest)
+                    const forceJson = rest.startsWith('--json ') || rest === '--json'
+                    const infoArgs = forceJson ? rest.slice('--json'.length).trim() : rest
+                    if (!infoArgs) {
+                        throw new Error('Usage: info [--json] <tool_name>')
+                    }
+                    const tool = findTool(allTools, infoArgs)
                     const fullSchema = z.toJSONSchema(tool.schema)
-                    const fullOutput = JSON.stringify({
+                    const serialize = (payload: Record<string, unknown>): string =>
+                        forceJson ? JSON.stringify(payload) : stringifyYaml(payload, { lineWidth: 0 })
+
+                    const fullOutput = serialize({
                         name: tool.name,
                         title: tool.title,
                         description: tool.description,
@@ -142,7 +151,7 @@ export function createExecTool(
                     }
 
                     // Schema too large — return summary with drill-down hints
-                    return JSON.stringify({
+                    return serialize({
                         name: tool.name,
                         title: tool.title,
                         description: tool.description,
