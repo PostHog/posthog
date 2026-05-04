@@ -357,6 +357,13 @@ class UserSerializer(serializers.ModelSerializer):
             OrganizationDomain.objects.get_sso_enforcement_for_email_address(instance.email, organization=organization)
         )
 
+    def _is_self_request(self, instance: User) -> bool:
+        # True when the requesting user is the same as the user being serialized.
+        # Several SerializerMethodFields short-circuit when this is False so we don't
+        # pay extra queries on staff retrievals or leak per-user data across users.
+        request = self.context.get("request")
+        return bool(request and request.user.id == instance.id)
+
     @extend_schema_field(serializers.DictField())
     @tracer.start_as_current_span("user_serializer.analytics_metadata")
     def get_analytics_metadata(self, instance: User) -> dict | None:
@@ -365,8 +372,7 @@ class UserSerializer(serializers.ModelSerializer):
         # that paid the broker round-trip on the request path. Only computed when the
         # serialized user is the requesting user — staff retrieving another account
         # don't need (and shouldn't seed) someone else's analytics properties.
-        request = self.context.get("request")
-        if not request or request.user.id != instance.id:
+        if not self._is_self_request(instance):
             return None
         return instance.get_analytics_metadata()
 
@@ -375,8 +381,7 @@ class UserSerializer(serializers.ModelSerializer):
         # Only compute when the serialized user is the requesting user. Avoids paying an
         # extra membership query on every /api/users/@me/ hit for admin/staff flows that
         # don't need this field, and ensures invitee attribution can't leak across users.
-        request = self.context.get("request")
-        if not request or request.user.id != instance.id:
+        if not self._is_self_request(instance):
             return None
 
         organization = instance.current_organization
@@ -403,8 +408,7 @@ class UserSerializer(serializers.ModelSerializer):
         Only returned when the serialized user is the requesting user — staff retrieving
         another account should not see that user's private invites.
         """
-        request = self.context.get("request")
-        if not request or request.user.id != instance.id or not instance.email:
+        if not self._is_self_request(instance) or not instance.email:
             return []
 
         normalized_email = EmailNormalizer.normalize(instance.email)
