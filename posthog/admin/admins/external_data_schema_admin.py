@@ -1,8 +1,15 @@
+import uuid
+import asyncio
+from dataclasses import asdict
+
 from django.conf import settings
-from django.contrib import admin
+from django.contrib import admin, messages
 from django.core.paginator import Paginator
 from django.urls import reverse
 from django.utils.html import format_html
+
+from posthog.temporal.common.client import sync_connect
+from posthog.temporal.data_imports.compact_delta_table_job import CompactDeltaTableWorkflowInputs
 
 from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
 from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
@@ -26,8 +33,9 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
     search_fields = ("id", "name", "team__name", "team__organization__name")
     autocomplete_fields = ("team",)
     raw_id_fields = ("table", "source")
-    readonly_fields = ("table", "source", "created_by")
+    readonly_fields = ("table", "source", "created_by", "delta_fragmentation_stats")
     ordering = ("-created_at",)
+    actions = ("trigger_compact_delta_table",)
 
     change_form_template = "admin/data_warehouse/externaldataschema/change_form.html"
 
@@ -60,3 +68,103 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
     @admin.display(description="Source type")
     def source_type(self, schema: ExternalDataSchema):
         return schema.source.source_type
+
+    @admin.display(description="Delta fragmentation stats")
+    def delta_fragmentation_stats(self, schema: ExternalDataSchema):
+        """Compute total file count + per-partition average for the Delta target.
+
+        Hits S3 to list files, so it's only rendered on the change-detail page
+        (not the changelist) and tolerates failure — surfacing the error inline
+        rather than blowing up the admin page.
+        """
+        try:
+            stats = _get_delta_fragmentation_stats(schema)
+        except Exception as e:
+            return format_html("<em>error reading Delta files: {}</em>", str(e))
+
+        if stats is None:
+            return format_html("<em>no Delta target found</em>")
+
+        return format_html(
+            "total_files={} | partition_count={} | files_per_partition_avg={:.1f} | total_size_bytes={}",
+            stats["total_files"],
+            stats["partition_count"],
+            stats["files_per_partition_avg"],
+            stats["total_size_bytes"],
+        )
+
+    @admin.action(description="Compact + vacuum Delta target")
+    def trigger_compact_delta_table(self, request, queryset):
+        """Queue one Temporal workflow per selected schema. Compaction runs
+        asynchronously — the admin response returns immediately with a count
+        of workflows started."""
+        temporal = sync_connect()
+        started = 0
+        failed: list[tuple[str, str]] = []
+
+        for schema in queryset:
+            workflow_id = f"compact-delta-{schema.id}-{uuid.uuid4()}"
+            inputs = CompactDeltaTableWorkflowInputs(
+                team_id=schema.team_id,
+                schema_id=str(schema.id),
+            )
+            try:
+                asyncio.run(
+                    temporal.start_workflow(
+                        "dwh-compact-delta-table",
+                        asdict(inputs),
+                        id=workflow_id,
+                        task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
+                    )
+                )
+                started += 1
+            except Exception as e:
+                failed.append((str(schema.id), str(e)))
+
+        if started:
+            self.message_user(
+                request,
+                f"Queued compaction workflow for {started} schema(s). Check Temporal UI for progress.",
+                level=messages.INFO,
+            )
+        for schema_id, err in failed:
+            self.message_user(request, f"Failed to queue compaction for {schema_id}: {err}", level=messages.ERROR)
+
+
+def _get_delta_fragmentation_stats(schema: ExternalDataSchema) -> dict | None:
+    """Build a minimal DeltaTableHelper for the schema's most recent job and
+    return file/partition stats. Returns None when no Delta target exists.
+    """
+    from asgiref.sync import async_to_sync
+
+    from posthog.temporal.common.logger import get_logger
+    from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
+
+    job = ExternalDataJob.objects.filter(schema_id=schema.id, team_id=schema.team_id).order_by("-created_at").first()
+    if job is None:
+        return None
+
+    helper = DeltaTableHelper(resource_name=schema.name, job=job, logger=get_logger(__name__))
+
+    delta_table = async_to_sync(helper.get_delta_table)()
+    if delta_table is None:
+        return None
+
+    file_uris = async_to_sync(helper.get_file_uris)()
+    total_files = len(file_uris)
+    partition_count = schema.partition_count or 1
+
+    total_size_bytes: int | None
+    try:
+        # delta-rs returns per-add-action stats including file size; sum them.
+        add_actions = delta_table.get_add_actions(flatten=True).to_pylist()
+        total_size_bytes = sum(int(action.get("size_bytes", 0) or 0) for action in add_actions)
+    except Exception:
+        total_size_bytes = None
+
+    return {
+        "total_files": total_files,
+        "partition_count": partition_count,
+        "files_per_partition_avg": total_files / partition_count,
+        "total_size_bytes": total_size_bytes if total_size_bytes is not None else "n/a",
+    }
