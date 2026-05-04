@@ -587,7 +587,9 @@ async def test_no_assets_does_not_auto_disable(team, user):
     # stays success; the next scheduled delivery retries.
     assert result is not None
     assert result.recipient_results[0].status == "failed"
-    assert result.recipient_results[0].error["type"] == "no_assets"
+    error = result.recipient_results[0].error
+    assert error is not None
+    assert error["type"] == "no_assets"
 
 
 @pytest.mark.asyncio
