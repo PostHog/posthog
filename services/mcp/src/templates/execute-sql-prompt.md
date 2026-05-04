@@ -4,7 +4,7 @@ Executes HogQL — PostHog's variant of SQL that supports most of ClickHouse SQL
 
 ### When to use `execute-sql`
 
-**Use `query-*` tools (`query-*`) whenever the question maps to a supported insight type.** These tools produce typed, saveable insights; SQL forfeits that.
+**Use `query-*` tools whenever the question maps to a supported insight type.** These tools produce typed, saveable insights; SQL forfeits that.
 Reach for `execute-sql` only when no `query-*` tool can express the question:
 
 - **Searching or listing existing PostHog entities** — insights, dashboards, cohorts, feature flags, experiments, surveys. No `query-*` tool covers these; query the `system.*` tables.
