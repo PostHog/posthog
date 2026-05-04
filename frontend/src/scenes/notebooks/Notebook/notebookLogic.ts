@@ -131,7 +131,7 @@ export const notebookLogic = kea<notebookLogicType>([
                 scope: ActivityScope.NOTEBOOK,
                 item_id: props.shortId,
             }),
-            ['comments', 'itemContext', 'selectedCommentId'],
+            ['comments', 'itemContext', 'selectedCommentId', 'commentContexts'],
             notebookKernelInfoLogic({ shortId: props.shortId }),
             ['kernelInfo'],
             notebookSettingsLogic,
@@ -904,6 +904,20 @@ export const notebookLogic = kea<notebookLogicType>([
             if (values.editor && values.comments) {
                 actions.setCommentContexts(buildCommentContexts(values.editor, values.comments))
             }
+        },
+        onUpdateEditor: () => {
+            // Re-sync previews so they track edits to text under comment marks.
+            // Skip the dispatch when nothing changed to avoid re-rendering every Comment per keystroke.
+            if (!values.editor || !values.comments) {
+                return
+            }
+            const next = buildCommentContexts(values.editor, values.comments)
+            const prev = values.commentContexts
+            const nextKeys = Object.keys(next)
+            if (nextKeys.length === Object.keys(prev).length && nextKeys.every((k) => prev[k] === next[k])) {
+                return
+            }
+            actions.setCommentContexts(next)
         },
 
         saveNotebookSuccess: actions.scheduleNotebookRefresh,
