@@ -48,13 +48,13 @@ export const dagsLogic = kea<dagsLogicType>([
             lemonToast.success('DAG updated')
         },
         updateDagFailure: ({ error }) => {
-            lemonToast.error(`Failed to update DAG: ${error?.message ?? 'Unknown error'}`)
+            lemonToast.error(`Failed to update DAG: ${error ?? 'Unknown error'}`)
         },
         deleteDagSuccess: () => {
             lemonToast.success('DAG deleted')
         },
         deleteDagFailure: ({ error }) => {
-            lemonToast.error(`Failed to delete DAG: ${error?.message ?? 'Unknown error'}`)
+            lemonToast.error(`Failed to delete DAG: ${error ?? 'Unknown error'}`)
         },
     })),
 ])
