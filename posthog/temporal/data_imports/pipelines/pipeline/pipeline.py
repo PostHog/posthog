@@ -213,6 +213,21 @@ class PipelineNonDLT(Generic[ResumableData]):
             # If the schema has no DWH table, it's a first ever sync
             is_first_ever_sync: bool = self._table is None
 
+            # Defensive pre-write compaction. If the Delta target has accreted
+            # too many small files since the last successful run (e.g. because
+            # prior attempts failed before reaching `_post_run_operations`),
+            # compact + vacuum here so the upcoming merge cycle isn't dominated
+            # by file-listing scans. Skipped cheaply when the table is healthy.
+            if not is_first_ever_sync:
+                try:
+                    partition_count_for_compact = self._schema.partition_count or self._resource.partition_count
+                    await self._delta_table_helper.compact_if_fragmented(
+                        partition_count=partition_count_for_compact,
+                    )
+                except Exception as e:
+                    capture_exception(e)
+                    await self._logger.aexception(f"Pre-write compaction failed: {e}", exc_info=e)
+
             async for item in async_iterate(self._resource.items()):
                 py_table = None
 

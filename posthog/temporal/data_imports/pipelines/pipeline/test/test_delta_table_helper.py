@@ -136,6 +136,68 @@ class TestHasBatchBeenCommitted:
             m.assert_called_once_with({"run_uuid": run_uuid, "batch_index": str(batch_index)})
 
 
+class TestCompactIfFragmented:
+    """Pre-write defensive compaction gates on files-per-partition threshold."""
+
+    @pytest.mark.asyncio
+    async def test_skips_when_no_delta_table(self, helper: DeltaTableHelper):
+        with patch.object(helper, "get_delta_table", AsyncMock(return_value=None)):
+            ran = await helper.compact_if_fragmented(partition_count=10)
+        assert ran is False
+
+    @pytest.mark.asyncio
+    async def test_skips_below_threshold(self, helper: DeltaTableHelper):
+        # 100 files / 10 partitions = 10 files/partition (< default 200)
+        mock_delta = MagicMock()
+        with (
+            patch.object(helper, "get_delta_table", AsyncMock(return_value=mock_delta)),
+            patch.object(helper, "get_file_uris", AsyncMock(return_value=[f"f{i}" for i in range(100)])),
+            patch.object(helper, "compact_table", AsyncMock()) as mock_compact,
+        ):
+            ran = await helper.compact_if_fragmented(partition_count=10)
+        assert ran is False
+        mock_compact.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_runs_above_threshold(self, helper: DeltaTableHelper):
+        # 5,000 files / 10 partitions = 500 files/partition (> default 200)
+        mock_delta = MagicMock()
+        with (
+            patch.object(helper, "get_delta_table", AsyncMock(return_value=mock_delta)),
+            patch.object(helper, "get_file_uris", AsyncMock(return_value=[f"f{i}" for i in range(5000)])),
+            patch.object(helper, "compact_table", AsyncMock()) as mock_compact,
+        ):
+            ran = await helper.compact_if_fragmented(partition_count=10)
+        assert ran is True
+        mock_compact.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_handles_none_partition_count(self, helper: DeltaTableHelper):
+        # Unpartitioned table treated as 1 "partition"; 250 files >> threshold 200.
+        mock_delta = MagicMock()
+        with (
+            patch.object(helper, "get_delta_table", AsyncMock(return_value=mock_delta)),
+            patch.object(helper, "get_file_uris", AsyncMock(return_value=[f"f{i}" for i in range(250)])),
+            patch.object(helper, "compact_table", AsyncMock()) as mock_compact,
+        ):
+            ran = await helper.compact_if_fragmented(partition_count=None)
+        assert ran is True
+        mock_compact.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_respects_custom_threshold(self, helper: DeltaTableHelper):
+        mock_delta = MagicMock()
+        with (
+            patch.object(helper, "get_delta_table", AsyncMock(return_value=mock_delta)),
+            patch.object(helper, "get_file_uris", AsyncMock(return_value=[f"f{i}" for i in range(100)])),
+            patch.object(helper, "compact_table", AsyncMock()) as mock_compact,
+        ):
+            # 100 / 10 = 10 files/partition; threshold 5 should fire compact
+            ran = await helper.compact_if_fragmented(partition_count=10, threshold=5)
+        assert ran is True
+        mock_compact.assert_called_once()
+
+
 class TestWriteToDeltalakeCommitMetadataPassThrough:
     """Covers that commit_metadata is forwarded to deltalake.write_deltalake as CommitProperties."""
 

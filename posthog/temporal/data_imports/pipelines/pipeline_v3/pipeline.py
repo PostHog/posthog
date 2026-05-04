@@ -7,6 +7,7 @@ import posthoganalytics
 from structlog.types import FilteringBoundLogger
 from temporalio import activity
 
+from posthog.exceptions_capture import capture_exception
 from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
 from posthog.temporal.common.activity_context import current_workflow_id, current_workflow_run_id
 from posthog.temporal.common.shutdown import ShutdownMonitor
@@ -212,6 +213,21 @@ class PipelineV3(Generic[ResumableData]):
             is_fresh_sync = self._delta_table_helper.is_first_sync or self._schema.table is None
             if is_fresh_sync:
                 self._pg_producer.is_first_ever_sync = True
+
+            # Defensive pre-write compaction. If the Delta target has accreted
+            # too many small files since the last successful run (e.g. because
+            # prior attempts failed before reaching post-load compaction),
+            # compact + vacuum here so the upcoming merge cycle isn't dominated
+            # by file-listing scans. Skipped cheaply when the table is healthy.
+            if not is_fresh_sync:
+                try:
+                    partition_count_for_compact = self._schema.partition_count or self._resource.partition_count
+                    await self._delta_table_helper.compact_if_fragmented(
+                        partition_count=partition_count_for_compact,
+                    )
+                except Exception as e:
+                    capture_exception(e)
+                    await self._logger.aexception(f"Pre-write compaction failed: {e}", exc_info=e)
 
             async for item in async_iterate(self._resource.items()):
                 py_table = None
