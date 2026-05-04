@@ -77,9 +77,8 @@ ignore = [
     "E501",
 ]
 
-# PLC0415 (no inline imports) — Stage 0: grandfathered.
-# To clear: hoist inline imports, then drop the entry.
-# Progress check: `ruff check <path> --select PLC0415 --statistics`
+# PLC0415 exemptions.
+# Run `ruff check <path> --select PLC0415 --statistics` before removing an entry.
 [tool.ruff.lint.per-file-ignores]
 "src/**" = ["PLC0415"]
 "tests/**" = ["PLC0415"]

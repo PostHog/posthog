@@ -41,10 +41,8 @@ extend-select = ["ANN001", "ANN201", "ANN202", "ANN204"]
 "visual_review/backend/**" = ["ANN"]
 "workflows/backend/**" = ["ANN"]
 
-# PLC0415 (no inline imports) — Stage 0: grandfathered products.
-# New products are NOT exempted — they hit the rule from day one.
-# To clear an entry: hoist inline imports in the product, then drop the line.
-# Progress check: `ruff check <product>/ --select PLC0415 --statistics`
+# PLC0415 exemptions. New products not listed here are enforced.
+# Run `ruff check <product>/ --select PLC0415 --statistics` before removing an entry.
 "access_control/**" = ["PLC0415"]
 "analytics_platform/**" = ["PLC0415"]
 "batch_exports/**" = ["PLC0415"]

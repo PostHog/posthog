@@ -349,12 +349,8 @@ select = [
 "posthog/personhog_client/proto/generated/**/*.pyi" = ["F401"]
 "posthog/personhog_client/proto/generated/**/*_pb2.py" = ["F401", "E402"]
 
-# PLC0415 (no inline imports) — Stage 0: grandfathered scopes.
-# New code in unlisted paths is enforced.
-# Note: `products/**` lives in products/ruff.toml (closer config wins for that tree).
-# Note: `services/llm-gateway/**` lives in its own pyproject.toml (closer config wins).
-# To clear an entry: hoist inline imports in scope, then drop the line.
-# Progress check: `ruff check <path> --select PLC0415 --statistics`
+# PLC0415 exemptions. products/ and services/llm-gateway/ have their own ruff configs.
+# Run `ruff check <path> --select PLC0415 --statistics` before removing an entry.
 ".github/**" = ["PLC0415"]
 "bin/**" = ["PLC0415"]
 "common/**" = ["PLC0415"]
