@@ -18,6 +18,7 @@ from posthog.batch_exports.models import BatchExportRun
 from posthog.kafka_client.routing import async_producer_scope
 from posthog.kafka_client.topics import KAFKA_APP_METRICS2
 from posthog.models.team.team import Team
+from posthog.models.utils import UUIDT
 from posthog.settings.base_variables import TEST
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import ClickHouseClient
@@ -58,7 +59,22 @@ AsyncBytesGenerator = collections.abc.AsyncGenerator[bytes, None]
 AsyncRecordsGenerator = collections.abc.AsyncGenerator[pa.RecordBatch, None]
 
 
-def _dispatch_batch_export_failure_realtime(batch_export_run_id: str | uuid.UUID) -> None:
+def _notify_run_failure(batch_export_run_id: str | UUIDT) -> None:
+    """Fan out failure notifications across every channel for a failed run."""
+    from posthog.tasks.email import send_batch_export_run_failure
+
+    try:
+        send_batch_export_run_failure(batch_export_run_id)
+    except Exception:
+        LOGGER.exception(
+            "send_batch_export_run_failure.email_failed",
+            batch_export_run_id=str(batch_export_run_id),
+        )
+
+    _dispatch_batch_export_failure_realtime(batch_export_run_id)
+
+
+def _dispatch_batch_export_failure_realtime(batch_export_run_id: str | UUIDT) -> None:
     """Fire one realtime pipeline_failure notification per pipeline-error recipient.
 
     Per-recipient try/except so one bad write does not drop the rest. Never raises so
@@ -611,16 +627,12 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
         )
 
     elif batch_export_run.status == BatchExportRun.Status.FAILED:
-        from posthog.tasks.email import send_batch_export_run_failure
-
         try:
-            await database_sync_to_async(send_batch_export_run_failure)(inputs.id)
+            await database_sync_to_async(_notify_run_failure)(inputs.id)
         except Exception:
-            logger.exception("Failure email notification could not be sent")
+            logger.exception("Failure notification could not be sent")
         else:
-            external_logger.info("Failure notification email for run '%s' has been sent", inputs.id)
-
-        await database_sync_to_async(_dispatch_batch_export_failure_realtime)(inputs.id)
+            external_logger.info("Failure notifications for run '%s' have been dispatched", inputs.id)
 
         external_logger.error(
             "Batch export for range %s - %s failed with a non-recoverable error: %s",
