@@ -38,10 +38,18 @@ const meta: Meta<StoryArgs> = {
         useAvailableFeatures(featureAvailable ? [AvailableFeature.SUBSCRIPTIONS] : [])
 
         useEffect(() => {
-            if (aiSummaryAtLimit) {
-                featureFlagLogic.mount()
-                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.HACKATHONS_SUBSCRIPTIONS], {
-                    [FEATURE_FLAGS.HACKATHONS_SUBSCRIPTIONS]: true,
+            if (!aiSummaryAtLimit) {
+                return
+            }
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.HACKATHONS_SUBSCRIPTIONS], {
+                [FEATURE_FLAGS.HACKATHONS_SUBSCRIPTIONS]: true,
+            })
+            // Reset on unmount so the flag doesn't leak into other stories
+            // rendered later in the same Storybook session.
+            return () => {
+                featureFlagLogic.actions.setFeatureFlags([], {
+                    [FEATURE_FLAGS.HACKATHONS_SUBSCRIPTIONS]: false,
                 })
             }
         }, [aiSummaryAtLimit])
