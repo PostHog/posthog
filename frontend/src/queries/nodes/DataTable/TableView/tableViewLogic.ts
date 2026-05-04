@@ -70,6 +70,38 @@ function isInitialPersonEventsQuery(query: TableViewSupportedQueryType): boolean
     return equal(query.select, defaultColumns) && !query.properties?.length && !query.event && !query.events?.length
 }
 
+function getDefaultQueryForContext(
+    contextKey: string,
+    currentQuery: TableViewSupportedQueryType
+): TableViewSupportedQueryType | null {
+    if (contextKey === PEOPLE_LIST_CONTEXT_KEY) {
+        return {
+            ...currentQuery,
+            select: PEOPLE_LIST_DEFAULT_QUERY.source.select,
+            properties: [],
+        } as ActorsQuery
+    }
+    if (/^group-\d+-list$/.test(contextKey)) {
+        const groupTypeIndex = parseInt(contextKey.split('-')[1])
+        const defaultSource = GROUPS_LIST_DEFAULT_QUERY(groupTypeIndex).source as GroupsQuery
+        return {
+            ...currentQuery,
+            select: defaultSource.select,
+            properties: [],
+        } as GroupsQuery
+    }
+    if (contextKey === PERSON_EVENTS_CONTEXT_KEY && isEventsQuery(currentQuery)) {
+        return {
+            ...currentQuery,
+            select: defaultDataTableColumns(NodeKind.EventsQuery),
+            properties: [],
+            event: undefined,
+            events: undefined,
+        } as EventsQuery
+    }
+    return null
+}
+
 function getQueryFromView(
     query: TableViewSupportedQueryType,
     view: ColumnConfigurationApi
@@ -114,6 +146,7 @@ export const tableViewLogic = kea<tableViewLogicType>([
         setCurrentView: (view: ColumnConfigurationApi | null) => ({ view }),
         setShowDeleteConfirm: (viewId: string | null) => ({ viewId }),
         setIsCreating: (isCreating: boolean) => ({ isCreating }),
+        resetToDefaults: true,
     }),
 
     lazyLoaders(({ props, values }) => ({
@@ -219,6 +252,11 @@ export const tableViewLogic = kea<tableViewLogicType>([
                 return currentView.created_by === user.id
             },
         ],
+        hasDefaultsForContext: [
+            () => [(_, props) => props.contextKey, (_, props) => props.query],
+            (contextKey: string, query: TableViewSupportedQueryType): boolean =>
+                getDefaultQueryForContext(contextKey, query) !== null,
+        ],
     })),
 
     forms(({ props, actions }) => ({
@@ -246,6 +284,15 @@ export const tableViewLogic = kea<tableViewLogicType>([
     listeners(({ props, actions, values }) => ({
         applyView: ({ view }) => {
             props.setQuery(getQueryFromView(props.query, view))
+        },
+
+        resetToDefaults: () => {
+            const defaultQuery = getDefaultQueryForContext(props.contextKey, props.query)
+            if (!defaultQuery) {
+                return
+            }
+            actions.setCurrentView(null)
+            props.setQuery(defaultQuery)
         },
 
         saveCurrentAsViewSuccess: () => {

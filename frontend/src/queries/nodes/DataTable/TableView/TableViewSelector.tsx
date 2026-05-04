@@ -1,7 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { IconChevronDown, IconDownload, IconGear, IconUser, IconGlobe, IconPlus } from '@posthog/icons'
+import { IconChevronDown, IconDownload, IconGear, IconGlobe, IconPlus, IconRevert, IconUser } from '@posthog/icons'
 import {
     LemonButton,
     LemonInput,
@@ -28,8 +28,9 @@ export interface TableViewSelectorProps {
 export function TableViewSelector({ contextKey, query, setQuery }: TableViewSelectorProps): JSX.Element {
     const tableViewLogicProps = { contextKey, query, setQuery }
     const logic = tableViewLogic(tableViewLogicProps)
-    const { views, currentView, hasUnsavedChanges, viewsLoading, canEditCurrentView, user } = useValues(logic)
-    const { applyView, updateView, setShowDeleteConfirm, setIsCreating } = useActions(logic)
+    const { views, currentView, hasUnsavedChanges, viewsLoading, canEditCurrentView, hasDefaultsForContext, user } =
+        useValues(logic)
+    const { applyView, updateView, setShowDeleteConfirm, setIsCreating, resetToDefaults } = useActions(logic)
 
     const menuItems: LemonMenuItems = [
         {
@@ -77,6 +78,20 @@ export function TableViewSelector({ contextKey, query, setQuery }: TableViewSele
                 } as LemonMenuItem
             }),
         },
+        ...(hasDefaultsForContext
+            ? [
+                  {
+                      items: [
+                          {
+                              label: 'Defaults',
+                              icon: <IconRevert />,
+                              tooltip: 'Reset to default columns and clear filters',
+                              onClick: () => resetToDefaults(),
+                          },
+                      ],
+                  },
+              ]
+            : []),
         {
             items: [
                 {
@@ -91,10 +106,10 @@ export function TableViewSelector({ contextKey, query, setQuery }: TableViewSele
     return (
         <BindLogic logic={tableViewLogic} props={tableViewLogicProps}>
             <div className="flex items-center gap-2">
-                {currentView ? (
+                {currentView || views.length > 0 || hasDefaultsForContext ? (
                     <LemonMenu items={menuItems} closeOnClickInside={true}>
                         <LemonButton type="secondary" size="small" sideIcon={<IconChevronDown />}>
-                            {currentView.name ? (
+                            {currentView?.name ? (
                                 <>
                                     <ViewVisibilityIcon view={currentView} />{' '}
                                     <span className="ml-2">{currentView.name}</span>
