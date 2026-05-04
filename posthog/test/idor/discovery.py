@@ -155,6 +155,64 @@ def _infer_model(cls: type) -> Optional[type[models.Model]]:
     return None
 
 
+# Action contexts probed by `iter_serializer_classes_for`. Order is stable so
+# that callers iterating the result get a predictable serializer order.
+_PROBE_CONTEXTS: tuple[tuple[str, str], ...] = (
+    ("create", "POST"),
+    ("update", "PUT"),
+    ("partial_update", "PATCH"),
+    ("retrieve", "GET"),
+    ("list", "GET"),
+)
+
+
+def iter_serializer_classes_for(viewset_cls: type) -> list[type]:
+    """Return every serializer class a viewset uses, including runtime dispatch.
+
+    A viewset's class-level `serializer_class` attribute is the static fast
+    path. Some viewsets override `get_serializer_class()` to dispatch on
+    `self.request.method` / `self.action` (e.g. `SurveyViewSet` returns a
+    write-only serializer for POST/PATCH and a richer serializer for GET).
+    Without probing those methods, FK discovery silently misses every field
+    declared only on the write-side serializer — which is exactly where
+    cross-tenant injection attacks land.
+
+    Strategy: probe each writable action context with a synthetic instance.
+    Defensive try/except so a viewset whose `get_serializer_class()` reaches
+    into request internals (auth, headers) doesn't break discovery — falling
+    back to the static serializer in the worst case.
+
+    Returns a stable-ordered, deduplicated list keyed by class identity.
+    """
+    seen: set[type] = set()
+    out: list[type] = []
+
+    static = getattr(viewset_cls, "serializer_class", None)
+    if static is not None:
+        seen.add(static)
+        out.append(static)
+
+    for action_name, method in _PROBE_CONTEXTS:
+        try:
+            instance = viewset_cls()
+            instance.action = action_name  # type: ignore[attr-defined]
+            instance.request = type(  # type: ignore[attr-defined]
+                "FakeRequest",
+                (),
+                {"method": method, "user": None, "data": {}, "query_params": {}},
+            )()
+            instance.format_kwarg = None  # type: ignore[attr-defined]
+            cls = instance.get_serializer_class()
+        except Exception:
+            continue
+        if cls is None or cls in seen:
+            continue
+        seen.add(cls)
+        out.append(cls)
+
+    return out
+
+
 def _should_replace(existing: IDORTestCase, candidate: IDORTestCase) -> bool:
     existing_pref = _ROOT_PREFERENCE.get(existing.url.root, 99)
     candidate_pref = _ROOT_PREFERENCE.get(candidate.url.root, 99)

@@ -45,6 +45,7 @@ from posthog.test.idor import (
     discover_idor_test_cases,
 )
 from posthog.test.idor.body_factory import BodyUnfillable, build_minimal_post_body
+from posthog.test.idor.discovery import iter_serializer_classes_for
 from posthog.test.idor.factory import reset_sentinel
 from posthog.test.idor.fk_discovery import (
     ActionQueryParam,
@@ -96,19 +97,27 @@ def _iter_fk_cases() -> list[tuple[str, IDORTestCase, WritableFKField]]:
     are excluded — DRF silently drops them from update bodies, so the runtime
     test cannot exercise them. The flag remains informational on the discovery
     record so the CI report can surface the count.
+
+    Walks every serializer class the viewset can dispatch — both class-level
+    `serializer_class` and the variants returned by `get_serializer_class()`.
+    Without this, FK fields only declared on a write-side serializer (e.g.
+    `SurveySerializerCreateUpdateOnly.linked_insight_id`) are missed.
     """
     out: list[tuple[str, IDORTestCase, WritableFKField]] = []
     for case in DISCOVERED_CASES:
         if case.name in IDOR_FK_PATCH_SKIP_LIST:
             continue
-        serializer_cls = getattr(case.viewset_cls, "serializer_class", None)
-        if serializer_cls is None:
-            continue
-        for fk in discover_writable_tenant_fks(serializer_cls):
-            if fk.is_create_only:
-                continue
-            label = f"{_scope_label(fk)}__{case.name}__{'__'.join((*fk.nested_path, fk.serializer_field_name))}"
-            out.append((label, case, fk))
+        seen_pairs: set[tuple[str, tuple[str, ...]]] = set()
+        for serializer_cls in iter_serializer_classes_for(case.viewset_cls):
+            for fk in discover_writable_tenant_fks(serializer_cls):
+                if fk.is_create_only:
+                    continue
+                key = (fk.serializer_field_name, fk.nested_path)
+                if key in seen_pairs:
+                    continue
+                seen_pairs.add(key)
+                label = f"{_scope_label(fk)}__{case.name}__{'__'.join((*fk.nested_path, fk.serializer_field_name))}"
+                out.append((label, case, fk))
     return out
 
 
@@ -122,21 +131,26 @@ def _iter_fk_post_cases() -> list[tuple[str, IDORTestCase, WritableFKField]]:
     drops the value from validated_data, so injection through the HTTP body
     can't reach the model layer. Bypassing DRF would require model.save()
     in tests, which is out of scope for the auto-IDOR framework.
+
+    Walks every serializer the viewset can dispatch — see `_iter_fk_cases`.
     """
     out: list[tuple[str, IDORTestCase, WritableFKField]] = []
     for case in DISCOVERED_CASES:
         if case.name in IDOR_FK_PATCH_SKIP_LIST or case.name in IDOR_FK_POST_SKIP_LIST:
             continue
-        serializer_cls = getattr(case.viewset_cls, "serializer_class", None)
-        if serializer_cls is None:
-            continue
         if not _viewset_supports_post(case.viewset_cls):
             continue
-        for fk in discover_writable_tenant_fks(serializer_cls):
-            if fk.is_create_only:
-                continue
-            label = f"{_scope_label(fk)}__{case.name}__{'__'.join((*fk.nested_path, fk.serializer_field_name))}"
-            out.append((label, case, fk))
+        seen_pairs: set[tuple[str, tuple[str, ...]]] = set()
+        for serializer_cls in iter_serializer_classes_for(case.viewset_cls):
+            for fk in discover_writable_tenant_fks(serializer_cls):
+                if fk.is_create_only:
+                    continue
+                key = (fk.serializer_field_name, fk.nested_path)
+                if key in seen_pairs:
+                    continue
+                seen_pairs.add(key)
+                label = f"{_scope_label(fk)}__{case.name}__{'__'.join((*fk.nested_path, fk.serializer_field_name))}"
+                out.append((label, case, fk))
     return out
 
 

@@ -4,7 +4,14 @@ from __future__ import annotations
 
 import unittest
 
-from posthog.test.idor.discovery import IDORTestCase, _model_has_lookup_attr, _should_replace
+from rest_framework import serializers, viewsets
+
+from posthog.test.idor.discovery import (
+    IDORTestCase,
+    _model_has_lookup_attr,
+    _should_replace,
+    iter_serializer_classes_for,
+)
 from posthog.test.idor.url_structure import URLStructure
 
 
@@ -82,6 +89,66 @@ class TestModelHasLookupAttr(unittest.TestCase):
         from posthog.models.organization import OrganizationMembership
 
         assert _model_has_lookup_attr(OrganizationMembership, "nonexistent__uuid") is False
+
+
+class _ReadSerializer(serializers.Serializer):
+    name = serializers.CharField()
+
+
+class _WriteSerializer(serializers.Serializer):
+    linked_id = serializers.IntegerField()
+
+
+class _StaticViewSet(viewsets.GenericViewSet):
+    serializer_class = _ReadSerializer
+
+
+class _DispatchingViewSet(viewsets.GenericViewSet):
+    """Mirrors the SurveyViewSet pattern: read vs write serializers."""
+
+    def get_serializer_class(self):
+        if self.request.method in ("POST", "PATCH"):
+            return _WriteSerializer
+        return _ReadSerializer
+
+
+class _EmptyViewSet(viewsets.GenericViewSet):
+    """No serializer declared at all."""
+
+
+class _BrokenDispatchingViewSet(viewsets.GenericViewSet):
+    """get_serializer_class raises — the probe must swallow it."""
+
+    serializer_class = _ReadSerializer
+
+    def get_serializer_class(self):
+        raise RuntimeError("intentional probe failure")
+
+
+class TestIterSerializerClassesFor(unittest.TestCase):
+    def test_static_serializer_class_returned(self) -> None:
+        result = iter_serializer_classes_for(_StaticViewSet)
+        assert result == [_ReadSerializer]
+
+    def test_dispatching_viewset_yields_both_serializers(self) -> None:
+        result = iter_serializer_classes_for(_DispatchingViewSet)
+        # No class-level serializer_class; probe yields the runtime ones.
+        assert _WriteSerializer in result, f"write serializer missing from {result}"
+        assert _ReadSerializer in result, f"read serializer missing from {result}"
+
+    def test_empty_viewset_returns_empty_list(self) -> None:
+        result = iter_serializer_classes_for(_EmptyViewSet)
+        assert result == []
+
+    def test_broken_dispatch_falls_back_to_static(self) -> None:
+        # The override raises every time, but the static class-level fallback
+        # must still be returned so discovery isn't blocked.
+        result = iter_serializer_classes_for(_BrokenDispatchingViewSet)
+        assert result == [_ReadSerializer]
+
+    def test_result_is_deduplicated(self) -> None:
+        result = iter_serializer_classes_for(_StaticViewSet)
+        assert len(result) == len(set(result))
 
 
 if __name__ == "__main__":

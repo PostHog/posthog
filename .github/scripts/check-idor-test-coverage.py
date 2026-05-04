@@ -43,14 +43,13 @@ def _enumerate_pairs() -> tuple[set[str], set[str]]:
     Returns two sets of dotted-string keys. The caller compares them to
     the snapshot to detect new pairs that haven't been audited yet.
     """
-    from posthog.test.idor.discovery import discover_idor_test_cases
+    from posthog.test.idor.discovery import discover_idor_test_cases, iter_serializer_classes_for
     from posthog.test.idor.fk_discovery import discover_action_serializers, discover_writable_tenant_fks
 
     fk_pairs: set[str] = set()
     action_pairs: set[str] = set()
     for case in discover_idor_test_cases():
-        serializer_cls = getattr(case.viewset_cls, "serializer_class", None)
-        if serializer_cls is not None:
+        for serializer_cls in iter_serializer_classes_for(case.viewset_cls):
             for fk in discover_writable_tenant_fks(serializer_cls):
                 key = f"{case.name}.{'.'.join((*fk.nested_path, fk.serializer_field_name))}.{fk.target_model.__name__}"
                 fk_pairs.add(key)
@@ -124,7 +123,7 @@ def main(argv: list[str] | None = None) -> int:
 
     from posthog.api import router
     from posthog.api.routing import TeamAndOrgViewSetMixin
-    from posthog.test.idor.discovery import discover_idor_test_cases
+    from posthog.test.idor.discovery import discover_idor_test_cases, iter_serializer_classes_for
     from posthog.test.idor.fk_discovery import discover_writable_tenant_fks
     from posthog.test.idor.skip_list import IDOR_FK_PATCH_SKIP_LIST, IDOR_TEST_SKIP_LIST
     from posthog.test.idor.tenant_root import all_cases as all_tenant_root_cases
@@ -209,23 +208,26 @@ def main(argv: list[str] | None = None) -> int:
     for case in discover_idor_test_cases():
         if case.name in IDOR_FK_PATCH_SKIP_LIST:
             continue
-        serializer_cls = getattr(case.viewset_cls, "serializer_class", None)
-        if serializer_cls is None:
-            continue
-        for fk in discover_writable_tenant_fks(serializer_cls):
-            fk_total += 1
-            if fk.is_already_scoped:
-                fk_already_scoped += 1
-            else:
-                fk_unscoped += 1
-            if fk.is_implicit:
-                fk_implicit += 1
-            if fk.is_many:
-                fk_many += 1
-            if fk.is_create_only:
-                fk_create_only += 1
-            label = ".".join((*fk.nested_path, fk.serializer_field_name))
-            fk_pairs_by_viewset.setdefault(case.name, []).append(label)
+        seen_pairs: set[tuple[str, tuple[str, ...]]] = set()
+        for serializer_cls in iter_serializer_classes_for(case.viewset_cls):
+            for fk in discover_writable_tenant_fks(serializer_cls):
+                key = (fk.serializer_field_name, fk.nested_path)
+                if key in seen_pairs:
+                    continue
+                seen_pairs.add(key)
+                fk_total += 1
+                if fk.is_already_scoped:
+                    fk_already_scoped += 1
+                else:
+                    fk_unscoped += 1
+                if fk.is_implicit:
+                    fk_implicit += 1
+                if fk.is_many:
+                    fk_many += 1
+                if fk.is_create_only:
+                    fk_create_only += 1
+                label = ".".join((*fk.nested_path, fk.serializer_field_name))
+                fk_pairs_by_viewset.setdefault(case.name, []).append(label)
 
     fk_skips = set(IDOR_FK_PATCH_SKIP_LIST.keys())
     stale_fk_skips = sorted(s for s in fk_skips if s not in {c.name for c in discover_idor_test_cases()})
@@ -316,24 +318,26 @@ def _enumerate_json_fields() -> list[tuple[str, str]]:
     """
     from rest_framework import serializers as drf_ser
 
-    from posthog.test.idor.discovery import discover_idor_test_cases
+    from posthog.test.idor.discovery import discover_idor_test_cases, iter_serializer_classes_for
 
     out: list[tuple[str, str]] = []
     for case in discover_idor_test_cases():
-        serializer_cls = getattr(case.viewset_cls, "serializer_class", None)
-        if serializer_cls is None:
-            continue
-        try:
-            instance = serializer_cls(context={"team_id": None, "request": None, "get_team": lambda: None})
-            for name, field in instance.fields.items():
-                if field.read_only:
-                    continue
-                if isinstance(field, (drf_ser.JSONField, drf_ser.DictField)):
-                    out.append((case.name, name))
-        except Exception:
-            # Serializer construction can fail for many reasons (required context,
-            # custom __init__); skip rather than break the report.
-            pass
+        seen: set[tuple[str, str]] = set()
+        for serializer_cls in iter_serializer_classes_for(case.viewset_cls):
+            try:
+                instance = serializer_cls(context={"team_id": None, "request": None, "get_team": lambda: None})
+                for name, field in instance.fields.items():
+                    if field.read_only:
+                        continue
+                    if isinstance(field, (drf_ser.JSONField, drf_ser.DictField)):
+                        if (case.name, name) in seen:
+                            continue
+                        seen.add((case.name, name))
+                        out.append((case.name, name))
+            except Exception:
+                # Serializer construction can fail for many reasons (required context,
+                # custom __init__); skip rather than break the report.
+                pass
     return sorted(out)
 
 
