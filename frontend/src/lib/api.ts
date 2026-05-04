@@ -951,6 +951,22 @@ export class ApiRequest {
         return this.dashboardsDetail(dashboardId, teamId).addPathComponent('sharing')
     }
 
+    public notebookSharing(notebookShortId: NotebookType['short_id'], teamId?: TeamType['id']): ApiRequest {
+        return this.notebook(notebookShortId, teamId).addPathComponent('sharing')
+    }
+
+    public notebookSharingPasswords(notebookShortId: NotebookType['short_id'], teamId?: TeamType['id']): ApiRequest {
+        return this.notebookSharing(notebookShortId, teamId).addPathComponent('passwords')
+    }
+
+    public notebookSharingPassword(
+        notebookShortId: NotebookType['short_id'],
+        passwordId: string,
+        teamId?: TeamType['id']
+    ): ApiRequest {
+        return this.notebookSharingPasswords(notebookShortId, teamId).addPathComponent(passwordId)
+    }
+
     public dashboardSharingPasswords(dashboardId: DashboardType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.dashboardSharing(dashboardId, teamId).addPathComponent('passwords')
     }
@@ -3582,10 +3598,12 @@ const api = {
             dashboardId,
             insightId,
             recordingId,
+            notebookShortId,
         }: {
             dashboardId?: DashboardType['id']
             insightId?: QueryBasedInsightModel['id']
             recordingId?: SessionRecordingType['id']
+            notebookShortId?: NotebookType['short_id']
         }): Promise<SharingConfigurationType | null> {
             return dashboardId
                 ? new ApiRequest().dashboardSharing(dashboardId).get()
@@ -3593,7 +3611,9 @@ const api = {
                   ? new ApiRequest().insightSharing(insightId).get()
                   : recordingId
                     ? new ApiRequest().recordingSharing(recordingId).get()
-                    : null
+                    : notebookShortId
+                      ? new ApiRequest().notebookSharing(notebookShortId).get()
+                      : null
         },
 
         async update(
@@ -3601,10 +3621,12 @@ const api = {
                 dashboardId,
                 insightId,
                 recordingId,
+                notebookShortId,
             }: {
                 dashboardId?: DashboardType['id']
                 insightId?: QueryBasedInsightModel['id']
                 recordingId?: SessionRecordingType['id']
+                notebookShortId?: NotebookType['short_id']
             },
             data: Partial<SharingConfigurationType>
         ): Promise<SharingConfigurationType | null> {
@@ -3614,7 +3636,9 @@ const api = {
                   ? new ApiRequest().insightSharing(insightId).update({ data })
                   : recordingId
                     ? new ApiRequest().recordingSharing(recordingId).update({ data })
-                    : null
+                    : notebookShortId
+                      ? new ApiRequest().notebookSharing(notebookShortId).update({ data })
+                      : null
         },
 
         async createPassword(
@@ -3622,10 +3646,12 @@ const api = {
                 dashboardId,
                 insightId,
                 recordingId,
+                notebookShortId,
             }: {
                 dashboardId?: DashboardType['id']
                 insightId?: QueryBasedInsightModel['id']
                 recordingId?: SessionRecordingType['id']
+                notebookShortId?: NotebookType['short_id']
             },
             data: { raw_password?: string; note?: string }
         ): Promise<SharingConfigurationType | null> {
@@ -3635,7 +3661,9 @@ const api = {
                   ? new ApiRequest().insightSharingPasswords(insightId).create({ data })
                   : recordingId
                     ? new ApiRequest().recordingSharingPasswords(recordingId).create({ data })
-                    : null
+                    : notebookShortId
+                      ? new ApiRequest().notebookSharingPasswords(notebookShortId).create({ data })
+                      : null
         },
 
         async deletePassword(
@@ -3643,10 +3671,12 @@ const api = {
                 dashboardId,
                 insightId,
                 recordingId,
+                notebookShortId,
             }: {
                 dashboardId?: DashboardType['id']
                 insightId?: QueryBasedInsightModel['id']
                 recordingId?: SessionRecordingType['id']
+                notebookShortId?: NotebookType['short_id']
             },
             passwordId: string
         ): Promise<void> {
@@ -3656,7 +3686,9 @@ const api = {
                   ? new ApiRequest().insightSharingPassword(insightId, passwordId).delete()
                   : recordingId
                     ? new ApiRequest().recordingSharingPassword(recordingId, passwordId).delete()
-                    : null
+                    : notebookShortId
+                      ? new ApiRequest().notebookSharingPassword(notebookShortId, passwordId).delete()
+                      : null
         },
     },
 
