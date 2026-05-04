@@ -1258,7 +1258,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
         hog_flow_id = request.data.get("hog_flow_id")
         hog_flow_name = request.data.get("hog_flow_name", "")
         created_by_id = request.data.get("created_by_id")
-        priority = request.data.get("priority", "critical")
+        priority = request.data.get("priority", "normal")
         target = request.data.get("target", "owner")
 
         if not notification_type:

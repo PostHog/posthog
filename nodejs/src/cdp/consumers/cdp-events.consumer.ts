@@ -345,6 +345,7 @@ export class CdpEventsConsumer<
                             functionId: item.functionId,
                             functionName: item.hogFlow.name,
                             createdById: item.hogFlow.created_by_id ?? null,
+                            priority: 'critical',
                         })
 
                         return

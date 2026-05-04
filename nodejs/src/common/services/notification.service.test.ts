@@ -73,11 +73,11 @@ describe('NotificationService', () => {
         })
     })
 
-    it('should default priority to critical and target to owner', async () => {
+    it('should default priority to normal and target to owner', async () => {
         await service.notify('hog_flow', payload)
 
         const body = parseJSON(mockFetch.mock.calls[0][0].fetchParams.body)
-        expect(body.priority).toBe('critical')
+        expect(body.priority).toBe('normal')
         expect(body.target).toBe('owner')
     })
 

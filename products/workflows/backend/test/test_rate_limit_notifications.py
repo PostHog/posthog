@@ -40,7 +40,7 @@ class TestHandleWorkflowRateLimited(APIBaseTest):
         data = mock_create.call_args[0][0]
         assert data.team_id == self.team.id
         assert data.notification_type == NotificationType.WORKFLOW_RATE_LIMITED
-        assert data.priority == Priority.CRITICAL
+        assert data.priority == Priority.NORMAL
         assert data.title == "Workflow 'My Workflow' is being rate limited"
         assert data.target_type == TargetType.USER
         assert data.target_id == str(self.user.id)
@@ -187,7 +187,7 @@ class TestInternalNotifyEndpoint(APIBaseTest):
             hog_flow_id=str(hog_flow.id),
             hog_flow_name="Test Workflow",
             created_by_id=self.user.id,
-            priority="critical",
+            priority="normal",
             target="owner",
         )
 

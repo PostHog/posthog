@@ -63,7 +63,7 @@ def handle_workflow_rate_limited(
     hog_flow_id: str,
     hog_flow_name: str,
     created_by_id: int | None,
-    priority: str = "critical",
+    priority: str = "normal",
     target: str = "owner",
 ) -> None:
     resolved = _resolve_target(target, team_id, created_by_id, hog_flow_id)

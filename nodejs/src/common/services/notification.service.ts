@@ -76,7 +76,7 @@ export class NotificationService {
                                     hog_flow_id: payload.functionId,
                                     hog_flow_name: payload.functionName,
                                     created_by_id: payload.createdById,
-                                    priority: payload.priority ?? 'critical',
+                                    priority: payload.priority ?? 'normal',
                                     target: payload.target ?? 'owner',
                                 }),
                             },
