@@ -52,6 +52,26 @@ fi
 if run_scope "clickhouse"; then RUN_CLICKHOUSE=1; else RUN_CLICKHOUSE=0; fi
 if run_scope "postgres"; then RUN_POSTGRES=1; else RUN_POSTGRES=0; fi
 
+# In local dev, restore the pre-migrated schema dump when the database is fresh.
+# This takes seconds instead of minutes that running all migrations from scratch would take.
+# Requires .postgres-backups/schema-latest.sql.gz — run `hogli db:download-schema` to fetch it.
+SCHEMA_RESTORED=0
+if [ "$RUN_POSTGRES" = "1" ] && [ "${DEBUG:-0}" = "1" ] && [ -f ".postgres-backups/schema-latest.sql.gz" ] && command -v docker &>/dev/null; then
+    # Returns '1' if django_migrations table is absent or empty (fresh DB), '0' if populated.
+    IS_FRESH=$(docker compose exec -T db psql -U posthog posthog -t -c \
+        "SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='django_migrations') THEN '1' WHEN (SELECT COUNT(*) FROM django_migrations)=0 THEN '1' ELSE '0' END;" \
+        2>/dev/null | tr -d '[:space:]')
+    if [ "$IS_FRESH" = "1" ]; then
+        echo "[migrate] Fresh database detected — restoring pre-migrated schema (much faster than running all migrations from scratch)..."
+        if gunzip -c .postgres-backups/schema-latest.sql.gz | docker compose exec -T db psql -q -U posthog posthog; then
+            echo "[migrate] Pre-migrated schema restored. Running any pending migrations..."
+            SCHEMA_RESTORED=1
+        else
+            echo "[migrate] Schema restore failed — falling back to full migrations."
+        fi
+    fi
+fi
+
 # Run ClickHouse in background only when both CH and Postgres run (original parallel behavior)
 if [ "$RUN_CLICKHOUSE" = "1" ] && [ "$RUN_POSTGRES" = "1" ]; then
     trap 'rm -f "$CLICKHOUSE_STATUS" 2>/dev/null' EXIT
@@ -153,6 +173,17 @@ if run_scope "postgres"; then
     python manage.py migrate_product_databases
     if [ $? -ne 0 ]; then
         echo "Error in migrate_product_databases, exiting."
+        exit 1
+    fi
+fi
+
+# Schema-only restores skip RunPython data migrations (e.g. default themes from 0537).
+# Re-seed those defaults now that all tables exist.
+if [ "$SCHEMA_RESTORED" = "1" ]; then
+    echo "[migrate] Seeding default migration data (skipped by schema-only restore)..."
+    python manage.py ensure_migration_defaults
+    if [ $? -ne 0 ]; then
+        echo "Error in ensure_migration_defaults, exiting."
         exit 1
     fi
 fi
