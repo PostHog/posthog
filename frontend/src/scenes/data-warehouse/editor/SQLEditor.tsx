@@ -215,7 +215,10 @@ export function SQLEditor({
                                                 {showSceneTitle ? <SQLEditorSceneTitle /> : null}
                                                 <div className="flex min-h-0 flex-1">
                                                     {showDatabaseTreePanel && (
-                                                        <DatabaseTree databaseTreeRef={databaseTreeRef} />
+                                                        <DatabaseTree
+                                                            databaseTreeRef={databaseTreeRef}
+                                                            tabId={tabId || ''}
+                                                        />
                                                     )}
                                                     <div
                                                         data-attr="editor-scene"

@@ -19,12 +19,17 @@ const sourceIcon = (src: string): JSX.Element => (
     <img src={src} alt="" width={16} height={16} className="object-contain rounded" />
 )
 
-export function ConnectionSelector(): JSX.Element | null {
-    const { sourceQuery, selectedConnectionId } = useValues(sqlEditorLogic)
+interface ConnectionSelectorProps {
+    tabId: string
+}
+
+export function ConnectionSelector({ tabId }: ConnectionSelectorProps): JSX.Element | null {
+    const logic = sqlEditorLogic({ tabId })
+    const { sourceQuery, selectedConnectionId } = useValues(logic)
     const { connectionSelectOptions, connectionSelectorValue } = useValues(
         connectionSelectorLogic({ selectedConnectionId })
     )
-    const { setSourceQuery, syncUrlWithQuery } = useActions(sqlEditorLogic)
+    const { setSourceQuery, syncUrlWithQuery } = useActions(logic)
     // Strip the legacy top-level connectionId so source.connectionId stays canonical.
     const { connectionId: _legacyConnectionId, ...sourceQueryWithoutLegacyConnectionId } =
         sourceQuery as typeof sourceQuery & {
