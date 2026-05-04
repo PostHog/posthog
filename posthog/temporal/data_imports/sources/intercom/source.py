@@ -16,7 +16,7 @@ from posthog.temporal.data_imports.sources.intercom.intercom import (
     intercom_source,
     validate_credentials as validate_intercom_credentials,
 )
-from posthog.temporal.data_imports.sources.intercom.settings import INTERCOM_ENDPOINTS
+from posthog.temporal.data_imports.sources.intercom.settings import INCREMENTAL_FIELDS, INTERCOM_ENDPOINTS
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
@@ -62,15 +62,18 @@ class IntercomSource(SimpleSource[IntercomSourceConfig], OAuthMixin):
         with_counts: bool = False,
         names: list[str] | None = None,
     ) -> list[SourceSchema]:
-        schemas = [
-            SourceSchema(
-                name=endpoint_config.name,
-                supports_incremental=False,
-                supports_append=False,
-                incremental_fields=[],
+        schemas = []
+        for endpoint_config in INTERCOM_ENDPOINTS.values():
+            incremental_fields = INCREMENTAL_FIELDS.get(endpoint_config.name, [])
+            supports_incremental = bool(incremental_fields)
+            schemas.append(
+                SourceSchema(
+                    name=endpoint_config.name,
+                    supports_incremental=supports_incremental,
+                    supports_append=supports_incremental,
+                    incremental_fields=incremental_fields,
+                )
             )
-            for endpoint_config in INTERCOM_ENDPOINTS.values()
-        ]
         if names is not None:
             names_set = set(names)
             schemas = [s for s in schemas if s.name in names_set]
@@ -100,4 +103,8 @@ class IntercomSource(SimpleSource[IntercomSourceConfig], OAuthMixin):
             endpoint=inputs.schema_name,
             team_id=inputs.team_id,
             job_id=inputs.job_id,
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value
+            if inputs.should_use_incremental_field
+            else None,
         )

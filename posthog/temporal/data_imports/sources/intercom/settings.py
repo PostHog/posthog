@@ -1,7 +1,9 @@
 from dataclasses import dataclass
 from typing import Literal
 
-PaginatorKind = Literal["single", "cursor", "next_url"]
+from products.data_warehouse.backend.types import IncrementalField, IncrementalFieldType
+
+PaginatorKind = Literal["single", "cursor", "next_url", "search"]
 PartitionMode = Literal["md5", "datetime"]
 
 
@@ -23,6 +25,10 @@ class IntercomEndpointConfig:
 # Endpoint contracts validated against the live Intercom REST API (version 2.13).
 # Selectors, pagination shape, and partition keys reflect what the API actually
 # returns — not the docs.
+#
+# `contacts` and `conversations` use the POST search endpoints so we can
+# filter by `updated_at` for incremental sync. The list endpoints don't
+# expose that filter. This matches what Airbyte and Stitch do.
 INTERCOM_ENDPOINTS: dict[str, IntercomEndpointConfig] = {
     "admins": IntercomEndpointConfig(
         name="admins",
@@ -65,15 +71,15 @@ INTERCOM_ENDPOINTS: dict[str, IntercomEndpointConfig] = {
     ),
     "contacts": IntercomEndpointConfig(
         name="contacts",
-        path="/contacts",
+        path="/contacts/search",
         data_selector="data",
-        paginator_kind="cursor",
+        paginator_kind="search",
     ),
     "conversations": IntercomEndpointConfig(
         name="conversations",
-        path="/conversations",
+        path="/conversations/search",
         data_selector="conversations",
-        paginator_kind="cursor",
+        paginator_kind="search",
     ),
     "articles": IntercomEndpointConfig(
         name="articles",
@@ -84,3 +90,31 @@ INTERCOM_ENDPOINTS: dict[str, IntercomEndpointConfig] = {
 }
 
 ENDPOINTS = tuple(INTERCOM_ENDPOINTS.keys())
+
+
+# Endpoints that support incremental sync. Intercom's `/contacts/search` and
+# `/conversations/search` accept an `updated_at > <unix_ts>` filter on the
+# request body; the other resources (admins, teams, tags, segments,
+# companies, articles) have no equivalent filter and are full-refresh only —
+# matching what Airbyte and Stitch publish for this connector.
+#
+# `field_type=Integer` because Intercom returns `updated_at` as a Unix epoch
+# integer (seconds), not an ISO string. Same shape Stripe uses for `created`.
+INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
+    "contacts": [
+        {
+            "label": "updated_at",
+            "type": IncrementalFieldType.DateTime,
+            "field": "updated_at",
+            "field_type": IncrementalFieldType.Integer,
+        }
+    ],
+    "conversations": [
+        {
+            "label": "updated_at",
+            "type": IncrementalFieldType.DateTime,
+            "field": "updated_at",
+            "field_type": IncrementalFieldType.Integer,
+        }
+    ],
+}

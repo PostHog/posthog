@@ -1,3 +1,7 @@
+from typing import Any, Optional
+
+from requests import Request, Response
+
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.common.http import make_tracked_session
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resource
@@ -22,7 +26,64 @@ def _default_headers() -> dict[str, str]:
     }
 
 
+class IntercomSearchPaginator(BasePaginator):
+    """Paginator for Intercom POST `/<resource>/search` endpoints.
+
+    Intercom's search APIs put the pagination cursor in the request body
+    (``pagination.starting_after``) rather than the query string, so the
+    standard ``JSONResponseCursorPaginator`` — which writes to
+    ``request.params`` — doesn't fit. The next cursor is read from
+    ``pages.next.starting_after`` in the response, the same shape the list
+    endpoints use.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._next_cursor: Optional[str] = None
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        try:
+            payload = response.json()
+        except Exception:
+            self._has_next_page = False
+            self._next_cursor = None
+            return
+        next_block = (payload.get("pages") or {}).get("next") or {}
+        cursor = next_block.get("starting_after") if isinstance(next_block, dict) else None
+        if cursor:
+            self._next_cursor = cursor
+            self._has_next_page = True
+        else:
+            self._next_cursor = None
+            self._has_next_page = False
+
+    def update_request(self, request: Request) -> None:
+        if self._next_cursor is None or request.json is None:
+            return
+        pagination = request.json.setdefault("pagination", {})
+        pagination["starting_after"] = self._next_cursor
+
+
+def _build_search_body(cfg: IntercomEndpointConfig, db_incremental_field_last_value: Optional[Any]) -> dict[str, Any]:
+    """Build the POST body for Intercom's ``/<resource>/search`` endpoints.
+
+    ``value: 0`` is the historical-backfill case (matches every record);
+    once we have a watermark from a prior sync we filter ``updated_at > <ts>``.
+    Sorting ascending so the cursor advances monotonically — without it
+    Intercom returns by relevance and the watermark we persist would be
+    meaningless.
+    """
+    cursor_value = int(db_incremental_field_last_value) if db_incremental_field_last_value is not None else 0
+    return {
+        "query": {"field": "updated_at", "operator": ">", "value": cursor_value},
+        "pagination": {"per_page": cfg.page_size},
+        "sort": {"field": "updated_at", "order": "ascending"},
+    }
+
+
 def _build_paginator(cfg: IntercomEndpointConfig) -> BasePaginator:
+    if cfg.paginator_kind == "search":
+        return IntercomSearchPaginator()
     if cfg.paginator_kind == "cursor":
         return JSONResponseCursorPaginator(
             cursor_path="pages.next.starting_after",
@@ -33,7 +94,11 @@ def _build_paginator(cfg: IntercomEndpointConfig) -> BasePaginator:
     return SinglePagePaginator()
 
 
-def get_resource(name: str) -> EndpointResource:
+def get_resource(
+    name: str,
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Optional[Any],
+) -> EndpointResource:
     cfg = INTERCOM_ENDPOINTS[name]
 
     endpoint: Endpoint = {
@@ -42,13 +107,25 @@ def get_resource(name: str) -> EndpointResource:
         "paginator": _build_paginator(cfg),
     }
 
-    if cfg.paginator_kind in ("cursor", "next_url"):
+    if cfg.paginator_kind == "search":
+        endpoint["method"] = "POST"
+        endpoint["json"] = _build_search_body(cfg, db_incremental_field_last_value)
+    elif cfg.paginator_kind in ("cursor", "next_url"):
         endpoint["params"] = {"per_page": cfg.page_size}
+
+    # Upsert on incremental search syncs so updates to existing rows replace
+    # the prior version instead of appending duplicates. Non-incremental
+    # endpoints stay on full-refresh replace.
+    write_disposition: Any = (
+        {"disposition": "merge", "strategy": "upsert"}
+        if should_use_incremental_field and cfg.paginator_kind == "search"
+        else "replace"
+    )
 
     return {
         "name": cfg.name,
         "table_name": cfg.name,
-        "write_disposition": "replace",
+        "write_disposition": write_disposition,
         "endpoint": endpoint,
         "table_format": "delta",
     }
@@ -89,6 +166,8 @@ def intercom_source(
     endpoint: str,
     team_id: int,
     job_id: str,
+    should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     cfg = INTERCOM_ENDPOINTS[endpoint]
 
@@ -101,13 +180,11 @@ def intercom_source(
             },
             "headers": _default_headers(),
         },
-        "resource_defaults": {
-            "write_disposition": "replace",
-        },
-        "resources": [get_resource(endpoint)],
+        "resource_defaults": {},
+        "resources": [get_resource(endpoint, should_use_incremental_field, db_incremental_field_last_value)],
     }
 
-    resource = rest_api_resource(config, team_id, job_id, None)
+    resource = rest_api_resource(config, team_id, job_id, db_incremental_field_last_value)
 
     return SourceResponse(
         name=endpoint,
