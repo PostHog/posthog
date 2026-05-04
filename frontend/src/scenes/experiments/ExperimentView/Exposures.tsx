@@ -130,6 +130,97 @@ function MicroChart({ exposures }: MicroChartProps): JSX.Element | null {
     )
 }
 
+interface ExposuresChartProps {
+    exposures: ExperimentExposureQueryResponse
+    axisLineColor: string
+}
+
+function ExposuresChart({ exposures, axisLineColor }: ExposuresChartProps): JSX.Element {
+    const { canvasRef } = useChart({
+        getConfig: () => {
+            if (!exposures?.timeseries?.length) {
+                return null
+            }
+
+            let labels = exposures.timeseries[0].days.map((day: string) => dayjs(day).format('MM/DD'))
+            let datasets = exposures.timeseries.map((series: ExperimentExposureTimeSeries, index: number) => ({
+                label: series.variant,
+                data: series.exposure_counts,
+                borderColor: getSeriesColor(index),
+                backgroundColor: getSeriesBackgroundColor(index),
+                fill: false,
+                tension: 0,
+                borderWidth: 2,
+                pointRadius: 0,
+            }))
+
+            if (exposures.timeseries[0].days.length === 1) {
+                const firstDay = dayjs(exposures.timeseries[0].days[0])
+                const previousDay = firstDay.subtract(1, 'day').format('MM/DD')
+
+                labels = [previousDay, ...labels]
+                datasets = datasets.map((dataset: ChartDataset) => ({
+                    ...dataset,
+                    data: [0, ...dataset.data],
+                }))
+            }
+
+            return {
+                type: 'line' as const,
+                data: { labels, datasets },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: {
+                        intersect: false,
+                        mode: 'nearest',
+                        axis: 'x',
+                    },
+                    scales: {
+                        x: {
+                            ticks: {
+                                maxTicksLimit: 8,
+                                autoSkip: true,
+                                maxRotation: 0,
+                                minRotation: 0,
+                            },
+                            grid: {
+                                display: true,
+                                color: axisLineColor,
+                            },
+                        },
+                        y: {
+                            beginAtZero: true,
+                            grid: {
+                                display: true,
+                                color: axisLineColor,
+                            },
+                        },
+                    },
+                    plugins: {
+                        legend: {
+                            display: false,
+                            labels: {
+                                boxWidth: 4,
+                                boxPadding: 20,
+                                pointStyle: 'dash',
+                            },
+                        },
+                        crosshair: false,
+                    },
+                },
+            }
+        },
+        deps: [exposures, axisLineColor],
+    })
+
+    return (
+        <div className="relative h-[200px]">
+            <canvas ref={canvasRef} />
+        </div>
+    )
+}
+
 function getExposureCriteriaLabel(exposureCriteria: ExperimentExposureCriteria | undefined): string {
     const exposureConfig = exposureCriteria?.exposure_config
     if (!exposureConfig) {
@@ -177,87 +268,6 @@ export function Exposures(): JSX.Element {
 
     // Detect sample ratio mismatch (p < 0.001 is significant)
     const hasSRM = exposures?.sample_ratio_mismatch != null && exposures.sample_ratio_mismatch.p_value < 0.001
-
-    const { canvasRef } = useChart({
-        getConfig: () => {
-            if (isCollapsed || !exposures?.timeseries?.length) {
-                return null
-            }
-
-            let labels = exposures.timeseries[0].days.map((day: string) => dayjs(day).format('MM/DD'))
-            let datasets = exposures.timeseries.map((series: ExperimentExposureTimeSeries, index: number) => ({
-                label: series.variant,
-                data: series.exposure_counts,
-                borderColor: getSeriesColor(index),
-                backgroundColor: getSeriesBackgroundColor(index),
-                fill: false,
-                tension: 0,
-                borderWidth: 2,
-                pointRadius: 0,
-            }))
-
-            if (exposures.timeseries[0].days.length === 1) {
-                const firstDay = dayjs(exposures.timeseries[0].days[0])
-                const previousDay = firstDay.subtract(1, 'day').format('MM/DD')
-
-                labels = [previousDay, ...labels]
-                datasets = datasets.map((dataset: ChartDataset) => ({
-                    ...dataset,
-                    data: [0, ...dataset.data],
-                }))
-            }
-
-            return {
-                type: 'line' as const,
-                data: {
-                    labels,
-                    datasets,
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    interaction: {
-                        intersect: false,
-                        mode: 'nearest',
-                        axis: 'x',
-                    },
-                    scales: {
-                        x: {
-                            ticks: {
-                                maxTicksLimit: 8,
-                                autoSkip: true,
-                                maxRotation: 0,
-                                minRotation: 0,
-                            },
-                            grid: {
-                                display: true,
-                                color: colors.EXPOSURES_AXIS_LINES,
-                            },
-                        },
-                        y: {
-                            beginAtZero: true,
-                            grid: {
-                                display: true,
-                                color: colors.EXPOSURES_AXIS_LINES,
-                            },
-                        },
-                    },
-                    plugins: {
-                        legend: {
-                            display: false,
-                            labels: {
-                                boxWidth: 4,
-                                boxPadding: 20,
-                                pointStyle: 'dash',
-                            },
-                        },
-                        crosshair: false,
-                    },
-                },
-            }
-        },
-        deps: [exposures, colors.EXPOSURES_AXIS_LINES, isCollapsed],
-    })
 
     const handleCollapseChange = useCallback((activeKey: string | null) => {
         const isOpen = activeKey === 'cumulative-exposures'
@@ -356,9 +366,7 @@ export function Exposures(): JSX.Element {
                                     </div>
                                 </div>
                             ) : (
-                                <div className="relative h-[200px]">
-                                    <canvas ref={canvasRef} />
-                                </div>
+                                <ExposuresChart exposures={exposures} axisLineColor={colors.EXPOSURES_AXIS_LINES} />
                             )}
 
                             {/* Exposure Criteria Section */}
