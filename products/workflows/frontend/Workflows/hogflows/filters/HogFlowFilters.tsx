@@ -38,6 +38,19 @@ function useSampleGlobals(): Record<string, any> {
     return { variables: workflowVariables }
 }
 
+// Surface workflow variables as searchable items so the All/Suggestions tab in the taxonomic filter
+// (always prepended by `TaxonomicPropertyFilter`) can aggregate them alongside event/person properties.
+// Without this the All tab is empty for users on a workflow that hasn't picked up any other matches yet.
+export function useWorkflowVariableTaxonomicOptions(): {
+    [TaxonomicFilterGroupType.WorkflowVariables]: { name: string }[]
+} {
+    const { workflow } = useValues(workflowLogic)
+    const variables = workflow?.variables ?? []
+    return {
+        [TaxonomicFilterGroupType.WorkflowVariables]: variables.map((variable) => ({ name: variable.key })),
+    }
+}
+
 export type HogFlowFiltersProps = {
     filtersKey: string
     filters: HogFlowAction['filters']
@@ -59,14 +72,16 @@ export function HogFlowEventFilters({ filters, setFilters, typeKey, buttonCopy }
         actionsTaxonomicGroupTypes.push(TaxonomicFilterGroupType.InternalEvents)
     }
 
+    // WorkflowVariables comes first so `redistributeTopMatches` orders its matches first in the
+    // All/Suggestions tab (which redistributes by `taxonomicGroupTypes` order).
     const propertyTaxonomicGroupTypes = [
+        TaxonomicFilterGroupType.WorkflowVariables,
         TaxonomicFilterGroupType.EventProperties,
         TaxonomicFilterGroupType.EventFeatureFlags,
         TaxonomicFilterGroupType.Elements,
         TaxonomicFilterGroupType.PersonProperties,
         ...groupsTaxonomicTypes,
         TaxonomicFilterGroupType.HogQLExpression,
-        TaxonomicFilterGroupType.WorkflowVariables,
     ]
     if (shouldShowInternalEvents) {
         propertyTaxonomicGroupTypes.push(TaxonomicFilterGroupType.InternalEventProperties)
@@ -101,6 +116,7 @@ export function HogFlowEventFilters({ filters, setFilters, typeKey, buttonCopy }
 export function HogFlowPropertyFilters({ filtersKey, filters, setFilters }: HogFlowFiltersProps): JSX.Element {
     const sampleGlobals = useSampleGlobals()
     const { groupsTaxonomicTypes } = useValues(groupsModel)
+    const taxonomicFilterOptionsFromProp = useWorkflowVariableTaxonomicOptions()
     return (
         <PropertyFilters
             propertyFilters={filters?.properties}
@@ -117,6 +133,7 @@ export function HogFlowPropertyFilters({ filtersKey, filters, setFilters }: HogF
                 TaxonomicFilterGroupType.HogQLExpression,
                 TaxonomicFilterGroupType.EventMetadata,
             ]}
+            taxonomicFilterOptionsFromProp={taxonomicFilterOptionsFromProp}
             metadataSource={{
                 kind: NodeKind.EventsQuery,
                 select: defaultDataTableColumns(NodeKind.EventsQuery),
