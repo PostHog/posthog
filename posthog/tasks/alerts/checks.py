@@ -347,8 +347,8 @@ def check_alert(alert_id: str) -> None:
 def dispatch_alert_firing_realtime_notification(alert: AlertConfiguration, breaches: list[str]) -> None:
     """Fan out one realtime in-app notification per subscribed user when an alert fires.
 
-    Wrapped in a try/except by callers so a realtime delivery failure does not poison
-    the email path or the alert-check transaction.
+    Exceptions are caught and logged internally so a realtime delivery failure does not
+    poison the email path or the alert-check transaction.
     """
     try:
         body = "; ".join(breaches[:3])

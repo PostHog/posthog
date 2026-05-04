@@ -394,7 +394,7 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
             assert data.resource_type == "insight"
             assert data.target_type.value == "user"
             assert data.source_type.value == "insight"
-            assert data.source_id == str(alert.insight_id)
+            assert data.source_id == str(alert.insight.short_id)
             assert data.resource_id == str(alert.insight.short_id)
             assert data.title.startswith("Alert firing:")
 
