@@ -310,14 +310,12 @@ describe('handleToken', () => {
 
         vi.stubGlobal(
             'fetch',
-            vi
-                .fn()
-                .mockResolvedValueOnce(
-                    new Response(JSON.stringify({ access_token: 'pha_us_refreshed', token_type: 'bearer' }), {
-                        status: 200,
-                        headers: { 'Content-Type': 'application/json' },
-                    })
-                )
+            vi.fn().mockResolvedValueOnce(
+                new Response(JSON.stringify({ access_token: 'pha_us_refreshed', token_type: 'bearer' }), {
+                    status: 200,
+                    headers: { 'Content-Type': 'application/json' },
+                })
+            )
         )
 
         const request = new Request('https://oauth.posthog.com/oauth/token/', {
@@ -333,6 +331,13 @@ describe('handleToken', () => {
         expect(data.access_token).toBe('pha_us_refreshed')
         // Only one fetch call — did not try EU
         expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1)
+
+        // Verify US attempt used the correct client_id
+        const usCall = vi.mocked(fetch).mock.calls[0]!
+        const usBody = new URLSearchParams(usCall[1]!.body as string)
+        expect(String(usCall[0])).toMatch(/^https:\/\/us\.posthog\.com/)
+        expect(usBody.get('client_id')).toBe('proxy_client_us')
+
         // Region re-stored as US
         expect(vi.mocked(mockKV.put)).toHaveBeenCalledWith(`region:${clientHash}`, 'us', { expirationTtl: 3600 })
     })
@@ -474,5 +479,95 @@ describe('handleToken', () => {
         const euCall = vi.mocked(fetch).mock.calls[1]!
         const euBody = JSON.parse(euCall[1]!.body as string) as Record<string, unknown>
         expect(euBody.client_id).toBe('eu_json_id')
+    })
+
+    it('skips EU when eu_client_id is null in the mapping', async () => {
+        const clientHash = await hashKey('proxy_client_us_only')
+        mockKVGet(mockKV, (key: string, type?: unknown) => {
+            if (key === `region:${clientHash}`) {
+                return Promise.resolve(null)
+            }
+            if (key === 'client:proxy_client_us_only' && type === 'json') {
+                return Promise.resolve({
+                    us_client_id: 'proxy_client_us_only',
+                    eu_client_id: null,
+                    created_at: Date.now(),
+                })
+            }
+            return Promise.resolve(null)
+        })
+
+        vi.stubGlobal(
+            'fetch',
+            vi.fn().mockResolvedValueOnce(
+                new Response(JSON.stringify({ access_token: 'pha_us_only', token_type: 'bearer' }), {
+                    status: 200,
+                    headers: { 'Content-Type': 'application/json' },
+                })
+            )
+        )
+
+        const request = new Request('https://oauth.posthog.com/oauth/token/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: 'grant_type=refresh_token&refresh_token=rt_token&client_id=proxy_client_us_only',
+        })
+
+        const response = await handleToken(request, mockKV)
+        const data = (await response.json()) as Record<string, unknown>
+
+        expect(response.status).toBe(200)
+        expect(data.access_token).toBe('pha_us_only')
+        // Only US was tried — EU was skipped because eu_client_id is null
+        expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1)
+        const usCall = vi.mocked(fetch).mock.calls[0]!
+        expect(String(usCall[0])).toMatch(/^https:\/\/us\.posthog\.com/)
+        expect(vi.mocked(mockKV.put)).toHaveBeenCalledWith(`region:${clientHash}`, 'us', { expirationTtl: 3600 })
+    })
+
+    it('skips US when us_client_id is null in the mapping', async () => {
+        const clientHash = await hashKey('proxy_client_eu_only')
+        mockKVGet(mockKV, (key: string, type?: unknown) => {
+            if (key === `region:${clientHash}`) {
+                return Promise.resolve(null)
+            }
+            if (key === 'client:proxy_client_eu_only' && type === 'json') {
+                return Promise.resolve({
+                    us_client_id: null,
+                    eu_client_id: 'eu_only_id',
+                    created_at: Date.now(),
+                })
+            }
+            return Promise.resolve(null)
+        })
+
+        vi.stubGlobal(
+            'fetch',
+            vi.fn().mockResolvedValueOnce(
+                new Response(JSON.stringify({ access_token: 'pha_eu_only', token_type: 'bearer' }), {
+                    status: 200,
+                    headers: { 'Content-Type': 'application/json' },
+                })
+            )
+        )
+
+        const request = new Request('https://oauth.posthog.com/oauth/token/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: 'grant_type=refresh_token&refresh_token=rt_token&client_id=proxy_client_eu_only',
+        })
+
+        const response = await handleToken(request, mockKV)
+        const data = (await response.json()) as Record<string, unknown>
+
+        expect(response.status).toBe(200)
+        expect(data.access_token).toBe('pha_eu_only')
+        // Only EU was tried — US was skipped because us_client_id is null
+        expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1)
+        const euCall = vi.mocked(fetch).mock.calls[0]!
+        expect(String(euCall[0])).toMatch(/^https:\/\/eu\.posthog\.com/)
+        const euBody = new URLSearchParams(euCall[1]!.body as string)
+        expect(euBody.get('client_id')).toBe('eu_only_id')
+        expect(vi.mocked(mockKV.put)).toHaveBeenCalledWith(`region:${clientHash}`, 'eu', { expirationTtl: 3600 })
     })
 })
