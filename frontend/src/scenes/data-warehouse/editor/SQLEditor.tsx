@@ -55,6 +55,10 @@ interface SQLEditorProps {
     defaultShowDatabaseTree?: boolean
     panel?: SQLEditorPanel
     showOutputToolbar?: boolean
+    onRunQuery?: () => void
+    runQueryLoading?: boolean
+    runQueryDisabledReason?: string
+    runQueryTooltip?: string
 }
 
 export function SQLEditor({
@@ -64,6 +68,10 @@ export function SQLEditor({
     defaultShowDatabaseTree = true,
     panel = SQLEditorPanel.Full,
     showOutputToolbar = true,
+    onRunQuery,
+    runQueryLoading,
+    runQueryDisabledReason,
+    runQueryTooltip,
 }: SQLEditorProps): JSX.Element {
     const ref = useRef(null)
     const navigatorRef = useRef(null)
@@ -217,6 +225,10 @@ export function SQLEditor({
                                                             onSetMonacoAndEditor={(nextMonaco, nextEditor) =>
                                                                 setMonacoAndEditor([nextMonaco, nextEditor])
                                                             }
+                                                            onRunQuery={onRunQuery}
+                                                            runQueryLoading={runQueryLoading}
+                                                            runQueryDisabledReason={runQueryDisabledReason}
+                                                            runQueryTooltip={runQueryTooltip}
                                                         />
                                                     </div>
                                                 </div>

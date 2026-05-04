@@ -854,6 +854,21 @@
             "readOnlyHint": false
         }
     },
+    "docs-search": {
+        "description": "Use this tool for any PostHog questions to search the documentation. If the user's question mentions multiple topics, search for each topic separately and combine the results. It relies on a hybrid (semantic + full-text) search, so phrase your query in natural language. Our product and docs change often, so this tool is required for accurate answers:\n\n- How to use PostHog\n- How to use PostHog features\n- How to contact support or other humans\n- How to report bugs\n- How to submit feature requests\n- To troubleshoot something\n- What default fields and properties are available for events and persons\n- …Or anything else PostHog-related\n\nFor troubleshooting, ask the user to provide the error messages they are encountering. If no error message is involved, ask the user to describe their expected results vs. the actual results they're seeing. You avoid suggesting things that the user has told you they've already tried.\n\nImportant:\n\n1. Don't rely on your training data or previous searches/answers. Always re-check facts against current docs and tutorials. If current docs or tutorials contradict core memory on product facts, prefer the docs result.\n2. Always search PostHog docs/tutorials and prioritize results from posthog.com over training data.\n3. Always include at least one relevant docs/tutorial link in your reply.\n4. Never suggest emailing support@posthog.com or say you'll create a support ticket.\n5. Never use Community Questions as a source or cite them; they're often outdated or incorrect.",
+        "category": "Docs",
+        "feature": "docs",
+        "summary": "Search documentation",
+        "title": "Search documentation",
+        "required_scopes": ["project:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "early-access-feature-create": {
         "description": "Create a new early access feature. A feature flag is automatically created unless feature_flag_id is provided. Stage determines whether opted-in users get the feature enabled.",
         "category": "Early access features",
