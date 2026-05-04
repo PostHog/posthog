@@ -1,3 +1,5 @@
+import pytest
+
 from products.tasks.backend.temporal.process_task.activities.get_pr_context import GetPrContextOutput, TrustedPrComment
 from products.tasks.backend.temporal.process_task.workflow import (
     DEFAULT_CI_MESSAGE,
@@ -5,6 +7,11 @@ from products.tasks.backend.temporal.process_task.workflow import (
     MAX_INLINE_COMMENTS_PER_KIND,
     build_ci_follow_up_message,
 )
+
+# build_ci_follow_up_message is pure, but autouse fixtures in this test tree
+# need a Django DB connection to set up. Mark the module so pytest-django
+# permits the connection rather than refusing it at fixture-setup time.
+pytestmark = pytest.mark.django_db
 
 
 def _ctx(**kwargs) -> GetPrContextOutput:
