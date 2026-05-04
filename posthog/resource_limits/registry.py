@@ -70,8 +70,8 @@ REGISTRY: dict[str, LimitDefinition] = {
     LimitKey.MAX_ACTIVE_AI_SUMMARIES_PER_ORG: LimitDefinition(
         key=LimitKey.MAX_ACTIVE_AI_SUMMARIES_PER_ORG,
         description="Subscriptions with summary_enabled=True per organization",
-        default=10,
-        by_plan_tier={"free": 10, "paid": 20, "enterprise": 100},
+        default=20,
+        by_plan_tier={"free": 20, "paid": 40, "enterprise": 200},
     ),
 }
 
