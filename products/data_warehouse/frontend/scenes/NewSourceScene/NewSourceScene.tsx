@@ -39,6 +39,7 @@ import { SourceIcon } from '../../shared/components/SourceIcon'
 import { availableSourcesLogic } from './availableSourcesLogic'
 import { BillingLimitNotice } from './components/BillingLimitNotice'
 import { SelfManagedSourceForm } from './components/SelfManagedSourceForm'
+import type { newSourceSceneLogicType } from './NewSourceSceneType'
 import { selfManagedSourceLogic } from './selfManagedSourceLogic'
 import { type SourceWizardLogicProps, sourceWizardLogic } from './sourceWizardLogic'
 
@@ -57,7 +58,7 @@ export interface NewSourceSceneLogicProps {
     tabId: string
 }
 
-export const newSourceSceneLogic = kea([
+export const newSourceSceneLogic = kea<newSourceSceneLogicType>([
     path(['products', 'dataWarehouse', 'newSourceSceneLogic']),
     props({} as NewSourceSceneLogicProps),
     tabAwareScene(),

@@ -11,7 +11,7 @@ import { urls } from 'scenes/urls'
 import { initKeaTests } from '~/test/init'
 
 import { mergePinnedTabs, sceneLogic } from './sceneLogic'
-import type { logicType } from './sceneLogic.testType'
+import type { testLogicType, tabAwareTestLogicType } from './sceneLogic.testType'
 
 jest.mock('lib/api', () => ({
     __esModule: true,
@@ -22,11 +22,11 @@ jest.mock('lib/api', () => ({
 }))
 
 const Component = (): JSX.Element => <div />
-const testLogic = kea<logicType>([path(['scenes', 'sceneLogic', 'test'])])
+const testLogic = kea<testLogicType>([path(['scenes', 'sceneLogic', 'test'])])
 const sceneImport = (): any => ({ scene: { component: Component, logic: testLogic } })
 let mountedTabIds: (string | undefined)[] = []
 let unmountedTabIds: (string | undefined)[] = []
-const tabAwareTestLogic = kea([
+const tabAwareTestLogic = kea<tabAwareTestLogicType>([
     path(['scenes', 'sceneLogic', 'tabAwareTestLogic']),
     props({} as { tabId?: string }),
     key(({ tabId }) => tabId ?? 'missing'),
