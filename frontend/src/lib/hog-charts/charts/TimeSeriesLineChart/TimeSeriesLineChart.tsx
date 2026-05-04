@@ -2,13 +2,22 @@ import React, { useMemo } from 'react'
 
 import type { ChartTheme, LineChartConfig, PointClickData, Series, TooltipContext } from '../../core/types'
 import { ReferenceLines } from '../../overlays/ReferenceLine'
+import { ValueLabels } from '../../overlays/ValueLabels'
 import { LineChart } from '../LineChart'
 import { buildGoalLineReferenceLines, type GoalLineConfig } from './utils/goal-lines'
+import { applyInProgressToSeries, type InProgressConfig } from './utils/in-progress'
 import { useXTickFormatter, useYTickFormatter, type XAxisConfig, type YAxisConfig } from './utils/use-axis-formatters'
+
+export interface ValueLabelsConfig {
+    seriesKeys?: string[]
+    formatter?: (value: number) => string
+}
 
 export interface TimeSeriesLineChartConfig {
     xAxis?: XAxisConfig
     yAxis?: YAxisConfig
+    inProgress?: InProgressConfig
+    valueLabels?: boolean | ValueLabelsConfig
     goalLines?: GoalLineConfig[]
 }
 
@@ -24,6 +33,16 @@ export interface TimeSeriesLineChartProps<Meta = unknown> {
     children?: React.ReactNode
 }
 
+function resolveValueLabelsConfig(valueLabels: TimeSeriesLineChartConfig['valueLabels']): ValueLabelsConfig | null {
+    if (valueLabels === undefined || valueLabels === false) {
+        return null
+    }
+    if (valueLabels === true) {
+        return {}
+    }
+    return valueLabels
+}
+
 export function TimeSeriesLineChart<Meta = unknown>({
     series,
     labels,
@@ -35,11 +54,34 @@ export function TimeSeriesLineChart<Meta = unknown>({
     className,
     children,
 }: TimeSeriesLineChartProps<Meta>): React.ReactElement {
-    const { xAxis, yAxis, goalLines } = config ?? {}
+    const { xAxis, yAxis, inProgress, valueLabels, goalLines } = config ?? {}
     const xTickFormatter = useXTickFormatter(xAxis, labels)
     const yTickFormatter = useYTickFormatter(yAxis)
 
-    const referenceLines = useMemo(() => buildGoalLineReferenceLines(goalLines, series), [goalLines, series])
+    const valueLabelsConfig = resolveValueLabelsConfig(valueLabels)
+
+    const seriesWithInProgress = useMemo(
+        () => applyInProgressToSeries(series, inProgress),
+        [series, inProgress?.fromIndex]
+    )
+
+    const transformedSeries = useMemo(() => {
+        const seriesKeys = valueLabelsConfig?.seriesKeys
+        if (!seriesKeys) {
+            return seriesWithInProgress
+        }
+        const allowed = new Set(seriesKeys)
+        return seriesWithInProgress.map((s) =>
+            allowed.has(s.key) ? s : { ...s, visibility: { ...s.visibility, fromValueLabels: true } }
+        )
+    }, [seriesWithInProgress, valueLabelsConfig?.seriesKeys])
+
+    const valueLabelFormatter = valueLabelsConfig ? (valueLabelsConfig.formatter ?? yTickFormatter) : undefined
+
+    const referenceLines = useMemo(
+        () => buildGoalLineReferenceLines(goalLines, transformedSeries),
+        [goalLines, transformedSeries]
+    )
 
     const lineChartConfig: LineChartConfig = {
         yScaleType: yAxis?.scale,
@@ -52,7 +94,7 @@ export function TimeSeriesLineChart<Meta = unknown>({
 
     return (
         <LineChart
-            series={series}
+            series={transformedSeries}
             labels={labels}
             config={lineChartConfig}
             theme={theme}
@@ -62,6 +104,7 @@ export function TimeSeriesLineChart<Meta = unknown>({
             dataAttr={dataAttr}
         >
             {referenceLines.length > 0 && <ReferenceLines lines={referenceLines} />}
+            {valueLabelsConfig && <ValueLabels valueFormatter={valueLabelFormatter} />}
             {children}
         </LineChart>
     )

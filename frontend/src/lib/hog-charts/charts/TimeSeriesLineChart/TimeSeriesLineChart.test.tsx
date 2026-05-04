@@ -109,6 +109,84 @@ describe('TimeSeriesLineChart', () => {
         })
     })
 
+    describe('config.valueLabels', () => {
+        it.each([
+            ['omitted', undefined],
+            ['false', false as const],
+        ])('does not render value labels when %s', (_, valueLabels) => {
+            const { chart } = renderHogChart(
+                <TimeSeriesLineChart
+                    series={SERIES}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={valueLabels === undefined ? undefined : { valueLabels }}
+                />
+            )
+            expect(chart.valueLabels()).toHaveLength(0)
+        })
+
+        it('renders one value label per visible point when valueLabels=true', () => {
+            const { chart } = renderHogChart(
+                <TimeSeriesLineChart series={SERIES} labels={LABELS} theme={THEME} config={{ valueLabels: true }} />
+            )
+            expect(chart.valueLabels()).toHaveLength(SERIES[0].data.length)
+        })
+
+        it('forwards an explicit formatter', () => {
+            const formatter = (v: number): string => `~${v}`
+            const { chart } = renderHogChart(
+                <TimeSeriesLineChart
+                    series={SERIES}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={{ valueLabels: { formatter } }}
+                />
+            )
+            expect(chart.valueLabels().map((l) => l.text)).toEqual(['~1', '~2', '~3'])
+        })
+
+        it('falls back to a yAxis-driven formatter when no explicit formatter is provided', () => {
+            const { chart } = renderHogChart(
+                <TimeSeriesLineChart
+                    series={[{ key: 'a', label: 'A', data: [50] }]}
+                    labels={['Mon']}
+                    theme={THEME}
+                    config={{ yAxis: { format: 'percentage' }, valueLabels: true }}
+                />
+            )
+            expect(chart.valueLabels().map((l) => l.text)).toEqual(['50%'])
+        })
+
+        it('reuses an explicit yAxis.tickFormatter as the default', () => {
+            const explicit = (v: number): string => `y:${v}`
+            const { chart } = renderHogChart(
+                <TimeSeriesLineChart
+                    series={SERIES}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={{ yAxis: { tickFormatter: explicit }, valueLabels: true }}
+                />
+            )
+            expect(chart.valueLabels().map((l) => l.text)).toEqual(['y:1', 'y:2', 'y:3'])
+        })
+
+        it('hides labels for series excluded via seriesKeys', () => {
+            const series: Series[] = [
+                { key: 'a', label: 'A', data: [1, 2, 3] },
+                { key: 'b', label: 'B', data: [4, 5, 6] },
+            ]
+            const { chart } = renderHogChart(
+                <TimeSeriesLineChart
+                    series={series}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={{ valueLabels: { seriesKeys: ['a'] } }}
+                />
+            )
+            expect(chart.valueLabels()).toHaveLength(3)
+        })
+    })
+
     describe('config.goalLines', () => {
         it.each([
             ['omitted', undefined],
