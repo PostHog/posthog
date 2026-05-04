@@ -1,8 +1,8 @@
 """GitHub event dispatch for Conversations GitHub Issues channel.
 
-The entry point is ``dispatch_github_event``, called from the shared GitHub App
-webhook handler in ``products.tasks.backend.webhooks.github_pr_webhook`` after
-signature verification and JSON parsing.
+The entry point is ``dispatch_github_event``, called from the GitHub App
+webhook fan-out in ``posthog.urls.github_webhook`` after signature verification
+and JSON parsing.
 """
 
 import hashlib
@@ -52,8 +52,8 @@ def _team_for_github_installation(installation_id: str) -> tuple[int | None, boo
 def dispatch_github_event(request: HttpRequest, event_type: str, data: dict[str, Any]) -> HttpResponse:
     """Route a pre-verified GitHub event to the conversations Celery pipeline.
 
-    Called from ``github_pr_webhook`` after signature verification and JSON
-    parsing are already done.
+    Called from ``posthog.urls.github_webhook`` after signature verification
+    and JSON parsing are already done.
     """
     installation_id = str(data.get("installation", {}).get("id", ""))
     if not installation_id:
