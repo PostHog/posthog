@@ -85,6 +85,7 @@ class MCPToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             "agent to cite back to the user."
         ),
         operation_id="docs_search",
+        tags=["docs"],
     )
     @action(detail=False, methods=["POST"], url_path="docs_search", required_scopes=["project:read"])
     def docs_search(self, request: ValidatedRequest, *args, **kwargs) -> Response:

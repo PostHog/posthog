@@ -18,5 +18,5 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        title: Search docs
+        title: Search documentation
         description_file: ./prompts/docs-search.md
