@@ -1348,7 +1348,6 @@ class GenericEmails:
         return self.emails.get(email[(at_location + 1) :], False)
 
 
-@lru_cache(maxsize=1)
 @lru_cache(maxsize=2)
 def _timezone_offsets_for_hour(year: int, month: int, day: int, hour: int) -> dict[str, float]:
     now = dt.datetime(year, month, day, hour)
