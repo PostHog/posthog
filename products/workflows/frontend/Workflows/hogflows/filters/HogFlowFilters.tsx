@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { SimpleOption, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { isOperatorSemver } from 'lib/utils'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
@@ -36,19 +36,6 @@ function useSampleGlobals(): Record<string, any> {
         }
     }
     return { variables: workflowVariables }
-}
-
-// Surface workflow variables as searchable items so the All/Suggestions tab in the taxonomic filter
-// (always prepended by `TaxonomicPropertyFilter`) can aggregate them alongside event/person properties.
-// Without this the All tab is empty for users on a workflow that hasn't picked up any other matches yet.
-export function useWorkflowVariableTaxonomicOptions(): {
-    [TaxonomicFilterGroupType.WorkflowVariables]: SimpleOption[]
-} {
-    const { workflow } = useValues(workflowLogic)
-    const variables = workflow?.variables ?? []
-    return {
-        [TaxonomicFilterGroupType.WorkflowVariables]: variables.map((variable) => ({ name: variable.key })),
-    }
 }
 
 export type HogFlowFiltersProps = {
@@ -118,7 +105,14 @@ export function HogFlowEventFilters({ filters, setFilters, typeKey, buttonCopy }
 export function HogFlowPropertyFilters({ filtersKey, filters, setFilters }: HogFlowFiltersProps): JSX.Element {
     const sampleGlobals = useSampleGlobals()
     const { groupsTaxonomicTypes } = useValues(groupsModel)
-    const taxonomicFilterOptionsFromProp = useWorkflowVariableTaxonomicOptions()
+    const { workflow } = useValues(workflowLogic)
+    // Surface workflow variables in the All/Suggestions tab so a user searching by variable key
+    // sees a match alongside event/person properties. The dedicated tab still works without this.
+    const taxonomicFilterOptionsFromProp = {
+        [TaxonomicFilterGroupType.WorkflowVariables]: (workflow?.variables ?? []).map((variable) => ({
+            name: variable.key,
+        })),
+    }
     return (
         <PropertyFilters
             propertyFilters={filters?.properties}
