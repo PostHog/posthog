@@ -156,6 +156,14 @@ tools:
             WARNING: First-time summaries call an AI model and are very slow — expect around 5 minutes on average.
             Previously generated summaries are cached and return instantly. Warn the user about the wait before calling
             this tool.
+
+
+            DEEP LINKS: The response contains key actions with `session_id` and `milliseconds_since_start` fields.
+            When presenting results, construct deep links for key events using the format
+            `{posthog_base_url}/replay/{session_id}?t={milliseconds_since_start}` so the user can jump directly to
+            that moment in the recording. For example, a rage click at 45000ms in session abc123 links to
+            `/replay/abc123?t=45000`. Always include these links when listing key actions, frustration signals, or
+            notable events — they are the most actionable part of the summary.
         include_params:
             - session_ids
             - focus_area
