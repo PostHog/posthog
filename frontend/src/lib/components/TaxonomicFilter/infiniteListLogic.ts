@@ -15,6 +15,7 @@ import {
     taxonomicFilterPinnedPropertiesLogic,
 } from 'lib/components/TaxonomicFilter/taxonomicFilterPinnedPropertiesLogic'
 import {
+    ExcludedOperators,
     InfiniteListLogicProps,
     QuickFilterItem,
     SkeletonItem,
@@ -31,14 +32,7 @@ import { createFuse } from 'lib/utils/fuseSearch'
 import { mapGroupQueryResponse } from 'lib/utils/groups'
 
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
-import {
-    CohortType,
-    EventDefinition,
-    GroupTypeIndex,
-    PropertyFilterType,
-    PropertyOperator,
-    PropertyType,
-} from '~/types'
+import { CohortType, EventDefinition, GroupTypeIndex, PropertyType } from '~/types'
 
 import { teamLogic } from '../../../scenes/teamLogic'
 import { captureTimeToSeeData } from '../../internalMetrics'
@@ -438,12 +432,12 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             (s) => [
                 s.recentFilterItems,
                 s.taxonomicGroupTypes,
-                (_, props: InfiniteListLogicProps) => props.exactMatchFeatureFlagCohortOperators,
+                (_, props: InfiniteListLogicProps) => props.excludedOperators,
             ],
             (
                 recentFilterItems: TaxonomicDefinitionTypes[],
                 taxonomicGroupTypes: TaxonomicFilterGroupType[],
-                exactMatchFeatureFlagCohortOperators: boolean | undefined
+                excludedOperators: ExcludedOperators | undefined
             ): TaxonomicDefinitionTypes[] => {
                 if (!recentFilterItems?.length) {
                     return []
@@ -453,15 +447,10 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     if (!hasRecentContext(item) || !availableTypes.has(item._recentContext.sourceGroupType)) {
                         return false
                     }
-                    // Feature flag release conditions only allow `in` for cohort filters
-                    // (see PR #25149). Hide non-`in` cohort recents so users can't pick
-                    // an operator the surrounding UI is intentionally hiding.
-                    if (exactMatchFeatureFlagCohortOperators) {
-                        const recentFilter = item._recentContext.propertyFilter
-                        if (
-                            recentFilter?.type === PropertyFilterType.Cohort &&
-                            recentFilter.operator !== PropertyOperator.In
-                        ) {
+                    const excludedForGroup = excludedOperators?.[item._recentContext.sourceGroupType]
+                    if (excludedForGroup?.length) {
+                        const operator = item._recentContext.propertyFilter?.operator
+                        if (operator && excludedForGroup.includes(operator)) {
                             return false
                         }
                     }

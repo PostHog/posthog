@@ -19,6 +19,7 @@ import {
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import {
+    ExcludedOperators,
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
     TaxonomicFilterValue,
@@ -34,6 +35,7 @@ import {
     GroupTypeIndex,
     PropertyDefinitionType,
     PropertyFilterType,
+    PropertyOperator,
 } from '~/types'
 
 import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
@@ -160,6 +162,10 @@ export function TaxonomicPropertyFilter({
                   : undefined)
             : undefined
 
+    const excludedOperators: ExcludedOperators | undefined = exactMatchFeatureFlagCohortOperators
+        ? { [TaxonomicFilterGroupType.Cohorts]: [PropertyOperator.NotIn] }
+        : undefined
+
     const taxonomicFilter = (
         <TaxonomicFilter
             groupType={filter ? propertyFilterTypeToTaxonomicFilterType(filter) : undefined}
@@ -176,7 +182,7 @@ export function TaxonomicPropertyFilter({
             selectFirstItem={!cohortOrOtherValue}
             endpointFilters={endpointFilters}
             hogQLGlobals={hogQLGlobals}
-            exactMatchFeatureFlagCohortOperators={exactMatchFeatureFlagCohortOperators}
+            excludedOperators={excludedOperators}
             enableKeywordShortcuts
         />
     )

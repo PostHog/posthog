@@ -878,7 +878,8 @@ describe('infiniteListLogic', () => {
         // Recent cohort filters can carry any operator the user previously chose elsewhere
         // (insights, recordings, etc). Feature flag release conditions intentionally hide
         // the operator dropdown for cohorts (only `in` is supported), so a non-`in` recent
-        // must not surface here — otherwise picking it would silently apply `not_in`.
+        // must not surface there — otherwise the picker would offer an option the
+        // surrounding UI is hiding. Hosts express this via excludedOperators.
         const recentCohortIn = {
             name: 'Power Users',
             _recentContext: {
@@ -936,7 +937,7 @@ describe('infiniteListLogic', () => {
             }
         }
 
-        it('hides recent cohort filters with non-`in` operators when exactMatchFeatureFlagCohortOperators is set', () => {
+        it('hides recents whose operator is excluded for their source group', () => {
             seedRecents([recentCohortIn, recentCohortNotIn, recentEventProperty])
 
             const listLogic = infiniteListLogic({
@@ -948,7 +949,7 @@ describe('infiniteListLogic', () => {
                     TaxonomicFilterGroupType.RecentFilters,
                 ],
                 showNumericalPropsOnly: false,
-                exactMatchFeatureFlagCohortOperators: true,
+                excludedOperators: { [TaxonomicFilterGroupType.Cohorts]: [PropertyOperator.NotIn] },
             })
             listLogic.mount()
 
@@ -960,7 +961,7 @@ describe('infiniteListLogic', () => {
             expect(filtered.some((i: any) => i.name === '$browser')).toBe(true)
         })
 
-        it('keeps non-`in` cohort recents when exactMatchFeatureFlagCohortOperators is not set', () => {
+        it('keeps all recents when excludedOperators is not set', () => {
             seedRecents([recentCohortIn, recentCohortNotIn])
 
             const listLogic = infiniteListLogic({

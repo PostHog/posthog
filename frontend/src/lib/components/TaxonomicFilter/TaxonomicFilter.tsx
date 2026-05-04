@@ -59,7 +59,7 @@ export function TaxonomicFilter({
     hideSearchInput,
     searchQuery: controlledSearchQuery,
     enableKeywordShortcuts,
-    exactMatchFeatureFlagCohortOperators,
+    excludedOperators,
 }: TaxonomicFilterProps): JSX.Element {
     // Generate a unique key for each unique TaxonomicFilter that's rendered
     const taxonomicFilterLogicKey = useMemo(
@@ -105,7 +105,7 @@ export function TaxonomicFilter({
         minSearchQueryLength,
         suggestedFiltersLabel: resolvedSuggestedFiltersLabel,
         enableKeywordShortcuts,
-        exactMatchFeatureFlagCohortOperators,
+        excludedOperators,
     }
 
     const logic = taxonomicFilterLogic(taxonomicFilterLogicProps)
