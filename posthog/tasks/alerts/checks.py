@@ -40,15 +40,6 @@ from posthog.tasks.alerts.utils import (
 from posthog.tasks.utils import CeleryQueue
 from posthog.utils import get_from_dict_or_attr
 
-from products.notifications.backend.facade.api import (
-    NotificationData,
-    NotificationType,
-    Priority,
-    SourceType,
-    TargetType,
-    create_notification,
-)
-
 logger = structlog.get_logger(__name__)
 
 
@@ -344,39 +335,6 @@ def check_alert(alert_id: str) -> None:
         alert.save()
 
 
-def dispatch_alert_firing_realtime_notification(alert: AlertConfiguration, breaches: list[str]) -> None:
-    """Fan out one realtime in-app notification per subscribed user when an alert fires.
-
-    Exceptions are caught and logged internally so a realtime delivery failure does not
-    poison the email path or the alert-check transaction.
-    """
-    try:
-        body = "; ".join(breaches[:3])
-        if len(breaches) > 3:
-            body += f" (+{len(breaches) - 3} more)"
-        title = f"Alert firing: {alert.name}"[:100]
-        source_url = f"/project/{alert.team.project_id}/insights/{alert.insight.short_id}#alert={alert.id}"
-        for user_id in alert.subscribed_users.values_list("id", flat=True):
-            create_notification(
-                NotificationData(
-                    team_id=alert.team_id,
-                    notification_type=NotificationType.ALERT_FIRING,
-                    priority=Priority.NORMAL,
-                    title=title,
-                    body=body,
-                    target_type=TargetType.USER,
-                    target_id=str(user_id),
-                    resource_type="insight",
-                    resource_id=str(alert.insight.short_id),
-                    source_url=source_url,
-                    source_type=SourceType.INSIGHT,
-                    source_id=str(alert.insight.short_id),
-                )
-            )
-    except Exception:
-        logger.exception("alerts.realtime_notification_failed", alert_id=str(alert.id))
-
-
 @transaction.atomic
 def check_alert_and_notify_atomically(alert: AlertConfiguration) -> None:
     """
@@ -433,10 +391,6 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration) -> None:
 
     try:
         targets = dispatch_alert_notification(alert, alert_check, breaches)
-
-        if alert_check.state == AlertState.FIRING and breaches:
-            dispatch_alert_firing_realtime_notification(alert, breaches)
-
         if targets is not None:
             record_alert_delivery(alert, alert_check, targets)
     except Exception as err:
