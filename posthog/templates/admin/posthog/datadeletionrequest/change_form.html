@@ -1,6 +1,40 @@
 {% extends "admin/change_form.html" %}
 {% load i18n %}
 
+{% block extrahead %}
+    {{ block.super }}
+    <script>
+        (function () {
+            // Toggle event/property fields and the "Person targets" fieldset based on request_type.
+            // Event fields are scoped via the form-row CSS classes Django renders (.field-<name>);
+            // the person fieldset has the explicit class "data-deletion-person-fields".
+            var EVENT_FIELDS = ["events", "delete_all_events", "properties", "hogql_predicate"];
+
+            function applyToggle() {
+                var select = document.getElementById("id_request_type");
+                if (!select) return;
+                var isPerson = select.value === "person_removal";
+
+                EVENT_FIELDS.forEach(function (name) {
+                    var row = document.querySelector(".form-row.field-" + name);
+                    if (row) row.style.display = isPerson ? "none" : "";
+                });
+
+                document.querySelectorAll("fieldset.data-deletion-person-fields").forEach(function (fs) {
+                    fs.style.display = isPerson ? "" : "none";
+                });
+            }
+
+            document.addEventListener("DOMContentLoaded", function () {
+                var select = document.getElementById("id_request_type");
+                if (!select) return;
+                applyToggle();
+                select.addEventListener("change", applyToggle);
+            });
+        })();
+    </script>
+{% endblock %}
+
 {% block after_field_sets %}
     {{ block.super }}
 

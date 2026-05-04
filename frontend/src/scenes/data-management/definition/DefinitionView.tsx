@@ -9,6 +9,7 @@ import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { ImageCarousel } from 'lib/components/ImageCarousel/ImageCarousel'
 import { NotFound } from 'lib/components/NotFound'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
@@ -17,6 +18,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
+import { getPromotedPropertyForEvent } from 'lib/utils/promotedEventProperty'
 import { DefinitionLogicProps, definitionLogic } from 'scenes/data-management/definition/definitionLogic'
 import { EventDefinitionInsights } from 'scenes/data-management/events/EventDefinitionInsights'
 import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
@@ -123,10 +125,15 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
 
     const statusProps = getStatusProps(isProperty)
 
+    const formattedName = getFilterLabel(
+        definition.name,
+        isEvent ? TaxonomicFilterGroupType.Events : TaxonomicFilterGroupType.EventProperties
+    )
+
     return (
         <SceneContent>
             <SceneTitleSection
-                name={definition.name}
+                name={formattedName}
                 resourceType={
                     isEvent
                         ? {
@@ -240,6 +247,12 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
             />
 
             <div className="deprecated-space-y-2">
+                {formattedName !== definition.name && (
+                    <div className="flex flex-wrap items-center gap-2 text-secondary">
+                        <div>{isProperty ? 'Property' : 'Event'} name:</div>
+                        <LemonTag className="font-mono">{definition.name}</LemonTag>
+                    </div>
+                )}
                 <h5>Description</h5>
                 <div className="definition-description my-2" data-attr="definition-description-view">
                     {definition.description || (
@@ -332,6 +345,46 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
                         <b>{(definition as PropertyDefinition).property_type ?? '-'}</b>
                     </div>
                 )}
+
+                {isEvent &&
+                    (() => {
+                        const taxonomyPromoted = getPromotedPropertyForEvent(definition.name)
+                        const teamOverride = (definition as EventDefinition).promoted_property
+                        const effective = taxonomyPromoted ?? teamOverride
+                        const isBuiltIn = !!taxonomyPromoted
+                        return (
+                            <FlaggedFeature flag={FEATURE_FLAGS.PROMOTED_EVENT_PROPERTIES_EDIT}>
+                                <div className="flex flex-col flex-1">
+                                    <h5>
+                                        Promoted property{' '}
+                                        <Tooltip title="If set, this property's value is shown alongside the event name in surfaces like the session replay inspector.">
+                                            <IconInfo className="text-sm" />
+                                        </Tooltip>
+                                    </h5>
+                                    <b>
+                                        {effective ? (
+                                            <span className="flex items-center gap-1">
+                                                <PropertyKeyInfo
+                                                    value={effective}
+                                                    type={TaxonomicFilterGroupType.EventProperties}
+                                                    disableIcon
+                                                />
+                                                {isBuiltIn && (
+                                                    <Tooltip title="This is a built-in default for this event. Team overrides are not applied to events with a built-in promoted property.">
+                                                        <LemonTag type="muted" size="small">
+                                                            Built-in
+                                                        </LemonTag>
+                                                    </Tooltip>
+                                                )}
+                                            </span>
+                                        ) : (
+                                            '-'
+                                        )}
+                                    </b>
+                                </div>
+                            </FlaggedFeature>
+                        )
+                    })()}
             </div>
 
             <SceneDivider />

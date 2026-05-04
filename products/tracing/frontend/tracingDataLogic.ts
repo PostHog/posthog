@@ -156,8 +156,12 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
             {
                 loadTraceSpans: async (traceId: string): Promise<Span[]> => {
                     const response = await api.tracing.getTrace(traceId, {
-                        date_from: values.utcDateRange.date_from ?? '-24h',
-                        date_to: values.utcDateRange.date_to ?? undefined,
+                        dateRange: {
+                            date_from: values.utcDateRange.date_from ?? '-24h',
+                            date_to: values.utcDateRange.date_to ?? undefined,
+                        },
+                        serviceNames: values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
+                        filterGroup: values.filters.filterGroup as PropertyGroupFilter,
                     })
                     return response.results as Span[]
                 },

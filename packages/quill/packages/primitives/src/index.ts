@@ -1,3 +1,5 @@
+import './styles/layers.css'
+
 export { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from './accordion'
 export { Badge, badgeVariants } from './badge'
 export { Button, buttonVariants, type ButtonProps } from './button'

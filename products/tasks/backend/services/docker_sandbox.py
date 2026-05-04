@@ -637,7 +637,7 @@ class DockerSandbox(SandboxBase):
 
         inner = f"cd /scripts && {server_cmd} > /tmp/agent-server.log 2>&1"
 
-        if allowed_domains:
+        if allowed_domains is not None:
             return (
                 f"cd /scripts && env -0 > {ENV_FILE} && "
                 f"{build_exec_prefix()} {ENV_WRAPPER_SCRIPT} bash -c {shlex.quote(inner)} &"
@@ -688,11 +688,8 @@ class DockerSandbox(SandboxBase):
             org, repo = repository.lower().split("/")
             repo_path = f"/tmp/workspace/repos/{org}/{repo}"
 
-        # TODO: Re-enable agentsh egress enforcement in the Docker sandbox once
-        # agentsh works reliably inside local Docker containers.
-        # For now we skip setup and ignore allowed_domains so that callers
-        # (signals, tasks, etc.) don't need to hotfix around Docker failures.
-        allowed_domains = None
+        if allowed_domains is not None:
+            self._setup_agentsh(WORKING_DIR, allowed_domains)
 
         mcp_servers_arg = ""
         if mcp_configs:
@@ -760,14 +757,14 @@ class DockerSandbox(SandboxBase):
         )
 
     def _setup_agentsh(self, workspace_path: str, allowed_domains: list[str] | None = None) -> None:
-        if allowed_domains:
+        if allowed_domains is not None:
             logger.info(
                 "Configuring agentsh in Docker sandbox %s for %d allowed domain(s)", self.id, len(allowed_domains)
             )
         else:
             logger.info("Configuring agentsh in Docker sandbox %s (allow-all mode)", self.id)
 
-        config_yaml = generate_config_yaml()
+        config_yaml = generate_config_yaml(enable_ptrace=False)
         policy_yaml = generate_policy_yaml(allowed_domains)
 
         self.execute("pkill -f 'agentsh server' || true", timeout_seconds=5)

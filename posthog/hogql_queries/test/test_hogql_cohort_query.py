@@ -628,6 +628,106 @@ class TestHogQLRealtimeCohortQuery(ClickhouseTestMixin, APIBaseTest):
         # Should group by person_id
         self.assertIn("GROUP BY", query_str)
 
+    def test_behavioral_performed_event_with_date_range(self) -> None:
+        """performed_event with explicit_datetime + explicit_datetime_to bounds both ends of the window."""
+        cohort_filters = {
+            "type": "AND",
+            "values": [
+                {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "$pageview",
+                            "type": "behavioral",
+                            "value": "performed_event",
+                            "negation": False,
+                            "event_type": "events",
+                            "explicit_datetime": "-30d",
+                            "explicit_datetime_to": "-7d",
+                            "conditionHash": "range_hash_1",
+                        }
+                    ],
+                }
+            ],
+        }
+
+        cohort = Cohort.objects.create(
+            team=self.team, name="Test Behavioral Range", filters={"properties": cohort_filters}
+        )
+        query_str = HogQLRealtimeCohortQuery(cohort=cohort).query_str("clickhouse")
+
+        self.assertIn("precalculated_events", query_str)
+        # Both sides of the window should be emitted. HogQL prints `>=`/`<=` as
+        # `greaterOrEquals(...)` / `lessOrEquals(...)` function calls for ClickHouse.
+        self.assertEqual(query_str.count("toDate("), 2)
+        self.assertIn("greaterOrEquals", query_str)
+        self.assertIn("lessOrEquals", query_str)
+
+    def test_behavioral_performed_event_multiple_with_date_range(self) -> None:
+        """performed_event_multiple with a bounded window still aggregates counts."""
+        cohort_filters = {
+            "type": "AND",
+            "values": [
+                {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "$pageview",
+                            "type": "behavioral",
+                            "value": "performed_event_multiple",
+                            "negation": False,
+                            "operator": "gte",
+                            "event_type": "events",
+                            "operator_value": 3,
+                            "explicit_datetime": "-30d",
+                            "explicit_datetime_to": "-7d",
+                            "conditionHash": "range_hash_2",
+                        }
+                    ],
+                }
+            ],
+        }
+
+        cohort = Cohort.objects.create(
+            team=self.team, name="Test Behavioral Multiple Range", filters={"properties": cohort_filters}
+        )
+        query_str = HogQLRealtimeCohortQuery(cohort=cohort).query_str("clickhouse")
+
+        self.assertIn("precalculated_events", query_str)
+        self.assertIn("count()", query_str)
+        self.assertIn("HAVING", query_str)
+        self.assertEqual(query_str.count("toDate("), 2)
+
+    def test_behavioral_performed_event_without_date_range_omits_upper_bound(self) -> None:
+        """When only explicit_datetime is set, only the lower bound shows up."""
+        cohort_filters = {
+            "type": "AND",
+            "values": [
+                {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "$pageview",
+                            "type": "behavioral",
+                            "value": "performed_event",
+                            "negation": False,
+                            "event_type": "events",
+                            "explicit_datetime": "-30d",
+                            "conditionHash": "range_hash_3",
+                        }
+                    ],
+                }
+            ],
+        }
+
+        cohort = Cohort.objects.create(
+            team=self.team, name="Test Behavioral Lower Bound", filters={"properties": cohort_filters}
+        )
+        query_str = HogQLRealtimeCohortQuery(cohort=cohort).query_str("clickhouse")
+
+        self.assertEqual(query_str.count("toDate("), 1)
+        self.assertNotIn("lessOrEquals", query_str)
+
     def test_static_cohort_raises_error(self) -> None:
         """
         Test that static cohort filters raise an error for realtime cohorts.

@@ -5,8 +5,10 @@ import {
     DEFAULT_CLIENT_CAPABILITIES,
     MCPClientProfile,
     POSTHOG_CODE_CONSUMER,
+    VIBE_CODING_OAUTH_CLIENT_NAME_FRAGMENTS,
     isCodingAgentClient,
     isPostHogCodeConsumer,
+    isVibeCodingClient,
 } from '@/lib/client-detection'
 
 describe('isCodingAgentClient', () => {
@@ -110,6 +112,41 @@ describe('isPostHogCodeConsumer', () => {
     })
 })
 
+describe('isVibeCodingClient', () => {
+    it.each([
+        ['Lovable'],
+        ['lovable'],
+        ['LOVABLE'],
+        ['Lovable.dev'],
+        ['lovable-app'],
+        ['Replit'],
+        ['replit'],
+        ['Replit Agent'],
+        ['replit-ai'],
+    ])('returns true for OAuth client name %s', (oauthClientName) => {
+        expect(isVibeCodingClient(oauthClientName)).toBe(true)
+    })
+
+    it.each([['Claude Code (posthog)'], ['Cursor'], ['some-random-app'], ['']])(
+        'returns false for OAuth client name %s',
+        (oauthClientName) => {
+            expect(isVibeCodingClient(oauthClientName)).toBe(false)
+        }
+    )
+
+    it('returns false for undefined', () => {
+        expect(isVibeCodingClient(undefined)).toBe(false)
+    })
+
+    it('keeps the fragment list non-empty and lowercased', () => {
+        expect(VIBE_CODING_OAUTH_CLIENT_NAME_FRAGMENTS.length).toBeGreaterThan(0)
+        for (const fragment of VIBE_CODING_OAUTH_CLIENT_NAME_FRAGMENTS) {
+            expect(fragment).toBe(fragment.toLowerCase())
+            expect(fragment.length).toBeGreaterThan(0)
+        }
+    })
+})
+
 describe('MCPClientProfile', () => {
     describe('isCodingAgent()', () => {
         it.each([['claude-code'], ['Codex CLI'], ['cline'], ['zed-editor'], ['GitHub Copilot Chat']])(
@@ -142,6 +179,38 @@ describe('MCPClientProfile', () => {
 
         it('returns false when consumer is undefined', () => {
             expect(new MCPClientProfile({}).isPostHogCodeConsumer()).toBe(false)
+        })
+    })
+
+    describe('isVibeCodingClient()', () => {
+        it.each([['Lovable'], ['lovable.dev'], ['Replit'], ['Replit Agent']])(
+            'returns true for OAuth client name %s',
+            (oauthClientName) => {
+                expect(new MCPClientProfile({ oauthClientName }).isVibeCodingClient()).toBe(true)
+            }
+        )
+
+        it.each([['Claude Code (posthog)'], ['Cursor'], [''], ['   ']])(
+            'returns false for OAuth client name %s',
+            (oauthClientName) => {
+                expect(new MCPClientProfile({ oauthClientName }).isVibeCodingClient()).toBe(false)
+            }
+        )
+
+        it('returns false when oauthClientName is undefined', () => {
+            expect(new MCPClientProfile({}).isVibeCodingClient()).toBe(false)
+        })
+
+        it('uses oauthClientName, not the MCP clientName', () => {
+            // A generic MCP client name should not trigger a match — only the
+            // OAuth application name does, since vibe-coding platforms typically
+            // wrap a generic MCP client.
+            expect(
+                new MCPClientProfile({ clientName: 'lovable', oauthClientName: 'Cursor' }).isVibeCodingClient()
+            ).toBe(false)
+            expect(
+                new MCPClientProfile({ clientName: 'mcp-inspector', oauthClientName: 'Lovable' }).isVibeCodingClient()
+            ).toBe(true)
         })
     })
 
@@ -181,10 +250,12 @@ describe('MCPClientProfile', () => {
             clientName: 'claude-code',
             clientVersion: '1.2.3',
             consumer: POSTHOG_CODE_CONSUMER,
+            oauthClientName: 'Lovable',
         })
         expect(profile.clientName).toBe('claude-code')
         expect(profile.clientVersion).toBe('1.2.3')
         expect(profile.consumer).toBe(POSTHOG_CODE_CONSUMER)
+        expect(profile.oauthClientName).toBe('Lovable')
     })
 })
 

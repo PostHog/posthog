@@ -7,7 +7,7 @@ on:
             - master
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -35,10 +35,17 @@ jobs:
                            > fromJSON(steps.filter.outputs.frontend_generated_count || '0'))
                 }}
         steps:
+            - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              id: app-token
+              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
             - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
               id: filter
               if: github.event_name != 'push' # Run all tests on master push
               with:
+                  token: ${{ steps.app-token.outputs.token || github.token }}
                   filters: |
                       frontend:
                         - 'frontend/**'
@@ -168,14 +175,12 @@ jobs:
                   VR_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
                   VR_PR: ${{ github.event.pull_request.number }}
               run: |
-                  PURPOSE=${{ github.event_name == 'push' && 'observe' || 'review' }}
                   RUN_ID=$(vr run create \
                     --type storybook \
                     --baseline frontend/snapshots.yml \
                     --branch "$VR_BRANCH" \
                     --commit "$VR_COMMIT" \
                     --pr "$VR_PR" \
-                    --purpose "$PURPOSE" \
                     --token "$VR_TOKEN")
                   echo "run_id=$RUN_ID" >> $GITHUB_OUTPUT
 
@@ -469,12 +474,8 @@ jobs:
                   fi
 
                   if [[ "${{ needs.vr-complete.result }}" != "success" && "${{ needs.vr-complete.result }}" != "skipped" ]]; then
-                    if [[ "${{ github.event_name }}" == "push" ]]; then
-                      echo "Visual Review reported changes on master (result: ${{ needs.vr-complete.result }}). Not gating — master runs are observational."
-                    else
-                      echo "Visual Review did not complete successfully (result: ${{ needs.vr-complete.result }})."
-                      exit 1
-                    fi
+                    echo "Visual Review did not complete successfully (result: ${{ needs.vr-complete.result }})."
+                    exit 1
                   fi
 
                   echo "All jobs passed or were skipped successfully."
@@ -516,7 +517,7 @@ jobs:
 
     calculate-running-time:
         name: Calculate running time
-        needs: [visual-regression, changes]
+        needs: [visual-regression, visual_regression_tests, changes]
         runs-on: ubuntu-latest
         timeout-minutes: 5
         if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks or Dependabot (no secrets access)
@@ -525,24 +526,33 @@ jobs:
             (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') ||
             (github.event_name != 'pull_request' && github.repository == 'PostHog/posthog'))
         steps:
+            - name: Get telemetry app token
+              id: telemetry-app-token
+              if: github.run_attempt == '1'
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_TELEMETRY_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_TELEMETRY_PRIVATE_KEY }}
             - name: Capture running time to PostHog
-              uses: PostHog/posthog-github-action@eea1405eeb2d1d2259f0ee0b44d7b152869e6840 # v1.1.1
+              if: github.run_attempt == '1'
+              uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
               with:
                   posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
                   event: 'posthog-ci-running-time'
                   capture-run-duration: true
                   capture-job-durations: true
-                  github-token: ${{ secrets.GITHUB_TOKEN }}
+                  github-token: ${{ steps.telemetry-app-token.outputs.token }}
                   status-job: 'Visual regression tests pass'
             - name: Capture running time to DevEx PostHog
+              if: github.run_attempt == '1'
               continue-on-error: true
-              uses: PostHog/posthog-github-action@eea1405eeb2d1d2259f0ee0b44d7b152869e6840 # v1.1.1
+              uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
               with:
                   posthog-token: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
                   event: 'posthog-ci-running-time'
                   capture-run-duration: true
                   capture-job-durations: true
-                  github-token: ${{ secrets.GITHUB_TOKEN }}
+                  github-token: ${{ steps.telemetry-app-token.outputs.token }}
                   status-job: 'Visual regression tests pass'
 
     # Shadow measurement: reports which stories could have rendered differently

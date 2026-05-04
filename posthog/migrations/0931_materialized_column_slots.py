@@ -103,7 +103,7 @@ class Migration(migrations.Migration):
             model_name="materializedcolumnslot",
             constraint=models.CheckConstraint(
                 name="valid_slot_index",
-                check=models.Q(slot_index__gte=0) & models.Q(slot_index__lte=9),
+                condition=models.Q(slot_index__gte=0) & models.Q(slot_index__lte=9),
             ),
         ),
         migrations.AddIndex(

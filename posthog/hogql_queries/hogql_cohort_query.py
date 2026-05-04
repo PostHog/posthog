@@ -170,13 +170,15 @@ class HogQLCohortQuery:
             # Explicit datetime filter, can be a relative or absolute date, follows same convention
             # as all analytics datetime filters
             date_from = prop.explicit_datetime
+            date_to = prop.explicit_datetime_to
         else:
             date_value = parse_and_validate_positive_integer(prop.time_value, "time_value")
             date_interval = validate_interval(prop.time_interval)
             date_from = f"-{date_value}{date_interval[:1]}"
+            date_to = None
 
         trends_query = TrendsQuery(
-            dateRange=DateRange(date_from=date_from),
+            dateRange=DateRange(date_from=date_from, date_to=date_to),
             trendsFilter=TrendsFilter(display="ActionsBarValue"),
             series=series,
         )
@@ -188,12 +190,14 @@ class HogQLCohortQuery:
 
         if prop.explicit_datetime:
             date_from = prop.explicit_datetime
+            date_to = prop.explicit_datetime_to
         else:
             date_value = parse_and_validate_positive_integer(prop.time_value, "time_value")
             date_interval = validate_interval(prop.time_interval)
             date_from = f"-{date_value}{date_interval[:1]}"
+            date_to = None
 
-        events_query = EventsQuery(after=date_from, select=["person_id", "count()"])
+        events_query = EventsQuery(after=date_from, before=date_to, select=["person_id", "count()"])
         if prop.event_type == "events":
             events_query.event = prop.key
         elif prop.event_type == "actions":
@@ -250,10 +254,12 @@ class HogQLCohortQuery:
 
         if prop.explicit_datetime:
             date_from = prop.explicit_datetime
+            date_to = prop.explicit_datetime_to
         else:
             date_value = parse_and_validate_positive_integer(prop.time_value, "time_value")
             date_interval = validate_interval(prop.time_interval)
             date_from = f"-{date_value}{date_interval[:1]}"
+            date_to = None
 
         date_value = parse_and_validate_positive_integer(prop.seq_time_value, "seq_time_value")
         date_interval = validate_interval(prop.seq_time_interval)
@@ -261,7 +267,7 @@ class HogQLCohortQuery:
 
         funnel_query = FunnelsQuery(
             series=series,
-            dateRange=DateRange(date_from=date_from),
+            dateRange=DateRange(date_from=date_from, date_to=date_to),
             funnelsFilter=FunnelsFilter(
                 funnelWindowInterval=funnelWindowInterval,
                 funnelWindowIntervalUnit=FunnelConversionWindowTimeUnit.SECOND,
@@ -895,13 +901,15 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
         if prop.explicit_datetime:
             # Explicit datetime filter, can be a relative or absolute date
             date_from_str = prop.explicit_datetime
+            date_to_str = prop.explicit_datetime_to
         else:
             date_value = parse_and_validate_positive_integer(prop.time_value, "time_value")
             date_interval = validate_interval(prop.time_interval)
             date_from_str = f"-{date_value}{date_interval[:1]}"
+            date_to_str = None
 
         # Parse the date string using QueryDateRange to get actual datetime
-        date_range = DateRange(date_from=date_from_str)
+        date_range = DateRange(date_from=date_from_str, date_to=date_to_str)
         query_date_range = QueryDateRange(
             date_range=date_range,
             team=self.team,
@@ -909,29 +917,33 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
             now=datetime.now(),
         )
         date_from_datetime = query_date_range.date_from()
+        date_to_datetime = query_date_range.date_to() if date_to_str else None
+
+        # Build date filter - include date_to if provided for range filtering
+        date_filter = "date >= toDate({date_from})"
+        if date_to_datetime:
+            date_filter = "date >= toDate({date_from}) AND date <= toDate({date_to})"
 
         # Build query using precalculated_events
-        query_str = """
+        query_str = f"""
             SELECT DISTINCT
                 person_id as id
             FROM precalculated_events
             WHERE
-                team_id = {team_id}
-                AND condition = {condition_hash}
-                AND date >= toDate({date_from})
+                team_id = {{team_id}}
+                AND condition = {{condition_hash}}
+                AND {date_filter}
         """
 
-        return cast(
-            ast.SelectQuery,
-            parse_select(
-                query_str,
-                {
-                    "team_id": ast.Constant(value=self.team.pk),
-                    "condition_hash": ast.Constant(value=condition_hash),
-                    "date_from": ast.Constant(value=date_from_datetime),
-                },
-            ),
-        )
+        query_params: dict[str, ast.Expr] = {
+            "team_id": ast.Constant(value=self.team.pk),
+            "condition_hash": ast.Constant(value=condition_hash),
+            "date_from": ast.Constant(value=date_from_datetime),
+        }
+        if date_to_datetime:
+            query_params["date_to"] = ast.Constant(value=date_to_datetime)
+
+        return cast(ast.SelectQuery, parse_select(query_str, query_params))
 
     def get_performed_event_multiple(self, prop: Property) -> ast.SelectQuery:
         """
@@ -952,13 +964,15 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
         if prop.explicit_datetime:
             # Explicit datetime filter, can be a relative or absolute date
             date_from_str = prop.explicit_datetime
+            date_to_str = prop.explicit_datetime_to
         else:
             date_value = parse_and_validate_positive_integer(prop.time_value, "time_value")
             date_interval = validate_interval(prop.time_interval)
             date_from_str = f"-{date_value}{date_interval[:1]}"
+            date_to_str = None
 
         # Parse the date string using QueryDateRange to get actual datetime
-        date_range = DateRange(date_from=date_from_str)
+        date_range = DateRange(date_from=date_from_str, date_to=date_to_str)
         query_date_range = QueryDateRange(
             date_range=date_range,
             team=self.team,
@@ -966,6 +980,7 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
             now=datetime.now(),
         )
         date_from_datetime = query_date_range.date_from()
+        date_to_datetime = query_date_range.date_to() if date_to_str else None
 
         # Map operator to SQL comparison - validated to prevent SQL injection
         VALID_OPERATORS: dict[str, str] = {
@@ -984,6 +999,11 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
             )
         sql_operator = VALID_OPERATORS[operator_str]
 
+        # Build date filter - include date_to if provided for range filtering
+        date_filter = "date >= toDate({date_from})"
+        if date_to_datetime:
+            date_filter = "date >= toDate({date_from}) AND date <= toDate({date_to})"
+
         query_str = f"""
             SELECT
                 person_id as id
@@ -991,22 +1011,23 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
             WHERE
                 team_id = {{team_id}}
                 AND condition = {{condition_hash}}
-                AND date >= toDate({{date_from}})
+                AND {date_filter}
             GROUP BY person_id
             HAVING count() {sql_operator} {{min_matches}}
         """
 
+        query_params: dict[str, ast.Expr] = {
+            "team_id": ast.Constant(value=self.team.pk),
+            "condition_hash": ast.Constant(value=condition_hash),
+            "date_from": ast.Constant(value=date_from_datetime),
+            "min_matches": ast.Constant(value=min_matches),
+        }
+        if date_to_datetime:
+            query_params["date_to"] = ast.Constant(value=date_to_datetime)
+
         return cast(
             ast.SelectQuery,
-            parse_select(
-                query_str,
-                {
-                    "team_id": ast.Constant(value=self.team.pk),
-                    "condition_hash": ast.Constant(value=condition_hash),
-                    "date_from": ast.Constant(value=date_from_datetime),
-                    "min_matches": ast.Constant(value=min_matches),
-                },
-            ),
+            parse_select(query_str, query_params),
         )
 
     def get_dynamic_cohort_condition(self, prop: Property) -> ast.SelectQuery:

@@ -34,6 +34,7 @@ STALE_INSIGHTS_GAUGE = Gauge(
     "posthog_cache_warming_stale_insights_gauge",
     "Number of stale insights present",
     ["team_id"],
+    multiprocess_mode="max",
 )
 PRIORITY_INSIGHTS_COUNTER = Counter(
     "posthog_cache_warming_priority_insights",

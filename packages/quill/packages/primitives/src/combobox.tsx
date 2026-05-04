@@ -110,12 +110,13 @@ function ComboboxContent({
         <ComboboxPrimitive.Portal>
             <ComboboxPrimitive.Positioner
                 data-quill
+                data-quill-portal="popover"
                 side={side}
                 sideOffset={sideOffset}
                 align={align}
                 alignOffset={alignOffset}
                 anchor={anchor}
-                className="isolate z-50"
+                className="isolate"
             >
                 <ComboboxPrimitive.Popup
                     data-slot="combobox-content"

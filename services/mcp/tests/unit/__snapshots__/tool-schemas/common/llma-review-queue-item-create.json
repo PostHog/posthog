@@ -1,0 +1,16 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "queue_id": {
+            "description": "Review queue ID that should own this pending trace.",
+            "type": "string"
+        },
+        "trace_id": {
+            "description": "Trace ID to add to the selected review queue.",
+            "maxLength": 255,
+            "type": "string"
+        }
+    },
+    "required": ["queue_id", "trace_id"],
+    "type": "object"
+}

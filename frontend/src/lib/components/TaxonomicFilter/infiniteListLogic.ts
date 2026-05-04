@@ -1,6 +1,7 @@
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { combineUrl } from 'kea-router'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
@@ -671,7 +672,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         localItems: [
             (s) => [s.rawLocalItems, s.searchQuery, s.fuse, s.group],
             (rawLocalItems, searchQuery, fuse, group): ListStorage => {
-                if (group.localItemsSearch) {
+                if (group?.localItemsSearch) {
                     const filtered = group.localItemsSearch(rawLocalItems || [], searchQuery)
                     return {
                         results: filtered,
@@ -936,12 +937,35 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
 
                 if (!isDisabledItem) {
                     const itemValue = selectedItem ? itemGroup?.getValue?.(selectedItem) : null
-                    actions.selectItem(itemGroup, itemValue ?? null, selectedItem)
+                    actions.selectItem(itemGroup, itemValue ?? null, selectedItem, {
+                        position: values.index,
+                    })
                 }
             }
         },
         loadRemoteItemsSuccess: ({ remoteItems }) => {
             actions.infiniteListResultsReceived(props.listGroupType, remoteItems)
+
+            const trimmedQuery = (remoteItems.searchQuery ?? '').trim()
+            const queryReachedBackend = trimmedQuery.length >= values.minSearchQueryLength
+            // Only fire on the tab the user is actually looking at — every list runs the same
+            // search in parallel, so without this gate one keystroke can fire 4-8 empty events
+            // from background tabs the user never sees, inflating the dead-end metric.
+            if (
+                values.isActiveTab &&
+                trimmedQuery.length > 0 &&
+                queryReachedBackend &&
+                remoteItems.results.length === 0
+            ) {
+                const dedupeKey = `${props.listGroupType}::${trimmedQuery}`
+                if (cache.lastEmptyResultDedupeKey !== dedupeKey) {
+                    cache.lastEmptyResultDedupeKey = dedupeKey
+                    posthog.capture('taxonomic filter empty result', {
+                        groupType: props.listGroupType,
+                        searchQuery: trimmedQuery,
+                    })
+                }
+            }
         },
         infiniteListResultsReceived: () => {
             actions.reconcilePinnedRowState()

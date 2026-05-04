@@ -8,6 +8,8 @@ All parameters must be nested inside a `query` object.
 - When the user asks "how many X logs are there?" and you don't need to see individual rows.
 - To check whether a filter combination matches anything at all before committing to a full query.
 
+To find **when** the volume is concentrated within the window (rather than just the total), follow up with `logs-count-ranges` — it returns time-bucketed counts with explicit `date_from`/`date_to` per bucket so you can drill into a sub-range without reasoning about interval width.
+
 # Parameters
 
 ## query.dateRange

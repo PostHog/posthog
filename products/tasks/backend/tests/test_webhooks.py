@@ -3,12 +3,13 @@ import json
 import hashlib
 from typing import ClassVar
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import TestCase
 
 from rest_framework.test import APIClient
 
+from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -69,8 +70,7 @@ class TestGitHubPRWebhook(TestCase):
             "/webhooks/github/pr/",
             data=payload_bytes,
             content_type="application/json",
-            HTTP_X_HUB_SIGNATURE_256=signature,
-            HTTP_X_GITHUB_EVENT=event_type,
+            headers={"x-hub-signature-256": signature, "x-github-event": event_type},
         )
 
     @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
@@ -151,8 +151,7 @@ class TestGitHubPRWebhook(TestCase):
             "/webhooks/github/pr/",
             data=payload_bytes,
             content_type="application/json",
-            HTTP_X_HUB_SIGNATURE_256="sha256=invalid",
-            HTTP_X_GITHUB_EVENT="pull_request",
+            headers={"x-hub-signature-256": "sha256=invalid", "x-github-event": "pull_request"},
         )
 
         self.assertEqual(response.status_code, 403)
@@ -168,7 +167,7 @@ class TestGitHubPRWebhook(TestCase):
             "/webhooks/github/pr/",
             data=json.dumps(payload),
             content_type="application/json",
-            HTTP_X_GITHUB_EVENT="pull_request",
+            headers={"x-github-event": "pull_request"},
         )
 
         self.assertEqual(response.status_code, 403)
@@ -192,13 +191,13 @@ class TestGitHubPRWebhook(TestCase):
         mock_capture.assert_not_called()
 
     @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
-    def test_non_pr_event_ignored(self, mock_get_secret):
-        """Test that non-pull_request events are acknowledged but ignored."""
+    def test_non_pr_non_issue_event_ignored(self, mock_get_secret):
+        """Test that events other than pull_request/issues/issue_comment are acknowledged but ignored."""
         mock_get_secret.return_value = self.webhook_secret
 
-        payload = {"action": "created", "issue": {"html_url": "https://github.com/org/repo/issues/1"}}
+        payload = {"action": "created", "ref": "refs/heads/main"}
 
-        response = self._make_webhook_request(payload, event_type="issues")
+        response = self._make_webhook_request(payload, event_type="push")
 
         self.assertEqual(response.status_code, 200)
 
@@ -228,7 +227,7 @@ class TestGitHubPRWebhook(TestCase):
                 "/webhooks/github/pr/",
                 data=json.dumps(payload),
                 content_type="application/json",
-                HTTP_X_GITHUB_EVENT="pull_request",
+                headers={"x-github-event": "pull_request"},
             )
 
             self.assertEqual(response.status_code, 500)
@@ -237,6 +236,35 @@ class TestGitHubPRWebhook(TestCase):
         """Test that non-POST methods are rejected."""
         response = self.client.get("/webhooks/github/pr/")
         self.assertEqual(response.status_code, 405)
+
+    @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_webhook_does_not_attribute_foreign_repo_pr_to_unrelated_run(self, mock_capture, mock_get_secret):
+        # Regression: a PR opened on a repo that has no matching TaskRun must
+        # not fall through to a branch-only lookup that attributes the event
+        # to an unrelated team's run with a colliding branch name.
+        mock_get_secret.return_value = self.webhook_secret
+        TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            branch="main",
+        )
+
+        payload = {
+            "action": "opened",
+            "repository": {"full_name": "ArkeroAI/arkero2"},
+            "pull_request": {
+                "html_url": "https://github.com/ArkeroAI/arkero2/pull/533",
+                "merged": False,
+                "head": {"ref": "main"},
+            },
+        }
+
+        response = self._make_webhook_request(payload)
+
+        self.assertEqual(response.status_code, 200)
+        mock_capture.assert_not_called()
 
 
 class TestFindTaskRun(TestCase):
@@ -270,7 +298,7 @@ class TestFindTaskRun(TestCase):
             status=TaskRun.Status.IN_PROGRESS,
             branch="feature/my-branch",
         )
-        result = find_task_run(branch="feature/my-branch")
+        result = find_task_run(branch="feature/my-branch", repository="posthog/posthog")
         self.assertEqual(result, task_run)
 
     def test_pr_url_takes_priority_over_branch(self):
@@ -290,6 +318,7 @@ class TestFindTaskRun(TestCase):
         result = find_task_run(
             pr_url="https://github.com/posthog/posthog/pull/123",
             branch="feature/my-branch",
+            repository="posthog/posthog",
         )
         self.assertEqual(result, pr_run)
 
@@ -303,6 +332,7 @@ class TestFindTaskRun(TestCase):
         result = find_task_run(
             pr_url="https://github.com/posthog/posthog/pull/999",
             branch="feature/my-branch",
+            repository="posthog/posthog",
         )
         self.assertEqual(result, branch_run)
 
@@ -313,3 +343,154 @@ class TestFindTaskRun(TestCase):
     def test_returns_none_with_no_args(self):
         result = find_task_run()
         self.assertIsNone(result)
+
+    def test_branch_fallback_requires_repository(self):
+        TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            branch="main",
+        )
+        # Without a repository the branch fallback must not match — bare branch
+        # names like "main" collide across every team in the database.
+        self.assertIsNone(find_task_run(branch="main"))
+
+    def test_branch_fallback_does_not_match_other_repositories(self):
+        # The task's repository is "posthog/posthog"; a webhook from a foreign
+        # repo with the same branch name must not be attributed to this run.
+        TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            branch="main",
+        )
+        result = find_task_run(branch="main", repository="ArkeroAI/arkero2")
+        self.assertIsNone(result)
+
+    def test_branch_fallback_matches_repository_case_insensitively(self):
+        task_run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            branch="feature/my-branch",
+        )
+        result = find_task_run(branch="feature/my-branch", repository="PostHog/PostHog")
+        self.assertEqual(result, task_run)
+
+    def test_branch_fallback_rejects_empty_repository(self):
+        TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            branch="main",
+        )
+        for value in ("", "   ", "\t"):
+            self.assertIsNone(find_task_run(branch="main", repository=value))
+
+
+class TestGitHubWebhookFanout(TestCase):
+    """Verify that issues/issue_comment events on webhooks/github/pr are
+    routed to the conversations dispatch_github_event function."""
+
+    organization: ClassVar[Organization]
+    team: ClassVar[Team]
+    integration: ClassVar[Integration]
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.organization = Organization.objects.create(name="Fanout Org")
+        cls.team = Team.objects.create(organization=cls.organization, name="Fanout Team")
+        cls.integration = Integration.objects.create(
+            team=cls.team,
+            kind="github",
+            integration_id="77777",
+            config={"account": {"name": "myorg"}},
+        )
+        cls.team.conversations_enabled = True
+        cls.team.conversations_settings = {
+            "github_enabled": True,
+            "github_integration_id": cls.integration.id,
+            "github_repos": ["myorg/myrepo"],
+        }
+        cls.team.save()
+
+    def setUp(self):
+        self.client = APIClient()
+        self.webhook_secret = "test-webhook-secret"
+
+    def _make_request(self, payload: dict, event_type: str = "issues", delivery_id: str = "del-1"):
+        payload_bytes = json.dumps(payload).encode("utf-8")
+        signature = generate_github_signature(payload_bytes, self.webhook_secret)
+        return self.client.post(
+            "/webhooks/github/pr/",
+            data=payload_bytes,
+            content_type="application/json",
+            headers={
+                "x-hub-signature-256": signature,
+                "x-github-event": event_type,
+                "x-github-delivery": delivery_id,
+            },
+        )
+
+    @patch("products.conversations.backend.api.github_events.process_github_event")
+    @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
+    def test_issues_event_dispatched_to_conversations(self, mock_secret, mock_task):
+        mock_secret.return_value = self.webhook_secret
+        mock_task.delay = MagicMock()
+
+        payload = {
+            "action": "opened",
+            "installation": {"id": 77777},
+            "repository": {"full_name": "myorg/myrepo"},
+            "issue": {"number": 42, "title": "Bug", "body": "", "user": {"login": "dev"}},
+            "sender": {"login": "dev"},
+        }
+
+        response = self._make_request(payload, event_type="issues")
+
+        self.assertEqual(response.status_code, 202)
+        mock_task.delay.assert_called_once()
+        call_kwargs = mock_task.delay.call_args[1]
+        self.assertEqual(call_kwargs["event_type"], "issues")
+        self.assertEqual(call_kwargs["team_id"], self.team.id)
+        self.assertEqual(call_kwargs["repo"], "myorg/myrepo")
+
+    @patch("products.conversations.backend.api.github_events.process_github_event")
+    @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
+    def test_issue_comment_event_dispatched_to_conversations(self, mock_secret, mock_task):
+        mock_secret.return_value = self.webhook_secret
+        mock_task.delay = MagicMock()
+
+        payload = {
+            "action": "created",
+            "installation": {"id": 77777},
+            "repository": {"full_name": "myorg/myrepo"},
+            "issue": {"number": 42, "title": "Bug", "body": "", "user": {"login": "dev"}},
+            "comment": {"id": 999, "body": "Looks good", "user": {"login": "reviewer"}},
+            "sender": {"login": "reviewer"},
+        }
+
+        response = self._make_request(payload, event_type="issue_comment")
+
+        self.assertEqual(response.status_code, 202)
+        mock_task.delay.assert_called_once()
+        self.assertEqual(mock_task.delay.call_args[1]["event_type"], "issue_comment")
+
+    @patch("products.conversations.backend.api.github_events.process_github_event")
+    @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
+    def test_issues_event_without_matching_team_returns_200(self, mock_secret, mock_task):
+        mock_secret.return_value = self.webhook_secret
+        mock_task.delay = MagicMock()
+
+        payload = {
+            "action": "opened",
+            "installation": {"id": 99999},
+            "repository": {"full_name": "other/repo"},
+            "issue": {"number": 1, "title": "X", "body": "", "user": {"login": "u"}},
+            "sender": {"login": "u"},
+        }
+
+        response = self._make_request(payload, event_type="issues")
+
+        self.assertEqual(response.status_code, 200)
+        mock_task.delay.assert_not_called()

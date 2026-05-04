@@ -16,7 +16,7 @@ class SCIMProvisionedUser(UUIDModel, UpdatedMetaFields):
         "posthog.OrganizationDomain", on_delete=models.CASCADE, related_name="scim_provisioned_users"
     )
 
-    identity_provider = models.CharField(max_length=50, choices=IdentityProvider.choices)
+    identity_provider = models.CharField(max_length=50, choices=IdentityProvider)
     username = models.CharField(max_length=255)
     active = models.BooleanField(default=True)
 

@@ -131,7 +131,7 @@ export function mergeUsage(prev: UsageSummary, next: UsageSummary): UsageSummary
 
 export interface ComparisonItem {
     id: string
-    promptId?: string
+    promptId: string
     promptLabel?: string
     model: string
     systemPrompt: string

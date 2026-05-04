@@ -52,6 +52,7 @@ class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], O
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="",
+                        secret=False,
                     ),
                     SourceFieldOauthConfig(
                         name="bing_ads_integration_id",

@@ -1,9 +1,9 @@
 from typing import TYPE_CHECKING, Optional, cast
 
-import posthoganalytics
-
-from posthog.exceptions_capture import capture_exception
-from posthog.temporal.data_imports.sources.common.webhook_s3 import WAREHOUSE_WEBHOOK_FLAG, WebhookSourceManager
+from posthog.temporal.data_imports.sources.common.webhook_s3 import (
+    WebhookSourceManager,
+    is_webhook_feature_flag_enabled,
+)
 
 if TYPE_CHECKING:
     from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
@@ -46,8 +46,10 @@ from posthog.temporal.data_imports.sources.stripe.settings import (
     ENDPOINTS as STRIPE_ENDPOINTS,
 )
 from posthog.temporal.data_imports.sources.stripe.stripe import (
+    StripeAuthenticationError,
     StripePermissionError,
     StripeResumeConfig,
+    StripeValidationError,
     create_webhook,
     delete_webhook,
     get_external_webhook_info,
@@ -79,36 +81,6 @@ PERMISSIONS = [
     "rak_webhook_write",
 ]
 STRIPE_API_KEYS_URL = f"{STRIPE_BASE_URL}/apikeys/create?name=PostHog&{'&'.join([f'permissions[{i}]={permission}' for i, permission in enumerate(PERMISSIONS)])}"
-
-
-def _is_webhook_feature_flag_enabled(team_id: int) -> bool:
-    from posthog.models import Team
-
-    try:
-        team = Team.objects.only("uuid", "organization_id").get(id=team_id)
-    except Team.DoesNotExist:
-        return False
-
-    try:
-        enabled = posthoganalytics.feature_enabled(
-            WAREHOUSE_WEBHOOK_FLAG,
-            str(team.uuid),
-            groups={
-                "organization": str(team.organization_id),
-                "project": str(team.id),
-            },
-            group_properties={
-                "organization": {"id": str(team.organization_id)},
-                "project": {"id": str(team.id)},
-            },
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
-        )
-
-        return bool(enabled)
-    except Exception as e:
-        capture_exception(e)
-        return False
 
 
 @SourceRegistry.register
@@ -167,6 +139,7 @@ class StripeSource(
                                             required=False,
                                             placeholder="rk_live_...",
                                             caption=f"Create a [restricted API key]({STRIPE_API_KEYS_URL}) with the pre-defined permissions",
+                                            secret=True,
                                         ),
                                     ],
                                 ),
@@ -194,6 +167,7 @@ class StripeSource(
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
                         placeholder="stripe_account_id",
+                        secret=False,
                     ),
                 ],
             ),
@@ -240,6 +214,7 @@ If automatic creation failed due to a permissions error and you're using a restr
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="whsec_...",
+                        secret=True,
                     ),
                 ],
             ),
@@ -285,7 +260,7 @@ If automatic creation failed due to a permissions error and you're using a restr
             SourceSchema(
                 name=endpoint,
                 supports_incremental=False,
-                supports_webhooks=_is_webhook_feature_flag_enabled(team_id)
+                supports_webhooks=is_webhook_feature_flag_enabled(team_id)
                 and STRIPE_APPEND_ONLY_INCREMENTAL_FIELDS.get(endpoint, None) is not None,
                 # nested resources are only full refresh and are not in STRIPE_APPEND_ONLY_INCREMENTAL_FIELDS
                 supports_append=STRIPE_APPEND_ONLY_INCREMENTAL_FIELDS.get(endpoint, None) is not None,
@@ -310,9 +285,34 @@ If automatic creation failed due to a permissions error and you're using a restr
                 return True, None
             else:
                 return False, "Invalid Stripe credentials"
+        except StripeAuthenticationError as e:
+            return (
+                False,
+                f"Stripe rejected the API key: {e.stripe_message}. Double-check that you pasted a restricted key (rk_live_...) for the same Stripe account, with no extra whitespace, and that it has not been revoked.",
+            )
         except StripePermissionError as e:
-            missing_resources = ", ".join(e.missing_permissions.keys())
-            return False, f"Stripe credentials lack permissions for {missing_resources}"
+            # 403s are self-explanatory — the resource name tells the customer which Stripe scope
+            # to enable. Stripe's verbose error (request id, status, headers) bloats the toast
+            # without adding signal, so render a plain resource list.
+            return (
+                False,
+                f"Stripe credentials lack permissions for {', '.join(e.missing_permissions.keys())}",
+            )
+        except StripeValidationError as e:
+            # Non-403 failures (network, schema, rate limit, etc.) are not configuration issues, so
+            # surface the underlying Stripe message verbatim — the cause isn't obvious from the
+            # resource name. Fold any 403s collected before the unknown error into the same toast.
+            # Guard against empty / whitespace-only error strings so we never crash the response
+            # path while reporting a different error.
+            def _first_line(msg: str) -> str:
+                lines = (msg or "").splitlines()
+                return lines[0][:200] if lines else "(no detail)"
+
+            details = "; ".join(f"{name}: {_first_line(msg)}" for name, msg in e.errors.items())
+            message = f"Stripe validation failed — {details}"
+            if e.missing_permissions:
+                message += f". Additionally lacks permissions for {', '.join(e.missing_permissions.keys())}"
+            return False, message
         except Exception as e:
             return False, str(e)
 

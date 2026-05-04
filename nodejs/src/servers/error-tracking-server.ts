@@ -1,5 +1,4 @@
 import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
-import { InternalCaptureService } from '~/common/services/internal-capture'
 
 import { initializePrometheusLabels } from '../api/router'
 import {
@@ -170,7 +169,6 @@ export class ErrorTrackingServer implements NodeServer {
         )
         const encryptedFields = new EncryptedFields(this.config.ENCRYPTION_SALT_KEYS)
         const integrationManager = new IntegrationManagerService(this.pubsub, this.postgres, encryptedFields)
-        const internalCaptureService = new InternalCaptureService(this.config)
 
         const hogTransformerDeps: HogTransformerServiceDeps = {
             geoipService,
@@ -180,7 +178,6 @@ export class ErrorTrackingServer implements NodeServer {
             integrationManager,
             monitoringOutputs: outputs,
             teamManager,
-            internalCaptureService,
         }
 
         // 3. Error tracking consumer

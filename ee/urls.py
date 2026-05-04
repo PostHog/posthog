@@ -2,7 +2,7 @@ from typing import Any
 
 from django.conf import settings
 from django.contrib import admin
-from django.contrib.admin.sites import NotRegistered  # type: ignore[attr-defined]
+from django.contrib.admin.exceptions import NotRegistered
 from django.urls import include, path, re_path
 from django.views.decorators.csrf import csrf_exempt
 from django.views.generic import RedirectView

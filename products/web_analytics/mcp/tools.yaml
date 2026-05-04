@@ -20,11 +20,9 @@ tools:
             idempotent: true
         title: Summarize web analytics
         description: >
-            Summarizes a project's web analytics over a lookback window (default 7 days):
-            unique visitors, pageviews, sessions, bounce rate, and average session duration
-            with period-over-period comparisons, plus the top 5 pages, top 5 traffic sources,
-            and goal conversions. Accepts optional `days` (1–90, default 7) and `compare`
-            (bool, default true) query params — pass `days=30` to summarize the last month, or
-            `compare=false` to skip the period-over-period comparison for a faster response.
-            Use this to answer questions like "how are my web analytics?", "how did the site
-            do last week?", or "what's my traffic looking like this month?".
+            Summarizes a project's web analytics over a lookback window (default 7 days): unique visitors, pageviews,
+            sessions, bounce rate, and average session duration with period-over-period comparisons, plus the top 5
+            pages, top 5 traffic sources, and goal conversions. Accepts optional `days` (1–90, default 7) and `compare`
+            (bool, default true) query params — pass `days=30` to summarize the last month, or `compare=false` to skip
+            the period-over-period comparison for a faster response. Use this to answer questions like "how are my web
+            analytics?", "how did the site do last week?", or "what's my traffic looking like this month?".

@@ -18,7 +18,14 @@ import {
     getSurveyIdBasedResponseKey,
 } from 'scenes/surveys/utils'
 
-import { HogFunctionTemplateType, HogFunctionType, IntegrationType, Survey, SurveyQuestionType } from '~/types'
+import {
+    HogFunctionTemplateType,
+    HogFunctionType,
+    IntegrationType,
+    Survey,
+    SurveyEventProperties,
+    SurveyQuestionType,
+} from '~/types'
 
 import type { surveyNotificationModalLogicType } from './surveyNotificationModalLogicType'
 
@@ -38,7 +45,6 @@ export type SurveyQuestionForNotification = {
 
 export interface SurveyNotificationForm {
     destination: DestinationKey
-    onlyCompletedResponses: boolean
     slackIntegrationId: number | null
     slackChannel: string | null
     slackMessage: string
@@ -63,9 +69,11 @@ type SurveyNotificationFormErrors = Partial<Record<keyof SurveyNotificationForm,
 const MAX_EXAMPLE_QUESTIONS = 3
 export const SURVEY_NAME_TOKEN = "{event.properties['$survey_name']}"
 export const SURVEY_ID_TOKEN = "{event.properties['$survey_id']}"
+export const SURVEY_EVENT_TOKEN = '{event.event}'
 export const RESPONDENT_NAME_TOKEN = '{person.name}'
 export const RESPONDENT_EMAIL_TOKEN = '{person.properties.email}'
 export const RESPONDENT_DETAILS_LINE = `${RESPONDENT_NAME_TOKEN} · ${RESPONDENT_EMAIL_TOKEN}`
+export const SURVEY_STATUS_TOKEN = `{event.event == 'survey dismissed' ? (event.properties['${SurveyEventProperties.SURVEY_PARTIALLY_COMPLETED}'] ? 'Dismissed after a partial response' : 'Dismissed before completion') : 'Completed response'}`
 
 function getResponseToken(questionId: string): string {
     return `{event.properties['${getSurveyIdBasedResponseKey(questionId)}']}`
@@ -85,7 +93,8 @@ export function getDefaultSurveyMessage(questions: SurveyQuestionForNotification
         .slice(0, MAX_EXAMPLE_QUESTIONS)
 
     return [
-        `*New response on ${SURVEY_NAME_TOKEN}*`,
+        `*Survey update on ${SURVEY_NAME_TOKEN}*`,
+        SURVEY_STATUS_TOKEN,
         RESPONDENT_DETAILS_LINE,
         ...(exampleQuestions.length > 0
             ? ['', '*Responses*', ...exampleQuestions.map((question, index) => getQuestionLine(question, index))]
@@ -163,6 +172,10 @@ function buildSlackBlocks(message: string, includeButtons: boolean): Record<stri
 
 function buildWebhookBodyTemplate(questions: SurveyQuestionForNotification[]): Record<string, unknown> {
     return {
+        event: {
+            name: SURVEY_EVENT_TOKEN,
+            status: SURVEY_STATUS_TOKEN,
+        },
         survey: {
             id: SURVEY_ID_TOKEN,
             name: SURVEY_NAME_TOKEN,
@@ -187,7 +200,6 @@ function buildSurveyNotificationForm(survey: SurveyNotificationContext): SurveyN
 
     return {
         destination: 'slack',
-        onlyCompletedResponses: true,
         slackIntegrationId: null,
         slackChannel: null,
         slackMessage: defaultMessage,
@@ -235,14 +247,12 @@ function createSurveyNotificationPayload({
     destination,
     surveyName,
     surveyId,
-    canNotifyOnPartialResponses,
     form,
 }: {
     template: HogFunctionTemplateType
     destination: DestinationKey
     surveyName?: string | null
     surveyId: string
-    canNotifyOnPartialResponses: boolean
     form: SurveyNotificationForm
 }): Partial<HogFunctionType> {
     const destinationOption = DESTINATION_OPTIONS.find((option) => option.value === destination)
@@ -300,10 +310,7 @@ function createSurveyNotificationPayload({
         description: subTemplate?.description ?? `Survey notification for ${destinationOption.label}`,
         inputs,
         inputs_schema: template.inputs_schema,
-        filters: getSurveyNotificationFilters(
-            surveyId,
-            canNotifyOnPartialResponses ? form.onlyCompletedResponses : true
-        ),
+        filters: getSurveyNotificationFilters(surveyId),
         hog: template.code,
         icon_url: template.icon_url,
         enabled: true,
@@ -412,7 +419,6 @@ export const surveyNotificationModalLogic = kea<surveyNotificationModalLogicType
                     destination: form.destination,
                     surveyName: values.survey.name,
                     surveyId: values.survey.id,
-                    canNotifyOnPartialResponses: values.survey.enable_partial_responses === true,
                     form,
                 })
 
@@ -432,10 +438,6 @@ export const surveyNotificationModalLogic = kea<surveyNotificationModalLogicType
             (integrations: IntegrationType[] | null, form: SurveyNotificationForm) =>
                 integrations?.find((integration: IntegrationType) => integration.id === form.slackIntegrationId) ??
                 null,
-        ],
-        canNotifyOnPartialResponses: [
-            (s) => [s.survey],
-            (survey: SurveyNotificationContext) => survey.enable_partial_responses === true,
         ],
         templateGlobals: [(s) => [s.survey], (survey: SurveyNotificationContext) => buildTemplateGlobals(survey)],
         submitDisabledReason: [
@@ -460,9 +462,6 @@ export const surveyNotificationModalLogic = kea<surveyNotificationModalLogicType
         openDialog: () => {
             actions.resetNotificationForm()
             actions.setNotificationFormValues(buildSurveyNotificationForm(values.survey))
-            if (values.survey.enable_partial_responses !== true) {
-                actions.setNotificationFormValue('onlyCompletedResponses', true)
-            }
         },
         closeDialog: () => {
             actions.resetNotificationForm()

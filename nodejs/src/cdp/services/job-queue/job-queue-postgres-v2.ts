@@ -1,6 +1,7 @@
 import { chunk } from 'lodash'
 import { Gauge } from 'prom-client'
 
+import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { parseJSON } from '~/utils/json-parse'
 
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk } from '../../../types'
@@ -120,10 +121,28 @@ export class CyclotronJobQueuePostgresV2 {
         try {
             const chunked = chunk(jobs, this.config.CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE)
             if (this.config.CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES) {
-                await Promise.all(chunked.map((batch) => this.manager!.bulkCreateJobs(batch)))
+                await Promise.all(
+                    chunked.map((batch) =>
+                        instrumentFn(
+                            {
+                                key: 'cyclotron_v2.bulk_create_jobs',
+                                sendException: false,
+                                getLoggingContext: () => ({ batchSize: batch.length, parallel: true }),
+                            },
+                            () => this.manager!.bulkCreateJobs(batch)
+                        )
+                    )
+                )
             } else {
                 for (const batch of chunked) {
-                    await this.manager.bulkCreateJobs(batch)
+                    await instrumentFn(
+                        {
+                            key: 'cyclotron_v2.bulk_create_jobs',
+                            sendException: false,
+                            getLoggingContext: () => ({ batchSize: batch.length, parallel: false }),
+                        },
+                        () => this.manager!.bulkCreateJobs(batch)
+                    )
                 }
             }
         } catch (e) {

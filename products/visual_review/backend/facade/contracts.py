@@ -168,6 +168,7 @@ class RunSummary:
     new: int
     removed: int
     unchanged: int
+    unresolved: int = 0
     tolerated_matched: int = 0
 
 
@@ -201,6 +202,17 @@ class AutoApproveResult:
 
     run: Run
     baseline_content: str
+
+
+@dataclass(frozen=True)
+class RecomputeResult:
+    """Result of re-evaluating quarantine/counts and optionally retriggering CI."""
+
+    run: Run
+    counts_changed: bool
+    unresolved: int
+    ci_rerun_triggered: bool
+    ci_rerun_error: str | None = None
 
 
 @dataclass(frozen=True)
@@ -261,10 +273,15 @@ class SnapshotHistoryEntry:
     """A single entry in a snapshot's change history across runs."""
 
     run_id: UUID
+    snapshot_id: UUID
     result: str
     branch: str
     commit_sha: str
     created_at: datetime
+    pr_number: int | None = None
+    diff_percentage: float | None = None
+    review_state: str = ""
+    current_artifact: Artifact | None = None
 
 
 @dataclass(frozen=True)
@@ -278,3 +295,73 @@ class Repo:
     baseline_file_paths: dict[str, str]
     enable_pr_comments: bool
     created_at: datetime
+
+
+# Hard cap on entries returned by the baselines overview endpoint. Above this,
+# truncate (newest by run completion) and surface `truncated: True` so the UI
+# can flag it. The whole flow is sized for this — the FE filters/sorts client-
+# side and ships ~600 KB gzipped at the cap.
+BASELINE_OVERVIEW_MAX_ENTRIES = 5000
+
+# Number of most-recent default-branch completed runs that feed the
+# `recent_drift_avg` smoothing window. Bounded by run count rather than time
+# so a busy repo doesn't drag in proportionally more rows. ~10 runs is enough
+# to wash out a single jittery render while staying responsive on real changes.
+BASELINE_DRIFT_RECENT_RUN_COUNT = 10
+
+
+@dataclass(frozen=True)
+class BaselineEntry:
+    """The current baseline state of a single snapshot identifier in a repo.
+
+    Anchored on the latest non-superseded run on the default branch (master/main)
+    for each `run_type` — i.e. "what is the baseline image we'd compare against
+    right now". One row per `(run_type, identifier)`.
+    """
+
+    identifier: str
+    run_type: str
+    browser: str | None
+    thumbnail_hash: str | None
+    width: int | None
+    height: int | None
+    tolerate_count_30d: int
+    tolerate_count_90d: int
+    is_quarantined: bool
+    last_run_at: datetime
+    # Lifetime count of YAML baseline flips on master/main for this identifier.
+    # Counts RunSnapshots with `result IN (CHANGED, REMOVED)` — the rows that
+    # represent an actual baseline-update event (subsequent runs see UNCHANGED
+    # against the new baseline). Drives the "most-changed" sort.
+    baseline_change_count: int
+    # AVG(diff_percentage) over the last N completed default-branch runs (see
+    # `BASELINE_DRIFT_RECENT_RUN_COUNT`), filtered to runs that produced a
+    # non-zero diff. Drives the drift-severity sort. None when no signal in
+    # the window.
+    recent_drift_avg: float | None
+
+
+@dataclass(frozen=True)
+class BaselineTotals:
+    """Aggregate counts across the **full** baseline universe.
+
+    Computed independently of pagination so the stat row stays correct when
+    `entries` is truncated. The FE uses these for unfiltered counts and falls
+    back to recomputing over `entries` once a filter is active.
+    """
+
+    all_snapshots: int
+    recently_tolerated: int
+    frequently_tolerated: int
+    currently_quarantined: int
+    by_run_type: dict[str, int]
+
+
+@dataclass(frozen=True)
+class BaselineOverview:
+    """Result of the baselines overview endpoint."""
+
+    entries: list[BaselineEntry]
+    totals: BaselineTotals
+    truncated: bool
+    generated_at: datetime

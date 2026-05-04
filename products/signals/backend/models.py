@@ -31,8 +31,8 @@ class SignalSourceConfig(UUIDModel):
         ISSUE_SPIKING = "issue_spiking", "Issue spiking"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="signal_source_configs")
-    source_product = models.CharField(max_length=100, choices=SourceProduct.choices)
-    source_type = models.CharField(max_length=100, choices=SourceType.choices)
+    source_product = models.CharField(max_length=100, choices=SourceProduct)
+    source_type = models.CharField(max_length=100, choices=SourceType)
     enabled = models.BooleanField(default=True)
     config = models.JSONField(default=dict)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -83,9 +83,7 @@ class SignalTeamConfig(UUIDModel):
         on_delete=models.CASCADE,
         related_name="signal_team_config",
     )
-    default_autostart_priority = models.CharField(
-        max_length=2, choices=AutonomyPriority.choices, default=AutonomyPriority.P0
-    )
+    default_autostart_priority = models.CharField(max_length=2, choices=AutonomyPriority, default=AutonomyPriority.P0)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -99,7 +97,7 @@ register_team_extension_signal(SignalTeamConfig, logger=logger)
 
 class SignalUserAutonomyConfig(UUIDModel):
     user = models.OneToOneField("posthog.User", on_delete=models.CASCADE, related_name="signal_autonomy_config")
-    autostart_priority = models.CharField(max_length=2, choices=AutonomyPriority.choices, null=True, blank=True)
+    autostart_priority = models.CharField(max_length=2, choices=AutonomyPriority, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -127,7 +125,7 @@ class SignalReport(UUIDModel):
         SUPPRESSED = "suppressed"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    status = models.CharField(max_length=20, choices=Status.choices, default=Status.POTENTIAL)
+    status = models.CharField(max_length=20, choices=Status, default=Status.POTENTIAL)
 
     total_weight = models.FloatField(default=0.0)
     signal_count = models.IntegerField(default=0)
@@ -307,7 +305,7 @@ class SignalReportArtefact(UUIDModel):
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     report = models.ForeignKey(SignalReport, on_delete=models.CASCADE, related_name="artefacts")
-    type = models.CharField(max_length=100, choices=ArtefactType.choices)
+    type = models.CharField(max_length=100, choices=ArtefactType)
     content = models.TextField()
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -328,7 +326,7 @@ class SignalReportTask(UUIDModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     report = models.ForeignKey(SignalReport, on_delete=models.CASCADE, related_name="report_tasks")
     task = models.ForeignKey("tasks.Task", on_delete=models.CASCADE, related_name="signal_report_tasks")
-    relationship = models.CharField(max_length=200, choices=Relationship.choices)
+    relationship = models.CharField(max_length=200, choices=Relationship)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

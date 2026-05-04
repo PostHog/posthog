@@ -9,7 +9,7 @@ export const counterParseError = new Counter({
 export const counterRateLimited = new Counter({
     name: 'cdp_function_rate_limited',
     help: 'A function invocation was rate limited',
-    labelNames: ['kind'],
+    labelNames: ['kind', 'function_id'],
 })
 
 export const counterHogFunctionStateOnEvent = new Counter({
