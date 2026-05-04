@@ -1,11 +1,9 @@
-import Fuse from 'fuse.js'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { createFuse } from 'lib/utils/fuseSearch'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { membershipLevelToName } from 'lib/utils/permissioning'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -14,8 +12,6 @@ import { userLogic } from 'scenes/userLogic'
 import { OrganizationMemberScopedApiKeysResponse, OrganizationMemberType } from '~/types'
 
 import type { membersLogicType } from './membersLogicType'
-
-export interface MembersFuse extends Fuse<OrganizationMemberType> {}
 
 const PAGINATION_LIMIT = 200
 
@@ -40,8 +36,10 @@ export const membersLogic = kea<membersLogicType>([
         members: {
             __default: null as OrganizationMemberType[] | null,
             loadAllMembers: async () => {
+                const search = values.search?.trim() || undefined
                 return await api.organizationMembers.listAll({
                     limit: PAGINATION_LIMIT,
+                    search,
                 })
             },
             loadMemberUpdates: async () => {
@@ -141,18 +139,7 @@ export const membersLogic = kea<membersLogicType>([
                 return result
             },
         ],
-        membersFuse: [
-            (s) => [s.meFirstMembers],
-            (members): MembersFuse =>
-                createFuse<OrganizationMemberType>(members ?? [], {
-                    keys: ['user.first_name', 'user.last_name', 'user.email'],
-                }),
-        ],
-        filteredMembers: [
-            (s) => [s.meFirstMembers, s.membersFuse, s.search],
-            (members, membersFuse, search): OrganizationMemberType[] =>
-                search ? membersFuse.search(search).map((result) => result.item) : (members ?? []),
-        ],
+        filteredMembers: [(s) => [s.meFirstMembers], (members): OrganizationMemberType[] => members ?? []],
         memberCount: [
             (s) => [s.user, s.sortedMembers],
             (user, members): number => {
@@ -179,6 +166,11 @@ export const membersLogic = kea<membersLogicType>([
             } else {
                 actions.loadMemberUpdates()
             }
+        },
+
+        setSearch: async (_, breakpoint) => {
+            await breakpoint(250)
+            actions.loadAllMembers()
         },
     })),
 
