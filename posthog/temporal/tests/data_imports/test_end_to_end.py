@@ -106,7 +106,7 @@ _current_pipeline_mode = "non_dlt"
 
 
 @pytest.fixture(params=["non_dlt", "v3"], autouse=True)
-def pipeline_mode(request):
+def pipeline_mode(request, _clean_sourcebatch_tables):
     global _current_pipeline_mode
     _current_pipeline_mode = request.param
     yield request.param
