@@ -523,9 +523,15 @@ class TestGitHubWebhookFanout(TestCase):
         self.assertEqual(response.status_code, 200)
         mock_task.delay.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("legacy_url", "/webhooks/github/pr/"),
+            ("unified_url", "/webhooks/github/"),
+        ]
+    )
     @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.models.posthoganalytics.capture")
-    def test_pull_request_routed_via_unified_url(self, mock_capture, mock_secret):
+    def test_pull_request_routed(self, _name, url, mock_capture, mock_secret):
         mock_secret.return_value = self.webhook_secret
 
         payload = {
@@ -536,7 +542,7 @@ class TestGitHubWebhookFanout(TestCase):
             },
         }
 
-        response = self._make_request(payload, event_type="pull_request", url="/webhooks/github/")
+        response = self._make_request(payload, event_type="pull_request", url=url)
 
         self.assertEqual(response.status_code, 200)
         mock_capture.assert_called_once()

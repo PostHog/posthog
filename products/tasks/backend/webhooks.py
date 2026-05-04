@@ -2,7 +2,7 @@ import hmac
 import uuid
 import hashlib
 
-from django.http import HttpRequest, HttpResponse
+from django.http import HttpResponse
 
 import structlog
 
@@ -69,7 +69,7 @@ def get_github_webhook_secret() -> str | None:
     return secret if secret else None
 
 
-def handle_pull_request_event(request: HttpRequest, payload: dict) -> HttpResponse:
+def handle_pull_request_event(payload: dict) -> HttpResponse:
     """Process a pre-verified pull_request webhook event.
 
     Called from ``posthog.urls.github_webhook`` (unified dispatcher).

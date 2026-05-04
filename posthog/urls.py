@@ -123,7 +123,7 @@ def github_webhook(request: HttpRequest) -> HttpResponse:
     if event_type == "pull_request":
         from products.tasks.backend.webhooks import handle_pull_request_event
 
-        return handle_pull_request_event(request, payload)
+        return handle_pull_request_event(payload)
 
     return HttpResponse(status=200)
 
