@@ -438,27 +438,9 @@ export function Exposures(): JSX.Element {
                                                 key: 'percentage',
                                                 render: function Percentage(_, series) {
                                                     if (series.isTotal) {
-                                                        let totalPercentage = 0
-                                                        let total = 0
-                                                        if (exposures?.total_exposures) {
-                                                            for (const [_, value] of Object.entries(
-                                                                exposures.total_exposures
-                                                            )) {
-                                                                total += Number(value)
-                                                            }
-                                                            if (total > 0) {
-                                                                for (const [_, count] of Object.entries(
-                                                                    exposures.total_exposures
-                                                                )) {
-                                                                    totalPercentage += (Number(count) / total) * 100
-                                                                }
-                                                            }
-                                                        }
                                                         return (
                                                             <span className="font-semibold">
-                                                                {totalPercentage
-                                                                    ? `${totalPercentage.toFixed(1)}%`
-                                                                    : '-%'}
+                                                                {totalExposures > 0 ? '100.0%' : '-%'}
                                                             </span>
                                                         )
                                                     }
