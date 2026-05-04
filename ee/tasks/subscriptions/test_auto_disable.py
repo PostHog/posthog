@@ -11,7 +11,36 @@ from ee.tasks.subscriptions.auto_disable import (
     SLACK_INTEGRATION_DISCONNECTED_REASON,
     disable_invalid_subscription,
     send_notifications_for_disabled_subscription,
+    validate_re_enable,
 )
+
+
+class TestValidateReEnable:
+    """Direct unit tests for the shared re-enable validation helper.
+
+    Mirrors the alert pattern's validate_alert_config tests — one source of truth
+    for which target configurations the API rejects up-front.
+    """
+
+    @parameterized.expand(
+        [
+            # (label, target_type, integration_id, expected_None_or_substring)
+            ("none_target_passes", None, None, None),
+            ("email_no_integration_passes", "email", None, None),
+            ("email_with_integration_passes", "email", 42, None),
+            ("slack_with_integration_passes", "slack", 42, None),
+            ("slack_no_integration_rejected", "slack", None, "no integration configured"),
+            ("webhook_no_integration_rejected", "webhook", None, "this delivery channel is not currently supported"),
+            ("webhook_with_integration_rejected", "webhook", 42, "this delivery channel is not currently supported"),
+        ]
+    )
+    def test_validate_re_enable(self, _label, target_type, integration_id, expected):
+        result = validate_re_enable(target_type, integration_id)
+        if expected is None:
+            assert result is None
+        else:
+            assert result is not None
+            assert expected in result
 
 
 class TestDisableInvalidSubscription(APIBaseTest):

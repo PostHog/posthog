@@ -8,12 +8,9 @@ from posthog.models.subscription import Subscription
 
 from ee.tasks.subscriptions import SUPPORTED_TARGET_TYPES
 
-# User-visible reasons embedded in the disabled-subscription email body or recipient_results error.
+# User-visible reasons embedded in the disabled-subscription email body.
 SLACK_INTEGRATION_DISCONNECTED_REASON = "Slack integration disconnected"
 UNSUPPORTED_TARGET_TYPE_REASON = "Unsupported delivery channel"
-# Used only as the recipient_results error message — `no_assets` doesn't auto-disable
-# (it indicates a transient resolve failure that retries can recover from).
-NO_ASSETS_REASON = "No assets to deliver — likely a transient export pipeline failure; will retry on next schedule"
 
 logger = structlog.get_logger(__name__)
 
@@ -24,7 +21,11 @@ def validate_re_enable(target_type: str | None, integration_id: int | None) -> s
     fail (rejected up-front so the next delivery doesn't just auto-disable again).
     Mirrors the `validate_alert_config` pattern in posthog.tasks.alerts.utils.
     """
-    if target_type and target_type not in SUPPORTED_TARGET_TYPES:
+    # Defer to downstream serializer validation when target_type is missing — this
+    # function only encodes the "what makes a target type permanently broken" rules.
+    if not target_type:
+        return None
+    if target_type not in SUPPORTED_TARGET_TYPES:
         return (
             f"Cannot re-enable {target_type} subscription: this delivery channel is not currently supported. "
             "Switch to email or Slack."
@@ -73,9 +74,9 @@ def send_notifications_for_disabled_subscription(subscription: Subscription, rea
 
     display_name = subscription.title or "your subscription"
     subject = (
-        f'PostHog subscription "{subscription.title}" has been disabled'
+        f'PostHog subscription "{subscription.title}" has been automatically disabled'
         if subscription.title
-        else "Your PostHog subscription has been disabled"
+        else "Your PostHog subscription has been automatically disabled"
     )
     campaign_key = f"subscription-disabled-notification-{subscription.id}-{uuid.uuid4()}"
 

@@ -36,7 +36,6 @@ from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
 from ee.tasks.subscriptions import SLACK_USER_CONFIG_ERRORS, SUPPORTED_TARGET_TYPES, _capture_delivery_failed_event
 from ee.tasks.subscriptions.auto_disable import (
-    NO_ASSETS_REASON,
     SLACK_INTEGRATION_DISCONNECTED_REASON,
     UNSUPPORTED_TARGET_TYPE_REASON,
     disable_invalid_subscription,
@@ -48,6 +47,10 @@ from ee.tasks.subscriptions.slack_subscriptions import (
 )
 
 LOGGER = get_logger(__name__)
+
+# Used only as the recipient_results error message — `no_assets` doesn't auto-disable
+# (it indicates a transient resolve failure that retries can recover from).
+NO_ASSETS_REASON = "No assets to deliver — likely a transient export pipeline failure; will retry on next schedule"
 
 
 async def _resolve_target_delivery_id(inputs: CreateExportAssetsInputs) -> uuid.UUID | None:
@@ -312,7 +315,9 @@ async def _auto_disable_and_return(
             error={"message": reason, "type": error_type},
         )
     )
-    _capture_delivery_failed_event(subscription, ApplicationError(reason, non_retryable=True))
+    # `_capture_delivery_failed_event` only reads `str(e)` and `type(e).__name__`,
+    # so a plain Exception conveys the same info without implying retry semantics.
+    _capture_delivery_failed_event(subscription, Exception(reason))
     await database_sync_to_async(disable_invalid_subscription, thread_sensitive=False)(subscription, reason)
     return DeliverSubscriptionResult(recipient_results=recipient_results)
 
@@ -617,6 +622,7 @@ async def advance_next_delivery_date(subscription_id: int) -> None:
     # Disabled subs (e.g. auto-disabled this run / paused by user) don't get a
     # future delivery date — avoids showing a misleading "next delivery" in the UI.
     if not subscription.enabled:
+        await LOGGER.ainfo("advance_next_delivery_date.skipped_disabled", subscription_id=subscription_id)
         return
     subscription.set_next_delivery_date(subscription.next_delivery_date)
     await database_sync_to_async(subscription.save, thread_sensitive=False)(update_fields=["next_delivery_date"])

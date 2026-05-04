@@ -24,7 +24,9 @@ export function subscriptionName(sub: SubscriptionApi): string {
 // include the field, but those subscriptions are functionally enabled. The
 // generated `SubscriptionApi.enabled?: boolean` permits undefined so this guard
 // stays in place until the field becomes required at the schema level.
-export function isSubscriptionEnabled(sub: SubscriptionApi): boolean {
+// Structurally typed so legacy `SubscriptionType` (the hand-written interface in
+// `~/types`) and the generated `SubscriptionApi` both flow through.
+export function isSubscriptionEnabled(sub: { enabled?: boolean | null }): boolean {
     return sub.enabled !== false
 }
 

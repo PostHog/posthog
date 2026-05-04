@@ -11,6 +11,7 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { ProfileBubbles } from 'lib/lemon-ui/ProfilePicture'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils'
+import { isSubscriptionEnabled } from 'scenes/subscriptions/components/SubscriptionsTable'
 
 import { SubscriptionType } from '~/types'
 
@@ -33,7 +34,7 @@ export function SubscriptionListItem({
     isDelivering,
 }: SubscriptionListItemProps): JSX.Element {
     const selectedInsightsCount = subscription.dashboard_export_insights?.length
-    const enabled = subscription.enabled !== false
+    const enabled = isSubscriptionEnabled(subscription)
 
     return (
         <LemonButton

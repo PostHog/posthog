@@ -173,7 +173,14 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         self._validate_dashboard_export_subscription(attrs)
 
         target_type = attrs.get("target_type") or (self.instance.target_type if self.instance else None)
-        integration_id = attrs.get("integration_id") or (self.instance.integration_id if self.instance else None)
+        # Use explicit-key check for integration_id so a deliberate `null` in the PATCH
+        # body falls through to the validation below — `or` would silently coalesce
+        # to the stale instance value and pass `validate_re_enable` with the wrong id.
+        integration_id = (
+            attrs["integration_id"]
+            if "integration_id" in attrs
+            else (self.instance.integration_id if self.instance else None)
+        )
 
         # Reject re-enables of subscriptions whose delivery prerequisite is still
         # permanently broken — otherwise the next delivery would just auto-disable
@@ -309,6 +316,12 @@ class SubscriptionSerializer(serializers.ModelSerializer):
 
         if dashboard_export_insight_ids:
             instance.dashboard_export_insights.set(dashboard_export_insight_ids)
+
+        # Skip the workflow trigger when the new subscription is created in a disabled
+        # state — mirrors the equivalent guard in `update()`. Avoids firing a delivery
+        # for a subscription that won't fire on its schedule either.
+        if not instance.enabled:
+            return instance
 
         with slo_operation(
             spec=SloSpec(
@@ -547,9 +560,9 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
         subscription = self.get_object()
         if subscription.deleted:
             return Response(status=status.HTTP_404_NOT_FOUND)
-        # Disabled subs short-circuit at the activity entry, so a test delivery on a
-        # disabled sub would return 202 for a no-op — confusing for users trying to
-        # verify a fix. Surface the precondition up front instead.
+        # The activity does not check `enabled` at entry, so without this 409 a test
+        # delivery on a disabled sub would silently run the full delivery path and
+        # could re-fire the auto-disable side effects. Surface the precondition up front.
         if not subscription.enabled:
             return Response(
                 {"detail": "Subscription is disabled. Re-enable it before sending a test delivery."},

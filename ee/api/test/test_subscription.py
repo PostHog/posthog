@@ -471,7 +471,7 @@ class TestSubscriptionTemporal(APILicensedTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "enabled"
-        assert "webhook delivery is not currently supported" in response.json()["detail"]
+        assert "this delivery channel is not currently supported" in response.json()["detail"]
 
     def test_cannot_create_subscription_with_summary_enabled_without_ai_consent(self):
         self.organization.is_ai_data_processing_approved = False
@@ -642,6 +642,19 @@ class TestSubscriptionTemporal(APILicensedTest):
 
         response = self.client.post(f"/api/projects/{self.team.id}/subscriptions/{sub_id}/test-delivery/")
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_deliver_disabled_subscription_returns_409(self):
+        mock_client = MagicMock()
+        mock_client.start_workflow = AsyncMock()
+        self.mock_sync.return_value = mock_client
+
+        response = self._create_subscription(invite_message=None)
+        sub_id = response.json()["id"]
+        Subscription.objects.filter(id=sub_id).update(enabled=False)
+
+        response = self.client.post(f"/api/projects/{self.team.id}/subscriptions/{sub_id}/test-delivery/")
+        assert response.status_code == status.HTTP_409_CONFLICT
+        assert "Re-enable" in response.json()["detail"]
 
     def test_deliver_temporal_error_returns_500(self):
         mock_client = MagicMock()
@@ -989,6 +1002,8 @@ class TestSubscriptionTemporal(APILicensedTest):
 
     @parameterized.expand(
         [
+            # Locks the workflow-trigger matrix across all four (initial, final) enabled states.
+            ("enabled_to_enabled_field_edit", True, {"title": "renamed"}, True),
             ("disable_enabled", True, {"enabled": False}, False),
             ("redundant_disable", False, {"enabled": False}, False),
             ("enable_disabled", False, {"enabled": True}, True),
