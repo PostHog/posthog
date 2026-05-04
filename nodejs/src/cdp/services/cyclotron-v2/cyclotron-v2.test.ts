@@ -59,6 +59,8 @@ interface RawJobRow {
     last_transition: string | Date
     parent_run_id: string | null
     state: Buffer | null
+    distinct_id: string | null
+    action_id: string | null
 }
 
 async function queryJob(id: string): Promise<RawJobRow> {
@@ -189,6 +191,76 @@ describe('Cyclotron V2', () => {
             const ids = await manager.bulkCreateJobs([])
             expect(ids).toHaveLength(0)
             expect(await totalJobCount()).toBe(0)
+        })
+
+        it('createJob persists distinct_id when provided', async () => {
+            const id = await manager.createJob({ teamId: 1, queueName: QUEUE, distinctId: 'user-42' })
+            const row = await queryJob(id)
+            expect(row.distinct_id).toBe('user-42')
+        })
+
+        it('createJob defaults distinct_id to null when omitted', async () => {
+            const id = await manager.createJob({ teamId: 1, queueName: QUEUE })
+            const row = await queryJob(id)
+            expect(row.distinct_id).toBeNull()
+        })
+
+        it('bulkCreateJobs persists distinct_id per row', async () => {
+            const ids = await manager.bulkCreateJobs([
+                { teamId: 1, queueName: QUEUE, distinctId: 'user-a' },
+                { teamId: 1, queueName: QUEUE, distinctId: 'user-b' },
+                { teamId: 1, queueName: QUEUE }, // null distinct_id
+            ])
+            expect(ids).toHaveLength(3)
+            const rows = await assertPool.query<RawJobRow>(
+                'SELECT id, distinct_id FROM cyclotron_jobs WHERE id = ANY($1::uuid[]) ORDER BY id',
+                [ids]
+            )
+            const byId = new Map(rows.rows.map((r) => [r.id, r.distinct_id]))
+            expect(byId.get(ids[0])).toBe('user-a')
+            expect(byId.get(ids[1])).toBe('user-b')
+            expect(byId.get(ids[2])).toBeNull()
+        })
+
+        it('partial index supports lookup by (team_id, distinct_id)', async () => {
+            await manager.createJob({ teamId: 1, queueName: QUEUE, distinctId: 'shared-user' })
+            await manager.createJob({ teamId: 1, queueName: QUEUE, distinctId: 'shared-user' })
+            await manager.createJob({ teamId: 2, queueName: QUEUE, distinctId: 'shared-user' })
+            await manager.createJob({ teamId: 1, queueName: QUEUE }) // null distinct_id, excluded by partial index
+
+            const res = await assertPool.query<{ count: string }>(
+                'SELECT COUNT(*) AS count FROM cyclotron_jobs WHERE team_id = $1 AND distinct_id = $2',
+                [1, 'shared-user']
+            )
+            expect(Number(res.rows[0].count)).toBe(2)
+        })
+
+        it('createJob persists action_id when provided', async () => {
+            const id = await manager.createJob({ teamId: 1, queueName: QUEUE, actionId: 'action-7' })
+            const row = await queryJob(id)
+            expect(row.action_id).toBe('action-7')
+        })
+
+        it('createJob defaults action_id to null when omitted', async () => {
+            const id = await manager.createJob({ teamId: 1, queueName: QUEUE })
+            const row = await queryJob(id)
+            expect(row.action_id).toBeNull()
+        })
+
+        it('bulkCreateJobs persists action_id per row', async () => {
+            const ids = await manager.bulkCreateJobs([
+                { teamId: 1, queueName: QUEUE, actionId: 'action-a' },
+                { teamId: 1, queueName: QUEUE, actionId: 'action-b' },
+                { teamId: 1, queueName: QUEUE },
+            ])
+            const rows = await assertPool.query<RawJobRow>(
+                'SELECT id, action_id FROM cyclotron_jobs WHERE id = ANY($1::uuid[]) ORDER BY id',
+                [ids]
+            )
+            const byId = new Map(rows.rows.map((r) => [r.id, r.action_id]))
+            expect(byId.get(ids[0])).toBe('action-a')
+            expect(byId.get(ids[1])).toBe('action-b')
+            expect(byId.get(ids[2])).toBeNull()
         })
 
         it('backpressure throws when queue depth exceeds limit', async () => {

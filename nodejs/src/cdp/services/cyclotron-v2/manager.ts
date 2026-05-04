@@ -35,10 +35,10 @@ export class CyclotronV2Manager {
             `INSERT INTO cyclotron_jobs
              (id, team_id, function_id, queue_name, status, priority, scheduled, created,
               lock_id, last_heartbeat, janitor_touch_count, transition_count, last_transition,
-              parent_run_id, state, distinct_id)
+              parent_run_id, state, distinct_id, action_id)
              VALUES ($1, $2, $3, $4, 'available', $5, $6, $7,
                      NULL, NULL, 0, 0, $7,
-                     $8, $9, $10)`,
+                     $8, $9, $10, $11)`,
             [
                 id,
                 job.teamId,
@@ -50,6 +50,7 @@ export class CyclotronV2Manager {
                 job.parentRunId ?? null,
                 job.state ?? null,
                 job.distinctId ?? null,
+                job.actionId ?? null,
             ]
         )
         return id
@@ -71,6 +72,7 @@ export class CyclotronV2Manager {
         const parentRunIds: (string | null)[] = []
         const states: (Buffer | null)[] = []
         const distinctIds: (string | null)[] = []
+        const actionIds: (string | null)[] = []
 
         const now = new Date()
 
@@ -85,13 +87,14 @@ export class CyclotronV2Manager {
             parentRunIds.push(job.parentRunId ?? null)
             states.push(job.state ?? null)
             distinctIds.push(job.distinctId ?? null)
+            actionIds.push(job.actionId ?? null)
         }
 
         await this.pool.query(
             `INSERT INTO cyclotron_jobs
              (id, team_id, function_id, queue_name, status, priority, scheduled, created,
               lock_id, last_heartbeat, janitor_touch_count, transition_count, last_transition,
-              parent_run_id, state, distinct_id)
+              parent_run_id, state, distinct_id, action_id)
              SELECT
                 unnest($1::uuid[]),
                 unnest($2::int[]),
@@ -100,16 +103,29 @@ export class CyclotronV2Manager {
                 'available'::CyclotronJobStatus,
                 unnest($5::smallint[]),
                 unnest($6::timestamptz[]),
-                $10::timestamptz,
+                $11::timestamptz,
                 NULL::uuid,
                 NULL::timestamptz,
                 0::smallint,
                 0::smallint,
-                $10::timestamptz,
+                $11::timestamptz,
                 unnest($7::text[]),
                 unnest($8::bytea[]),
-                unnest($9::text[])`,
-            [ids, teamIds, functionIds, queueNames, priorities, scheduleds, parentRunIds, states, distinctIds, now]
+                unnest($9::text[]),
+                unnest($10::text[])`,
+            [
+                ids,
+                teamIds,
+                functionIds,
+                queueNames,
+                priorities,
+                scheduleds,
+                parentRunIds,
+                states,
+                distinctIds,
+                actionIds,
+                now,
+            ]
         )
 
         return ids

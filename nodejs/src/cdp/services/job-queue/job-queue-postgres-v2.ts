@@ -1,6 +1,7 @@
 import { chunk } from 'lodash'
-import { Gauge } from 'prom-client'
+import { Counter, Gauge } from 'prom-client'
 
+import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { parseJSON } from '~/utils/json-parse'
 
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk } from '../../../types'
@@ -13,6 +14,12 @@ import { cdpJobSizeCompressedKb, cdpJobSizeKb } from './shared'
 const pendingJobsGauge = new Gauge({
     name: 'cdp_cyclotron_v2_pending_jobs',
     help: 'Number of postgres-v2 jobs currently held in memory awaiting ack/fail/reschedule',
+})
+
+const queuedJobsLookupColumnsCounter = new Counter({
+    name: 'cdp_cyclotron_v2_queued_jobs_lookup_columns_total',
+    help: 'Postgres-v2 jobs queued, split by whether the distinct_id and action_id columns were populated on the row.',
+    labelNames: ['has_distinct_id', 'has_action_id'],
 })
 
 /**
@@ -120,10 +127,28 @@ export class CyclotronJobQueuePostgresV2 {
         try {
             const chunked = chunk(jobs, this.config.CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE)
             if (this.config.CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES) {
-                await Promise.all(chunked.map((batch) => this.manager!.bulkCreateJobs(batch)))
+                await Promise.all(
+                    chunked.map((batch) =>
+                        instrumentFn(
+                            {
+                                key: 'cyclotron_v2.bulk_create_jobs',
+                                sendException: false,
+                                getLoggingContext: () => ({ batchSize: batch.length, parallel: true }),
+                            },
+                            () => this.manager!.bulkCreateJobs(batch)
+                        )
+                    )
+                )
             } else {
                 for (const batch of chunked) {
-                    await this.manager.bulkCreateJobs(batch)
+                    await instrumentFn(
+                        {
+                            key: 'cyclotron_v2.bulk_create_jobs',
+                            sendException: false,
+                            getLoggingContext: () => ({ batchSize: batch.length, parallel: false }),
+                        },
+                        () => this.manager!.bulkCreateJobs(batch)
+                    )
                 }
             }
         } catch (e) {
@@ -214,10 +239,11 @@ function invocationToV2JobInit(invocation: CyclotronJobInvocation): CyclotronV2J
     cdpJobSizeKb.labels('postgres-v2').observe(state.length / 1024)
     cdpJobSizeCompressedKb.labels('postgres-v2').observe(state.length / 1024)
 
-    // Extract distinct_id from invocation state for the top-level column.
-    // Event-triggered workflows have state.event.distinct_id; batch workflows
-    // have state.personId instead. The consumer matches by distinct_id.
-    const distinctId = (invocation.state as any)?.event?.distinct_id || (invocation.state as any)?.personId || null
+    const distinctId = extractDistinctId(invocation)
+    const actionId = extractActionId(invocation)
+    queuedJobsLookupColumnsCounter
+        .labels(distinctId === null ? 'false' : 'true', actionId === null ? 'false' : 'true')
+        .inc()
 
     return {
         id: invocation.id,
@@ -229,7 +255,29 @@ function invocationToV2JobInit(invocation: CyclotronJobInvocation): CyclotronV2J
         parentRunId: invocation.parentRunId ?? null,
         state,
         distinctId,
+        actionId,
     }
+}
+
+/**
+ * Extract distinct_id from invocation state for the top-level column.
+ * Event-triggered hogflow jobs have state.event.distinct_id; batch-triggered
+ * hogflow jobs have state.personId. Generic hog jobs have neither, in which
+ * case the column stays NULL and the partial index excludes the row.
+ */
+export function extractDistinctId(invocation: CyclotronJobInvocation): string | null {
+    const state = invocation.state as { event?: { distinct_id?: string }; personId?: string } | null | undefined
+    return state?.event?.distinct_id || state?.personId || null
+}
+
+/**
+ * Extract action_id (the currently parked workflow step) for the top-level
+ * column. Hogflow jobs carry it in state.currentAction.id; non-hogflow jobs
+ * leave it null.
+ */
+export function extractActionId(invocation: CyclotronJobInvocation): string | null {
+    const state = invocation.state as { currentAction?: { id?: string } } | null | undefined
+    return state?.currentAction?.id || null
 }
 
 function v2JobToInvocation(job: CyclotronV2DequeuedJob): CyclotronJobInvocation {
