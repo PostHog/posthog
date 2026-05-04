@@ -29,6 +29,26 @@ export const CreateSessionSummariesIndividuallyBody = /* @__PURE__ */ zod.object
         .describe('Optional focus area for the summarization'),
 })
 
+/**
+ * Generate AI individual summaries for a batch of sessions via Server-Sent Events. Returns a streaming response where each completed summary is sent as an SSE event. Keepalive comments are sent every 15 seconds to prevent proxy timeouts.
+ */
+export const streamBatchSessionSummariesBodySessionIdsMax = 300
+
+export const streamBatchSessionSummariesBodyFocusAreaMax = 500
+
+export const StreamBatchSessionSummariesBody = /* @__PURE__ */ zod.object({
+    session_ids: zod
+        .array(zod.string())
+        .min(1)
+        .max(streamBatchSessionSummariesBodySessionIdsMax)
+        .describe('List of session IDs to summarize (max 300)'),
+    focus_area: zod
+        .string()
+        .max(streamBatchSessionSummariesBodyFocusAreaMax)
+        .optional()
+        .describe('Optional focus area for the summarization'),
+})
+
 export const sessionRecordingPlaylistsCreateBodyNameMax = 400
 
 export const sessionRecordingPlaylistsCreateBodyDerivedNameMax = 400

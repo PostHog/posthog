@@ -1,12 +1,15 @@
 import os
 import re
+import json
 import asyncio
+from collections.abc import AsyncGenerator
 from datetime import datetime
 from typing import Any, cast
 
 from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
 from django.db.models import Func, IntegerField, QuerySet
+from django.http import StreamingHttpResponse
 
 import structlog
 from asgiref.sync import async_to_sync
@@ -29,6 +32,7 @@ from posthog.models.activity_logging.activity_log import Change, Detail, log_act
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.utils import UUID
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
+from posthog.renderers import ServerSentEventRenderer
 from posthog.temporal.session_replay.session_summary.workflow import execute_summarize_session
 from posthog.temporal.session_replay.session_summary_group.types import SessionSummaryStreamUpdate
 from posthog.temporal.session_replay.session_summary_group.workflow import execute_summarize_session_group
@@ -44,6 +48,7 @@ from ee.hogai.session_summaries.tracking import (
     generate_tracking_id,
 )
 from ee.hogai.session_summaries.utils import logging_session_ids
+from ee.hogai.utils.aio import async_to_sync as async_generator_to_sync
 from ee.models.session_summaries import SessionGroupSummary
 from ee.models.team_session_summaries_config import PRODUCT_CONTEXT_MAX_LENGTH, TeamSessionSummariesConfig
 
@@ -332,6 +337,105 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             raise exceptions.APIException(
                 f"Failed to generate individual session summaries for sessions {logging_session_ids(session_ids)}. Please try again later."
             )
+
+    @extend_schema(
+        operation_id="stream_batch_session_summaries",
+        description=(
+            "Generate AI individual summaries for a batch of sessions via Server-Sent Events. "
+            "Returns a streaming response where each completed summary is sent as an SSE event. "
+            "Keepalive comments are sent every 15 seconds to prevent proxy timeouts."
+        ),
+        request=SessionSummariesSerializer,
+        tags=["replay"],
+    )
+    @action(
+        methods=["POST"],
+        detail=False,
+        url_path="stream_batch",
+        required_scopes=["session_recording:read"],
+        renderer_classes=[ServerSentEventRenderer],
+    )
+    def stream_batch_session_summaries(self, request: Request, **kwargs) -> StreamingHttpResponse:
+        user = self._validate_user(request)
+        session_ids, _, _, extra_summary_context = self._validate_input(request)
+        tracking_id = generate_tracking_id()
+        team = self.team
+
+        capture_session_summary_started(
+            user=user,
+            team=team,
+            tracking_id=tracking_id,
+            summary_source="api",
+            summary_type="single",
+            session_ids=session_ids,
+        )
+
+        async def async_stream() -> AsyncGenerator[bytes, None]:
+            SSE_KEEPALIVE_COMMENT = b": keepalive\n\n"
+            SSE_KEEPALIVE_INTERVAL = 15  # seconds — well under typical LB idle timeouts (60s)
+
+            pending: set[asyncio.Task[tuple[str, SessionSummarySerializer | Exception]]] = set()
+            for session_id in session_ids:
+
+                async def _run(sid: str = session_id) -> tuple[str, SessionSummarySerializer | Exception]:
+                    result = await self._summarize_session(
+                        session_id=sid,
+                        user=user,
+                        team=team,
+                        extra_summary_context=extra_summary_context,
+                    )
+                    return sid, result
+
+                pending.add(asyncio.create_task(_run()))
+
+            completed_ids: list[str] = []
+            failed_ids: list[str] = []
+
+            while pending:
+                done, pending = await asyncio.wait(
+                    pending, timeout=SSE_KEEPALIVE_INTERVAL, return_when=asyncio.FIRST_COMPLETED
+                )
+                if not done:
+                    yield SSE_KEEPALIVE_COMMENT
+                    continue
+
+                for task in done:
+                    sid, result = task.result()
+                    if isinstance(result, Exception):
+                        logger.exception(
+                            f"Failed to generate streaming session summary for session {sid} from team {team.pk} by user {user.id}: {result}",
+                            team_id=team.pk,
+                            user_id=user.id,
+                        )
+                        failed_ids.append(sid)
+                        event_data = json.dumps({"session_id": sid, "error": str(result)})
+                        yield f"event: error\ndata: {event_data}\n\n".encode()
+                    else:
+                        completed_ids.append(sid)
+                        event_data = json.dumps({"session_id": sid, "summary": result.data})
+                        yield f"event: summary\ndata: {event_data}\n\n".encode()
+
+            capture_session_summary_generated(
+                user=user,
+                team=team,
+                tracking_id=tracking_id,
+                summary_source="api",
+                summary_type="single",
+                session_ids=session_ids,
+                success=len(failed_ids) == 0,
+            )
+
+            done_data = json.dumps({"completed": completed_ids, "failed": failed_ids})
+            yield f"event: done\ndata: {done_data}\n\n".encode()
+
+        return StreamingHttpResponse(
+            (async_stream() if settings.SERVER_GATEWAY_INTERFACE == "ASGI" else async_generator_to_sync(async_stream)),
+            content_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+            },
+        )
 
     @extend_schema(
         methods=["GET"],

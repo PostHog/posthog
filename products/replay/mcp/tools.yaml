@@ -139,7 +139,7 @@ tools:
         enabled: false
     session-recording-summarize:
         operation: create_session_summaries_individually
-        enabled: true
+        enabled: false
         scopes:
             - session_recording:read
         annotations:
@@ -175,6 +175,9 @@ tools:
         enabled: false
     session-recordings-update:
         operation: session_recordings_update
+        enabled: false
+    stream-batch-session-summaries:
+        operation: stream_batch_session_summaries
         enabled: false
 wrappers:
     query-session-recordings-list:

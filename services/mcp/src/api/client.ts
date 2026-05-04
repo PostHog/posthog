@@ -176,6 +176,115 @@ export class ApiClient {
         return result.data as T
     }
 
+    /**
+     * SSE event parsed from a text/event-stream response.
+     */
+    async requestSSE<T = unknown>(opts: {
+        method: 'GET' | 'POST'
+        path: string
+        body?: Record<string, unknown>
+        onEvent: (event: string, data: T) => void
+        timeoutMs?: number
+    }): Promise<void> {
+        const url = `${this.baseUrl}${opts.path}`
+        const fetchOptions: RequestInit = {
+            method: opts.method,
+            ...(opts.body ? { body: JSON.stringify(opts.body) } : {}),
+            headers: {
+                Accept: 'text/event-stream',
+            },
+        }
+
+        const response = await this.fetch(url, fetchOptions)
+
+        if (!response.ok) {
+            const errorText = await response.text()
+            throw new Error(
+                `SSE request failed:\nURL: ${opts.method} ${url}\nStatus Code: ${response.status} (${response.statusText})\nError Message: ${errorText}`
+            )
+        }
+
+        if (!response.body) {
+            throw new Error(`SSE response has no body: ${opts.method} ${url}`)
+        }
+
+        const timeoutMs = opts.timeoutMs ?? 8 * 60 * 1000 // 8 minutes default
+        // Per-read timeout: if no data (not even a keepalive) arrives within this
+        // window, assume the server is dead. Must exceed the keepalive interval (15s).
+        const readTimeoutMs = 30_000
+        const startTime = Date.now()
+        const reader = response.body.getReader()
+        const decoder = new TextDecoder()
+        let buffer = ''
+
+        try {
+            while (true) {
+                if (Date.now() - startTime > timeoutMs) {
+                    throw new Error(`SSE stream timed out after ${timeoutMs}ms`)
+                }
+
+                const readResult = await Promise.race([
+                    reader.read(),
+                    new Promise<never>((_, reject) =>
+                        setTimeout(
+                            () => reject(new Error('SSE read timed out — no data received for 30s')),
+                            readTimeoutMs
+                        )
+                    ),
+                ])
+                const { done, value } = readResult
+                if (done) {
+                    break
+                }
+
+                buffer += decoder.decode(value, { stream: true })
+
+                // Parse complete SSE events (separated by double newline)
+                const events = buffer.split('\n\n')
+                // Keep the last incomplete chunk in the buffer
+                buffer = events.pop() ?? ''
+
+                for (const eventBlock of events) {
+                    if (!eventBlock.trim()) {
+                        continue
+                    }
+
+                    // Skip keepalive comments
+                    if (eventBlock.trim().startsWith(':')) {
+                        continue
+                    }
+
+                    let eventType = 'message'
+                    let dataLines: string[] = []
+
+                    for (const line of eventBlock.split('\n')) {
+                        if (line.startsWith('event: ')) {
+                            eventType = line.slice(7).trim()
+                        } else if (line.startsWith('data: ')) {
+                            dataLines.push(line.slice(6))
+                        } else if (line.startsWith(':')) {
+                            // Comment line, skip
+                            continue
+                        }
+                    }
+
+                    if (dataLines.length > 0) {
+                        const rawData = dataLines.join('\n')
+                        try {
+                            const parsed = JSON.parse(rawData) as T
+                            opts.onEvent(eventType, parsed)
+                        } catch {
+                            // Non-JSON data, pass as-is
+                            opts.onEvent(eventType, rawData as T)
+                        }
+                    }
+                }
+            }
+        } finally {
+            reader.releaseLock()
+        }
+    }
+
     private async fetchJson<T>(url: string, options?: RequestInit): Promise<Result<T>> {
         const maxRetries = 3
         const baseBackoffMs = 2000

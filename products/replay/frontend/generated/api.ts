@@ -58,6 +58,26 @@ export const createSessionSummariesIndividually = async (
 }
 
 /**
+ * Generate AI individual summaries for a batch of sessions via Server-Sent Events. Returns a streaming response where each completed summary is sent as an SSE event. Keepalive comments are sent every 15 seconds to prevent proxy timeouts.
+ */
+export const getStreamBatchSessionSummariesUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/session_summaries/stream_batch/`
+}
+
+export const streamBatchSessionSummaries = async (
+    projectId: string,
+    sessionSummariesApi: SessionSummariesApi,
+    options?: RequestInit
+): Promise<SessionSummariesApi> => {
+    return apiMutator<SessionSummariesApi>(getStreamBatchSessionSummariesUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sessionSummariesApi),
+    })
+}
+
+/**
  * Override list to include synthetic playlists
  */
 export const getSessionRecordingPlaylistsListUrl = (
