@@ -334,10 +334,14 @@ def django_db_setup(django_db_setup, django_db_keepdb, django_db_blocker):
 @pytest.fixture(autouse=True)
 def patch_flush_command_for_persons_db(monkeypatch):
     """
-    Patch Django's flush command to handle persons database properly.
+    Patch Django's flush command for two reasons:
 
-    Persons database doesn't have Django's built-in tables (contenttypes, permissions, etc.),
-    so we need to skip emitting post_migrate signals that would try to create them.
+    1. Persons database doesn't have Django's built-in tables (contenttypes,
+       permissions), so we skip post_migrate signals by truncating manually.
+
+    2. The schema cache can be newer than the branch code, introducing tables
+       Django doesn't know about. CASCADE lets TRUNCATE succeed even when
+       unknown FK constraints reference a table being flushed.
 
     This is needed for non-Django test classes (pytest, temporal, async tests).
     Django test classes handle this in _fixture_teardown in test/base.py.
@@ -362,6 +366,7 @@ def patch_flush_command_for_persons_db(monkeypatch):
                 if tables:
                     cursor.execute(f"TRUNCATE TABLE {', '.join(tables)} RESTART IDENTITY CASCADE")
         else:
+            options["allow_cascade"] = True
             return original_handle(self, **options)
 
     monkeypatch.setattr(FlushCommand, "handle", patched_handle)
