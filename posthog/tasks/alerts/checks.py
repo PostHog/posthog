@@ -370,7 +370,7 @@ def dispatch_alert_firing_realtime_notification(alert: AlertConfiguration, breac
                     resource_id=str(alert.insight.short_id),
                     source_url=source_url,
                     source_type=SourceType.INSIGHT,
-                    source_id=str(alert.insight_id),
+                    source_id=str(alert.insight.short_id),
                 )
             )
     except Exception:
