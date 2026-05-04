@@ -1316,7 +1316,13 @@ class InsightViewSet(
         span.set_attribute("posthog.basic", self._is_basic_request())
         span.set_attribute("posthog.saved", str_to_bool(request.query_params.get("saved", "0")))
         span.set_attribute("posthog.order", request.query_params.get("order", ""))
-        return super().list(request, *args, **kwargs)
+        response = super().list(request, *args, **kwargs)
+        if request.query_params.get("search"):
+            data = response.data if isinstance(response.data, dict) else {}
+            results_len = len(data.get("results", [])) if "results" in data else 0
+            span.set_attribute("insight.search.result_count", results_len)
+            span.set_attribute("insight.search.empty", results_len == 0)
+        return response
 
     def paginate_queryset(self, queryset):
         page = super().paginate_queryset(queryset)
@@ -1526,8 +1532,11 @@ class InsightViewSet(
         return Response(data=data, status=status.HTTP_200_OK)
 
     @staticmethod
+    @tracer.start_as_current_span("InsightViewSet._apply_search")
     def _apply_search(queryset: QuerySet, search: str) -> QuerySet:
         search = search.replace("\x00", "").strip()
+        span = trace.get_current_span()
+        span.set_attribute("insight.search.length", len(search))
         if not search:
             return queryset
 
