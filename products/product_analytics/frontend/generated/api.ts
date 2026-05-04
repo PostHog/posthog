@@ -39,6 +39,7 @@ import type {
     PatchedColumnConfigurationApi,
     PatchedElementApi,
     PatchedInsightApi,
+    TrendingInsightApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -864,8 +865,7 @@ export const insightsMyLastViewedRetrieve = async (
 }
 
 /**
- * Returns trending insights based on view count in the last N days (default 7).
-Defaults to returning top 10 insights.
+ * Returns insights ranked by view count over the last N days (default 7), highest first. Each result includes the same metadata as the standard insights list, plus a `view_count` and up to 3 recent `viewers`. Useful for surfacing the most-used insights in a project.
  */
 export const getInsightsTrendingRetrieveUrl = (projectId: string, params?: InsightsTrendingRetrieveParams) => {
     const normalizedParams = new URLSearchParams()
@@ -887,8 +887,8 @@ export const insightsTrendingRetrieve = async (
     projectId: string,
     params?: InsightsTrendingRetrieveParams,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getInsightsTrendingRetrieveUrl(projectId, params), {
+): Promise<TrendingInsightApi[]> => {
+    return apiMutator<TrendingInsightApi[]>(getInsightsTrendingRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

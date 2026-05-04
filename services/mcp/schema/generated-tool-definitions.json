@@ -2084,6 +2084,21 @@
             "readOnlyHint": true
         }
     },
+    "insights-trending-retrieve": {
+        "description": "Returns the most-viewed insights in the project, ranked by view count over the last N days (default 7). Use this to surface the insights that matter most to the team — the ones people actually open. Each result includes standard insight metadata plus `view_count` and up to 3 recent `viewers`. Returns metadata only — call `insight-query` with the returned `short_id` to fetch the actual data for any of them.",
+        "category": "Product analytics",
+        "feature": "product_analytics",
+        "summary": "Get most-viewed insights",
+        "title": "Get most-viewed insights",
+        "required_scopes": ["insight:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "integration-delete": {
         "description": "Permanently delete an integration by ID. This removes the connection to the third-party service. Any features relying on this integration (alerts, workflow destinations, etc.) will stop working.",
         "category": "Integrations",

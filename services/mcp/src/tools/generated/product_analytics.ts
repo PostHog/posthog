@@ -10,6 +10,7 @@ import {
     InsightsPartialUpdateParams,
     InsightsRetrieveParams,
     InsightsRetrieveQueryParams,
+    InsightsTrendingRetrieveQueryParams,
 } from '@/generated/product_analytics/api'
 import { withPostHogUrl, omitResponseFields, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
@@ -326,10 +327,51 @@ const insightsList = (): ToolBase<typeof InsightsListSchema, WithPostHogUrl<Sche
     },
 })
 
+const InsightsTrendingRetrieveSchema = InsightsTrendingRetrieveQueryParams.omit({ format: true })
+
+const insightsTrendingRetrieve = (): ToolBase<
+    typeof InsightsTrendingRetrieveSchema,
+    WithPostHogUrl<Schemas.TrendingInsight[]>
+> => ({
+    name: 'insights-trending-retrieve',
+    schema: InsightsTrendingRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof InsightsTrendingRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.TrendingInsight[]>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/insights/trending/`,
+            query: {
+                days: params.days,
+                limit: params.limit,
+                short_id: params.short_id,
+            },
+        })
+        const filtered = pickResponseFields(result, [
+            'id',
+            'short_id',
+            'name',
+            'derived_name',
+            'description',
+            'tags',
+            'favorited',
+            'dashboards',
+            'created_at',
+            'created_by',
+            'last_modified_at',
+            'last_modified_by',
+            'last_viewed_at',
+            'view_count',
+            'viewers',
+        ]) as typeof result
+        return await withPostHogUrl(context, filtered, `/insights/${filtered.short_id}`)
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'insight-create': insightCreate,
     'insight-delete': insightDelete,
     'insight-get': insightGet,
     'insight-update': insightUpdate,
     'insights-list': insightsList,
+    'insights-trending-retrieve': insightsTrendingRetrieve,
 }

@@ -9790,6 +9790,53 @@ export interface BulkUpdateTagsResponseApi {
     skipped: BulkUpdateTagsErrorApi[]
 }
 
+/**
+ * Insight enriched with view-count and recent-viewer fields, used by the trending action.
+ */
+export interface TrendingInsightApi {
+    readonly id: number
+    readonly short_id: string
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    derived_name?: string | null
+    query?: unknown | null
+    readonly dashboards: readonly number[]
+    readonly dashboard_tiles: readonly DashboardTileBasicApi[]
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    description?: string | null
+    /** @nullable */
+    readonly last_refresh: string | null
+    readonly refreshing: boolean
+    tags?: unknown[]
+    readonly updated_at: string
+    readonly created_by: UserBasicApi
+    /** @nullable */
+    readonly created_at: string | null
+    last_modified_at?: string
+    favorited?: boolean
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
+    /** @nullable */
+    readonly last_viewed_at: string | null
+    /** Number of distinct viewers in the time window. Higher values indicate insights that more people in the project actively look at, which is a strong proxy for which insights matter. */
+    readonly view_count: number
+    /** Up to 3 of the most recent users who viewed this insight in the time window. */
+    readonly viewers: readonly UserBasicApi[]
+}
+
 export type ColumnConfigurationsListParams = {
     /**
      * Number of results to return per page.
@@ -10130,7 +10177,16 @@ export const InsightsMyLastViewedRetrieveFormat = {
 } as const
 
 export type InsightsTrendingRetrieveParams = {
+    /**
+     * Time window in days to compute view counts over. Defaults to 7. Larger windows surface consistently popular insights; smaller windows surface what's hot right now.
+     */
+    days?: number
     format?: InsightsTrendingRetrieveFormat
+    /**
+     * Maximum number of insights to return. Defaults to 10. Capped at 100.
+     */
+    limit?: number
+    short_id?: string
 }
 
 export type InsightsTrendingRetrieveFormat =

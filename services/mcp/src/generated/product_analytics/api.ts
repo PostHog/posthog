@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 5 enabled ops
+ * PostHog API - MCP 6 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -286,4 +286,27 @@ export const InsightsDestroyParams = /* @__PURE__ */ zod.object({
 
 export const InsightsDestroyQueryParams = /* @__PURE__ */ zod.object({
     format: zod.enum(['csv', 'json']).optional(),
+})
+
+/**
+ * Returns insights ranked by view count over the last N days (default 7), highest first. Each result includes the same metadata as the standard insights list, plus a `view_count` and up to 3 recent `viewers`. Useful for surfacing the most-used insights in a project.
+ */
+export const InsightsTrendingRetrieveParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const InsightsTrendingRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    days: zod
+        .number()
+        .optional()
+        .describe(
+            "Time window in days to compute view counts over. Defaults to 7. Larger windows surface consistently popular insights; smaller windows surface what's hot right now."
+        ),
+    format: zod.enum(['csv', 'json']).optional(),
+    limit: zod.number().optional().describe('Maximum number of insights to return. Defaults to 10. Capped at 100.'),
+    short_id: zod.string().optional(),
 })
