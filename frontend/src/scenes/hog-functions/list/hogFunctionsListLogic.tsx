@@ -152,7 +152,11 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
         loading: [(s) => [s.hogFunctionsLoading], (hogFunctionsLoading) => hogFunctionsLoading],
         sortedHogFunctions: [
             (s) => [s.hogFunctions, s.filters, (_, props) => props.manualFunctions ?? EMPTY_MANUAL_FUNCTIONS],
-            (hogFunctions, filters, manualFunctions): HogFunctionType[] => {
+            (
+                hogFunctions: HogFunctionType[],
+                filters: HogFunctionListFilters,
+                manualFunctions: HogFunctionType[]
+            ): HogFunctionType[] => {
                 const search = filters.search?.trim().toLowerCase()
                 const filteredManual = search
                     ? manualFunctions.filter(
