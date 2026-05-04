@@ -2,6 +2,7 @@ import { BreakPointFunction, actions, afterMount, kea, key, listeners, path, pro
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { getInsightId } from 'scenes/insights/utils'
 
@@ -22,6 +23,9 @@ export const subscriptionsLogic = kea<subscriptionsLogicType>([
         deliverSubscription: (id: number) => ({ id }),
         deliverSubscriptionSuccess: true,
         deliverSubscriptionFailure: true,
+        setSubscriptionEnabled: (id: number, enabled: boolean) => ({ id, enabled }),
+        setSubscriptionEnabledSuccess: (id: number, enabled: boolean) => ({ id, enabled }),
+        setSubscriptionEnabledFailure: (detail: string | null) => ({ detail }),
     }),
 
     loaders(({ props }) => ({
@@ -57,6 +61,14 @@ export const subscriptionsLogic = kea<subscriptionsLogicType>([
                 deliverSubscriptionFailure: () => null,
             },
         ],
+        togglingEnabledId: [
+            null as number | null,
+            {
+                setSubscriptionEnabled: (_, { id }) => id,
+                setSubscriptionEnabledSuccess: () => null,
+                setSubscriptionEnabledFailure: () => null,
+            },
+        ],
     }),
 
     listeners(({ actions }) => ({
@@ -74,6 +86,22 @@ export const subscriptionsLogic = kea<subscriptionsLogicType>([
             } else {
                 actions.deliverSubscriptionFailure()
             }
+        },
+        setSubscriptionEnabled: async ({ id, enabled }) => {
+            try {
+                await api.subscriptions.update(id, { enabled })
+                actions.setSubscriptionEnabledSuccess(id, enabled)
+            } catch (e: any) {
+                const detail = typeof e?.detail === 'string' ? e.detail : null
+                actions.setSubscriptionEnabledFailure(detail)
+            }
+        },
+        setSubscriptionEnabledSuccess: ({ enabled }) => {
+            lemonToast.success(enabled ? 'Subscription enabled' : 'Subscription disabled')
+            actions.loadSubscriptions()
+        },
+        setSubscriptionEnabledFailure: ({ detail }) => {
+            lemonToast.error(detail ?? 'Could not update subscription')
         },
     })),
 

@@ -23,7 +23,9 @@ interface SubscriptionListItemProps {
     onClick: () => void
     onDelete?: () => void
     onDeliver?: () => void
+    onToggleEnabled?: (enabled: boolean) => void
     isDelivering?: boolean
+    isToggling?: boolean
 }
 
 export function SubscriptionListItem({
@@ -31,10 +33,13 @@ export function SubscriptionListItem({
     onClick,
     onDelete,
     onDeliver,
+    onToggleEnabled,
     isDelivering,
+    isToggling,
 }: SubscriptionListItemProps): JSX.Element {
     const selectedInsightsCount = subscription.dashboard_export_insights?.length
     const enabled = isSubscriptionEnabled(subscription)
+    const sideActionBusy = isDelivering || isToggling
 
     return (
         <LemonButton
@@ -43,11 +48,21 @@ export function SubscriptionListItem({
             data-attr="subscription-list-item"
             fullWidth
             sideAction={{
-                icon: isDelivering ? <Spinner /> : <IconEllipsis />,
-                disabled: isDelivering,
+                icon: sideActionBusy ? <Spinner /> : <IconEllipsis />,
+                disabled: sideActionBusy,
                 dropdown: {
                     overlay: (
                         <>
+                            {onToggleEnabled && (
+                                <LemonButton
+                                    onClick={() => onToggleEnabled(!enabled)}
+                                    data-attr="subscription-list-item-toggle-enabled"
+                                    fullWidth
+                                    disabled={isToggling}
+                                >
+                                    {enabled ? 'Disable subscription' : 'Enable subscription'}
+                                </LemonButton>
+                            )}
                             {onDeliver && enabled && (
                                 <LemonButton
                                     onClick={onDeliver}
@@ -120,8 +135,8 @@ export function ManageSubscriptions({
         dashboardId,
     })
 
-    const { subscriptions, subscriptionsLoading, deliveringSubscriptionId } = useValues(logic)
-    const { deleteSubscription, deliverSubscription } = useActions(logic)
+    const { subscriptions, subscriptionsLoading, deliveringSubscriptionId, togglingEnabledId } = useValues(logic)
+    const { deleteSubscription, deliverSubscription, setSubscriptionEnabled } = useActions(logic)
 
     const subscriptionResourceNoun = !insightShortId && dashboardId ? 'dashboard' : 'insight'
 
@@ -151,7 +166,9 @@ export function ManageSubscriptions({
                                     onClick={() => onSelect(sub.id)}
                                     onDelete={() => deleteSubscription(sub.id)}
                                     onDeliver={() => deliverSubscription(sub.id)}
+                                    onToggleEnabled={(enabled) => setSubscriptionEnabled(sub.id, enabled)}
                                     isDelivering={deliveringSubscriptionId === sub.id}
+                                    isToggling={togglingEnabledId === sub.id}
                                 />
                             ))}
                         </div>

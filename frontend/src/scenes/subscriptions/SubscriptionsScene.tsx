@@ -58,12 +58,16 @@ function SubscriptionsRowActions({ sub }: { sub: SubscriptionApi }): JSX.Element
                     disabledReason: isToggling ? 'Updating…' : null,
                     onClick: () => setSubscriptionEnabled(sub.id, !enabled),
                 },
-                {
-                    label: 'Test delivery',
-                    'data-attr': 'subscription-list-item-manual-deliver',
-                    disabledReason: isDelivering ? 'Sending test delivery…' : null,
-                    onClick: () => deliverSubscription(sub.id),
-                },
+                ...(enabled
+                    ? [
+                          {
+                              label: 'Test delivery',
+                              'data-attr': 'subscription-list-item-manual-deliver',
+                              disabledReason: isDelivering ? 'Sending test delivery…' : null,
+                              onClick: () => deliverSubscription(sub.id),
+                          },
+                      ]
+                    : []),
                 {
                     label: 'Delete',
                     status: 'danger' as const,
