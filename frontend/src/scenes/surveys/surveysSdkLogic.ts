@@ -1,6 +1,6 @@
 import { connect, kea, path, selectors } from 'kea'
 
-import { sdkDoctorLogic } from '~/scenes/onboarding/sdks/sdkDoctorLogic'
+import { sdkDoctorLogic } from 'products/growth/frontend/onboarding/sdks/sdkDoctorLogic'
 
 import type { surveysSdkLogicType } from './surveysSdkLogicType'
 import { TeamSdkVersions } from './surveyVersionRequirements'

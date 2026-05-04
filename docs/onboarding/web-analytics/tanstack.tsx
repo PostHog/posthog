@@ -1,4 +1,7 @@
-import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import {
+    OnboardingComponentsContext,
+    createInstallation,
+} from 'products/growth/frontend/onboarding/OnboardingDocsContentWrapper'
 
 import { getTanStackSteps as getTanStackStepsPA } from '../product-analytics/tanstack'
 import { StepDefinition } from '../steps'

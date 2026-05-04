@@ -19,7 +19,6 @@ import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { toSentenceCase } from 'lib/utils'
 import { couponLogic } from 'scenes/coupons/couponLogic'
-import { getProductIcon } from 'scenes/onboarding/utils'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -27,6 +26,8 @@ import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { BillingProductV2Type } from '~/types'
+
+import { getProductIcon } from 'products/growth/frontend/onboarding/flow/utils'
 
 import { BillingHero } from './BillingHero'
 import { billingLogic } from './billingLogic'

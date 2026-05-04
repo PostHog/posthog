@@ -1,9 +1,9 @@
-import { AnthropicLogo } from 'scenes/onboarding/sdks/logos/AnthropicLogo'
-import geminiImage from 'scenes/onboarding/sdks/logos/gemini.svg'
-import { OpenAILogo } from 'scenes/onboarding/sdks/logos/OpenAILogo'
-import { OpenRouterLogo } from 'scenes/onboarding/sdks/logos/OpenRouterLogo'
-
 import azureImage from 'public/services/azure.png'
+
+import { AnthropicLogo } from 'products/growth/frontend/onboarding/sdks/logos/AnthropicLogo'
+import geminiImage from 'products/growth/frontend/onboarding/sdks/logos/gemini.svg'
+import { OpenAILogo } from 'products/growth/frontend/onboarding/sdks/logos/OpenAILogo'
+import { OpenRouterLogo } from 'products/growth/frontend/onboarding/sdks/logos/OpenRouterLogo'
 
 import { LLMProvider, LLM_PROVIDER_LABELS } from './settings/llmProviderKeysLogic'
 

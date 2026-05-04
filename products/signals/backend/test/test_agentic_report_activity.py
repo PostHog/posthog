@@ -62,7 +62,7 @@ def _build_research_output() -> ReportResearchOutput:
         findings=[
             SignalFinding(
                 signal_id="sig-1",
-                relevant_code_paths=["frontend/src/scenes/onboarding/OnboardingFlow.tsx"],
+                relevant_code_paths=["products/growth/frontend/onboarding/OnboardingFlow.tsx"],
                 data_queried="Checked onboarding_completed volume in recent events; it dropped 38% week over week.",
                 verified=True,
             ),

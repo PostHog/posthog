@@ -1,4 +1,7 @@
-import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import {
+    OnboardingComponentsContext,
+    createInstallation,
+} from 'products/growth/frontend/onboarding/OnboardingDocsContentWrapper'
 
 import { getRemixSteps as getRemixStepsPA } from '../product-analytics/remix'
 import { StepDefinition } from '../steps'

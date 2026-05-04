@@ -1,4 +1,4 @@
-import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { useMDXComponents } from 'products/growth/frontend/onboarding/OnboardingDocsContentWrapper'
 
 export const SurveysFinalSteps = (): JSX.Element => {
     const { Markdown, dedent } = useMDXComponents()

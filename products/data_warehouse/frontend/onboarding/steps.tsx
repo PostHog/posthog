@@ -1,8 +1,8 @@
-import { OnboardingDataWarehouseSourcesStep } from 'scenes/onboarding/data-warehouse/OnboardingDataWarehouseSourcesStep'
-import { type ProductOnboardingProvider } from 'scenes/onboarding/types'
-
 import { ProductKey } from '~/queries/schema/schema-general'
 import { OnboardingStepKey } from '~/types'
+
+import { OnboardingDataWarehouseSourcesStep } from 'products/growth/frontend/onboarding/data-warehouse/OnboardingDataWarehouseSourcesStep'
+import { type ProductOnboardingProvider } from 'products/growth/frontend/onboarding/flow/types'
 
 // `completeRedirectUrl` intentionally omitted: data warehouse falls through to
 // urls.default() — same behaviour as the original central switch.

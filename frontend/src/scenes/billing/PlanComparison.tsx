@@ -11,9 +11,10 @@ import { LemonModal, LemonTag, Link } from '@posthog/lemon-ui'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { getProductIcon } from 'scenes/onboarding/utils'
 
 import { BillingFeatureType, BillingPlanType, BillingProductV2AddonType, BillingProductV2Type } from '~/types'
+
+import { getProductIcon } from 'products/growth/frontend/onboarding/flow/utils'
 
 import { convertLargeNumberToWords, getProration } from './billing-utils'
 import { billingLogic } from './billingLogic'

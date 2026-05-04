@@ -6,9 +6,10 @@ import { IconCheckCircle, IconInfo } from '@posthog/icons'
 import { LemonSelectOptions, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { humanFriendlyCurrency } from 'lib/utils'
-import { getProductIcon } from 'scenes/onboarding/utils'
 
 import { BillingProductV2AddonType } from '~/types'
+
+import { getProductIcon } from 'products/growth/frontend/onboarding/flow/utils'
 
 import { isProductVariantSecondary } from './billing-utils'
 import { BillingAddonFeaturesList } from './BillingAddonFeaturesList'

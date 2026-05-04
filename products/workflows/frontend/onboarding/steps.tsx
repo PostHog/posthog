@@ -1,17 +1,18 @@
 import { LemonBanner, Link } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { OnboardingInstallStep } from 'scenes/onboarding/sdks/OnboardingInstallStep'
-import { useWizardCommand } from 'scenes/onboarding/sdks/sdk-install-instructions/components/SetupWizardBanner'
-import {
-    WorkflowsSDKInstructions,
-    WorkflowsSDKTagOverrides,
-} from 'scenes/onboarding/sdks/workflows/WorkflowsSDKInstructions'
-import { type ProductOnboardingProvider } from 'scenes/onboarding/types'
 import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { OnboardingStepKey } from '~/types'
+
+import { type ProductOnboardingProvider } from 'products/growth/frontend/onboarding/flow/types'
+import { OnboardingInstallStep } from 'products/growth/frontend/onboarding/sdks/OnboardingInstallStep'
+import { useWizardCommand } from 'products/growth/frontend/onboarding/sdks/sdk-install-instructions/components/SetupWizardBanner'
+import {
+    WorkflowsSDKInstructions,
+    WorkflowsSDKTagOverrides,
+} from 'products/growth/frontend/onboarding/sdks/workflows/WorkflowsSDKInstructions'
 
 const WorkflowsInstallHeader = (): JSX.Element => {
     const { wizardCommand, isCloudOrDev } = useWizardCommand()

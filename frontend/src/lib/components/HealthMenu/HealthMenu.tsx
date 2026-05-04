@@ -12,7 +12,8 @@ import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
 import { urls } from 'scenes/urls'
 
 import { pipelineHealthLogic } from '~/scenes/health/pipelineStatus/pipelineHealthLogic'
-import { sdkDoctorLogic } from '~/scenes/onboarding/sdks/sdkDoctorLogic'
+
+import { sdkDoctorLogic } from 'products/growth/frontend/onboarding/sdks/sdkDoctorLogic'
 
 import { RenderKeybind } from '../AppShortcuts/AppShortcutMenu'
 import { keyBinds } from '../AppShortcuts/shortcuts'

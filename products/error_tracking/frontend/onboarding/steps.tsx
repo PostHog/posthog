@@ -1,13 +1,14 @@
 import { SetupTaskId } from 'lib/components/ProductSetup'
-import { OnboardingErrorTrackingAlertsStep } from 'scenes/onboarding/error-tracking/OnboardingErrorTrackingAlertsStep'
-import { OnboardingErrorTrackingSourceMapsStep } from 'scenes/onboarding/error-tracking/OnboardingErrorTrackingSourceMapsStep'
-import { ErrorTrackingSDKInstructions } from 'scenes/onboarding/sdks/error-tracking/ErrorTrackingSDKInstructions'
-import { OnboardingInstallStep } from 'scenes/onboarding/sdks/OnboardingInstallStep'
-import { INSTALL_DEDUP_KEYS, type ProductOnboardingProvider } from 'scenes/onboarding/types'
 import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { OnboardingStepKey } from '~/types'
+
+import { OnboardingErrorTrackingAlertsStep } from 'products/growth/frontend/onboarding/error-tracking/OnboardingErrorTrackingAlertsStep'
+import { OnboardingErrorTrackingSourceMapsStep } from 'products/growth/frontend/onboarding/error-tracking/OnboardingErrorTrackingSourceMapsStep'
+import { INSTALL_DEDUP_KEYS, type ProductOnboardingProvider } from 'products/growth/frontend/onboarding/flow/types'
+import { ErrorTrackingSDKInstructions } from 'products/growth/frontend/onboarding/sdks/error-tracking/ErrorTrackingSDKInstructions'
+import { OnboardingInstallStep } from 'products/growth/frontend/onboarding/sdks/OnboardingInstallStep'
 
 export const errorTrackingOnboarding: ProductOnboardingProvider = {
     steps: (ctx) => {

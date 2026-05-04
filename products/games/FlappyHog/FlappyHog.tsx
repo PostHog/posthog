@@ -1,4 +1,4 @@
-import { FlappyHogGame } from 'scenes/onboarding/FlappyHog'
+import { FlappyHogGame } from 'products/growth/frontend/onboarding/steps/FlappyHog'
 
 const FlappyHogPage: React.FC = () => {
     return (

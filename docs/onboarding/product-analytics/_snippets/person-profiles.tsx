@@ -1,6 +1,6 @@
 import { memo } from 'react'
 
-import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { useMDXComponents } from 'products/growth/frontend/onboarding/OnboardingDocsContentWrapper'
 
 interface PersonProfilesProps {
     language?: string

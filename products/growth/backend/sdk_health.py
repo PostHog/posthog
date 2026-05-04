@@ -1,7 +1,7 @@
 """
 SDK Doctor health assessment.
 
-Ports the outdatedness detection logic from frontend/src/scenes/onboarding/sdks/sdkDoctorLogic.tsx
+Ports the outdatedness detection logic from products/growth/frontend/onboarding/sdks/sdkDoctorLogic.tsx
 so the backend can return a pre-digested health report for MCP / agent consumption.
 
 Keep constants and thresholds in sync with the frontend's DEVICE_CONTEXT_CONFIG,
@@ -333,8 +333,8 @@ def _released_ago(release_date_iso: Optional[str], now: Optional[datetime] = Non
 # --- UI-parity string/URL builders -----------------------------------------
 #
 # These mirror the copy and link construction in
-# frontend/src/scenes/onboarding/sdks/SdkDoctorComponents.tsx and
-# frontend/src/scenes/onboarding/sdks/SdkDoctorScene.tsx.
+# products/growth/frontend/onboarding/sdks/SdkDoctorComponents.tsx and
+# products/growth/frontend/onboarding/sdks/SdkDoctorScene.tsx.
 # Keep these in sync when UI copy or the Activity/SQL URL shape changes.
 
 

@@ -1,4 +1,7 @@
-import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import {
+    OnboardingComponentsContext,
+    createInstallation,
+} from 'products/growth/frontend/onboarding/OnboardingDocsContentWrapper'
 
 import { getGoogleTagManagerSteps as getGoogleTagManagerStepsPA } from '../product-analytics/google-tag-manager'
 import { StepDefinition } from '../steps'

@@ -1,14 +1,15 @@
 import { SetupTaskId } from 'lib/components/ProductSetup'
-import { OnboardingProductConfiguration } from 'scenes/onboarding/OnboardingProductConfiguration'
-import { type ProductConfigOption } from 'scenes/onboarding/onboardingProductConfigurationLogic'
-import { OnboardingInstallStep } from 'scenes/onboarding/sdks/OnboardingInstallStep'
-import { WebAnalyticsSDKInstructions } from 'scenes/onboarding/sdks/web-analytics/WebAnalyticsSDKInstructions'
-import { INSTALL_DEDUP_KEYS, type ProductOnboardingProvider } from 'scenes/onboarding/types'
-import { OnboardingWebAnalyticsAuthorizedDomainsStep } from 'scenes/onboarding/web-analytics/OnboardingWebAnalyticsAuthorizedDomainsStep'
 import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { OnboardingStepKey, type TeamPublicType, type TeamType } from '~/types'
+
+import { INSTALL_DEDUP_KEYS, type ProductOnboardingProvider } from 'products/growth/frontend/onboarding/flow/types'
+import { OnboardingInstallStep } from 'products/growth/frontend/onboarding/sdks/OnboardingInstallStep'
+import { WebAnalyticsSDKInstructions } from 'products/growth/frontend/onboarding/sdks/web-analytics/WebAnalyticsSDKInstructions'
+import { OnboardingProductConfiguration } from 'products/growth/frontend/onboarding/steps/OnboardingProductConfiguration'
+import { type ProductConfigOption } from 'products/growth/frontend/onboarding/steps/onboardingProductConfigurationLogic'
+import { OnboardingWebAnalyticsAuthorizedDomainsStep } from 'products/growth/frontend/onboarding/web-analytics/OnboardingWebAnalyticsAuthorizedDomainsStep'
 
 // Helper preserved from Onboarding.tsx — lives here because only Web Analytics + Product
 // Analytics use it as part of their config; productAnalytics will import it from there.

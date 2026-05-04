@@ -1,9 +1,9 @@
-import { ExperimentsSDKInstructions } from 'scenes/onboarding/sdks/experiments/ExperimentsSDKInstructions'
-import { OnboardingInstallStep } from 'scenes/onboarding/sdks/OnboardingInstallStep'
-import { INSTALL_DEDUP_KEYS, type ProductOnboardingProvider } from 'scenes/onboarding/types'
-
 import { ProductKey } from '~/queries/schema/schema-general'
 import { OnboardingStepKey } from '~/types'
+
+import { INSTALL_DEDUP_KEYS, type ProductOnboardingProvider } from 'products/growth/frontend/onboarding/flow/types'
+import { ExperimentsSDKInstructions } from 'products/growth/frontend/onboarding/sdks/experiments/ExperimentsSDKInstructions'
+import { OnboardingInstallStep } from 'products/growth/frontend/onboarding/sdks/OnboardingInstallStep'
 
 // `completeRedirectUrl` intentionally omitted: experiments falls through to
 // urls.default() (no curated post-onboarding landing page yet).

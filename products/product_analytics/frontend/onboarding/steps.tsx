@@ -2,19 +2,20 @@ import { useValues } from 'kea'
 
 import { SetupTaskId } from 'lib/components/ProductSetup'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
-import { OnboardingProductConfiguration } from 'scenes/onboarding/OnboardingProductConfiguration'
-import { type ProductConfigOption } from 'scenes/onboarding/onboardingProductConfigurationLogic'
-import { OnboardingSessionReplayConfiguration } from 'scenes/onboarding/OnboardingSessionReplayConfiguration'
-import { OnboardingInstallStep } from 'scenes/onboarding/sdks/OnboardingInstallStep'
-import {
-    ProductAnalyticsSDKInstructions,
-    ProductAnalyticsSDKTagOverrides,
-} from 'scenes/onboarding/sdks/product-analytics/ProductAnalyticsSDKInstructions'
-import { INSTALL_DEDUP_KEYS, type ProductOnboardingProvider } from 'scenes/onboarding/types'
 import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { OnboardingStepKey, type TeamPublicType, type TeamType } from '~/types'
+
+import { INSTALL_DEDUP_KEYS, type ProductOnboardingProvider } from 'products/growth/frontend/onboarding/flow/types'
+import { OnboardingInstallStep } from 'products/growth/frontend/onboarding/sdks/OnboardingInstallStep'
+import {
+    ProductAnalyticsSDKInstructions,
+    ProductAnalyticsSDKTagOverrides,
+} from 'products/growth/frontend/onboarding/sdks/product-analytics/ProductAnalyticsSDKInstructions'
+import { OnboardingProductConfiguration } from 'products/growth/frontend/onboarding/steps/OnboardingProductConfiguration'
+import { type ProductConfigOption } from 'products/growth/frontend/onboarding/steps/onboardingProductConfigurationLogic'
+import { OnboardingSessionReplayConfiguration } from 'products/growth/frontend/onboarding/steps/OnboardingSessionReplayConfiguration'
 
 const sessionReplayOnboardingToggle = (
     currentTeam: TeamType | TeamPublicType | null,

@@ -39,12 +39,13 @@ import {
 import type { StepDefinition } from '@posthog/shared-onboarding/steps'
 
 import { Link } from 'lib/lemon-ui/Link'
-import { OnboardingDocsContentWrapper } from 'scenes/onboarding/OnboardingDocsContentWrapper'
-import SetupWizardBanner from 'scenes/onboarding/sdks/sdk-install-instructions/components/SetupWizardBanner'
-import { JS_WEB_SNIPPETS } from 'scenes/onboarding/sdks/shared/jsWebSnippets'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { SDKKey } from '~/types'
+
+import { OnboardingDocsContentWrapper } from 'products/growth/frontend/onboarding/OnboardingDocsContentWrapper'
+import SetupWizardBanner from 'products/growth/frontend/onboarding/sdks/sdk-install-instructions/components/SetupWizardBanner'
+import { JS_WEB_SNIPPETS } from 'products/growth/frontend/onboarding/sdks/shared/jsWebSnippets'
 const NODE_SNIPPETS = { NodeEventCapture }
 const PYTHON_SNIPPETS = { PythonEventCapture }
 

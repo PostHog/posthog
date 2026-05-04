@@ -2,11 +2,6 @@ import { useValues } from 'kea'
 
 import { SetupTaskId } from 'lib/components/ProductSetup'
 import { SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
-import { OnboardingProductConfiguration } from 'scenes/onboarding/OnboardingProductConfiguration'
-import { type ProductConfigOption } from 'scenes/onboarding/onboardingProductConfigurationLogic'
-import { OnboardingInstallStep } from 'scenes/onboarding/sdks/OnboardingInstallStep'
-import { SessionReplaySDKInstructions } from 'scenes/onboarding/sdks/session-replay/SessionReplaySDKInstructions'
-import { INSTALL_DEDUP_KEYS, type ProductOnboardingProvider } from 'scenes/onboarding/types'
 import { getMaskingConfigFromLevel, getMaskingLevelFromConfig } from 'scenes/session-recordings/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -14,6 +9,12 @@ import { userLogic } from 'scenes/userLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AvailableFeature, OnboardingStepKey, type SessionRecordingMaskingLevel } from '~/types'
+
+import { INSTALL_DEDUP_KEYS, type ProductOnboardingProvider } from 'products/growth/frontend/onboarding/flow/types'
+import { OnboardingInstallStep } from 'products/growth/frontend/onboarding/sdks/OnboardingInstallStep'
+import { SessionReplaySDKInstructions } from 'products/growth/frontend/onboarding/sdks/session-replay/SessionReplaySDKInstructions'
+import { OnboardingProductConfiguration } from 'products/growth/frontend/onboarding/steps/OnboardingProductConfiguration'
+import { type ProductConfigOption } from 'products/growth/frontend/onboarding/steps/onboardingProductConfigurationLogic'
 
 const SessionReplayConfigStep = (): JSX.Element => {
     const { hasAvailableFeature } = useValues(userLogic)

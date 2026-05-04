@@ -1,14 +1,15 @@
 import { SetupTaskId } from 'lib/components/ProductSetup'
-import {
-    LLMAnalyticsSDKInstructions,
-    LLMAnalyticsSDKTagOverrides,
-} from 'scenes/onboarding/sdks/llm-analytics/LLMAnalyticsSDKInstructions'
-import { OnboardingInstallStep } from 'scenes/onboarding/sdks/OnboardingInstallStep'
-import { type ProductOnboardingProvider } from 'scenes/onboarding/types'
 import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { OnboardingStepKey } from '~/types'
+
+import { type ProductOnboardingProvider } from 'products/growth/frontend/onboarding/flow/types'
+import {
+    LLMAnalyticsSDKInstructions,
+    LLMAnalyticsSDKTagOverrides,
+} from 'products/growth/frontend/onboarding/sdks/llm-analytics/LLMAnalyticsSDKInstructions'
+import { OnboardingInstallStep } from 'products/growth/frontend/onboarding/sdks/OnboardingInstallStep'
 
 export const llmAnalyticsOnboarding: ProductOnboardingProvider = {
     steps: (ctx) => [

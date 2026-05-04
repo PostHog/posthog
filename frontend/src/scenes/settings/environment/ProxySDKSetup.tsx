@@ -4,11 +4,12 @@ import { useMemo, useState } from 'react'
 import { LemonButton, LemonModal, LemonSelect, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { Link } from 'lib/lemon-ui/Link'
-import { OnboardingDocsContentWrapper } from 'scenes/onboarding/OnboardingDocsContentWrapper'
-import SetupWizardBanner from 'scenes/onboarding/sdks/sdk-install-instructions/components/SetupWizardBanner'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { SDKKey } from '~/types'
+
+import { OnboardingDocsContentWrapper } from 'products/growth/frontend/onboarding/OnboardingDocsContentWrapper'
+import SetupWizardBanner from 'products/growth/frontend/onboarding/sdks/sdk-install-instructions/components/SetupWizardBanner'
 
 import {
     buildSDKSelectOptions,
