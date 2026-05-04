@@ -11,8 +11,8 @@ interface AxisLabelsProps {
     hideYAxis?: boolean
     axisColor?: string
     orientation?: 'vertical' | 'horizontal'
-    /** Required when orientation is horizontal — maps labels to y-pixel coordinates (band centers).
-     *  Omitting it in horizontal mode hides all category labels. */
+    /** Optional override for label → coord mapping. Falls back to `scales.x`, which chart types
+     *  serving horizontal orientation are expected to set to a label→band-center function. */
     labelToCoord?: (label: string) => number | undefined
 }
 
@@ -120,7 +120,9 @@ export function AxisLabels({
     const rightFormatter = yRightTickFormatter ?? yTickFormatter
 
     if (orientation === 'horizontal') {
-        // In horizontal mode `scales.y` holds value→x-pixel; `labelToCoord` holds label→y-pixel.
+        // In horizontal mode `scales.y` holds value→x-pixel and the label→y-pixel function lives
+        // on `scales.x` (or `labelToCoord` if explicitly overridden).
+        const labelToY = labelToCoord ?? scales.x
         return (
             <>
                 {!hideYAxis &&
@@ -129,7 +131,7 @@ export function AxisLabels({
                         if (text === null) {
                             return null
                         }
-                        const y = labelToCoord ? labelToCoord(labelText) : undefined
+                        const y = labelToY(labelText)
                         if (y == null || !isFinite(y)) {
                             return null
                         }

@@ -1,11 +1,10 @@
-import React, { useCallback, useMemo, useRef } from 'react'
+import React, { useCallback, useMemo } from 'react'
 
-import { computeSeriesBars } from '../core/bar-layout'
+import { type BarChartPrivate, computeBarAtIndex, computeSeriesBars } from '../core/bar-layout'
 import { type BarRect, drawBarHighlight, drawBars, drawGrid, type DrawContext } from '../core/canvas-renderer'
 import { Chart } from '../core/Chart'
 import { ChartErrorBoundary } from '../core/ChartErrorBoundary'
 import {
-    type BarScaleSet,
     computePercentStackData,
     computeStackData,
     createBarScales,
@@ -24,8 +23,9 @@ import type {
     Series,
     TooltipContext,
 } from '../core/types'
+import { DEFAULT_Y_AXIS_ID } from '../core/types'
 
-function bandCenter(scales: BarScaleSet, label: string): number | undefined {
+function bandCenter(scales: BarChartPrivate['__barChart'], label: string): number | undefined {
     const start = scales.band(label)
     return start == null ? undefined : start + scales.band.bandwidth() / 2
 }
@@ -84,17 +84,22 @@ function BarChartInner<Meta = unknown>({
         return undefined
     }, [barLayout, series, labels])
 
-    // Pick which series should round its cap in stacked/percent layouts.
-    // d3.stack uses the order passed to `stack.keys()` (here: visible series in their array order),
-    // so the topmost visual layer at every x is the last visible series. That key gets cap rounding.
-    // If the consumer reorders or hides series, this recomputes — `series` and `excluded` flags
-    // are both in the dep array.
-    const topStackedKey = useMemo<string | null>(() => {
+    // Cap rounding is per-axis: buildStackData stacks each yAxisId independently, so each
+    // axis has its own topmost visible series. Iteration order matches d3.stack's key order,
+    // so the last write per axis is that axis's top layer.
+    const topStackedKeyByAxis = useMemo<Map<string, string>>(() => {
+        const m = new Map<string, string>()
         if (barLayout === 'grouped') {
-            return null
+            return m
         }
-        const visible = series.filter((s) => !s.visibility?.excluded)
-        return visible.length > 0 ? visible[visible.length - 1].key : null
+        for (const s of series) {
+            if (s.visibility?.excluded) {
+                continue
+            }
+            const axisId = s.yAxisId ?? DEFAULT_Y_AXIS_ID
+            m.set(axisId, s.key)
+        }
+        return m
     }, [barLayout, series])
 
     const chartConfig = useMemo<BarChartConfig | undefined>(() => {
@@ -106,8 +111,6 @@ function BarChartInner<Meta = unknown>({
             yTickFormatter: (v: number) => `${Math.round(v * 100)}%`,
         }
     }, [config, barLayout])
-
-    const d3ScalesRef = useRef<BarScaleSet | null>(null)
 
     const createScales: CreateScalesFn = useCallback(
         (coloredSeries: ResolvedSeries[], scaleLabels: string[], dimensions: ChartDimensions): ChartScales => {
@@ -129,10 +132,15 @@ function BarChartInner<Meta = unknown>({
                 groupPadding,
                 stackedSeries,
             })
-            d3ScalesRef.current = d3Scales
 
             const tickAxisLength = isHorizontal ? dimensions.plotWidth : dimensions.plotHeight
             const yTickCount = yTickCountForHeight(tickAxisLength)
+
+            // Stash the raw d3 scales in the private slot so drawStatic/drawHover can read them
+            // without a side-channel ref — every render gets a self-contained ChartScales object,
+            // which avoids strict-mode / concurrent-rendering races between createScales and the
+            // static-draw effect. See LineChart.tsx and ARCHITECTURE.md for the canonical pattern.
+            const barChartPrivate: BarChartPrivate = { __barChart: d3Scales }
 
             // For horizontal, expose the value scale as `y` (since AxisLabels horizontal mode
             // calls `scales.y(tick)` for x-pixel positioning of value ticks).
@@ -141,14 +149,15 @@ function BarChartInner<Meta = unknown>({
                 x: (label: string) => bandCenter(d3Scales, label),
                 y: (value: number) => d3Scales.value(value),
                 yTicks: () => d3Scales.value.ticks?.(yTickCount) ?? [],
+                _private: barChartPrivate,
             }
         },
         [yScaleType, barLayout, axisOrientation, bandPadding, groupPadding, stackedData, isHorizontal]
     )
 
     const drawStatic = useCallback(
-        ({ ctx, dimensions, series: coloredSeries, labels: drawLabels, theme }: ChartDrawArgs) => {
-            const d3Scales = d3ScalesRef.current
+        ({ ctx, dimensions, scales, series: coloredSeries, labels: drawLabels, theme }: ChartDrawArgs) => {
+            const d3Scales = (scales._private as BarChartPrivate | undefined)?.__barChart
             if (!d3Scales) {
                 return
             }
@@ -173,7 +182,8 @@ function BarChartInner<Meta = unknown>({
                     continue
                 }
                 const stackedBand = stackedData?.get(s.key)
-                const isTop = topStackedKey !== null && s.key === topStackedKey
+                const axisId = s.yAxisId ?? DEFAULT_Y_AXIS_ID
+                const isTop = topStackedKeyByAxis.get(axisId) === s.key
                 const bars = computeSeriesBars({
                     series: s,
                     labels: drawLabels,
@@ -191,38 +201,40 @@ function BarChartInner<Meta = unknown>({
                 )
             }
         },
-        [showGrid, stackedData, barLayout, isHorizontal, topStackedKey, barCornerRadius]
+        [showGrid, stackedData, barLayout, isHorizontal, topStackedKeyByAxis, barCornerRadius]
     )
 
     const drawHover = useCallback(
-        ({ ctx, series: coloredSeries, labels: drawLabels, hoverIndex, theme }: ChartDrawArgs) => {
-            const d3Scales = d3ScalesRef.current
+        ({ ctx, scales, series: coloredSeries, labels: drawLabels, hoverIndex, theme }: ChartDrawArgs) => {
+            const d3Scales = (scales._private as BarChartPrivate | undefined)?.__barChart
             if (!d3Scales || hoverIndex < 0) {
                 return
             }
             const highlightColor = theme.crosshairColor ?? 'rgba(0, 0, 0, 0.4)'
+            const hoveredLabel = drawLabels[hoverIndex]
             for (const s of coloredSeries) {
                 if (s.visibility?.excluded) {
                     continue
                 }
                 const stackedBand = stackedData?.get(s.key)
-                const isTop = topStackedKey !== null && s.key === topStackedKey
-                const bars = computeSeriesBars({
+                const axisId = s.yAxisId ?? DEFAULT_Y_AXIS_ID
+                const isTop = topStackedKeyByAxis.get(axisId) === s.key
+                const bar = computeBarAtIndex({
                     series: s,
-                    labels: drawLabels,
+                    label: hoveredLabel,
+                    dataIndex: hoverIndex,
                     scales: d3Scales,
                     layout: barLayout,
                     isHorizontal,
                     stackedBand,
                     isTopOfStack: isTop,
                 })
-                const bar = bars[hoverIndex]
                 if (bar) {
                     drawBarHighlight(ctx, bar, highlightColor, barCornerRadius)
                 }
             }
         },
-        [stackedData, barLayout, isHorizontal, topStackedKey, barCornerRadius]
+        [stackedData, barLayout, isHorizontal, topStackedKeyByAxis, barCornerRadius]
     )
 
     const resolveValue = useMemo(() => {
@@ -240,11 +252,6 @@ function BarChartInner<Meta = unknown>({
         }
     }, [stackedData])
 
-    const labelToCoord = useCallback((label: string): number | undefined => {
-        const d3Scales = d3ScalesRef.current
-        return d3Scales ? bandCenter(d3Scales, label) : undefined
-    }, [])
-
     return (
         <Chart
             series={series}
@@ -259,7 +266,7 @@ function BarChartInner<Meta = unknown>({
             className={className}
             dataAttr={dataAttr}
             resolveValue={resolveValue}
-            labelToCoord={isHorizontal ? labelToCoord : undefined}
+            isPercent={barLayout === 'percent'}
         >
             {children}
         </Chart>

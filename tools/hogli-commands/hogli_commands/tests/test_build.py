@@ -21,6 +21,7 @@ class TestTriggerMatching:
             ("posthog/schema_migrations/0001_foo.py", "build:schema"),
             ("posthog/api/serializers.py", "build:openapi"),
             ("posthog/api/dashboard/views.py", "build:openapi"),
+            ("posthog/scopes.py", "build:openapi"),
             ("ee/api/some_view.py", "build:openapi"),
             ("products/surveys/backend/api/serializers.py", "build:openapi"),
             ("products/surveys/backend/presentation/views.py", "build:openapi"),

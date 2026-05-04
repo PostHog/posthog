@@ -105,6 +105,41 @@ class TestUpdateExternalJobStatus:
         assert updated.finished_at is None
         mock_emit.assert_not_called()
 
+    def test_concurrent_rows_synced_update_is_not_clobbered(self):
+        """Regression: `update_external_job_status` must not overwrite `rows_synced`
+        with the in-memory value it loaded at the top of the function. In V3 the
+        consumer-side completion can race a still-pending `update_job_row_count`
+        F-update from the activity (e.g. on retry). Saving the full model would
+        rewind the count — and downstream emit `count: 0` for the rows metric."""
+        team, _source, _schema, job = _create_org_team_source_schema_job()
+        # Job loaded with rows_synced=100; simulate a concurrent F-update bumping
+        # it to 500 between objects.get() and model.save() inside the function.
+
+        original_save = ExternalDataJob.save
+
+        def save_with_concurrent_update(self, *args, **kwargs):
+            ExternalDataJob.objects.filter(id=self.id).update(rows_synced=500)
+            return original_save(self, *args, **kwargs)
+
+        with (
+            patch(
+                "products.data_warehouse.backend.external_data_source.jobs.emit_data_import_app_metrics"
+            ) as mock_emit,
+            patch.object(ExternalDataJob, "save", autospec=True, side_effect=save_with_concurrent_update),
+        ):
+            update_external_job_status(
+                job_id=str(job.id),
+                team_id=team.pk,
+                status=ExternalDataJob.Status.COMPLETED,
+                logger=MagicMock(),
+                latest_error=None,
+            )
+
+        # The concurrent +400 increment must survive the status save.
+        assert ExternalDataJob.objects.get(id=job.id).rows_synced == 500
+        emitted_job = mock_emit.call_args.args[0]
+        assert emitted_job.rows_synced == 500
+
     def test_failed_status_emits_and_stamps(self):
         team, _source, _schema, job = _create_org_team_source_schema_job()
 

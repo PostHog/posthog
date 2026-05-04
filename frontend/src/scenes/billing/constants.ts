@@ -28,9 +28,9 @@ export const ALL_USAGE_TYPES: UsageTypeValue[] = USAGE_TYPES.map((opt) => opt.va
 export const CODE_PRODUCT_KEY = 'posthog_code'
 // TODO: Replace hardcoded plan keys with dynamic plan metadata from billing service
 export const CODE_PLAN_FREE = 'posthog-code-free-20260301'
-export const CODE_PLAN_PRO = 'posthog-code-200-20260301'
+export const CODE_PLAN_PRO = 'posthog-code-pro-200-20260301'
 
-export const CODE_PRO_PLAN_PREFIX = 'posthog-code-200'
+export const CODE_PRO_PLAN_PREFIX = 'posthog-code-pro-'
 export const CODE_FREE_PLAN_PREFIX = 'posthog-code-free'
 
 // Date after which billing for data pipelines ends and add-on upgrades/downgrades are disabled,

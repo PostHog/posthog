@@ -176,26 +176,15 @@ def get_baselines_overview(repo_id: UUID) -> contracts.BaselineOverview:
     """
     raw = logic.get_baselines_overview(repo_id)
 
-    days = _build_sparkline_day_keys(raw.generated_at)
     entries: list[contracts.BaselineEntry] = []
     for snapshot in raw.entries:
         identifier = snapshot.identifier
         run = snapshot.run
         artifact = snapshot.current_artifact
         thumbnail = artifact.thumbnail if artifact is not None else None
-        # `(run_type, identifier)` keys mirror the universe shape — see
-        # `_BaselineOverviewRaw.sparkline_by_key` for why.
-        spark_key = (run.run_type, identifier)
-        per_day = raw.sparkline_by_key.get(spark_key, {})
-        sparkline = [
-            contracts.BaselineSparklineDay(
-                clean=per_day.get(day, _ZERO_SPARK).clean,
-                tolerated=per_day.get(day, _ZERO_SPARK).tolerated,
-                changed=per_day.get(day, _ZERO_SPARK).changed,
-                quarantined=per_day.get(day, _ZERO_SPARK).quarantined,
-            )
-            for day in days
-        ]
+        # `(run_type, identifier)` keys because the same identifier in
+        # different run types is a different baseline.
+        key = (run.run_type, identifier)
         metadata = snapshot.metadata or {}
         entries.append(
             contracts.BaselineEntry(
@@ -207,10 +196,10 @@ def get_baselines_overview(repo_id: UUID) -> contracts.BaselineOverview:
                 height=artifact.height if artifact is not None else None,
                 tolerate_count_30d=raw.tolerate_30d_by_id.get(identifier, 0),
                 tolerate_count_90d=raw.tolerate_90d_by_id.get(identifier, 0),
-                is_quarantined=spark_key in raw.quarantined_ids,
+                is_quarantined=key in raw.quarantined_ids,
                 last_run_at=run.completed_at or run.created_at,
-                recent_diff_avg=raw.drift_avg_by_key.get(spark_key),
-                sparkline=sparkline,
+                baseline_change_count=raw.change_count_by_key.get(key, 0),
+                recent_drift_avg=raw.recent_drift_by_key.get(key),
             )
         )
 
@@ -228,20 +217,6 @@ def get_baselines_overview(repo_id: UUID) -> contracts.BaselineOverview:
         truncated=raw.truncated,
         generated_at=raw.generated_at,
     )
-
-
-_ZERO_SPARK = logic.SparkBuckets()
-
-
-def _build_sparkline_day_keys(now) -> list[str]:
-    from datetime import timedelta
-
-    from .contracts import BASELINE_SPARKLINE_DAYS
-
-    today = now.date()
-    return [
-        (today - timedelta(days=BASELINE_SPARKLINE_DAYS - 1 - i)).isoformat() for i in range(BASELINE_SPARKLINE_DAYS)
-    ]
 
 
 # --- Run API ---

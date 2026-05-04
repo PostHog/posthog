@@ -220,9 +220,10 @@ function buildStackData(
 
         const stacked = stack(tableData)
         for (const layer of stacked) {
+            // d3.stackOffsetExpand emits NaN for all-zero columns; flatten so consumers don't have to guard.
             result.set(layer.key, {
-                top: layer.map((d) => d[1]),
-                bottom: layer.map((d) => d[0]),
+                top: layer.map((d) => (Number.isFinite(d[1]) ? d[1] : 0)),
+                bottom: layer.map((d) => (Number.isFinite(d[0]) ? d[0] : 0)),
             })
         }
     }

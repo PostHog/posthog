@@ -1,22 +1,27 @@
 import React, { useMemo } from 'react'
 
+import { getBarChartPrivate } from '../core/bar-layout'
 import { useChartLayout } from '../core/chart-context'
 import { DEFAULT_Y_AXIS_ID } from '../core/types'
 import type { ChartScales, ResolvedSeries, ResolveValueFn } from '../core/types'
 
+export type ValueLabelsMode = 'per-segment' | 'stack-total'
+
 export interface ValueLabelsProps {
-    /** Formats the value shown on each label. Defaults to `value.toLocaleString()`. */
+    /** `seriesIndex` is `-1` for stack-total labels. */
     valueFormatter?: (value: number, seriesIndex: number, dataIndex: number) => string
-    /** Minimum horizontal gap (in px) required between adjacent labels. Defaults to 4. */
     minGap?: number
-    /** Series with more than this many data points are skipped entirely to avoid
-     *  rendering hundreds of DOM nodes on dense charts. Defaults to 100. */
     maxPointsPerSeries?: number
+    mode?: ValueLabelsMode
+    /** Bar charts only; CSS pixels. Defaults to 16. */
+    minBarSize?: number
 }
 
 const LABEL_FONT =
     '600 12px -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "Roboto", Helvetica, Arial, sans-serif'
-const LABEL_VERTICAL_OFFSET = 0
+const LABEL_HEIGHT = 22
+const STACK_TOTAL_KEY = '__stack_total__'
+const DEFAULT_MIN_BAR_SIZE = 16
 
 let measureCtx: CanvasRenderingContext2D | null = null
 function getMeasureCtx(): CanvasRenderingContext2D | null {
@@ -25,8 +30,6 @@ function getMeasureCtx(): CanvasRenderingContext2D | null {
     }
     return measureCtx
 }
-
-const LABEL_HEIGHT = 22
 
 interface Candidate {
     key: string
@@ -39,36 +42,141 @@ interface Candidate {
     above: boolean
 }
 
-function resolveYScale(s: ResolvedSeries, scales: ChartScales): (value: number) => number {
+function resolveYScale(s: { yAxisId?: string }, scales: ChartScales): (value: number) => number {
     const axisId = s.yAxisId ?? DEFAULT_Y_AXIS_ID
     return scales.yAxes?.[axisId]?.scale ?? scales.y
 }
 
-function buildCandidates(
-    series: ResolvedSeries[],
-    labels: string[],
-    scales: ChartScales,
-    resolveValue: ResolveValueFn,
-    valueFormatter: ValueLabelsProps['valueFormatter'],
+function defaultLocaleFormatter(v: number): string {
+    return v.toLocaleString()
+}
+
+interface BuildCandidatesArgs {
+    series: ResolvedSeries[]
+    labels: string[]
+    scales: ChartScales
+    resolveValue: ResolveValueFn
+    valueFormatter: NonNullable<ValueLabelsProps['valueFormatter']>
     maxPointsPerSeries: number
-): Candidate[] {
+    isHorizontal: boolean
+    mode: ValueLabelsMode
+    minBarSize: number
+    isBarChart: boolean
+    isPercent: boolean
+}
+
+function pushCandidate(
+    out: Candidate[],
+    ctx: CanvasRenderingContext2D | null,
+    isHorizontal: boolean,
+    key: string,
+    seriesIndex: number,
+    color: string,
+    text: string,
+    categoricalCoord: number,
+    valueCoord: number,
+    above: boolean
+): void {
+    const width = ctx ? ctx.measureText(text).width : text.length * 6
+    out.push({
+        key,
+        seriesIndex,
+        text,
+        x: isHorizontal ? valueCoord : categoricalCoord,
+        y: isHorizontal ? categoricalCoord : valueCoord,
+        width,
+        color,
+        above,
+    })
+}
+
+function buildCandidates(args: BuildCandidatesArgs): Candidate[] {
     const ctx = getMeasureCtx()
     if (ctx) {
         ctx.font = LABEL_FONT
     }
+    return args.mode === 'stack-total' ? buildStackTotal(args, ctx) : buildPerSegment(args, ctx)
+}
 
-    const candidates: Candidate[] = []
+function bandTotal(visible: ResolvedSeries[], dIdx: number): number | null {
+    let total = 0
+    let count = 0
+    let hasPositive = false
+    let hasNegative = false
+    for (const s of visible) {
+        const v = s.data[dIdx]
+        if (typeof v === 'number' && isFinite(v)) {
+            total += v
+            count++
+            if (v > 0) {
+                hasPositive = true
+            } else if (v < 0) {
+                hasNegative = true
+            }
+        }
+    }
+    if (count === 0 || total === 0 || !isFinite(total) || (hasPositive && hasNegative)) {
+        return null
+    }
+    return total
+}
+
+function buildStackTotal(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2D | null): Candidate[] {
+    const { series, labels, scales, valueFormatter, isHorizontal, isBarChart, minBarSize, isPercent } = args
+    const out: Candidate[] = []
+    if (isPercent || labels.length > args.maxPointsPerSeries) {
+        return out
+    }
+    const visible = series.filter((s) => !s.visibility?.excluded && !s.visibility?.fromValueLabels)
+    if (visible.length === 0) {
+        return out
+    }
+    const topSeries = visible[visible.length - 1]
+    const yScale = resolveYScale(topSeries, scales)
+    const topColor = topSeries.color
+    const baseline = isBarChart && minBarSize > 0 ? yScale(0) : NaN
+
+    for (let dIdx = 0; dIdx < labels.length; dIdx++) {
+        const total = bandTotal(visible, dIdx)
+        if (total === null) {
+            continue
+        }
+        const categoricalCoord = scales.x(labels[dIdx])
+        const valueCoord = yScale(total)
+        if (categoricalCoord == null || !isFinite(categoricalCoord) || !isFinite(valueCoord)) {
+            continue
+        }
+        if (isFinite(baseline) && Math.abs(valueCoord - baseline) < minBarSize) {
+            continue
+        }
+        pushCandidate(
+            out,
+            ctx,
+            isHorizontal,
+            `${STACK_TOTAL_KEY}-${dIdx}`,
+            -1,
+            topColor,
+            valueFormatter(total, -1, dIdx),
+            categoricalCoord,
+            valueCoord,
+            total >= 0
+        )
+    }
+    return out
+}
+
+function buildPerSegment(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2D | null): Candidate[] {
+    const { series, labels, scales, resolveValue, valueFormatter, isHorizontal, isBarChart, minBarSize, isPercent } =
+        args
+    const out: Candidate[] = []
+    const filterNarrow = isBarChart && minBarSize > 0 && !isPercent
 
     for (let sIdx = 0; sIdx < series.length; sIdx++) {
         const s = series[sIdx]
-        if (s.visibility?.excluded || s.visibility?.fromValueLabels) {
-            continue
-        }
-        if (s.data.length > maxPointsPerSeries) {
+        if (s.visibility?.excluded || s.visibility?.fromValueLabels || s.data.length > args.maxPointsPerSeries) {
             continue
         }
         const yScale = resolveYScale(s, scales)
-
         for (let dIdx = 0; dIdx < s.data.length && dIdx < labels.length; dIdx++) {
             const rawValue = s.data[dIdx]
             if (typeof rawValue !== 'number' || !isFinite(rawValue) || rawValue === 0) {
@@ -78,52 +186,60 @@ function buildCandidates(
             if (typeof yValue !== 'number' || !isFinite(yValue)) {
                 continue
             }
-            const x = scales.x(labels[dIdx])
-            if (x == null || !isFinite(x)) {
+            const categoricalCoord = scales.x(labels[dIdx])
+            const valueCoord = yScale(yValue)
+            if (categoricalCoord == null || !isFinite(categoricalCoord) || !isFinite(valueCoord)) {
                 continue
             }
-            const y = yScale(yValue)
-            if (!isFinite(y)) {
-                continue
+            if (filterNarrow) {
+                const segmentBottom = yScale(yValue - rawValue)
+                if (isFinite(segmentBottom) && Math.abs(valueCoord - segmentBottom) < minBarSize) {
+                    continue
+                }
             }
-            const text = valueFormatter ? valueFormatter(rawValue, sIdx, dIdx) : rawValue.toLocaleString()
-            const width = ctx ? ctx.measureText(text).width : text.length * 6
-            candidates.push({
-                key: `${s.key}-${dIdx}`,
-                seriesIndex: sIdx,
-                text,
-                x,
-                y,
-                width,
-                color: s.color,
-                above: yValue >= 0,
-            })
+            pushCandidate(
+                out,
+                ctx,
+                isHorizontal,
+                `${s.key}-${dIdx}`,
+                sIdx,
+                s.color,
+                valueFormatter(rawValue, sIdx, dIdx),
+                categoricalCoord,
+                valueCoord,
+                yValue >= 0
+            )
         }
     }
-
-    return candidates
+    return out
 }
 
-function labelRect(c: Candidate): { left: number; right: number; top: number; bottom: number } {
+interface Rect {
+    left: number
+    right: number
+    top: number
+    bottom: number
+}
+
+function labelRect(c: Candidate, isHorizontal: boolean): Rect {
+    if (isHorizontal) {
+        const halfH = LABEL_HEIGHT / 2
+        const left = c.above ? c.x : c.x - c.width
+        return { left, right: left + c.width, top: c.y - halfH, bottom: c.y + halfH }
+    }
     const halfW = c.width / 2
     const top = c.above ? c.y - LABEL_HEIGHT : c.y
     return { left: c.x - halfW, right: c.x + halfW, top, bottom: top + LABEL_HEIGHT }
 }
 
-function rectsOverlap(
-    a: { left: number; right: number; top: number; bottom: number },
-    b: { left: number; right: number; top: number; bottom: number },
-    gap: number
-): boolean {
+function rectsOverlap(a: Rect, b: Rect, gap: number): boolean {
     return a.left < b.right + gap && a.right + gap > b.left && a.top < b.bottom + gap && a.bottom + gap > b.top
 }
 
-function applyCollisionAvoidance(candidates: Candidate[], minGap: number): Candidate[] {
+function applyCollisionAvoidance(candidates: Candidate[], minGap: number, isHorizontal: boolean): Candidate[] {
     if (candidates.length === 0) {
         return candidates
     }
-
-    // First pass: per-series horizontal dedup
     const bySeries: Map<number, Candidate[]> = new Map()
     for (const c of candidates) {
         const bucket = bySeries.get(c.seriesIndex)
@@ -134,27 +250,36 @@ function applyCollisionAvoidance(candidates: Candidate[], minGap: number): Candi
         }
     }
 
-    const afterHorizontal: Candidate[] = []
+    const afterPrimary: Candidate[] = []
     for (const group of bySeries.values()) {
-        group.sort((a, b) => a.x - b.x)
-        let lastRightEdge = -Infinity
-        for (const c of group) {
-            const halfWidth = c.width / 2
-            const leftEdge = c.x - halfWidth
-            if (leftEdge >= lastRightEdge + minGap) {
-                afterHorizontal.push(c)
-                lastRightEdge = c.x + halfWidth
+        if (isHorizontal) {
+            group.sort((a, b) => a.y - b.y)
+            const halfH = LABEL_HEIGHT / 2
+            let lastBottom = -Infinity
+            for (const c of group) {
+                if (c.y - halfH >= lastBottom + minGap) {
+                    afterPrimary.push(c)
+                    lastBottom = c.y + halfH
+                }
+            }
+        } else {
+            group.sort((a, b) => a.x - b.x)
+            let lastRight = -Infinity
+            for (const c of group) {
+                const halfW = c.width / 2
+                if (c.x - halfW >= lastRight + minGap) {
+                    afterPrimary.push(c)
+                    lastRight = c.x + halfW
+                }
             }
         }
     }
 
-    // Second pass: cross-series 2D overlap removal (earlier series win)
     const visible: Candidate[] = []
-    const placedRects: { left: number; right: number; top: number; bottom: number }[] = []
-    for (const c of afterHorizontal) {
-        const rect = labelRect(c)
-        const overlaps = placedRects.some((placed) => rectsOverlap(rect, placed, minGap))
-        if (!overlaps) {
+    const placedRects: Rect[] = []
+    for (const c of afterPrimary) {
+        const rect = labelRect(c, isHorizontal)
+        if (!placedRects.some((p) => rectsOverlap(rect, p, minGap))) {
             visible.push(c)
             placedRects.push(rect)
         }
@@ -176,17 +301,60 @@ const LABEL_STYLE_BASE: React.CSSProperties = {
     whiteSpace: 'nowrap',
 }
 
+function transformFor(c: Candidate, isHorizontal: boolean): string {
+    if (isHorizontal) {
+        return c.above ? 'translateY(-50%)' : 'translate(-100%, -50%)'
+    }
+    return c.above ? 'translate(-50%, -100%)' : 'translateX(-50%)'
+}
+
 export function ValueLabels({
     valueFormatter,
     minGap = 4,
     maxPointsPerSeries = 100,
+    mode = 'per-segment',
+    minBarSize = DEFAULT_MIN_BAR_SIZE,
 }: ValueLabelsProps): React.ReactElement | null {
-    const { series, scales, labels, theme, resolveValue } = useChartLayout()
+    const { series, scales, labels, theme, resolveValue, axisOrientation, isPercent } = useChartLayout()
+    const isHorizontal = axisOrientation === 'horizontal'
+    const isBarChart = !!getBarChartPrivate(scales)
 
-    const visible = useMemo(() => {
-        const candidates = buildCandidates(series, labels, scales, resolveValue, valueFormatter, maxPointsPerSeries)
-        return applyCollisionAvoidance(candidates, minGap)
-    }, [series, labels, scales, resolveValue, valueFormatter, minGap, maxPointsPerSeries])
+    const formatter = valueFormatter ?? defaultLocaleFormatter
+
+    const visible = useMemo(
+        () =>
+            applyCollisionAvoidance(
+                buildCandidates({
+                    series,
+                    labels,
+                    scales,
+                    resolveValue,
+                    valueFormatter: formatter,
+                    maxPointsPerSeries,
+                    isHorizontal,
+                    mode,
+                    minBarSize,
+                    isBarChart,
+                    isPercent,
+                }),
+                minGap,
+                isHorizontal
+            ),
+        [
+            series,
+            labels,
+            scales,
+            resolveValue,
+            formatter,
+            minGap,
+            maxPointsPerSeries,
+            isHorizontal,
+            mode,
+            minBarSize,
+            isBarChart,
+            isPercent,
+        ]
+    )
 
     if (visible.length === 0) {
         return null
@@ -196,23 +364,22 @@ export function ValueLabels({
 
     return (
         <>
-            {visible.map((c) => {
-                const style: React.CSSProperties = {
-                    ...LABEL_STYLE_BASE,
-                    backgroundColor: c.color,
-                    borderColor,
-                    left: Math.round(c.x),
-                    top: Math.round(c.above ? c.y : c.y + LABEL_VERTICAL_OFFSET),
-                    transform: c.above
-                        ? `translate(-50%, calc(-100% - ${LABEL_VERTICAL_OFFSET}px))`
-                        : 'translateX(-50%)',
-                }
-                return (
-                    <div key={c.key} data-attr="hog-chart-value-label" style={style}>
-                        {c.text}
-                    </div>
-                )
-            })}
+            {visible.map((c) => (
+                <div
+                    key={c.key}
+                    data-attr="hog-chart-value-label"
+                    style={{
+                        ...LABEL_STYLE_BASE,
+                        backgroundColor: c.color,
+                        borderColor,
+                        left: Math.round(c.x),
+                        top: Math.round(c.y),
+                        transform: transformFor(c, isHorizontal),
+                    }}
+                >
+                    {c.text}
+                </div>
+            ))}
         </>
     )
 }

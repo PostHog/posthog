@@ -109,14 +109,14 @@ class CustomerIOSource(
             webhookSetupCaption=(
                 "PostHog tries to register the reporting webhook for you using your App API Key. "
                 "Customer.io doesn't return the signing key in the API response, so you still need "
-                "to copy it from the **Reporting Webhooks** page in Customer.io and paste it below.\n\n"
+                "to copy it from the **Reporting Webhooks** page in Customer.io and paste it below."
+                "\n\nGo to your **Customer.io workspace** > **Integrations** > **Reporting Webhooks** > **{CIO_AUTO_WEBHOOK_NAME}**\n\n\n"
                 "**Manual setup** (only needed if auto-registration failed):\n\n"
-                "1. Go to your [Customer.io workspace > Data & Integrations > Integrations > Reporting Webhooks]"
-                "(https://fly.customer.io/settings/webhooks/new/reporting_webhook)\n"
-                "2. Click **Add Reporting Webhook**\n"
-                "3. Paste the webhook URL shown below into the **Endpoint URL** field\n"
+                "1. Go to your **Customer.io workspace** > **Integrations** > **Add Integration**\n"
+                "2. Search for **Reporting Webhook**\n"
+                "3. Paste the webhook URL shown below into the **Webhook endpoint** field\n"
                 "4. Select the events you want to track (customer, email, push, sms, in-app, slack, webhook)\n"
-                "5. Click **Save**\n\n"
+                "5. Click **Save and Enable Webhook**\n\n"
                 "Then copy the **Signing key** from the webhook details page into the field below."
             ),
             webhookFields=cast(
@@ -202,6 +202,16 @@ class CustomerIOSource(
             resource_names=list(RESOURCE_TO_CIO_OBJECT_TYPE.keys()),
         )
 
+    def webhook_inputs_updated(
+        self, config: CustomerIOSourceConfig, webhook_url: str, team_id: int, inputs: dict[str, Any]
+    ) -> tuple[bool, str | None]:
+        # The webhook is created in a disabled state so Customer.io doesn't fire
+        # events at PostHog before we can verify them with the signing secret.
+        # Now that the user has provided the secret, enable the webhook.
+        if not inputs.get("signing_secret"):
+            return True, None
+        return api_client.enable_webhook(config.app_api_key, config.region, webhook_url)
+
     def get_external_webhook_info(
         self, config: CustomerIOSourceConfig, webhook_url: str, team_id: int
     ) -> ExternalWebhookInfo | None:
@@ -217,7 +227,7 @@ class CustomerIOSource(
 
     def _webhook_source_response(self, inputs: SourceInputs) -> SourceResponse:
         webhook_source_manager = self.get_webhook_source_manager(inputs)
-        webhook_enabled = async_to_sync(webhook_source_manager.webhook_enabled)()
+        webhook_enabled = async_to_sync(webhook_source_manager.webhook_enabled)(True)
 
         def items() -> Iterable[Any] | AsyncIterable[Any]:
             if webhook_enabled:

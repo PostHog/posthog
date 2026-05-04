@@ -7,6 +7,7 @@ from urllib.parse import urlencode
 
 from django.conf import settings
 from django.core.cache import cache
+from django.db.models import Q
 from django.http import HttpResponse
 from django.shortcuts import redirect
 from django.utils import timezone
@@ -80,10 +81,25 @@ PERSONAL_GITHUB_REQUIRED_MESSAGE = (
     "You must connect your personal GitHub account (via Linked Accounts) before linking an existing "
     "installation, to confirm you have access to the GitHub App installation."
 )
+GITHUB_REPOSITORY_NAME_RE = re.compile(r"[A-Za-z0-9_.\-]+")
 
 
 def github_oauth_redirect_uri() -> str:
     return f"{settings.SITE_URL.rstrip('/')}/complete/github-link/"
+
+
+def validate_github_repository_name(repo: str) -> str:
+    """Validate repository paths accepted by GitHub integration endpoints."""
+    parts = repo.split("/")
+    if (
+        len(parts) != 2
+        or not GITHUB_REPOSITORY_NAME_RE.fullmatch(parts[0])
+        or not GITHUB_REPOSITORY_NAME_RE.fullmatch(parts[1])
+        or parts[0] in (".", "..")
+        or parts[1] in (".", "..")
+    ):
+        raise ValidationError("repo must be in owner/repo format")
+    return repo
 
 
 def _verify_stripe_install_signature(state: str, user_id: str, account_id: str, install_signature: str) -> bool:
@@ -897,6 +913,18 @@ class IntegrationViewSet(
         source_team_id = request.data.get("source_team_id")
         installation_id_param = request.data.get("installation_id")
 
+        if installation_id_param and not re.fullmatch(r"\d{1,20}", str(installation_id_param)):
+            raise ValidationError("Invalid installation_id")
+
+        # installation_id is stored in JSONB and historically written as either a
+        # string or a number, so match both representations.
+        installation_id_match = (
+            Q(config__installation_id=str(installation_id_param))
+            | Q(config__installation_id=int(installation_id_param))
+            if installation_id_param
+            else None
+        )
+
         if source_team_id:
             try:
                 source_team_id_int = int(source_team_id)
@@ -906,20 +934,22 @@ class IntegrationViewSet(
             if not self.organization.teams.filter(id=source_team_id_int).exists():
                 raise ValidationError("Source team not found in your organization")
 
-            try:
-                source = Integration.objects.get(team_id=source_team_id_int, kind="github")
-            except Integration.DoesNotExist:
+            qs = Integration.objects.filter(team_id=source_team_id_int, kind="github")
+            # When the source team has multiple GitHub installations linked, the
+            # caller must pass installation_id to disambiguate.
+            if installation_id_match is not None:
+                qs = qs.filter(installation_id_match)
+
+            source = qs.order_by("id").first()
+            if source is None:
                 raise ValidationError("Source team does not have a GitHub integration")
         elif installation_id_param:
-            if not re.fullmatch(r"\d{1,20}", str(installation_id_param)):
-                raise ValidationError("Invalid installation_id")
-
             existing = (
                 Integration.objects.filter(
                     team__organization_id=self.organization_id,
                     kind="github",
-                    config__installation_id=str(installation_id_param),
                 )
+                .filter(installation_id_match)
                 .order_by("id")
                 .first()
             )
@@ -1053,15 +1083,7 @@ class IntegrationViewSet(
         limit: int = params.validated_data["limit"]
         offset: int = params.validated_data["offset"]
 
-        parts = repo.split("/")
-        if (
-            len(parts) != 2
-            or not re.fullmatch(r"[A-Za-z0-9_.\-]+", parts[0])
-            or not re.fullmatch(r"[A-Za-z0-9_.\-]+", parts[1])
-            or parts[0] in (".", "..")
-            or parts[1] in (".", "..")
-        ):
-            raise ValidationError("repo must be in owner/repo format")
+        validate_github_repository_name(repo)
 
         github = GitHubIntegration(self.get_object())
         branches, default_branch, has_more = github.list_cached_branches(

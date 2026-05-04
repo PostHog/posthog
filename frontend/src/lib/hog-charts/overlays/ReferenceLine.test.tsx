@@ -32,6 +32,8 @@ const CONTEXT: BaseChartContext = {
     theme: THEME,
     resolveValue: (s, i) => s.data[i] ?? 0,
     canvasBounds: () => null,
+    axisOrientation: 'vertical',
+    isPercent: false,
     hoverIndex: -1,
 }
 

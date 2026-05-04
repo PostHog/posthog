@@ -264,6 +264,21 @@ export interface PaginatedOrganizationInviteListApi {
     results: OrganizationInviteApi[]
 }
 
+export interface OrganizationInviteDelegateApi {
+    /** Email of the teammate who should complete setup on the inviter's behalf. Receives a PostHog-branded delegation invite granting admin-level membership on accept. */
+    target_email: string
+    /**
+     * Optional personal message included in the delegation email (up to 1000 characters).
+     * @maxLength 1000
+     */
+    message?: string
+    /**
+     * Onboarding step key the delegator was on when delegating, for analytics only.
+     * @maxLength 64
+     */
+    step_at_delegation?: string
+}
+
 /**
  * Serializer for organization-scoped OAuth applications (read-only).
  */
@@ -2928,6 +2943,20 @@ export const ShortcutPositionEnumApi = {
 } as const
 
 /**
+ * * `delegated` - Delegated to teammate
+ * `later` - Skipped for later
+ * `other` - Other
+ */
+export type OnboardingSkippedReasonEnumApi =
+    (typeof OnboardingSkippedReasonEnumApi)[keyof typeof OnboardingSkippedReasonEnumApi]
+
+export const OnboardingSkippedReasonEnumApi = {
+    Delegated: 'delegated',
+    Later: 'later',
+    Other: 'other',
+} as const
+
+/**
  * Shape of each item in UserSerializer.pending_invites.
  */
 export interface PendingInviteApi {
@@ -3006,6 +3035,20 @@ export interface UserApi {
      * @nullable
      */
     passkeys_enabled_for_2fa?: boolean | null
+    /** @nullable */
+    readonly onboarding_skipped_at: string | null
+    readonly onboarding_skipped_reason: OnboardingSkippedReasonEnumApi | NullEnumApi | null
+    /** @nullable */
+    readonly onboarding_skipped_organization_id: string | null
+    /** @nullable */
+    readonly onboarding_delegated_to_invite: string | null
+    /**
+     * Organization ID of the pending delegation invite, if any. Used by the frontend to scope the 'waiting for teammate' UI to the org where delegation was initiated.
+     * @nullable
+     */
+    readonly onboarding_delegated_to_organization_id: string | null
+    /** @nullable */
+    readonly onboarding_delegation_accepted_at: string | null
     /** @nullable */
     readonly is_organization_first_user: boolean | null
     readonly pending_invites: readonly PendingInviteApi[]
@@ -3089,8 +3132,54 @@ export interface PatchedUserApi {
      */
     passkeys_enabled_for_2fa?: boolean | null
     /** @nullable */
+    readonly onboarding_skipped_at?: string | null
+    readonly onboarding_skipped_reason?: OnboardingSkippedReasonEnumApi | NullEnumApi | null
+    /** @nullable */
+    readonly onboarding_skipped_organization_id?: string | null
+    /** @nullable */
+    readonly onboarding_delegated_to_invite?: string | null
+    /**
+     * Organization ID of the pending delegation invite, if any. Used by the frontend to scope the 'waiting for teammate' UI to the org where delegation was initiated.
+     * @nullable
+     */
+    readonly onboarding_delegated_to_organization_id?: string | null
+    /** @nullable */
+    readonly onboarding_delegation_accepted_at?: string | null
+    /** @nullable */
     readonly is_organization_first_user?: boolean | null
     readonly pending_invites?: readonly PendingInviteApi[]
+}
+
+/**
+ * * `later` - Later
+ * `other` - Other
+ */
+export type OnboardingSkipRequestReasonEnumApi =
+    (typeof OnboardingSkipRequestReasonEnumApi)[keyof typeof OnboardingSkipRequestReasonEnumApi]
+
+export const OnboardingSkipRequestReasonEnumApi = {
+    Later: 'later',
+    Other: 'other',
+} as const
+
+/**
+ * Request body for POST /api/users/{id}/onboarding/skip/.
+
+Source of truth for OpenAPI / generated TS / zod / MCP — bind this serializer at
+runtime so the contract clients believe is enforced (length cap, choice validation,
+no extra fields) is actually enforced server-side.
+ */
+export interface OnboardingSkipRequestApi {
+    /** Why the user is leaving onboarding. 'later' keeps them able to return; 'other' is a catch-all. 'delegated' is rejected here — use the delegate endpoint so the delegation invite is created atomically.
+
+* `later` - Later
+* `other` - Other */
+    reason: OnboardingSkipRequestReasonEnumApi
+    /**
+     * Onboarding step key the user was on when skipping, for analytics only.
+     * @maxLength 64
+     */
+    step_at_skip?: string
 }
 
 export type SubscriptionsDeliveriesListParams = {
