@@ -350,13 +350,17 @@ describe('KafkaConsumerV2 (integration)', () => {
                 'metadata.broker.list': KAFKA_HOSTS,
                 'session.timeout.ms': 10_000,
             } as Record<string, unknown>)
-            void c1.connect(wrap('c1'))
+            void c1.connect(wrap('c1')).catch((err: unknown) => {
+                throw new Error(`Consumer c1 failed to connect: ${String(err)}`)
+            })
 
             const c2 = new KafkaConsumerV2({ groupId, topic, batchTimeoutMs: 100 }, {
                 'metadata.broker.list': KAFKA_HOSTS,
                 'session.timeout.ms': 10_000,
             } as Record<string, unknown>)
-            void c2.connect(wrap('c2'))
+            void c2.connect(wrap('c2')).catch((err: unknown) => {
+                throw new Error(`Consumer c2 failed to connect: ${String(err)}`)
+            })
 
             await waitForAssignments([c1, c2])
             await produceMessages(producer, topic, 300)

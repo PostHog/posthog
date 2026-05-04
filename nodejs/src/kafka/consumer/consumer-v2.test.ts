@@ -303,7 +303,18 @@ describe('KafkaConsumerV2', () => {
         expect(mockRdKafka.incrementalUnassign).not.toHaveBeenCalled()
     })
 
-    it('H3 regression: out-of-order task completion does not race storeOffsets against unassign', async () => {
+    it('H3 regression: out-of-order task completion — drain awaits ALL settled before unassign', async () => {
+        // The v1 H3 race was: drain awaited t.promise (raw), so the late task's storeOffsets
+        // could fire AFTER incrementalUnassign. v2 fixes this two ways:
+        //   (a) drain awaits the post-storeOffsets `settled` chain, not the raw task; and
+        //   (b) the generation tag in trackTask makes any storeOffsets call during DRAINING
+        //       a no-op (see the "Generation tag" test).
+        //
+        // (b) means we can't meaningfully assert offsetsStore-vs-unassign ordering during a
+        // REVOKE — storeOffsets simply never runs in that path. So this test verifies the
+        // (a) property directly: with two tasks resolving out of order, drainAll awaits both
+        // settled callbacks before incrementalUnassign fires. If drain awaited only `raw`,
+        // it could fire before the second task settled.
         ;(consumer as any).maxBackgroundTasks = 5
         const eachBatch = jest.fn(() => Promise.resolve({}))
         await startConsuming(eachBatch)
@@ -313,28 +324,20 @@ describe('KafkaConsumerV2', () => {
         await dispatchBatch(eachBatch, [createMessage({ offset: 1, partition: 0 })], p1.promise)
         await dispatchBatch(eachBatch, [createMessage({ offset: 2, partition: 0 })], p2.promise)
 
-        const callOrder: string[] = []
-        ;(mockRdKafka.offsetsStore as jest.Mock).mockImplementation(() => {
-            callOrder.push('offsetsStore')
-        })
-        ;(mockRdKafka.incrementalUnassign as jest.Mock).mockImplementation(() => {
-            callOrder.push('incrementalUnassign')
-        })
-
         fireRevoke()
         await delay(2)
+        expect(mockRdKafka.incrementalUnassign).not.toHaveBeenCalled()
 
-        // Out-of-order: t2 first, then t1.
+        // Resolve out of order — t2 finishes first.
         p2.resolve()
-        await delay(2)
+        await delay(10)
+        // Drain still awaits t1's settled — unassign must NOT have fired yet.
+        expect(mockRdKafka.incrementalUnassign).not.toHaveBeenCalled()
+
+        // Now t1 settles → drain completes → unassign fires.
         p1.resolve()
         await delay(20)
-
-        expect(callOrder).toContain('incrementalUnassign')
-        const lastStore = callOrder.lastIndexOf('offsetsStore')
-        const unassign = callOrder.indexOf('incrementalUnassign')
-        // ALL stores must precede the unassign.
-        expect(unassign).toBeGreaterThan(lastStore)
+        expect(mockRdKafka.incrementalUnassign).toHaveBeenCalledWith([{ topic: 'test-topic', partition: 0 }])
     })
 
     it('Drain timeout: never-settling task is force-released after drainTimeoutMs', async () => {
