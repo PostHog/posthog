@@ -6,6 +6,7 @@ import React, { useEffect, useState } from 'react'
 import { TaxonomicPropertyFilter } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
 import {
     AllowedProperties,
+    ExcludedOperators,
     ExcludedProperties,
     TaxonomicFilterGroupType,
     TaxonomicFilterProps,
@@ -51,7 +52,7 @@ export interface PropertyFiltersProps {
     excludedProperties?: ExcludedProperties
     allowRelativeDateOptions?: boolean
     disabledReason?: string
-    exactMatchFeatureFlagCohortOperators?: boolean
+    excludedOperators?: ExcludedOperators
     hideBehavioralCohorts?: boolean
     addFilterDocLink?: string
     operatorAllowlist?: OperatorValueSelectProps['operatorAllowlist']
@@ -88,7 +89,7 @@ export function PropertyFilters({
     excludedProperties,
     allowRelativeDateOptions,
     disabledReason = undefined,
-    exactMatchFeatureFlagCohortOperators = false,
+    excludedOperators,
     hideBehavioralCohorts,
     addFilterDocLink,
     operatorAllowlist,
@@ -159,7 +160,7 @@ export function PropertyFilters({
                                             excludedProperties={excludedProperties}
                                             taxonomicFilterOptionsFromProp={taxonomicFilterOptionsFromProp}
                                             allowRelativeDateOptions={allowRelativeDateOptions}
-                                            exactMatchFeatureFlagCohortOperators={exactMatchFeatureFlagCohortOperators}
+                                            excludedOperators={excludedOperators}
                                             hideBehavioralCohorts={hideBehavioralCohorts}
                                             size={buttonSize}
                                             addFilterDocLink={addFilterDocLink}

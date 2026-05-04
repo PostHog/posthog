@@ -19,7 +19,6 @@ import {
     IconBalance,
     IconCollapse,
     IconCopy,
-    IconEllipsis,
     IconExpand,
     IconInfo,
     IconLaptop,
@@ -29,16 +28,7 @@ import {
     IconTrash,
     IconCheckCircle,
 } from '@posthog/icons'
-import {
-    LemonBanner,
-    LemonButton,
-    LemonInput,
-    LemonLabel,
-    LemonMenu,
-    LemonSelect,
-    Spinner,
-    Tooltip,
-} from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonInput, LemonLabel, LemonSelect, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { EditableField } from 'lib/components/EditableField/EditableField'
@@ -65,6 +55,7 @@ import {
     GroupTypeIndex,
     MultivariateFlagVariant,
     PropertyFilterType,
+    PropertyOperator,
 } from '~/types'
 
 import { INTENT_METADATA } from 'products/feature_flags/frontend/featureFlagTemplateConstants'
@@ -181,33 +172,28 @@ function ConditionHeader({
                     ({rollout}%{group.variant && ` · ${group.variant}`}
                     {countSummary !== null && ` · ${countSummary}`})
                 </span>
-                <LemonMenu
-                    items={[
-                        {
-                            label: 'Duplicate condition set',
-                            icon: <IconCopy />,
-                            onClick: onDuplicate,
-                        },
-                        ...(totalGroups > 1
-                            ? [
-                                  {
-                                      label: 'Remove condition set',
-                                      icon: <IconTrash />,
-                                      onClick: onRemove,
-                                      status: 'danger' as const,
-                                  },
-                              ]
-                            : []),
-                    ]}
-                >
+                <LemonButton
+                    icon={<IconCopy />}
+                    size="xsmall"
+                    noPadding
+                    tooltip="Duplicate condition set"
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        onDuplicate()
+                    }}
+                />
+                {totalGroups > 1 && (
                     <LemonButton
-                        icon={<IconEllipsis />}
+                        icon={<IconTrash />}
                         size="xsmall"
                         noPadding
-                        aria-label="Condition set actions"
-                        onClick={(e) => e.stopPropagation()}
+                        tooltip="Remove condition set"
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            onRemove()
+                        }}
                     />
-                </LemonMenu>
+                )}
             </div>
         </div>
     )
@@ -567,7 +553,9 @@ const ConditionContent = ({
                                             )}
                                             taxonomicFilterOptionsFromProp={filtersTaxonomicOptions}
                                             hasRowOperator={false}
-                                            exactMatchFeatureFlagCohortOperators={true}
+                                            excludedOperators={{
+                                                [TaxonomicFilterGroupType.Cohorts]: [PropertyOperator.NotIn],
+                                            }}
                                             hideBehavioralCohorts={!realtimeCohortFlagTargeting}
                                         />
                                     </div>
@@ -964,7 +952,11 @@ export function FeatureFlagReleaseConditionsCollapsible({
                 </LemonBanner>
             )}
 
-            <FeatureFlagConditionWarning properties={properties} evaluationRuntime={evaluationRuntime} />
+            <FeatureFlagConditionWarning
+                properties={properties}
+                filterGroups={filterGroups}
+                evaluationRuntime={evaluationRuntime}
+            />
 
             {flagId && <IntentWarningsBanner flagId={flagId} />}
 

@@ -39,7 +39,7 @@ import { publicWebhooksHostOrigin } from 'lib/utils/apiHost'
 import { createFuse } from 'lib/utils/fuseSearch'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter/TestAccountFilter'
 
-import { PropertyFilterType } from '~/types'
+import { PropertyFilterType, PropertyOperator } from '~/types'
 
 // Side-effect imports: register product-specific trigger types
 import 'products/workflows/frontend/Workflows/hogflows/registry/triggers'
@@ -553,7 +553,7 @@ function StepTriggerConfigurationBatch({
                     orFiltering
                     sendAllKeyUpdates
                     allowRelativeDateOptions
-                    exactMatchFeatureFlagCohortOperators
+                    excludedOperators={{ [TaxonomicFilterGroupType.Cohorts]: [PropertyOperator.NotIn] }}
                     hideBehavioralCohorts
                     logicalRowDivider
                     onChange={(properties) =>

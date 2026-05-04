@@ -1,6 +1,7 @@
 import { OperatorValueSelectProps } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
 import {
     AllowedProperties,
+    ExcludedOperators,
     ExcludedProperties,
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
@@ -60,7 +61,7 @@ export interface PropertyFilterInternalProps {
     metadataSource?: AnyDataNode
     excludedProperties?: ExcludedProperties
     allowRelativeDateOptions?: boolean
-    exactMatchFeatureFlagCohortOperators?: boolean
+    excludedOperators?: ExcludedOperators
     hideBehavioralCohorts?: boolean
     addFilterDocLink?: string
     endpointFilters?: Record<string, any>

@@ -19,7 +19,6 @@ import {
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import {
-    ExcludedOperators,
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
     TaxonomicFilterValue,
@@ -35,7 +34,6 @@ import {
     GroupTypeIndex,
     PropertyDefinitionType,
     PropertyFilterType,
-    PropertyOperator,
 } from '~/types'
 
 import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
@@ -74,7 +72,7 @@ export function TaxonomicPropertyFilter({
     excludedProperties,
     taxonomicFilterOptionsFromProp,
     allowRelativeDateOptions,
-    exactMatchFeatureFlagCohortOperators,
+    excludedOperators,
     hideBehavioralCohorts,
     addFilterDocLink,
     editable = true,
@@ -119,14 +117,15 @@ export function TaxonomicPropertyFilter({
     const showInitialSearchInline =
         !disablePopover &&
         ((!filter?.type && (!filter || !(filter as any)?.key)) || filter?.type === PropertyFilterType.HogQL)
+    const filterTaxonomicGroupType = filter ? propertyFilterTypeToTaxonomicFilterType(filter) : undefined
+    const operatorsExcludedForFilterType = filterTaxonomicGroupType
+        ? excludedOperators?.[filterTaxonomicGroupType]
+        : undefined
     const showOperatorValueSelect =
         filter?.type &&
         filter?.key &&
         !(filter?.type === PropertyFilterType.HogQL) &&
-        // If we're in a feature flag, we don't want to show operators for cohorts because
-        // we don't support any cohort matching operators other than "in"
-        // See https://github.com/PostHog/posthog/pull/25149/
-        !(filter?.type === PropertyFilterType.Cohort && exactMatchFeatureFlagCohortOperators)
+        !operatorsExcludedForFilterType?.length
     const placeOperatorValueSelectOnLeft = filter?.type && filter?.key && filter?.type === PropertyFilterType.Cohort
 
     const { propertyDefinitionsByType } = useValues(propertyDefinitionsModel)
@@ -162,13 +161,9 @@ export function TaxonomicPropertyFilter({
                   : undefined)
             : undefined
 
-    const excludedOperators: ExcludedOperators | undefined = exactMatchFeatureFlagCohortOperators
-        ? { [TaxonomicFilterGroupType.Cohorts]: [PropertyOperator.NotIn] }
-        : undefined
-
     const taxonomicFilter = (
         <TaxonomicFilter
-            groupType={filter ? propertyFilterTypeToTaxonomicFilterType(filter) : undefined}
+            groupType={filterTaxonomicGroupType}
             value={cohortOrOtherValue}
             onChange={taxonomicOnChange}
             taxonomicGroupTypes={groupTypes}

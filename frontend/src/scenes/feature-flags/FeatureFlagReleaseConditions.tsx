@@ -290,6 +290,7 @@ export function FeatureFlagReleaseConditions({
                     {!readOnly && (
                         <FeatureFlagConditionWarning
                             properties={properties}
+                            filterGroups={filterGroups}
                             evaluationRuntime={evaluationRuntime}
                             className="mt-3 mb-3"
                         />
@@ -389,7 +390,7 @@ export function FeatureFlagReleaseConditions({
                                           })
                                         : null
                                 }
-                                exactMatchFeatureFlagCohortOperators={true}
+                                excludedOperators={{ [TaxonomicFilterGroupType.Cohorts]: [PropertyOperator.NotIn] }}
                                 hideBehavioralCohorts={!realtimeCohortFlagTargeting}
                             />
                         </div>
