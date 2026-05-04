@@ -41,7 +41,7 @@ export function RateLimitSettings(): JSX.Element {
             <Form logic={rateLimitConfigLogic} formKey="configForm" enableFormOnSubmit>
                 <div className="grid grid-cols-1 md:grid-cols-10 gap-6">
                     <div className="md:col-span-3 space-y-2">
-                        <LemonField name="rate_limit_per_hour" label="Exceptions per hour">
+                        <LemonField name="project_rate_limit_per_hour" label="Exceptions per hour">
                             {({ value, onChange }) => (
                                 <LemonInput
                                     type="number"
@@ -75,7 +75,10 @@ export function RateLimitSettings(): JSX.Element {
                         {volumeLoading ? (
                             <LemonSkeleton className="w-full h-64" />
                         ) : (
-                            <RateLimitSimulationChart volume={volume} rateLimit={configForm.rate_limit_per_hour} />
+                            <RateLimitSimulationChart
+                                volume={volume}
+                                rateLimit={configForm.project_rate_limit_per_hour}
+                            />
                         )}
                     </div>
                 </div>

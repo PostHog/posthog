@@ -585,7 +585,8 @@ class ErrorTrackingRateLimitConfig(models.Model):
         primary_key=True,
         related_name="error_tracking_rate_limit_config",
     )
-    rate_limit_per_hour = models.IntegerField(null=True, blank=True)
+    project_rate_limit_per_hour = models.IntegerField(null=True, blank=True)
+    per_issue_rate_limit_per_hour = models.IntegerField(null=True, blank=True)
 
     class Meta:
         db_table = "posthog_errortrackingratelimitconfig"

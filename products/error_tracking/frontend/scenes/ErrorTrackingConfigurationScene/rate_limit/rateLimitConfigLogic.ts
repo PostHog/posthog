@@ -12,11 +12,11 @@ import { HogQLQueryResponse, NodeKind, ProductKey } from '~/queries/schema/schem
 import type { rateLimitConfigLogicType } from './rateLimitConfigLogicType'
 
 export interface RateLimitConfigForm {
-    rate_limit_per_hour: number | null
+    project_rate_limit_per_hour: number | null
 }
 
 const DEFAULT_CONFIG: RateLimitConfigForm = {
-    rate_limit_per_hour: null,
+    project_rate_limit_per_hour: null,
 }
 
 export interface ExceptionVolumeBucket {
@@ -82,17 +82,19 @@ export const rateLimitConfigLogic = kea<rateLimitConfigLogicType>([
     forms(({ actions }) => ({
         configForm: {
             defaults: DEFAULT_CONFIG,
-            errors: ({ rate_limit_per_hour }) => ({
-                rate_limit_per_hour:
-                    rate_limit_per_hour !== null && rate_limit_per_hour < 1
+            errors: ({ project_rate_limit_per_hour }) => ({
+                project_rate_limit_per_hour:
+                    project_rate_limit_per_hour !== null && project_rate_limit_per_hour < 1
                         ? 'Rate limit must be at least 1'
                         : undefined,
             }),
-            submit: async ({ rate_limit_per_hour }) => {
+            submit: async ({ project_rate_limit_per_hour }) => {
                 try {
-                    const updated = await api.errorTracking.updateRateLimitConfig({ rate_limit_per_hour })
+                    const updated = await api.errorTracking.updateRateLimitConfig({ project_rate_limit_per_hour })
                     actions.loadConfigSuccess(updated)
-                    posthog.capture('error_tracking_rate_limit_settings_updated', { rate_limit_per_hour })
+                    posthog.capture('error_tracking_rate_limit_settings_updated', {
+                        project_rate_limit_per_hour,
+                    })
                     lemonToast.success('Rate limit settings saved')
                 } catch (e) {
                     lemonToast.error('Failed to save rate limit settings')
@@ -105,7 +107,7 @@ export const rateLimitConfigLogic = kea<rateLimitConfigLogicType>([
     listeners(({ actions }) => ({
         loadConfigSuccess: ({ config }) => {
             if (config) {
-                actions.resetConfigForm({ rate_limit_per_hour: config.rate_limit_per_hour })
+                actions.resetConfigForm({ project_rate_limit_per_hour: config.project_rate_limit_per_hour })
             }
         },
     })),
