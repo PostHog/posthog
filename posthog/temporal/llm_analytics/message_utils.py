@@ -169,7 +169,10 @@ def format_tool_definitions(tools: Any) -> str:
         return tools
 
     if isinstance(tools, dict):
-        tools = [tools]
+        # A bare dict is either a single tool spec (has `function` or `name`)
+        # or a `{tool_name: tool_spec, ...}` mapping — flatten the latter into
+        # a list of values so each tool is rendered individually.
+        tools = [tools] if "function" in tools or "name" in tools else list(tools.values())
 
     if not isinstance(tools, list):
         return json.dumps(tools, default=str)
@@ -179,9 +182,17 @@ def format_tool_definitions(tools: Any) -> str:
         if not isinstance(tool, dict):
             parts.append(str(tool))
             continue
-        rendered = _format_single_tool_definition(tool)
-        if rendered:
-            parts.append(rendered)
+        # Gemini wraps multiple tools in `functionDeclarations`; expand them so
+        # each declared function gets its own line in the catalog.
+        declarations = tool.get("functionDeclarations")
+        tools_to_render = declarations if isinstance(declarations, list) else [tool]
+        for entry in tools_to_render:
+            if not isinstance(entry, dict):
+                parts.append(str(entry))
+                continue
+            rendered = _format_single_tool_definition(entry)
+            if rendered:
+                parts.append(rendered)
     return "\n".join(parts)
 
 
@@ -190,8 +201,10 @@ def _format_single_tool_definition(tool: dict) -> str:
     fn = tool.get("function") if isinstance(tool.get("function"), dict) else tool
     name = fn.get("name") or tool.get("name") or ""
     description = fn.get("description") or tool.get("description") or ""
-    # Anthropic uses `input_schema` rather than `parameters`.
-    parameters = fn.get("parameters") or tool.get("input_schema")
+    # Schema lives under different keys across providers: `parameters` for OpenAI
+    # function-calling and Gemini, `input_schema` for Anthropic, and `inputSchema`
+    # for the camelCase OpenAI Responses API variant.
+    parameters = fn.get("parameters") or tool.get("parameters") or tool.get("input_schema") or tool.get("inputSchema")
 
     if not name:
         # Unrecognized shape — stringify so the judge still sees something.

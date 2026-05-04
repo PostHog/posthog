@@ -364,3 +364,54 @@ class TestFormatToolDefinitions:
     def test_name_only_renders_without_description_or_params(self):
         tools = [{"type": "function", "function": {"name": "noop"}}]
         assert format_tool_definitions(tools) == "- noop"
+
+    def test_dict_of_tools_is_flattened(self):
+        """A `{tool_name: tool_spec}` mapping should render each value as its
+        own tool rather than being treated as a single nameless tool."""
+        tools = {
+            "lov-view": {"name": "lov-view", "description": "View something"},
+            "supabase-migration": {"name": "supabase-migration", "description": "Run a migration"},
+        }
+        result = format_tool_definitions(tools)
+        lines = result.split("\n")
+        assert len(lines) == 2
+        assert any(line.startswith("- lov-view") for line in lines)
+        assert any(line.startswith("- supabase-migration") for line in lines)
+
+    def test_gemini_function_declarations_shape(self):
+        tools = [
+            {
+                "functionDeclarations": [
+                    {
+                        "name": "send_email",
+                        "description": "Send an email.",
+                        "parameters": {"type": "object", "properties": {"to": {"type": "string"}}},
+                    },
+                    {
+                        "name": "lookup_user",
+                        "description": "Look up a user.",
+                        "parameters": {"type": "object", "properties": {"id": {"type": "string"}}},
+                    },
+                ]
+            }
+        ]
+        result = format_tool_definitions(tools)
+        lines = result.split("\n")
+        assert len(lines) == 2
+        assert lines[0].startswith("- send_email")
+        assert lines[1].startswith("- lookup_user")
+        assert '"to"' in result
+        assert '"id"' in result
+
+    def test_openai_camel_case_input_schema_shape(self):
+        tools = [
+            {
+                "name": "lookup_user",
+                "description": "Look up a user by id.",
+                "inputSchema": {"type": "object", "properties": {"id": {"type": "string"}}},
+            }
+        ]
+        result = format_tool_definitions(tools)
+        assert "- lookup_user" in result
+        assert "Look up a user by id." in result
+        assert '"id"' in result
