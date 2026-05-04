@@ -4,7 +4,9 @@ from functools import partial
 from uuid import uuid4
 
 import pytest
+from unittest.mock import patch
 
+import dagster
 from clickhouse_driver import Client
 from dagster import build_op_context
 
@@ -13,14 +15,22 @@ from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.dags.data_deletion_requests import (
     DataDeletionRequestConfig,
     DeletionRequestContext,
+    PersonRemovalContext,
     data_deletion_request_event_removal,
+    data_deletion_request_person_removal,
+    data_deletion_request_pickup_sensor,
     data_deletion_request_property_removal,
+    delete_person_events_op,
+    delete_person_profiles_op,
+    delete_person_recordings_op,
     execute_event_deletion,
     finalize_deletion_request,
     load_deletion_request,
+    load_person_removal_request,
     load_property_removal_request,
 )
 from posthog.models.data_deletion_request import DataDeletionRequest, ExecutionMode, RequestStatus, RequestType
+from posthog.models.person import Person
 
 TEAM_ID = 99999
 
@@ -46,6 +56,25 @@ def _count_events_by_name(team_id: int, event_name: str, client: Client) -> int:
         {"team_id": team_id, "event": event_name},
     )
     return result[0][0]
+
+
+def _insert_events_with_person(events: list[tuple], client: Client) -> None:
+    client.execute(
+        "INSERT INTO writable_events (team_id, event, uuid, timestamp, person_id) VALUES",
+        events,
+    )
+
+
+def _count_events_for_person(team_id: int, person_uuid: str, client: Client) -> int:
+    result = client.execute(
+        "SELECT count() FROM writable_events WHERE team_id = %(team_id)s AND person_id = %(p)s",
+        {"team_id": team_id, "p": person_uuid},
+    )
+    return result[0][0]
+
+
+def _truncate_writable_events(client: Client) -> None:
+    client.execute("TRUNCATE TABLE IF EXISTS sharded_events")
 
 
 def _truncate_adhoc_events_deletion(client: Client) -> None:
@@ -881,3 +910,297 @@ def test_full_job_property_removal_clears_materialized_columns(
         assert request.status == RequestStatus.COMPLETED
     finally:
         cluster.any_host(partial(_drop_default_mat_columns, col_defs)).result()
+
+
+@pytest.mark.django_db
+def test_load_person_removal_request_transitions_to_in_progress():
+    request = DataDeletionRequest.objects.create(
+        team_id=TEAM_ID,
+        request_type=RequestType.PERSON_REMOVAL,
+        person_uuids=[str(uuid4())],
+        person_drop_profiles=True,
+        person_drop_events=True,
+        person_drop_recordings=False,
+        status=RequestStatus.APPROVED,
+    )
+    config = DataDeletionRequestConfig(request_id=str(request.pk))
+    ctx = build_op_context()
+
+    result = load_person_removal_request(ctx, config)
+
+    assert result.team_id == TEAM_ID
+    assert result.drop_profiles is True
+    assert result.drop_events is True
+    assert result.drop_recordings is False
+    request.refresh_from_db()
+    assert request.status == RequestStatus.IN_PROGRESS
+
+
+@pytest.mark.django_db
+def test_load_person_removal_rejects_both_selectors():
+    # Belt-and-suspenders: model.clean() enforces mutual exclusion at the API boundary, but if
+    # a row is created bypassing clean() (e.g. raw SQL or .objects.create), the dagster job must
+    # still refuse to run because resolve_persons_for_deletion's elif would silently drop one set.
+    request = DataDeletionRequest.objects.create(
+        team_id=TEAM_ID,
+        request_type=RequestType.PERSON_REMOVAL,
+        person_uuids=[str(uuid4())],
+        person_distinct_ids=["did-1"],
+        person_drop_profiles=True,
+        person_drop_events=False,
+        person_drop_recordings=False,
+        status=RequestStatus.APPROVED,
+    )
+    config = DataDeletionRequestConfig(request_id=str(request.pk))
+    with pytest.raises(Exception, match="mutually exclusive"):
+        load_person_removal_request(build_op_context(), config)
+
+
+@pytest.mark.django_db
+def test_load_person_removal_rejects_wrong_type():
+    request = DataDeletionRequest.objects.create(
+        team_id=TEAM_ID,
+        request_type=RequestType.EVENT_REMOVAL,
+        events=["$pageview"],
+        start_time=datetime.now() - timedelta(days=1),
+        end_time=datetime.now(),
+        status=RequestStatus.APPROVED,
+    )
+    config = DataDeletionRequestConfig(request_id=str(request.pk))
+    with pytest.raises(Exception, match="not an approved person_removal request"):
+        load_person_removal_request(build_op_context(), config)
+
+
+@pytest.mark.django_db
+def test_delete_person_events_op_runs_lightweight_delete_per_shard(cluster: ClickhouseCluster):
+    person_uuid = str(uuid4())
+    other_uuid = str(uuid4())
+    now = datetime.now()
+
+    cluster.any_host(_truncate_writable_events).result()
+    cluster.any_host(
+        partial(
+            _insert_events_with_person,
+            [
+                (TEAM_ID, "$pageview", str(uuid4()), now, person_uuid),
+                (TEAM_ID, "$pageview", str(uuid4()), now, other_uuid),
+            ],
+        )
+    ).result()
+
+    ctx = PersonRemovalContext(
+        request_id=str(uuid4()),
+        team_id=TEAM_ID,
+        person_uuids=[person_uuid],
+        person_distinct_ids=[],
+        drop_profiles=False,
+        drop_events=True,
+        drop_recordings=False,
+    )
+
+    delete_person_events_op(build_op_context(), cluster, ctx)
+
+    assert cluster.any_host(partial(_count_events_for_person, TEAM_ID, person_uuid)).result() == 0
+    assert cluster.any_host(partial(_count_events_for_person, TEAM_ID, other_uuid)).result() == 1
+
+
+@pytest.mark.django_db
+def test_delete_person_events_op_noop_when_disabled(cluster: ClickhouseCluster):
+    ctx = PersonRemovalContext(
+        request_id=str(uuid4()),
+        team_id=TEAM_ID,
+        person_uuids=[str(uuid4())],
+        person_distinct_ids=[],
+        drop_profiles=False,
+        drop_events=False,
+        drop_recordings=False,
+    )
+    delete_person_events_op(build_op_context(), cluster, ctx)
+
+
+@pytest.mark.django_db
+def test_delete_person_events_op_resolves_distinct_ids_to_uuids(cluster: ClickhouseCluster):
+    # When the request was submitted by distinct_id, the events op must resolve to UUIDs
+    # because the CH events table is keyed by person_id (UUID).
+    p = Person.objects.create(team_id=TEAM_ID, uuid=uuid4(), distinct_ids=["distinct-only"])
+    bystander_uuid = str(uuid4())
+    now = datetime.now()
+
+    cluster.any_host(_truncate_writable_events).result()
+    cluster.any_host(
+        partial(
+            _insert_events_with_person,
+            [
+                (TEAM_ID, "$pageview", str(uuid4()), now, str(p.uuid)),
+                (TEAM_ID, "$pageview", str(uuid4()), now, bystander_uuid),
+            ],
+        )
+    ).result()
+
+    ctx = PersonRemovalContext(
+        request_id=str(uuid4()),
+        team_id=TEAM_ID,
+        person_uuids=[],
+        person_distinct_ids=["distinct-only"],
+        drop_profiles=False,
+        drop_events=True,
+        drop_recordings=False,
+    )
+
+    delete_person_events_op(build_op_context(), cluster, ctx)
+
+    assert cluster.any_host(partial(_count_events_for_person, TEAM_ID, str(p.uuid))).result() == 0
+    assert cluster.any_host(partial(_count_events_for_person, TEAM_ID, bystander_uuid)).result() == 1
+
+
+@pytest.mark.django_db
+def test_delete_person_recordings_op_calls_helper_when_enabled():
+    p_uuid = str(uuid4())
+    Person.objects.create(team_id=TEAM_ID, uuid=p_uuid, distinct_ids=["a"])
+    ctx = PersonRemovalContext(
+        request_id=str(uuid4()),
+        team_id=TEAM_ID,
+        person_uuids=[p_uuid],
+        person_distinct_ids=[],
+        drop_profiles=False,
+        drop_events=False,
+        drop_recordings=True,
+    )
+    with patch("posthog.dags.data_deletion_requests.queue_person_recording_deletion") as queue:
+        delete_person_recordings_op(build_op_context(), ctx)
+        queue.assert_called_once()
+        kwargs = queue.call_args.kwargs
+        assert kwargs["actor"] is None  # no DRF user in Dagster
+
+
+@pytest.mark.django_db
+def test_delete_person_recordings_op_noop_when_disabled():
+    ctx = PersonRemovalContext(
+        request_id=str(uuid4()),
+        team_id=TEAM_ID,
+        person_uuids=[str(uuid4())],
+        person_distinct_ids=[],
+        drop_profiles=False,
+        drop_events=False,
+        drop_recordings=False,
+    )
+    with patch("posthog.dags.data_deletion_requests.queue_person_recording_deletion") as queue:
+        delete_person_recordings_op(build_op_context(), ctx)
+        queue.assert_not_called()
+
+
+@pytest.mark.django_db
+def test_delete_person_profiles_op_calls_helper_when_enabled():
+    p_uuid = str(uuid4())
+    Person.objects.create(team_id=TEAM_ID, uuid=p_uuid, distinct_ids=["a"])
+    ctx = PersonRemovalContext(
+        request_id=str(uuid4()),
+        team_id=TEAM_ID,
+        person_uuids=[p_uuid],
+        person_distinct_ids=[],
+        drop_profiles=True,
+        drop_events=False,
+        drop_recordings=False,
+    )
+    with patch("posthog.dags.data_deletion_requests.delete_persons_profile") as deleter:
+        deleter.return_value = type("R", (), {"deleted_count": 1, "errors": []})()
+        delete_person_profiles_op(build_op_context(), ctx)
+        deleter.assert_called_once()
+
+
+@pytest.mark.django_db
+def test_delete_person_profiles_op_noop_when_disabled():
+    ctx = PersonRemovalContext(
+        request_id=str(uuid4()),
+        team_id=TEAM_ID,
+        person_uuids=[str(uuid4())],
+        person_distinct_ids=[],
+        drop_profiles=False,
+        drop_events=False,
+        drop_recordings=False,
+    )
+    with patch("posthog.dags.data_deletion_requests.delete_persons_profile") as deleter:
+        delete_person_profiles_op(build_op_context(), ctx)
+        deleter.assert_not_called()
+
+
+@pytest.mark.django_db
+def test_delete_person_profiles_op_records_per_person_errors_in_metadata():
+    # Best-effort semantics: per-person failures are recorded in op metadata and surfaced via
+    # logs, but the op returns normally so the request can finalize to COMPLETED and the
+    # operator can issue a follow-up request for the failed UUIDs.
+    p_uuid = str(uuid4())
+    Person.objects.create(team_id=TEAM_ID, uuid=p_uuid, distinct_ids=["a"])
+    ctx = PersonRemovalContext(
+        request_id=str(uuid4()),
+        team_id=TEAM_ID,
+        person_uuids=[p_uuid],
+        person_distinct_ids=[],
+        drop_profiles=True,
+        drop_events=False,
+        drop_recordings=False,
+    )
+    op_context = build_op_context()
+    with patch("posthog.dags.data_deletion_requests.delete_persons_profile") as deleter:
+        deleter.return_value = type("R", (), {"deleted_count": 0, "errors": [p_uuid]})()
+        with patch.object(op_context.log, "warning") as warn:
+            result = delete_person_profiles_op(op_context, ctx)
+
+    # No raise — best-effort, returns the context.
+    assert result is ctx
+    # The op surfaced the failure via a warning log so operators can find the failed UUIDs.
+    assert warn.called
+    warn_message = warn.call_args.args[0] if warn.call_args.args else ""
+    assert "1 per-person failures" in warn_message
+
+
+@pytest.mark.django_db
+def test_data_deletion_request_person_removal_lifecycle(cluster: ClickhouseCluster):
+    p_uuid = str(uuid4())
+    Person.objects.create(team_id=TEAM_ID, uuid=p_uuid, distinct_ids=["a"])
+    request = DataDeletionRequest.objects.create(
+        team_id=TEAM_ID,
+        request_type=RequestType.PERSON_REMOVAL,
+        person_uuids=[p_uuid],
+        person_drop_profiles=True,
+        person_drop_events=True,
+        person_drop_recordings=False,
+        status=RequestStatus.APPROVED,
+    )
+
+    with (
+        patch("posthog.dags.data_deletion_requests.delete_persons_profile") as profile,
+        patch("posthog.dags.data_deletion_requests.queue_person_recording_deletion"),
+    ):
+        profile.return_value = type("R", (), {"deleted_count": 1, "errors": []})()
+        result = data_deletion_request_person_removal.execute_in_process(
+            run_config={
+                "ops": {
+                    "load_person_removal_request": {"config": {"request_id": str(request.pk)}},
+                },
+            },
+            resources={"cluster": cluster},
+        )
+
+    assert result.success
+    request.refresh_from_db()
+    assert request.status == RequestStatus.COMPLETED
+
+
+@pytest.mark.django_db
+def test_pickup_sensor_routes_person_removal_request():
+    request = DataDeletionRequest.objects.create(
+        team_id=TEAM_ID,
+        request_type=RequestType.PERSON_REMOVAL,
+        person_uuids=[str(uuid4())],
+        person_drop_profiles=True,
+        status=RequestStatus.APPROVED,
+        approved_at=datetime.now(),
+    )
+    instance = dagster.DagsterInstance.ephemeral()
+    ctx = dagster.build_sensor_context(instance=instance)
+    result = data_deletion_request_pickup_sensor(ctx)
+    assert isinstance(result, dagster.RunRequest)
+    assert result.job_name == "data_deletion_request_person_removal"
+    assert "load_person_removal_request" in result.run_config["ops"]
+    assert str(request.pk) == result.run_key

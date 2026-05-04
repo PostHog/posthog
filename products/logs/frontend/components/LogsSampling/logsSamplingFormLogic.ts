@@ -271,7 +271,8 @@ export const logsSamplingFormLogic = kea<logsSamplingFormLogicType>([
                 try {
                     const scope_service = form.scope_service.trim() || null
                     const scope_path_pattern = form.scope_path_pattern.trim() || null
-                    const scope_attribute_filters = (props.rule?.scope_attribute_filters ?? []) as unknown[]
+                    const scope_attribute_filters = (props.rule?.scope_attribute_filters ??
+                        []) as PatchedLogsSamplingRuleApi['scope_attribute_filters']
                     const payload = {
                         name: form.name.trim(),
                         enabled: form.enabled,

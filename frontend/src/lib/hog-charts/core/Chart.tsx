@@ -86,6 +86,8 @@ export interface ChartProps<Meta = unknown> {
      *  axis (y in horizontal mode). Should be referentially stable; non-stable identities
      *  invalidate the interaction memo on every render. */
     labelToCoord?: (label: string) => number | undefined
+    /** Surfaced on layout context so overlays can default to a percent formatter. */
+    isPercent?: boolean
 }
 
 export function Chart<Meta = unknown>({
@@ -103,6 +105,7 @@ export function Chart<Meta = unknown>({
     children,
     resolveValue,
     labelToCoord,
+    isPercent = false,
 }: ChartProps<Meta>): React.ReactElement {
     const {
         xTickFormatter,
@@ -217,8 +220,10 @@ export function Chart<Meta = unknown>({
             theme,
             resolveValue: stableResolveValue,
             canvasBounds,
+            axisOrientation,
+            isPercent,
         }
-    }, [scales, dimensions, labels, coloredSeries, theme, stableResolveValue, canvasBounds])
+    }, [scales, dimensions, labels, coloredSeries, theme, stableResolveValue, canvasBounds, axisOrientation, isPercent])
 
     const hoverValue = useMemo<ChartHoverContextValue>(() => ({ hoverIndex }), [hoverIndex])
 

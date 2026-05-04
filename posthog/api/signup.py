@@ -386,7 +386,11 @@ class InviteSignupSerializer(serializers.Serializer):
 
     def to_representation(self, instance):
         data = UserBasicSerializer(instance=instance).data
-        data["redirect_url"] = get_redirect_url(data["uuid"], data["is_email_verified"])
+        # Setup-delegation invites hand off onboarding to the invitee — route them straight into
+        # onboarding instead of the default post-signup landing page, otherwise the sceneLogic
+        # redirect race can drop them on the homepage.
+        next_url = "/onboarding" if self.context.get("delegated_onboarding") else None
+        data["redirect_url"] = get_redirect_url(data["uuid"], data["is_email_verified"], next_url)
         return data
 
     def validate(self, data: dict[str, Any]) -> dict[str, Any]:
@@ -514,10 +518,19 @@ class InviteSignupSerializer(serializers.Serializer):
                         f"There already exists an account with email address {invite.target_email}. Please log in instead."
                     )
 
+            # Capture the delegation flag BEFORE invite.use(): use() deletes the invite row,
+            # so the in-memory boolean is the only safe source of truth for any post-use
+            # branching. A future refactor adding refresh_from_db() here would otherwise
+            # silently drop delegated invitees on the homepage instead of routing them into
+            # onboarding.
+            is_delegation = bool(invite.is_setup_delegation)
             try:
                 invite.use(user)
             except ValueError as e:
                 raise serializers.ValidationError(str(e))
+
+            if is_delegation:
+                self.context["delegated_onboarding"] = True
 
             if passkey_credential:
                 WebauthnCredential.objects.create(
@@ -716,9 +729,14 @@ def process_social_invite_signup(
         except Team.DoesNotExist:
             return None
 
+    # Capture before invite.use() — use() deletes the invite row, so the in-memory boolean is
+    # the only safe source of truth for delegation routing.
+    is_delegation = bool(getattr(invite, "is_setup_delegation", False))
     if user:
         invite.validate(user=user, email=email)
         invite.use(user, prevalidated=True)
+        if is_delegation:
+            strategy.session_set("next", "/onboarding")
         return user
     else:
         invite.validate(user=None, email=email)
@@ -731,6 +749,8 @@ def process_social_invite_signup(
             message = "Account unable to be created. This account may already exist. Please try again or use different credentials."
             raise ValidationError(message, code="unknown", params={"source": "social_create_user"})
 
+        if is_delegation:
+            strategy.session_set("next", "/onboarding")
         return _user
 
 
@@ -763,6 +783,8 @@ def process_social_domain_jit_provisioning_signup(
                         target_email=email, organization=domain_instance.organization
                     )
                     invite.validate(user=None, email=email)
+                    # Capture before invite.use() deletes the invite row.
+                    is_delegation = bool(getattr(invite, "is_setup_delegation", False))
 
                     try:
                         user = strategy.create_user(
@@ -774,6 +796,9 @@ def process_social_domain_jit_provisioning_signup(
                         capture_exception(e)
                         message = "Account unable to be created. This account may already exist. Please try again or use different credentials."
                         raise ValidationError(message, code="unknown", params={"source": "social_create_user"})
+
+                    if is_delegation:
+                        strategy.session_set("next", "/onboarding")
 
                 except (OrganizationInvite.DoesNotExist, InviteExpiredException):
                     user = User.objects.create_and_join(

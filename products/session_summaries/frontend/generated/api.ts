@@ -66,23 +66,3 @@ export const createSessionSummaries = async (
         body: JSON.stringify(sessionSummariesApi),
     })
 }
-
-/**
- * Generate AI individual summary for each session, without grouping.
- */
-export const getCreateSessionSummariesIndividuallyUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/session_summaries/create_session_summaries_individually/`
-}
-
-export const createSessionSummariesIndividually = async (
-    projectId: string,
-    sessionSummariesApi: SessionSummariesApi,
-    options?: RequestInit
-): Promise<SessionSummariesApi> => {
-    return apiMutator<SessionSummariesApi>(getCreateSessionSummariesIndividuallyUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(sessionSummariesApi),
-    })
-}
