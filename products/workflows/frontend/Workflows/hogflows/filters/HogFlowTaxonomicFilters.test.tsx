@@ -1,15 +1,10 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { useValues } from 'kea'
 
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
-import {
-    InfiniteListLogicProps,
-    TaxonomicFilterGroupType,
-    TaxonomicFilterRenderProps,
-} from 'lib/components/TaxonomicFilter/types'
+import { InfiniteListLogicProps, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import { PropertyFilterType } from '~/types'
 
@@ -75,10 +70,8 @@ function setupMocks({
     })
 }
 
-function renderComponent(
-    overrides: Partial<Pick<TaxonomicFilterRenderProps, 'onChange'>> = {}
-): { onChange: jest.Mock } {
-    const onChange = overrides.onChange ?? jest.fn()
+function renderComponent(): { onChange: jest.Mock } {
+    const onChange = jest.fn()
     render(<HogFlowTaxonomicFilters onChange={onChange} infiniteListLogicProps={INFINITE_LIST_LOGIC_PROPS} />)
     return { onChange }
 }
@@ -135,11 +128,11 @@ describe('HogFlowTaxonomicFilters', () => {
         expect(screen.queryByText('foo_var')).not.toBeInTheDocument()
     })
 
-    it('calls onChange with the workflow variable filter group when a variable is clicked', async () => {
+    it('calls onChange with the workflow variable filter group when a variable is clicked', () => {
         setupMocks({ variables: [VARIABLE_FOO] })
         const { onChange } = renderComponent()
 
-        await userEvent.click(screen.getByText('foo_var'))
+        fireEvent.click(screen.getByText('foo_var'))
 
         expect(onChange).toHaveBeenCalledTimes(1)
         expect(onChange).toHaveBeenCalledWith('foo_var', {
