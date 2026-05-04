@@ -25949,8 +25949,6 @@ export namespace Schemas {
      */
     export type UserNotificationSettings = { [key: string]: unknown };
 
-    export type UserAnalyticsMetadata = { [key: string]: unknown };
-
     export interface User {
       readonly date_joined: string;
       readonly uuid: string;
@@ -26031,7 +26029,6 @@ export namespace Schemas {
       /** @nullable */
       readonly is_organization_first_user: boolean | null;
       readonly pending_invites: readonly PendingInvite[];
-      readonly analytics_metadata: UserAnalyticsMetadata;
     }
 
     export interface PaginatedUserList {
@@ -31334,8 +31331,6 @@ export namespace Schemas {
      */
     export type PatchedUserNotificationSettings = { [key: string]: unknown };
 
-    export type PatchedUserAnalyticsMetadata = { [key: string]: unknown };
-
     export interface PatchedUser {
       readonly date_joined?: string;
       readonly uuid?: string;
@@ -31416,7 +31411,6 @@ export namespace Schemas {
       /** @nullable */
       readonly is_organization_first_user?: boolean | null;
       readonly pending_invites?: readonly PendingInvite[];
-      readonly analytics_metadata?: PatchedUserAnalyticsMetadata;
     }
 
     export interface PatchedUserInterview {

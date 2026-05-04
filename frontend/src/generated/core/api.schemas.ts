@@ -2972,8 +2972,6 @@ export interface PendingInviteApi {
  */
 export type UserApiNotificationSettings = { [key: string]: unknown }
 
-export type UserApiAnalyticsMetadata = { [key: string]: unknown }
-
 export interface UserApi {
     readonly date_joined: string
     readonly uuid: string
@@ -3054,7 +3052,6 @@ export interface UserApi {
     /** @nullable */
     readonly is_organization_first_user: boolean | null
     readonly pending_invites: readonly PendingInviteApi[]
-    readonly analytics_metadata: UserApiAnalyticsMetadata
 }
 
 export interface PaginatedUserListApi {
@@ -3070,8 +3067,6 @@ export interface PaginatedUserListApi {
  * Map of notification preferences. Keys include `plugin_disabled`, `all_weekly_report_disabled`, `project_weekly_digest_disabled`, `error_tracking_weekly_digest_project_enabled`, `web_analytics_weekly_digest_project_enabled`, `organization_member_join_email_disabled`, `data_pipeline_error_threshold` (number between 0.0 and 1.0), and other per-topic switches. Values are either booleans, or (for per-project/per-resource keys) a map of IDs to booleans. Only the keys you send are updated — other preferences stay as-is.
  */
 export type PatchedUserApiNotificationSettings = { [key: string]: unknown }
-
-export type PatchedUserApiAnalyticsMetadata = { [key: string]: unknown }
 
 export interface PatchedUserApi {
     readonly date_joined?: string
@@ -3153,7 +3148,6 @@ export interface PatchedUserApi {
     /** @nullable */
     readonly is_organization_first_user?: boolean | null
     readonly pending_invites?: readonly PendingInviteApi[]
-    readonly analytics_metadata?: PatchedUserApiAnalyticsMetadata
 }
 
 /**
