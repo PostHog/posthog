@@ -28,7 +28,8 @@ impl QueueError {
 }
 
 fn is_missing_relation_error(code: Option<&str>, message: &str, relation: &str) -> bool {
-    code == Some("42P01") && message.contains(relation)
+    let quoted_relation = format!("\"{relation}\"");
+    code == Some("42P01") && message.contains(&quoted_relation)
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -52,25 +53,40 @@ mod tests {
     use super::is_missing_relation_error;
 
     #[test]
-    fn detects_missing_relation_error_for_named_table() {
-        assert!(is_missing_relation_error(
-            Some("42P01"),
-            "relation \"cyclotron_jobs\" does not exist",
-            "cyclotron_jobs"
-        ));
-    }
+    fn detects_missing_relation_error_cases() {
+        let cases = [
+            (
+                Some("42P01"),
+                "relation \"cyclotron_jobs\" does not exist",
+                "cyclotron_jobs",
+                true,
+            ),
+            (
+                Some("42P01"),
+                "relation \"some_other_table\" does not exist",
+                "cyclotron_jobs",
+                false,
+            ),
+            (
+                Some("23505"),
+                "duplicate key value violates unique constraint",
+                "cyclotron_jobs",
+                false,
+            ),
+            (
+                None,
+                "relation \"cyclotron_jobs\" does not exist",
+                "cyclotron_jobs",
+                false,
+            ),
+        ];
 
-    #[test]
-    fn ignores_other_tables_and_error_codes() {
-        assert!(!is_missing_relation_error(
-            Some("42P01"),
-            "relation \"some_other_table\" does not exist",
-            "cyclotron_jobs"
-        ));
-        assert!(!is_missing_relation_error(
-            Some("23505"),
-            "duplicate key value violates unique constraint",
-            "cyclotron_jobs"
-        ));
+        for (code, message, relation, expected) in cases {
+            assert_eq!(
+                is_missing_relation_error(code, message, relation),
+                expected,
+                "unexpected result for code={code:?}, message={message}, relation={relation}"
+            );
+        }
     }
 }
