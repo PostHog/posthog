@@ -1,4 +1,4 @@
-import { dimensions, makeSeries } from '../test-helpers'
+import { dimensions, makeSeries } from '../testing'
 import { type ComputeSeriesBarsOptions, computeSeriesBars, cornersFor } from './bar-layout'
 import type { BarRect } from './canvas-renderer'
 import { computeStackData, createBarScales } from './scales'

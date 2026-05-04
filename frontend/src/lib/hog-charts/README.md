@@ -23,6 +23,11 @@ PostHog's canvas-based charting library built on D3.
   not props from Chart.** Prefer the granular hooks: `useChartLayout()` doesn't
   re-render on hover, while `useChartHover()` does. Use `useChart()` only when an
   overlay needs both — it re-renders on every mousemove.
+- **Tests go through the accessor.** Chart-level tests use `renderHogChart` plus
+  the `HogChart` accessor from `testing/`. The `data-attr` selectors are a
+  stable contract. Drive interactions with `hoverAtIndex` / `clickAtIndex` /
+  `waitForHogChartTooltip`. Don't mock `canvas-renderer` from chart tests —
+  pure logic is tested at the `core/` layer. See [docs/TESTING.md](./docs/TESTING.md).
 
 ## Adding a new chart type
 

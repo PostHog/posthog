@@ -6089,6 +6089,7 @@ export enum UserProductListReason {
     USED_ON_SEPARATE_TEAM = 'used_on_separate_team',
     NEW_PRODUCT = 'new_product',
     SALES_LED = 'sales_led',
+    ONBOARDING_DELEGATED = 'onboarding_delegated',
 }
 
 export interface UserProductListItem {

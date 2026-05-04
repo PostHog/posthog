@@ -25,6 +25,7 @@ from disposable_email_domains import blocklist as disposable_email_domains_list
 from free_email_domains import whitelist as free_email_domains_list
 from google.auth.transport.requests import Request as GoogleRequest
 from google.oauth2 import service_account
+from opentelemetry import trace
 from prometheus_client import Counter
 from requests.auth import HTTPBasicAuth
 from rest_framework.exceptions import ValidationError
@@ -51,6 +52,7 @@ from posthog.utils import get_instance_region
 from products.workflows.backend.providers import SESProvider, TwilioProvider
 
 logger = structlog.get_logger(__name__)
+tracer = trace.get_tracer(__name__)
 
 
 def _decode_jwt_payload(token: str) -> dict | None:
@@ -268,22 +270,16 @@ POSTHOG_SLACK_SCOPE = ",".join(
         "groups:read",
         "chat:write",
         "chat:write.customize",
-        *(
-            [  # New scopes that came with the update adding PostHog AI integration with Slack
-                "app_mentions:read",
-                "channels:history",
-                "groups:history",
-                "links:read",
-                "links:write",
-                "reactions:read",
-                "reactions:write",
-                "team:read",
-                "users:read",
-                "users:read.email",
-            ]
-            if settings.DEBUG or settings.CLOUD_DEPLOYMENT == "DEV"
-            else []
-        ),
+        "app_mentions:read",
+        "channels:history",
+        "groups:history",
+        "links:read",
+        "links:write",
+        "reactions:read",
+        "reactions:write",
+        "team:read",
+        "users:read",
+        "users:read.email",
     ]
 )
 
@@ -1194,13 +1190,17 @@ class SlackIntegration:
     @classmethod
     @cache_for(timedelta(minutes=5))
     def slack_config(cls):
-        config = get_instance_settings(
-            [
-                "SLACK_APP_CLIENT_ID",
-                "SLACK_APP_CLIENT_SECRET",
-                "SLACK_APP_SIGNING_SECRET",
-            ]
-        )
+        # Span only fires on cache miss (cache_for is process-local in-memory).
+        # If preflight.slack_config_main is fast in production traces, this span
+        # will be absent; if it appears, it tells us the DB hit was slow.
+        with tracer.start_as_current_span("slack_integration.slack_config_db"):
+            config = get_instance_settings(
+                [
+                    "SLACK_APP_CLIENT_ID",
+                    "SLACK_APP_CLIENT_SECRET",
+                    "SLACK_APP_SIGNING_SECRET",
+                ]
+            )
 
         return config
 
@@ -2234,7 +2234,13 @@ class GitHubRateLimitError(GitHubIntegrationError):
     """GitHub API rate limit exhausted for this installation."""
 
     def __init__(self, message: str, reset_at: int | None = None, retry_after: int | None = None):
-        super().__init__(message)
+        # Forward to the base error so backoff filters using `exc.is_rate_limit` /
+        # `exc.retry_after_seconds` continue to work for instances of this subclass.
+        super().__init__(
+            message,
+            is_rate_limit=True,
+            retry_after_seconds=float(retry_after) if retry_after is not None else None,
+        )
         self.reset_at = reset_at
         self.retry_after = retry_after
 
@@ -2442,6 +2448,138 @@ class GitHubIntegration(GitHubIntegrationBase):
         self.integration.errors = ""
         reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
         oauth_refresh_counter.labels(self.integration.kind, "success").inc()
+
+    @staticmethod
+    def _is_secondary_rate_limit(response: requests.Response) -> bool:
+        """GitHub signals secondary rate limits via 429, or 403 + ``Retry-After`` /
+        ``X-RateLimit-Remaining: 0``, or 403 with a body marker (no headers)."""
+        if response.status_code == 429:
+            return True
+        if response.status_code != 403:
+            return False
+        if response.headers.get("Retry-After"):
+            return True
+        if response.headers.get("X-RateLimit-Remaining") == "0":
+            return True
+        # Some 403s carry the secondary-limit signal only in the body.
+        body = (response.text or "").lower()
+        return "secondary rate limit" in body or "abuse detection" in body
+
+    @staticmethod
+    def _parse_retry_after_seconds(response: requests.Response) -> float | None:
+        header = response.headers.get("Retry-After")
+        if header:
+            try:
+                return max(0.0, float(header))
+            except ValueError:
+                return None
+        reset = response.headers.get("X-RateLimit-Reset")
+        if reset:
+            try:
+                return max(0.0, float(reset) - time.time())
+            except ValueError:
+                return None
+        return None
+
+    def _gh_api_get(self, path: str, *, endpoint: str, timeout: int = 10) -> dict:
+        """Authenticated GET against ``https://api.github.com`` returning parsed JSON.
+
+        ``endpoint`` is the low-cardinality template label (e.g. ``/repos/{owner}/{repo}``)
+        forwarded to ``_github_api_get`` for prometheus instrumentation.
+        """
+        # 1. Validate path + assemble URL.
+        if not path.startswith("/"):
+            raise ValueError(f"_gh_api_get path must start with '/', got {path!r}")
+        url = f"https://api.github.com{path}"
+        transient_status_codes = {502, 503, 504}
+        # 2. Proactively refresh expiring tokens (failure here is non-fatal — fetch will retry on 401).
+        try:
+            if self.access_token_expired():
+                self.refresh_access_token()
+        except Exception:
+            logger.warning("GitHubIntegration: token refresh pre-check failed", exc_info=True)
+
+        def fetch() -> requests.Response:
+            access_token = self.integration.sensitive_config.get("access_token")
+            return self._github_api_get(
+                url,
+                endpoint=endpoint,
+                headers={
+                    "Accept": "application/vnd.github+json",
+                    "Authorization": f"Bearer {access_token}",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                },
+                timeout=timeout,
+            )
+
+        # 3. Try up to twice — second attempt covers token refresh after 401 or one transient 5xx.
+        last_error_message = "GitHubIntegration: _gh_api_get exhausted retries"
+        for attempt in range(2):
+            # Network call (one retry on connection-level failure).
+            try:
+                response = fetch()
+            except requests.RequestException as exc:
+                if attempt == 0:
+                    logger.info(
+                        "GitHubIntegration: _gh_api_get retrying network error",
+                        path=path,
+                        exc_info=True,
+                    )
+                    continue
+                raise GitHubIntegrationError(f"GitHubIntegration: _gh_api_get network error on {path}") from exc
+            # Auth failure → refresh token and retry once.
+            if response.status_code == 401 and attempt == 0:
+                try:
+                    self.refresh_access_token()
+                except Exception as exc:
+                    raise GitHubIntegrationError(
+                        f"GitHubIntegration: token refresh after 401 failed on {path}"
+                    ) from exc
+                continue
+            # Secondary rate limit → bubble up with retry hint (no in-method retry).
+            if self._is_secondary_rate_limit(response):
+                # When headers don't give us a delay (body-only signal), GitHub recommends ≥60s.
+                retry_after = self._parse_retry_after_seconds(response) or 60.0
+                raise GitHubIntegrationError(
+                    f"GitHubIntegration: secondary rate limit on {path}",
+                    status_code=response.status_code,
+                    is_rate_limit=True,
+                    retry_after_seconds=retry_after,
+                )
+            # Transient 5xx → retry once.
+            if response.status_code in transient_status_codes and attempt == 0:
+                logger.info(
+                    "GitHubIntegration: _gh_api_get retrying transient error",
+                    path=path,
+                    status_code=response.status_code,
+                )
+                continue
+            # Any remaining non-2xx is terminal.
+            if response.status_code < 200 or response.status_code >= 300:
+                logger.warning(
+                    "GitHubIntegration: _gh_api_get non-2xx response",
+                    path=path,
+                    status_code=response.status_code,
+                )
+                raise GitHubIntegrationError(
+                    f"GitHubIntegration: _gh_api_get failed on {path}",
+                    status_code=response.status_code,
+                )
+            # 4. Parse + shape-check the response body.
+            try:
+                body = response.json()
+            except Exception as exc:
+                raise GitHubIntegrationError(
+                    f"GitHubIntegration: _gh_api_get non-JSON response on {path}",
+                    status_code=response.status_code,
+                ) from exc
+            if not isinstance(body, dict):
+                raise GitHubIntegrationError(
+                    f"GitHubIntegration: _gh_api_get unexpected payload on {path}",
+                    status_code=response.status_code,
+                )
+            return body
+        raise GitHubIntegrationError(last_error_message)
 
     @database_sync_to_async
     def list_cached_repositories_async(
