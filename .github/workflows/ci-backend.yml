@@ -1857,15 +1857,15 @@ jobs:
         runs-on: ubuntu-latest
         continue-on-error: true
         timeout-minutes: 10
-        if: # Run on PostHog/posthog master pushes; on PRs only when labelled `capture-test-timings`. Skip forks/dependabot (no secrets access).
-            always()
-            && github.actor != 'dependabot[bot]'
-            && github.repository == 'PostHog/posthog'
-            && (
-            (github.event_name == 'pull_request'
-            && github.event.pull_request.head.repo.full_name == 'PostHog/posthog'
-            && contains(github.event.pull_request.labels.*.name, 'capture-test-timings'))
-            || (github.event_name != 'pull_request' && github.ref == 'refs/heads/master')
+        # Master pushes always; PRs only when labelled `capture-test-timings`. Skip forks (no secrets access).
+        if: >-
+            always() &&
+            github.repository == 'PostHog/posthog' &&
+            (
+            (github.event_name != 'pull_request' && github.ref == 'refs/heads/master') ||
+            (github.event_name == 'pull_request' &&
+            github.event.pull_request.head.repo.full_name == 'PostHog/posthog' &&
+            contains(github.event.pull_request.labels.*.name, 'capture-test-timings'))
             )
         steps:
             # Labelled PRs run the trusted base parser, so the same PR can't swap the script that receives secrets.
