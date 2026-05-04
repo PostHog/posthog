@@ -1,0 +1,56 @@
+@layer components {
+    .quill-kbd {
+        width: fit-content;
+        min-width: 1.25rem;
+        height: 1.25rem;
+        padding-inline: 0.25rem;
+        font-family: var(--font-q-sans, ui-sans-serif, system-ui, sans-serif);
+        font-size: 0.625rem;
+        font-weight: 500;
+        pointer-events: none;
+        user-select: none;
+        border-radius: 0.25rem;
+    }
+
+    .quill-kbd svg:not([class*='size-']) {
+        width: 0.75rem;
+        height: 0.75rem;
+    }
+
+    /* Inside a tooltip-content surface, invert the kbd colors */
+    [data-slot='tooltip-content'] .quill-kbd {
+        color: var(--background);
+        background-color: color-mix(in oklab, var(--background) 20%, transparent);
+    }
+
+    :is(.dark, [theme='dark']) [data-slot='tooltip-content'] .quill-kbd {
+        background-color: color-mix(in oklab, var(--background) 10%, transparent);
+    }
+
+    /* KbdText — inline text companion, no background */
+    .quill-kbd-text {
+        padding-inline: 0.25rem;
+        margin-inline: -0.25rem;
+        font-family: var(--font-q-sans, ui-sans-serif, system-ui, sans-serif);
+        font-size: 0.625rem;
+        font-weight: 500;
+        color: var(--muted-foreground);
+        pointer-events: none;
+        user-select: none;
+        border-radius: 0.25rem;
+    }
+
+    .quill-kbd-text svg:not([class*='size-']) {
+        width: 0.75rem;
+        height: 0.75rem;
+    }
+
+    [data-slot='tooltip-content'] .quill-kbd-text {
+        color: var(--background);
+        background-color: color-mix(in oklab, var(--background) 20%, transparent);
+    }
+
+    :is(.dark, [theme='dark']) [data-slot='tooltip-content'] .quill-kbd-text {
+        background-color: color-mix(in oklab, var(--background) 10%, transparent);
+    }
+}

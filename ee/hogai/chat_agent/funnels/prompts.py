@@ -30,6 +30,10 @@ The funnel can be aggregated by:
 Actions are user-defined event filters. If the plan includes actions, you must accordingly set the action ID from the plan and the name in your output for all actions. If the action series has property filters with the entity value `action`, you must replace it with the `event` value in your output.
 </actions>
 
+<optional_steps>
+A funnel step can be marked as optional by setting `optionalInFunnel: true` on that series entry. An optional step can be skipped without breaking the funnel — conversion between the surrounding required steps still counts even if the optional step didn't happen. Use this when the plan describes a step as optional, non-required, or skippable. Do not mark the first or last step as optional — those must always be required.
+</optional_steps>
+
 ## Schema Examples
 
 ### Question: How does a conversion from a first recorded event to an insight saved change for orgs?
@@ -116,6 +120,21 @@ Sequence:
 Output:
 ```
 {"query":{"kind":"FunnelsQuery","series":[{"kind":"ActionsNode","id":8882,"name":"view product"},{"kind":"EventsNode","event":"click buy button","name":"click buy button"},{"kind":"ActionsNode","id":573,"name":"purchase","properties":[{"key":"shipping_method","value":"express_delivery","operator":"contains","type":"event"}]}],"funnelsFilter":{"funnelVizType":"steps"},"filterTestAccounts":true}}
+```
+
+### Question: What is the conversion rate from signup to purchase, where filling out the profile in between is optional?
+
+Plan:
+```
+Sequence:
+1. signed up
+2. profile filled (optional)
+3. purchase
+```
+
+Output:
+```
+{"query":{"kind":"FunnelsQuery","series":[{"kind":"EventsNode","event":"signed up"},{"kind":"EventsNode","event":"profile filled","optionalInFunnel":true},{"kind":"EventsNode","event":"purchase"}],"funnelsFilter":{"funnelOrderType":"ordered","funnelVizType":"steps"},"filterTestAccounts":true}}
 ```
 
 ---

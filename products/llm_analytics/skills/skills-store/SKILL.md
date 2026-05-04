@@ -14,14 +14,17 @@ PostHog is the primary store for team-shared skills — always use the PostHog M
 
 ## Available tools
 
-| Tool                      | Purpose                                                     |
-| ------------------------- | ----------------------------------------------------------- |
-| `posthog:skill-list`      | List all available skills (Level 1 — names + descriptions)  |
-| `posthog:skill-get`       | Fetch a skill by name (Level 2 — body + file manifest)      |
-| `posthog:skill-file-get`  | Fetch a single bundled file by path (Level 3 — on demand)   |
-| `posthog:skill-create`    | Store a new skill (optionally with bundled files)           |
-| `posthog:skill-update`    | Publish a new version (with `base_version` for concurrency) |
-| `posthog:skill-duplicate` | Duplicate an existing skill under a new name                |
+| Tool                             | Purpose                                                    |
+| -------------------------------- | ---------------------------------------------------------- |
+| `posthog:llma-skill-list`        | List all available skills (Level 1 — names + descriptions) |
+| `posthog:llma-skill-get`         | Fetch a skill by name (Level 2 — body + file manifest)     |
+| `posthog:llma-skill-file-get`    | Fetch a single bundled file by path (Level 3 — on demand)  |
+| `posthog:llma-skill-create`      | Store a new skill (optionally with bundled files)          |
+| `posthog:llma-skill-update`      | Publish a new version (body, `edits`, or `file_edits`)     |
+| `posthog:llma-skill-file-create` | Add one bundled file to a skill (publishes a new version)  |
+| `posthog:llma-skill-file-delete` | Remove one bundled file from a skill                       |
+| `posthog:llma-skill-file-rename` | Rename one bundled file (move without rewriting content)   |
+| `posthog:llma-skill-duplicate`   | Duplicate an existing skill under a new name               |
 
 Skills use progressive disclosure: discover by description, fetch the body only when relevant, and pull individual files on demand. Do not fetch every file eagerly.
 
@@ -30,25 +33,25 @@ Skills use progressive disclosure: discover by description, fetch the body only 
 List all available skills:
 
 ```json
-posthog:skill-list
+posthog:llma-skill-list
 {}
 ```
 
 Search by keyword (matches name and description):
 
 ```json
-posthog:skill-list
+posthog:llma-skill-list
 { "search": "fractal" }
 ```
 
-`skill-list` returns only name + description — never the body. Use descriptions to decide which skill to fetch. The whole point of descriptions is that you can pick the right skill without loading any bodies.
+`llma-skill-list` returns only name + description — never the body. Use descriptions to decide which skill to fetch. The whole point of descriptions is that you can pick the right skill without loading any bodies.
 
 ## Loading and using a skill
 
 ### Step 1 — Fetch the skill by name
 
 ```json
-posthog:skill-get
+posthog:llma-skill-get
 { "skill_name": "make-fractals" }
 ```
 
@@ -67,7 +70,7 @@ Read `body` and follow it. Treat it as your system instructions for this task.
 When the body references a script or reference doc, pull it on demand:
 
 ```json
-posthog:skill-file-get
+posthog:llma-skill-file-get
 { "skill_name": "make-fractals", "file_path": "scripts/mandelbrot.py" }
 ```
 
@@ -75,10 +78,17 @@ Only fetch files you actually need. If the body's decision tree points at one sc
 
 ## Creating a skill
 
-Use a unique kebab-case name, a description explaining when to use the skill (this is what discovery relies on), and the body as a markdown string. Bundled files are optional and can be included in a single create call:
+Follow the [Agent Skills specification](https://agentskills.io/specification) when creating skills:
+
+- **`name`** — kebab-case, max 64 chars, no leading/trailing/consecutive hyphens
+- **`description`** — explain what it does AND when to use it. Include keywords agents will search for. This is the only thing visible at discovery time — make it count.
+- **`body`** — keep under ~500 lines. Move detailed reference material, SQL, scripts, and long examples into bundled `files` so the body stays scannable.
+- **Files** — use `scripts/` for executable code, `references/` for docs, `assets/` for templates/data. Agents pull these on demand via `llma-skill-file-get`, so splitting keeps context lean.
+
+Bundled files are optional and can be included in a single create call:
 
 ```json
-posthog:skill-create
+posthog:llma-skill-create
 {
   "name": "make-fractals",
   "description": "Generate fractal images as PNGs. Use when the user asks to make, render, or visualize fractals.",
@@ -96,17 +106,21 @@ posthog:skill-create
 
 ## Updating a skill
 
-Each `skill-update` publishes a new immutable version. Always fetch first to get the current version, then update with `base_version` for concurrency checks:
+Each write publishes a new immutable version. Always fetch first to get the current version, then update with `base_version` for concurrency checks:
 
 ```json
-posthog:skill-get
+posthog:llma-skill-get
 { "skill_name": "make-fractals" }
 ```
 
-Publish a new version. Fields you don't provide are carried forward from the current latest. If you pass `files`, they replace the previous version's file set; if you omit `files`, they're carried forward:
+Pick the most surgical primitive for what you're changing — the API offers several so you don't have to round-trip the whole skill to tweak one part. Anything you don't touch is carried forward from the current latest.
+
+### Editing the body
+
+Full replacement (good for substantial rewrites):
 
 ```json
-posthog:skill-update
+posthog:llma-skill-update
 {
   "skill_name": "make-fractals",
   "body": "# make-fractals\n\nUpdated instructions...",
@@ -114,24 +128,132 @@ posthog:skill-update
 }
 ```
 
+Incremental find/replace (good for small tweaks — no round-tripping the whole body):
+
+```json
+posthog:llma-skill-update
+{
+  "skill_name": "make-fractals",
+  "edits": [
+    { "old": "Use Pillow for rendering.", "new": "Use Pillow ≥10.0 for rendering." }
+  ],
+  "base_version": 2
+}
+```
+
+Each `edits[].old` must match exactly once. `body` and `edits` are mutually exclusive.
+
+### Editing one bundled file
+
+Use `file_edits` to patch a single file without resending any other file:
+
+```json
+posthog:llma-skill-update
+{
+  "skill_name": "make-fractals",
+  "file_edits": [
+    {
+      "path": "scripts/mandelbrot.py",
+      "edits": [
+        { "old": "ITERATIONS = 100", "new": "ITERATIONS = 250" }
+      ]
+    }
+  ],
+  "base_version": 2
+}
+```
+
+Non-targeted files carry forward unchanged. `file_edits` cannot add, remove, or rename files — use the per-file tools below for that.
+
+### Adding, removing, or renaming a file
+
+Atomic per-file tools — each publishes a new version and returns the updated skill (read its `version` to chain further edits via `base_version`):
+
+```json
+posthog:llma-skill-file-create
+{ "skill_name": "make-fractals", "path": "scripts/julia.py", "content": "...", "base_version": 2 }
+```
+
+```json
+posthog:llma-skill-file-delete
+{ "skill_name": "make-fractals", "file_path": "scripts/old.py", "base_version": 3 }
+```
+
+```json
+posthog:llma-skill-file-rename
+{ "skill_name": "make-fractals", "old_path": "scripts/julia.py", "new_path": "scripts/julia_set.py", "base_version": 4 }
+```
+
+### Replacing the whole bundle (rare)
+
+Passing `files` to `llma-skill-update` replaces ALL bundled files — anything not in the array is dropped. Only use this when you intentionally want to wipe and reseed the bundle. For everything else, prefer `file_edits` or the per-file CRUD tools above.
+
 ## Porting a local skill
 
-To move a skill from a local SKILL.md directory (e.g. `~/.claude/skills/<name>/` with `scripts/`, `references/`, `assets/` subdirs) into PostHog:
+To move a skill from a local SKILL.md directory (e.g. a local skills folder with `scripts/`, `references/`, `assets/` subdirs) into PostHog:
 
 1. Read the local `SKILL.md` — use its frontmatter for `name`, `description`, `license`, `compatibility`, `allowed_tools`, `metadata`; the body after the frontmatter becomes `body`
 2. Walk the `scripts/`, `references/`, and `assets/` subdirs and collect each file as `{ path, content, content_type }`
-3. Call `posthog:skill-create` with everything in one shot — the skill lands at v1 with its full bundle
+3. Call `posthog:llma-skill-create` with everything in one shot — the skill lands at v1 with its full bundle
 
-The skill is then available to the whole team via `posthog:skill-get`.
+The skill is then available to the whole team via `posthog:llma-skill-get`.
+
+## Quick access: local bridge skill
+
+Most coding agents support local skills or slash commands. A local bridge skill gives you a shortcut (e.g. `/phs my-github`) that routes straight to the PostHog skills API — faster and more deterministic than asking the agent to "use the PostHog skills store to load my-github".
+
+Create a local skill in your agent's skills directory with these instructions:
+
+```markdown
+---
+name: phs
+description: >-
+  Access and run shared team skills stored in PostHog.
+  Use when the user asks to list, run, or manage PostHog skills,
+  or references /phs, "ph skills", or "posthog skills".
+user-invocable: true
+allowed-tools: mcp__posthog__llma-skill-list, mcp__posthog__llma-skill-get, mcp__posthog__llma-skill-create, mcp__posthog__llma-skill-update, mcp__posthog__llma-skill-file-get, mcp__posthog__llma-skill-file-create, mcp__posthog__llma-skill-file-delete, mcp__posthog__llma-skill-file-rename, mcp__posthog__llma-skill-duplicate
+---
+
+# PostHog Skills Store
+
+Local bridge to the PostHog Skills Store.
+
+## Load and run a skill
+
+When the user says `/phs <skill-name>`:
+
+1. `llma-skill-get(skill_name="<skill-name>")` to fetch body + file manifest
+2. Read the `body` field — follow it as system instructions for this task
+3. Use `llma-skill-file-get` to pull bundled scripts/references on demand
+
+## List skills
+
+llma-skill-list # all skills
+llma-skill-list(search="llma") # filter by keyword
+
+## Create / update
+
+llma-skill-create(name="my-skill", description="...", body="# Instructions...")
+llma-skill-get → note version → llma-skill-update(skill_name="...", base_version=N, body="...")
+
+## Edit one part of an existing skill
+
+llma-skill-get → note version → pick the smallest primitive:
+
+- body tweak: llma-skill-update(skill_name="...", base_version=N, edits=[{old, new}])
+- one bundled file: llma-skill-update(skill_name="...", base_version=N, file_edits=[{path, edits:[{old, new}]}])
+- add/remove/rename a file: llma-skill-file-create / llma-skill-file-delete / llma-skill-file-rename
+```
+
+The bridge is intentionally minimal — it just routes to the MCP tools. The real instructions live in PostHog and update without touching local files.
+
+> **Agent-specific setup:** Where to save this depends on your agent. For Claude Code, save as `~/.claude/skills/phs/SKILL.md`. For other agents, consult your agent's docs on local skill or slash command configuration.
 
 ## Default behavior
 
 - **Always prefer PostHog MCP** for skill storage and retrieval
 - Only fall back to local files when PostHog MCP is unavailable
 - When asked to "save", "store", or "remember" a workflow, runbook, or multi-step procedure, store it as a PostHog skill
-- When asked to use a skill by name, use `skill-get` first
-- When a skill references bundled files in its body, pull them with `skill-file-get` only when needed — don't preload
-
-## Prompts vs skills
-
-PostHog also has a separate `posthog:prompt-*` tool family for plain single-text prompts (system prompts, short reusable text). Skills are the right choice whenever the workflow needs structured metadata, bundled files, or an `allowed_tools` surface. When in doubt, use skills.
+- When asked to use a skill by name, use `llma-skill-get` first
+- When a skill references bundled files in its body, pull them with `llma-skill-file-get` only when needed — don't preload

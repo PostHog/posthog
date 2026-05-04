@@ -2,7 +2,7 @@ import pytest
 
 from parameterized import parameterized
 
-from posthog.temporal.session_replay.session_summary.activities.a4_consolidate_video_segments import (
+from posthog.temporal.session_replay.session_summary.activities.video_based.a5_consolidate_video_segments import (
     _validate_and_clamp_sentiment,
 )
 from posthog.temporal.session_replay.session_summary.types.video import (
@@ -55,7 +55,7 @@ def _make_analysis(
             sentiment_signals=sentiment_signals or [],
         )
     else:
-        resolved_sentiment = sentiment  # type: ignore[assignment]
+        resolved_sentiment = sentiment  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
 
     return ConsolidatedVideoAnalysis(
         segments=segments,

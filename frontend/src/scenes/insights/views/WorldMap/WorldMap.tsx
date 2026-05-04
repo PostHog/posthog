@@ -38,73 +38,78 @@ function useWorldMapTooltip(showPersonsModal: boolean): React.RefObject<SVGSVGEl
     const svgRef = useRef<SVGSVGElement>(null)
 
     const svgRect = svgRef.current?.getBoundingClientRect()
-    const { getTooltip } = useInsightTooltip()
-    const [tooltipRoot, tooltipEl] = getTooltip()
+    const { getTooltip, showTooltip, hideTooltip, positionTooltipAt, resetTooltipPosition, measureTooltip } =
+        useInsightTooltip()
 
     useEffect(() => {
-        tooltipEl.style.opacity = isTooltipShown ? '1' : '0'
-
-        if (tooltipCoordinates) {
-            tooltipRoot.render(
-                <>
-                    {currentTooltip && (
-                        <InsightTooltip
-                            seriesData={[
-                                {
-                                    dataIndex: 1,
-                                    datasetIndex: 1,
-                                    id: 1,
-                                    order: 1,
-                                    breakdown_value: currentTooltip[0],
-                                    count: currentTooltip[1]?.aggregated_value || 0,
-                                },
-                            ]}
-                            breakdownFilter={breakdownFilter}
-                            renderSeries={(_: React.ReactNode, datum: SeriesDatum) =>
-                                typeof datum.breakdown_value === 'string' && (
-                                    <div className="flex items-center font-semibold">
-                                        <span className="text-xl mr-2">{countryCodeToFlag(datum.breakdown_value)}</span>
-                                        <span className="whitespace-nowrap">
-                                            {COUNTRY_CODE_TO_LONG_NAME[datum.breakdown_value]}
-                                        </span>
-                                    </div>
-                                )
-                            }
-                            renderCount={(value: number) => (
-                                <>{formatAggregationAxisValue(trendsFilter, value, baseCurrency)}</>
-                            )}
-                            showHeader={false}
-                            hideColorCol
-                            hideInspectActorsSection={!showPersonsModal || !currentTooltip[1]}
-                            groupTypeLabel={aggregationLabel(series?.[0]?.math_group_type_index).plural}
-                        />
-                    )}
-                </>
-            )
-        } else {
-            tooltipEl.style.left = 'revert'
-            tooltipEl.style.top = 'revert'
+        if (!isTooltipShown) {
+            hideTooltip()
+            return
         }
+        if (!tooltipCoordinates) {
+            resetTooltipPosition()
+            hideTooltip()
+            return
+        }
+        const [tooltipRoot] = getTooltip()
+        tooltipRoot.render(
+            <>
+                {currentTooltip && (
+                    <InsightTooltip
+                        seriesData={[
+                            {
+                                dataIndex: 1,
+                                datasetIndex: 1,
+                                id: 1,
+                                order: 1,
+                                breakdown_value: currentTooltip[0],
+                                count: currentTooltip[1]?.aggregated_value || 0,
+                            },
+                        ]}
+                        breakdownFilter={breakdownFilter}
+                        renderSeries={(_: React.ReactNode, datum: SeriesDatum) =>
+                            typeof datum.breakdown_value === 'string' && (
+                                <div className="flex items-center font-semibold">
+                                    <span className="text-xl mr-2">{countryCodeToFlag(datum.breakdown_value)}</span>
+                                    <span className="whitespace-nowrap">
+                                        {COUNTRY_CODE_TO_LONG_NAME[datum.breakdown_value]}
+                                    </span>
+                                </div>
+                            )
+                        }
+                        renderCount={(value: number) => (
+                            <>{formatAggregationAxisValue(trendsFilter, value, baseCurrency)}</>
+                        )}
+                        showHeader={false}
+                        hideColorCol
+                        hideInspectActorsSection={!showPersonsModal || !currentTooltip[1]}
+                        groupTypeLabel={aggregationLabel(series?.[0]?.math_group_type_index).plural}
+                    />
+                )}
+            </>
+        )
+        showTooltip()
     }, [isTooltipShown, tooltipCoordinates, currentTooltip]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
-        if (tooltipCoordinates) {
-            const tooltipRect = tooltipEl.getBoundingClientRect()
-            // Put the tooltip to the bottom right of the cursor, but flip to left if tooltip doesn't fit
-            let xOffset: number
-            if (
-                svgRect &&
-                tooltipRect &&
-                tooltipCoordinates[0] + tooltipRect.width + WORLD_MAP_TOOLTIP_OFFSET_PX > svgRect.x + svgRect.width
-            ) {
-                xOffset = -(tooltipRect.width + WORLD_MAP_TOOLTIP_OFFSET_PX)
-            } else {
-                xOffset = WORLD_MAP_TOOLTIP_OFFSET_PX
-            }
-            tooltipEl.style.left = `${window.pageXOffset + tooltipCoordinates[0] + xOffset}px`
-            tooltipEl.style.top = `${window.pageYOffset + tooltipCoordinates[1] + WORLD_MAP_TOOLTIP_OFFSET_PX}px`
+        if (!tooltipCoordinates) {
+            return
         }
-    }, [currentTooltip, tooltipEl]) // oxlint-disable-line react-hooks/exhaustive-deps
+        const tooltipRect = measureTooltip()
+        if (!tooltipRect) {
+            return
+        }
+        // Put the tooltip to the bottom right of the cursor, but flip to left if tooltip doesn't fit
+        const overflowsRight =
+            svgRect &&
+            tooltipCoordinates[0] + tooltipRect.width + WORLD_MAP_TOOLTIP_OFFSET_PX > svgRect.x + svgRect.width
+        const xOffset = overflowsRight
+            ? -(tooltipRect.width + WORLD_MAP_TOOLTIP_OFFSET_PX)
+            : WORLD_MAP_TOOLTIP_OFFSET_PX
+        const left = window.pageXOffset + tooltipCoordinates[0] + xOffset
+        const top = window.pageYOffset + tooltipCoordinates[1] + WORLD_MAP_TOOLTIP_OFFSET_PX
+        positionTooltipAt(left, top)
+    }, [currentTooltip, tooltipCoordinates]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return svgRef
 }

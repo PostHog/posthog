@@ -76,6 +76,17 @@ def get_bot_name(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
     return _build_bot_array_lookup(args[0], "name", default="", empty_ua_value="")
 
 
+def get_bot_operator(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
+    """
+    HogQL function: __preview_getBotOperator(user_agent)
+
+    EXPERIMENTAL: This function may change without notice.
+
+    Returns operator/company name: "Google", "OpenAI", "Anthropic", etc. Empty string for regular traffic.
+    """
+    return _build_bot_array_lookup(args[0], "operator", default="", empty_ua_value="")
+
+
 def get_traffic_type(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
     """
     HogQL function: __preview_getTrafficType(user_agent)

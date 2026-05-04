@@ -5,7 +5,8 @@
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.table_engines import ReplacingMergeTree, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_PERSON_OVERRIDE
-from posthog.settings.data_stores import CLICKHOUSE_DATABASE, KAFKA_HOSTS
+from posthog.settings.data_stores import CLICKHOUSE_DATABASE
+from posthog.settings.kafka import KAFKA_HOSTS
 
 PERSON_OVERRIDES_CREATE_TABLE_SQL = (
     lambda on_cluster=True: f"""

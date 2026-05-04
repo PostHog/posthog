@@ -337,6 +337,9 @@ export function validateGroup(
 
             // Handle EventFilters separately, since these are optional
             requiredFields = requiredFields.filter((f) => f.fieldKey !== 'event_filters')
+
+            // explicit_datetime_to is the optional upper bound of a date range
+            requiredFields = requiredFields.filter((f) => f.fieldKey !== 'explicit_datetime_to')
             const eventFilterError =
                 c?.event_filters &&
                 c.event_filters.length > 0 &&

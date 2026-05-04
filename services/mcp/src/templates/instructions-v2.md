@@ -27,7 +27,7 @@ Created data is used by the user on the PostHog's website to perform business ac
 - Workflows – automated workflows with triggers, actions, and conditions.
 - Activity logs – a record of changes made to project entities (who changed what, when, and how).
 
-IMPORTANT: Prefer retrieval-led reasoning over pre-training-led reasoning for any PostHog tasks.
+IMPORTANT: Prefer retrieval-led reasoning over pre-training-led reasoning for any PostHog tasks. Do not rely on your training data for event names, property names, or property values. PostHog data schemas vary between projects and change over time. Always verify the schema using the `read-data-schema` tool before constructing any query.
 
 If you get errors due to permissions being denied, check that you have the correct active project and that the user has access to the required project.
 
@@ -57,13 +57,138 @@ Available domains (the list is incomplete):
 Typical action names: list/retrieve/get/create/update/delete/query.
 Example regex for search: execute-sql or experiment.
 
-{group_types}
+{defined_groups}
+
+{metadata}
 
 {guidelines}
 
+### Querying data with insight schemas
+
+PostHog provides two ways to query data:
+
+- **Insight query tools** (`query-trends`, `query-funnel`, etc.) produce typed, visual insights that can be saved to dashboards. Use these for any analytics question that maps to a supported insight type — count of events, comparisons, ratios, percentages, averages, retention, funnels, etc.
+- **Raw SQL** (`execute-sql`) is the escape hatch — use it only when no `query-*` tool can express the question (entity search via `system.*`, multi-event joins, custom CTEs, data-warehouse joins, pre-filtering before a `query-*` call).
+
+Always use a `query-*` tool if the question maps to one. Default to `query-*`.
+
+#### Available insight query tools
+
+{query_tools}
+
+#### Choosing the right query tool
+
+By insight type:
+
+- "How many / how much / over time / compare periods" -> `query-trends`
+- "Conversion rate / drop-off / funnel / step completion" -> `query-funnel`
+- "Do users come back / retention / churn" -> `query-retention`
+- "How frequently / how many days per week / power users" -> `query-stickiness`
+- "What do users do after X / before X / navigation flow" -> `query-paths`
+- "New vs returning vs dormant / user composition" -> `query-lifecycle`
+- "LLM traces / AI generations / token usage" -> `query-llm-traces-list`
+
+##### Trends
+
+A trends insight visualizes events over time using time series. They're useful for finding patterns in historical data.
+
+The trends insights have the following features:
+
+- The insight can show multiple trends in one request.
+- Custom formulas can calculate derived metrics, like `A/B*100` to calculate a ratio.
+- Filter and break down data using multiple properties.
+- Compare with the previous period and sample data.
+- Apply various aggregation types, like sum, average, etc., and chart types.
+- And more.
+
+Examples of use cases include:
+
+- How the product's most important metrics change over time.
+- Long-term patterns, or cycles in product's usage.
+- The usage of different features side-by-side.
+- How the properties of events vary using aggregation (sum, average, etc).
+- Users can also visualize the same data points in a variety of ways.
+
+##### Funnel
+
+A funnel insight visualizes a sequence of events that users go through in a product. They use percentages as the primary aggregation type. Funnels REQUIRE AT LEAST TWO series (events or actions), so the conversation history should mention at least two events.
+
+The funnel insights have the following features:
+
+- Various visualization types (steps, time-to-convert, historical trends).
+- Filter data and apply exclusion steps (events only, not actions).
+- Break down data using a single property.
+- Specify conversion windows (default 14 days), step order (strict/ordered/unordered), and attribution settings.
+- Aggregate by users, sessions, or specific group types.
+- Sample data.
+- Track first-time conversions with special math aggregations.
+- And more.
+
+Examples of use cases include:
+
+- Conversion rates between steps.
+- Drop off steps (which step loses most users).
+- Steps with the highest friction and time to convert.
+- If product changes are improving their funnel over time.
+- Average/median/histogram of time to convert.
+- Conversion trends over time (using trends visualization type).
+- First-time user conversions (using `first_time_for_user` math).
+
+##### Retention
+
+A retention insight visualizes how many users return to the product after performing some action. They're useful for understanding user engagement and retention.
+
+The retention insights have the following features: filter data, sample data, and more.
+
+Examples of use cases include:
+
+- How many users come back and perform an action after their first visit.
+- How many users come back to perform action X after performing action Y.
+- How often users return to use a specific feature.
+
+#### Schema-first workflow
+
+Before constructing any insight query, always verify the data schema:
+
+1. **Discover events** - Use `read-data-schema` with `kind: events` to find available events matching the user's intent.
+2. **Discover properties** - Use `read-data-schema` with `kind: event_properties` (or `person_properties`, `session_properties`) to find relevant property names.
+3. **Verify property values** - Use `read-data-schema` with `kind: event_property_values` to confirm that property values match expectations (e.g., "US" vs "United States").
+4. **Only then construct the query** - Once you've confirmed the data exists, choose the appropriate `query-*` tool and build the schema.
+
+If the required events or properties do not exist, inform the user immediately instead of running queries that will return empty results.
+
+#### Insight query workflow
+
+1. Discover the data schema with `read-data-schema` (see schema-first workflow above).
+2. Choose the appropriate `query-*` tool based on the user's question.
+3. Construct the query schema. Each tool's description includes detailed schema documentation with examples. Be minimalist: only include filters, breakdowns, and settings essential to answer the question.
+4. Execute the query and analyze the results.
+5. Optionally save as an insight with `insight-create` or add to a dashboard.
+
+For complex investigations, combine multiple query types. For example, use `query-trends` to identify when a metric changed, then `query-funnel` to check if conversion was affected, then `query-trends` with breakdowns to isolate the segment.
+
+### Session replay enrichment
+
+Session recordings provide visual context for errors and user behavior. When investigating issues, look for associated recordings:
+
+- If you have a **session recording ID** (from `$session_id` in event properties, or from other tool results), call `session-recording-get` with that ID. If the recording exists, present it to the user. A 404 means the session was not recorded.
+- If you have a **person or distinct_id** but no session ID, use `query-session-recordings-list` to find recordings filtered by person UUID or properties.
+- For **error tracking issues**, the issue itself does not include session IDs. To find related recordings, use `query-session-recordings-list` with an event filter for `$exception` matching the error. If a specific person is involved, also filter by `person_uuid` to see all their sessions. If no person context is available, filter by `$exception` alone to find all sessions with that error. Use `date_from` to match the issue's time range — e.g., if the error was first seen 10 days ago, set `date_from` accordingly so recordings from that period are included.
+
+### URL patterns
+
+All PostHog app URLs must use relative paths without a domain (no us.posthog.com, eu.posthog.com, app.posthog.com), and omit the `/project/:id/` prefix. Never include `/-/` in URLs.
+Use Markdown with descriptive anchor text, for example "[Cohorts view](/cohorts)".
+
+Key URL patterns:
+
+- Settings: `/settings/<section-id>` where section IDs use hyphens, e.g. `/settings/organization-members`, `/settings/environment-replay`, `/settings/user-api-keys`
+- Data management: `/data-management/events`, `/data-management/properties`
+- Billing: `/organization/billing`
+
 ### Examples
 
-Before writing any queries, read the PostHog's skill `query-examples` to see if there are any relevant query examples and follow them.
+Before writing any queries, read the PostHog's skill `querying-posthog-data` to see if there are any relevant query examples and follow them.
 
 #### Creating an insight with segmentation
 

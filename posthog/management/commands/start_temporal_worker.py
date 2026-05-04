@@ -20,9 +20,9 @@ with workflow.unsafe.imports_passed_through():
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.temporal.ai import AI_ACTIVITIES, AI_WORKFLOWS
-from posthog.temporal.ai.video_segment_clustering import (
-    VIDEO_SEGMENT_CLUSTERING_ACTIVITIES,
-    VIDEO_SEGMENT_CLUSTERING_WORKFLOWS,
+from posthog.temporal.alerts import (
+    ACTIVITIES as ALERT_ACTIVITIES,
+    WORKFLOWS as ALERT_WORKFLOWS,
 )
 from posthog.temporal.cleanup_property_definitions import (
     ACTIVITIES as CLEANUP_PROPDEFS_ACTIVITIES,
@@ -80,6 +80,8 @@ from posthog.temporal.llm_analytics import (
     EVAL_WORKFLOWS as LLM_ANALYTICS_EVAL_WORKFLOWS,
     SENTIMENT_ACTIVITIES as LLM_ANALYTICS_SENTIMENT_ACTIVITIES,
     SENTIMENT_WORKFLOWS as LLM_ANALYTICS_SENTIMENT_WORKFLOWS,
+    TAGGER_ACTIVITIES as LLM_ANALYTICS_TAGGER_ACTIVITIES,
+    TAGGER_WORKFLOWS as LLM_ANALYTICS_TAGGER_WORKFLOWS,
     WORKFLOWS as LLM_ANALYTICS_WORKFLOWS,
 )
 from posthog.temporal.messaging import (
@@ -103,34 +105,37 @@ from posthog.temporal.salesforce_enrichment import (
     WORKFLOWS as SALESFORCE_ENRICHMENT_WORKFLOWS,
 )
 from posthog.temporal.session_replay.count_playlist_items import (
-    ACTIVITIES as COUNT_PLAYLIST_ITEMS_ACTIVITIES,
-    WORKFLOWS as COUNT_PLAYLIST_ITEMS_WORKFLOWS,
+    COUNT_PLAYLIST_ITEMS_ACTIVITIES,
+    COUNT_PLAYLIST_ITEMS_WORKFLOWS,
 )
-from posthog.temporal.session_replay.delete_recordings import (
-    ACTIVITIES as DELETE_RECORDING_ACTIVITIES,
-    WORKFLOWS as DELETE_RECORDING_WORKFLOWS,
-)
+from posthog.temporal.session_replay.delete_recordings import DELETE_RECORDINGS_ACTIVITIES, DELETE_RECORDINGS_WORKFLOWS
 from posthog.temporal.session_replay.enforce_max_replay_retention import (
-    ACTIVITIES as ENFORCE_MAX_REPLAY_RETENTION_ACTIVITIES,
-    WORKFLOWS as ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS,
+    ENFORCE_MAX_REPLAY_RETENTION_ACTIVITIES,
+    ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS,
 )
-from posthog.temporal.session_replay.export_recording import (
-    ACTIVITIES as EXPORT_RECORDING_ACTIVITIES,
-    WORKFLOWS as EXPORT_RECORDING_WORKFLOWS,
+from posthog.temporal.session_replay.export_recording import EXPORT_RECORDING_ACTIVITIES, EXPORT_RECORDING_WORKFLOWS
+from posthog.temporal.session_replay.gemini_cleanup_sweep import (
+    GEMINI_CLEANUP_SWEEP_ACTIVITIES,
+    GEMINI_CLEANUP_SWEEP_WORKFLOWS,
 )
-from posthog.temporal.session_replay.import_recording import (
-    ACTIVITIES as IMPORT_RECORDING_ACTIVITIES,
-    WORKFLOWS as IMPORT_RECORDING_WORKFLOWS,
-)
+from posthog.temporal.session_replay.import_recording import IMPORT_RECORDING_ACTIVITIES, IMPORT_RECORDING_WORKFLOWS
 from posthog.temporal.session_replay.rasterize_recording import (
-    ACTIVITIES as RASTERIZE_RECORDING_ACTIVITIES,
-    WORKFLOWS as RASTERIZE_RECORDING_WORKFLOWS,
+    RASTERIZE_RECORDING_ACTIVITIES,
+    RASTERIZE_RECORDING_WORKFLOWS,
 )
 from posthog.temporal.session_replay.replay_count_metrics import (
-    ACTIVITIES as REPLAY_COUNT_METRICS_ACTIVITIES,
-    WORKFLOWS as REPLAY_COUNT_METRICS_WORKFLOWS,
+    REPLAY_COUNT_METRICS_ACTIVITIES,
+    REPLAY_COUNT_METRICS_WORKFLOWS,
 )
 from posthog.temporal.session_replay.session_summary import SESSION_SUMMARY_ACTIVITIES, SESSION_SUMMARY_WORKFLOWS
+from posthog.temporal.session_replay.session_summary_group import (
+    SESSION_SUMMARY_GROUP_ACTIVITIES,
+    SESSION_SUMMARY_GROUP_WORKFLOWS,
+)
+from posthog.temporal.session_replay.summarization_sweep import (
+    SUMMARIZATION_SWEEP_ACTIVITIES,
+    SUMMARIZATION_SWEEP_WORKFLOWS,
+)
 from posthog.temporal.subscriptions import (
     ACTIVITIES as SUBSCRIPTION_ACTIVITIES,
     WORKFLOWS as SUBSCRIPTION_WORKFLOWS,
@@ -239,8 +244,8 @@ _task_queue_specs = [
     ),
     (
         settings.ANALYTICS_PLATFORM_TASK_QUEUE,
-        EXPORT_WORKFLOWS + SUBSCRIPTION_WORKFLOWS,
-        EXPORT_ACTIVITIES + SUBSCRIPTION_ACTIVITIES,
+        EXPORT_WORKFLOWS + SUBSCRIPTION_WORKFLOWS + ALERT_WORKFLOWS,
+        EXPORT_ACTIVITIES + SUBSCRIPTION_ACTIVITIES + ALERT_ACTIVITIES,
     ),
     (
         settings.TASKS_TASK_QUEUE,
@@ -264,27 +269,33 @@ _task_queue_specs = [
     ),
     (
         settings.VIDEO_EXPORT_TASK_QUEUE,
-        VIDEO_SEGMENT_CLUSTERING_WORKFLOWS + SIGNALS_PRODUCT_WORKFLOWS + DATA_IMPORT_EMIT_SIGNALS_WORKFLOWS,
-        VIDEO_SEGMENT_CLUSTERING_ACTIVITIES + SIGNALS_PRODUCT_ACTIVITIES + DATA_IMPORT_EMIT_SIGNALS_ACTIVITIES,
+        SIGNALS_PRODUCT_WORKFLOWS + DATA_IMPORT_EMIT_SIGNALS_WORKFLOWS,
+        SIGNALS_PRODUCT_ACTIVITIES + DATA_IMPORT_EMIT_SIGNALS_ACTIVITIES,
     ),
     (
         settings.SESSION_REPLAY_TASK_QUEUE,
-        COUNT_PLAYLIST_ITEMS_WORKFLOWS
-        + DELETE_RECORDING_WORKFLOWS
+        GEMINI_CLEANUP_SWEEP_WORKFLOWS
+        + COUNT_PLAYLIST_ITEMS_WORKFLOWS
+        + DELETE_RECORDINGS_WORKFLOWS
         + ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS
         + EXPORT_RECORDING_WORKFLOWS
         + IMPORT_RECORDING_WORKFLOWS
         + RASTERIZE_RECORDING_WORKFLOWS
         + REPLAY_COUNT_METRICS_WORKFLOWS
-        + SESSION_SUMMARY_WORKFLOWS,
-        COUNT_PLAYLIST_ITEMS_ACTIVITIES
-        + DELETE_RECORDING_ACTIVITIES
+        + SESSION_SUMMARY_WORKFLOWS
+        + SESSION_SUMMARY_GROUP_WORKFLOWS
+        + SUMMARIZATION_SWEEP_WORKFLOWS,
+        GEMINI_CLEANUP_SWEEP_ACTIVITIES
+        + COUNT_PLAYLIST_ITEMS_ACTIVITIES
+        + DELETE_RECORDINGS_ACTIVITIES
         + ENFORCE_MAX_REPLAY_RETENTION_ACTIVITIES
         + EXPORT_RECORDING_ACTIVITIES
         + IMPORT_RECORDING_ACTIVITIES
         + RASTERIZE_RECORDING_ACTIVITIES
         + REPLAY_COUNT_METRICS_ACTIVITIES
-        + SESSION_SUMMARY_ACTIVITIES,
+        + SESSION_SUMMARY_ACTIVITIES
+        + SESSION_SUMMARY_GROUP_ACTIVITIES
+        + SUMMARIZATION_SWEEP_ACTIVITIES,
     ),
     (
         settings.MESSAGING_TASK_QUEUE,
@@ -298,8 +309,8 @@ _task_queue_specs = [
     ),
     (
         settings.LLMA_EVALS_TASK_QUEUE,
-        LLM_ANALYTICS_EVAL_WORKFLOWS,
-        LLM_ANALYTICS_EVAL_ACTIVITIES,
+        LLM_ANALYTICS_EVAL_WORKFLOWS + LLM_ANALYTICS_TAGGER_WORKFLOWS,
+        LLM_ANALYTICS_EVAL_ACTIVITIES + LLM_ANALYTICS_TAGGER_ACTIVITIES,
     ),
     (
         settings.LLMA_SENTIMENT_TASK_QUEUE,
@@ -526,8 +537,8 @@ class Command(BaseCommand):
 
         with asyncio.Runner() as runner:
             loop = runner.get_loop()
-
             configure_logger(loop=loop)
+
             logger = LOGGER.bind(
                 host=temporal_host,
                 port=temporal_port,

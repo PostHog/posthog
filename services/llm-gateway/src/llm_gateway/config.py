@@ -29,6 +29,7 @@ DEFAULT_PRODUCT_COST_LIMITS: dict[str, "ProductCostLimit"] = {
     "wizard": ProductCostLimit(limit_usd=2000.0, window_seconds=86400),
     "posthog_code": ProductCostLimit(limit_usd=1000.0, window_seconds=3600),
     "background_agents": ProductCostLimit(limit_usd=1000.0, window_seconds=3600),
+    "django": ProductCostLimit(limit_usd=5000.0, window_seconds=86400),
 }
 
 DEFAULT_USER_COST_LIMITS: dict[str, "UserCostLimit"] = {
@@ -52,17 +53,10 @@ DEFAULT_USER_COST_LIMITS: dict[str, "UserCostLimit"] = {
     ),
 }
 
-FREE_PLAN_TRIAL_COST_LIMIT = UserCostLimit(
-    burst_limit_usd=5.0,
+FREE_PLAN_COST_LIMIT = UserCostLimit(
+    burst_limit_usd=50.0,
     burst_window_seconds=86400,
     sustained_limit_usd=50.0,
-    sustained_window_seconds=2592000,
-)
-
-FREE_PLAN_EXPIRED_COST_LIMIT = UserCostLimit(
-    burst_limit_usd=0.0,
-    burst_window_seconds=86400,
-    sustained_limit_usd=0.0,
     sustained_window_seconds=2592000,
 )
 
@@ -131,7 +125,6 @@ class Settings(BaseSettings):
     bedrock_region_name: str | None = None
     openai_api_key: str | None = None
     openai_api_base_url: str | None = None  # Used for regional endpoints
-    gemini_api_key: str | None = None
     openrouter_api_key: str | None = None
     fireworks_api_key: str | None = None
 
@@ -156,8 +149,8 @@ class Settings(BaseSettings):
     default_fallback_cost_usd: float = 0.01
 
     posthog_api_base_url: str = "https://us.posthog.com"
-    plan_cache_ttl: int = 300  # 5 minutes
-    free_plan_trial_period_days: int = 30
+    plan_cache_ttl: int = 900  # 15 minutes
+    billing_period_days: int = 30
 
     @field_validator("product_cost_limits", mode="before")
     @classmethod

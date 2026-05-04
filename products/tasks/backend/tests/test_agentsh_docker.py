@@ -126,6 +126,20 @@ class TestAgentshDockerEnforcement:
             sandbox.destroy()
 
     @pytest.mark.django_db
+    def test_blocks_cloud_metadata_endpoint(self, sandbox_image):
+        sandbox = self._create_sandbox(sandbox_image)
+        try:
+            result = self._setup_agentsh_and_exec(
+                sandbox,
+                "curl -s --connect-timeout 2 --max-time 5 http://169.254.169.254/latest/meta-data/",
+                allowed_domains=["github.com"],
+            )
+            assert "blocked by policy" in result.stdout
+            assert "deny-cloud-metadata" in result.stderr
+        finally:
+            sandbox.destroy()
+
+    @pytest.mark.django_db
     def test_allows_custom_domain(self, sandbox_image):
         sandbox = self._create_sandbox(sandbox_image)
         try:

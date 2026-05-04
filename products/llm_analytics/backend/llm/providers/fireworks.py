@@ -5,6 +5,7 @@ Fireworks provides an OpenAI-compatible API and is BYOKEY-only.
 
 import logging
 from collections.abc import Generator
+from typing import Any
 
 import openai
 
@@ -45,7 +46,7 @@ class FireworksAdapter(OpenAIAdapter):
         yield from super().stream(request, api_key, analytics, base_url=FIREWORKS_BASE_URL)
 
     @staticmethod
-    def validate_key(api_key: str) -> tuple[str, str | None]:
+    def validate_key(api_key: str, **kwargs: Any) -> tuple[str, str | None]:
         """Validate a Fireworks API key using a models list request."""
         from products.llm_analytics.backend.models.provider_keys import LLMProviderKey
 
@@ -72,7 +73,7 @@ class FireworksAdapter(OpenAIAdapter):
         return set()
 
     @staticmethod
-    def list_models(api_key: str | None = None) -> list[str]:
+    def list_models(api_key: str | None = None, **kwargs: Any) -> list[str]:
         """List available Fireworks models. Returns empty list without a key (BYOKEY-only)."""
         if not api_key:
             return []

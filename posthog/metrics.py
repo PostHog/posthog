@@ -56,7 +56,7 @@ def _make_handler_no_proxy(url, method, timeout, headers, data, base_handler):
     return handle
 
 
-_expo._make_handler = _make_handler_no_proxy
+_expo._make_handler = _make_handler_no_proxy  # ty: ignore[invalid-assignment]
 
 
 @contextmanager

@@ -431,7 +431,8 @@ def select_from_sessions_table_v2(
             select_fields.append(
                 ast.Alias(alias=name, expr=ast.Field(chain=cast(list[str | int], [table_name]) + chain))
             )
-            group_by_fields.append(ast.Field(chain=cast(list[str | int], [table_name]) + chain))
+            if name != "session_id_v7":
+                group_by_fields.append(ast.Field(chain=cast(list[str | int], [table_name]) + chain))
 
     where = SessionMinTimestampWhereClauseExtractorV2(context).get_inner_where(node)
     if extra_where is not None:

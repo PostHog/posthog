@@ -2,13 +2,16 @@ import re
 import uuid
 from typing import Any
 
+import posthoganalytics
 import temporalio.activity
 from prometheus_client import Counter
 from structlog import get_logger
 
+from posthog.constants import SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE_FEATURE_FLAG_KEY
 from posthog.models import Insight
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.subscription import Subscription, SubscriptionDelivery
+from posthog.ph_client import ph_scoped_capture
 from posthog.storage import object_storage
 from posthog.sync import database_sync_to_async
 from posthog.temporal.subscriptions.llm_change_summary import generate_change_summary
@@ -51,6 +54,21 @@ def _get_query_kind_from_insight(insight: Insight) -> str:
     return source.get("kind", "Unknown")
 
 
+def _extract_columns(query_results: Any) -> list[str] | None:
+    """Coerce the raw `columns` payload to a trusted `list[str]`.
+
+    Keeping the isinstance filtering here means `_summarize_generic` downstream
+    can trust its input shape instead of re-validating each entry.
+    """
+    if not isinstance(query_results, dict):
+        return None
+    raw_columns = query_results.get("columns")
+    if not isinstance(raw_columns, list):
+        return None
+    cleaned = [c for c in raw_columns if isinstance(c, str)]
+    return cleaned or None
+
+
 def _build_states_from_content_snapshot(
     content_snapshot: dict,
     insight_query_kinds: dict[int, str] | None = None,
@@ -71,9 +89,10 @@ def _build_states_from_content_snapshot(
 
         query_kind = (insight_query_kinds or {}).get(insight_id, "Unknown")
         result_payload = query_results.get("result") if query_results else None
+        columns = _extract_columns(query_results)
 
         if query_results and result_payload:
-            results_summary = build_results_summary(query_kind, result_payload)
+            results_summary = build_results_summary(query_kind, result_payload, columns=columns)
             fallback_reason: str | None = None
         elif query_error:
             results_summary = "Query failed"
@@ -194,6 +213,84 @@ def _sanitize_prompt_guide(prompt_guide: str) -> str:
     return re.sub(r"</?[a-zA-Z_][^>]*>", "", prompt_guide)
 
 
+def _prompt_guide_feature_enabled_for_subscription(subscription: Subscription) -> bool:
+    """Gate the *read* side of `summary_prompt_guide` on the same flag as writes.
+
+    Writes are gated in `ee/api/subscription.py`, but without this read-side check
+    a value stored while the flag was on would keep steering the LLM after the
+    flag flipped off. Flipping the flag off must stop the guide from taking effect
+    on the next delivery, not just stop new writes. Evaluated per subscription —
+    anchored on the creator's distinct_id so the gate tracks whoever set it, with
+    the subscription's team organization as group context.
+
+    Subscriptions without a creator (or whose creator has no distinct_id) default
+    to disallowed — same fail-closed stance as the serializer gate.
+    """
+    creator = subscription.created_by
+    if not creator or not creator.distinct_id:
+        return False
+    org_id = str(subscription.team.organization_id) if subscription.team_id else ""
+    return bool(
+        posthoganalytics.feature_enabled(
+            SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE_FEATURE_FLAG_KEY,
+            str(creator.distinct_id),
+            groups={"organization": org_id},
+            group_properties={"organization": {"id": org_id}},
+            only_evaluate_locally=False,
+        )
+    )
+
+
+def _capture_summary_generated_event(
+    subscription: Subscription,
+    *,
+    delivery_id: str | None,
+    summary_text: str,
+    insight_count: int,
+    image_count: int,
+    has_previous_snapshot: bool,
+) -> None:
+    """Fire a product analytics event when a summary has been successfully generated.
+
+    Recipients aren't identifiable (email addresses, Slack channels, webhook URLs
+    have no distinct_id), so we attribute the event to the subscription creator —
+    falling back to a `team_<id>` string when the creator has been removed so
+    system-generated deliveries don't pollute real-user counts in analytics.
+    Wrapped in a broad except so a capture failure can never bubble up and
+    poison an otherwise successful activity run.
+    """
+    try:
+        if subscription.created_by and subscription.created_by.distinct_id:
+            distinct_id: str = subscription.created_by.distinct_id
+        else:
+            distinct_id = f"team_{subscription.team_id}"
+        with ph_scoped_capture() as capture:
+            capture(
+                distinct_id=distinct_id,
+                event="subscription_ai_summary_generated",
+                properties={
+                    "subscription_id": subscription.id,
+                    "team_id": subscription.team_id,
+                    "delivery_id": delivery_id,
+                    "target_type": subscription.target_type,
+                    "insight_count": insight_count,
+                    "image_count": image_count,
+                    "has_previous_snapshot": has_previous_snapshot,
+                    "summary_text_length": len(summary_text),
+                    "resource_type": "dashboard" if subscription.dashboard_id else "insight",
+                },
+                groups={"organization": str(subscription.team.organization_id)},
+            )
+    except Exception:
+        LOGGER.warning(
+            "subscription_ai_summary_generated.capture_failed",
+            subscription_id=subscription.id,
+            team_id=subscription.team_id,
+            delivery_id=delivery_id,
+            exc_info=True,
+        )
+
+
 def _load_insight_images(exported_asset_ids: list[int], team_id: int) -> dict[int, bytes]:
     if not exported_asset_ids:
         return {}
@@ -251,13 +348,28 @@ def _load_insight_images(exported_asset_ids: list[int], team_id: int) -> dict[in
 
 @temporalio.activity.defn
 async def snapshot_subscription_insights(inputs: SnapshotInsightsInputs) -> SnapshotInsightsResult:
+    try:
+        return await _run_snapshot_subscription_insights(inputs)
+    except Exception:
+        # The metric survives Kafka log producer init failure in `configure_logger`;
+        # the log emission may not, so both are deliberate.
+        SUBSCRIPTION_SUMMARY_FAILURE.labels(reason="activity_error").inc()
+        await LOGGER.aexception(
+            "snapshot_subscription_insights.failed",
+            subscription_id=inputs.subscription_id,
+            delivery_id=inputs.delivery_id,
+        )
+        raise
+
+
+async def _run_snapshot_subscription_insights(inputs: SnapshotInsightsInputs) -> SnapshotInsightsResult:
     await LOGGER.ainfo(
         "snapshot_subscription_insights.starting",
         subscription_id=inputs.subscription_id,
     )
 
     subscription = await database_sync_to_async(
-        Subscription.objects.select_related("team__organization").get,
+        Subscription.objects.select_related("team__organization", "created_by").get,
         thread_sensitive=False,
     )(pk=inputs.subscription_id)
 
@@ -343,7 +455,14 @@ async def snapshot_subscription_insights(inputs: SnapshotInsightsInputs) -> Snap
     summary_text: str | None = None
     try:
         temporalio.activity.heartbeat("generating LLM summary")
-        prompt_guide = _sanitize_prompt_guide(subscription.summary_prompt_guide or "")
+        # Gate the read side on the same flag as writes so stored guides stop steering
+        # the LLM as soon as the flag flips off — not only the next time someone edits.
+        if subscription.summary_prompt_guide and await database_sync_to_async(
+            _prompt_guide_feature_enabled_for_subscription, thread_sensitive=False
+        )(subscription):
+            prompt_guide = _sanitize_prompt_guide(subscription.summary_prompt_guide)
+        else:
+            prompt_guide = ""
         summary_text = await database_sync_to_async(generate_change_summary, thread_sensitive=False)(
             previous_states,
             current_states,
@@ -363,6 +482,16 @@ async def snapshot_subscription_insights(inputs: SnapshotInsightsInputs) -> Snap
             subscription_id=inputs.subscription_id,
             error=error_msg,
             exc_info=True,
+        )
+
+    if summary_text:
+        await database_sync_to_async(_capture_summary_generated_event, thread_sensitive=False)(
+            subscription,
+            delivery_id=inputs.delivery_id,
+            summary_text=summary_text,
+            insight_count=len(current_states),
+            image_count=len(insight_images),
+            has_previous_snapshot=previous_states is not None,
         )
 
     await LOGGER.ainfo(

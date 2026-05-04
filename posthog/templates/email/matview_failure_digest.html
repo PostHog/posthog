@@ -1,0 +1,59 @@
+{% extends "email/base.html" %}
+{% load posthog_assets %}
+{% load posthog_filters %}
+
+{% block preheader %}Materialized view failures in {{ team.name }}{% endblock %}
+
+{% block heading %}Materialized view failures{% endblock %}
+
+{% block section %}
+<p style="color: #374151;">
+    Here is your daily summary of materialized views that failed in project <strong>{{ team.name }}</strong>.
+    Views marked as paused have been disabled due to repeated failures and require manual intervention to resume.
+</p>
+
+<div style="background-color: #ffffff; border-radius: 8px; padding: 20px; margin-bottom: 12px; border-left: 4px solid #fd7e14;">
+    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse: collapse;">
+        <thead>
+            <tr style="border-bottom: 1px solid #e1e5e9;">
+                <th align="left" style="padding: 8px 8px 8px 0; font-size: 0.75em; color: #9ca3af; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; text-align: left;">View</th>
+                <th align="left" style="padding: 8px; font-size: 0.75em; color: #9ca3af; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; text-align: left;">Error</th>
+                <th align="right" style="padding: 8px; font-size: 0.75em; color: #9ca3af; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; text-align: right; white-space: nowrap;">Last run</th>
+                <th align="right" style="padding: 8px 0 8px 8px; font-size: 0.75em; color: #9ca3af; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; text-align: right; white-space: nowrap;">Paused</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for view in views %}
+            <tr>
+                <td align="left" style="padding: 10px 8px 10px 0; border-bottom: 1px solid #f3f4f6; vertical-align: top; text-align: left;">
+                    <a href="{{ view.url }}" target="_blank" style="text-decoration: none; color: #111827; font-weight: 600; font-size: 0.9em;">{{ view.name|truncatechars:40 }}</a>
+                </td>
+                <td align="left" style="padding: 10px 8px; border-bottom: 1px solid #f3f4f6; vertical-align: top; text-align: left; color: #6b7280; font-size: 0.85em; word-break: break-word;">
+                    {{ view.error|truncatechars:90 }}
+                </td>
+                <td align="right" style="padding: 10px 8px; border-bottom: 1px solid #f3f4f6; vertical-align: top; text-align: right; color: #6b7280; font-size: 0.85em; white-space: nowrap;">
+                    {{ view.last_run_at }}
+                </td>
+                <td align="right" style="padding: 10px 0 10px 8px; border-bottom: 1px solid #f3f4f6; vertical-align: top; text-align: right; font-size: 0.9em; white-space: nowrap;">
+                    {% if view.paused %}<span style="color: #dc3545; font-weight: 600;">&#10003;</span>{% else %}<span style="color: #9ca3af;">&mdash;</span>{% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<p style="font-size: 0.85em; color: #6b7280; margin-top: 16px;">
+    Click any view name to open it in the SQL editor.
+</p>
+
+{% endblock %}
+
+{% block footer %}
+Need help?
+<a href="https://posthog.com/questions?{{ utm_tags }}" target="_blank"><b>Visit support</b></a>
+or
+<a href="https://posthog.com/docs/data-warehouse/views?{{ utm_tags }}" target="_blank"><b>read our documentation</b></a>.<br /><br />
+
+<a href="{% absolute_uri '/settings/user-notifications' %}">Manage these notifications in PostHog</a>
+{% endblock %}

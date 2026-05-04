@@ -1128,6 +1128,7 @@ function FeatureFlagRollout({
                 <>
                     <FeatureFlagConditionWarning
                         properties={properties}
+                        filterGroups={filterGroups}
                         evaluationRuntime={featureFlag.evaluation_runtime}
                     />
                     <div className="flex flex-col">

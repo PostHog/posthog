@@ -36,7 +36,7 @@ class GitHubSyncConfig(CreatedMetaFields, UpdatedMetaFields):
     last_synced_at = models.DateTimeField(null=True, blank=True, help_text="When the last sync completed")
     sync_status = models.CharField(
         max_length=32,
-        choices=GitHubSyncStatus.choices,
+        choices=GitHubSyncStatus,
         default=GitHubSyncStatus.IDLE,
     )
     last_sync_error = models.TextField(blank=True, default="", help_text="Error message from the last failed sync")

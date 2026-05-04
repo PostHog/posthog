@@ -4,9 +4,20 @@ import guidelines from '@shared/guidelines.md'
 import { McpAgent } from 'agents/mcp'
 import type { z } from 'zod'
 
-import { ApiClient, type GroupType } from '@/api/client'
-import { AnalyticsEvent, getPostHogClient, isFeatureFlagEnabled } from '@/lib/analytics'
+import { ApiClient } from '@/api/client'
+import {
+    AnalyticsEvent,
+    buildMCPAnalyticsGroups,
+    buildMCPContextProperties,
+    evaluateFeatureFlags,
+    getPostHogClient,
+    isFeatureFlagEnabled,
+    type MCPAnalyticsContext,
+} from '@/lib/analytics'
+import { hasScope } from '@/lib/api'
+import { buildToolResultPayload, isToolCallPayload } from '@/lib/build-tool-result'
 import { DurableObjectCache } from '@/lib/cache/DurableObjectCache'
+import { MCPClientProfile } from '@/lib/client-detection'
 import {
     CUSTOM_API_BASE_URL,
     POSTHOG_EU_BASE_URL,
@@ -14,31 +25,24 @@ import {
     getBaseUrlForRegion,
     toCloudRegion,
 } from '@/lib/constants'
-import { handleToolError } from '@/lib/errors'
-import { buildInstructionsV2 } from '@/lib/instructions'
+import { handleToolError, wrapError } from '@/lib/errors'
+import { buildInstructionsV1, buildInstructionsV2, type QueryToolInfo } from '@/lib/instructions'
 import { initMcpCatObservability } from '@/lib/mcpcat'
-import { formatResponse } from '@/lib/response'
 import { SessionManager } from '@/lib/SessionManager'
 import { StateManager } from '@/lib/StateManager'
-import { sanitizeHeaderValue } from '@/lib/utils'
+import { formatPrompt, type McpMode, sanitizeHeaderValue } from '@/lib/utils'
 import { registerPrompts } from '@/prompts'
 import { registerResources } from '@/resources'
 import { registerUiAppResources } from '@/resources/ui-apps'
+import CLI_PROXY_COMMAND from '@/templates/cli-proxy-command.md'
+import CLI_PROXY_TOOL from '@/templates/cli-proxy-tool.md'
+import EXECUTE_SQL_PROMPT from '@/templates/execute-sql-prompt.md'
 import INSTRUCTIONS_TEMPLATE_V1 from '@/templates/instructions-v1.md'
 import INSTRUCTIONS_TEMPLATE_V2 from '@/templates/instructions-v2.md'
-import {
-    POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY,
-    POSTHOG_META_KEY,
-    type CloudRegion,
-    type Context,
-    type State,
-    type Tool,
-} from '@/tools/types'
-import type { AnalyticsMetadata, WithAnalytics } from '@/ui-apps/types'
-
-function buildInstructions(groupTypes?: GroupType[]): string {
-    return buildInstructionsV2(INSTRUCTIONS_TEMPLATE_V2, guidelines, groupTypes)
-}
+import SINGLE_EXEC_INSTRUCTIONS from '@/templates/single-exec-instructions.md'
+import { createExecTool, type ExecInnerCallTracker } from '@/tools/exec'
+import { getToolDefinition } from '@/tools/toolDefinitions'
+import { type CloudRegion, type Context, type State, type Tool } from '@/tools/types'
 
 export type RequestProperties = {
     userHash: string
@@ -51,8 +55,14 @@ export type RequestProperties = {
     organizationId?: string
     projectId?: string
     clientUserAgent?: string
+    mcpConsumer?: string
+    mcpClientName?: string
+    mcpClientVersion?: string
+    mcpProtocolVersion?: string
     readOnly?: boolean
+    mode?: McpMode
     transport?: 'streamable-http' | 'sse'
+    viaSseRedirect?: boolean
     requestStartTime?: number
 }
 
@@ -66,8 +76,6 @@ export class MCP extends McpAgent<Env> {
         region: undefined,
         apiKey: undefined,
         clientName: undefined,
-        aiConsentGiven: undefined,
-        aiConsentFetchedAt: undefined,
     }
 
     _cache: DurableObjectCache<State> | undefined
@@ -76,10 +84,10 @@ export class MCP extends McpAgent<Env> {
 
     _sessionManager: SessionManager | undefined
 
-    _clientInfoPromise: Promise<void> | undefined
-    _mcpClientName: string | undefined
-    _mcpClientVersion: string | undefined
-    _mcpProtocolVersion: string | undefined
+    private clientInfoResolved = false
+    private mcpClientName: string | undefined
+    private mcpClientVersion: string | undefined
+    private mcpProtocolVersion: string | undefined
 
     get requestProperties(): RequestProperties {
         return this.props as RequestProperties
@@ -106,13 +114,26 @@ export class MCP extends McpAgent<Env> {
     }
 
     async resolveClientInfo(): Promise<void> {
-        if (!this._clientInfoPromise) {
-            this._clientInfoPromise = this._doResolveClientInfo()
+        if (this.clientInfoResolved) {
+            return
         }
-        return this._clientInfoPromise
-    }
 
-    private async _doResolveClientInfo(): Promise<void> {
+        // Prefer values parsed from the current request body (see
+        // `extractClientInfoFromBody` in index.ts). This is the only path
+        // that works during init(), because the framework's async
+        // `getInitializeRequest()` reads DO storage which is only written
+        // *after* `onStart`/`init()` has run.
+        const { mcpClientName, mcpClientVersion, mcpProtocolVersion } = this.requestProperties
+        if (mcpClientName || mcpClientVersion) {
+            this.mcpClientName = mcpClientName
+            this.mcpClientVersion = mcpClientVersion
+            this.mcpProtocolVersion = mcpProtocolVersion
+            this.clientInfoResolved = true
+            return
+        }
+
+        // Fallback: read the saved initialize message from DO storage.
+        // Post-init only — during init() this storage write has not landed.
         try {
             const initRequest = await this.getInitializeRequest()
             if (!initRequest || !('params' in initRequest)) {
@@ -121,18 +142,23 @@ export class MCP extends McpAgent<Env> {
 
             const params = (
                 initRequest as {
-                    params?: { clientInfo?: { name?: string; version?: string }; protocolVersion?: string }
+                    params?: {
+                        clientInfo?: { name?: string; version?: string }
+                        protocolVersion?: string
+                    }
                 }
             ).params
             if (!params) {
                 return
             }
 
-            this._mcpClientName = sanitizeHeaderValue(params.clientInfo?.name)
-            this._mcpClientVersion = sanitizeHeaderValue(params.clientInfo?.version)
-            this._mcpProtocolVersion = sanitizeHeaderValue(params.protocolVersion)
-        } catch {
-            // skip
+            this.mcpClientName = sanitizeHeaderValue(params.clientInfo?.name)
+            this.mcpClientVersion = sanitizeHeaderValue(params.clientInfo?.version)
+            this.mcpProtocolVersion = sanitizeHeaderValue(params.protocolVersion)
+            this.clientInfoResolved = true
+        } catch (error) {
+            // stay unresolved so a later caller can retry
+            console.error('[MCP] resolveClientInfo fallback failed:', error)
         }
     }
 
@@ -194,9 +220,10 @@ export class MCP extends McpAgent<Env> {
                 apiToken: this.requestProperties.apiToken,
                 baseUrl,
                 clientUserAgent: this.requestProperties.clientUserAgent,
-                mcpClientName: this._mcpClientName,
-                mcpClientVersion: this._mcpClientVersion,
-                mcpProtocolVersion: this._mcpProtocolVersion,
+                mcpClientName: this.mcpClientName,
+                mcpClientVersion: this.mcpClientVersion,
+                mcpProtocolVersion: this.mcpProtocolVersion,
+                mcpConsumer: this.requestProperties.mcpConsumer,
             })
         }
 
@@ -248,7 +275,7 @@ export class MCP extends McpAgent<Env> {
         if (!_distinctId) {
             const userResult = await (await this.api()).users().me()
             if (!userResult.success) {
-                throw new Error(`Failed to get user: ${userResult.error.message}`)
+                throw wrapError(`Failed to get user: ${userResult.error.message}`, userResult.error)
             }
             await this.cache.set('distinctId', userResult.data.distinct_id)
             _distinctId = userResult.data.distinct_id as string
@@ -257,7 +284,11 @@ export class MCP extends McpAgent<Env> {
         return _distinctId
     }
 
-    async trackEvent(event: AnalyticsEvent, properties: Record<string, any> = {}): Promise<void> {
+    async trackEvent(
+        event: AnalyticsEvent,
+        properties: Record<string, any> = {},
+        options?: { context?: MCPAnalyticsContext; previousContext?: MCPAnalyticsContext }
+    ): Promise<void> {
         try {
             const distinctId = await this.getDistinctId()
 
@@ -267,9 +298,20 @@ export class MCP extends McpAgent<Env> {
 
             const clientName = await this.cache.get('clientName')
 
+            const contextProperties = options?.context ? buildMCPContextProperties(options.context) : {}
+            const previousContextProperties = options?.previousContext
+                ? buildMCPContextProperties(options.previousContext, { prefix: 'previous_' })
+                : {}
+            const groups = options?.context ? buildMCPAnalyticsGroups(options.context) : {}
+
+            // `groups` is translated to `$groups` server-side by posthog-node. No separate
+            // `groupIdentify` call: org/project group properties are populated by the main
+            // PostHog backend (see `posthog/event_usage.py`), and duplicating them from here
+            // with the minimal info we have would overwrite richer core-owned data.
             client.capture({
                 distinctId,
                 event,
+                ...(Object.keys(groups).length > 0 ? { groups } : {}),
                 properties: {
                     ...(this.requestProperties.sessionId
                         ? {
@@ -277,16 +319,50 @@ export class MCP extends McpAgent<Env> {
                           }
                         : {}),
                     ...(clientName ? { mcp_oauth_client_name: clientName } : {}),
-                    ...(this._mcpClientName ? { mcp_client_name: this._mcpClientName } : {}),
-                    ...(this._mcpClientVersion ? { mcp_client_version: this._mcpClientVersion } : {}),
-                    ...(this._mcpProtocolVersion ? { mcp_protocol_version: this._mcpProtocolVersion } : {}),
+                    ...(this.mcpClientName ? { mcp_client_name: this.mcpClientName } : {}),
+                    ...(this.mcpClientVersion ? { mcp_client_version: this.mcpClientVersion } : {}),
+                    ...(this.mcpProtocolVersion ? { mcp_protocol_version: this.mcpProtocolVersion } : {}),
+                    ...(this.requestProperties.mcpConsumer ? { mcp_consumer: this.requestProperties.mcpConsumer } : {}),
                     ...(this.requestProperties.transport ? { mcp_transport: this.requestProperties.transport } : {}),
+                    ...contextProperties,
+                    ...previousContextProperties,
                     ...properties,
                 },
             })
         } catch {
             // skip
         }
+    }
+
+    private async getAnalyticsContextSafe(context: Context): Promise<MCPAnalyticsContext | undefined> {
+        try {
+            return await context.stateManager.getAnalyticsContext()
+        } catch {
+            return undefined
+        }
+    }
+
+    private async trackContextSwitchEvent(
+        toolName: string,
+        context: Context,
+        previousContext: MCPAnalyticsContext | undefined
+    ): Promise<void> {
+        const resolvedContext = await this.getAnalyticsContextSafe(context)
+        if (!resolvedContext) {
+            return
+        }
+
+        const event =
+            toolName === 'switch-project'
+                ? AnalyticsEvent.MCP_PROJECT_SWITCHED
+                : toolName === 'switch-organization'
+                  ? AnalyticsEvent.MCP_ORGANIZATION_SWITCHED
+                  : undefined
+        if (!event) {
+            return
+        }
+
+        await this.trackEvent(event, {}, { context: resolvedContext, ...(previousContext ? { previousContext } : {}) })
     }
 
     registerTool<TSchema extends z.ZodObject>(
@@ -310,44 +386,37 @@ export class MCP extends McpAgent<Env> {
             }
 
             try {
-                // Handler can return a special key POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY in the result which,
-                // when present, is used as the text content instead of TOON-encoding the raw result.
-                // This is useful for tools that want to return pre-formatted text (e.g. tables)
-                // or return JSON for programmatic consumption.
-                const { [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: formattedResults, ...rawResult } =
-                    await handler(params)
-
-                // For tools with UI resources, include structuredContent for better UI rendering
-                // structuredContent is not added to model context, only used by UI apps
-                const hasUiResource = tool._meta?.ui?.resourceUri
-
-                // If there's a UI resource, include analytics metadata for the UI app
-                let structuredContent: WithAnalytics<typeof rawResult> | typeof rawResult = rawResult
-                if (hasUiResource) {
-                    const distinctId = await this.getDistinctId()
-                    const analyticsMetadata: AnalyticsMetadata = {
-                        distinctId,
-                        toolName: tool.name,
-                    }
-                    structuredContent = {
-                        ...rawResult,
-                        _analytics: analyticsMetadata,
-                    }
+                const isContextSwitch = tool.name === 'switch-project' || tool.name === 'switch-organization'
+                const previousContext = isContextSwitch
+                    ? await this.getAnalyticsContextSafe(await this.getContext())
+                    : undefined
+                const handlerResult = await handler(params)
+                if (isContextSwitch) {
+                    this.ctx.waitUntil(
+                        this.trackContextSwitchEvent(tool.name, await this.getContext(), previousContext)
+                    )
                 }
-
-                const useJson = tool._meta?.[POSTHOG_META_KEY]?.responseFormat === 'json'
-                const text = formattedResults ?? (useJson ? JSON.stringify(rawResult) : formatResponse(rawResult))
-
-                return {
-                    content: [
-                        {
-                            type: 'text',
-                            text,
-                        },
-                    ],
-                    // Include raw result as structuredContent for UI apps to consume only in case there is a UI resource
-                    ...(hasUiResource ? { structuredContent } : {}),
+                // The exec wrapper (single-exec mode) assembles the per-call payload itself —
+                // propagating the inner tool's UI resourceUri onto the response — so pass it
+                // through unchanged. Re-running `buildToolResultPayload` on the payload would
+                // object-rest-destructure its content/structuredContent fields.
+                if (isToolCallPayload(handlerResult)) {
+                    return handlerResult
                 }
+                // Fetch distinctId only when a UI-resource tool with a non-string result might
+                // actually use it in structuredContent; avoids an extra round-trip otherwise.
+                const hasUiResource = !!tool._meta?.ui?.resourceUri
+                const needsDistinctId = hasUiResource && typeof handlerResult !== 'string'
+                const distinctId = needsDistinctId ? await this.getDistinctId() : undefined
+
+                return buildToolResultPayload({
+                    handlerResult,
+                    toolMeta: tool._meta,
+                    toolName: tool.name,
+                    params,
+                    clientName: this.mcpClientName,
+                    distinctId,
+                })
             } catch (error: any) {
                 const distinctId = await this.getDistinctId()
                 return handleToolError(
@@ -392,30 +461,110 @@ export class MCP extends McpAgent<Env> {
             env: this.env,
             stateManager: new StateManager(this.cache, api),
             sessionManager: this.sessionManager,
+            getDistinctId: () => this.getDistinctId(),
         }
     }
 
     async init(): Promise<void> {
-        const { features, tools, version: clientVersion, organizationId, projectId, readOnly } = this.requestProperties
+        const {
+            features,
+            tools,
+            version: clientVersion,
+            organizationId,
+            projectId,
+            readOnly,
+            mode,
+        } = this.requestProperties
 
-        // Pre-seed cache, fetch group types, and evaluate feature flag in parallel
-        const groupTypesPromise = projectId ? this.getOrFetchGroupTypes(projectId) : Promise.resolve(undefined)
+        // Resolve MCP client info before any code reads it — most importantly
+        // the `useSingleExec` decision below. During init() this resolves from
+        // request properties (populated by `extractClientInfoFromBody` at the
+        // worker entry point); the DO-storage fallback inside
+        // `resolveClientInfo` is only reachable post-init.
+        await this.resolveClientInfo()
+
+        // Start feature flag resolution in parallel with cache seeding
         const flagPromise = this.resolveVersionFlag()
+        const toolFlagsPromise = this.resolveToolFeatureFlags(clientVersion)
+        const singleExecPromise = this.resolveSingleExecFlag()
+
+        // Seed cache with header-provided IDs before any fetches
         if (organizationId) {
             await this.cache.set('orgId', organizationId)
         }
+        let cachedProjectId: string | undefined
         if (projectId) {
+            cachedProjectId = projectId
             await this.cache.set('projectId', projectId)
         }
 
-        // Resolve group types and feature flag (started above in parallel with cache seeding)
-        const groupTypes = await groupTypesPromise
-        const flagVersion = await flagPromise
-        const version = flagVersion ?? clientVersion ?? 1
-        const instructions = version === 2 ? buildInstructions(groupTypes) : INSTRUCTIONS_TEMPLATE_V1
+        const context = await this.getContext()
+        // Sticky session: skip default resolution if a previous init for this
+        // userHash already picked a project (cache survives DO cold-restarts).
+        // Without this guard, switching the active org in the user's browser
+        // would silently reshuffle an established Claude session — `users/@me`
+        // returns whatever team the browser currently has selected, and
+        // setDefaultOrganizationAndProject would overwrite the cache with it.
+        // Headers always win because they were applied to the cache above.
+        if (!cachedProjectId) {
+            cachedProjectId = await this.cache.get('projectId')
+        }
 
-        this.server = new McpServer({ name: 'PostHog', version: '1.0.0' }, { instructions })
+        // Initialize org and project
+        if (!cachedProjectId) {
+            await context.stateManager.setDefaultOrganizationAndProject()
+        }
 
+        const [flagVersion, toolFeatureFlags, singleExecFlagOn] = await Promise.all([
+            flagPromise,
+            toolFlagsPromise,
+            singleExecPromise,
+            // Trigger OAuth introspection so the OAuth client name is cached before the useSingleExec decision below
+            context.stateManager.getApiKey(),
+        ])
+
+        const oauthClientName = (await this.cache.get('clientName')) || undefined
+
+        const clientProfile = new MCPClientProfile({
+            clientName: this.mcpClientName,
+            clientVersion: this.mcpClientVersion,
+            consumer: this.requestProperties.mcpConsumer,
+            oauthClientName,
+        })
+
+        // Restrict single-exec mode to coding agents only — Cursor and other clients that
+        // render `structuredContent` in their UI need the full per-tool roster, not the
+        // wrapped CLI. `resolveClientInfo` is awaited at the top of `init()` so this
+        // decision sees the real value on first-connect. PostHog's agent wrapper
+        // self-identifies via the `x-posthog-mcp-consumer` header and forces
+        // single-exec regardless of the wrapped client's reported name. Vibe-coding
+        // platforms (Lovable, Replit) are detected by OAuth client name since they
+        // typically connect through a generic MCP client wrapper.
+        // An explicit `mode` from the caller (header `x-posthog-mcp-mode` or query
+        // param `mode`) wins over the flag + client-profile heuristic.
+        const useSingleExec =
+            mode === 'cli' ||
+            (mode !== 'tools' &&
+                singleExecFlagOn &&
+                (clientProfile.isCodingAgent() ||
+                    clientProfile.isPostHogCodeConsumer() ||
+                    clientProfile.isVibeCodingClient()))
+        const version = useSingleExec ? 2 : (flagVersion ?? clientVersion ?? 1)
+
+        // Fetch group types and metadata in parallel (cache is now seeded)
+        const resolvedProjectId = projectId || (await this.cache.get('projectId'))
+        const [groupTypes, metadata] = await Promise.all([
+            (async () => {
+                if (!resolvedProjectId) {
+                    return undefined
+                }
+                const apiKey = await context.stateManager.getApiKey()
+                return hasScope(apiKey.scopes, 'group:read')
+                    ? context.stateManager.getOrFetchGroupTypes(resolvedProjectId)
+                    : undefined
+            })(),
+            context.stateManager.getEnvironmentPrompt(),
+        ])
         // When project ID is provided, both switch tools are removed (project implies org).
         // When only organization ID is provided, only switch-organization is removed.
         const excludeTools: string[] = []
@@ -425,14 +574,8 @@ export class MCP extends McpAgent<Env> {
             excludeTools.push('switch-organization')
         }
 
-        const context = await this.getContext()
-
-        // Register prompts and resources
-        await registerPrompts(this.server)
-        await registerResources(this.server, context)
-        await registerUiAppResources(this.server, context)
-
-        // Register tools
+        // Fetch tools up-front so we can build the query tool catalog (and the
+        // CLI exec tool's domain list) before constructing the system prompt.
         const { getToolsFromContext } = await import('@/tools')
         const allTools = await getToolsFromContext(context, {
             features,
@@ -440,18 +583,131 @@ export class MCP extends McpAgent<Env> {
             version,
             excludeTools,
             readOnly,
+            featureFlags: toolFeatureFlags,
         })
 
-        // OAuth introspection has now run (triggered by getToolsFromContext → getApiKey),
-        // so update the ApiClient with the verified OAuth client name for header forwarding.
-        const oauthClientName = (await this.cache.get('clientName')) || undefined
+        // OAuth introspection ran above (we awaited `getApiKey()` before constructing
+        // `clientProfile`), so update the ApiClient with the verified OAuth client
+        // name for header forwarding.
         if (oauthClientName && this._api) {
             this._api.config.oauthClientName = oauthClientName
         }
 
-        for (const tool of allTools) {
-            const typedTool = tool as Tool<z.ZodObject>
-            this.registerTool(typedTool, async (params) => typedTool.handler(context, params))
+        const toolInfos = allTools.map((t) => ({
+            name: t.name,
+            category: getToolDefinition(t.name, version).category,
+        }))
+        const queryToolInfos: QueryToolInfo[] = allTools
+            .filter((t) => t.name.startsWith('query-'))
+            .map((t) => {
+                const def = getToolDefinition(t.name, version)
+                return {
+                    name: t.name,
+                    title: def.title,
+                    ...(def.system_prompt_hint ? { systemPromptHint: def.system_prompt_hint } : {}),
+                }
+            })
+
+        const supportsInstructions = clientProfile.capabilities.supportsInstructions
+
+        // In single-exec mode, when the client honors the MCP `instructions` field we
+        // lift the exec-tool blurb, tool-domain list, query-tool catalog, defined-group
+        // types and the active-environment `{metadata}` (user name, project, timezone)
+        // out of the `command` description and into `instructions`. Clients that ignore
+        // `instructions` (Codex — see `client-detection.ts`) keep today's behavior:
+        // empty `instructions`, everything inlined in the `command` description.
+        let instructions = ''
+        if (supportsInstructions) {
+            if (useSingleExec) {
+                instructions = buildInstructionsV2(
+                    SINGLE_EXEC_INSTRUCTIONS,
+                    guidelines,
+                    groupTypes,
+                    metadata,
+                    toolInfos,
+                    queryToolInfos,
+                    { compact: true }
+                )
+            } else {
+                instructions =
+                    version === 2
+                        ? buildInstructionsV2(
+                              INSTRUCTIONS_TEMPLATE_V2,
+                              guidelines,
+                              groupTypes,
+                              metadata,
+                              toolInfos,
+                              queryToolInfos
+                          )
+                        : buildInstructionsV1(INSTRUCTIONS_TEMPLATE_V1, metadata)
+            }
+        }
+
+        this.server = new McpServer({ name: 'PostHog', version: '1.0.0' }, { instructions })
+
+        // Register prompts and resources
+        await Promise.all([
+            registerPrompts(this.server),
+            registerResources(this.server, context),
+            registerUiAppResources(this.server, context),
+        ])
+
+        // execute-sql is v2-only. Swap its description with the rich SQL prompt
+        // (visible via `info execute-sql` in single-exec, and as the tool's own
+        // description otherwise). It folds in the HogQL/SQL intro, guidelines,
+        // discovery workflow, and the truncation guidance that the base JSON
+        // description carried — and it triggers the `querying-posthog-data`
+        // skill more reliably than the shorter default.
+        if (version === 2) {
+            const sqlTool = allTools.find((t) => t.name === 'execute-sql')
+            if (sqlTool) {
+                sqlTool.description = formatPrompt(EXECUTE_SQL_PROMPT, { guidelines: guidelines.trim() })
+            }
+        }
+
+        // In single-exec mode, register one "posthog" tool that wraps all tools
+        // behind a CLI-like interface. Otherwise, register each tool individually.
+        if (useSingleExec) {
+            // Strip `{tool_domains}`, `{query_tools}`, `{defined_groups}`, `{metadata}`
+            // from the command-parameter description when they're already in `instructions`
+            // (their placeholders resolve to empty strings via `buildInstructionsV2`).
+            const commandReference = buildInstructionsV2(
+                CLI_PROXY_COMMAND,
+                guidelines,
+                supportsInstructions ? undefined : groupTypes,
+                supportsInstructions ? undefined : metadata,
+                supportsInstructions ? undefined : toolInfos,
+                supportsInstructions ? undefined : queryToolInfos
+            )
+
+            const trackInnerCall: ExecInnerCallTracker = (toolName, properties) => {
+                this.ctx.waitUntil(
+                    (async () => {
+                        const freshContext = await this.getAnalyticsContextSafe(await this.getContext())
+                        await this.trackEvent(
+                            AnalyticsEvent.MCP_TOOL_CALLED,
+                            { tool_name: toolName, ...properties },
+                            freshContext ? { context: freshContext } : undefined
+                        )
+                    })()
+                )
+            }
+
+            const execTool = createExecTool(
+                allTools,
+                context,
+                CLI_PROXY_TOOL,
+                commandReference,
+                this.requestProperties.mcpConsumer,
+                trackInnerCall
+            )
+            const typedExecTool = execTool as Tool<z.ZodObject>
+            this.registerTool(typedExecTool, async (params) => typedExecTool.handler(context, params))
+        } else {
+            for (const tool of allTools) {
+                const typedTool = tool as Tool<z.ZodObject>
+                this.registerTool(typedTool, async (params) => typedTool.handler(context, params))
+            }
         }
 
         await initMcpCatObservability(this.server, {
@@ -460,29 +716,46 @@ export class MCP extends McpAgent<Env> {
                 this.requestProperties.sessionId
                     ? this.sessionManager.getSessionUuid(this.requestProperties.sessionId)
                     : undefined,
-            getMcpClientName: () => this._mcpClientName,
-            getMcpClientVersion: () => this._mcpClientVersion,
-            getMcpProtocolVersion: () => this._mcpProtocolVersion,
-            getRegion: () => this.requestProperties.region,
-            getOrganizationId: () => this.requestProperties.organizationId,
-            getProjectId: () => this.requestProperties.projectId,
-            getClientUserAgent: () => this.requestProperties.clientUserAgent,
-            getVersion: () => this.requestProperties.version,
+            getMcpClientName: async () => this.mcpClientName,
+            getMcpClientVersion: async () => this.mcpClientVersion,
+            getMcpProtocolVersion: async () => this.mcpProtocolVersion,
+            // Prefer the cached region (set on init after detection) so we don't miss it
+            // when the inbound request didn't include the `region` hint.
+            getRegion: async () => (await this.cache.get('region')) ?? this.requestProperties.region,
+            getAnalyticsContext: async () => this.getAnalyticsContextSafe(await this.getContext()),
+            getClientUserAgent: async () => this.requestProperties.clientUserAgent,
+            // Server-resolved version (may differ from the client-reported one because of
+            // the `mcp-version-2` feature flag), so mcpcat events line up with ours.
+            getVersion: async () => version,
+            getOAuthClientName: async () => (await this.cache.get('clientName')) || undefined,
+            getReadOnly: async () => readOnly,
+            getTransport: async () => this.requestProperties.transport,
         })
 
         const initDurationMs = this.requestProperties.requestStartTime
             ? Date.now() - this.requestProperties.requestStartTime
             : undefined
 
+        // Resolve analytics context from the already-primed cache (getEnvironmentPrompt
+        // above populated `cachedProject`/`cachedOrg`), so this is effectively free here.
+        const analyticsContext = await this.getAnalyticsContextSafe(context)
+
         this.ctx.waitUntil(
-            this.trackEvent(AnalyticsEvent.MCP_INIT, {
-                tool_count: allTools.length,
-                mcp_version: version,
-                has_organization_id: !!organizationId,
-                has_project_id: !!projectId,
-                read_only: !!readOnly,
-                ...(initDurationMs !== undefined ? { init_duration_ms: initDurationMs } : {}),
-            })
+            this.trackEvent(
+                AnalyticsEvent.MCP_INIT,
+                {
+                    tool_count: allTools.length,
+                    mcp_version: version,
+                    mcp_mode: useSingleExec ? 'cli' : 'tools',
+                    has_organization_id: !!organizationId,
+                    has_project_id: !!projectId,
+                    read_only: !!readOnly,
+                    via_sse_redirect: !!this.requestProperties.viaSseRedirect,
+                    ...(mode ? { mcp_mode_explicit: mode } : {}),
+                    ...(initDurationMs !== undefined ? { init_duration_ms: initDurationMs } : {}),
+                },
+                analyticsContext ? { context: analyticsContext } : undefined
+            )
         )
     }
 
@@ -495,47 +768,26 @@ export class MCP extends McpAgent<Env> {
         }
     }
 
-    private async getOrFetchGroupTypes(projectId: string): Promise<GroupType[] | undefined> {
-        const GROUP_TYPES_TTL_MS = 5 * 60 * 1000 // 5 minutes
-
+    private async resolveSingleExecFlag(): Promise<boolean> {
         try {
-            const cached = await this.cache.get(`groupTypes:${projectId}`)
-            const fetchedAt = await this.cache.get(`groupTypesFetchedAt:${projectId}`)
-            const isStale = !fetchedAt || Date.now() - fetchedAt > GROUP_TYPES_TTL_MS
-
-            if (cached !== undefined && !isStale) {
-                return cached
-            }
-
-            if (cached !== undefined) {
-                // Stale — revalidate in background, return cached immediately
-                this.ctx.waitUntil(
-                    this.fetchAndCacheGroupTypes(projectId).catch((error) => {
-                        getPostHogClient().captureException(error, undefined, {
-                            tag: 'max_ai',
-                            context: 'group_types_background_revalidation',
-                        })
-                    })
-                )
-                return cached
-            }
-
-            // No cache — fetch synchronously
-            return await this.fetchAndCacheGroupTypes(projectId)
-        } catch (error) {
-            getPostHogClient().captureException(error, undefined, {
-                tag: 'max_ai',
-                context: 'get_or_fetch_group_types',
-            })
-            return undefined
+            const distinctId = await this.getDistinctId()
+            return !!(await isFeatureFlagEnabled('mcp-single-exec-tool', distinctId))
+        } catch {
+            return false
         }
     }
 
-    private async fetchAndCacheGroupTypes(projectId: string): Promise<GroupType[]> {
-        const api = await this.api()
-        const groupTypes = await api.getGroupTypes(projectId)
-        await this.cache.set(`groupTypes:${projectId}`, groupTypes)
-        await this.cache.set(`groupTypesFetchedAt:${projectId}`, Date.now())
-        return groupTypes
+    private async resolveToolFeatureFlags(version?: number): Promise<Record<string, boolean> | undefined> {
+        try {
+            const { getRequiredFeatureFlags } = await import('@/tools/toolDefinitions')
+            const flagKeys = getRequiredFeatureFlags(version)
+            if (flagKeys.length === 0) {
+                return undefined
+            }
+            const distinctId = await this.getDistinctId()
+            return await evaluateFeatureFlags(flagKeys, distinctId)
+        } catch {
+            return undefined
+        }
     }
 }

@@ -397,7 +397,7 @@ export function EndpointPlayground({ tabId }: EndpointPlaygroundProps): JSX.Elem
                         icon={<IconExternal />}
                         targetBlank
                     >
-                        API keys
+                        Personal API keys
                     </LemonButton>
                 </div>
                 <div>

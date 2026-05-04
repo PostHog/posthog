@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import orjson
 import structlog
 from pydantic_core import to_jsonable_python
 
@@ -65,17 +66,26 @@ def build_initial_content_snapshot(subscription: Subscription) -> dict[str, Any]
 
 
 def _serialize_insight_result(result: InsightResult) -> dict[str, Any]:
-    return {
-        "result": result.result,
-        "columns": result.columns,
-        "types": result.types,
-        "resolved_date_range": _json_safe_value(result.resolved_date_range),
-        "last_refresh": result.last_refresh.isoformat() if result.last_refresh else None,
-        "is_cached": result.is_cached,
-        "timezone": result.timezone,
-        "has_more": result.has_more,
-        "query_status": _json_safe_value(result.query_status),
-    }
+    # Coerce NaN / ±Inf to null via orjson — Postgres JSONB rejects the bare tokens that stdlib
+    # json.dumps (Django JSONField's default encoder) emits for non-finite floats.
+    # `default=str` covers types orjson doesn't serialize natively (notably Decimal) the way
+    # DjangoJSONEncoder would have, so switching encoders is a no-op for non-finite-float payloads.
+    return orjson.loads(
+        orjson.dumps(
+            {
+                "result": result.result,
+                "columns": result.columns,
+                "types": result.types,
+                "resolved_date_range": _json_safe_value(result.resolved_date_range),
+                "last_refresh": result.last_refresh.isoformat() if result.last_refresh else None,
+                "is_cached": result.is_cached,
+                "timezone": result.timezone,
+                "has_more": result.has_more,
+                "query_status": _json_safe_value(result.query_status),
+            },
+            default=str,
+        )
+    )
 
 
 def _insight_snapshot_base_metadata(*, insight: Insight, tile: DashboardTile | None) -> dict[str, Any]:

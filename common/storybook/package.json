@@ -58,7 +58,6 @@
         "webpack-cli": "^5.1.4"
     },
     "devDependencies": {
-        "@storybook/testing-library": "catalog:",
         "http-server": "^14.1.1",
         "wait-on": "^7.2.0"
     }

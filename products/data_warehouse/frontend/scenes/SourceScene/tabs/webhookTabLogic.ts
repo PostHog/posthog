@@ -9,6 +9,7 @@ import api from 'lib/api'
 import { SourceConfig } from '~/queries/schema/schema-general'
 import { ExternalDataSource, WebhookInfo } from '~/types'
 
+import type { WebhookCreateResult } from '../../../shared/components/forms/WebhookSetupForm'
 import { getErrorsForFields } from '../../NewSourceScene/sourceWizardLogic'
 import { sourceSettingsLogic } from './sourceSettingsLogic'
 import type { webhookTabLogicType } from './webhookTabLogicType'
@@ -25,7 +26,7 @@ export const webhookTabLogic = kea<webhookTabLogicType>([
     actions({
         createWebhook: true,
         setWebhookCreating: (creating: boolean) => ({ creating }),
-        setCreateWebhookResult: (result: { success: boolean; webhook_url: string; error?: string } | null) => ({
+        setCreateWebhookResult: (result: WebhookCreateResult | null) => ({
             result,
         }),
         submitWebhookFields: true,
@@ -41,7 +42,7 @@ export const webhookTabLogic = kea<webhookTabLogicType>([
             },
         ],
         createWebhookResult: [
-            null as { success: boolean; webhook_url: string; error?: string } | null,
+            null as WebhookCreateResult | null,
             {
                 createWebhook: () => null,
                 setCreateWebhookResult: (_, { result }) => result,
@@ -184,7 +185,11 @@ export const webhookTabLogic = kea<webhookTabLogicType>([
                 const result = await api.externalDataSources.createWebhook(props.id)
                 actions.setCreateWebhookResult(result)
                 if (result.success) {
-                    lemonToast.success('Webhook created successfully')
+                    if ((result.pending_inputs?.length ?? 0) === 0) {
+                        lemonToast.success('Webhook created successfully')
+                    } else {
+                        lemonToast.info('Webhook created — enter the remaining details below to finish setup')
+                    }
                 }
             } catch (e: any) {
                 actions.setCreateWebhookResult({

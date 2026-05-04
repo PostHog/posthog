@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 
 from django.utils import timezone
 
@@ -11,6 +11,7 @@ from posthog.schema import (
     AlertCalculationInterval,
     AlertCondition,
     AlertConditionType,
+    AlertState,
     ChartDisplayType,
     InsightThreshold,
     InsightThresholdType,
@@ -23,7 +24,7 @@ from posthog.cdp.internal_events import InternalEventEvent, produce_internal_eve
 from posthog.email import EmailMessage
 from posthog.exceptions_capture import capture_exception
 from posthog.models import AlertConfiguration
-from posthog.models.alert import derive_detector_event_fields
+from posthog.models.alert import AlertCheck, derive_detector_event_fields
 from posthog.tasks.alerts.schedule_restriction import snap_candidate_utc_to_schedule_restriction
 from posthog.utils import get_from_dict_or_attr
 
@@ -277,11 +278,14 @@ def trigger_alert_hog_functions(alert: AlertConfiguration, properties: dict) -> 
         )
 
 
-def send_notifications_for_breaches(alert: AlertConfiguration, breaches: list[str]) -> None:
+def send_notifications_for_breaches(alert: AlertConfiguration, breaches: list[str], idempotency_key: str) -> list[str]:
+    """A stable idempotency_key (typically alert_check.id) lets MessagingRecord enforce
+    per-recipient at-most-once delivery on retries.
+    """
     email_targets = alert.get_subscribed_users_emails()
     if email_targets:
         subject = f"PostHog alert {alert.name} is firing"
-        campaign_key = f"alert-firing-notification-{alert.id}-{timezone.now().timestamp()}"
+        campaign_key = f"alert-firing-notification-{idempotency_key}"
         insight_url = f"/project/{alert.team.pk}/insights/{alert.insight.short_id}"
         alert_url = f"{insight_url}?alert_id={alert.id}"
         message = EmailMessage(
@@ -305,32 +309,114 @@ def send_notifications_for_breaches(alert: AlertConfiguration, breaches: list[st
 
     trigger_alert_hog_functions(alert=alert, properties={"breaches": ", ".join(breaches)})
 
+    return email_targets
 
-def send_notifications_for_errors(alert: AlertConfiguration, error: dict) -> None:
+
+def send_notifications_for_errors(alert: AlertConfiguration, error: dict) -> list[str]:
     logger.info("Sending alert error notifications", alert_id=alert.id, error=error)
+    email_targets = alert.get_subscribed_users_emails()
 
     # TODO: uncomment this after checking errors sent
-    # subject = f"PostHog alert {alert.name} check failed to evaluate"
-    # campaign_key = f"alert-firing-notification-{alert.id}-{timezone.now().timestamp()}"
-    # insight_url = f"/project/{alert.team.pk}/insights/{alert.insight.short_id}"
-    # alert_url = f"{insight_url}?alert_id={alert.id}"
-    # message = EmailMessage(
-    #     campaign_key=campaign_key,
-    #     subject=subject,
-    #     template_name="alert_check_failed_to_evaluate",
-    #     template_context={
-    #         "alert_error": error,
-    #         "insight_url": insight_url,
-    #         "insight_name": alert.insight.name,
-    #         "alert_url": alert_url,
-    #         "alert_name": alert.name,
-    #     },
-    # )
-    # targets = alert.get_subscribed_users_emails()
-    # for target in targets:
-    #     message.add_recipient(email=target)
+    # if email_targets:
+    #     subject = f"PostHog alert {alert.name} check failed to evaluate"
+    #     campaign_key = f"alert-firing-notification-{alert.id}-{timezone.now().timestamp()}"
+    #     insight_url = f"/project/{alert.team.pk}/insights/{alert.insight.short_id}"
+    #     alert_url = f"{insight_url}?alert_id={alert.id}"
+    #     message = EmailMessage(
+    #         campaign_key=campaign_key,
+    #         subject=subject,
+    #         template_name="alert_check_failed_to_evaluate",
+    #         template_context={
+    #             "alert_error": error,
+    #             "insight_url": insight_url,
+    #             "insight_name": alert.insight.name,
+    #             "alert_url": alert_url,
+    #             "alert_name": alert.name,
+    #         },
+    #     )
+    #     for target in email_targets:
+    #         message.add_recipient(email=target)
+    #     message.send()
 
-    # message.send()
+    return email_targets
+
+
+def dispatch_alert_notification(
+    alert: AlertConfiguration,
+    alert_check: AlertCheck,
+    breaches: list[str] | None,
+) -> list[str] | None:
+    """Route an AlertCheck to the correct notification sender.
+
+    Returns the list of recipients the delivery targeted, or None if nothing was sent
+    (NOT_FIRING, or ERRORED with a non-dict error payload). Callers pass the returned
+    list to record_alert_delivery so the `targets_notified` sentinel reflects reality
+    — never claiming delivery for a state that didn't actually send.
+
+    Raises:
+        ValueError: state is FIRING but breaches is None/empty.
+        AssertionError: unknown state — surfaces a missing AlertState branch loudly.
+    """
+    match alert_check.state:
+        case AlertState.NOT_FIRING:
+            logger.info("Check state is NOT_FIRING, nothing to send", alert_id=alert.id)
+            return None
+        case AlertState.ERRORED:
+            if not isinstance(alert_check.error, dict):
+                logger.warning(
+                    "ERRORED alert_check has non-dict error payload; skipping notification",
+                    alert_id=alert.id,
+                    alert_check_id=alert_check.id,
+                )
+                return None
+            return send_notifications_for_errors(alert, alert_check.error)
+        case AlertState.FIRING:
+            if not breaches:
+                raise ValueError(
+                    f"dispatch_alert_notification: FIRING alert_check {alert_check.id} has no breaches — "
+                    "caller must pass the breaches list from AlertEvaluationResult"
+                )
+            logger.info("Sending alert firing notifications", alert_id=alert.id)
+            return send_notifications_for_breaches(alert, breaches, idempotency_key=str(alert_check.id))
+        case _:
+            raise AssertionError(f"dispatch_alert_notification: unhandled alert state: {alert_check.state}")
+
+
+def record_alert_delivery(alert: AlertConfiguration, alert_check: AlertCheck, targets: list[str]) -> None:
+    """Persist the side-effects of a successful notification delivery.
+
+    - alert_check.targets_notified: populated set = delivery happened (idempotency sentinel
+      for Temporal notify retries).
+    - alert.last_notified_at: used by monitoring / throttling.
+
+    Caller must wrap in transaction.atomic() if atomic semantics are required.
+    """
+    alert_check.targets_notified = {"users": targets}
+    alert_check.save(update_fields=["targets_notified"])
+    alert.last_notified_at = datetime.now(UTC)
+    alert.save(update_fields=["last_notified_at"])
+
+
+def disable_invalid_alert(alert: AlertConfiguration, reason: str) -> None:
+    logger.warning("check_alert.auto_disabling", alert_id=alert.id, reason=reason)
+    AlertConfiguration.objects.filter(pk=alert.pk).update(
+        enabled=False,
+        state=AlertState.ERRORED,
+        last_checked_at=datetime.now(UTC),
+    )
+    alert.refresh_from_db()
+
+    targets_to_notify = alert.get_subscribed_users_emails()
+    AlertCheck.objects.create(
+        alert_configuration=alert,
+        calculated_value=None,
+        condition=alert.condition,
+        targets_notified={"users": targets_to_notify} if targets_to_notify else {},
+        state=AlertState.ERRORED,
+        error={"message": reason},
+    )
+    if targets_to_notify:
+        send_notifications_for_disabled(alert, reason, targets_to_notify)
 
 
 def send_notifications_for_disabled(alert: AlertConfiguration, reason: str, targets: list[str]) -> None:

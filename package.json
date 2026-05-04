@@ -57,7 +57,8 @@
         "fuse.js": "catalog:",
         "husky": "catalog:",
         "lint-staged": "catalog:",
-        "uuid": "^10.0.0"
+        "uuid": "^10.0.0",
+        "zod": "^4.3.6"
     },
     "devDependencies": {
         "@parcel/packager-ts": "catalog:",
@@ -72,7 +73,7 @@
         "stylelint-config-standard-scss": "^11.1.0",
         "stylelint-order": "^6.0.4",
         "syncpack": "^13.0.4",
-        "turbo": "^2.4.2"
+        "turbo": "^2.9.6"
     },
     "optionalDependencies": {
         "fsevents": "^2.3.3"
@@ -95,7 +96,8 @@
         "funnel-udf/**/*.rs": "bin/hogli format:rust",
         "!(posthog/hogql/grammar/*|posthog/personhog_client/proto/generated/*|products/*/skills/*/scripts/*)*.{py,pyi}": [
             "bin/hogli lint:python:fix",
-            "bin/hogli format:python"
+            "bin/hogli format:python",
+            "uv run ty check"
         ],
         "*.{md,mdx}": "bin/hogli format:markdown"
     },
@@ -117,7 +119,7 @@
         "// Fix React version to a fixed known good version across the monorepo": "",
         "overrides": {
             "axios": "^1.15.0",
-            "@modelcontextprotocol/sdk": "^1.26.0",
+            "@modelcontextprotocol/sdk": "^1.29.0",
             "@types/react": "18.3.27",
             "@types/react-dom": "18.3.7",
             "cipher-base": ">=1.0.5",

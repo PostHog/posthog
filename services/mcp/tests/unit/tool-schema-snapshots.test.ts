@@ -14,7 +14,6 @@ function createMockContext(): Context {
         api: {} as any,
         cache: {} as any,
         env: {
-            INKEEP_API_KEY: 'test-key',
             MCP_APPS_BASE_URL: undefined,
             POSTHOG_ANALYTICS_API_KEY: undefined,
             POSTHOG_ANALYTICS_HOST: undefined,
@@ -27,6 +26,7 @@ function createMockContext(): Context {
             getAiConsentGiven: async () => true,
         } as any,
         sessionManager: new SessionManager({} as any),
+        getDistinctId: async () => 'test-distinct-id',
     }
 }
 

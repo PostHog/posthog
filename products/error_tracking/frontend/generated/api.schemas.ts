@@ -488,9 +488,9 @@ export interface PropertyGroupFilterValueApi {
  * * `user` - user
  * `role` - role
  */
-export type Type079EnumApi = (typeof Type079EnumApi)[keyof typeof Type079EnumApi]
+export type AssigneeTypeEnumApi = (typeof AssigneeTypeEnumApi)[keyof typeof AssigneeTypeEnumApi]
 
-export const Type079EnumApi = {
+export const AssigneeTypeEnumApi = {
     User: 'user',
     Role: 'role',
 } as const
@@ -500,7 +500,7 @@ export interface ErrorTrackingAssignmentRuleAssigneeRequestApi {
 
 * `user` - user
 * `role` - role */
-    type: Type079EnumApi
+    type: AssigneeTypeEnumApi
     /** User ID when `type` is `user`, or role UUID when `type` is `role`. */
     id: number | string
 }
@@ -549,74 +549,33 @@ export interface PatchedErrorTrackingAssignmentRuleApi {
     readonly updated_at?: string
 }
 
-export type IntegrationKindApi = (typeof IntegrationKindApi)[keyof typeof IntegrationKindApi]
-
-export const IntegrationKindApi = {
-    Slack: 'slack',
-    SlackPosthogCode: 'slack-posthog-code',
-    Salesforce: 'salesforce',
-    Hubspot: 'hubspot',
-    GooglePubsub: 'google-pubsub',
-    GoogleCloudServiceAccount: 'google-cloud-service-account',
-    GoogleCloudStorage: 'google-cloud-storage',
-    GoogleAds: 'google-ads',
-    GoogleSheets: 'google-sheets',
-    LinkedinAds: 'linkedin-ads',
-    Snapchat: 'snapchat',
-    Intercom: 'intercom',
-    Email: 'email',
-    Twilio: 'twilio',
-    Linear: 'linear',
-    Github: 'github',
-    Gitlab: 'gitlab',
-    MetaAds: 'meta-ads',
-    Clickup: 'clickup',
-    RedditAds: 'reddit-ads',
-    Databricks: 'databricks',
-    TiktokAds: 'tiktok-ads',
-    BingAds: 'bing-ads',
-    Vercel: 'vercel',
-    AzureBlob: 'azure-blob',
-    Firebase: 'firebase',
-    Jira: 'jira',
-    PinterestAds: 'pinterest-ads',
-    CustomerioApp: 'customerio-app',
-    CustomerioWebhook: 'customerio-webhook',
-    CustomerioTrack: 'customerio-track',
-} as const
-
-export interface ErrorTrackingExternalReferenceIntegrationApi {
-    display_name: string
-    id: number
-    kind: IntegrationKindApi
+export interface ErrorTrackingExternalReferenceIntegrationResultApi {
+    readonly id: number
+    readonly kind: string
+    readonly display_name: string
 }
 
-export interface ErrorTrackingExternalReferenceApi {
-    external_url: string
-    id: string
-    integration: ErrorTrackingExternalReferenceIntegrationApi
+export interface ErrorTrackingExternalReferenceResultApi {
+    readonly id: string
+    readonly integration: ErrorTrackingExternalReferenceIntegrationResultApi
+    integration_id: number
+    config: unknown
+    issue: string
+    readonly external_url: string
 }
 
-export interface PaginatedErrorTrackingExternalReferenceListApi {
+export interface PaginatedErrorTrackingExternalReferenceResultListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: ErrorTrackingExternalReferenceApi[]
-}
-
-export interface PatchedErrorTrackingExternalReferenceApi {
-    readonly id?: string
-    readonly integration?: ErrorTrackingExternalReferenceIntegrationApi
-    integration_id?: number
-    config?: unknown
-    issue?: string
-    readonly external_url?: string
+    results: ErrorTrackingExternalReferenceResultApi[]
 }
 
 export interface ErrorTrackingFingerprintApi {
-    fingerprint: string
+    readonly id: string
+    readonly fingerprint: string
     readonly issue_id: string
     readonly created_at: string
 }
@@ -628,6 +587,15 @@ export interface PaginatedErrorTrackingFingerprintListApi {
     /** @nullable */
     previous?: string | null
     results: ErrorTrackingFingerprintApi[]
+}
+
+export interface GitProviderFileLinkResolveResponseApi {
+    /** Whether a matching file URL was found. */
+    found: boolean
+    /** Resolved URL for the matching file. */
+    url?: string
+    /** Error message when input parameters are invalid. */
+    error?: string
 }
 
 /**
@@ -675,7 +643,7 @@ export interface ErrorTrackingGroupingRuleAssigneeRequestApi {
 
 * `user` - user
 * `role` - role */
-    type: Type079EnumApi
+    type: AssigneeTypeEnumApi
     /** User ID when `type` is `user`, or role UUID when `type` is `role`. */
     id: number | string
 }
@@ -768,7 +736,7 @@ export interface ErrorTrackingIssueFullApi {
     description?: string | null
     first_seen: string
     assignee: ErrorTrackingIssueAssignmentApi
-    external_issues: ErrorTrackingExternalReferenceApi[]
+    external_issues: ErrorTrackingExternalReferenceResultApi[]
     /** @nullable */
     readonly cohort: ErrorTrackingIssueFullApiCohort
 }
@@ -799,7 +767,7 @@ export interface PatchedErrorTrackingIssueFullApi {
     description?: string | null
     first_seen?: string
     assignee?: ErrorTrackingIssueAssignmentApi
-    external_issues?: ErrorTrackingExternalReferenceApi[]
+    external_issues?: ErrorTrackingExternalReferenceResultApi[]
     /** @nullable */
     readonly cohort?: PatchedErrorTrackingIssueFullApiCohort
 }
@@ -835,16 +803,17 @@ export interface ErrorTrackingIssueSplitResponseApi {
     new_issue_ids: string[]
 }
 
+export type ErrorTrackingRecommendationApiMeta = { [key: string]: unknown }
+
 export interface ErrorTrackingRecommendationApi {
     readonly id: string
     readonly type: string
-    readonly meta: unknown
+    readonly meta: ErrorTrackingRecommendationApiMeta
+    readonly completed: boolean
     /** @nullable */
     readonly computed_at: string | null
     /** @nullable */
     readonly dismissed_at: string | null
-    /** @nullable */
-    readonly next_refresh_at: string | null
     readonly created_at: string
     readonly updated_at: string
 }
@@ -858,33 +827,40 @@ export interface PaginatedErrorTrackingRecommendationListApi {
     results: ErrorTrackingRecommendationApi[]
 }
 
-export interface ErrorTrackingReleaseApi {
-    readonly id: string
-    hash_id: string
-    readonly team_id: number
-    readonly created_at: string
-    metadata?: unknown | null
-    version: string
-    project: string
+export interface ErrorTrackingSpikeDetectionConfigApi {
+    /**
+     * Time to wait before alerting again for the same issue after a spike is detected.
+     * @minimum 1
+     */
+    snooze_duration_minutes: number
+    /**
+     * The factor by which the current exception count must exceed the baseline to be considered a spike.
+     * @minimum 1
+     */
+    multiplier: number
+    /**
+     * The minimum number of exceptions required in a 5-minute window before a spike can be detected.
+     * @minimum 1
+     */
+    threshold: number
 }
 
-export interface PaginatedErrorTrackingReleaseListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: ErrorTrackingReleaseApi[]
-}
-
-export interface PatchedErrorTrackingReleaseApi {
-    readonly id?: string
-    hash_id?: string
-    readonly team_id?: number
-    readonly created_at?: string
-    metadata?: unknown | null
-    version?: string
-    project?: string
+export interface PatchedErrorTrackingSpikeDetectionConfigApi {
+    /**
+     * Time to wait before alerting again for the same issue after a spike is detected.
+     * @minimum 1
+     */
+    snooze_duration_minutes?: number
+    /**
+     * The factor by which the current exception count must exceed the baseline to be considered a spike.
+     * @minimum 1
+     */
+    multiplier?: number
+    /**
+     * The minimum number of exceptions required in a 5-minute window before a spike can be detected.
+     * @minimum 1
+     */
+    threshold?: number
 }
 
 export interface ErrorTrackingSpikeEventIssueApi {
@@ -910,6 +886,16 @@ export interface PaginatedErrorTrackingSpikeEventListApi {
     /** @nullable */
     previous?: string | null
     results: ErrorTrackingSpikeEventApi[]
+}
+
+export interface ErrorTrackingReleaseApi {
+    readonly id: string
+    hash_id: string
+    readonly team_id: number
+    readonly created_at: string
+    metadata?: unknown | null
+    version: string
+    project: string
 }
 
 export interface ErrorTrackingStackFrameApi {
@@ -956,6 +942,17 @@ export interface PaginatedErrorTrackingSuppressionRuleListApi {
     results: ErrorTrackingSuppressionRuleApi[]
 }
 
+export interface ErrorTrackingSuppressionRuleCreateRequestApi {
+    /** Optional property-group filters that define which incoming error events should be suppressed. Omit this field or provide an empty `values` array to create a match-all suppression rule. */
+    filters?: PropertyGroupFilterValueApi
+    /**
+     * Fraction of matching events to suppress. Use `1.0` to suppress all matching events.
+     * @minimum 0
+     * @maximum 1
+     */
+    sampling_rate?: number
+}
+
 export interface PatchedErrorTrackingSuppressionRuleApi {
     readonly id?: string
     filters?: unknown
@@ -968,6 +965,25 @@ export interface PatchedErrorTrackingSuppressionRuleApi {
     sampling_rate?: number
     readonly created_at?: string
     readonly updated_at?: string
+}
+
+export interface PaginatedErrorTrackingReleaseListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ErrorTrackingReleaseApi[]
+}
+
+export interface PatchedErrorTrackingReleaseApi {
+    readonly id?: string
+    hash_id?: string
+    readonly team_id?: number
+    readonly created_at?: string
+    metadata?: unknown | null
+    version?: string
+    project?: string
 }
 
 /**
@@ -1027,6 +1043,11 @@ export interface PatchedErrorTrackingSymbolSetApi {
     readonly release?: PatchedErrorTrackingSymbolSetApiRelease
 }
 
+export interface _SymbolSetDownloadResponseApi {
+    /** Presigned URL to download the source map file */
+    url: string
+}
+
 export type ErrorTrackingAssignmentRulesListParams = {
     /**
      * Number of results to return per page.
@@ -1060,6 +1081,52 @@ export type ErrorTrackingFingerprintsListParams = {
     offset?: number
 }
 
+export type ErrorTrackingGitProviderFileLinksResolveGithubRetrieveParams = {
+    /**
+     * Code snippet to search for in repository files.
+     * @minLength 1
+     */
+    code_sample: string
+    /**
+     * File name to match in search results.
+     * @minLength 1
+     */
+    file_name: string
+    /**
+     * Repository owner or namespace.
+     * @minLength 1
+     */
+    owner: string
+    /**
+     * Repository name.
+     * @minLength 1
+     */
+    repository: string
+}
+
+export type ErrorTrackingGitProviderFileLinksResolveGitlabRetrieveParams = {
+    /**
+     * Code snippet to search for in repository files.
+     * @minLength 1
+     */
+    code_sample: string
+    /**
+     * File name to match in search results.
+     * @minLength 1
+     */
+    file_name: string
+    /**
+     * Repository owner or namespace.
+     * @minLength 1
+     */
+    owner: string
+    /**
+     * Repository name.
+     * @minLength 1
+     */
+    repository: string
+}
+
 export type ErrorTrackingIssuesListParams = {
     /**
      * Number of results to return per page.
@@ -1072,17 +1139,6 @@ export type ErrorTrackingIssuesListParams = {
 }
 
 export type ErrorTrackingRecommendationsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type ErrorTrackingReleasesListParams = {
     /**
      * Number of results to return per page.
      */
@@ -1126,29 +1182,18 @@ export type ErrorTrackingSuppressionRulesListParams = {
     offset?: number
 }
 
+export type ErrorTrackingReleasesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
 export type ErrorTrackingSymbolSetsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type ErrorTrackingReleasesList2Params = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type ErrorTrackingSymbolSetsList2Params = {
     /**
      * Number of results to return per page.
      */

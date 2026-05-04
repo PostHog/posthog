@@ -238,6 +238,7 @@ export function SceneTitleSection({
     const { toggleShowDescription } = useActions(sceneLayoutLogic)
     const willShowBreadcrumbs = forceBackTo || breadcrumbs.length > 2
     const [isScrolled, setIsScrolled] = useState(false)
+    const sentinelRef = useRef<HTMLDivElement>(null)
     const effectiveDescription = description
     const hasDescription = effectiveDescription != null && (effectiveDescription || canEdit)
 
@@ -251,7 +252,7 @@ export function SceneTitleSection({
     )
 
     useEffect(() => {
-        const stickyElement = document.querySelector('[data-sticky-sentinel]')
+        const stickyElement = sentinelRef.current
         if (!stickyElement) {
             return
         }
@@ -265,7 +266,7 @@ export function SceneTitleSection({
 
         observer.observe(stickyElement)
         return () => observer.disconnect()
-    }, [])
+    }, [noBorder])
 
     const icon = resourceType.forceIcon ? (
         <ProductIconWrapper type={resourceType.type} colorOverride={resourceType.forceIconColorOverride}>
@@ -283,7 +284,12 @@ export function SceneTitleSection({
         <>
             {!noBorder && (
                 // When this element scrolls out of view, the IntersectionObserver sets isScrolled=true to show the border
-                <div data-sticky-sentinel className="h-px w-px pointer-events-none absolute -top-4" aria-hidden />
+                <div
+                    ref={sentinelRef}
+                    data-sticky-sentinel
+                    className="h-px w-px pointer-events-none absolute -top-4"
+                    aria-hidden
+                />
             )}
 
             <div

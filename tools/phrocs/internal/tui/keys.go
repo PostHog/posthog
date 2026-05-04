@@ -303,6 +303,13 @@ func (m *Model) updateProcKeys() {
 		m.keys.ClearLogs.SetEnabled(false)
 		return
 	}
+	if p.IsStandby() {
+		m.keys.Start.SetEnabled(true)
+		m.keys.Stop.SetEnabled(false)
+		m.keys.Restart.SetEnabled(false)
+		m.keys.ClearLogs.SetEnabled(false)
+		return
+	}
 	running := p.IsRunning()
 	m.keys.Start.SetEnabled(!running)
 	m.keys.Stop.SetEnabled(running)
@@ -445,10 +452,19 @@ func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, 
 		}
 
 	case key.Matches(msg, m.keys.Start):
-		if p := m.activeProc(); p != nil && !p.IsRunning() {
-			m.dbg("start: proc=%s", p.Name)
-			send := m.mgr.Send()
-			go func() { _ = p.Start(send) }()
+		if p := m.activeProc(); p != nil {
+			if p.IsStandby() {
+				real, ok := m.promoteStandby()
+				if ok {
+					m.dbg("start: promoted standby proc=%s", real.Name)
+					send := m.mgr.Send()
+					go func() { _ = real.Start(send) }()
+				}
+			} else if !p.IsRunning() {
+				m.dbg("start: proc=%s", p.Name)
+				send := m.mgr.Send()
+				go func() { _ = p.Start(send) }()
+			}
 		}
 
 	case key.Matches(msg, m.keys.Restart):
@@ -496,6 +512,10 @@ func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, 
 		m.rebuildSidebarEntries()
 		m.ensureSidebarCursorVisible()
 		m.dbg("group: %s", m.activeGroupDim())
+
+	case key.Matches(msg, m.keys.ShowAll):
+		m.toggleShowAll()
+		m.dbg("show all: %v (%d standby)", m.showAllRegProcs, len(m.standbyRegProcs))
 
 	case key.Matches(msg, m.keys.InfoMode):
 		m.infoMode = true

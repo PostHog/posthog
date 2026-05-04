@@ -6,12 +6,13 @@ from contextlib import nullcontext
 from typing import Any, Optional, cast
 
 from django.conf import settings
+from django.contrib.postgres.search import TrigramSimilarity, TrigramWordSimilarity
 from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import URLValidator
 from django.db import IntegrityError, transaction
 from django.db.models import CharField, Count, DateTimeField, F, FilteredRelation, Prefetch, Q, QuerySet, Value
-from django.db.models.functions import Cast
+from django.db.models.functions import Cast, Coalesce
 from django.http import StreamingHttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
@@ -21,7 +22,7 @@ import pydantic_core
 import posthoganalytics
 from asgiref.sync import sync_to_async
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from opentelemetry import trace
 from pydantic import BaseModel
 from rest_framework import exceptions, serializers, status, viewsets
@@ -33,11 +34,11 @@ from rest_framework.utils.serializer_helpers import ReturnDict
 
 from posthog.schema import InsightVizNode
 
-from posthog.api.dashboard_metadata import build_dashboard_tiles_naming_summary, generate_dashboard_metadata
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.insight import DashboardTileBasicSerializer, InsightSerializer, InsightViewSet
 from posthog.api.insight_suggestions import summarize_insight_result
 from posthog.api.monitoring import Feature, monitor
+from posthog.api.openapi_parameters import make_filters_override_param, make_variables_override_param
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_model
 from posthog.api.shared import UserBasicSerializer
@@ -48,6 +49,13 @@ from posthog.constants import GENERATED_DASHBOARD_PREFIX
 from posthog.event_usage import get_request_analytics_properties, report_user_action
 from posthog.helpers import create_dashboard_from_template
 from posthog.helpers.dashboard_templates import create_from_template, dashboard_template_from_creation_payload
+from posthog.helpers.trigram_search import (
+    DESCRIPTION_SCORE_WEIGHT,
+    MAX_SEARCH_LENGTH,
+    MIN_DESCRIPTION_TRIGRAM_SIMILARITY,
+    MIN_NAME_TRIGRAM_SIMILARITY,
+    normalize_search_term,
+)
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Insight
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
@@ -58,14 +66,10 @@ from posthog.models.quick_filter import QuickFilter
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.user import User
-from posthog.rate_limit import (
-    LLMAnalyticsSummarizationBurstThrottle,
-    LLMAnalyticsSummarizationDailyThrottle,
-    LLMAnalyticsSummarizationSustainedThrottle,
-)
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControl, UserAccessControlSerializerMixin
 from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
+from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.user_permissions import UserPermissionsSerializerMixin
 from posthog.utils import filters_override_requested_by_client, str_to_bool, variables_override_requested_by_client
 
@@ -109,6 +113,10 @@ DASHBOARD_SHARED_FIELDS = [
     "team_id",
     "quick_filter_ids",
 ]
+
+
+VARIABLES_OVERRIDE_PARAM = make_variables_override_param(subject_label="dashboard", tool_name="dashboard-get")
+FILTERS_OVERRIDE_PARAM = make_filters_override_param(subject_label="dashboard")
 
 
 tracer = trace.get_tracer(__name__)
@@ -188,11 +196,6 @@ class DashboardSnapshotSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
     )
-
-
-class DashboardGeneratedMetadataSerializer(serializers.Serializer):
-    name = serializers.CharField()
-    description = serializers.CharField()
 
 
 class TextSerializer(serializers.ModelSerializer):
@@ -499,6 +502,14 @@ class DashboardSerializer(DashboardMetadataSerializer):
         request = self.context["request"]
         validated_data["created_by"] = request.user
         team_id = self.context["team_id"]
+        team = self.context["get_team"]()
+        current_count = Dashboard.objects.filter(team_id=team_id, deleted=False).count()
+        check_count_limit(
+            team=team,
+            key=LimitKey.MAX_DASHBOARDS_PER_TEAM,
+            current_count=current_count,
+            user=request.user,
+        )
         use_template: str = validated_data.pop("use_template", None)
         use_dashboard: int = validated_data.pop("use_dashboard", None)
         validated_data.pop("delete_insights", None)  # not used during creation
@@ -673,7 +684,8 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 primary_dashboard=instance,
                 id=instance.team_id,
             ).update(primary_dashboard=None)
-            group_type_mapping = GroupTypeMapping.objects.filter(
+            # Will be migrated with the personhog write path
+            group_type_mapping = GroupTypeMapping.objects.filter(  # nosemgrep: no-direct-persons-db-orm
                 team=instance.team, project_id=instance.team.project_id, detail_dashboard_id=instance.id
             ).first()
             if group_type_mapping:
@@ -735,7 +747,9 @@ class DashboardSerializer(DashboardMetadataSerializer):
         self.user_permissions.reset_insights_dashboard_cached_results()
         return instance
 
-    # Fields safe to pass through to DashboardTile.objects.update_or_create defaults
+    # Display-only tile fields that may appear in PATCH payloads. Safe to pass to
+    # ``update_or_create`` defaults (used by ``_upsert_tile``) and to
+    # ``save(update_fields=...)`` (used by ``_update_existing_tile_display_fields``).
     TILE_DISPLAY_FIELDS = {
         "color",
         "layouts",
@@ -746,14 +760,55 @@ class DashboardSerializer(DashboardMetadataSerializer):
     }
 
     @staticmethod
+    def _extract_display_defaults(tile_data: dict) -> dict:
+        return {k: tile_data[k] for k in DashboardSerializer.TILE_DISPLAY_FIELDS if k in tile_data}
+
+    @staticmethod
     def _upsert_tile(instance: Dashboard, tile_data: dict, **extra_defaults: Any) -> tuple[DashboardTile, bool]:
-        tile_defaults = {k: tile_data[k] for k in DashboardSerializer.TILE_DISPLAY_FIELDS if k in tile_data}
+        tile_defaults = DashboardSerializer._extract_display_defaults(tile_data)
         # nosemgrep: idor-lookup-without-team -- dashboard=instance constrains to team
-        return DashboardTile.objects.update_or_create(
+        return DashboardTile.objects_including_soft_deleted.update_or_create(
             id=tile_data.get("id", None),
             dashboard=instance,
             defaults={**tile_defaults, **extra_defaults, "dashboard": instance},
         )
+
+    @staticmethod
+    def _update_existing_tile_display_fields(instance: Dashboard, tile_data: dict) -> None:
+        """Update display fields on an existing tile, or skip silently if the id is unknown.
+
+        A display-only payload carries no insight/text/button_tile FK, so it cannot satisfy
+        the ``dash_tile_exactly_one_related_object`` CHECK constraint if it falls through to
+        an INSERT. ``update_or_create`` here used to 500 whenever the frontend posted a stale
+        tile id (cross-dashboard contamination, hard-deleted tiles, races). Never INSERT here.
+        """
+        tile_id = tile_data.get("id")
+        if tile_id is None:
+            return
+
+        tile_defaults = DashboardSerializer._extract_display_defaults(tile_data)
+        if not tile_defaults:
+            return
+
+        existing = DashboardTile.objects_including_soft_deleted.filter(
+            id=tile_id, dashboard=instance, dashboard__team_id=instance.team_id
+        ).first()
+        if existing is None:
+            logger.warning(
+                "dashboard_layout_patch_unknown_tile_skipped",
+                team_id=instance.team_id,
+                dashboard_id=instance.id,
+                tile_id=tile_id,
+                payload_fields=sorted(tile_defaults.keys()),
+            )
+            return
+
+        for attr, val in tile_defaults.items():
+            setattr(existing, attr, val)
+        # update_fields scopes the UPDATE to only the columns we changed, so concurrent writes
+        # to other columns aren't clobbered by our stale read. save() (vs queryset.update())
+        # keeps the post_save signal that sync_dashboard_tile listens to for cache invalidation.
+        existing.save(update_fields=list(tile_defaults.keys()))
 
     @staticmethod
     def _update_tiles(instance: Dashboard, tile_data: dict, user: User) -> tuple[str | None, bool]:
@@ -852,7 +907,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
             or "transparent_background" in tile_data
         ):
             tile_data.pop("insight", None)  # don't ever update insight tiles here
-            DashboardSerializer._upsert_tile(instance, tile_data)
+            DashboardSerializer._update_existing_tile_display_fields(instance, tile_data)
 
         return None, False
 
@@ -900,6 +955,9 @@ class DashboardSerializer(DashboardMetadataSerializer):
         serialized_tiles: list[ReturnDict] = []
 
         tiles = DashboardTile.dashboard_queryset(dashboard.tiles.all()).prefetch_related(
+            # Used by the shared-insight force_blocking gate in `posthog/api/insight.py` to avoid an
+            # N+1 lookup of last_refresh per tile on shared dashboard renders.
+            "caching_states",
             Prefetch(
                 "insight__tagged_items",
                 queryset=TaggedItem.objects.select_related("tag"),
@@ -952,6 +1010,24 @@ class DashboardSerializer(DashboardMetadataSerializer):
         return {**validated_data, "creation_mode": "default"}
 
 
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "search",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description=(
+                    "Optional. Fuzzy match against dashboard `name` and `description` using Postgres trigram "
+                    "word similarity (handles typos, transpositions, and prefix-as-you-type). `name` matches "
+                    "rank above `description` matches. Results are ordered by relevance, then pinned status, "
+                    "then name. When omitted, dashboards are ordered by pinned status then alphabetical name. "
+                    "Capped at 200 characters; longer queries return a 400 error."
+                ),
+            ),
+        ],
+    ),
+)
 @extend_schema(tags=["core"])
 class DashboardsViewSet(
     TeamAndOrgViewSetMixin,
@@ -967,19 +1043,6 @@ class DashboardsViewSet(
 
     TEMPLATE_MAP = {"llm-analytics": get_llm_analytics_default_template}
 
-    def get_throttles(self):
-        if self.action == "generate_metadata":
-            return [
-                LLMAnalyticsSummarizationBurstThrottle(),
-                LLMAnalyticsSummarizationSustainedThrottle(),
-                LLMAnalyticsSummarizationDailyThrottle(),
-            ]
-        return super().get_throttles()
-
-    def _validate_ai_feature_access(self) -> None:
-        if not self.organization.is_ai_data_processing_approved:
-            raise exceptions.PermissionDenied("AI data processing must be approved by your organization")
-
     @tracer.start_as_current_span("DashboardViewSet.get_serializer_context")
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
@@ -992,11 +1055,71 @@ class DashboardsViewSet(
 
     def filter_queryset(self, queryset: QuerySet) -> QuerySet:
         queryset = super().filter_queryset(queryset)
+
+        search = self.request.query_params.get("search")
+        if search:
+            if len(search) > MAX_SEARCH_LENGTH:
+                raise serializers.ValidationError(
+                    {"search": f"Search query must be {MAX_SEARCH_LENGTH} characters or fewer."}
+                )
+            queryset = self._apply_search(queryset, search)
+
         tags = self.request.query_params.getlist("tags")
-        if not tags:
+        if tags:
+            queryset = queryset.filter(tagged_items__tag__name__in=tags).distinct()
+
+        return queryset
+
+    @tracer.start_as_current_span("DashboardViewSet.list")
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        response = super().list(request, *args, **kwargs)
+        # Record search-result cardinality so we can tune MIN_*_TRIGRAM_SIMILARITY from prod
+        # telemetry — flag empty results (loosen) and high counts (tighten).
+        if request.query_params.get("search"):
+            data = response.data if isinstance(response.data, dict) else {}
+            results_len = data.get("count", len(data.get("results", [])))
+            span = trace.get_current_span()
+            span.set_attribute("dashboard.search.result_count", results_len)
+            span.set_attribute("dashboard.search.empty", results_len == 0)
+        return response
+
+    @staticmethod
+    @tracer.start_as_current_span("DashboardViewSet._apply_search")
+    def _apply_search(queryset: QuerySet, search: str) -> QuerySet:
+        search = normalize_search_term(search)
+        span = trace.get_current_span()
+        span.set_attribute("dashboard.search.length", len(search))
+        if not search:
             return queryset
 
-        return queryset.filter(tagged_items__tag__name__in=tags).distinct()
+        # Word similarity (`<%`) drives match/no-match — it's index-accelerated and handles
+        # prefix-as-you-type and substring matches. Full-string similarity is added as a
+        # tiebreak so an exact name match outranks rows that merely *contain* the search word.
+        # `Dashboard.name` is nullable; coalesce each component to 0.0 so a NULL-name row
+        # matched only on description doesn't end up with a NULL `_search_score` (which
+        # Postgres orders NULLS FIRST in DESC, putting unnamed rows wrongly at the top).
+        zero = Value(0.0)
+        name_word_score = Coalesce(TrigramWordSimilarity(search, "name"), zero)
+        name_full_score = Coalesce(TrigramSimilarity("name", search), zero)
+        description_word_score = Coalesce(TrigramWordSimilarity(search, "description"), zero)
+
+        return (
+            queryset.annotate(
+                _name_word=name_word_score,
+                _name_full=name_full_score,
+                _description_word=description_word_score,
+            )
+            .filter(
+                Q(_name_word__gt=MIN_NAME_TRIGRAM_SIMILARITY)
+                | Q(_description_word__gt=MIN_DESCRIPTION_TRIGRAM_SIMILARITY)
+            )
+            .annotate(
+                _name_match_score=F("_name_word") + F("_name_full"),
+                _description_match_score=F("_description_word"),
+            )
+            .annotate(_search_score=F("_name_match_score") + F("_description_match_score") * DESCRIPTION_SCORE_WEIGHT)
+            .order_by("-_search_score", "-pinned", "name")
+        )
 
     @tracer.start_as_current_span("DashboardViewSet.dangerously_get_queryset")
     def dangerously_get_queryset(self):
@@ -1126,6 +1249,7 @@ class DashboardsViewSet(
 
         return results
 
+    @extend_schema(parameters=[VARIABLES_OVERRIDE_PARAM, FILTERS_OVERRIDE_PARAM])
     @monitor(feature=Feature.DASHBOARD, endpoint="dashboard", method="GET")
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         dashboard = self.get_object()
@@ -1196,42 +1320,24 @@ class DashboardsViewSet(
 
         return Response({"result": analysis})
 
-    @extend_schema(
-        request=None,
-        responses={200: DashboardGeneratedMetadataSerializer},
-    )
-    @action(methods=["POST"], detail=True, required_scopes=["dashboard:write"])
-    def generate_metadata(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        """Generate an AI-suggested name and description from this dashboard's tiles."""
-        self._validate_ai_feature_access()
-        dashboard = self.get_object()
-        if not dashboard.tiles.filter(Q(insight__isnull=False) | Q(text__isnull=False)).exists():
-            return Response(
-                {
-                    "error": "Add at least one insight or text card before generating a title and description. "
-                    "Button tiles are not used for generation."
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        try:
-            summary = build_dashboard_tiles_naming_summary(dashboard)
-            metadata = generate_dashboard_metadata(
-                self.team,
-                summary,
-                current_name=(dashboard.name or "").strip() or None,
-                current_description=(dashboard.description or "").strip() or None,
-            )
-        except Exception:
-            logger.exception("dashboard_generate_metadata_failed", dashboard_id=dashboard.pk)
-            return Response(
-                {"error": "Failed to generate dashboard metadata. Please try again."},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
-        return Response({"name": metadata.name, "description": metadata.description})
-
     # ******************************************
     # /projects/:id/dashboard/:id/stream_tiles
     # ******************************************
+    @extend_schema(
+        parameters=[
+            VARIABLES_OVERRIDE_PARAM,
+            FILTERS_OVERRIDE_PARAM,
+            OpenApiParameter(
+                "layoutSize",
+                OpenApiTypes.STR,
+                enum=["sm", "xs"],
+                description=(
+                    "Layout size for tile positioning. 'sm' (default) for standard, 'xs' for mobile. "
+                    "The snake_case alias `layout_size` is also accepted for backward compatibility."
+                ),
+            ),
+        ],
+    )
     @action(methods=["GET"], detail=True, url_path="stream_tiles")
     def stream_tiles(self, request: Request, *args: Any, **kwargs: Any) -> StreamingHttpResponse:
         """Stream dashboard metadata and tiles via Server-Sent Events. Sends metadata first, then tiles as they are rendered."""
@@ -1499,6 +1605,8 @@ class DashboardsViewSet(
                     "'json' returns the raw query result objects."
                 ),
             ),
+            VARIABLES_OVERRIDE_PARAM,
+            FILTERS_OVERRIDE_PARAM,
         ],
         responses={200: RunInsightsResponseSerializer},
     )

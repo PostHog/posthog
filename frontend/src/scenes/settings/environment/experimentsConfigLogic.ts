@@ -11,6 +11,7 @@ export interface ExperimentsConfig {
     experiment_recalculation_time: string | null
     default_experiment_confidence_level: number | null
     default_experiment_stats_method: string | null
+    default_only_count_matured_users: boolean
 }
 
 export const experimentsConfigLogic = kea<experimentsConfigLogicType>([

@@ -134,6 +134,8 @@ class ProxyClient:
         columnar=False,
     ):
         if query_id:
+            if settings is None:
+                settings = {}
             settings["query_id"] = query_id
         result = self._client.query(query=query, parameters=params, settings=settings, column_oriented=columnar)
 

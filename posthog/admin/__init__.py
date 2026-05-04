@@ -43,6 +43,7 @@ def register_all_admin():
         TeamAdmin,
         TextAdmin,
         UserAdmin,
+        UserIntegrationAdmin,
         UserProductListAdmin,
     )
     from posthog.admin.admins.exported_asset_admin import ExportedAssetAdmin
@@ -75,6 +76,7 @@ def register_all_admin():
         Project,
         Team,
         User,
+        UserIntegration,
     )
     from posthog.models.file_system.user_product_list import UserProductList
     from posthog.models.oauth import OAuthApplication
@@ -87,7 +89,11 @@ def register_all_admin():
     from products.endpoints.backend.admin import EndpointAdmin, EndpointVersionAdmin
     from products.endpoints.backend.models import Endpoint, EndpointVersion
     from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric
+    from products.legal_documents.backend.admin import LegalDocumentAdmin
+    from products.legal_documents.backend.models import LegalDocument
     from products.links.backend.models import Link
+    from products.mcp_store.backend.admin import MCPServerTemplateAdmin
+    from products.mcp_store.backend.models import MCPServerTemplate
     from products.signals.backend.admin import SignalReportAdmin
     from products.signals.backend.models import SignalReport
     from products.surveys.backend.models import Survey
@@ -122,6 +128,7 @@ def register_all_admin():
     admin.site.register(DataDeletionRequest, DataDeletionRequestAdmin)
     admin.site.register(InstanceSetting, InstanceSettingAdmin)
     admin.site.register(Integration, IntegrationAdmin)
+    admin.site.register(UserIntegration, UserIntegrationAdmin)
     admin.site.register(PluginConfig, PluginConfigAdmin)
     admin.site.register(Plugin, PluginAdmin)
     admin.site.register(Text, TextAdmin)
@@ -145,6 +152,7 @@ def register_all_admin():
     admin.site.register(HogFlow, HogFlowAdmin)
     admin.site.register(HogFunction, HogFunctionAdmin)
     admin.site.register(EventIngestionRestrictionConfig, EventIngestionRestrictionConfigAdmin)
+    admin.site.register(LegalDocument, LegalDocumentAdmin)
     admin.site.register(Link, LinkAdmin)
     admin.site.register(BatchImport, BatchImportAdmin)
 
@@ -165,3 +173,5 @@ def register_all_admin():
     admin.site.register(SignalReport, SignalReportAdmin)
 
     admin.site.register(UserProductList, UserProductListAdmin)
+
+    admin.site.register(MCPServerTemplate, MCPServerTemplateAdmin)

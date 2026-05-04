@@ -8,6 +8,7 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
+import { Link } from 'lib/lemon-ui/Link'
 import { SceneExport } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
 
@@ -37,8 +38,11 @@ export function QueryPerformance(): JSX.Element {
         slowestQueries,
         slowestQueriesLoading,
         hoursBack,
+        teamIdFilter,
+        experimentIdFilter,
     } = useValues(queryPerformanceLogic)
-    const { setSearch, setPrecomputation, setHoursBack, loadSlowestQueries } = useActions(queryPerformanceLogic)
+    const { setSearch, setPrecomputation, setHoursBack, loadSlowestQueries, setTeamIdFilter, setExperimentIdFilter } =
+        useActions(queryPerformanceLogic)
 
     if (!user?.is_staff) {
         return (
@@ -74,7 +78,16 @@ export function QueryPerformance(): JSX.Element {
         },
         {
             title: 'Organization',
-            dataIndex: 'organization_name',
+            render: function OrgCell(_, team) {
+                return (
+                    <div className="flex items-center gap-1">
+                        <span>{team.organization_name || <span className="text-muted">Unknown</span>}</span>
+                        {team.organization_arr != null && (
+                            <LemonTag type="completion">ARR ${team.organization_arr.toLocaleString()}</LemonTag>
+                        )}
+                    </div>
+                )
+            },
         },
         {
             title: 'Organization ID',
@@ -114,7 +127,14 @@ export function QueryPerformance(): JSX.Element {
         {
             title: 'Organization',
             render: function OrgCell(_, item) {
-                return <span>{item.organization_name || <span className="text-muted">Unknown</span>}</span>
+                return (
+                    <div className="flex items-center gap-1">
+                        <span>{item.organization_name || <span className="text-muted">Unknown</span>}</span>
+                        {item.organization_arr != null && (
+                            <LemonTag type="completion">ARR ${item.organization_arr.toLocaleString()}</LemonTag>
+                        )}
+                    </div>
+                )
             },
         },
         {
@@ -124,7 +144,23 @@ export function QueryPerformance(): JSX.Element {
         },
         {
             title: 'Experiment',
-            dataIndex: 'experiment_name',
+            render: function ExperimentCell(_, item) {
+                if (!item.experiment_name) {
+                    return <span className="text-muted">Unknown</span>
+                }
+                if (!item.experiment_id || !item.team_id) {
+                    return <span className="truncate max-w-60">{item.experiment_name}</span>
+                }
+                return (
+                    <Link
+                        to={`/project/${item.team_id}/experiments/${item.experiment_id}`}
+                        target="_blank"
+                        className="truncate max-w-60"
+                    >
+                        {item.experiment_name}
+                    </Link>
+                )
+            },
         },
         {
             title: 'Metric',
@@ -189,7 +225,7 @@ export function QueryPerformance(): JSX.Element {
                         content: (
                             <>
                                 <h2>Slowest queries</h2>
-                                <div className="flex gap-2 mb-4 items-center">
+                                <div className="flex flex-wrap gap-2 mb-4 items-center">
                                     {TIME_RANGE_OPTIONS.map(({ label, hours }) => (
                                         <LemonButton
                                             key={hours}
@@ -200,6 +236,24 @@ export function QueryPerformance(): JSX.Element {
                                             {label}
                                         </LemonButton>
                                     ))}
+                                    <LemonInput
+                                        type="number"
+                                        min={1}
+                                        size="small"
+                                        placeholder="Team ID"
+                                        value={teamIdFilter ? Number(teamIdFilter) : undefined}
+                                        onChange={(value) => setTeamIdFilter(value != null ? String(value) : '')}
+                                        className="w-32"
+                                    />
+                                    <LemonInput
+                                        type="number"
+                                        min={1}
+                                        size="small"
+                                        placeholder="Experiment ID"
+                                        value={experimentIdFilter ? Number(experimentIdFilter) : undefined}
+                                        onChange={(value) => setExperimentIdFilter(value != null ? String(value) : '')}
+                                        className="w-36"
+                                    />
                                     <LemonButton
                                         type="secondary"
                                         size="small"

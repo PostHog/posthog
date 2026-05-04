@@ -42,6 +42,8 @@ def incremental_type_to_initial_value(field_type: IncrementalFieldType) -> int |
     if field_type == IncrementalFieldType.ObjectID:
         return "000000000000000000000000"
 
+    raise ValueError(f"Unsupported incremental field type: {field_type}")
+
 
 def build_table_name(source: ExternalDataSource, schema_name: str):
     return f"{source.prefix or ''}{source.source_type}_{schema_name}".lower()

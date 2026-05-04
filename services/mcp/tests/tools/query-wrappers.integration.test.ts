@@ -68,6 +68,41 @@ describe('Query Wrapper Integration Tests', { concurrent: false }, () => {
 
             expect(typeof result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toBe('string')
         })
+
+        it('should execute trends with a GroupNode', async () => {
+            const tool = getToolByName(GENERATED_TOOLS, 'query-trends')
+            const result = (await tool.handler(context, {
+                series: [
+                    {
+                        kind: 'GroupNode',
+                        operator: 'OR',
+                        name: 'Pageviews on Safari, Pageleaves on Chrome',
+                        math: 'total',
+                        nodes: [
+                            {
+                                kind: 'EventsNode',
+                                event: '$pageview',
+                                name: 'Pageview',
+                                math: 'total',
+                                properties: [{ key: '$browser', operator: 'exact', type: 'event', value: ['Safari'] }],
+                            },
+                            {
+                                kind: 'EventsNode',
+                                event: '$pageleave',
+                                name: 'Pageleave',
+                                math: 'total',
+                                properties: [{ key: '$browser', operator: 'exact', type: 'event', value: ['Chrome'] }],
+                            },
+                        ],
+                    },
+                ],
+                dateRange: { date_from: '-7d' },
+                interval: 'day',
+            })) as any
+
+            expect(result).toHaveProperty('results')
+            expect(typeof result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toBe('string')
+        })
     })
 
     describe('query-funnel', () => {
@@ -96,8 +131,8 @@ describe('Query Wrapper Integration Tests', { concurrent: false }, () => {
             const tool = getToolByName(GENERATED_TOOLS, 'query-retention')
             const result = (await tool.handler(context, {
                 retentionFilter: {
-                    targetEntity: { name: '$pageview', type: 'events' },
-                    returningEntity: { name: '$pageview', type: 'events' },
+                    targetEntity: { id: '$pageview', type: 'events' },
+                    returningEntity: { id: '$pageview', type: 'events' },
                     period: 'Day',
                     totalIntervals: 7,
                 },
@@ -259,6 +294,11 @@ describe('Query Wrapper Integration Tests', { concurrent: false }, () => {
             interval: 'day',
         }
 
+        it('rejects when day is missing', async () => {
+            const tool = getToolByName(GENERATED_TOOLS, 'query-trends-actors')
+            await expect(tool.handler(context, { source: trendsSource })).rejects.toThrow()
+        })
+
         it('returns a flat {columns, rows} table with the actors projection', async () => {
             const tool = getToolByName(GENERATED_TOOLS, 'query-trends-actors')
             const result = (await tool.handler(context, {
@@ -270,11 +310,27 @@ describe('Query Wrapper Integration Tests', { concurrent: false }, () => {
             expect(result).toHaveProperty('hasMore')
             expect(result).toHaveProperty('offset')
             expect(result).toHaveProperty('results')
-            expect(result.results.columns).toEqual(['distinct_id', 'email', 'name', 'event_count'])
             expect(Array.isArray(result.results.results)).toBe(true)
         })
 
-        it('filters actors by day selector', async () => {
+        it.each([
+            [true, ['distinct_id', 'email', 'name', 'event_count', 'recordings']],
+            [false, ['distinct_id', 'email', 'name', 'event_count']],
+        ] as const)(
+            'returns expected columns when includeRecordings=%s',
+            async (includeRecordings, expectedColumns) => {
+                const tool = getToolByName(GENERATED_TOOLS, 'query-trends-actors')
+                const result = (await tool.handler(context, {
+                    source: trendsSource,
+                    day: '2026-03-25',
+                    includeRecordings,
+                })) as any
+
+                expect(result.results.columns).toEqual(expectedColumns)
+            }
+        )
+
+        it('filters actors by day and series selectors', async () => {
             const tool = getToolByName(GENERATED_TOOLS, 'query-trends-actors')
             const result = (await tool.handler(context, {
                 source: trendsSource,
@@ -282,7 +338,6 @@ describe('Query Wrapper Integration Tests', { concurrent: false }, () => {
                 series: 0,
             })) as any
 
-            expect(result.results.columns).toEqual(['distinct_id', 'email', 'name', 'event_count'])
             expect(Array.isArray(result.results.results)).toBe(true)
         })
 
@@ -300,7 +355,7 @@ describe('Query Wrapper Integration Tests', { concurrent: false }, () => {
                 breakdown: ['Chrome'],
             })) as any
 
-            expect(result.results.columns).toEqual(['distinct_id', 'email', 'name', 'event_count'])
+            expect(Array.isArray(result.results.results)).toBe(true)
         })
     })
 })

@@ -36,8 +36,8 @@ class Command(BaseCommand):
         parser.add_argument(
             "--branch",
             type=str,
-            default="master",
-            help="Branch to check out in the sandbox (default: master)",
+            default=None,
+            help="Branch to check out in the sandbox (default: repo's default branch)",
         )
         parser.add_argument(
             "--json",
@@ -58,7 +58,7 @@ class Command(BaseCommand):
         json_mode = options["json_mode"]
         verbose = options["verbose"]
 
-        self.stdout.write(f"Repository: {repository} (branch: {branch})")
+        self.stdout.write(f"Repository: {repository} (branch: {branch or 'repo default'})")
 
         try:
             context = resolve_sandbox_context_for_local_dev(repository)

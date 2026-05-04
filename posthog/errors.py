@@ -40,7 +40,7 @@ class ExposedCHQueryError(InternalCHQueryError):
     which classify_query_error() uses to categorize them as USER_ERROR."""
 
     def __str__(self) -> str:
-        message: str = self.message
+        message: str = str(self.message)
         try:
             start_index = message.index("DB::Exception:") + len("DB::Exception:")
         except ValueError:
@@ -49,7 +49,7 @@ class ExposedCHQueryError(InternalCHQueryError):
             end_index = message.index("Stack trace:")
         except ValueError:
             end_index = len(message)
-        return self.message[start_index:end_index].strip()
+        return message[start_index:end_index].strip()
 
 
 @dataclass

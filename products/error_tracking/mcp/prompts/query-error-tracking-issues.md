@@ -177,6 +177,12 @@ All defaults apply: `status: "active"`, `orderBy: "occurrences"`, `dateRange: { 
 }
 ```
 
+# Session recordings
+
+Each error issue is linked to sessions via `$session_id` on the underlying `$exception` events. When a user asks "what were they doing," "can I see what happened," or wants visual context for an error, fetch the session recording.
+
+If you have specific `$session_id` values from event data, use `query-session-recordings-list` with the `session_ids` parameter to fetch multiple recordings in a single call. Otherwise, use `query-session-recordings-list` with an event filter for `$exception` matching the error. If a specific person is involved, also filter by `person_uuid` to see all their sessions. If no person context is available, filter by `$exception` alone to find all sessions with that error. Use `date_from` to match the issue's time range — e.g., if the error was first seen 10 days ago, set `date_from` accordingly so recordings from that period are included.
+
 # Reminders
 
 - Ensure that any properties included are directly relevant to the context and objectives of the user's question. Avoid unnecessary or unrelated details.

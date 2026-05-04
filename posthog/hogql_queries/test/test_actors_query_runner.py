@@ -607,7 +607,6 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             group_type_index=0,
             group_key="org1",
             properties={"name": "org1.inc"},
-            sync=True,
         )
 
         _create_person(

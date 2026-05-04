@@ -2,7 +2,7 @@ import { RestRequest } from 'msw'
 
 import { useMocks } from '~/mocks/jest'
 import { ActorsQueryResponse, NodeKind, TrendsQueryResponse } from '~/queries/schema/schema-general'
-import { EventDefinition, PropertyDefinition } from '~/types'
+import { EventDefinition, PropertyDefinition, RawAnnotationType } from '~/types'
 
 import {
     actionDefinitions,
@@ -69,6 +69,7 @@ function buildTrendsResponse(series: SeriesData[]): TrendsQueryResponse {
             },
             label: s.label,
             count: s.data.reduce((a, b) => a + b, 0),
+            aggregated_value: s.data.reduce((a, b) => a + b, 0),
             data: s.data,
             labels: s.labels ?? s.data.map((_, j) => `Day ${j + 1}`),
             days: s.days ?? s.data.map((_, j) => `2024-01-0${j + 1}`),
@@ -135,6 +136,8 @@ export interface SetupMocksOptions {
      *  test wants to intercept one query kind (e.g. capture the ActorsQuery
      *  body) without losing the default mocks for the others. */
     additionalMockResponses?: MockResponse[]
+    /** Annotations returned by `/annotations/`. Defaults to []. */
+    annotations?: RawAnnotationType[]
 }
 
 // eslint-disable-next-line react-hooks/rules-of-hooks -- useMocks is an MSW helper, not a React hook
@@ -144,6 +147,7 @@ export function setupInsightMocks({
     propertyValues: propValues = defaultPropValues,
     mockResponses,
     additionalMockResponses,
+    annotations = [],
 }: SetupMocksOptions = {}): void {
     const defaults: MockResponse[] = [
         {
@@ -181,6 +185,14 @@ export function setupInsightMocks({
             // and return them here, enabling tests that load insights by short ID
             '/api/environments/:team_id/insights/': { results: [] },
             '/api/environments/:team_id/insights/trend': [],
+            // Annotations layer fetches this on mount; resolve immediately so async
+            // state changes don't race against tooltip/click assertions.
+            '/api/projects/:team_id/annotations/': {
+                results: annotations,
+                count: annotations.length,
+                next: null,
+                previous: null,
+            },
         },
         post: {
             '/api/environments/:team_id/query/:kind': (req: RestRequest) => {

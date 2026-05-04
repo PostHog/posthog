@@ -1,6 +1,6 @@
 {
     "name": "@posthog/quill-tokens",
-    "version": "0.1.0-alpha.7",
+    "version": "0.1.2-alpha.0",
     "license": "MIT",
     "repository": {
         "type": "git",
@@ -24,7 +24,10 @@
         },
         "./tailwind.css": "./dist/tailwind.css",
         "./tailwind-lib.css": "./dist/tailwind-lib.css",
-        "./color-system.css": "./dist/color-system.css"
+        "./color-system.css": "./dist/color-system.css",
+        "./tailwind.scoped.css": "./dist/tailwind.scoped.css",
+        "./tailwind-lib.scoped.css": "./dist/tailwind-lib.scoped.css",
+        "./color-system.scoped.css": "./dist/color-system.scoped.css"
     },
     "publishConfig": {
         "access": "public"

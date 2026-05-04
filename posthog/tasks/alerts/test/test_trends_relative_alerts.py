@@ -36,8 +36,8 @@ FROZEN_TIME = dateutil.parser.parse("2024-06-04T08:55:00.000Z")
 
 
 @freeze_time(FROZEN_TIME)
-@patch("posthog.tasks.alerts.checks.send_notifications_for_errors")
-@patch("posthog.tasks.alerts.checks.send_notifications_for_breaches")
+@patch("posthog.tasks.alerts.utils.send_notifications_for_errors")
+@patch("posthog.tasks.alerts.utils.send_notifications_for_breaches", return_value=[])
 class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMixin):
     def setUp(self) -> None:
         super().setUp()
@@ -193,7 +193,9 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert alert_check.error is None
 
         mock_send_breaches.assert_called_once_with(
-            ANY, ["The insight value (signed_up) for previous week (2) increased more than upper threshold (1.0)"]
+            ANY,
+            ["The insight value (signed_up) for previous week (2) increased more than upper threshold (1.0)"],
+            idempotency_key=ANY,
         )
 
     def test_relative_increase_upper_threshold_breached(
@@ -366,7 +368,9 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert alert_check.error is None
 
         mock_send_breaches.assert_called_once_with(
-            ANY, ["The insight value (signed_up) for previous week (-1) increased less than lower threshold (2.0)"]
+            ANY,
+            ["The insight value (signed_up) for previous week (-1) increased less than lower threshold (2.0)"],
+            idempotency_key=ANY,
         )
 
         # check percentage alert
@@ -389,6 +393,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         mock_send_breaches.assert_called_with(
             ANY,
             ["The insight value (signed_up) for previous week (-50.00%) increased less than lower threshold (50.00%)"],
+            idempotency_key=ANY,
         )
 
     def test_relative_increase_lower_threshold_breached_2(
@@ -561,7 +566,9 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert alert_check.error is None
 
         mock_send_breaches.assert_called_once_with(
-            ANY, ["The insight value (signed_up) for previous week (2) decreased more than upper threshold (1.0)"]
+            ANY,
+            ["The insight value (signed_up) for previous week (2) decreased more than upper threshold (1.0)"],
+            idempotency_key=ANY,
         )
 
         check_alert(percentage_alert["id"])
@@ -583,6 +590,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         mock_send_breaches.assert_called_with(
             ANY,
             ["The insight value (signed_up) for previous week (66.67%) decreased more than upper threshold (20.00%)"],
+            idempotency_key=ANY,
         )
 
     def test_relative_decrease_lower_threshold_breached(
@@ -659,7 +667,9 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert alert_check.error is None
 
         mock_send_breaches.assert_called_once_with(
-            ANY, ["The insight value (signed_up) for previous week (1) decreased less than lower threshold (2.0)"]
+            ANY,
+            ["The insight value (signed_up) for previous week (1) decreased less than lower threshold (2.0)"],
+            idempotency_key=ANY,
         )
 
         check_alert(percentage_alert["id"])
@@ -681,6 +691,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         mock_send_breaches.assert_called_with(
             ANY,
             ["The insight value (signed_up) for previous week (50.00%) decreased less than lower threshold (80.00%)"],
+            idempotency_key=ANY,
         )
 
     def test_relative_increase_no_threshold_breached(
@@ -985,12 +996,14 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
                     [
                         "The insight value (signed_up - Chrome) for previous week (2.0) increased more than upper threshold (1.0)"
                     ],
+                    idempotency_key=ANY,
                 ),
                 call(
                     ANY,
                     [
                         "The insight value (signed_up - Chrome) for previous week (200.00%) increased more than upper threshold (20.00%)"
                     ],
+                    idempotency_key=ANY,
                 ),
             ]
         )
@@ -1111,12 +1124,14 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
                     [
                         "The insight value (signed_up - Firefox) for previous week (0.0) increased less than lower threshold (1.0)"
                     ],
+                    idempotency_key=ANY,
                 ),
                 call(
                     ANY,
                     [
                         "The insight value (signed_up - Firefox) for previous week (0.00%) increased less than lower threshold (20.00%)"
                     ],
+                    idempotency_key=ANY,
                 ),
             ]
         )
@@ -1237,12 +1252,14 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
                     [
                         "The insight value (signed_up - Chrome) for previous week (-2.0) decreased less than lower threshold (1.0)"
                     ],
+                    idempotency_key=ANY,
                 ),
                 call(
                     ANY,
                     [
                         "The insight value (signed_up - Chrome) for previous week (-200.00%) decreased less than lower threshold (20.00%)"
                     ],
+                    idempotency_key=ANY,
                 ),
             ]
         )
@@ -1364,12 +1381,14 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
                     [
                         "The insight value (signed_up - Chrome) for previous week (2.0) decreased more than upper threshold (1.0)"
                     ],
+                    idempotency_key=ANY,
                 ),
                 call(
                     ANY,
                     [
                         "The insight value (signed_up - Chrome) for previous week (66.67%) decreased more than upper threshold (20.00%)"
                     ],
+                    idempotency_key=ANY,
                 ),
             ]
         )
@@ -1667,7 +1686,9 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert alert_check.error is None
 
         mock_send_breaches.assert_called_once_with(
-            ANY, ["The insight value (signed_up) for current week (2) increased more than upper threshold (1.0)"]
+            ANY,
+            ["The insight value (signed_up) for current week (2) increased more than upper threshold (1.0)"],
+            idempotency_key=ANY,
         )
 
         check_alert(percentage_alert["id"])
@@ -1689,6 +1710,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         mock_send_breaches.assert_called_with(
             ANY,
             ["The insight value (signed_up) for current week (200.00%) increased more than upper threshold (20.00%)"],
+            idempotency_key=ANY,
         )
 
     def test_current_interval_relative_increase_does_not_fallback_to_previous_interval(
@@ -1867,7 +1889,9 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         # should be 'previous' week as we haven't breached for current week
         # so logic fallback to previous week
         mock_send_breaches.assert_called_once_with(
-            ANY, ["The insight value (signed_up) for previous week (2) increased more than upper threshold (1.0)"]
+            ANY,
+            ["The insight value (signed_up) for previous week (2) increased more than upper threshold (1.0)"],
+            idempotency_key=ANY,
         )
 
         check_alert(percentage_alert["id"])
@@ -1889,6 +1913,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         mock_send_breaches.assert_called_with(
             ANY,
             ["The insight value (signed_up) for previous week (inf%) increased more than upper threshold (20.00%)"],
+            idempotency_key=ANY,
         )
 
     def test_relative_decrease_when_previous_value_is_0(
@@ -1973,6 +1998,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         mock_send_breaches.assert_called_with(
             ANY,
             ["The insight value (signed_up) for previous week (inf%) decreased more than upper threshold (20.00%)"],
+            idempotency_key=ANY,
         )
 
     @patch("posthog.tasks.alerts.trends.calculate_for_query_based_insight", wraps=calculate_for_query_based_insight)

@@ -22,7 +22,7 @@ Returns `ReportResearchOutput` from `products.signals.backend.report_generation.
 
 ## Run it
 
-DEBUG only. Set up local sandboxes + GitHub integration + PostHog MCP OAuth first — see [../../temporal/process_task/SETUP_GUIDE.md](../../temporal/process_task/SETUP_GUIDE.md).
+DEBUG only. Set up local sandboxes + GitHub integration + PostHog MCP OAuth first — see [docs/internal/sandboxes-setup-guide.md](../../../../../docs/internal/sandboxes-setup-guide.md).
 
 ```bash
 DEBUG=1 python manage.py demo_mts_example --team-id <id> --user-id <id>

@@ -71,7 +71,6 @@ describe('ui-apps', () => {
                     MCP_APPS_BASE_URL: undefined,
                     POSTHOG_MCP_APPS_ANALYTICS_BASE_URL: undefined,
                     POSTHOG_UI_APPS_TOKEN: undefined,
-                    INKEEP_API_KEY: undefined,
                     POSTHOG_API_BASE_URL: undefined,
                     POSTHOG_ANALYTICS_API_KEY: undefined,
                     POSTHOG_ANALYTICS_HOST: undefined,
@@ -102,7 +101,7 @@ describe('ui-apps', () => {
 
             await registerUiAppResources(server as any, context as any)
 
-            expect(server.registerResource).toHaveBeenCalledTimes(21)
+            expect(server.registerResource).toHaveBeenCalledTimes(23)
         })
 
         it('registers apps with correct names and URIs', async () => {

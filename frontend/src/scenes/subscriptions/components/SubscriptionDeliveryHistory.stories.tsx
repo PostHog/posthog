@@ -53,6 +53,20 @@ export const WithDeliveries: Story = {
     },
 }
 
+// Covers both expand states for one PR-specific feature: the expand affordance on a collapsed row with a summary,
+// and the rendered summary content inside an expanded row.
+const EXPANDED_SUMMARY_STORY_IDS: ReadonlySet<string> = new Set(['del-1'])
+
+export const WithExpandedSummary: Story = {
+    args: {
+        deliveriesPage: pageWithRows,
+        deliveriesPageLoading: false,
+        loadDeliveriesPage: noopLoadPage,
+        onTestDelivery: noopTestDelivery,
+        __storyOnlyInitiallyExpandedDeliveryIds: EXPANDED_SUMMARY_STORY_IDS,
+    },
+}
+
 export const Empty: Story = {
     args: {
         deliveriesPage: { results: [], next: null, previous: null },

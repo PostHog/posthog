@@ -1,0 +1,67 @@
+@layer components {
+    .quill-toggle-group {
+        border-radius: var(--radius-sm);
+    }
+
+    .quill-toggle-group[data-size='sm'] {
+        border-radius: min(var(--radius-sm), 6px);
+    }
+
+    /* Items — shared */
+    .quill-toggle-group__item {
+        flex-shrink: 0;
+    }
+
+    .quill-toggle-group__item:focus,
+    .quill-toggle-group__item:focus-visible {
+        position: relative;
+        z-index: 10;
+    }
+
+    /* Spacing 0 — items share corners, connect borders */
+    .quill-toggle-group[data-spacing='0'] .quill-toggle-group__item {
+        border-radius: 0;
+    }
+
+    /* Horizontal, spacing=0 */
+    .quill-toggle-group[data-orientation='horizontal'][data-spacing='0'] .quill-toggle-group__item:first-child {
+        border-start-start-radius: var(--radius-sm);
+        border-end-start-radius: var(--radius-sm);
+    }
+
+    .quill-toggle-group[data-orientation='horizontal'][data-spacing='0'] .quill-toggle-group__item:last-child {
+        border-start-end-radius: var(--radius-sm);
+        border-end-end-radius: var(--radius-sm);
+    }
+
+    .quill-toggle-group[data-orientation='horizontal'][data-spacing='0']
+        .quill-toggle-group__item[data-variant='outline'] {
+        border-inline-start: 0;
+    }
+
+    .quill-toggle-group[data-orientation='horizontal'][data-spacing='0']
+        .quill-toggle-group__item[data-variant='outline']:first-child {
+        border-inline-start: 1px solid var(--input);
+    }
+
+    /* Vertical, spacing=0 */
+    .quill-toggle-group[data-orientation='vertical'][data-spacing='0'] .quill-toggle-group__item:first-child {
+        border-start-start-radius: var(--radius-sm);
+        border-start-end-radius: var(--radius-sm);
+    }
+
+    .quill-toggle-group[data-orientation='vertical'][data-spacing='0'] .quill-toggle-group__item:last-child {
+        border-end-start-radius: var(--radius-sm);
+        border-end-end-radius: var(--radius-sm);
+    }
+
+    .quill-toggle-group[data-orientation='vertical'][data-spacing='0']
+        .quill-toggle-group__item[data-variant='outline'] {
+        border-block-start: 0;
+    }
+
+    .quill-toggle-group[data-orientation='vertical'][data-spacing='0']
+        .quill-toggle-group__item[data-variant='outline']:first-child {
+        border-block-start: 1px solid var(--input);
+    }
+}

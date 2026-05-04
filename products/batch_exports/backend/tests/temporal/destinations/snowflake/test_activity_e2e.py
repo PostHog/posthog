@@ -368,6 +368,7 @@ async def test_insert_into_snowflake_activity_removes_internal_stage_files(
     """
     model = BatchExportModel(name="events", schema=None)
     table_name = f"test_insert_activity_table_remove_{ateam.pk}"
+    min_ingested_timestamp = dt.datetime.now(dt.UTC).replace(tzinfo=None)
 
     await _run_activity(
         activity_environment=activity_environment,
@@ -380,6 +381,7 @@ async def test_insert_into_snowflake_activity_removes_internal_stage_files(
         table_name=table_name,
         batch_export_model=model,
         sort_key="event",
+        min_ingested_timestamp=min_ingested_timestamp,
     )
 
     snowflake_cursor.execute(f'TRUNCATE TABLE "{table_name}"')
@@ -412,6 +414,7 @@ async def test_insert_into_snowflake_activity_removes_internal_stage_files(
         table_name=table_name,
         batch_export_model=model,
         sort_key="event",
+        min_ingested_timestamp=min_ingested_timestamp,
     )
 
     snowflake_cursor.execute(list_query)
@@ -679,6 +682,7 @@ async def test_insert_into_snowflake_activity_handles_uppercased_columns(
     table_name = f"test_insert_activity_{model.name}_table_handle_uppercased_{ateam.pk}"
 
     sort_key = "uuid" if model.name == "events" else "person_id"
+    min_ingested_timestamp = dt.datetime.now(dt.UTC).replace(tzinfo=None)
     await _run_activity(
         activity_environment=activity_environment,
         snowflake_cursor=snowflake_cursor,
@@ -690,6 +694,7 @@ async def test_insert_into_snowflake_activity_handles_uppercased_columns(
         table_name=table_name,
         batch_export_model=model,
         sort_key=sort_key,
+        min_ingested_timestamp=min_ingested_timestamp,
     )
 
     uppercase_columns = ["team_id"]
@@ -716,6 +721,7 @@ async def test_insert_into_snowflake_activity_handles_uppercased_columns(
         batch_export_model=model,
         sort_key=sort_key,
         uppercase_columns=uppercase_columns,
+        min_ingested_timestamp=min_ingested_timestamp,
     )
 
 
@@ -740,6 +746,7 @@ async def test_insert_into_snowflake_activity_handles_extra_columns_in_destinati
     """
     table_name = f"test_insert_activity_{model.name}_handles_extra_columns_{ateam.pk}"
 
+    min_ingested_timestamp = dt.datetime.now(dt.UTC).replace(tzinfo=None)
     await _run_activity(
         activity_environment=activity_environment,
         snowflake_cursor=snowflake_cursor,
@@ -751,6 +758,7 @@ async def test_insert_into_snowflake_activity_handles_extra_columns_in_destinati
         table_name=table_name,
         batch_export_model=model,
         sort_key="uuid",
+        min_ingested_timestamp=min_ingested_timestamp,
     )
 
     snowflake_cursor.execute(f'TRUNCATE TABLE "{table_name}"')
@@ -768,4 +776,5 @@ async def test_insert_into_snowflake_activity_handles_extra_columns_in_destinati
         batch_export_model=model,
         sort_key="uuid",
         extra_fields={"extra_column": "test"},
+        min_ingested_timestamp=min_ingested_timestamp,
     )

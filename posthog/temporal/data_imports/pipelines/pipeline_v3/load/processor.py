@@ -64,8 +64,14 @@ def _apply_partitioning(
         return pa_table
 
     if existing_delta_table:
-        delta_schema = existing_delta_table.schema().to_arrow()
-        if PARTITION_KEY not in delta_schema.names:
+        # Check the table's *partition columns* — not its schema columns. A delta
+        # table can contain `_ph_partition_key` in its schema without being
+        # partitioned by it (e.g. leftover from a prior write that included the
+        # column but was committed with `partition_by=None`). Writing with
+        # `partition_by=PARTITION_KEY` in that case raises
+        # `DeltaError: Specified table partitioning does not match table partitioning`.
+        partition_columns = getattr(existing_delta_table.metadata(), "partition_columns", None) or []
+        if PARTITION_KEY not in partition_columns:
             logger.debug("Delta table already exists without partitioning, skipping partitioning")
             return pa_table
 
@@ -225,6 +231,7 @@ def _mark_job_completed(export_signal: ExportSignalMessage) -> None:
         job_id=export_signal.job_id,
         team_id=export_signal.team_id,
         status=ExternalDataJob.Status.COMPLETED,
+        logger=logger,
         latest_error=None,
     )
 
@@ -258,6 +265,7 @@ def _mark_job_failed(export_signal: ExportSignalMessage, error: Exception) -> No
         job_id=export_signal.job_id,
         team_id=export_signal.team_id,
         status=ExternalDataJob.Status.FAILED,
+        logger=logger,
         latest_error=str(error),
     )
 
@@ -281,8 +289,30 @@ def process_message(message: Any, progress_callback: Callable[[], None] | None =
         team_id_str = str(export_signal.team_id)
         schema_id_str = str(export_signal.schema_id)
 
+        # Build the helper early so the idempotency check can use it as a
+        # delta-history fallback when the Redis dedup flag is missing — the case
+        # where the writer crashed between `write_to_deltalake` committing and
+        # `mark_batch_as_processed` being called.
+        job = ExternalDataJob.objects.prefetch_related("schema", "schema__source", "schema__table").get(
+            id=export_signal.job_id
+        )
+        schema = job.schema
+        if schema is None:
+            raise ValueError(f"ExternalDataJob {export_signal.job_id} has no schema")
+
+        delta_table_helper = DeltaTableHelper(
+            resource_name=export_signal.resource_name,
+            job=job,
+            logger=logger,
+            is_first_sync=export_signal.is_first_ever_sync,
+        )
+
         already_processed = is_batch_already_processed(
-            export_signal.team_id, export_signal.schema_id, export_signal.run_uuid, export_signal.batch_index
+            export_signal.team_id,
+            export_signal.schema_id,
+            export_signal.run_uuid,
+            export_signal.batch_index,
+            delta_table_helper=delta_table_helper,
         )
 
         if already_processed and not export_signal.is_final_batch:
@@ -320,20 +350,6 @@ def process_message(message: Any, progress_callback: Callable[[], None] | None =
             sync_type=export_signal.sync_type,
         )
 
-        job = ExternalDataJob.objects.prefetch_related("schema", "schema__source", "schema__table").get(
-            id=export_signal.job_id
-        )
-        schema = job.schema
-        if schema is None:
-            raise ValueError(f"ExternalDataJob {export_signal.job_id} has no schema")
-
-        delta_table_helper = DeltaTableHelper(
-            resource_name=export_signal.resource_name,
-            job=job,
-            logger=logger,
-            is_first_sync=export_signal.is_first_ever_sync,
-        )
-
         with PARQUET_READ_DURATION_SECONDS.time():
             pa_table = read_parquet(export_signal.s3_path)
 
@@ -354,6 +370,14 @@ def process_message(message: Any, progress_callback: Callable[[], None] | None =
 
         primary_keys = export_signal.primary_keys
         cdc_write_mode = export_signal.cdc_write_mode
+
+        # Tag every delta commit with (run_uuid, batch_index) so that a Kafka
+        # redelivery after a writer crash can detect "already committed" even when
+        # the Redis dedup flag is missing. See `is_batch_already_processed`.
+        commit_metadata = {
+            "run_uuid": export_signal.run_uuid,
+            "batch_index": str(export_signal.batch_index),
+        }
 
         # Cross-batch DELETE enrichment: fill data columns on DELETE rows from the
         # existing DeltaLake state. Batch-internal enrichment was already applied
@@ -422,6 +446,7 @@ def process_message(message: Any, progress_callback: Callable[[], None] | None =
                 delta_table = async_to_sync(delta_table_helper.write_scd2_to_deltalake)(
                     data=pa_table,
                     primary_keys=primary_keys or [],
+                    commit_metadata=commit_metadata,
                 )
         else:
             write_type = _get_write_type(export_signal.sync_type)
@@ -446,6 +471,7 @@ def process_message(message: Any, progress_callback: Callable[[], None] | None =
                     should_overwrite_table=should_overwrite_table,
                     primary_keys=primary_keys,
                     progress_callback=progress_callback,
+                    commit_metadata=commit_metadata,
                 )
 
         DELTA_ROWS_WRITTEN_TOTAL.labels(team_id=team_id_str, schema_id=schema_id_str).inc(pa_table.num_rows)

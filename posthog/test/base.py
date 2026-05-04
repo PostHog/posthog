@@ -204,8 +204,11 @@ from products.event_definitions.backend.models.property_definition import (
     PROPERTY_DEFINITIONS_TABLE_SQL,
 )
 
-# Make sure freezegun ignores our utils class that times functions
-cast(Any, freezegun).configure(extend_ignore_list=["posthog.test.assert_faster_than"])
+# Make sure freezegun ignores our utils class that times functions, and heavy optional
+# deps (e.g. transformers) that can break when freezegun walks sys.modules.
+cast(Any, freezegun).configure(
+    extend_ignore_list=["posthog.test.assert_faster_than", "transformers"],
+)
 
 persons_cache_tests: list[dict[str, Any]] = []
 events_cache_tests: list[dict[str, Any]] = []
@@ -664,7 +667,7 @@ class PostHogTestCase(SimpleTestCase):
         if get_instance_setting("PERSON_ON_EVENTS_ENABLED"):
             from posthog.models.team import util
 
-            util.can_enable_actor_on_events = True
+            util.can_enable_actor_on_events = True  # ty: ignore[invalid-assignment]
 
         if not self.CLASS_DATA_LEVEL_SETUP:
             _setup_test_data(self)

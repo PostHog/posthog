@@ -122,7 +122,9 @@ rules:
                               |FeatureFlag
                               |TeamExperimentsConfig
                               |TeamFeatureFlagDefaultsConfig
+                              |TeamSessionSummariesConfig
                               |FileSystem
+                              |GithubCommentMapping
                               |GitHubSyncConfig
                               |GitHubSyncPlan
                               |GitHubSyncedModel
@@ -139,6 +141,7 @@ rules:
                               |Link
                               |LiveDebuggerBreakpoint
                               |LogsAlertConfiguration
+                              |LogsExclusionRule
                               |LogsView
                               |LLMModelConfiguration
                               |LLMPrompt
@@ -158,6 +161,7 @@ rules:
                               |PluginConfig
                               |ProductTour
                               |ProjectSecretAPIKey
+                              |PropertyAccessControl
                               |QueryTabState
                               |QuickFilter
                               |QuickFilterContext
@@ -184,6 +188,7 @@ rules:
                               |Survey
                               |SurveyResponseArchive
                               |Tag
+                              |Tagger
                               |Task
                               |TaskAutomation
                               |TaskRun
@@ -191,6 +196,7 @@ rules:
                               |EvaluationReport
                               |Text
                               |Threshold
+                              |TeamConversationsTeamsConfig
                               |Ticket
                               |TicketView
                               |ReviewQueue
@@ -320,7 +326,9 @@ rules:
                         |FeatureFlag
                         |TeamExperimentsConfig
                         |TeamFeatureFlagDefaultsConfig
+                        |TeamSessionSummariesConfig
                         |FileSystem
+                        |GithubCommentMapping
                         |GitHubSyncConfig
                         |GitHubSyncPlan
                         |GitHubSyncedModel
@@ -353,6 +361,7 @@ rules:
                         |PluginConfig
                         |ProductTour
                         |ProjectSecretAPIKey
+                        |PropertyAccessControl
                         |QueryTabState
                         |QuickFilter
                         |QuickFilterContext
@@ -379,6 +388,7 @@ rules:
                         |Survey
                         |SurveyResponseArchive
                         |Tag
+                        |Tagger
                         |Task
                         |TaskAutomation
                         |TaskRun
@@ -386,6 +396,7 @@ rules:
                         |EvaluationReport
                         |Text
                         |Threshold
+                        |TeamConversationsTeamsConfig
                         |Ticket
                         |TicketView
                         |ReviewQueue
@@ -480,7 +491,8 @@ rules:
                       metavariable: $MODEL
                       regex: |
                           (?x)(
-                              OrganizationMembership
+                              LegalDocument
+                              |OrganizationMembership
                               |OrganizationDomain
                               |OrganizationIntegration
                               |OrganizationInvite
@@ -488,6 +500,7 @@ rules:
                               |Project
                               |ProxyRecord
                               |Role
+                              |RoleExternalReference
                               |RoleMembership
                           )$
                 - focus-metavariable: $SINK
@@ -541,7 +554,8 @@ rules:
                 metavariable: $MODEL
                 regex: |
                     (?x)(
-                        OrganizationMembership
+                        LegalDocument
+                        |OrganizationMembership
                         |OrganizationDomain
                         |OrganizationIntegration
                         |OrganizationInvite
@@ -549,6 +563,7 @@ rules:
                         |Project
                         |ProxyRecord
                         |Role
+                        |RoleExternalReference
                         |RoleMembership
                     )$
           - pattern-not: $M.objects. ... .$METHOD2(..., organization=$O, ...)

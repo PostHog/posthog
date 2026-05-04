@@ -8,7 +8,7 @@ from django.core.cache import cache
 from posthog.hogql import ast
 from posthog.hogql.ast import CompareOperationOp
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import DatabaseField, LazyJoinToAdd, LazyTableToAdd
+from posthog.hogql.database.models import DatabaseField, LazyJoin, LazyJoinToAdd, LazyTableToAdd
 from posthog.hogql.database.schema.util.uuid import (
     uuid_uint128_expr_to_timestamp_expr_v2,
     uuid_uint128_expr_to_timestamp_expr_v3,
@@ -469,7 +469,32 @@ class EventsOnlyWhereClauseExtractor(WhereClauseExtractor):
     Inverts the field-tracking semantics of ``WhereClauseExtractor``: we keep fields that
     resolve to the EventsTable and tombstone everything else, letting the base AND/OR/NOT
     logic drop unsafe branches.
+
+    When ``session_lazy_join`` is set, an extra narrowing step drops OR disjuncts that
+    don't reference the session join. Rows matching those dropped disjuncts don't consult
+    ``events__session.*`` columns, so their LEFT JOIN producing NULL is semantically
+    equivalent to their original behavior — keeping them in the IN subquery just inflates
+    the session set without narrowing. See the 2026-04-17 analysis doc for the follow-up
+    benchmark showing 4.5× speedup on rare-step-1 funnels.
     """
+
+    session_lazy_join: Optional[LazyJoin] = None
+
+    def __init__(self, context: HogQLContext, session_lazy_join: Optional[LazyJoin] = None):
+        super().__init__(context)
+        self.session_lazy_join = session_lazy_join
+
+    def visit_or(self, node: ast.Or) -> ast.Expr:
+        if self.session_lazy_join is not None:
+            # Flatten nested ORs so narrowing is based on leaf disjuncts, then keep
+            # only those that reference the session lazy join.
+            flattened = flatten_ors(node.exprs)
+            kept = [expr for expr in flattened if _expr_references_lazy_join(expr, self.session_lazy_join)]
+            if kept and len(kept) < len(flattened):
+                if len(kept) == 1:
+                    return self.visit(kept[0])
+                return super().visit_or(ast.Or(exprs=kept))
+        return super().visit_or(node)
 
     def visit_compare_operation(self, node: ast.CompareOperation) -> ast.Expr:
         if has_tombstone(node, self.tombstone_string):
@@ -494,6 +519,37 @@ class EventsOnlyWhereClauseExtractor(WhereClauseExtractor):
         if is_events_only_field(node):
             return cast(ast.Field, clone_expr(node))
         return ast.Constant(value=self.tombstone_string)
+
+
+def _expr_references_lazy_join(expr: ast.Expr, lazy_join: LazyJoin) -> bool:
+    """True iff ``expr`` contains any field whose resolved type traverses ``lazy_join``."""
+    visitor = _ReferencesLazyJoinVisitor(lazy_join)
+    visitor.visit(expr)
+    return visitor.found
+
+
+class _ReferencesLazyJoinVisitor(TraversingVisitor):
+    found: bool = False
+    lazy_join: LazyJoin
+
+    def __init__(self, lazy_join: LazyJoin):
+        self.lazy_join = lazy_join
+
+    def visit_field(self, node: ast.Field):
+        if self.found:
+            return
+        type_ = node.type
+        if isinstance(type_, ast.PropertyType):
+            type_ = type_.field_type
+        if isinstance(type_, ast.FieldAliasType):
+            type_ = type_.type
+        if not isinstance(type_, ast.FieldType):
+            return
+        table_type = type_.table_type
+        while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
+            table_type = table_type.table_type
+        if isinstance(table_type, ast.LazyJoinType) and table_type.lazy_join is self.lazy_join:
+            self.found = True
 
 
 def is_events_only_field(node: ast.Field) -> bool:
@@ -536,7 +592,9 @@ def build_session_id_v7_pushdown_predicate(
     if events_join is None or not isinstance(events_join.table, ast.Field):
         return None
 
-    events_where = EventsOnlyWhereClauseExtractor(context).get_inner_where(outer_node)
+    events_where = EventsOnlyWhereClauseExtractor(context, session_lazy_join=join_to_add.lazy_join).get_inner_where(
+        outer_node
+    )
     if events_where is None:
         return None
 

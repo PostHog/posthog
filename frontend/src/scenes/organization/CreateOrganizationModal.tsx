@@ -29,7 +29,6 @@ export function CreateOrganizationModal({
     }
     const handleSubmit = (): void => {
         createOrganization(name)
-        closeModal()
     }
 
     return (

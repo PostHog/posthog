@@ -20,6 +20,7 @@ from posthog.constants import INTERNAL_BOT_EMAIL_SUFFIX
 from posthog.event_usage import groups
 from posthog.models import OrganizationMembership
 from posthog.models.user import User
+from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.permissions import TimeSensitiveActionPermission, extract_organization
 from posthog.utils import posthoganalytics
 
@@ -71,9 +72,11 @@ class OrganizationMemberSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "joined_at", "updated_at"]
 
     def get_is_2fa_enabled(self, instance: OrganizationMembership) -> bool:
-        # If we add other forms of 2FA we need to use default_device here instead
-        # But not using that here as it increased the number of queries we did by a lot
-        return TOTPDevice.objects.filter(user=instance.user).exists()
+        # Uses prefetched relations to avoid N+1 queries
+        user = instance.user
+        has_totp = len(user.totpdevice_set.all()) > 0  # type: ignore[attr-defined]
+        has_passkeys_for_2fa = bool(user.passkeys_enabled_for_2fa) and len(user.webauthn_credentials.all()) > 0
+        return has_totp or has_passkeys_for_2fa
 
     def get_has_social_auth(self, instance: OrganizationMembership) -> bool:
         return len(instance.user.social_auth.all()) > 0
@@ -129,9 +132,13 @@ class OrganizationMemberViewSet(
         .prefetch_related(
             Prefetch(
                 "user__totpdevice_set",
-                queryset=TOTPDevice.objects.filter(name="default"),
+                queryset=TOTPDevice.objects.filter(confirmed=True),
             ),
             Prefetch("user__social_auth", queryset=UserSocialAuth.objects.all()),
+            Prefetch(
+                "user__webauthn_credentials",
+                queryset=WebauthnCredential.objects.filter(verified=True),
+            ),
         )
         .annotate(last_login=F("user__last_login"))
     )

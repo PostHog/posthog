@@ -107,7 +107,7 @@ class TestInternalAPIAuth(APIBaseTest):
             f"/api/projects/{self.team.id}/internal/hog_flows/user_blast_radius",
             {},
             format="json",
-            HTTP_X_INTERNAL_API_SECRET="test-secret-123",
+            headers={"x-internal-api-secret": "test-secret-123"},
         )
 
         self.assertEqual(response.status_code, 400)

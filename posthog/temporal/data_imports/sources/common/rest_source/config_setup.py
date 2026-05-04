@@ -1,22 +1,17 @@
 import string
+import logging
 import graphlib  # type: ignore[import,unused-ignore]
 import warnings
 from collections.abc import Callable
 from copy import copy
 from typing import Any, NamedTuple, Optional, cast
 
-import dlt
-from dlt.common import jsonpath, logger
-from dlt.common.configuration import resolve_configuration
-from dlt.common.schema.utils import merge_columns
-from dlt.common.utils import update_dict_nested
-from dlt.extract.incremental import Incremental
-from dlt.extract.utils import ensure_table_schema_columns
-from dlt.sources.helpers.requests import Response
-from dlt.sources.helpers.rest_client.auth import APIKeyAuth, AuthConfigBase, BearerTokenAuth, HttpBasicAuth
-from dlt.sources.helpers.rest_client.detector import single_entity_path
-from dlt.sources.helpers.rest_client.exceptions import IgnoreResponseException
-from dlt.sources.helpers.rest_client.paginators import (
+from requests import Response
+
+from .auth import APIKeyAuth, AuthConfigBase, BearerTokenAuth, HttpBasicAuth
+from .exceptions import IgnoreResponseException
+from .jsonpath_utils import find_values
+from .paginators import (
     BasePaginator,
     HeaderLinkPaginator,
     JSONResponseCursorPaginator,
@@ -24,8 +19,8 @@ from dlt.sources.helpers.rest_client.paginators import (
     OffsetPaginator,
     PageNumberPaginator,
     SinglePagePaginator,
+    single_entity_path,
 )
-
 from .typing import (
     AuthConfig,
     AuthType,
@@ -39,6 +34,8 @@ from .typing import (
     ResponseAction,
 )
 from .utils import exclude_keys
+
+logger = logging.getLogger(__name__)
 
 PAGINATOR_MAP: dict[PaginatorType, type[BasePaginator] | None] = {
     "json_response": JSONResponsePaginator,
@@ -62,6 +59,28 @@ class IncrementalParam(NamedTuple):
     end: Optional[str]
 
 
+class Incremental:
+    """Simplified incremental state tracker replacing DLT's Incremental class."""
+
+    def __init__(
+        self,
+        cursor_path: str = "",
+        initial_value: Optional[Any] = None,
+        end_value: Optional[Any] = None,
+        last_value_func: Optional[Callable[..., Any]] = None,
+        row_order: Optional[str] = None,
+    ) -> None:
+        self.cursor_path = cursor_path
+        self.initial_value = initial_value
+        self.end_value = end_value
+        self.last_value_func = last_value_func
+        self.row_order = row_order
+
+    @property
+    def last_value(self) -> Optional[Any]:
+        return self.initial_value
+
+
 def get_paginator_class(paginator_type: PaginatorType) -> type[BasePaginator] | None:
     try:
         return PAGINATOR_MAP[paginator_type]
@@ -79,7 +98,6 @@ def create_paginator(
     if isinstance(paginator_config, str):
         paginator_class = get_paginator_class(paginator_config)
         try:
-            # `auto` has no associated class in `PAGINATOR_MAP`
             return paginator_class() if paginator_class else None
         except TypeError:
             raise ValueError(
@@ -99,11 +117,11 @@ def get_auth_class(auth_type: AuthType) -> type[AuthConfigBase]:
         return AUTH_MAP[auth_type]
     except KeyError:
         available_options = ", ".join(AUTH_MAP.keys())
-        raise ValueError(f"Invalid paginator: {auth_type}. Available options: {available_options}")
+        raise ValueError(f"Invalid auth type: {auth_type}. Available options: {available_options}")
 
 
 def create_auth(auth_config: Optional[AuthConfig]) -> Optional[AuthConfigBase]:
-    auth: AuthConfigBase | None = None
+    auth: Optional[AuthConfigBase] = None
     if isinstance(auth_config, AuthConfigBase):
         auth = auth_config
 
@@ -112,61 +130,55 @@ def create_auth(auth_config: Optional[AuthConfig]) -> Optional[AuthConfigBase]:
         auth = auth_class()
 
     if isinstance(auth_config, dict):
-        auth_type = auth_config.get("type", "bearer")
-        if auth_type is None:
-            auth_type = "bearer"
+        auth_type: AuthType = auth_config.get("type") or "bearer"
         auth_class = get_auth_class(auth_type)
         auth = auth_class(**exclude_keys(auth_config, {"type"}))
 
-    if auth:
-        # TODO: provide explicitly (non-default) values as explicit explicit_value=dict(auth)
-        # this will resolve auth which is a configuration using current section context
-        return resolve_configuration(auth)
-
-    return None
+    return auth
 
 
 def setup_incremental_object(
     request_params: dict[str, Any],
     incremental_config: Optional[IncrementalConfig] = None,
-) -> tuple[Optional[Incremental[Any]], Optional[IncrementalParam], Optional[Callable[..., Any]]]:
+) -> tuple[Optional[Incremental], Optional[IncrementalParam], Optional[Callable[..., Any]]]:
     incremental_params: list[str] = []
     for param_name, param_config in request_params.items():
-        if (
-            isinstance(param_config, dict)
-            and param_config.get("type") == "incremental"
-            or isinstance(param_config, dlt.sources.incremental)
-        ):
+        if isinstance(param_config, dict) and param_config.get("type") == "incremental":
             incremental_params.append(param_name)
+        elif isinstance(param_config, Incremental):
+            incremental_params.append(param_name)
+
     if len(incremental_params) > 1:
-        raise ValueError(f"Only a single incremental parameter is allower per endpoint. Found: {incremental_params}")
+        raise ValueError(f"Only a single incremental parameter is allowed per endpoint. Found: {incremental_params}")
+
     convert: Optional[Callable[..., Any]]
     for param_name, param_config in request_params.items():
-        if isinstance(param_config, dlt.sources.incremental):
+        if isinstance(param_config, Incremental):
             if param_config.end_value is not None:
                 raise ValueError(
-                    f"Only initial_value is allowed in the configuration of param: {param_name}. To set end_value too use the incremental configuration at the resource level. See https://dlthub.com/docs/dlt-ecosystem/verified-sources/rest_api#incremental-loading/"
+                    f"Only initial_value is allowed in the configuration of param: {param_name}. "
+                    "To set end_value too use the incremental configuration at the resource level."
                 )
             return param_config, IncrementalParam(start=param_name, end=None), None
         if isinstance(param_config, dict) and param_config.get("type") == "incremental":
             if param_config.get("end_value") or param_config.get("end_param"):
                 raise ValueError(
-                    f"Only start_param and initial_value are allowed in the configuration of param: {param_name}. To set end_value too use the incremental configuration at the resource level. See https://dlthub.com/docs/dlt-ecosystem/verified-sources/rest_api#incremental-loading"
+                    f"Only start_param and initial_value are allowed in the configuration of param: {param_name}. "
+                    "To set end_value too use the incremental configuration at the resource level."
                 )
             convert = parse_convert_or_deprecated_transform(param_config)
-
             config = exclude_keys(param_config, {"type", "convert", "transform"})
-            # TODO: implement param type to bind incremental to
             return (
-                dlt.sources.incremental(**config),
+                Incremental(**config),
                 IncrementalParam(start=param_name, end=None),
                 convert,
             )
+
     if incremental_config:
         convert = parse_convert_or_deprecated_transform(incremental_config)
         config = exclude_keys(incremental_config, {"start_param", "end_param", "convert", "transform"})
         return (
-            dlt.sources.incremental(**config),
+            Incremental(**config),
             IncrementalParam(
                 start=incremental_config["start_param"],
                 end=incremental_config.get("end_param"),
@@ -201,14 +213,11 @@ def build_resource_dependency_graph(
 ) -> tuple[Any, dict[str, EndpointResource], dict[str, Optional[ResolvedParam]]]:
     dependency_graph: graphlib.TopologicalSorter[str] = graphlib.TopologicalSorter()
     endpoint_resource_map: dict[str, EndpointResource] = {}
-    resolved_param_map: dict[str, ResolvedParam | None] = {}
+    resolved_param_map: dict[str, Optional[ResolvedParam]] = {}
 
-    # expand all resources and index them
     for resource_kwargs in resource_list:
         if isinstance(resource_kwargs, dict):
-            # clone resource here, otherwise it needs to be cloned in several other places
-            # note that this clones only dict structure, keeping all instances without deepcopy
-            resource_kwargs = update_dict_nested({}, resource_kwargs)  # type: ignore
+            resource_kwargs = _update_dict_nested({}, resource_kwargs)  # type: ignore
 
         endpoint_resource = _make_endpoint_resource(resource_kwargs, resource_defaults)
         assert isinstance(endpoint_resource["endpoint"], dict)
@@ -222,10 +231,8 @@ def build_resource_dependency_graph(
             raise ValueError(f"Resource {resource_name} has already been defined")
         endpoint_resource_map[resource_name] = endpoint_resource
 
-    # create dependency graph
     for resource_name, endpoint_resource in endpoint_resource_map.items():
         assert isinstance(endpoint_resource["endpoint"], dict)
-        # connect transformers to resources via resolved params
         resolved_params = _find_resolved_params(endpoint_resource["endpoint"])
         if len(resolved_params) > 1:
             raise ValueError(f"Multiple resolved params for resource {resource_name}: {resolved_params}")
@@ -246,18 +253,6 @@ def build_resource_dependency_graph(
 
 
 def _make_endpoint_resource(resource: str | EndpointResource, default_config: EndpointResourceBase) -> EndpointResource:
-    """
-    Creates an EndpointResource object based on the provided resource
-    definition and merges it with the default configuration.
-
-    This function supports defining a resource in multiple formats:
-    - As a string: The string is interpreted as both the resource name
-        and its endpoint path.
-    - As a dictionary: The dictionary must include `name` and `endpoint`
-        keys. The `endpoint` can be a string representing the path,
-        or a dictionary for more complex configurations. If the `endpoint`
-        is missing the `path` key, the resource name is used as the `path`.
-    """
     if isinstance(resource, str):
         resource = {"name": resource, "endpoint": {"path": resource}}
         return _merge_resource_endpoints(default_config, resource)
@@ -266,7 +261,6 @@ def _make_endpoint_resource(resource: str | EndpointResource, default_config: En
         if isinstance(resource["endpoint"], str):
             resource["endpoint"] = {"path": resource["endpoint"]}
     else:
-        # endpoint is optional
         resource["endpoint"] = {}
 
     endpoint = resource["endpoint"]
@@ -279,12 +273,8 @@ def _make_endpoint_resource(resource: str | EndpointResource, default_config: En
 
 
 def _bind_path_params(resource: EndpointResource) -> None:
-    """Binds params declared in path to params available in `params`. Pops the
-    bound params but. Params of type `resolve` and `incremental` are skipped
-    and bound later.
-    """
     path_params: dict[str, Any] = {}
-    assert isinstance(resource["endpoint"], dict)  # type guard
+    assert isinstance(resource["endpoint"], dict)
     resolve_params = [r.param_name for r in _find_resolved_params(resource["endpoint"])]
     path = resource["endpoint"]["path"]
     if path is None:
@@ -301,7 +291,6 @@ def _bind_path_params(resource: EndpointResource) -> None:
                 resolve_params.remove(name)
             if name in params:
                 if not isinstance(params[name], dict):
-                    # bind resolved param and pop it from endpoint
                     path_params[name] = params.pop(name)
                 else:
                     param_type = params[name].get("type")
@@ -309,7 +298,6 @@ def _bind_path_params(resource: EndpointResource) -> None:
                         raise ValueError(
                             f"The path {path} defined in resource {resource['name']} tries to bind param {name} with type {param_type}. Paths can only bind 'resource' type params."
                         )
-                    # resolved params are bound later
                     path_params[name] = "{" + name + "}"
 
     if len(resolve_params) > 0:
@@ -321,13 +309,6 @@ def _bind_path_params(resource: EndpointResource) -> None:
 
 
 def _setup_single_entity_endpoint(endpoint: Endpoint) -> Endpoint:
-    """Tries to guess if the endpoint refers to a single entity and when detected:
-    * if `data_selector` was not specified (or is None), "$" is selected
-    * if `paginator` was not specified (or is None), SinglePagePaginator is selected
-
-    Endpoint is modified in place and returned
-    """
-    # try to guess if list of entities or just single entity is returned
     path = endpoint["path"]
     if path is None:
         raise ValueError("Endpoint path is required")
@@ -340,12 +321,6 @@ def _setup_single_entity_endpoint(endpoint: Endpoint) -> Endpoint:
 
 
 def _find_resolved_params(endpoint_config: Endpoint) -> list[ResolvedParam]:
-    """
-    Find all resolved params in the endpoint configuration and return
-    a list of ResolvedParam objects.
-
-    Resolved params are of type ResolveParamConfig (bound param with a key "type" set to "resolve".)
-    """
     params = endpoint_config.get("params") or {}
     return [
         ResolvedParam(key, cast(Any, value))
@@ -355,7 +330,6 @@ def _find_resolved_params(endpoint_config: Endpoint) -> list[ResolvedParam]:
 
 
 def _handle_response_actions(response: Response, actions: list[ResponseAction]) -> Optional[str]:
-    """Handle response actions based on the response and the provided actions."""
     content = response.text
 
     for action in actions:
@@ -368,11 +342,9 @@ def _handle_response_actions(response: Response, actions: list[ResponseAction]) 
         if status_code is not None and content_substr is not None:
             if response.status_code == status_code and content_substr in content:
                 return action_type
-
         elif status_code is not None:
             if response.status_code == status_code:
                 return action_type
-
         elif content_substr is not None:
             if content_substr in content:
                 return action_type
@@ -389,8 +361,6 @@ def _create_response_actions_hook(
             logger.info(f"Ignoring response with code {response.status_code} and content '{response.json()}'.")
             raise IgnoreResponseException
 
-        # If no action has been taken and the status code indicates an error,
-        # raise an HTTP error based on the response status
         if not action_type and response.status_code >= 400:
             response.raise_for_status()
 
@@ -400,19 +370,6 @@ def _create_response_actions_hook(
 def create_response_hooks(
     response_actions: Optional[list[ResponseAction]],
 ) -> Optional[dict[str, Any]]:
-    """Create response hooks based on the provided response actions. Note
-    that if the error status code is not handled by the response actions,
-    the default behavior is to raise an HTTP error.
-
-    Example:
-        response_actions = [
-            {"status_code": 404, "action": "ignore"},
-            {"content": "Not found", "action": "ignore"},
-            {"status_code": 429, "action": "retry"},
-            {"status_code": 200, "content": "some text", "action": "retry"},
-        ]
-        hooks = create_response_hooks(response_actions)
-    """
     if response_actions:
         return {"response": [_create_response_actions_hook(response_actions)]}
     return None
@@ -426,7 +383,7 @@ def process_parent_data_item(
 ) -> tuple[str, dict[str, Any]]:
     parent_resource_name = resolved_param.resolve_config["resource"]
 
-    field_values = jsonpath.find_values(resolved_param.field_path, item)
+    field_values = find_values(resolved_param.field_path, item)
 
     if not field_values:
         field_path = resolved_param.resolve_config["field"]
@@ -449,10 +406,6 @@ def process_parent_data_item(
 
 
 def _merge_resource_endpoints(default_config: EndpointResourceBase, config: EndpointResource) -> EndpointResource:
-    """Merges `default_config` and `config`, returns new instance of EndpointResource"""
-    # NOTE: config is normalized and always has "endpoint" field which is a dict
-    # TODO: could deep merge paginators and auths of the same type
-
     default_endpoint = default_config.get("endpoint", Endpoint())
     assert isinstance(default_endpoint, dict)
     config_endpoint = config["endpoint"]
@@ -462,7 +415,6 @@ def _merge_resource_endpoints(default_config: EndpointResourceBase, config: Endp
         **default_endpoint,
         **{k: v for k, v in config_endpoint.items() if k not in ("json", "params")},  # type: ignore[typeddict-item]
     }
-    # merge endpoint, only params and json are allowed to deep merge
     if "json" in config_endpoint:
         existing_json = merged_endpoint.get("json") or {}
         config_json = config_endpoint.get("json") or {}
@@ -477,20 +429,42 @@ def _merge_resource_endpoints(default_config: EndpointResourceBase, config: Endp
             **existing_params,
             **config_params,
         }
-    # merge columns
     if (default_columns := default_config.get("columns")) and (columns := config.get("columns")):
-        # merge only native dlt formats, skip pydantic and others
         if isinstance(columns, list | dict) and isinstance(default_columns, list | dict):
-            # normalize columns
-            columns = ensure_table_schema_columns(columns)
-            default_columns = ensure_table_schema_columns(default_columns)
-            # merge columns with deep merging hints
-            config["columns"] = merge_columns(copy(default_columns), columns, merge_columns=True)
+            columns = _ensure_table_schema_columns(columns)
+            default_columns = _ensure_table_schema_columns(default_columns)
+            config["columns"] = _merge_columns(copy(default_columns), columns)
 
-    # no need to deep merge resources
     merged_resource: EndpointResource = {
         **default_config,
         **config,
         "endpoint": merged_endpoint,
     }
     return merged_resource
+
+
+def _update_dict_nested(dst: dict[str, Any], src: dict[str, Any]) -> dict[str, Any]:
+    for key, value in src.items():
+        if isinstance(value, dict) and isinstance(dst.get(key), dict):
+            _update_dict_nested(dst[key], value)
+        else:
+            dst[key] = value
+    return dst
+
+
+def _ensure_table_schema_columns(columns: Any) -> dict[str, Any]:
+    if isinstance(columns, list):
+        return {col["name"]: col for col in columns if isinstance(col, dict) and "name" in col}
+    if isinstance(columns, dict):
+        return columns
+    return {}
+
+
+def _merge_columns(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    result = dict(base)
+    for key, value in override.items():
+        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+            result[key] = {**result[key], **value}
+        else:
+            result[key] = value
+    return result

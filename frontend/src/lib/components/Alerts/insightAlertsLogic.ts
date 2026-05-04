@@ -6,7 +6,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { AlertConditionType, BreakdownFilter, GoalLine, InsightThresholdType } from '~/queries/schema/schema-general'
-import { isInsightVizNode, isTrendsQuery, isValidBreakdown } from '~/queries/utils'
+import { isInsightVizNode, isTrendsQuery, hasBreakdownFilter } from '~/queries/utils'
 import { InsightLogicProps } from '~/types'
 
 import type { insightAlertsLogicType } from './insightAlertsLogicType'
@@ -155,7 +155,7 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
                     return []
                 }
 
-                const hasBreakdown = isValidBreakdown(breakdownFilter)
+                const hasBreakdown = hasBreakdownFilter(breakdownFilter)
 
                 // Derive from all firing checks of each detector-based alert.
                 // Each check typically has 0-1 triggered points, so we aggregate

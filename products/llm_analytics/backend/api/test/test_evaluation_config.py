@@ -152,7 +152,8 @@ class TestEvaluationConfigViewSet(APIBaseTest):
             {},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("key_id", response.data["detail"].lower())
+        self.assertEqual(response.data["attr"], "key_id")
+        self.assertEqual(response.data["code"], "required")
 
     def test_trial_evals_remaining_calculated_correctly(self):
         EvaluationConfig.objects.create(team=self.team, trial_eval_limit=100, trial_evals_used=75)

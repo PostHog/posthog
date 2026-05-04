@@ -362,6 +362,7 @@ mod tests {
                 skip_person_processing: false,
                 redirect_to_dlq: false,
                 redirect_to_topic: None,
+                overflow_reason: None,
             },
         }
     }

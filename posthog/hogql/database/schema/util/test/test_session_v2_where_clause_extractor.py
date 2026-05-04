@@ -636,3 +636,82 @@ WHERE (events.event = '$pageview') OR (events.session.$entry_pathname = '/signup
         normalized = " ".join(actual.split())
         assert "in(raw_sessions.session_id_v7" not in normalized
         assert "globalIn(raw_sessions.session_id_v7" not in normalized
+
+    def _extract_in_subquery(self, actual: str) -> str:
+        # The IN subquery is printed as ``globalIn(raw_sessions.session_id_v7, (SELECT … ))``
+        # (or ``in(…)`` when the printer bypasses the global rewrite). We scan for the start
+        # and then walk parens to find the matching close, since the body itself contains
+        # nested parens.
+        for prefix in ("globalIn(raw_sessions.session_id_v7, ", "in(raw_sessions.session_id_v7, "):
+            start = actual.find(prefix)
+            if start == -1:
+                continue
+            body_start = start + len(prefix)
+            if actual[body_start] != "(":
+                continue
+            depth = 0
+            for i in range(body_start, len(actual)):
+                if actual[i] == "(":
+                    depth += 1
+                elif actual[i] == ")":
+                    depth -= 1
+                    if depth == 0:
+                        return actual[body_start : i + 1]
+        raise AssertionError(f"Could not locate IN subquery in:\n{actual}")
+
+    @parameterized.expand(
+        [
+            # Mirrors ExperimentQuery funnel shape:
+            # ``WHERE timestamp_range AND (exposure_event OR (step_1_event AND session.filter))``.
+            # The exposure branch has no session reference, so rows matching it don't consult
+            # ``events__session.*``; their LEFT JOIN to NULL is fine. Only the step_1 branch
+            # needs its sessions in the IN list — narrowing avoids pulling millions of
+            # exposure-event session_ids through the DISTINCT and GLOBAL IN broadcast.
+            (
+                "narrow_drops_non_session_branch",
+                """
+SELECT
+    events.$session_id AS sid,
+    events.session.$entry_pathname AS entry
+FROM events
+WHERE events.timestamp >= '2026-03-27 00:00:00'
+  AND events.timestamp <= '2026-03-31 23:59:59'
+  AND (
+    events.event = '$feature_flag_called'
+    OR (events.event = '$pageview' AND events.session.$entry_pathname = '/signup')
+  )
+""",
+                1,  # expected event equality count after narrowing
+                False,  # expected OR in IN subquery
+            ),
+            # When every disjunct references the session join, narrowing is a no-op: both
+            # event equalities survive (joined by OR); the session-side halves drop via
+            # the events-only extractor's tombstone logic.
+            (
+                "preserve_or_when_all_branches_touch_session",
+                """
+SELECT
+    events.$session_id AS sid,
+    events.session.$entry_pathname AS entry
+FROM events
+WHERE events.timestamp >= '2026-03-27 00:00:00'
+  AND (
+    (events.event = '$pageview' AND events.session.$entry_pathname = '/signup')
+    OR (events.event = 'custom_click' AND events.session.$entry_pathname = '/home')
+  )
+""",
+                2,
+                True,
+            ),
+        ]
+    )
+    def test_pushdown_or_narrowing(self, _name: str, query: str, expected_event_eq_count: int, expected_has_or: bool):
+        actual = self.print_query(query, pushdown=True)
+        in_subquery = self._extract_in_subquery(actual)
+        assert in_subquery.count("equals(events.event,") == expected_event_eq_count, (
+            f"Expected {expected_event_eq_count} event equality/equalities in IN subquery; got:\n{in_subquery}"
+        )
+        if expected_has_or:
+            assert "or(" in in_subquery, f"Expected OR preserved in IN; got:\n{in_subquery}"
+        else:
+            assert "or(" not in in_subquery, f"Expected no OR in narrowed IN; got:\n{in_subquery}"
