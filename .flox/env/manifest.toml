@@ -91,6 +91,11 @@ bash = '''
     # ensure even with your shell prefs in place we know this is a Flox.dev env
     export PS1="\033[47m(flox)\033[0m $PS1"
   fi
+  unset GOROOT
+  export GOTOOLCHAIN=local
+  export GOPATH="$FLOX_ENV_CACHE/go"
+  export GOCACHE="$FLOX_ENV_CACHE/go-build"
+  export GOMODCACHE="$GOPATH/pkg/mod"
   # Ensure flox binaries (especially Node.js) take precedence over system binaries
   export PATH="$FLOX_ENV/bin:$PATH"
   # Recreate venv if it was deleted (on-activate only runs on first activation)
@@ -110,6 +115,11 @@ zsh = '''
     # ensure even with your shell prefs in place we know this is a Flox.dev env
     export PS1="%K{white}%F{black}(flox)%k%f $PS1"
   fi
+  unset GOROOT
+  export GOTOOLCHAIN=local
+  export GOPATH="$FLOX_ENV_CACHE/go"
+  export GOCACHE="$FLOX_ENV_CACHE/go-build"
+  export GOMODCACHE="$GOPATH/pkg/mod"
   # Ensure flox binaries (especially Node.js) take precedence over system binaries
   export PATH="$FLOX_ENV/bin:$PATH"
   # Recreate venv if it was deleted (on-activate only runs on first activation)
@@ -125,6 +135,11 @@ zsh = '''
   autoload -Uz compinit && compinit -i
 '''
 fish = '''
+  set -e GOROOT
+  set -gx GOTOOLCHAIN local
+  set -gx GOPATH "$FLOX_ENV_CACHE/go"
+  set -gx GOCACHE "$FLOX_ENV_CACHE/go-build"
+  set -gx GOMODCACHE "$GOPATH/pkg/mod"
   # Ensure flox binaries (especially Node.js) take precedence over system binaries
   fish_add_path "$FLOX_ENV/bin"
   # Recreate venv if it was deleted (on-activate only runs on first activation)
@@ -137,6 +152,11 @@ fish = '''
   source $UV_PROJECT_ENVIRONMENT/bin/activate.fish
 '''
 tcsh = '''
+  unsetenv GOROOT
+  setenv GOTOOLCHAIN local
+  setenv GOPATH "$FLOX_ENV_CACHE/go"
+  setenv GOCACHE "$FLOX_ENV_CACHE/go-build"
+  setenv GOMODCACHE "$GOPATH/pkg/mod"
   # Ensure flox binaries (especially Node.js) take precedence over system binaries
   setenv PATH "$FLOX_ENV/bin:$PATH"
   # Recreate venv if it was deleted (on-activate only runs on first activation)

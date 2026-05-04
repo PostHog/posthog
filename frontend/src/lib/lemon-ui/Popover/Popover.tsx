@@ -334,6 +334,10 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
     const isAttached = clonedChildren || referenceElement
     const top = isAttached ? (y ?? 0) : undefined
     const left = isAttached ? (x ?? 0) : undefined
+    // When attached to a reference, floating-ui needs at least one update cycle to compute
+    // x/y. Until then, rendering at the (0, 0) fallback would briefly flash the overlay at
+    // the top-left of the viewport. Hide it until positioning resolves.
+    const isPositionPending = isAttached && (x == null || y == null)
 
     return (
         <>
@@ -361,7 +365,8 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
                                 ref={floatingCallbackRef}
                                 // eslint-disable-next-line react/forbid-dom-props
                                 style={{
-                                    display: middlewareData.hide?.referenceHidden ? 'none' : undefined,
+                                    display:
+                                        middlewareData.hide?.referenceHidden || isPositionPending ? 'none' : undefined,
                                     position: strategy,
                                     top,
                                     left,

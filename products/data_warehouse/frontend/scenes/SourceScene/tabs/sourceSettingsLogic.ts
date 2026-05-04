@@ -7,8 +7,6 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
@@ -24,11 +22,7 @@ import {
 
 import { sourcesDataLogic } from '../../../shared/logics/sourcesDataLogic'
 import { availableSourcesLogic } from '../../NewSourceScene/availableSourcesLogic'
-import {
-    SSH_FIELD,
-    buildKeaFormDefaultFromSourceDetails,
-    getErrorsForFields,
-} from '../../NewSourceScene/sourceWizardLogic'
+import { SSH_FIELD, getErrorsForFields } from '../../NewSourceScene/sourceWizardLogic'
 import { sourceSceneLogic } from '../SourceScene'
 import type { sourceSettingsLogicType } from './sourceSettingsLogicType'
 
@@ -416,9 +410,13 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
             },
         ],
     }),
-    forms(({ values, actions, props }) => ({
+    forms(({ values, actions }) => ({
         sourceConfig: {
-            defaults: buildKeaFormDefaultFromSourceDetails(props.availableSources ?? {}),
+            // Real defaults are pushed into the form at runtime by `ConfigurationTab` via
+            // `buildKeaFormDefaultFromSourceDetails` + `setJobInputs`/`setSourceConfigValue`.
+            // The cast widens the inferred form value type so reads of `access_method`, payload
+            // sub-fields, etc. type-check.
+            defaults: { prefix: '', description: '', payload: {} } as Record<string, any>,
             errors: (sourceValues) => {
                 return getErrorsForFields(values.sourceFieldConfig?.fields ?? [], sourceValues as any, {
                     allowBlankSensitiveFields: true,
@@ -582,10 +580,8 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     }
                 }
 
-                const isDirectQueryEnabled =
-                    !!featureFlagLogic.values.featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]
                 const breadcrumbName =
-                    isDirectQueryEnabled && values.source?.access_method === 'direct'
+                    values.source?.access_method === 'direct'
                         ? values.source?.prefix || values.source?.source_type || 'Source'
                         : values.source?.source_type || 'Source'
 

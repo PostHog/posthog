@@ -29,13 +29,13 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
-import { initModel } from 'lib/monaco/CodeEditor'
+import { clearLogicReference, initModel } from 'lib/monaco/CodeEditor'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
 import { objectsEqual, removeUndefinedAndNull, slugify } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
-import { parseQueryTablesAndColumns } from 'scenes/data-warehouse/editor/sql-utils'
+import { parseQueryTablesAndColumns, queryUsesFiltersPlaceholder } from 'scenes/data-warehouse/editor/sql-utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightsApi } from 'scenes/insights/utils/api'
 import { Scene } from 'scenes/sceneTypes'
@@ -320,7 +320,7 @@ function getTabHash(values: sqlEditorLogicType['values']): Record<string, any> {
         output_tab: values.outputActiveTab,
     }
     const connectionId = values.sourceQuery?.source.connectionId
-    if (values.featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY] && connectionId) {
+    if (connectionId) {
         hash['c'] = connectionId
         if (values.sourceQuery?.source.sendRawQuery) {
             hash['raw'] = '1'
@@ -2106,11 +2106,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             },
         ],
         selectedConnectionId: [
-            (s) => [s.sourceQuery, s.featureFlags],
-            (sourceQuery, featureFlags) => {
-                if (!featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]) {
-                    return undefined
-                }
+            (s) => [s.sourceQuery],
+            (sourceQuery) => {
                 return sourceQuery.source && 'connectionId' in sourceQuery.source
                     ? sourceQuery.source.connectionId
                     : undefined
@@ -2169,7 +2166,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         hasFiltersPlaceholder: [
             (s) => [s.queryInput],
             (queryInput) => {
-                return queryInput && (queryInput.indexOf('{filters}') !== -1 || queryInput.indexOf('{filters.') !== -1)
+                return queryUsesFiltersPlaceholder(queryInput)
             },
         ],
         hasQueryInput: [(s) => [s.queryInput], (queryInput) => !!queryInput],
@@ -2469,15 +2466,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             }
 
             const connectionIdFromHash =
-                values.featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY] &&
-                typeof hashParams.c === 'string' &&
-                hashParams.c !== ''
-                    ? hashParams.c
-                    : undefined
-            const sendRawQueryFromHash =
-                connectionIdFromHash !== undefined &&
-                values.featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY] &&
-                String(hashParams.raw) === '1'
+                typeof hashParams.c === 'string' && hashParams.c !== '' ? hashParams.c : undefined
+            const sendRawQueryFromHash = connectionIdFromHash !== undefined && String(hashParams.raw) === '1'
             const currentConnectionId = values.sourceQuery.source.connectionId || undefined
             const currentSendRawQuery = values.sourceQuery.source.sendRawQuery ?? false
             const filtersForSourceQuery = applyFiltersFromUrl(values.sourceQuery).source.filters
@@ -2935,6 +2925,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         cache.decorationGeneration = (cache.decorationGeneration ?? 0) + 1
 
         cache.createdModels?.forEach((m: editor.ITextModel) => {
+            clearLogicReference(m)
             try {
                 m.dispose()
             } catch {}

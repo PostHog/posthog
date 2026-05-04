@@ -22,6 +22,7 @@ from rest_framework.test import APIClient
 
 from posthog.models import Integration, Organization, OrganizationMembership, PersonalAPIKey, Team, User
 from posthog.models.personal_api_key import hash_key_value
+from posthog.models.user_integration import UserIntegration
 from posthog.models.utils import generate_random_token_personal
 from posthog.storage import object_storage
 
@@ -51,6 +52,32 @@ from products.tasks.backend.stream.redis_stream import (
     publish_task_run_stream_event,
 )
 from products.tasks.backend.temporal.process_task.utils import get_cached_github_user_token
+
+
+def _grant_user_github_access(user: User, *, refresh_ttl_seconds: int = 15897600) -> UserIntegration:
+    now = int(time.time())
+    return UserIntegration.objects.create(
+        user=user,
+        kind="github",
+        integration_id="12345",
+        config={
+            "installation_id": "12345",
+            "expires_in": 3600,
+            "refreshed_at": now,
+            "repository_selection": "selected",
+            "account": {"type": "User", "name": "octocat"},
+            "github_user": {"login": "octocat", "id": 99},
+            "user_token_refreshed_at": now,
+            "user_access_token_expires_at": now + 28800,
+            "user_refresh_token_expires_at": now + refresh_ttl_seconds,
+        },
+        sensitive_config={
+            "access_token": "ghs_install",
+            "user_access_token": "gho_access",
+            "user_refresh_token": "ghr_refresh",
+        },
+    )
+
 
 # Test RSA private key for JWT tests (RS256)
 TEST_RSA_PRIVATE_KEY = """-----BEGIN PRIVATE KEY-----
@@ -279,6 +306,89 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(data["title"], "New Task")
         self.assertEqual(data["description"], "New Description")
         self.assertEqual(data["repository"], "posthog/posthog")
+
+    def test_create_task_defaults_origin_product(self):
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {
+                "title": "New Task",
+                "description": "New Description",
+                "repository": "posthog/posthog",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        data = response.json()
+        self.assertEqual(data["origin_product"], Task.OriginProduct.USER_CREATED)
+
+        task = Task.objects.get(id=data["id"])
+        self.assertEqual(task.origin_product, Task.OriginProduct.USER_CREATED)
+
+    def test_create_task_with_github_user_integration(self):
+        user_integration = _grant_user_github_access(self.user)
+
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {
+                "title": "New Task",
+                "description": "New Description",
+                "origin_product": "user_created",
+                "repository": "posthog/posthog",
+                "github_user_integration": str(user_integration.id),
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        data = response.json()
+        self.assertEqual(data["github_user_integration"], str(user_integration.id))
+
+        task = Task.objects.get(id=data["id"])
+        self.assertEqual(task.github_user_integration_id, user_integration.id)
+
+    def test_create_and_run_slack_task_uses_user_github_integration(self):
+        user_integration = _grant_user_github_access(self.user)
+        user_integration.repository_cache = [{"id": 1, "name": "posthog", "full_name": "posthog/posthog"}]
+        user_integration.repository_cache_updated_at = django_timezone.now()
+        user_integration.save(update_fields=["repository_cache", "repository_cache_updated_at"])
+        Integration.objects.create(team=self.team, kind="github", integration_id="12345", config={})
+
+        task = Task.create_and_run(
+            team=self.team,
+            title="Slack task",
+            description="Created from Slack",
+            origin_product=Task.OriginProduct.SLACK,
+            user_id=self.user.id,
+            repository="posthog/posthog",
+            create_pr=True,
+            mode="interactive",
+            start_workflow=False,
+        )
+
+        self.assertEqual(task.origin_product, Task.OriginProduct.SLACK)
+        self.assertEqual(task.github_user_integration_id, user_integration.id)
+        assert task.latest_run is not None
+        self.assertEqual(task.latest_run.state["pr_authorship_mode"], "user")
+
+    def test_create_task_rejects_github_user_integration_for_other_user(self):
+        other_user = self.create_organization_user()
+        user_integration = _grant_user_github_access(other_user)
+
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {
+                "title": "New Task",
+                "description": "New Description",
+                "origin_product": "user_created",
+                "repository": "posthog/posthog",
+                "github_user_integration": str(user_integration.id),
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "github_user_integration")
 
     def test_create_task_with_signal_report_same_team(self):
         from products.signals.backend.models import SignalReport, SignalReportTask
@@ -636,6 +746,67 @@ class TestTaskAPI(BaseTaskAPITest):
         mock_workflow.assert_not_called()
 
     @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_create_run_endpoint_rejects_user_authorship_without_github_identity_when_no_repo(self, mock_workflow):
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/",
+            {
+                "environment": "cloud",
+                "pr_authorship_mode": "user",
+                "run_source": "manual",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "github_authorization_required")
+        mock_workflow.assert_not_called()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_create_run_endpoint_persists_user_integration_when_no_repo(self, mock_workflow):
+        task = self.create_task(created_by=self.user)
+        user_integration = _grant_user_github_access(self.user)
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/",
+            {
+                "environment": "cloud",
+                "pr_authorship_mode": "user",
+                "run_source": "manual",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        task.refresh_from_db()
+        self.assertEqual(task.github_user_integration_id, user_integration.id)
+        mock_workflow.assert_not_called()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_create_run_endpoint_falls_back_to_team_integration_when_no_user_integration(self, mock_workflow):
+        integration = Integration.objects.create(team=self.team, kind="github", config={"access_token": "token"})
+        task = self.create_task(created_by=self.user)
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/",
+            {
+                "environment": "cloud",
+                "pr_authorship_mode": "user",
+                "run_source": "manual",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        task.refresh_from_db()
+        task_run = TaskRun.objects.get(id=response.json()["id"])
+        self.assertEqual(task.github_integration_id, integration.id)
+        self.assertIsNone(task.github_user_integration_id)
+        self.assertEqual(task_run.state["pr_authorship_mode"], "bot")
+        mock_workflow.assert_not_called()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
     def test_start_run_endpoint_triggers_workflow_for_existing_cloud_run(self, mock_workflow):
         task = self.create_task()
         task_run = task.create_run(environment=TaskRun.Environment.CLOUD)
@@ -824,6 +995,37 @@ class TestTaskAPI(BaseTaskAPITest):
     @patch("products.tasks.backend.api.execute_task_processing_workflow")
     def test_run_endpoint_persists_pr_authorship_metadata(self, mock_workflow):
         task = self.create_task()
+        task.repository = "posthog/posthog"
+        task.created_by = self.user
+        task.save(update_fields=["repository", "created_by"])
+        user_integration = _grant_user_github_access(self.user)
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {
+                "mode": "interactive",
+                "branch": "main",
+                "pr_authorship_mode": "user",
+                "run_source": "manual",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        task_run = TaskRun.objects.get(id=response.json()["latest_run"]["id"])
+        assert task_run.state["pr_authorship_mode"] == "user"
+        assert task_run.state["run_source"] == "manual"
+        assert task_run.state["pr_base_branch"] == "main"
+        task.refresh_from_db()
+        assert task.github_user_integration_id == user_integration.id
+        mock_workflow.assert_called_once()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_caches_github_user_token_backcompat(self, mock_workflow):
+        """Backward-compat: callers that ship ``github_user_token`` have it cached per-run."""
+        task = self.create_task()
+        task.repository = "posthog/posthog"
+        task.save(update_fields=["repository"])
         github_user_token = "ghu_test_token"
 
         response = self.client.post(
@@ -840,10 +1042,28 @@ class TestTaskAPI(BaseTaskAPITest):
 
         assert response.status_code == status.HTTP_200_OK
         task_run = TaskRun.objects.get(id=response.json()["latest_run"]["id"])
-        assert task_run.state["pr_authorship_mode"] == "user"
-        assert task_run.state["run_source"] == "manual"
-        assert task_run.state["pr_base_branch"] == "main"
         assert get_cached_github_user_token(str(task_run.id)) == github_user_token
+        mock_workflow.assert_called_once()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_accepts_token_even_without_linked_identity(self, mock_workflow):
+        """A caller-supplied token satisfies the preflight on its own (no identity required)."""
+        task = self.create_task()
+        task.repository = "posthog/posthog"
+        task.save(update_fields=["repository"])
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {
+                "mode": "interactive",
+                "pr_authorship_mode": "user",
+                "run_source": "manual",
+                "github_user_token": "ghu_manual_token",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
         mock_workflow.assert_called_once()
 
     @parameterized.expand(
@@ -953,7 +1173,7 @@ class TestTaskAPI(BaseTaskAPITest):
         mock_workflow.assert_not_called()
 
     @patch("products.tasks.backend.api.execute_task_processing_workflow")
-    def test_run_endpoint_rejects_user_authorship_without_github_user_token(self, mock_workflow):
+    def test_run_endpoint_rejects_user_authorship_without_github_identity(self, mock_workflow):
         task = self.create_task()
         task.repository = "posthog/posthog"
         task.save(update_fields=["repository"])
@@ -969,7 +1189,84 @@ class TestTaskAPI(BaseTaskAPITest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["detail"] == "github_user_token is required for user-authored cloud runs"
+        assert response.json()["code"] == "github_authorization_required"
+        mock_workflow.assert_not_called()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_rejects_user_authorship_when_refresh_token_expired(self, mock_workflow):
+        task = self.create_task()
+        task.repository = "posthog/posthog"
+        task.created_by = self.user
+        task.save(update_fields=["repository", "created_by"])
+        integration = _grant_user_github_access(self.user)
+        integration.config["user_refresh_token_expires_at"] = int(time.time()) - 1
+        integration.save(update_fields=["config"])
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {
+                "mode": "interactive",
+                "pr_authorship_mode": "user",
+                "run_source": "manual",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == "github_authorization_required"
+        mock_workflow.assert_not_called()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_rejects_user_authorship_when_requester_is_not_creator(self, mock_workflow: MagicMock) -> None:
+        task = self.create_task(created_by=self.user)
+        task.repository = "posthog/posthog"
+        task.save(update_fields=["repository"])
+        _grant_user_github_access(self.user)
+        requester = self.create_organization_user()
+        self.client.force_authenticate(requester)
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {
+                "mode": "interactive",
+                "pr_authorship_mode": "user",
+                "run_source": "manual",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "github_authorization_required",
+            "detail": "User-authored runs must be started by the task creator, or provide github_user_token.",
+            "attr": "pr_authorship_mode",
+        }
+        mock_workflow.assert_not_called()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_rejects_user_authorship_when_access_token_missing(self, mock_workflow: MagicMock) -> None:
+        task = self.create_task(created_by=self.user)
+        task.repository = "posthog/posthog"
+        task.save(update_fields=["repository"])
+        integration = _grant_user_github_access(self.user)
+        sensitive_config = dict(integration.sensitive_config)
+        sensitive_config.pop("user_access_token")
+        integration.sensitive_config = sensitive_config
+        integration.save(update_fields=["sensitive_config"])
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {
+                "mode": "interactive",
+                "pr_authorship_mode": "user",
+                "run_source": "manual",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == "github_authorization_required"
         mock_workflow.assert_not_called()
 
     @parameterized.expand(
@@ -1070,7 +1367,7 @@ class TestTaskAPI(BaseTaskAPITest):
         mock_workflow.assert_called_once()
 
     @patch("products.tasks.backend.api.execute_task_processing_workflow")
-    def test_run_endpoint_allows_user_authorship_without_token_when_no_repo(self, mock_workflow):
+    def test_run_endpoint_rejects_user_authorship_without_github_identity_when_no_repo(self, mock_workflow):
         task = self.create_task()
 
         response = self.client.post(
@@ -1083,13 +1380,57 @@ class TestTaskAPI(BaseTaskAPITest):
             format="json",
         )
 
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == "github_authorization_required"
+        mock_workflow.assert_not_called()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_persists_user_integration_when_no_repo(self, mock_workflow):
+        task = self.create_task(created_by=self.user)
+        user_integration = _grant_user_github_access(self.user)
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {
+                "mode": "interactive",
+                "pr_authorship_mode": "user",
+                "run_source": "manual",
+            },
+            format="json",
+        )
+
         assert response.status_code == status.HTTP_200_OK
+        task.refresh_from_db()
+        assert task.github_user_integration_id == user_integration.id
+        mock_workflow.assert_called_once()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_falls_back_to_team_integration_when_no_user_integration(self, mock_workflow):
+        integration = Integration.objects.create(team=self.team, kind="github", config={"access_token": "token"})
+        task = self.create_task(created_by=self.user)
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {
+                "mode": "interactive",
+                "pr_authorship_mode": "user",
+                "run_source": "manual",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        task.refresh_from_db()
+        task_run = task.latest_run
+        assert task_run is not None
+        assert task.github_integration_id == integration.id
+        assert task.github_user_integration_id is None
+        assert task_run.state["pr_authorship_mode"] == "bot"
         mock_workflow.assert_called_once()
 
     @patch("products.tasks.backend.api.execute_task_processing_workflow")
     def test_run_endpoint_resume_carries_forward_pr_authorship_metadata(self, mock_workflow):
         task = self.create_task()
-        github_user_token = "ghu_resume_token"
         previous_run = TaskRun.objects.create(
             task=task,
             team=self.team,
@@ -1112,7 +1453,7 @@ class TestTaskAPI(BaseTaskAPITest):
                 "mode": "interactive",
                 "resume_from_run_id": str(previous_run.id),
                 "pending_user_message": "Please continue",
-                "github_user_token": github_user_token,
+                "github_user_token": "ghu_resume_token",
             },
             format="json",
         )
@@ -1128,7 +1469,7 @@ class TestTaskAPI(BaseTaskAPITest):
         assert task_run.state["provider"] == "openai"
         assert task_run.state["model"] == "gpt-5.3-codex"
         assert task_run.state["reasoning_effort"] == "medium"
-        # Token not cached for bot-authored runs even if the client sends one
+        # Token passed on a BOT resume must not be cached — only USER mode runs use it.
         assert get_cached_github_user_token(str(task_run.id)) is None
 
     @patch("products.tasks.backend.api.execute_task_processing_workflow")
@@ -1649,8 +1990,19 @@ class TestTaskInternalFilterAPI(BaseTaskAPITest):
         self.assertIn(str(self.external_task.id), task_ids)
         self.assertNotIn(str(self.internal_task.id), task_ids)
 
-    def test_list_internal_true_shows_only_internal_tasks(self):
+    def test_list_internal_true_is_ignored_in_production(self):
+        # DEBUG is False in tests by default, so ?internal=true must not surface internal tasks.
         response = self.client.get("/api/projects/@current/tasks/?internal=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        task_ids = [t["id"] for t in data["results"]]
+        self.assertIn(str(self.external_task.id), task_ids)
+        self.assertNotIn(str(self.internal_task.id), task_ids)
+
+    def test_list_internal_true_shows_only_internal_tasks_in_debug(self):
+        with self.settings(DEBUG=True):
+            response = self.client.get("/api/projects/@current/tasks/?internal=true")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         data = response.json()
@@ -1921,6 +2273,72 @@ class TestTaskRunAPI(BaseTaskAPITest):
         run.refresh_from_db()
         self.assertEqual(run.status, TaskRun.Status.COMPLETED)
         self.assertIsNotNone(run.completed_at)
+
+    @patch("products.tasks.backend.api.resume_task_in_cloud_workflow")
+    def test_resume_in_cloud_rejects_user_authorship_without_github_identity_when_no_repo(self, mock_resume):
+        task = self.create_task(created_by=self.user)
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            environment=TaskRun.Environment.LOCAL,
+            status=TaskRun.Status.COMPLETED,
+            state={"pr_authorship_mode": "user"},
+        )
+
+        response = self.client.post(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/resume_in_cloud/")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "github_authorization_required")
+        run.refresh_from_db()
+        self.assertEqual(run.environment, TaskRun.Environment.LOCAL)
+        self.assertEqual(run.status, TaskRun.Status.COMPLETED)
+        mock_resume.assert_not_called()
+
+    @patch("products.tasks.backend.api.resume_task_in_cloud_workflow")
+    def test_resume_in_cloud_persists_user_integration_when_no_repo(self, mock_resume):
+        task = self.create_task(created_by=self.user)
+        user_integration = _grant_user_github_access(self.user)
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            environment=TaskRun.Environment.LOCAL,
+            status=TaskRun.Status.COMPLETED,
+            state={"pr_authorship_mode": "user"},
+        )
+
+        response = self.client.post(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/resume_in_cloud/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        task.refresh_from_db()
+        run.refresh_from_db()
+        self.assertEqual(task.github_user_integration_id, user_integration.id)
+        self.assertEqual(run.environment, TaskRun.Environment.CLOUD)
+        self.assertEqual(run.status, TaskRun.Status.QUEUED)
+        mock_resume.assert_called_once_with(str(run.id), run.workflow_id)
+
+    @patch("products.tasks.backend.api.resume_task_in_cloud_workflow")
+    def test_resume_in_cloud_falls_back_to_team_integration_when_no_user_integration(self, mock_resume):
+        integration = Integration.objects.create(team=self.team, kind="github", config={"access_token": "token"})
+        task = self.create_task(created_by=self.user)
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            environment=TaskRun.Environment.LOCAL,
+            status=TaskRun.Status.COMPLETED,
+            state={"pr_authorship_mode": "user"},
+        )
+
+        response = self.client.post(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/resume_in_cloud/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        task.refresh_from_db()
+        run.refresh_from_db()
+        self.assertEqual(task.github_integration_id, integration.id)
+        self.assertIsNone(task.github_user_integration_id)
+        self.assertEqual(run.state["pr_authorship_mode"], "bot")
+        self.assertEqual(run.environment, TaskRun.Environment.CLOUD)
+        self.assertEqual(run.status, TaskRun.Status.QUEUED)
+        mock_resume.assert_called_once_with(str(run.id), run.workflow_id)
 
     @patch("products.tasks.backend.api.TaskRunViewSet._signal_workflow_completion")
     def test_update_run_status_to_failed_signals_workflow_with_error(self, mock_signal):
@@ -3231,6 +3649,272 @@ class TestTaskRunAPI(BaseTaskAPITest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    @patch("posthog.storage.object_storage.read_bytes")
+    def test_download_artifact_walks_resume_chain(self, mock_read_bytes):
+        """A resumed run can download an artifact owned by the run it was forked from.
+
+        Cloud→cloud resume creates a new TaskRun with state.resume_from_run_id pointing
+        to the prior run; the prior run owns the git checkpoint pack/index artifacts.
+        """
+        mock_read_bytes.return_value = b"prior run pack bytes"
+        task = self.create_task()
+        prior_storage_path = "tasks/artifacts/team_1/task_x/run_prior/abc_pack.pack"
+
+        prior_run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            artifacts=[
+                {
+                    "id": uuid.uuid4().hex,
+                    "name": "checkpoint.pack",
+                    "type": "artifact",
+                    "content_type": "application/x-git-packed-objects",
+                    "storage_path": prior_storage_path,
+                }
+            ],
+        )
+        new_run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            artifacts=[],
+            state={"resume_from_run_id": str(prior_run.id)},
+        )
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{new_run.id}/artifacts/download/",
+            {"storage_path": prior_storage_path},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.content, b"prior run pack bytes")
+        mock_read_bytes.assert_called_once_with(prior_storage_path, missing_ok=True)
+
+    def test_find_artifact_in_resume_chain_direct_hit(self):
+        """Finds artifact on the run itself without walking the chain."""
+
+        task = self.create_task()
+        storage_path = "tasks/artifacts/team_1/task_x/run_a/artifact.pack"
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            artifacts=[{"id": "a", "name": "artifact.pack", "storage_path": storage_path}],
+        )
+
+        artifact = run.find_artifact_in_resume_chain(storage_path)
+        self.assertIsNotNone(artifact)
+        self.assertEqual(artifact["storage_path"], storage_path)  # type: ignore
+
+    def test_find_artifact_in_resume_chain_miss(self):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, artifacts=[])
+        self.assertIsNone(run.find_artifact_in_resume_chain("tasks/missing.pack"))
+
+    def test_find_artifact_in_resume_chain_walks_one_hop(self):
+        task = self.create_task()
+        storage_path = "tasks/artifacts/team_1/task_x/run_prior/artifact.pack"
+        prior_run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            artifacts=[{"id": "a", "name": "artifact.pack", "storage_path": storage_path}],
+        )
+        new_run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            artifacts=[],
+            state={"resume_from_run_id": str(prior_run.id)},
+        )
+
+        artifact = new_run.find_artifact_in_resume_chain(storage_path)
+        self.assertIsNotNone(artifact)
+
+    def test_find_artifact_in_resume_chain_walks_multiple_hops(self):
+        """Resumed-from-resumed-from chain still resolves."""
+
+        task = self.create_task()
+        storage_path = "tasks/artifacts/team_1/task_x/run_root/artifact.pack"
+        root_run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            artifacts=[{"id": "a", "name": "artifact.pack", "storage_path": storage_path}],
+        )
+        middle_run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            artifacts=[],
+            state={"resume_from_run_id": str(root_run.id)},
+        )
+        new_run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            artifacts=[],
+            state={"resume_from_run_id": str(middle_run.id)},
+        )
+
+        artifact = new_run.find_artifact_in_resume_chain(storage_path)
+        self.assertIsNotNone(artifact)
+
+    def test_find_artifact_in_resume_chain_handles_cycle(self):
+        """A self-referencing or circular resume chain doesn't loop forever."""
+
+        task = self.create_task()
+        run_a = TaskRun.objects.create(task=task, team=self.team, artifacts=[])
+        run_b = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            artifacts=[],
+            state={"resume_from_run_id": str(run_a.id)},
+        )
+        # Patch run_a to point back at run_b — circular.
+        run_a.state = {"resume_from_run_id": str(run_b.id)}
+        run_a.save(update_fields=["state"])
+
+        result = run_b.find_artifact_in_resume_chain("tasks/missing.pack")
+        self.assertIsNone(result)
+
+    def test_find_artifact_in_resume_chain_does_not_cross_tasks(self):
+        """Resume chain lookup is scoped to the same task — sibling tasks are invisible."""
+
+        task_a = self.create_task(title="A")
+        task_b = self.create_task(title="B")
+        storage_path = "tasks/artifacts/team_1/task_a/run/artifact.pack"
+
+        prior_run_on_a = TaskRun.objects.create(
+            task=task_a,
+            team=self.team,
+            artifacts=[{"id": "a", "name": "artifact.pack", "storage_path": storage_path}],
+        )
+        # Run on task B references a run from task A — should not resolve.
+        run_on_b = TaskRun.objects.create(
+            task=task_b,
+            team=self.team,
+            artifacts=[],
+            state={"resume_from_run_id": str(prior_run_on_a.id)},
+        )
+
+        self.assertIsNone(run_on_b.find_artifact_in_resume_chain(storage_path))
+
+    def test_walk_resume_chain_single_run(self):
+        """A run with no resume_from_run_id resolves to a 1-element chain."""
+
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team)
+
+        chain = run.get_resume_chain()
+        self.assertEqual([r.id for r in chain], [run.id])
+
+    def test_walk_resume_chain_multi_hop_ordered_oldest_first(self):
+        """Chain returns oldest-ancestor → ... → parent → this in order."""
+
+        task = self.create_task()
+        root = TaskRun.objects.create(task=task, team=self.team)
+        middle = TaskRun.objects.create(task=task, team=self.team, state={"resume_from_run_id": str(root.id)})
+        leaf = TaskRun.objects.create(task=task, team=self.team, state={"resume_from_run_id": str(middle.id)})
+
+        chain = leaf.get_resume_chain()
+        self.assertEqual([r.id for r in chain], [root.id, middle.id, leaf.id])
+
+    def test_walk_resume_chain_handles_cycle(self):
+        """A circular `resume_from_run_id` chain doesn't loop forever."""
+
+        task = self.create_task()
+        run_a = TaskRun.objects.create(task=task, team=self.team)
+        run_b = TaskRun.objects.create(task=task, team=self.team, state={"resume_from_run_id": str(run_a.id)})
+        run_a.state = {"resume_from_run_id": str(run_b.id)}
+        run_a.save(update_fields=["state"])
+
+        chain = run_b.get_resume_chain()
+        self.assertEqual({r.id for r in chain}, {run_a.id, run_b.id})
+
+    def test_walk_resume_chain_respects_max_depth(self):
+        task = self.create_task()
+        prior: TaskRun | None = None
+        runs: list[TaskRun] = []
+        for _ in range(5):
+            current = TaskRun.objects.create(
+                task=task,
+                team=self.team,
+                state={"resume_from_run_id": str(prior.id)} if prior else {},
+            )
+            runs.append(current)
+            prior = current
+
+        chain = runs[-1].get_resume_chain(max_depth=2)
+        # max_depth=2 means we walk at most 2 hops back from the leaf, so the
+        # chain should contain exactly 3 entries (leaf + 2 ancestors).
+        self.assertEqual(len(chain), 3)
+
+    def test_walk_resume_chain_does_not_cross_tasks(self):
+        task_a = self.create_task(title="A")
+        task_b = self.create_task(title="B")
+
+        run_on_a = TaskRun.objects.create(task=task_a, team=self.team)
+        run_on_b = TaskRun.objects.create(task=task_b, team=self.team, state={"resume_from_run_id": str(run_on_a.id)})
+
+        chain = run_on_b.get_resume_chain()
+        # Walker is scoped via `task_run.task.runs.filter(...)` so a stale
+        # cross-task `resume_from_run_id` is silently dropped.
+        self.assertEqual([r.id for r in chain], [run_on_b.id])
+
+    @parameterized.expand(
+        [
+            (
+                "chained_returns_ancestors_first",
+                True,  # has_ancestor
+                {"a": '{"notification":{"method":"_posthog/git_checkpoint","params":{"checkpointId":"ckpt-A"}}}\n'},
+                '{"notification":{"method":"session/update","params":{"update":{"sessionUpdate":"agent_message"}}}}\n',
+                [
+                    '{"notification":{"method":"_posthog/git_checkpoint","params":{"checkpointId":"ckpt-A"}}}',
+                    '{"notification":{"method":"session/update","params":{"update":{"sessionUpdate":"agent_message"}}}}',
+                ],
+            ),
+            (
+                "unchained_returns_only_own_log",
+                False,
+                {},
+                '{"hello":"world"}\n',
+                ['{"hello":"world"}'],
+            ),
+            (
+                "skips_missing_ancestor_logs",
+                True,
+                {"a": None},
+                '{"only":"b"}\n',
+                ['{"only":"b"}'],
+            ),
+        ]
+    )
+    @patch("posthog.storage.object_storage.read")
+    def test_logs_endpoint_walks_resume_chain(
+        self,
+        _name: str,
+        has_ancestor: bool,
+        ancestor_logs: dict[str, str | None],
+        own_log: str,
+        expected_lines: list[str],
+        mock_read,
+    ):
+        task = self.create_task()
+        ancestor = TaskRun.objects.create(task=task, team=self.team) if has_ancestor else None
+        target_state = {"resume_from_run_id": str(ancestor.id)} if ancestor else {}
+        target = TaskRun.objects.create(task=task, team=self.team, state=target_state)
+
+        def fake_read(path: str, missing_ok: bool = False) -> str | None:
+            if ancestor and path == ancestor.log_url:
+                return ancestor_logs.get("a")
+            if path == target.log_url:
+                return own_log
+            return None
+
+        mock_read.side_effect = fake_read
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{target.id}/logs/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.content.decode("utf-8").splitlines(), expected_lines)
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_connection_token_returns_jwt(self):

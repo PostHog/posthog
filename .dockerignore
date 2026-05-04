@@ -54,6 +54,7 @@
 !tailwind.config.js
 !test-runner-jest-environment.js
 !test-runner-jest.config.js
+!tools/hogli
 !tsconfig.json
 !unit.json.tpl
 common/*/*/node_modules

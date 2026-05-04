@@ -1,5 +1,10 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "properties": {},
+    "properties": {
+        "connectionId": {
+            "description": "Optional id of an external data source (e.g. a Postgres or DuckDB direct-query connection). When set, returns the schema of that source instead of the ClickHouse catalog. Use external-data-sources-list to discover available connection ids.",
+            "type": "string"
+        }
+    },
     "type": "object"
 }

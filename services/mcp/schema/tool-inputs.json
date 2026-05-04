@@ -826,7 +826,12 @@
         },
         "HogQLSchemaInputSchema": {
             "type": "object",
-            "properties": {}
+            "properties": {
+                "connectionId": {
+                    "description": "Optional id of an external data source (e.g. a Postgres or DuckDB direct-query connection). When set, returns the schema of that source instead of the ClickHouse catalog. Use external-data-sources-list to discover available connection ids.",
+                    "type": "string"
+                }
+            }
         },
         "InsightGenerateHogQLFromQuestionSchema": {
             "type": "object",
@@ -851,6 +856,14 @@
                     "description": "Output format. \"optimized\" returns a human-readable summary from server-side formatters (recommended for analysis). \"json\" returns the raw query results as JSON.",
                     "type": "string",
                     "enum": ["optimized", "json"]
+                },
+                "variables_override": {
+                    "description": "JSON object to override the insight's HogQL variables for this run only (not persisted). Format: {\"<variable_id>\": {\"code_name\": \"<code_name>\", \"variableId\": \"<variable_id>\", \"value\": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `insight-get` first, copy the matching entry from the response's query variables, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.",
+                    "type": "string"
+                },
+                "filters_override": {
+                    "description": "JSON object to override the insight's filters for this run only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.",
+                    "type": "string"
                 }
             },
             "required": ["insightId"]
@@ -2494,6 +2507,10 @@
                                                     "type": "boolean"
                                                 }
                                             }
+                                        },
+                                        "connectionId": {
+                                            "description": "Optional id of an external data source (e.g. a Postgres or DuckDB direct-query connection). When set, the query runs against that source instead of ClickHouse. Use external-data-sources-list to discover available connection ids.",
+                                            "type": "string"
                                         }
                                     },
                                     "required": ["kind", "query"]
@@ -2654,6 +2671,10 @@
                                             "type": "boolean"
                                         }
                                     }
+                                },
+                                "connectionId": {
+                                    "description": "Optional id of an external data source (e.g. a Postgres or DuckDB direct-query connection). When set, the query runs against that source instead of ClickHouse. Use external-data-sources-list to discover available connection ids.",
+                                    "type": "string"
                                 }
                             },
                             "required": ["kind", "query"]
@@ -2676,6 +2697,10 @@
                     "description": "Language to validate. Defaults to 'hogQL' (full SELECT statements). Use 'hogQLExpr' for a bare expression, 'hog' or 'hogTemplate' for Hog source.",
                     "type": "string",
                     "enum": ["hogQL", "hogQLExpr", "hog", "hogTemplate"]
+                },
+                "connectionId": {
+                    "description": "Optional id of an external data source (e.g. a Postgres or DuckDB direct-query connection). When set, validates against that source instead of the ClickHouse catalog. Use external-data-sources-list to discover available connection ids.",
+                    "type": "string"
                 }
             },
             "required": ["query"]
@@ -2823,6 +2848,82 @@
         "SurveyResponseCountsSchema": {
             "type": "object",
             "properties": {}
+        },
+        "UsageMetricFiltersSchema": {
+            "anyOf": [
+                {
+                    "type": "object",
+                    "properties": {
+                        "source": {
+                            "type": "string",
+                            "const": "data_warehouse"
+                        },
+                        "table_name": {
+                            "type": "string",
+                            "description": "Name of a synced data warehouse table. Use `external-data-schemas-list` to discover available tables."
+                        },
+                        "timestamp_field": {
+                            "type": "string",
+                            "description": "Timestamp column or HogQL expression on the row (e.g. \"created\" or \"toDateTime(created_at)\"). Use `execute-sql` (`SELECT * FROM <table> LIMIT 1`) to inspect available columns."
+                        },
+                        "key_field": {
+                            "type": "string",
+                            "description": "Column on the row whose value matches the entity key. v1 supports group profiles only — the column value is compared to the group_key."
+                        }
+                    },
+                    "required": ["source", "table_name", "timestamp_field", "key_field"],
+                    "description": "Data-warehouse-source filter shape."
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "events": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "id": {
+                                        "type": "string",
+                                        "description": "Event name (e.g. \"$pageview\")."
+                                    },
+                                    "name": {
+                                        "type": "string"
+                                    },
+                                    "type": {
+                                        "type": "string",
+                                        "const": "events"
+                                    },
+                                    "order": {
+                                        "type": "integer",
+                                        "minimum": -9007199254740991,
+                                        "maximum": 9007199254740991
+                                    },
+                                    "properties": {
+                                        "type": "array",
+                                        "items": {}
+                                    }
+                                },
+                                "required": ["id"]
+                            },
+                            "description": "Events to count or sum over."
+                        },
+                        "actions": {
+                            "type": "array",
+                            "items": {}
+                        },
+                        "properties": {
+                            "type": "array",
+                            "items": {}
+                        },
+                        "filter_test_accounts": {
+                            "type": "boolean"
+                        }
+                    },
+                    "required": ["events"],
+                    "description": "Events-source filter shape (default)."
+                }
+            ],
+            "description": "Filter definition. Pick exactly one branch: `data_warehouse` (set `source: \"data_warehouse\"` plus `table_name`/`timestamp_field`/`key_field`) or `events` (HogFunction filter shape with an `events` array)."
         }
     }
 }

@@ -34,6 +34,9 @@ export interface ReferrerItem {
 
 export interface SlidingWindowBucket {
     pageviews: number
+    // Total events of the bot-eligible types (the 5 events the bot detector classifies).
+    // Used as the denominator for "% of total" on the bot traffic tile.
+    botEligibleEvents: number
     newUserCount: number
     returningUserCount: number
     devices: Map<string, Set<string>>
@@ -47,6 +50,20 @@ export interface SlidingWindowBucket {
     // Optional so that existing tests and backfill helpers don't have to
     // construct bot maps when they are not asserting on bot traffic.
     bots?: Map<string, { count: number; category: string }>
+}
+
+export const BOT_KEY_SEPARATOR = '|||'
+
+export const BOT_ELIGIBLE_EVENTS = ['$pageview', '$pageleave', '$screen', '$http_log', '$autocapture'] as const
+
+export const buildBotKey = (botName: string, category: string): string => `${botName}${BOT_KEY_SEPARATOR}${category}`
+
+export const parseBotKey = (key: string): { botName: string; category: string } => {
+    const sepIdx = key.indexOf(BOT_KEY_SEPARATOR)
+    if (sepIdx === -1) {
+        return { botName: key, category: '' }
+    }
+    return { botName: key.slice(0, sepIdx), category: key.slice(sepIdx + BOT_KEY_SEPARATOR.length) }
 }
 
 export interface BotBreakdownItem {

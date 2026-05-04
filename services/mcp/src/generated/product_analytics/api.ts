@@ -184,6 +184,12 @@ export const InsightsRetrieveParams = /* @__PURE__ */ zod.object({
 export const insightsRetrieveQueryRefreshDefault = `force_cache`
 
 export const InsightsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    filters_override: zod
+        .string()
+        .optional()
+        .describe(
+            "JSON object to override the insight's filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token."
+        ),
     format: zod.enum(['csv', 'json']).optional(),
     from_dashboard: zod
         .number()
@@ -204,6 +210,12 @@ export const InsightsRetrieveQueryParams = /* @__PURE__ */ zod.object({
         .default(insightsRetrieveQueryRefreshDefault)
         .describe(
             "\nWhether to refresh the insight, how aggresively, and if sync or async:\n- `'force_cache'` - return cached data or a cache miss; always completes immediately as it never calculates\n- `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache\n- `'async'` - kick off background calculation (returning immediately with a query status), UNLESS there are very fresh results in the cache\n- `'lazy_async'` - kick off background calculation, UNLESS there are somewhat fresh results in the cache\n- `'force_blocking'` - calculate synchronously, even if fresh results are already cached\n- `'force_async'` - kick off background calculation, even if fresh results are already cached\nBackground calculation can be tracked using the `query_status` response field."
+        ),
+    variables_override: zod
+        .string()
+        .optional()
+        .describe(
+            'JSON object to override the insight\'s HogQL variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `insight-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.'
         ),
 })
 

@@ -438,7 +438,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
         # ORM path: lightweight values_list queries — no full model instantiation
         person_ids_qs = (
-            PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)
+            PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)  # nosemgrep: no-direct-persons-db-orm
             .filter(team_id=team_id, distinct_id__in=distinct_ids)
             .values_list("person_id", flat=True)
             .distinct()
@@ -446,7 +446,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
         return [
             str(uuid)
-            for uuid in Person.objects.db_manager(READ_DB_FOR_PERSONS)
+            for uuid in Person.objects.db_manager(READ_DB_FOR_PERSONS)  # nosemgrep: no-direct-persons-db-orm
             .filter(team_id=team_id, id__in=person_ids_qs)
             .values_list("uuid", flat=True)
         ]
@@ -616,7 +616,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
         uuids = [
             str(uuid)
-            for uuid in Person.objects.db_manager(READ_DB_FOR_PERSONS)
+            for uuid in Person.objects.db_manager(READ_DB_FOR_PERSONS)  # nosemgrep: no-direct-persons-db-orm
             .filter(team_id=team_id)
             .filter(**filter_kwargs)
             .values_list("uuid", flat=True)
@@ -717,7 +717,12 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             for batch_index, batch in batch_iterator:
                 current_batch_index = batch_index
 
-                persons_query = Person.objects.db_manager(db_read).filter(team_id=team_id).filter(uuid__in=batch)
+                persons_query = (
+                    # nosemgrep: no-direct-persons-db-orm
+                    Person.objects.db_manager(db_read)
+                    .filter(team_id=team_id)
+                    .filter(uuid__in=batch)  # nosemgrep: no-direct-persons-db-orm
+                )  # nosemgrep: no-direct-persons-db-orm
                 if insert_in_clickhouse:
                     # Both querysets must use db_write so Django can merge the
                     # .exclude() into a single NOT IN subquery. Using db_read
@@ -725,10 +730,10 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                     # "Subqueries aren't allowed across different databases"
                     # ValueError when the aliases differ (production config).
                     insert_uuids_query = (
-                        Person.objects.using(db_write)
+                        Person.objects.using(db_write)  # nosemgrep: no-direct-persons-db-orm
                         .filter(team_id=team_id, uuid__in=batch)
                         .exclude(
-                            id__in=CohortPeople.objects.using(db_write)
+                            id__in=CohortPeople.objects.using(db_write)  # nosemgrep: no-direct-persons-db-orm
                             .filter(cohort_id=self.id)
                             .values_list("person_id", flat=True)
                         )
@@ -823,7 +828,9 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             # The delete itself still goes through the ORM — no personhog RPC exists yet
             # for removing a cohort member.
             if is_member:
-                CohortPeople.objects.filter(cohort_id=self.id, person_id=person.id).delete()
+                CohortPeople.objects.filter(  # nosemgrep: no-direct-persons-db-orm
+                    cohort_id=self.id, person_id=person.id
+                ).delete()  # nosemgrep: no-direct-persons-db-orm
             else:
                 # Person not in PG - this is expected when handling CH/PG sync issues
                 logger.info(

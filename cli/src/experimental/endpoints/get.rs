@@ -3,7 +3,7 @@ use colored::Colorize;
 
 use crate::invocation_context::context;
 
-use super::{fetch_endpoint, GetArgs};
+use super::{data_freshness_seconds_to_schedule, fetch_endpoint, GetArgs};
 
 pub fn get_endpoint(args: &GetArgs) -> Result<()> {
     context().capture_command_invoked("endpoints_get");
@@ -60,8 +60,10 @@ pub fn get_endpoint(args: &GetArgs) -> Result<()> {
                     None => "unknown".dimmed(),
                 }
             );
-            if let Some(freq) = &mat.sync_frequency {
-                println!("    Sync frequency: {freq}");
+            if let Some(seconds) = endpoint.data_freshness_seconds {
+                if let Some(schedule) = data_freshness_seconds_to_schedule(seconds) {
+                    println!("    Refresh: {schedule}");
+                }
             }
             if let Some(last) = &mat.last_materialized_at {
                 println!("    Last materialized: {last}");

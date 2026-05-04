@@ -158,15 +158,15 @@ export const PartialUpdateBody = /* @__PURE__ */ zod.object({
 export const MembersUpdateBody = /* @__PURE__ */ zod.object({
     level: zod
         .union([zod.literal(1), zod.literal(8), zod.literal(15)])
-        .describe('* `1` - member\n* `8` - administrator\n* `15` - owner')
-        .optional(),
+        .optional()
+        .describe('* `1` - member\n* `8` - administrator\n* `15` - owner'),
 })
 
 export const MembersPartialUpdateBody = /* @__PURE__ */ zod.object({
     level: zod
         .union([zod.literal(1), zod.literal(8), zod.literal(15)])
-        .describe('* `1` - member\n* `8` - administrator\n* `15` - owner')
-        .optional(),
+        .optional()
+        .describe('* `1` - member\n* `8` - administrator\n* `15` - owner'),
 })
 
 export const rolesCreateBodyNameMax = 200

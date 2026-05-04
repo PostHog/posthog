@@ -2,7 +2,7 @@ import {
     buildKeaFormDefaultFromSourceDetails,
     getDatabaseSchemaPayload,
     getErrorsForFields,
-    getInitialSourceConnectionDetailsValues,
+    mergeRestoredSourceFormValues,
 } from '../sourceWizardLogic'
 
 describe('sourceWizardLogic', () => {
@@ -33,29 +33,6 @@ describe('sourceWizardLogic', () => {
             ).toEqual({
                 access_method: 'warehouse',
                 host: 'localhost',
-            })
-        })
-    })
-
-    describe('getInitialSourceConnectionDetailsValues', () => {
-        it('sets the access method when there are no saved values', () => {
-            expect(getInitialSourceConnectionDetailsValues(undefined, 'direct')).toEqual({
-                access_method: 'direct',
-            })
-        })
-
-        it('keeps a saved access method when one exists', () => {
-            expect(
-                getInitialSourceConnectionDetailsValues(
-                    {
-                        access_method: 'warehouse',
-                        payload: { host: 'localhost' },
-                    },
-                    'direct'
-                )
-            ).toEqual({
-                access_method: 'warehouse',
-                payload: { host: 'localhost' },
             })
         })
     })
@@ -558,6 +535,45 @@ describe('sourceWizardLogic', () => {
                 { allowBlankSensitiveFields: true }
             )
             expect(res.payload.host).toBe('Please enter a host')
+        })
+    })
+
+    describe('mergeRestoredSourceFormValues', () => {
+        const defaults = { prefix: '', description: '', payload: { using_ssl: 'true' } }
+
+        it('uses the URL access_method when there are no saved values', () => {
+            expect(mergeRestoredSourceFormValues(defaults, null, 'direct')).toEqual({
+                prefix: '',
+                description: '',
+                payload: { using_ssl: 'true' },
+                access_method: 'direct',
+            })
+        })
+
+        it('keeps the saved access_method when one exists', () => {
+            // OAuth callback URL doesn't carry access_method forward — saved value must win.
+            const saved = { access_method: 'warehouse', payload: { host: 'localhost' } }
+            expect(mergeRestoredSourceFormValues(defaults, saved, 'direct')).toEqual({
+                prefix: '',
+                description: '',
+                payload: { host: 'localhost' },
+                access_method: 'warehouse',
+            })
+        })
+
+        it('omits access_method when neither saved values nor current state provide one', () => {
+            expect(mergeRestoredSourceFormValues(defaults, null, undefined)).toEqual(defaults)
+        })
+
+        it('overlays saved values on top of connector schema defaults', () => {
+            const saved = { payload: { host: 'foo' } }
+            // saved.payload replaces defaults.payload wholesale (shallow merge)
+            expect(mergeRestoredSourceFormValues(defaults, saved, 'warehouse')).toEqual({
+                prefix: '',
+                description: '',
+                payload: { host: 'foo' },
+                access_method: 'warehouse',
+            })
         })
     })
 })

@@ -20,7 +20,7 @@ AUTO_FILL_KEYS = [
     "SANDBOX_PROVIDER",
     "SANDBOX_MCP_URL",
 ]
-GITHUB_APP_KEYS = ["GITHUB_APP_CLIENT_ID", "GITHUB_APP_SLUG", "GITHUB_APP_PRIVATE_KEY"]
+GITHUB_APP_KEYS = ["GITHUB_APP_CLIENT_ID", "GITHUB_APP_CLIENT_SECRET", "GITHUB_APP_SLUG", "GITHUB_APP_PRIVATE_KEY"]
 # Canonical local-dev redirect URIs for the Array OAuth app (matches
 # posthog/demo/products/hedgebox/matrix.py and docs/published/handbook/engineering/oauth-development-guide.md).
 EXPECTED_REDIRECT_URIS = (
@@ -191,6 +191,7 @@ class Command(BaseCommand):
         self.stdout.write("    5. Add to your .env (the slug is the URL-friendly name from the App URL):")
         self.stdout.write("")
         self.stdout.write('       GITHUB_APP_CLIENT_ID="your_app_id"')
+        self.stdout.write('       GITHUB_APP_CLIENT_SECRET="your_client_secret"')
         self.stdout.write('       GITHUB_APP_SLUG="your-app-slug"')
         self.stdout.write(
             '       GITHUB_APP_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----\\n...\\n-----END RSA PRIVATE KEY-----"'

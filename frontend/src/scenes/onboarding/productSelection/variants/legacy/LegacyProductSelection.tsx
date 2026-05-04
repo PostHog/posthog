@@ -1,14 +1,14 @@
 import { useActions, useValues } from 'kea'
 
 import { IconArrowRight, IconChevronDown, IconCursor } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonCard, LemonLabel, LemonSelect, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCard, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
 
 import { Logomark } from 'lib/brand/Logomark'
 import { getFeatureFlagPayload } from 'lib/logic/featureFlagLogic'
-import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { OnboardingExitAction } from '../../../exit'
 import { UseCaseDefinition } from '../../../productRecommendations'
 import { availableOnboardingProducts, getProductIcon } from '../../../utils'
 import { productSelectionLogic } from '../../productSelectionLogic'
@@ -146,7 +146,6 @@ function ProductSelectionStep(): JSX.Element {
     } = useValues(productSelectionLogic)
     const { toggleProduct, setFirstProductOnboarding, handleStartOnboarding, setShowAllProducts, setStep } =
         useActions(productSelectionLogic)
-    const { showInviteModal } = useActions(inviteLogic)
 
     const availableRecommendedProducts = recommendedProducts.filter(isAvailableOnboardingProductKey)
     const availableOtherProducts = otherProducts.filter(isAvailableOnboardingProductKey)
@@ -245,10 +244,6 @@ function ProductSelectionStep(): JSX.Element {
                     ← Go back
                 </button>
             </div>
-
-            <p className="text-center mt-8 text-muted">
-                Need help from a team member? <Link onClick={() => showInviteModal()}>Invite them</Link>
-            </p>
         </div>
     )
 }
@@ -261,6 +256,7 @@ export function LegacyProductSelection(): JSX.Element {
             <div className="flex flex-col items-center justify-center flex-grow w-full">
                 {currentStep === 'choose_path' && <ChoosePathStep />}
                 {currentStep === 'product_selection' && <ProductSelectionStep />}
+                {currentStep === 'choose_path' && <OnboardingExitAction />}
             </div>
         </div>
     )

@@ -26,6 +26,50 @@ export const ExternalDataSourceTypeSchema = z
         'The source type name (e.g. "Postgres", "MySQL", "Stripe"). Use external-data-sources-wizard to see available types and their required fields.'
     )
 
+const UsageMetricEventsFilterEntrySchema = z.object({
+    id: z.string().describe('Event name (e.g. "$pageview").'),
+    name: z.string().optional(),
+    type: z.literal('events').optional(),
+    order: z.number().int().optional(),
+    properties: z.array(z.unknown()).optional(),
+})
+
+const UsageMetricEventsFiltersSchema = z
+    .object({
+        events: z.array(UsageMetricEventsFilterEntrySchema).describe('Events to count or sum over.'),
+        actions: z.array(z.unknown()).optional(),
+        properties: z.array(z.unknown()).optional(),
+        filter_test_accounts: z.boolean().optional(),
+    })
+    .describe('Events-source filter shape (default).')
+
+const UsageMetricDataWarehouseFiltersSchema = z
+    .object({
+        source: z.literal('data_warehouse'),
+        table_name: z
+            .string()
+            .describe(
+                'Name of a synced data warehouse table. Use `external-data-schemas-list` to discover available tables.'
+            ),
+        timestamp_field: z
+            .string()
+            .describe(
+                'Timestamp column or HogQL expression on the row (e.g. "created" or "toDateTime(created_at)"). Use `execute-sql` (`SELECT * FROM <table> LIMIT 1`) to inspect available columns.'
+            ),
+        key_field: z
+            .string()
+            .describe(
+                'Column on the row whose value matches the entity key. v1 supports group profiles only — the column value is compared to the group_key.'
+            ),
+    })
+    .describe('Data-warehouse-source filter shape.')
+
+export const UsageMetricFiltersSchema = z
+    .union([UsageMetricDataWarehouseFiltersSchema, UsageMetricEventsFiltersSchema])
+    .describe(
+        'Filter definition. Pick exactly one branch: `data_warehouse` (set `source: "data_warehouse"` plus `table_name`/`timestamp_field`/`key_field`) or `events` (HogFunction filter shape with an `events` array).'
+    )
+
 export const PromptListInputSchema = z.object({
     search: z.string().optional().describe('Optional substring filter applied to prompt names and prompt content.'),
     content: z
@@ -290,6 +334,18 @@ export const InsightQueryInputSchema = z.object({
         .describe(
             'Output format. "optimized" returns a human-readable summary from server-side formatters (recommended for analysis). "json" returns the raw query results as JSON.'
         ),
+    variables_override: z
+        .string()
+        .optional()
+        .describe(
+            'JSON object to override the insight\'s HogQL variables for this run only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `insight-get` first, copy the matching entry from the response\'s query variables, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.'
+        ),
+    filters_override: z
+        .string()
+        .optional()
+        .describe(
+            "JSON object to override the insight's filters for this run only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token."
+        ),
 })
 
 export const LLMAnalyticsGetCostsSchema = z.object({
@@ -356,7 +412,14 @@ export const QueryRunInputSchema = z.object({
     query: QueryRunQuerySchema,
 })
 
-export const HogQLSchemaInputSchema = z.object({})
+export const HogQLSchemaInputSchema = z.object({
+    connectionId: z
+        .string()
+        .optional()
+        .describe(
+            'Optional id of an external data source (e.g. a Postgres or DuckDB direct-query connection). When set, returns the schema of that source instead of the ClickHouse catalog. Use external-data-sources-list to discover available connection ids.'
+        ),
+})
 
 export const QueryValidateInputSchema = z.object({
     query: z
@@ -370,6 +433,12 @@ export const QueryValidateInputSchema = z.object({
         .default('hogQL')
         .describe(
             "Language to validate. Defaults to 'hogQL' (full SELECT statements). Use 'hogQLExpr' for a bare expression, 'hog' or 'hogTemplate' for Hog source."
+        ),
+    connectionId: z
+        .string()
+        .optional()
+        .describe(
+            'Optional id of an external data source (e.g. a Postgres or DuckDB direct-query connection). When set, validates against that source instead of the ClickHouse catalog. Use external-data-sources-list to discover available connection ids.'
         ),
 })
 

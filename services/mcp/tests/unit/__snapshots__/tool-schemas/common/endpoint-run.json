@@ -27,15 +27,9 @@
             "description": "Number of results to skip. Must be used together with limit. Only supported for HogQL endpoints."
         },
         "refresh": {
-            "anyOf": [
-                {
-                    "enum": ["cache", "force", "direct"],
-                    "type": "string"
-                },
-                {
-                    "type": "null"
-                }
-            ]
+            "default": "cache",
+            "enum": ["cache", "force", "direct"],
+            "type": "string"
         },
         "variables": {
             "anyOf": [
