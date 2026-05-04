@@ -68,7 +68,6 @@ Add a new boot module by creating a file that calls one of the `register_*` help
 
 ```text
 tools/hogli-commands/
-├── pyproject.toml        # Workspace member; light base deps + `full` extra
 └── hogli_commands/
     ├── __init__.py       # Only the common/ sys.path workaround
     ├── prechecks.py      # Boot module — registers the migrations precheck
@@ -81,6 +80,8 @@ tools/hogli-commands/
     ├── devenv/           # Intent-based dev environment subpackage (lazy)
     └── product/          # Product scaffolding subpackage (lazy)
 ```
+
+This directory is not packaged or installed — the hogli framework loads `hogli_commands` from disk at runtime via `config.commands_dir` in `/hogli.yaml`. Runtime dependencies (`click`, `pyyaml`, `pydantic`, `requests`) are declared in the root `/pyproject.toml` alongside the rest of the monorepo.
 
 ## Tips
 
