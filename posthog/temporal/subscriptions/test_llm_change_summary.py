@@ -431,7 +431,7 @@ class TestGenerateChangeSummary:
         team = SimpleNamespace(id=42)
         current = [_make_state(1, "Pageviews", "...", timestamp="2025-04-15T10:00:00Z")]
 
-        generate_change_summary(None, current, team=team, delivery_id="abc-123")
+        generate_change_summary(None, current, team=team, delivery_id="abc-123")  # type: ignore[arg-type]
 
         call_kwargs = mock_client.chat.completions.create.call_args.kwargs
         assert call_kwargs["posthog_properties"]["$ai_billable"] is True
@@ -454,3 +454,55 @@ class TestGenerateChangeSummary:
         assert "$ai_billable" not in call_kwargs["posthog_properties"]
         assert "team_id" not in call_kwargs["posthog_properties"]
         assert "posthog_groups" not in call_kwargs
+
+    def test_get_openai_client_raises_when_api_key_missing(self, monkeypatch):
+        from posthog.temporal.subscriptions.llm_change_summary import _get_openai_client
+
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        with pytest.raises(ValueError, match="OPENAI_API_KEY"):
+            _get_openai_client()
+
+    def test_emits_ai_generation_event_with_billing_properties(self, monkeypatch):
+        from unittest.mock import MagicMock
+
+        monkeypatch.setenv("OPENAI_API_KEY", "test-fake-key")
+
+        captured_calls: list[dict] = []
+
+        def fake_capture(*args, **kwargs):
+            captured_calls.append(kwargs)
+
+        monkeypatch.setattr("posthoganalytics.capture", fake_capture)
+
+        usage_details = MagicMock()
+        usage_details.cached_tokens = 0
+        usage_details.reasoning_tokens = 0
+        usage = MagicMock()
+        usage.prompt_tokens = 10
+        usage.completion_tokens = 5
+        usage.prompt_tokens_details = usage_details
+        usage.completion_tokens_details = usage_details
+        choice = MagicMock()
+        choice.message.content = "- ok"
+        choice.message.tool_calls = None
+        choice.finish_reason = "stop"
+        fake_response = MagicMock()
+        fake_response.choices = [choice]
+        fake_response.usage = usage
+        fake_response.model = "gpt-4.1-mini"
+
+        team = SimpleNamespace(id=42)
+        current = [_make_state(1, "Pageviews", "...", timestamp="2025-04-15T10:00:00Z")]
+
+        with patch("openai.resources.chat.completions.Completions.create", return_value=fake_response):
+            generate_change_summary(None, current, team=team, delivery_id="abc-123")  # type: ignore[arg-type]
+
+        ai_generation_calls = [c for c in captured_calls if c.get("event") == "$ai_generation"]
+        assert len(ai_generation_calls) == 1, (
+            f"expected exactly one $ai_generation capture, got events: {[c.get('event') for c in captured_calls]}"
+        )
+        captured = ai_generation_calls[0]
+        assert captured["properties"]["$ai_billable"] is True
+        assert captured["properties"]["team_id"] == 42
+        assert captured["properties"]["ai_product"] == "subscriptions"
+        assert captured["groups"] == {"project": "42"}

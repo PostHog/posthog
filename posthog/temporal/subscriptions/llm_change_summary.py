@@ -321,7 +321,7 @@ def _attach_images_to_user_message(
 def _get_openai_client() -> OpenAI:
     if not os.environ.get("OPENAI_API_KEY"):
         raise ValueError("OPENAI_API_KEY environment variable not set")
-    return OpenAI(posthog_client=posthoganalytics, base_url=settings.OPENAI_BASE_URL, max_retries=3)
+    return OpenAI(posthog_client=posthoganalytics, base_url=settings.OPENAI_BASE_URL, max_retries=3)  # type: ignore[arg-type]
 
 
 def generate_change_summary(
@@ -370,12 +370,12 @@ def generate_change_summary(
         posthog_properties["team_id"] = team.id
         extra_capture_kwargs["posthog_groups"] = {"project": str(team.id)}
 
-    result = client.chat.completions.create(
+    result = client.chat.completions.create(  # type: ignore[call-overload]
         model="gpt-4.1-mini",
         temperature=0.3,
         max_tokens=500,
         timeout=60,
-        messages=messages,  # type: ignore[arg-type]
+        messages=messages,
         user=user_tag,
         posthog_distinct_id=user_tag,
         posthog_properties=posthog_properties,
