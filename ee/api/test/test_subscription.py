@@ -624,30 +624,32 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert response.json()["title"] == "renamed while over the cap"
         assert response.json()["summary_enabled"] is True
 
-    def test_summary_quota_endpoint_reports_active_count_and_limit(self) -> None:
+    @parameterized.expand(
+        [
+            ("under_limit", 3, 10, False),
+            ("at_limit", 5, 5, True),
+        ]
+    )
+    def test_summary_quota_endpoint(
+        self,
+        _name: str,
+        active_count: int,
+        limit: int,
+        expected_at_limit: bool,
+    ) -> None:
+        cache.clear()
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
-        self._seed_active_summary_subscriptions(3)
+        self._seed_active_summary_subscriptions(active_count)
 
-        with patch("ee.api.subscription.get_organization_limit", return_value=10):
+        with patch("ee.api.subscription.get_organization_limit", return_value=limit):
             response = self.client.get(f"/api/projects/{self.team.id}/subscriptions/summary_quota")
 
         assert response.status_code == status.HTTP_200_OK, response.content
         payload = response.json()
-        assert payload["active_count"] == 3
-        assert payload["limit"] == 10
-        assert payload["at_limit"] is False
-
-    def test_summary_quota_endpoint_at_limit(self) -> None:
-        self.organization.is_ai_data_processing_approved = True
-        self.organization.save()
-        self._seed_active_summary_subscriptions(5)
-
-        with patch("ee.api.subscription.get_organization_limit", return_value=5):
-            response = self.client.get(f"/api/projects/{self.team.id}/subscriptions/summary_quota")
-
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json()["at_limit"] is True
+        assert payload["active_count"] == active_count
+        assert payload["limit"] == limit
+        assert payload["at_limit"] is expected_at_limit
 
     def test_summary_quota_endpoint_uses_cache_and_invalidates_on_save(self) -> None:
         # Tight integration check: hot path is the cached read; mutating a
