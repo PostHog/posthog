@@ -157,6 +157,9 @@ class TestThresholdCalculationMath:
                 result3 = await calculate_percentile_thresholds(input_data)
 
                 # All results should be identical
+                assert result1 is not None
+                assert result2 is not None
+                assert result3 is not None
                 assert result1.min_threshold_ms == result2.min_threshold_ms == result3.min_threshold_ms
                 assert result1.max_threshold_ms == result2.max_threshold_ms == result3.max_threshold_ms
 
@@ -183,11 +186,13 @@ class TestThresholdCalculationMath:
                 # Test p0 edge case
                 p0_input = QueryPercentileThresholdsInput(min_percentile=0.0, max_percentile=10.0)
                 p0_result = await calculate_percentile_thresholds(p0_input)
+                assert p0_result is not None
                 assert p0_result.min_threshold_ms == 0  # p0 should always be 0
 
                 # Test p100 edge case
                 p100_input = QueryPercentileThresholdsInput(min_percentile=99.0, max_percentile=100.0)
                 p100_result = await calculate_percentile_thresholds(p100_input)
+                assert p100_result is not None
                 assert p100_result.max_threshold_ms == max(durations)  # p100 should be actual max
 
     @pytest.mark.asyncio
@@ -263,6 +268,8 @@ class TestThresholdCalculationMath:
                 p50_p80_result = await calculate_percentile_thresholds(p50_p80_input)
 
                 # Verify no overlap (the bug we fixed)
+                assert p0_p50_result is not None
+                assert p50_p80_result is not None
                 assert p0_p50_result.max_threshold_ms == p50_p80_result.min_threshold_ms, (
                     f"OVERLAP DETECTED: p0-p50 max ({p0_p50_result.max_threshold_ms}) != p50-p80 min ({p50_p80_result.min_threshold_ms})"
                 )
