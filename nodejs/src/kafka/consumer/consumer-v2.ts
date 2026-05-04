@@ -312,10 +312,11 @@ export class KafkaConsumerV2 {
         const result: EachBatchResult = await eachBatch(messages)
         consumedBatchDuration.labels(this.config.topic, this.config.groupId).observe(Date.now() - startMs)
 
-        // Re-check state once more before tracking. Same reason: REVOKE during eachBatch.
-        // If we transitioned to DRAINING, we still want this task tracked so it gets drained —
-        // since `inFlight` is the source of truth for drainAll(). The generation tag ensures
-        // its storeOffsets is skipped if the rebalance has already incremented generation.
+        // Intentionally NOT re-checking state here. Even if a REVOKE fired during eachBatch
+        // and we're now DRAINING, we still want this task tracked so drainAll() awaits it —
+        // `inFlight` is the source of truth for drainAll(). The generation tag passed to
+        // trackTask() ensures its storeOffsets call is skipped if the rebalance has already
+        // bumped `this.generation`.
         const offsets = findOffsetsToCommit(messages)
         this.trackTask(result, offsets, this.generation)
         await this.applyBackpressure()

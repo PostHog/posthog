@@ -143,7 +143,12 @@ function makeConsumer(
         'metadata.broker.list': KAFKA_HOSTS,
         'session.timeout.ms': 10_000,
     } as Record<string, unknown>)
-    void consumer.connect(async (msgs: Message[]) => eachBatch(consumerId, msgs))
+    void consumer
+        .connect(async (msgs: Message[]) => eachBatch(consumerId, msgs))
+        .catch((err: unknown) => {
+            // Surface the real cause instead of letting waitForAssignments time out generically.
+            throw new Error(`Consumer ${consumerId} failed to connect: ${String(err)}`)
+        })
     return consumer
 }
 
