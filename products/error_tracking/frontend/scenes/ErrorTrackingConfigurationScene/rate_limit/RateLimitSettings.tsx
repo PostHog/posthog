@@ -39,8 +39,8 @@ export function RateLimitSettings(): JSX.Element {
             </div>
 
             <Form logic={rateLimitConfigLogic} formKey="configForm" enableFormOnSubmit>
-                <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
-                    <div className="md:col-span-1 space-y-2">
+                <div className="grid grid-cols-1 md:grid-cols-10 gap-6">
+                    <div className="md:col-span-3 space-y-2">
                         <LemonField name="rate_limit_per_hour" label="Exceptions per hour">
                             {({ value, onChange }) => (
                                 <LemonInput
@@ -70,7 +70,7 @@ export function RateLimitSettings(): JSX.Element {
                         </div>
                     </div>
 
-                    <div className="md:col-span-4">
+                    <div className="md:col-span-7">
                         <div className="text-sm font-medium mb-1">
                             Reference - per hour rates for this project for the last 7 days
                         </div>
@@ -154,9 +154,9 @@ function RateLimitSimulationChart({
     )
 
     return (
-        <div className="border rounded p-1 h-80">
+        <div className="h-80 border rounded">
             <LineGraph
-                className="h-full"
+                className="h-full p-4"
                 xData={xData}
                 yData={yData}
                 visualizationType={ChartDisplayType.ActionsBar}
