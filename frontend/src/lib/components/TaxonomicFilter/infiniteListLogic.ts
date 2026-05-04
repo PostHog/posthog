@@ -31,7 +31,14 @@ import { createFuse } from 'lib/utils/fuseSearch'
 import { mapGroupQueryResponse } from 'lib/utils/groups'
 
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
-import { CohortType, EventDefinition, GroupTypeIndex, PropertyType } from '~/types'
+import {
+    CohortType,
+    EventDefinition,
+    GroupTypeIndex,
+    PropertyFilterType,
+    PropertyOperator,
+    PropertyType,
+} from '~/types'
 
 import { teamLogic } from '../../../scenes/teamLogic'
 import { captureTimeToSeeData } from '../../internalMetrics'
@@ -428,18 +435,38 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             (listGroupType, activeTab): boolean => listGroupType === activeTab,
         ],
         contextFilteredRecentItems: [
-            (s) => [s.recentFilterItems, s.taxonomicGroupTypes],
+            (s) => [
+                s.recentFilterItems,
+                s.taxonomicGroupTypes,
+                (_, props: InfiniteListLogicProps) => props.exactMatchFeatureFlagCohortOperators,
+            ],
             (
                 recentFilterItems: TaxonomicDefinitionTypes[],
-                taxonomicGroupTypes: TaxonomicFilterGroupType[]
+                taxonomicGroupTypes: TaxonomicFilterGroupType[],
+                exactMatchFeatureFlagCohortOperators: boolean | undefined
             ): TaxonomicDefinitionTypes[] => {
                 if (!recentFilterItems?.length) {
                     return []
                 }
                 const availableTypes = new Set(taxonomicGroupTypes)
-                return recentFilterItems.filter(
-                    (item) => hasRecentContext(item) && availableTypes.has(item._recentContext.sourceGroupType)
-                )
+                return recentFilterItems.filter((item) => {
+                    if (!hasRecentContext(item) || !availableTypes.has(item._recentContext.sourceGroupType)) {
+                        return false
+                    }
+                    // Feature flag release conditions only allow `in` for cohort filters
+                    // (see PR #25149). Hide non-`in` cohort recents so users can't pick
+                    // an operator the surrounding UI is intentionally hiding.
+                    if (exactMatchFeatureFlagCohortOperators) {
+                        const recentFilter = item._recentContext.propertyFilter
+                        if (
+                            recentFilter?.type === PropertyFilterType.Cohort &&
+                            recentFilter.operator !== PropertyOperator.In
+                        ) {
+                            return false
+                        }
+                    }
+                    return true
+                })
             },
         ],
         contextFilteredPinnedItems: [

@@ -115,6 +115,10 @@ export interface TaxonomicFilterProps {
      *  query matches a known autocapture interaction keyword. Consumers must handle
      *  `isQuickFilterItem(item)` in their onChange to avoid mis-selecting as an event name. */
     enableKeywordShortcuts?: boolean
+    /** Feature flag release conditions only support `in` for cohort filters. When set, recent
+     *  cohort filters that use any other operator are hidden from the Recent tab so they can't
+     *  silently leak into the picker (see PR #25149). */
+    exactMatchFeatureFlagCohortOperators?: boolean
 }
 
 export interface DataWarehousePopoverField {

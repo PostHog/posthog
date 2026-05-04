@@ -109,6 +109,7 @@ export function TaxonomicPropertyFilter({
         propertyAllowList,
         excludedProperties,
         endpointFilters,
+        exactMatchFeatureFlagCohortOperators,
     })
     const { dropdownOpen, activeTaxonomicGroup } = useValues(logic)
     const filter = filters[index] ? sanitizePropertyFilter(filters[index]) : null
@@ -176,6 +177,7 @@ export function TaxonomicPropertyFilter({
             selectFirstItem={!cohortOrOtherValue}
             endpointFilters={endpointFilters}
             hogQLGlobals={hogQLGlobals}
+            exactMatchFeatureFlagCohortOperators={exactMatchFeatureFlagCohortOperators}
             enableKeywordShortcuts
         />
     )

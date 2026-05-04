@@ -104,7 +104,18 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
         },
         selectItem: ({ taxonomicGroup, propertyKey, itemPropertyFilterType, item }) => {
             if (item?._recentContext?.propertyFilter) {
-                props.setFilter(props.filterIndex, item._recentContext.propertyFilter)
+                let recentFilter = item._recentContext.propertyFilter as AnyPropertyFilter
+                // Feature flag release conditions only support `in` for cohort filters. A recent
+                // cohort filter captured elsewhere (e.g. Insights) may carry `not_in`, so coerce
+                // it back to `in` rather than silently applying a disallowed operator.
+                if (
+                    props.exactMatchFeatureFlagCohortOperators &&
+                    recentFilter.type === PropertyFilterType.Cohort &&
+                    recentFilter.operator !== PropertyOperator.In
+                ) {
+                    recentFilter = { ...recentFilter, operator: PropertyOperator.In } as CohortPropertyFilter
+                }
+                props.setFilter(props.filterIndex, recentFilter)
                 actions.closeDropdown()
                 return
             }

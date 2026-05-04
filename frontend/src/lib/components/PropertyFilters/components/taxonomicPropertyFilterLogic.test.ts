@@ -242,6 +242,97 @@ describe('taxonomicPropertyFilterLogic', () => {
         recentLogic.unmount()
     })
 
+    it('coerces a recent cohort filter with non-`in` operator to `in` when exactMatchFeatureFlagCohortOperators is set', async () => {
+        const setFilter = jest.fn()
+        const flagLogic = taxonomicPropertyFilterLogic({
+            filters: [],
+            setFilter,
+            taxonomicGroupTypes: [TaxonomicFilterGroupType.Cohorts],
+            filterIndex: 0,
+            pageKey: 'testRecentCohortFlag',
+            exactMatchFeatureFlagCohortOperators: true,
+        })
+        flagLogic.mount()
+
+        const recentGroup = {
+            type: TaxonomicFilterGroupType.RecentFilters,
+            name: 'Recent',
+            searchPlaceholder: 'recent filters',
+        } as TaxonomicFilterGroup
+
+        const recentItem = {
+            name: 'Power Users',
+            _recentContext: {
+                sourceGroupType: TaxonomicFilterGroupType.Cohorts,
+                sourceGroupName: 'Cohorts',
+                propertyFilter: {
+                    key: 'id',
+                    value: 42,
+                    operator: PropertyOperator.NotIn,
+                    type: PropertyFilterType.Cohort,
+                    cohort_name: 'Power Users',
+                },
+            },
+        }
+
+        flagLogic.actions.selectItem(recentGroup, 42, undefined, recentItem)
+
+        expect(setFilter).toHaveBeenCalledWith(0, {
+            key: 'id',
+            value: 42,
+            operator: PropertyOperator.In,
+            type: PropertyFilterType.Cohort,
+            cohort_name: 'Power Users',
+        })
+
+        flagLogic.unmount()
+    })
+
+    it('preserves a recent cohort filter with non-`in` operator when exactMatchFeatureFlagCohortOperators is not set', async () => {
+        const setFilter = jest.fn()
+        const insightLogic = taxonomicPropertyFilterLogic({
+            filters: [],
+            setFilter,
+            taxonomicGroupTypes: [TaxonomicFilterGroupType.Cohorts],
+            filterIndex: 0,
+            pageKey: 'testRecentCohortInsight',
+        })
+        insightLogic.mount()
+
+        const recentGroup = {
+            type: TaxonomicFilterGroupType.RecentFilters,
+            name: 'Recent',
+            searchPlaceholder: 'recent filters',
+        } as TaxonomicFilterGroup
+
+        const recentItem = {
+            name: 'Power Users',
+            _recentContext: {
+                sourceGroupType: TaxonomicFilterGroupType.Cohorts,
+                sourceGroupName: 'Cohorts',
+                propertyFilter: {
+                    key: 'id',
+                    value: 42,
+                    operator: PropertyOperator.NotIn,
+                    type: PropertyFilterType.Cohort,
+                    cohort_name: 'Power Users',
+                },
+            },
+        }
+
+        insightLogic.actions.selectItem(recentGroup, 42, undefined, recentItem)
+
+        expect(setFilter).toHaveBeenCalledWith(0, {
+            key: 'id',
+            value: 42,
+            operator: PropertyOperator.NotIn,
+            type: PropertyFilterType.Cohort,
+            cohort_name: 'Power Users',
+        })
+
+        insightLogic.unmount()
+    })
+
     it('creates a complete property filter from a QuickFilterItem', async () => {
         const setFilter = jest.fn()
         const quickLogic = taxonomicPropertyFilterLogic({

@@ -3,6 +3,7 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic, partial } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { recentTaxonomicFiltersLogic } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsSceneLogic'
@@ -10,7 +11,7 @@ import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { mockEventDefinitions, mockEventPropertyDefinitions } from '~/test/mocks'
-import { AppContext, PropertyDefinition, PropertyType } from '~/types'
+import { AppContext, PropertyDefinition, PropertyFilterType, PropertyOperator, PropertyType } from '~/types'
 
 import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
 
@@ -870,6 +871,110 @@ describe('infiniteListLogic', () => {
             } else {
                 expect(emptyCalls).toHaveLength(0)
             }
+        })
+    })
+
+    describe('contextFilteredRecentItems', () => {
+        // Recent cohort filters can carry any operator the user previously chose elsewhere
+        // (insights, recordings, etc). Feature flag release conditions intentionally hide
+        // the operator dropdown for cohorts (only `in` is supported), so a non-`in` recent
+        // must not surface here — otherwise picking it would silently apply `not_in`.
+        const recentCohortIn = {
+            name: 'Power Users',
+            _recentContext: {
+                sourceGroupType: TaxonomicFilterGroupType.Cohorts,
+                sourceGroupName: 'Cohorts',
+                propertyFilter: {
+                    type: PropertyFilterType.Cohort,
+                    key: 'id',
+                    value: 1,
+                    operator: PropertyOperator.In,
+                    cohort_name: 'Power Users',
+                },
+            },
+        }
+        const recentCohortNotIn = {
+            name: 'Trial Users',
+            _recentContext: {
+                sourceGroupType: TaxonomicFilterGroupType.Cohorts,
+                sourceGroupName: 'Cohorts',
+                propertyFilter: {
+                    type: PropertyFilterType.Cohort,
+                    key: 'id',
+                    value: 2,
+                    operator: PropertyOperator.NotIn,
+                    cohort_name: 'Trial Users',
+                },
+            },
+        }
+        const recentEventProperty = {
+            name: '$browser',
+            _recentContext: {
+                sourceGroupType: TaxonomicFilterGroupType.EventProperties,
+                sourceGroupName: 'Event properties',
+                propertyFilter: {
+                    type: PropertyFilterType.Event,
+                    key: '$browser',
+                    value: 'Chrome',
+                    operator: PropertyOperator.Exact,
+                },
+            },
+        }
+
+        const seedRecents = (items: Record<string, any>[]): void => {
+            const recentLogic = recentTaxonomicFiltersLogic.build()
+            recentLogic.mount()
+            for (const item of items) {
+                recentLogic.actions.recordRecentFilter(
+                    item._recentContext.sourceGroupType,
+                    item._recentContext.sourceGroupName,
+                    item._recentContext.propertyFilter.value,
+                    { name: item.name },
+                    undefined,
+                    item._recentContext.propertyFilter
+                )
+            }
+        }
+
+        it('hides recent cohort filters with non-`in` operators when exactMatchFeatureFlagCohortOperators is set', () => {
+            seedRecents([recentCohortIn, recentCohortNotIn, recentEventProperty])
+
+            const listLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'flag-recents-test',
+                listGroupType: TaxonomicFilterGroupType.RecentFilters,
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.Cohorts,
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.RecentFilters,
+                ],
+                showNumericalPropsOnly: false,
+                exactMatchFeatureFlagCohortOperators: true,
+            })
+            listLogic.mount()
+
+            const filtered = listLogic.values.contextFilteredRecentItems
+            const cohortValues = filtered
+                .filter((i: any) => i._recentContext?.sourceGroupType === TaxonomicFilterGroupType.Cohorts)
+                .map((i: any) => i._recentContext.propertyFilter.value)
+            expect(cohortValues).toEqual([1])
+            expect(filtered.some((i: any) => i.name === '$browser')).toBe(true)
+        })
+
+        it('keeps non-`in` cohort recents when exactMatchFeatureFlagCohortOperators is not set', () => {
+            seedRecents([recentCohortIn, recentCohortNotIn])
+
+            const listLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'insight-recents-test',
+                listGroupType: TaxonomicFilterGroupType.RecentFilters,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Cohorts, TaxonomicFilterGroupType.RecentFilters],
+                showNumericalPropsOnly: false,
+            })
+            listLogic.mount()
+
+            const cohortValues = listLogic.values.contextFilteredRecentItems
+                .filter((i: any) => i._recentContext?.sourceGroupType === TaxonomicFilterGroupType.Cohorts)
+                .map((i: any) => i._recentContext.propertyFilter.value)
+            expect(cohortValues).toEqual(expect.arrayContaining([1, 2]))
         })
     })
 })
