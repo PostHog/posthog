@@ -9,11 +9,11 @@ from products.notifications.backend.facade.api import (
     NotificationData,
     NotificationType,
     Priority,
+    RecipientsResolver,
     SourceType,
     TargetType,
     create_notification,
 )
-from products.notifications.backend.resolvers import RecipientsResolver
 
 logger = structlog.get_logger(__name__)
 
@@ -41,6 +41,8 @@ def dispatch_issue_assigned_realtime(
     Never raises — caller's email enqueue must succeed independently.
     """
     try:
+        if assignment.team_id is None or assignment.team is None:
+            return
         issue = assignment.issue
         title = f"{assigner.first_name or assigner.email} assigned an issue to you"[:100]
         body = (issue.name or "")[:200]
