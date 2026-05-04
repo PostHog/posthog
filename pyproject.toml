@@ -328,6 +328,7 @@ select = [
     "E",
     "F",
     "I",
+    "PLC0415",
     "RUF005",
     "RUF013",
     "RUF015",
@@ -347,6 +348,21 @@ select = [
 # descriptors into the pool before AddSerializedFile() — ruff must not strip them.
 "posthog/personhog_client/proto/generated/**/*.pyi" = ["F401"]
 "posthog/personhog_client/proto/generated/**/*_pb2.py" = ["F401", "E402"]
+
+# PLC0415 (no inline imports) — Stage 0: grandfathered scopes.
+# New code in unlisted paths is enforced.
+# Note: `products/**` lives in products/ruff.toml (closer config wins for that tree).
+# Note: `services/llm-gateway/**` lives in its own pyproject.toml (closer config wins).
+# To clear an entry: hoist inline imports in scope, then drop the line.
+# Progress check: `ruff check <path> --select PLC0415 --statistics`
+".github/**" = ["PLC0415"]
+"bin/**" = ["PLC0415"]
+"common/**" = ["PLC0415"]
+"ee/**" = ["PLC0415"]
+"manage.py" = ["PLC0415"]
+"posthog/**" = ["PLC0415"]
+"services/stripe-mock/**" = ["PLC0415"]
+"tools/**" = ["PLC0415"]
 
 [tool.ruff.lint.mccabe]
 max-complexity = 10
