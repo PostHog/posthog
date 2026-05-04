@@ -543,3 +543,22 @@ class TestRealtimeDispatchOnResolve(TestApprovalNotifications):
         send_approval_applied_notification(self.change_request)
 
         mock_create_notification.assert_called_once()
+
+    @patch("posthog.approvals.notifications.create_notification")
+    @patch("posthog.approvals.notifications._send_approval_email")
+    def test_body_uses_intent_display_description(self, _mock_email, mock_create_notification):
+        send_approval_applied_notification(self.change_request)
+
+        data = mock_create_notification.call_args.args[0]
+        assert data.body == "Update rollout to 50%"
+
+    @patch("posthog.approvals.notifications.create_notification")
+    @patch("posthog.approvals.notifications._send_approval_email")
+    def test_body_falls_back_to_action_key_when_no_description(self, _mock_email, mock_create_notification):
+        self.change_request.intent_display = {}
+        self.change_request.save()
+
+        send_approval_applied_notification(self.change_request)
+
+        data = mock_create_notification.call_args.args[0]
+        assert data.body == self.change_request.action_key

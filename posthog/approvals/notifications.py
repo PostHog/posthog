@@ -230,7 +230,8 @@ def send_approval_decision_notification(
             error=str(e),
         )
 
-    realtime_body = f"Action: {change_request.action_key}" if is_approved else f"Declined by {approver_name}"
+    summary = _change_summary(change_request)
+    realtime_body = summary if is_approved else f"Declined by {approver_name} — {summary}"
     _dispatch_realtime_resolved(change_request, title=subject, body=realtime_body)
 
 
@@ -262,7 +263,7 @@ def send_approval_expired_notification(change_request: "ChangeRequest") -> None:
     _dispatch_realtime_resolved(
         change_request,
         title="Your change request expired",
-        body=f"Action: {change_request.action_key}",
+        body=_change_summary(change_request),
     )
 
 
@@ -294,5 +295,5 @@ def send_approval_applied_notification(change_request: "ChangeRequest") -> None:
     _dispatch_realtime_resolved(
         change_request,
         title="Your change is now live",
-        body=f"Action: {change_request.action_key}",
+        body=_change_summary(change_request),
     )
