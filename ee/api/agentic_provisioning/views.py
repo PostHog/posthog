@@ -2040,7 +2040,6 @@ ALLOWED_PROVISIONING_SCOPES = {
     "feature_flag:read",
     "insight:read",
     "insight:write",
-    "introspection",
     "llm_gateway:read",
     "organization:read",
     "person:read",
