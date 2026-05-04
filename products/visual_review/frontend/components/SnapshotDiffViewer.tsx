@@ -344,17 +344,6 @@ export function SnapshotDiffViewer({
                         </div>
                     )}
 
-                    {snapshot.cluster_summary && snapshot.cluster_summary.items.length > 0 && (
-                        <div className="mb-3">
-                            <SnapshotClusterPanel
-                                clusterSummary={snapshot.cluster_summary}
-                                totalPixels={diffPixelTotal}
-                                highlightedIndex={highlightedClusterIndex}
-                                onHighlight={setHighlightedClusterIndex}
-                            />
-                        </div>
-                    )}
-
                     <VisualImageDiffViewer
                         key={snapshot.id}
                         baselineUrl={baselineUrl || null}
@@ -371,6 +360,7 @@ export function SnapshotDiffViewer({
                         diffOverlayWidth={snapshot.diff_artifact?.width ?? undefined}
                         diffOverlayHeight={snapshot.diff_artifact?.height ?? undefined}
                         highlightedOverlayIndex={highlightedClusterIndex}
+                        onOverlayHover={setHighlightedClusterIndex}
                     />
                 </div>
 
@@ -381,6 +371,16 @@ export function SnapshotDiffViewer({
                         <DiffMinimap
                             url={snapshot.diff_artifact.download_url}
                             onClick={() => setComparisonMode('diff')}
+                        />
+                    )}
+
+                    {/* === Change clusters === */}
+                    {snapshot.cluster_summary && snapshot.cluster_summary.items.length > 0 && (
+                        <SnapshotClusterPanel
+                            clusterSummary={snapshot.cluster_summary}
+                            totalPixels={diffPixelTotal}
+                            highlightedIndex={highlightedClusterIndex}
+                            onHighlight={setHighlightedClusterIndex}
                         />
                     )}
 

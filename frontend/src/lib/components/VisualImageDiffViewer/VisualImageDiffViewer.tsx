@@ -47,6 +47,9 @@ export interface VisualImageDiffViewerProps {
     diffOverlayHeight?: number
     /** Highlighted cluster index — emphasized in the overlay (filled, opaque). */
     highlightedOverlayIndex?: number | null
+    /** Fires when a user hovers a bbox/number in the overlay. Lets the
+     *  parent sync a sidebar panel's row highlight to the overlay. */
+    onOverlayHover?: (index: number | null) => void
 }
 
 const RESULT_LABELS: Record<VisualDiffResult, string> = {
@@ -87,6 +90,8 @@ interface ImagePanelProps {
     overlayHeight?: number
     /** Highlighted cluster index — that one box renders emphasized. */
     highlightedOverlayIndex?: number | null
+    /** Fires on hover so a parent panel can sync. */
+    onOverlayHover?: (index: number | null) => void
 }
 
 function ImagePanel({
@@ -99,6 +104,7 @@ function ImagePanel({
     overlayWidth,
     overlayHeight,
     highlightedOverlayIndex,
+    onOverlayHover,
 }: ImagePanelProps): JSX.Element {
     const hasOverlay = !!url && !!overlayBoxes && overlayBoxes.length > 0 && !!overlayWidth && !!overlayHeight
     return (
@@ -126,6 +132,7 @@ function ImagePanel({
                             width={overlayWidth!}
                             height={overlayHeight!}
                             highlightedIndex={highlightedOverlayIndex ?? null}
+                            onHover={onOverlayHover}
                         />
                     )}
                 </div>
@@ -143,16 +150,27 @@ interface BboxOverlayProps {
     height: number
     /** When non-null, that box is emphasized (filled) and the others fade. */
     highlightedIndex: number | null
+    /** Fires on hover so the parent can sync sidebar highlight. */
+    onHover?: (index: number | null) => void
 }
 
-function BboxOverlay({ boxes, width, height, highlightedIndex }: BboxOverlayProps): JSX.Element {
+// Warm orange palette to match the mockup — distinct from the
+// blue-tinted "Before/After" labels and the green/red of result tags.
+const OVERLAY_STROKE = 'rgb(245, 134, 52)'
+const OVERLAY_FILL_DEFAULT = 'rgba(245, 134, 52, 0.10)'
+const OVERLAY_FILL_HIGHLIGHT = 'rgba(245, 134, 52, 0.28)'
+
+function BboxOverlay({ boxes, width, height, highlightedIndex, onHover }: BboxOverlayProps): JSX.Element {
     return (
         <>
             <svg
                 // viewBox in the bbox coord space + preserveAspectRatio=none
                 // stretches the SVG to the rendered image's box. With
                 // `vector-effect: non-scaling-stroke` the stroke stays a
-                // constant 2px regardless of how the image is scaled.
+                // constant 2px regardless of how the image is scaled. The
+                // SVG itself stays pointer-events-none so the rects don't
+                // shadow underlying interactions; rects flip to auto so
+                // they can fire hover callbacks for sidebar sync.
                 className="absolute inset-0 w-full h-full pointer-events-none"
                 viewBox={`0 0 ${width} ${height}`}
                 preserveAspectRatio="none"
@@ -167,12 +185,19 @@ function BboxOverlay({ boxes, width, height, highlightedIndex }: BboxOverlayProp
                             y={b.y}
                             width={b.width}
                             height={b.height}
-                            fill={isHighlighted ? 'rgba(0, 200, 255, 0.22)' : 'rgba(0, 200, 255, 0.08)'}
-                            stroke="rgb(0, 200, 255)"
+                            fill={isHighlighted ? OVERLAY_FILL_HIGHLIGHT : OVERLAY_FILL_DEFAULT}
+                            stroke={OVERLAY_STROKE}
                             strokeWidth={isHighlighted ? 3 : 2}
                             strokeDasharray={isHighlighted ? undefined : '4 3'}
-                            opacity={isDimmed ? 0.35 : 1}
+                            opacity={isDimmed ? 0.4 : 1}
                             vectorEffect="non-scaling-stroke"
+                            // eslint-disable-next-line react/forbid-dom-props
+                            style={{
+                                pointerEvents: onHover ? 'auto' : 'none',
+                                cursor: onHover ? 'pointer' : undefined,
+                            }}
+                            onMouseEnter={onHover ? () => onHover(i) : undefined}
+                            onMouseLeave={onHover ? () => onHover(null) : undefined}
                         />
                     )
                 })}
@@ -185,16 +210,21 @@ function BboxOverlay({ boxes, width, height, highlightedIndex }: BboxOverlayProp
                 return (
                     <span
                         key={`label-${i}`}
-                        className="absolute pointer-events-none flex items-center justify-center rounded-full bg-[rgb(0,180,235)] text-white text-[10px] font-semibold tabular-nums shadow-sm"
+                        className="absolute flex items-center justify-center rounded-full text-white text-[11px] font-bold tabular-nums shadow-md ring-1 ring-white/70 transition-transform"
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{
-                            left: `calc(${leftPct}% - 9px)`,
-                            top: `calc(${topPct}% - 9px)`,
-                            width: 18,
-                            height: 18,
-                            opacity: isDimmed ? 0.4 : 1,
-                            outline: isHighlighted ? '2px solid white' : undefined,
+                            left: `calc(${leftPct}% - 11px)`,
+                            top: `calc(${topPct}% - 11px)`,
+                            width: 22,
+                            height: 22,
+                            background: OVERLAY_STROKE,
+                            opacity: isDimmed ? 0.45 : 1,
+                            transform: isHighlighted ? 'scale(1.15)' : undefined,
+                            cursor: onHover ? 'pointer' : undefined,
+                            pointerEvents: onHover ? 'auto' : 'none',
                         }}
+                        onMouseEnter={onHover ? () => onHover(i) : undefined}
+                        onMouseLeave={onHover ? () => onHover(null) : undefined}
                     >
                         {i + 1}
                     </span>
@@ -241,6 +271,7 @@ export function VisualImageDiffViewer({
     diffOverlayWidth,
     diffOverlayHeight,
     highlightedOverlayIndex,
+    onOverlayHover,
     mode: controlledMode,
     onModeChange,
 }: VisualImageDiffViewerProps): JSX.Element {
@@ -249,6 +280,9 @@ export function VisualImageDiffViewer({
     // common matched-size case.
     const overlayCoordWidth = diffOverlayWidth ?? imageWidth
     const overlayCoordHeight = diffOverlayHeight ?? imageHeight
+    const hasOverlayBoxes = !!diffOverlayBoxes && diffOverlayBoxes.length > 0
+    const [showClusters, setShowClusters] = useState(true)
+    const overlayBoxesIfShown = showClusters ? diffOverlayBoxes : undefined
     const supportsComparison = isComparisonResult(result)
     const hasBothImages = Boolean(baselineUrl && currentUrl)
     const hasDiffImage = Boolean(diffUrl)
@@ -360,16 +394,23 @@ export function VisualImageDiffViewer({
                         url={diffUrl}
                         label="Diff"
                         emptyTitle="No diff image available"
-                        overlayBoxes={diffOverlayBoxes}
+                        overlayBoxes={overlayBoxesIfShown}
                         overlayWidth={overlayCoordWidth}
                         overlayHeight={overlayCoordHeight}
                         highlightedOverlayIndex={highlightedOverlayIndex}
+                        onOverlayHover={onOverlayHover}
                     />
                 </div>
             )
         }
 
         if (mode === 'sideBySide') {
+            // Overlay only on the "After" panel — that's the side users
+            // judge against, and bboxes were computed against current.
+            // Skip when the bbox coord space doesn't match the rendered
+            // image (size-mismatch case).
+            const overlaySafeOnAfter =
+                !!overlayBoxesIfShown && overlayCoordWidth === imageWidth && overlayCoordHeight === imageHeight
             return (
                 <div className="flex flex-col gap-3 p-3 lg:flex-row lg:justify-center lg:items-start">
                     <ImagePanel
@@ -385,6 +426,11 @@ export function VisualImageDiffViewer({
                         emptyTitle="After snapshot missing"
                         imgClassName={pixelatedClass}
                         imgStyle={pixelatedStyle}
+                        overlayBoxes={overlaySafeOnAfter ? overlayBoxesIfShown : undefined}
+                        overlayWidth={overlayCoordWidth}
+                        overlayHeight={overlayCoordHeight}
+                        highlightedOverlayIndex={highlightedOverlayIndex}
+                        onOverlayHover={onOverlayHover}
                     />
                 </div>
             )
@@ -483,17 +529,18 @@ export function VisualImageDiffViewer({
                          * in padded coords that don't align with either
                          * baseline or current). */}
                         {mode === 'blend' &&
-                            !!diffOverlayBoxes &&
-                            diffOverlayBoxes.length > 0 &&
+                            !!overlayBoxesIfShown &&
+                            overlayBoxesIfShown.length > 0 &&
                             !!overlayCoordWidth &&
                             !!overlayCoordHeight &&
                             overlayCoordWidth === imageWidth &&
                             overlayCoordHeight === imageHeight && (
                                 <BboxOverlay
-                                    boxes={diffOverlayBoxes}
+                                    boxes={overlayBoxesIfShown}
                                     width={overlayCoordWidth}
                                     height={overlayCoordHeight}
                                     highlightedIndex={highlightedOverlayIndex ?? null}
+                                    onHover={onOverlayHover}
                                 />
                             )}
 
@@ -588,6 +635,15 @@ export function VisualImageDiffViewer({
                     <div className="flex flex-wrap items-center gap-2">
                         <LemonTag type={RESULT_TAG_TYPES[result]}>{RESULT_LABELS[result]}</LemonTag>
                         {diffLabel && <LemonTag type="muted">{diffLabel}</LemonTag>}
+                        {hasOverlayBoxes && (
+                            <LemonSwitch
+                                checked={showClusters}
+                                onChange={setShowClusters}
+                                size="xsmall"
+                                label="Clusters"
+                                bordered
+                            />
+                        )}
                         {isSmallImage && (
                             <LemonTag type="highlight" className="font-bold">
                                 Enlarged 2x for review

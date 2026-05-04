@@ -1,5 +1,3 @@
-import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
-
 import type { ClusterSummaryApi } from '../generated/api.schemas'
 
 interface SnapshotClusterPanelProps {
@@ -14,9 +12,16 @@ function formatNumber(n: number): string {
     return n.toLocaleString('en-US')
 }
 
+// Same warm-orange chip color as the bbox overlay so panel rows and
+// image overlays read as a single visual system.
+const CHIP_BG = 'rgb(245, 134, 52)'
+
 /**
- * Collapsible overview of the diff's connected change regions. Hover a
- * row to highlight the matching bbox in the image overlay.
+ * Sidebar overview of the diff's connected change regions. One row per
+ * region — position, size, pixel count, share-of-image. Rows are
+ * always visible (not collapsible) since the sidebar already gives them
+ * a natural home; hovering a row highlights the matching bbox in the
+ * image overlay, and overlay hover lights up the row.
  *
  * Pixelhog returns up to `CLUSTER_MAX` clusters ranked by pixel count,
  * with `total` carrying the true count when truncated. The header
@@ -34,56 +39,54 @@ export function SnapshotClusterPanel({
     }
     const totalShownPixels = items.reduce((sum, c) => sum + c.pixel_count, 0)
     const regionCountLabel = truncated
-        ? `top ${items.length} of ${total} regions`
+        ? `top ${items.length} of ${total}`
         : `${total} ${total === 1 ? 'region' : 'regions'}`
-    const headerText = `Change clusters · ${regionCountLabel} · ${formatNumber(totalShownPixels)} px`
 
     return (
-        <LemonCollapse
-            embedded
-            className="border rounded-lg bg-bg-light"
-            panels={[
-                {
-                    key: 'clusters',
-                    header: <span className="text-xs font-semibold uppercase tracking-wide">{headerText}</span>,
-                    content: (
-                        <div className="flex flex-col divide-y">
-                            {items.map((cluster, i) => {
-                                const isHighlighted = highlightedIndex === i
-                                const pctOfImage =
-                                    totalPixels && totalPixels > 0 ? (cluster.pixel_count / totalPixels) * 100 : null
-                                return (
-                                    <button
-                                        type="button"
-                                        key={i}
-                                        onMouseEnter={() => onHighlight(i)}
-                                        onMouseLeave={() => onHighlight(null)}
-                                        onFocus={() => onHighlight(i)}
-                                        onBlur={() => onHighlight(null)}
-                                        className={`flex items-center gap-3 px-3 py-2 text-left transition-colors ${
-                                            isHighlighted ? 'bg-primary-highlight' : 'hover:bg-bg-3000'
-                                        }`}
-                                        data-attr="visual-review-cluster-row"
-                                    >
-                                        <span className="shrink-0 inline-flex items-center justify-center w-6 h-6 rounded-full bg-[rgb(0,180,235)] text-white text-[11px] font-semibold tabular-nums">
-                                            {i + 1}
-                                        </span>
-                                        <div className="flex-1 min-w-0 text-xs font-mono tabular-nums">
-                                            <div className="text-default">
-                                                {cluster.x},{cluster.y} · {cluster.width}×{cluster.height}
-                                            </div>
-                                            <div className="text-muted">
-                                                {formatNumber(cluster.pixel_count)} px
-                                                {pctOfImage != null && ` · ${pctOfImage.toFixed(2)}%`}
-                                            </div>
-                                        </div>
-                                    </button>
-                                )
-                            })}
-                        </div>
-                    ),
-                },
-            ]}
-        />
+        <div>
+            <h4 className="text-xs font-semibold text-muted mb-1">Change clusters</h4>
+            <div className="text-[11px] text-muted mb-2 tabular-nums">
+                {regionCountLabel} · {formatNumber(totalShownPixels)} px
+            </div>
+            <div
+                className="flex flex-col rounded-md border bg-bg-light overflow-hidden"
+                onMouseLeave={() => onHighlight(null)}
+            >
+                {items.map((cluster, i) => {
+                    const isHighlighted = highlightedIndex === i
+                    const pctOfImage = totalPixels && totalPixels > 0 ? (cluster.pixel_count / totalPixels) * 100 : null
+                    return (
+                        <button
+                            type="button"
+                            key={i}
+                            onMouseEnter={() => onHighlight(i)}
+                            onFocus={() => onHighlight(i)}
+                            onBlur={() => onHighlight(null)}
+                            className={`flex items-center gap-2 px-2 py-1.5 text-left border-b last:border-b-0 transition-colors ${
+                                isHighlighted ? 'bg-warning-highlight' : 'hover:bg-bg-3000'
+                            }`}
+                            data-attr="visual-review-cluster-row"
+                        >
+                            <span
+                                className="shrink-0 inline-flex items-center justify-center w-6 h-6 rounded-full text-white text-[11px] font-bold tabular-nums shadow-sm ring-1 ring-white/70"
+                                // eslint-disable-next-line react/forbid-dom-props
+                                style={{ background: CHIP_BG }}
+                            >
+                                {i + 1}
+                            </span>
+                            <div className="flex-1 min-w-0 text-[11px] font-mono tabular-nums leading-tight">
+                                <div className="text-default truncate">
+                                    {cluster.x},{cluster.y} · {cluster.width}×{cluster.height}
+                                </div>
+                                <div className="text-muted">
+                                    {formatNumber(cluster.pixel_count)} px
+                                    {pctOfImage != null && ` · ${pctOfImage.toFixed(2)}%`}
+                                </div>
+                            </div>
+                        </button>
+                    )
+                })}
+            </div>
+        </div>
     )
 }
