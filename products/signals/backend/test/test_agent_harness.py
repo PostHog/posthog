@@ -146,8 +146,8 @@ class TestPromptBuilder(BaseTest):
         # from the prompt. Skill body + file manifest are deliberately NOT
         # inlined — they're discovered at run time.
         assert "First: read your skill" in prompt
-        assert 'skill-get(skill_name="signals-agent-errors")' in prompt
-        assert "skill-file-get" in prompt
+        assert 'llma-skill-get(skill_name="signals-agent-errors")' in prompt
+        assert "llma-skill-file-get" in prompt
         assert "watch for spikes" not in prompt
         assert "refs/playbook.md" not in prompt
         # Second bootstrap step orients the agent on the project via the

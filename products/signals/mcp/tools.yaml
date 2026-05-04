@@ -237,7 +237,7 @@ tools:
             sources, signal source configs (split enabled/disabled), and existing inbox
             report counts. Singleton per team; the response reflects either the newest
             non-expired cached profile or a freshly-built one. Read this once at the start
-            of a run (right after `skill-get`) to orient on the team in one tool call
+            of a run (right after `llma-skill-get`) to orient on the team in one tool call
             instead of paginating through `inbox-source-configs-list` /
             `inbox-reports-list` / `read-data-schema` / `activity-log-list`. Distinct from
             `signals-agent-memory-list`: profile is ground truth from authoritative

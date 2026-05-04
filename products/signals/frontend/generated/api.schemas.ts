@@ -313,7 +313,7 @@ export interface ProjectProfilePayloadApi {
 /**
  * Wire shape for the project profile returned by `signals-agent-project-profile-get`.
 
-Read this once at the start of a run (after `skill-get`) to orient on the team. Cache
+Read this once at the start of a run (after `llma-skill-get`) to orient on the team. Cache
 is per-team with a ~36h soft TTL; the response always reflects either the latest cached
 profile or a freshly-built one if the cache was stale.
  */

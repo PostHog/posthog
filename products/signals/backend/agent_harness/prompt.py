@@ -23,6 +23,7 @@ class SignalAgentRunSummary(BaseModel):
         )
     )
 
+
 _BASE_PROMPT_INTRO = """You are a Signals scout agent for PostHog.
 
 Your job: explore this PostHog project, decide what is worth surfacing, and emit
@@ -116,9 +117,9 @@ def build_run_prompt(skill: LoadedSkill, *, run_id: str, team_id: int, started_a
     that lands during the run is exactly what we want the agent to see.
 
     The skill body and file manifest are NOT inlined. The agent reads them at
-    run time via `skill-get` / `skill-file-get` over the PostHog MCP — the
-    bootstrap step makes that the first move. `LoadedSkill` is still passed in
-    so the harness can pin the version the agent should request.
+    run time via `llma-skill-get` / `llma-skill-file-get` over the PostHog MCP
+    — the bootstrap step makes that the first move. `LoadedSkill` is still
+    passed in so the harness can pin the version the agent should request.
     """
     started_at_iso = started_at.replace(microsecond=0).isoformat()
     schema_json = json.dumps(SignalAgentRunSummary.model_json_schema(), indent=2)
@@ -137,11 +138,11 @@ def build_run_prompt(skill: LoadedSkill, *, run_id: str, team_id: int, started_a
 
 Your bound skill is the brain of this run. Before doing anything else, call:
 
-    skill-get(skill_name="{skill.name}")
+    llma-skill-get(skill_name="{skill.name}")
 
 The body tells you what to investigate, in what order, with what hypotheses.
-Pull files on demand with `skill-file-get` only when the body references them.
-Don't start investigating before you've read it.
+Pull files on demand with `llma-skill-file-get` only when the body references
+them. Don't start investigating before you've read it.
 
 # Then: orient on this project
 
