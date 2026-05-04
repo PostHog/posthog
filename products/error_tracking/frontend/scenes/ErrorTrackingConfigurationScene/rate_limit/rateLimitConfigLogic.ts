@@ -12,15 +12,37 @@ import { HogQLQueryResponse, NodeKind, ProductKey } from '~/queries/schema/schem
 import type { rateLimitConfigLogicType } from './rateLimitConfigLogicType'
 
 export interface RateLimitConfigForm {
-    project_rate_limit_per_hour: number | null
+    project_rate_limit_value: number | null
+    project_rate_limit_bucket_size_minutes: number
 }
 
+export const DEFAULT_BUCKET_MINUTES = 60
+
 const DEFAULT_CONFIG: RateLimitConfigForm = {
-    project_rate_limit_per_hour: null,
+    project_rate_limit_value: null,
+    project_rate_limit_bucket_size_minutes: DEFAULT_BUCKET_MINUTES,
+}
+
+export interface BucketOption {
+    label: string
+    minutes: number
+    bucketCount: number
+}
+
+export const BUCKET_OPTIONS: BucketOption[] = [
+    { label: '15 minutes', minutes: 15, bucketCount: 96 },
+    { label: '30 minutes', minutes: 30, bucketCount: 96 },
+    { label: '1 hour', minutes: 60, bucketCount: 168 },
+    { label: '1 day', minutes: 1440, bucketCount: 30 },
+    { label: '1 week', minutes: 10080, bucketCount: 12 },
+]
+
+export function getBucketOption(minutes: number): BucketOption {
+    return BUCKET_OPTIONS.find((o) => o.minutes === minutes) ?? BUCKET_OPTIONS[2]
 }
 
 export interface ExceptionVolumeBucket {
-    hour: string
+    bucket: string
     count: number
 }
 
@@ -55,23 +77,25 @@ export const rateLimitConfigLogic = kea<rateLimitConfigLogicType>([
         volume: [
             [] as ExceptionVolumeBucket[],
             {
-                loadVolume: async () => {
+                loadVolume: async (bucketMinutes: number) => {
+                    const option = getBucketOption(bucketMinutes)
+                    const totalMinutes = option.minutes * option.bucketCount
                     const response = (await api.query({
                         kind: NodeKind.HogQLQuery,
                         query: `
                             SELECT
-                                toStartOfHour(timestamp) AS hour,
+                                toStartOfInterval(timestamp, INTERVAL ${option.minutes} MINUTE) AS bucket,
                                 count() AS count
                             FROM events
                             WHERE event = '$exception'
-                              AND timestamp >= now() - INTERVAL 7 DAY
-                            GROUP BY hour
-                            ORDER BY hour
+                              AND timestamp >= now() - INTERVAL ${totalMinutes} MINUTE
+                            GROUP BY bucket
+                            ORDER BY bucket
                         `,
                         tags: { productKey: ProductKey.ERROR_TRACKING },
                     })) as HogQLQueryResponse
-                    return (response.results ?? []).map(([hour, count]) => ({
-                        hour: String(hour),
+                    return (response.results ?? []).map(([bucket, count]) => ({
+                        bucket: String(bucket),
                         count: Number(count),
                     }))
                 },
@@ -82,19 +106,22 @@ export const rateLimitConfigLogic = kea<rateLimitConfigLogicType>([
     forms(({ actions }) => ({
         configForm: {
             defaults: DEFAULT_CONFIG,
-            errors: ({ project_rate_limit_per_hour }) => ({
-                project_rate_limit_per_hour:
-                    project_rate_limit_per_hour !== null && project_rate_limit_per_hour < 1
+            errors: ({ project_rate_limit_value }) => ({
+                project_rate_limit_value:
+                    project_rate_limit_value !== null && project_rate_limit_value < 1
                         ? 'Rate limit must be at least 1'
                         : undefined,
             }),
-            submit: async ({ project_rate_limit_per_hour }) => {
+            submit: async ({ project_rate_limit_value, project_rate_limit_bucket_size_minutes }) => {
                 try {
-                    const updated = await api.errorTracking.updateRateLimitConfig({ project_rate_limit_per_hour })
+                    const payload = {
+                        project_rate_limit_value,
+                        project_rate_limit_bucket_size_minutes:
+                            project_rate_limit_value === null ? null : project_rate_limit_bucket_size_minutes,
+                    }
+                    const updated = await api.errorTracking.updateRateLimitConfig(payload)
                     actions.loadConfigSuccess(updated)
-                    posthog.capture('error_tracking_rate_limit_settings_updated', {
-                        project_rate_limit_per_hour,
-                    })
+                    posthog.capture('error_tracking_rate_limit_settings_updated', payload)
                     lemonToast.success('Rate limit settings saved')
                 } catch (e) {
                     lemonToast.error('Failed to save rate limit settings')
@@ -107,7 +134,17 @@ export const rateLimitConfigLogic = kea<rateLimitConfigLogicType>([
     listeners(({ actions }) => ({
         loadConfigSuccess: ({ config }) => {
             if (config) {
-                actions.resetConfigForm({ project_rate_limit_per_hour: config.project_rate_limit_per_hour })
+                const bucket = config.project_rate_limit_bucket_size_minutes ?? DEFAULT_BUCKET_MINUTES
+                actions.resetConfigForm({
+                    project_rate_limit_value: config.project_rate_limit_value,
+                    project_rate_limit_bucket_size_minutes: bucket,
+                })
+                actions.loadVolume(bucket)
+            }
+        },
+        setConfigFormValue: ({ name, value }) => {
+            if (name === 'project_rate_limit_bucket_size_minutes' && typeof value === 'number') {
+                actions.loadVolume(value)
             }
         },
     })),
@@ -116,6 +153,6 @@ export const rateLimitConfigLogic = kea<rateLimitConfigLogicType>([
         if (!values.hasLoadedConfig) {
             actions.loadConfig()
         }
-        actions.loadVolume()
+        actions.loadVolume(DEFAULT_BUCKET_MINUTES)
     }),
 ])

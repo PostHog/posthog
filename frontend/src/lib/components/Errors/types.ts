@@ -156,7 +156,8 @@ export interface ErrorTrackingSpikeDetectionConfig {
 }
 
 export interface ErrorTrackingRateLimitConfig {
-    project_rate_limit_per_hour: number | null
+    project_rate_limit_value: number | null
+    project_rate_limit_bucket_size_minutes: number | null
 }
 
 export interface ErrorTrackingSpikeEventIssue {

@@ -14,16 +14,22 @@ logger = structlog.get_logger(__name__)
 
 
 class ErrorTrackingRateLimitConfigSerializer(serializers.ModelSerializer):
-    project_rate_limit_per_hour = serializers.IntegerField(
+    project_rate_limit_value = serializers.IntegerField(
         min_value=1,
         allow_null=True,
         required=False,
-        help_text="Maximum number of exception events ingested per hour for the entire project. Null removes the limit.",
+        help_text="Maximum number of exception events ingested per bucket for the entire project. Null removes the limit.",
+    )
+    project_rate_limit_bucket_size_minutes = serializers.IntegerField(
+        min_value=1,
+        allow_null=True,
+        required=False,
+        help_text="Bucket window over which the project-wide rate limit applies, in minutes.",
     )
 
     class Meta:
         model = ErrorTrackingRateLimitConfig
-        fields = ["project_rate_limit_per_hour"]
+        fields = ["project_rate_limit_value", "project_rate_limit_bucket_size_minutes"]
 
 
 @extend_schema(tags=[ProductKey.ERROR_TRACKING])
