@@ -572,6 +572,10 @@ snapshots:
         hash: v1.k794b7964.8f27aa8ee4161d4041693a5549046f0e348aab5fdccc466ea461d6a0f5cf97e2.KEpUtlvBURMPzv1Vyq9Pvf8i_sDKoF3t7fZO8Ed1yPs
     components-hogcharts-referenceline--vertical-reference-lines--light:
         hash: v1.k794b7964.c5c09ab055b1b0fde7a5d73279e6a1adba9cc4165d0883ea8c641d4cd68ebf2b.hb7hZ9GBhWL6oRE5jtOZuUEer6xZ5dTyjpH0qB4Dfpk
+    components-hogcharts-timeserieslinechart--anomalies--dark:
+        hash: v1.k794b7964.fc7e9b233a0ff0847a5dcade2aaa7004f453c1af65a443adeecb526540ffa0a8.h18dCehQgzalv7JwGX-pqrA-zgiB0WsMqioFp0lX5EY
+    components-hogcharts-timeserieslinechart--anomalies--light:
+        hash: v1.k794b7964.ec037285360c27f8362e5476fbb5eb9c02eff034c83c40d91915b2456adafa85.Ls5QZuxtjPy-4OamK69F1DVapsxQ6sKdNf9dGJdzMCg
     components-hogcharts-timeserieslinechart--basic--dark:
         hash: v1.k794b7964.529535e435c93c8f004cdba8f2ba29681dd679eb9bfbaff745a5f00c3b424ffd.2Kq3-2B9F2VNlkrFY-dge3vntnfrudonJ-Lle1s8m5E
     components-hogcharts-timeserieslinechart--basic--light:
@@ -5767,9 +5771,9 @@ snapshots:
     scenes-other-toolbar--actions-dark--light:
         hash: v1.k794b7964.5e201782c0e7cc4fb79a3a415957412f7289067d389fc843016d525b240f65c6.SSUCR9SF-qmJPo_ZYzLnD6sdBVd068TCfgxKtvXrBAk
     scenes-other-toolbar--default--dark:
-        hash: v1.k794b7964.b63b312c1025e77b9ad7cd341fc74269a4419e355816518dbf293eeba347d997.gp4k4wzoHhcIEtIsO-hLFejBICNa-Uv0YHjWLvh4nfA
+        hash: v1.k794b7964.60433d2f1ba31f04a2fbea8b13664ca00d3cb4d490f202b608c2fae125e75b42.BXy8KDjQPq8Rizc12C0FxmLb0XaVfT_TJMrCX_9ZDaQ
     scenes-other-toolbar--default--light:
-        hash: v1.k794b7964.caed317b8657db1d87f5f14939fca7b00dab779984fda6bdb655910858dad332.f2GrDHnkAPsSyl5DkvVSpWU81J52MQTVt-Dh_PxYNNA
+        hash: v1.k794b7964.d31d8fe47d002bc2250bba565f2762490fe83b850ef7a34794e5374d3a775ac0.yzuot7AtMFiAtCuajEkMcjt5a3B_UggDkgZWlScp8aY
     scenes-other-toolbar--default-dark--dark:
         hash: v1.k794b7964.2636ee97c76404f279b123eefea7039fb60d570cd9c000e97c202ee89b346ccf.GwjJqF1xvhLzXZNHu_-0VWnSDrq1PCDn2QhExrG6VeI
     scenes-other-toolbar--default-dark--light:

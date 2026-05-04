@@ -1143,6 +1143,7 @@ export const sceneLogic = kea<sceneLogicType>([
                 }
             }
 
+            let newLogicErrored = false
             if (exportedScene?.logic) {
                 try {
                     const builtLogicProps = { tabId, ...exportedScene?.paramsToProps?.(params) }
@@ -1156,6 +1157,8 @@ export const sceneLogic = kea<sceneLogicType>([
                         equal(mountedLogic.logicProps, builtLogicProps)
 
                     if (!canKeepMountedLogic) {
+                        const builtLogic = exportedScene.logic(builtLogicProps)
+
                         if (mountedLogic) {
                             try {
                                 mountedLogic.unmount()
@@ -1165,7 +1168,6 @@ export const sceneLogic = kea<sceneLogicType>([
                             delete cache.mountedTabLogic[tabId]
                         }
 
-                        const builtLogic = exportedScene.logic(builtLogicProps)
                         cache.mountedTabLogic[tabId] = {
                             logic: exportedScene.logic,
                             logicProps: builtLogicProps,
@@ -1179,8 +1181,7 @@ export const sceneLogic = kea<sceneLogicType>([
                     // route params like `/dashboard/abc`. Capture so regressions surface, then
                     // route to Error404 so the user sees a proper 404 instead of a blank crash.
                     posthog.captureException(error, { extra: { sceneId, sceneKey, tabId } })
-                    actions.loadScene(Scene.Error404, undefined, tabId, emptySceneParams, 'REPLACE')
-                    return
+                    newLogicErrored = true
                 }
             } else {
                 const mountedLogic = cache.mountedTabLogic[tabId]
@@ -1192,6 +1193,11 @@ export const sceneLogic = kea<sceneLogicType>([
                     }
                     delete cache.mountedTabLogic[tabId]
                 }
+            }
+
+            if (newLogicErrored) {
+                actions.loadScene(Scene.Error404, undefined, tabId, emptySceneParams, 'REPLACE')
+                return
             }
 
             const trackingKey = tabId || '__default__'

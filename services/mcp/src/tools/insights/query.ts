@@ -14,6 +14,25 @@ type Params = z.infer<typeof schema>
 
 type Result = WithPostHogUrl<{ query: unknown; insight: Insight & { url: string }; results: unknown }>
 
+// Accept either a pre-encoded JSON string or a plain object for the override
+// params. LLM agents reading the insight-get response see `variables` as an
+// object, so requiring them to JSON.stringify before sending is friction that
+// frequently breaks (escaping, double-encoding). Normalising here lets either
+// shape reach the backend as a properly-encoded query-string value.
+//
+// Transitional: the auto-generated tools rely on ApiClient.request() in
+// services/mcp/src/api/client.ts, which already JSON-stringify-s object query
+// params automatically. This helper exists because the bespoke insights().get()
+// in client.ts builds its own URLSearchParams and types the override params as
+// `string`. Once that endpoint migrates onto request(), normalizeOverride can
+// be deleted.
+function normalizeOverride(value: string | Record<string, unknown> | undefined): string | undefined {
+    if (value === undefined) {
+        return undefined
+    }
+    return typeof value === 'string' ? value : JSON.stringify(value)
+}
+
 export const queryHandler: ToolBase<typeof schema, Result>['handler'] = async (context: Context, params: Params) => {
     const { insightId, output_format, variables_override, filters_override } = params
     const projectId = await context.stateManager.getProjectId()
@@ -23,9 +42,11 @@ export const queryHandler: ToolBase<typeof schema, Result>['handler'] = async (c
     // apply_dashboard_filters_to_dict). The merged query is then POSTed to /query/
     // as-is, so insight-query results reflect the overridden values without
     // mutating the saved insight.
-    const insightResult = await context.api
-        .insights({ projectId })
-        .get({ insightId, variables_override, filters_override })
+    const insightResult = await context.api.insights({ projectId }).get({
+        insightId,
+        variables_override: normalizeOverride(variables_override),
+        filters_override: normalizeOverride(filters_override),
+    })
 
     if (!insightResult.success) {
         throw new Error(`Failed to get insight: ${insightResult.error.message}`)

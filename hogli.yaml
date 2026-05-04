@@ -527,6 +527,36 @@ db:
         services:
             - postgresql
             - docker
+    db:prime-test-db:
+        steps:
+            - db:download-schema
+            - db:restore-test-db
+        description: Download pre-migrated schema and prime the test_posthog database for
+            pytest --reuse-db
+        services:
+            - postgresql
+            - docker
+    db:restore-test-db:
+        cmd: |
+            set -e
+            if [ ! -f .postgres-backups/schema-latest.sql.gz ]; then
+                echo "❌ No schema at .postgres-backups/schema-latest.sql.gz — run db:download-schema first"
+                exit 1
+            fi
+            # Validate up front; substitutes for `set -o pipefail` (dash doesn't support it).
+            gunzip -t .postgres-backups/schema-latest.sql.gz
+            docker compose -f docker-compose.dev.yml exec -T db psql -U posthog -c "DROP DATABASE IF EXISTS test_posthog;"
+            docker compose -f docker-compose.dev.yml exec -T db psql -U posthog -c "CREATE DATABASE test_posthog;"
+            gunzip -c .postgres-backups/schema-latest.sql.gz | docker compose -f docker-compose.dev.yml exec -T db psql -q -U posthog test_posthog
+            # Schema-only dumps skip RunPython data migrations (e.g. the Default Theme row from 0537).
+            # Reseed defaults so tests don't hit empty tables. Idempotent.
+            DATABASE_URL=postgres://posthog:posthog@localhost:5432/test_posthog python manage.py ensure_migration_defaults
+            echo "✅ Restored test_posthog from .postgres-backups/schema-latest.sql.gz"
+        description: Restore test_posthog from a local schema dump (no download). Used by
+            CI after restoring the schema from Actions cache.
+        services:
+            - postgresql
+            - docker
     db:download-schema:
         cmd: "set -e\nmkdir -p .postgres-backups\necho \"Finding latest CI run with migrated-schema\
             \ artifact...\"\nRUN_ID=$(gh api 'repos/PostHog/posthog/actions/artifacts?name=migrated-schema&per_page=10'\
