@@ -16,7 +16,7 @@ from posthog.redis import get_client
 from posthog.temporal.messaging.quantiles_storage import (
     _get_cache_key,
     _get_lock_key,
-    get_or_calculate_quantiles,
+    get_cached_quantiles_or_calculate,
     get_quantiles,
     store_quantiles,
 )
@@ -52,7 +52,7 @@ class TestQuantilesConcurrencyIntegration:
         def worker_function(worker_id):
             """Simulate a Temporal worker calculating quantiles."""
             try:
-                result = get_or_calculate_quantiles(durations, hour_bucket, max_retries=3)
+                result = get_cached_quantiles_or_calculate(durations, hour_bucket, max_retries=3)
                 return worker_id, result
             except Exception as e:
                 errors.append(f"Worker {worker_id}: {e}")
@@ -186,7 +186,7 @@ class TestQuantilesConcurrencyIntegration:
             """Simulate p0-p50 workflow calculating quantiles."""
             nonlocal p0_p50_result
             try:
-                quantiles = get_or_calculate_quantiles(durations, hour_bucket)
+                quantiles = get_cached_quantiles_or_calculate(durations, hour_bucket)
                 if quantiles:
                     # Calculate p0-p50 thresholds
                     p50_index = 50 - 1  # quantiles[49] is p50
@@ -198,7 +198,7 @@ class TestQuantilesConcurrencyIntegration:
             """Simulate p50-p80 workflow calculating quantiles."""
             nonlocal p50_p80_result
             try:
-                quantiles = get_or_calculate_quantiles(durations, hour_bucket)
+                quantiles = get_cached_quantiles_or_calculate(durations, hour_bucket)
                 if quantiles:
                     # Calculate p50-p80 thresholds
                     p50_index = 50 - 1  # quantiles[49] is p50
@@ -250,7 +250,7 @@ class TestQuantilesConcurrencyIntegration:
             try:
                 # Add small random delay to increase contention
                 time.sleep(0.001 * (worker_id % 3))
-                result = get_or_calculate_quantiles(durations, hour_bucket, max_retries=5)
+                result = get_cached_quantiles_or_calculate(durations, hour_bucket, max_retries=5)
                 return worker_id, result, time.time()
             except Exception as e:
                 errors.append(f"Worker {worker_id}: {e}")

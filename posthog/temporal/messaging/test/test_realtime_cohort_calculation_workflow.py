@@ -3,7 +3,10 @@ import os
 import pytest
 from unittest.mock import Mock, patch
 
-from posthog.temporal.messaging.realtime_cohort_calculation_workflow import flush_kafka_batch
+from posthog.temporal.messaging.realtime_cohort_calculation_workflow import (
+    _batch_update_cohort_metrics,
+    flush_kafka_batch,
+)
 from posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator import (
     CohortSelectionActivityInput,
     QueryPercentileThresholds,
@@ -1005,7 +1008,9 @@ class TestQueryPercentileThresholdsActivity:
             mock_cohort.objects.filter.return_value = mock_queryset
 
             # Mock the quantiles cache to return None (indicating calculation failure)
-            with patch("posthog.temporal.messaging.quantiles_storage.get_or_calculate_quantiles", return_value=None):
+            with patch(
+                "posthog.temporal.messaging.quantiles_storage.get_cached_quantiles_or_calculate", return_value=None
+            ):
                 result = await get_query_percentile_thresholds_activity(inputs)
 
         assert result is None
@@ -1023,7 +1028,9 @@ class TestQueryPercentileThresholdsActivity:
             mock_cohort.objects.filter.return_value = mock_queryset
 
             # Mock the quantiles cache to return None (indicating calculation failure due to invalid data)
-            with patch("posthog.temporal.messaging.quantiles_storage.get_or_calculate_quantiles", return_value=None):
+            with patch(
+                "posthog.temporal.messaging.quantiles_storage.get_cached_quantiles_or_calculate", return_value=None
+            ):
                 result = await get_query_percentile_thresholds_activity(inputs)
 
         assert result is None
@@ -1074,7 +1081,9 @@ class TestQueryPercentileThresholdsActivity:
             mock_cohort.objects.filter.return_value = mock_queryset
 
             # Mock the quantiles cache to return None (indicating calculation failure due to type errors)
-            with patch("posthog.temporal.messaging.quantiles_storage.get_or_calculate_quantiles", return_value=None):
+            with patch(
+                "posthog.temporal.messaging.quantiles_storage.get_cached_quantiles_or_calculate", return_value=None
+            ):
                 result = await get_query_percentile_thresholds_activity(inputs)
 
         assert result is None
@@ -1431,3 +1440,167 @@ class TestCoordinatorWorkflowInsufficientData:
             workflow_logger.info.assert_any_call(
                 "Duration percentile filtering p0.0-p90.0: disabled (no historical query data)"
             )
+
+
+class TestBatchUpdateCohortMetrics:
+    """Tests for _batch_update_cohort_metrics timestamp handling regression."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db
+    async def test_batch_update_cohort_metrics_timestamp_fix(self):
+        """
+        Regression test for timestamp bug fix.
+
+        - Asserts last_backfill_person_properties_at is NOT updated
+        - Asserts last_realtime_cohort_calculation_at IS updated
+        - Asserts last_calculation_duration_ms updates respect the DURATION_UPDATE_RELATIVE_THRESHOLD
+        """
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from asgiref.sync import sync_to_async
+
+        from posthog.models.cohort.cohort import Cohort, CohortType
+        from posthog.models.organization import Organization
+        from posthog.models.team.team import Team
+
+        # Create test organization and team
+        organization = await sync_to_async(Organization.objects.create)(name="Test Organization")
+        team = await sync_to_async(Team.objects.create)(name="Test Team", organization=organization)
+
+        # Set fixed timestamps for comparison
+        initial_backfill_time = timezone.now() - timedelta(hours=24)
+        initial_realtime_time = timezone.now() - timedelta(hours=12)
+
+        # Create test cohorts with various duration scenarios
+        cohort1 = await sync_to_async(Cohort.objects.create)(
+            name="Cohort 1",
+            team=team,
+            cohort_type=CohortType.REALTIME,
+            last_backfill_person_properties_at=initial_backfill_time,
+            last_realtime_cohort_calculation_at=initial_realtime_time,
+            last_calculation_duration_ms=1000,  # 1 second
+        )
+
+        cohort2 = await sync_to_async(Cohort.objects.create)(
+            name="Cohort 2",
+            team=team,
+            cohort_type=CohortType.REALTIME,
+            last_backfill_person_properties_at=initial_backfill_time,
+            last_realtime_cohort_calculation_at=initial_realtime_time,
+            last_calculation_duration_ms=2000,  # 2 seconds
+        )
+
+        # Prepare duration updates
+        # Cohort 1: Small change below threshold (should NOT update duration)
+        new_duration_1 = 1100  # 10% change, below DURATION_UPDATE_RELATIVE_THRESHOLD (25%)
+
+        # Cohort 2: Large change above threshold (should update duration)
+        new_duration_2 = 3000  # 50% change, above DURATION_UPDATE_RELATIVE_THRESHOLD (25%)
+
+        cohort_durations = {cohort1.id: new_duration_1, cohort2.id: new_duration_2}
+
+        # Execute the function
+        duration_updates_count = await _batch_update_cohort_metrics(cohort_durations)
+
+        # Refresh cohorts from database
+        await sync_to_async(cohort1.refresh_from_db)()
+        await sync_to_async(cohort2.refresh_from_db)()
+
+        # Assert last_backfill_person_properties_at is NOT updated
+        assert cohort1.last_backfill_person_properties_at == initial_backfill_time
+        assert cohort2.last_backfill_person_properties_at == initial_backfill_time
+
+        # Assert last_realtime_cohort_calculation_at IS updated for both
+        assert cohort1.last_realtime_cohort_calculation_at > initial_realtime_time
+        assert cohort2.last_realtime_cohort_calculation_at > initial_realtime_time
+
+        # Assert duration updates respect the DURATION_UPDATE_RELATIVE_THRESHOLD
+        # Cohort 1: small change, should NOT update duration
+        assert cohort1.last_calculation_duration_ms == 1000  # Original value
+
+        # Cohort 2: large change, should update duration
+        assert cohort2.last_calculation_duration_ms == 3000  # New value
+
+        # Assert correct count of duration updates
+        assert duration_updates_count == 1  # Only cohort2 should have had duration updated
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db
+    async def test_batch_update_cohort_metrics_first_calculation(self):
+        """Test that first calculation always updates duration regardless of threshold."""
+        from asgiref.sync import sync_to_async
+
+        from posthog.models.cohort.cohort import Cohort, CohortType
+        from posthog.models.organization import Organization
+        from posthog.models.team.team import Team
+
+        # Create test organization and team
+        organization = await sync_to_async(Organization.objects.create)(name="Test Organization")
+        team = await sync_to_async(Team.objects.create)(name="Test Team", organization=organization)
+
+        cohort = await sync_to_async(Cohort.objects.create)(
+            name="New Cohort",
+            team=team,
+            cohort_type=CohortType.REALTIME,
+            last_calculation_duration_ms=None,  # No previous calculation
+        )
+
+        initial_realtime_time = cohort.last_realtime_cohort_calculation_at
+
+        # Prepare first duration
+        first_duration = 5000  # 5 seconds
+        cohort_durations = {cohort.id: first_duration}
+
+        # Execute the function
+        duration_updates_count = await _batch_update_cohort_metrics(cohort_durations)
+
+        # Refresh cohort from database
+        await sync_to_async(cohort.refresh_from_db)()
+
+        # Assert last_realtime_cohort_calculation_at IS updated
+        assert cohort.last_realtime_cohort_calculation_at != initial_realtime_time
+
+        # Assert duration is updated for first calculation
+        assert cohort.last_calculation_duration_ms == 5000
+
+        # Assert correct count
+        assert duration_updates_count == 1
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db
+    async def test_batch_update_cohort_metrics_zero_previous_duration(self):
+        """Test that cohorts with zero previous duration always get updated."""
+        from asgiref.sync import sync_to_async
+
+        from posthog.models.cohort.cohort import Cohort, CohortType
+        from posthog.models.organization import Organization
+        from posthog.models.team.team import Team
+
+        # Create test organization and team
+        organization = await sync_to_async(Organization.objects.create)(name="Test Organization")
+        team = await sync_to_async(Team.objects.create)(name="Test Team", organization=organization)
+
+        cohort = await sync_to_async(Cohort.objects.create)(
+            name="Zero Duration Cohort",
+            team=team,
+            cohort_type=CohortType.REALTIME,
+            last_calculation_duration_ms=0,  # Zero previous duration
+        )
+
+        # Prepare new duration
+        new_duration = 100  # Small value
+        cohort_durations = {cohort.id: new_duration}
+
+        # Execute the function
+        duration_updates_count = await _batch_update_cohort_metrics(cohort_durations)
+
+        # Refresh cohort from database
+        await sync_to_async(cohort.refresh_from_db)()
+
+        # Assert duration is updated even though change is small (because previous was 0)
+        assert cohort.last_calculation_duration_ms == 100
+
+        # Assert correct count
+        assert duration_updates_count == 1

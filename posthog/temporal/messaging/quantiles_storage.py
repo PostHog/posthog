@@ -12,6 +12,7 @@ Race Condition Handling:
 
 import json
 import time
+import uuid
 import random
 import datetime as dt
 import statistics
@@ -53,6 +54,13 @@ def _get_current_hour_bucket() -> str:
     return now.strftime("%Y-%m-%d:%H")
 
 
+def _get_previous_hour_bucket() -> str:
+    """Get previous hour bucket for fallback cache lookup (e.g., '2024-01-15:13')."""
+    now = dt.datetime.now(dt.UTC)
+    previous_hour = now - dt.timedelta(hours=1)
+    return previous_hour.strftime("%Y-%m-%d:%H")
+
+
 def store_quantiles(quantiles_data: list[float], hour_bucket: Optional[str] = None) -> bool:
     """
     Atomically store quantiles in Redis if not already cached.
@@ -71,11 +79,14 @@ def store_quantiles(quantiles_data: list[float], hour_bucket: Optional[str] = No
     lock_key = _get_lock_key(hour_bucket)
 
     redis_client = get_client()
-    lock_acquired = False
+    lock_token = None
 
     try:
-        # Try to acquire lock atomically
-        lock_acquired = redis_client.set(lock_key, "locked", nx=True, ex=LOCK_TTL)
+        # Generate unique token for this lock acquisition
+        lock_token = uuid.uuid4().hex
+
+        # Try to acquire lock atomically with unique token
+        lock_acquired = redis_client.set(lock_key, lock_token, nx=True, ex=LOCK_TTL) or False
 
         if not lock_acquired:
             LOGGER.info(
@@ -113,10 +124,24 @@ def store_quantiles(quantiles_data: list[float], hour_bucket: Optional[str] = No
         return False
 
     finally:
-        # Only release the lock if we acquired it
-        if lock_acquired:
+        # Only release the lock if we acquired it and still hold the same token
+        if lock_token:
             try:
-                redis_client.delete(lock_key)
+                # Use Lua script for atomic compare-and-delete
+                lua_script = """
+                if redis.call("GET", KEYS[1]) == ARGV[1] then
+                    return redis.call("DEL", KEYS[1])
+                else
+                    return 0
+                end
+                """
+                result = redis_client.eval(lua_script, 1, lock_key, lock_token)
+                if result == 0:
+                    LOGGER.warning(
+                        "Lock token mismatch during release - lock may have expired or been taken by another process",
+                        lock_key=lock_key,
+                        hour_bucket=hour_bucket,
+                    )
             except Exception as e:
                 LOGGER.warning("Failed to release quantiles calculation lock", lock_key=lock_key, error=str(e))
 
@@ -186,29 +211,36 @@ def get_cached_quantiles_or_calculate(
     if hour_bucket is None:
         hour_bucket = _get_current_hour_bucket()
 
-    # First, try to get from cache
+    # First, try to get from current hour bucket cache
     cached_quantiles = get_quantiles(hour_bucket)
     if cached_quantiles is not None:
         return cached_quantiles
 
-    # Cache miss - only calculate if we have sufficient current data
+    # Cache miss - try previous hour bucket to handle hour-boundary issue
+    # This prevents overlapping thresholds when schedules run near :59/:00
+    previous_hour_bucket = _get_previous_hour_bucket()
+    if previous_hour_bucket != hour_bucket:  # Only check if different from current
+        cached_quantiles = get_quantiles(previous_hour_bucket)
+        if cached_quantiles is not None:
+            LOGGER.info(
+                "Using quantiles from previous hour bucket to handle hour-boundary timing",
+                current_bucket=hour_bucket,
+                previous_bucket=previous_hour_bucket,
+            )
+            return cached_quantiles
+
+    # No cache available - only calculate if we have sufficient current data
     if len(durations_list) < 2:
-        LOGGER.warning(
+        LOGGER.error(
             "No cached quantiles available and insufficient current data for calculation",
             hour_bucket=hour_bucket,
+            previous_bucket=previous_hour_bucket,
             data_points=len(durations_list),
         )
         return None
 
     # Continue with calculation using the current implementation
     return _calculate_and_cache_quantiles(durations_list, hour_bucket, max_retries)
-
-
-def get_or_calculate_quantiles(
-    durations_list: list[int], hour_bucket: Optional[str] = None, max_retries: int = MAX_RETRIES
-) -> Optional[list[float]]:
-    """Legacy function name for backward compatibility."""
-    return get_cached_quantiles_or_calculate(durations_list, hour_bucket, max_retries)
 
 
 def _calculate_and_cache_quantiles(
@@ -279,7 +311,7 @@ def _calculate_and_cache_quantiles(
             )
             return cached_quantiles
 
-        LOGGER.warning(
+        LOGGER.error(
             "Failed to obtain cached quantiles after all retries; returning None to preserve consistency",
             hour_bucket=hour_bucket,
             max_retries=max_retries,

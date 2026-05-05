@@ -19,6 +19,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.messaging.constants import get_child_workflow_id, get_percentile_bucket_label
+from posthog.temporal.messaging.quantiles_storage import get_cached_quantiles_or_calculate
 from posthog.temporal.messaging.realtime_cohort_calculation_workflow import (
     RealtimeCohortCalculationWorkflow,
     RealtimeCohortCalculationWorkflowInputs,
@@ -172,8 +173,6 @@ async def calculate_percentile_thresholds(
 
     @database_sync_to_async
     def get_thresholds():
-        from posthog.temporal.messaging.quantiles_storage import get_cached_quantiles_or_calculate
-
         try:
             # Get cohorts with recent duration data (past 24 hours)
             recent_cohorts = Cohort.objects.filter(
@@ -199,6 +198,17 @@ async def calculate_percentile_thresholds(
 
             if quantiles is None:
                 LOGGER.warning("Failed to get or calculate quantiles")
+                # Emit metric for monitoring quantiles unavailability
+                try:
+                    import temporalio.workflow
+
+                    quantiles_unavailable_counter = temporalio.workflow.metric_meter().create_counter(
+                        "quantiles_unavailable", "Count of times quantiles were unavailable for percentile calculations"
+                    )
+                    quantiles_unavailable_counter.add(1)
+                except ImportError:
+                    # Not in a workflow context, skip metric
+                    pass
                 return None
 
             # Special handling for p0: use 0 instead of calculating from data

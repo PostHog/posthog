@@ -14,7 +14,7 @@ from posthog.temporal.messaging.quantiles_storage import (
     _get_cache_key,
     _get_current_hour_bucket,
     _get_lock_key,
-    get_or_calculate_quantiles,
+    get_cached_quantiles_or_calculate,
     get_quantiles,
     store_quantiles,
 )
@@ -223,10 +223,12 @@ class TestQuantilesCache:
         mock_get_client.return_value = mock_redis
 
         with patch("statistics.quantiles", return_value=[100.0, 200.0, 300.0]):
-            # First call: cache miss
-            # Second call: lock contention, then cache hit after retry
+            # First call: cache miss for current bucket
+            # Second call: cache miss for previous bucket
+            # Third call: lock contention, then cache hit after retry
             mock_redis.get.side_effect = [
-                None,  # Initial cache miss
+                None,  # Initial cache miss (current hour)
+                None,  # Previous hour cache miss
                 None,  # Still miss after first store attempt fails
                 json.dumps([100.0, 200.0, 300.0]),  # Hit after retry
             ]
@@ -234,7 +236,7 @@ class TestQuantilesCache:
             mock_redis.exists.return_value = False
 
             durations = [50, 100, 150, 200, 250]
-            result = get_or_calculate_quantiles(durations, "2024-01-15:14", max_retries=2)
+            result = get_cached_quantiles_or_calculate(durations, "2024-01-15:14", max_retries=2)
 
             assert result == [100.0, 200.0, 300.0]
             assert mock_sleep.call_count == 1  # Should retry once
@@ -259,10 +261,10 @@ class TestQuantilesCache:
             ]
 
             # First workflow calculates and stores
-            result1 = get_or_calculate_quantiles(durations, "2024-01-15:14")
+            result1 = get_cached_quantiles_or_calculate(durations, "2024-01-15:14")
 
             # Second workflow gets from cache
-            result2 = get_or_calculate_quantiles(durations, "2024-01-15:14")
+            result2 = get_cached_quantiles_or_calculate(durations, "2024-01-15:14")
 
             # Both should get the same result (consistency achieved)
             assert result1 is not None
