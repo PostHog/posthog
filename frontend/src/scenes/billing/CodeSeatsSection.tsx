@@ -96,8 +96,8 @@ export function CodeSeatsSection(): JSX.Element {
             </div>
             {hasAlphaSeats && (
                 <LemonBanner type="info" className="mb-4">
-                    Alpha plan seats will be migrated to the free plan on {ALPHA_PLAN_MIGRATION_DATE}. To keep using
-                    PostHog Code without interruption after that date, upgrade to the Pro plan.
+                    Alpha plan seats will be moved to the free plan automatically on {ALPHA_PLAN_MIGRATION_DATE}. After
+                    that, you'll be able to upgrade them to the Pro plan.
                 </LemonBanner>
             )}
             <LemonTable
