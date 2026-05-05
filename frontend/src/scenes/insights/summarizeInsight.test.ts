@@ -158,6 +158,22 @@ describe('summarizing insights', () => {
             expect(result).toEqual('')
         })
 
+        it.each([
+            [NodeKind.TrendsQuery, 'TrendsQuery query'],
+            [NodeKind.FunnelsQuery, 'FunnelsQuery query'],
+            [NodeKind.StickinessQuery, 'StickinessQuery query'],
+            [NodeKind.LifecycleQuery, 'LifecycleQuery query'],
+        ])('does not crash on a partially initialized %s with undefined series', (kind, expected) => {
+            const query = { kind } as TrendsQuery | FunnelsQuery | StickinessQuery | LifecycleQuery
+
+            const result = summarizeInsight(
+                { kind: NodeKind.InsightVizNode, source: query } as InsightVizNode,
+                summaryContext
+            )
+
+            expect(result).toEqual(expected)
+        })
+
         it('summarizes a Trends insight with event property breakdown', () => {
             const query: TrendsQuery = {
                 kind: NodeKind.TrendsQuery,

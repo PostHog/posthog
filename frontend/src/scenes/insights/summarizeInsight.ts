@@ -108,6 +108,9 @@ function summarizeBreakdown(filters: Partial<FilterType> | BreakdownFilter, cont
 
 export function summarizeInsightQuery(query: InsightQueryNode, context: SummaryContext): string {
     if (isTrendsQuery(query)) {
+        if (!query.series) {
+            return `${query.kind} query`
+        }
         let summary = query.series
             .map((s, index) => {
                 const mathType = apiValueToMathType(s.math, s.math_group_type_index)
@@ -164,6 +167,9 @@ export function summarizeInsightQuery(query: InsightQueryNode, context: SummaryC
 
         return summary
     } else if (isFunnelsQuery(query)) {
+        if (!query.series) {
+            return `${query.kind} query`
+        }
         let summary
         const linkSymbol =
             query.funnelsFilter?.funnelOrderType === StepOrderValue.STRICT
@@ -221,6 +227,9 @@ export function summarizeInsightQuery(query: InsightQueryNode, context: SummaryC
         }
         return summary
     } else if (isStickinessQuery(query)) {
+        if (!query.series) {
+            return `${query.kind} query`
+        }
         return capitalizeFirstLetter(
             query.series
                 .map((s) => {
@@ -230,6 +239,9 @@ export function summarizeInsightQuery(query: InsightQueryNode, context: SummaryC
                 .join(' & ')
         )
     } else if (isLifecycleQuery(query)) {
+        if (!query.series) {
+            return `${query.kind} query`
+        }
         return `${capitalizeFirstLetter(
             context.aggregationLabel(query.aggregation_group_type_index, true).singular
         )} lifecycle based on ${getDisplayNameFromEntityNode(query.series[0])}`
