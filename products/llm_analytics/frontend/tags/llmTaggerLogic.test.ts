@@ -22,6 +22,8 @@ const mockProviderKeys: LLMProviderKey[] = [
         state: 'ok',
         error_message: null,
         api_key_masked: 'sk-...1234',
+        azure_endpoint_display: null,
+        api_version_display: null,
         created_at: '2024-01-01T00:00:00Z',
         created_by: null,
         last_used_at: null,
@@ -33,6 +35,8 @@ const mockProviderKeys: LLMProviderKey[] = [
         state: 'ok',
         error_message: null,
         api_key_masked: 'sk-ant-...5678',
+        azure_endpoint_display: null,
+        api_version_display: null,
         created_at: '2024-01-02T00:00:00Z',
         created_by: null,
         last_used_at: null,
@@ -357,13 +361,13 @@ describe('llmTaggerLogic', () => {
 
             it('reports error when tag name is empty', async () => {
                 const errors = await submitAndGetErrors()
-                expect(errors.tagger_config.tags).toBe('All tags must have a name')
+                expect(errors.tagger_config.tags).toEqual([{ name: 'All tags must have a name' }])
             })
 
             it('reports error when no tags exist', async () => {
                 logic.actions.removeTag(0)
                 const errors = await submitAndGetErrors()
-                expect(errors.tagger_config.tags).toBe('At least one tag is required')
+                expect(errors.tagger_config.tags).toEqual([{ name: 'At least one tag is required' }])
             })
 
             it('clears errors with valid form', async () => {

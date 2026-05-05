@@ -461,7 +461,6 @@ export const productConfiguration: Record<string, any> = {
         description: 'Add custom tags to your LLM generations automatically.',
         activityScope: 'LLMAnalytics',
         layout: 'app-container',
-        defaultDocsPath: '/docs/llm-analytics/installation',
         iconType: 'llm_tags',
     },
     LLMAnalyticsTag: {
@@ -469,7 +468,6 @@ export const productConfiguration: Record<string, any> = {
         name: 'LLM analytics tag',
         activityScope: 'LLMAnalytics',
         layout: 'app-container',
-        defaultDocsPath: '/docs/llm-analytics/installation',
         iconType: 'llm_tags',
     },
     LLMAnalyticsPrompts: {
@@ -1787,7 +1785,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Tags',
         intents: [ProductKey.LLM_ANALYTICS],
-        category: 'AI engineering',
+        category: ProductItemCategory.AI_ENGINEERING,
         type: 'llm_tags',
         iconType: 'llm_tags' as FileSystemIconType,
         iconColor: ['var(--color-product-llm-analytics-light)'] as FileSystemIconColor,

@@ -8,7 +8,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { HogQLQuery, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
-import { ChartDisplayType } from '~/types'
+import { ChartDisplayType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { llmAnalyticsSharedLogic } from '../llmAnalyticsSharedLogic'
 import { parseTrialProviderKeyId } from '../ModelPicker'
@@ -198,8 +198,8 @@ export const llmTaggerLogic = kea<llmTaggerLogicType>([
                                 {
                                     key: '$ai_tagger_id',
                                     value: id,
-                                    operator: 'exact',
-                                    type: 'event',
+                                    operator: PropertyOperator.Exact,
+                                    type: PropertyFilterType.Event,
                                 },
                             ],
                         },
@@ -244,11 +244,17 @@ export const llmTaggerLogic = kea<llmTaggerLogicType>([
                               prompt: !('prompt' in values.tagger_config && values.tagger_config.prompt)
                                   ? 'Prompt is required'
                                   : undefined,
+                              // kea-forms expects per-tag errors as an array matching tags[]. We
+                              // synthesize a single-entry error for the empty-tags case so the
+                              // form is still marked invalid (the UI guardrail blocks reaching
+                              // this state, but a programmatic removeTag could).
                               tags:
                                   values.tagger_config.tags.length === 0
-                                      ? 'At least one tag is required'
+                                      ? [{ name: 'At least one tag is required' }]
                                       : values.tagger_config.tags.some((t) => !t.name.trim())
-                                        ? 'All tags must have a name'
+                                        ? values.tagger_config.tags.map((t) =>
+                                              !t.name.trim() ? { name: 'All tags must have a name' } : undefined
+                                          )
                                         : undefined,
                           },
             }),
