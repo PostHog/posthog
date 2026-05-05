@@ -580,6 +580,10 @@ snapshots:
         hash: v1.k794b7964.529535e435c93c8f004cdba8f2ba29681dd679eb9bfbaff745a5f00c3b424ffd.2Kq3-2B9F2VNlkrFY-dge3vntnfrudonJ-Lle1s8m5E
     components-hogcharts-timeserieslinechart--basic--light:
         hash: v1.k794b7964.3a097fd7390b5a54fcf6e20a1769cc9058b66f4d040ed58748d0d4dc55c8788b.zqLqP936uYDq025ot6wQL3TxRVnq4UzQAtiS92DFZp8
+    components-hogcharts-timeserieslinechart--comparison-of--dark:
+        hash: v1.k794b7964.aa337a8f5a91d73e016f4f22959d401546472f882b4ed16c8f86c9dbea7313ee.b9ovlLn2FH-CDTyiX4aBo6eTitW98Sv3_iAnYo0igtg
+    components-hogcharts-timeserieslinechart--comparison-of--light:
+        hash: v1.k794b7964.f765c2b9fa66bd68ddc97b1e12adde81f4bed9375be55238b4ce902cf18061c5.JgAvyFSvBD_UD9pTvlG2wTVDy5slZ7NEnvNH-8e4izg
     components-hogcharts-timeserieslinechart--confidence-intervals--dark:
         hash: v1.k794b7964.604addbe746f827ade2350d9167a72d9a7fbedfd96bd621a7af7994cd489c4c8.M3UGtYXBVSJzocWg4vxO3GwAXWveRgWHTGCql8iWjec
     components-hogcharts-timeserieslinechart--confidence-intervals--light:
@@ -592,6 +596,10 @@ snapshots:
         hash: v1.k794b7964.276935f8bb553e4ab9fac3ace6eebb3d28dfdf96cffe2e034fedb97e74ce37d0.5SBoJ3War_QIpdVFWyeow-y8o4S-qReI1UdVs9HO6Ik
     components-hogcharts-timeserieslinechart--moving-average--light:
         hash: v1.k794b7964.326fb129af77ff50842a525cabd6dc99bdda0184f67de96e57ad1c9a13be4ab3.e5Hz2jQlR4ZqIhUHnbbeFlfLsHNkw7_7_1JJqj1v2N0
+    components-hogcharts-timeserieslinechart--trend-lines--dark:
+        hash: v1.k794b7964.542f8d5fee67e14dc285806bc677c0417df77c44589d005b0dea49ba75fc80e5.ZF5lPBCHngzzZ9Cw1ITdZbIJ-OGvJmU9OlK2V1wYeAE
+    components-hogcharts-timeserieslinechart--trend-lines--light:
+        hash: v1.k794b7964.5801e5c4274cd0b2d2fdb3d69cfb0299804f62f39036e5a2901e78789e0d764b.x4egj_Wp44H8iI00Wsgho-a68dHFvkXzSziDZG0zwFw
     components-hogcharts-timeserieslinechart--y-axis-formats--dark:
         hash: v1.k794b7964.ab5470e4567b923b3414ddc27d0e40872a481d973df9e12d1765fbedff32c20d.JdA-hTR2nKp921x6JROPc0p43nBvLgWiXzJQRPLviMQ
     components-hogcharts-timeserieslinechart--y-axis-formats--light:
