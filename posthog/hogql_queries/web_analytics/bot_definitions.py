@@ -147,29 +147,30 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     "Google-NotebookLM": BotDefinition(
         "NotebookLM", "ai_assistant", "AI Agent", "Google", documentation_url="https://notebooklm.google.com/"
     ),
-    # PostHog Code clients (Electron desktop, React Native mobile, agent CLI, cloud agent server)
-    "desktop.hog.dev": BotDefinition(
+    # PostHog Code clients (Electron desktop, React Native mobile, agent CLI, cloud agent server).
+    # Dots are escaped because keys are evaluated as re2 regex by ClickHouse multiMatchAnyIndex.
+    r"desktop\.hog\.dev": BotDefinition(
         "PostHog Code Desktop",
         "ai_assistant",
         "AI Agent",
         "PostHog",
         documentation_url="https://posthog.com/code",
     ),
-    "mobile.hog.dev": BotDefinition(
+    r"mobile\.hog\.dev": BotDefinition(
         "PostHog Code Mobile",
         "ai_assistant",
         "AI Agent",
         "PostHog",
         documentation_url="https://posthog.com/code",
     ),
-    "agent.hog.dev": BotDefinition(
+    r"agent\.hog\.dev": BotDefinition(
         "PostHog Code Agent",
         "ai_assistant",
         "AI Agent",
         "PostHog",
         documentation_url="https://posthog.com/code",
     ),
-    "cloud.hog.dev": BotDefinition(
+    r"cloud\.hog\.dev": BotDefinition(
         "PostHog Code Cloud",
         "ai_assistant",
         "AI Agent",
