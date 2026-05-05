@@ -77,6 +77,7 @@ def _build_params(
     config: PostmarkEndpointConfig,
     offset: int,
     fromdate: Optional[datetime],
+    todate: Optional[datetime] = None,
 ) -> dict[str, Any]:
     params: dict[str, Any] = {}
     if config.is_paginated:
@@ -84,6 +85,8 @@ def _build_params(
         params["offset"] = offset
     if fromdate is not None:
         params["fromdate"] = _format_postmark_datetime(fromdate)
+    if todate is not None:
+        params["todate"] = _format_postmark_datetime(todate)
     return params
 
 
@@ -109,49 +112,92 @@ def _request(session: requests.Session, url: str, params: dict[str, Any], logger
     return _do()
 
 
+def _paginate(
+    session: requests.Session,
+    url: str,
+    config: PostmarkEndpointConfig,
+    logger: FilteringBoundLogger,
+    fromdate: Optional[datetime],
+    todate: Optional[datetime],
+) -> Iterator[list[dict[str, Any]]]:
+    if not config.is_paginated:
+        payload = _request(session, url, _build_params(config, offset=0, fromdate=fromdate, todate=todate), logger)
+        items = payload.get(config.data_key, []) or []
+        if items:
+            yield items
+        return
+
+    offset = 0
+    while True:
+        params = _build_params(config, offset=offset, fromdate=fromdate, todate=todate)
+        payload = _request(session, url, params, logger)
+        items = payload.get(config.data_key, []) or []
+        total_count = payload.get("TotalCount")
+
+        if items:
+            yield items
+
+        offset += len(items)
+        if not items or len(items) < POSTMARK_PAGE_SIZE:
+            break
+        if total_count is not None and offset >= total_count:
+            break
+
+
 def get_rows(
     server_token: str,
     endpoint_name: str,
     logger: FilteringBoundLogger,
     should_use_incremental_field: bool = False,
+    incremental_field: Optional[str] = None,
     db_incremental_field_last_value: Any = None,
+    db_incremental_field_earliest_value: Any = None,
 ) -> Iterator[list[dict[str, Any]]]:
     config = POSTMARK_ENDPOINTS.get(endpoint_name)
     if config is None:
         raise ValueError(f"Unknown Postmark endpoint: {endpoint_name}")
 
+    # Honor the user's selected incremental field; fall back to the configured default if absent.
+    # Each Postmark list endpoint maps `fromdate`/`todate` to a single underlying time column,
+    # so the user's choice is expected to match config.incremental_field_api_name today.
+    api_field_name = incremental_field or config.incremental_field_api_name
     url = f"{POSTMARK_BASE_URL}{config.path}"
-    fromdate = _resolve_fromdate(config, should_use_incremental_field, db_incremental_field_last_value, logger)
 
     session = make_tracked_session(headers=_get_headers(server_token))
     try:
-        if not config.is_paginated:
-            payload = _request(session, url, _build_params(config, offset=0, fromdate=fromdate), logger)
-            items = payload.get(config.data_key, []) or []
-            if items:
-                yield items
+        if not should_use_incremental_field or api_field_name is None:
+            yield from _paginate(session, url, config, logger, fromdate=None, todate=None)
             return
 
-        offset = 0
-        while True:
-            params = _build_params(config, offset=offset, fromdate=fromdate)
-            payload = _request(session, url, params, logger)
-            items = payload.get(config.data_key, []) or []
-            total_count = payload.get("TotalCount")
+        # Postmark list endpoints return rows DESC by their time column with no `sorting=` param
+        # to flip that, so SourceResponse.sort_mode is "desc". Mirror Stripe's two-phase incremental:
+        # backfill rows older than the earliest watermark first, then catch up rows newer than the
+        # last watermark.
+        now = datetime.now(UTC)
+        earliest = _parse_incremental_value(db_incremental_field_earliest_value)
+        if earliest is not None:
+            window_floor = now - timedelta(days=config.max_window_days) if config.max_window_days is not None else None
+            if window_floor is not None and earliest <= window_floor:
+                logger.debug(
+                    f"Postmark: skipping backfill for {config.path}; earliest watermark {earliest.isoformat()} "
+                    f"is at or before the {config.max_window_days}-day search window"
+                )
+            else:
+                yield from _paginate(session, url, config, logger, fromdate=None, todate=earliest)
 
-            if items:
-                yield items
-
-            offset += len(items)
-            if not items or len(items) < POSTMARK_PAGE_SIZE:
-                break
-            if total_count is not None and offset >= total_count:
-                break
+        fromdate = _resolve_fromdate(
+            config,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=db_incremental_field_last_value,
+            logger=logger,
+            now=now,
+        )
+        yield from _paginate(session, url, config, logger, fromdate=fromdate, todate=None)
     finally:
         session.close()
 
 
-def validate_credentials(server_token: str) -> tuple[bool, Optional[str]]:
+def validate_credentials(server_token: str, schema_name: Optional[str] = None) -> tuple[bool, Optional[str]]:
     if not server_token:
         return False, "Postmark Server API token is required"
 
@@ -166,7 +212,12 @@ def validate_credentials(server_token: str) -> tuple[bool, Optional[str]]:
 
     if response.status_code == 401:
         return False, "Invalid Postmark Server API token"
+    # At source-create (schema_name is None) we accept 403: a token can legitimately be valid but
+    # scoped to fewer endpoints than the full schema set. Re-raise 403 only when probing for a
+    # specific schema, where the user explicitly asked whether that endpoint will work.
     if response.status_code == 403:
+        if schema_name is None:
+            return True, None
         return False, "Postmark Server API token is missing required permissions"
     if not response.ok:
         return False, f"Postmark API error: {response.status_code} {response.reason}"
@@ -178,7 +229,9 @@ def postmark_source(
     endpoint_name: str,
     logger: FilteringBoundLogger,
     should_use_incremental_field: bool = False,
+    incremental_field: Optional[str] = None,
     db_incremental_field_last_value: Any = None,
+    db_incremental_field_earliest_value: Any = None,
 ) -> SourceResponse:
     config = POSTMARK_ENDPOINTS.get(endpoint_name)
     if config is None:
@@ -190,8 +243,15 @@ def postmark_source(
             endpoint_name=endpoint_name,
             logger=logger,
             should_use_incremental_field=should_use_incremental_field,
+            incremental_field=incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
+            db_incremental_field_earliest_value=db_incremental_field_earliest_value,
         )
+
+    # Postmark list endpoints return rows DESC by their time column and offer no `sorting=` to
+    # flip that, so incremental endpoints declare sort_mode="desc" and rely on the pipeline
+    # passing both the earliest and latest watermarks for two-phase paging.
+    sort_mode = "desc" if config.incremental_field_api_name is not None else "asc"
 
     return SourceResponse(
         name=endpoint_name,
@@ -202,4 +262,5 @@ def postmark_source(
         partition_mode=config.partition_mode if config.partition_keys else None,
         partition_format=config.partition_format if config.partition_keys else None,
         partition_keys=config.partition_keys,
+        sort_mode=sort_mode,
     )

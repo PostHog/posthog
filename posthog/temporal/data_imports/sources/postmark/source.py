@@ -85,7 +85,7 @@ Note: outbound message search is limited to a 45-day window per Postmark's API; 
     def validate_credentials(
         self, config: PostmarkSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
-        return validate_postmark_credentials(config.server_api_token)
+        return validate_postmark_credentials(config.server_api_token, schema_name=schema_name)
 
     def source_for_pipeline(self, config: PostmarkSourceConfig, inputs: SourceInputs) -> SourceResponse:
         return postmark_source(
@@ -93,7 +93,11 @@ Note: outbound message search is limited to a 45-day window per Postmark's API; 
             endpoint_name=inputs.schema_name,
             logger=inputs.logger,
             should_use_incremental_field=inputs.should_use_incremental_field,
+            incremental_field=inputs.incremental_field if inputs.should_use_incremental_field else None,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
+            if inputs.should_use_incremental_field
+            else None,
+            db_incremental_field_earliest_value=inputs.db_incremental_field_earliest_value
             if inputs.should_use_incremental_field
             else None,
         )

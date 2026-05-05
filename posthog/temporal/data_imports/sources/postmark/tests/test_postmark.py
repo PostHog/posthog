@@ -15,6 +15,7 @@ from posthog.temporal.data_imports.sources.postmark.postmark import (
     _get_headers,
     _resolve_fromdate,
     get_rows,
+    postmark_source,
     validate_credentials,
 )
 from posthog.temporal.data_imports.sources.postmark.settings import (
@@ -130,11 +131,20 @@ class TestBuildParams:
         assert params["count"] == POSTMARK_PAGE_SIZE
         assert params["offset"] == 1000
         assert params["fromdate"] == "2026-04-01T00:00:00"
+        assert "todate" not in params
+
+    def test_paginated_with_todate(self) -> None:
+        config = POSTMARK_ENDPOINTS["bounces"]
+        todate = datetime(2026, 3, 1, tzinfo=UTC)
+        params = _build_params(config, offset=0, fromdate=None, todate=todate)
+        assert params["todate"] == "2026-03-01T00:00:00"
+        assert "fromdate" not in params
 
     def test_paginated_without_fromdate(self) -> None:
         config = POSTMARK_ENDPOINTS["bounces"]
         params = _build_params(config, offset=0, fromdate=None)
         assert "fromdate" not in params
+        assert "todate" not in params
         assert params["count"] == POSTMARK_PAGE_SIZE
 
     def test_unpaginated_endpoint_skips_count_offset(self) -> None:
@@ -242,6 +252,115 @@ class TestGetRows:
         except ValueError:
             pass
 
+    def test_incremental_two_phase_paging(self) -> None:
+        """With both watermarks set, we issue a `todate=earliest` backfill request and a
+        `fromdate=last` catch-up request — Stripe's two-phase pattern adapted for Postmark."""
+        backfill_page = {"TotalCount": 1, "Bounces": [{"ID": 1}]}
+        catchup_page = {"TotalCount": 1, "Bounces": [{"ID": 2}]}
+        session = self._build_session_mock([backfill_page, catchup_page])
+
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.postmark.postmark.make_tracked_session",
+            return_value=session,
+        ):
+            chunks = list(
+                get_rows(
+                    server_token="t",
+                    endpoint_name="bounces",
+                    logger=mock.MagicMock(),
+                    should_use_incremental_field=True,
+                    db_incremental_field_last_value=datetime(2026, 4, 1, tzinfo=UTC),
+                    db_incremental_field_earliest_value=datetime(2026, 3, 1, tzinfo=UTC),
+                )
+            )
+
+        assert chunks == [[{"ID": 1}], [{"ID": 2}]]
+        assert session.get.call_count == 2
+
+        backfill_call, catchup_call = session.get.call_args_list
+        assert backfill_call.kwargs["params"]["todate"] == "2026-03-01T00:00:00"
+        assert "fromdate" not in backfill_call.kwargs["params"]
+        assert catchup_call.kwargs["params"]["fromdate"] == "2026-04-01T00:00:00"
+        assert "todate" not in catchup_call.kwargs["params"]
+
+    def test_incremental_skips_backfill_at_window_edge(self) -> None:
+        """outbound_messages has a 45-day search window. If the earliest watermark is older than
+        the window floor, backfill would 422 — skip it and only run the catch-up phase."""
+        catchup_page = {"TotalCount": 0, "Messages": []}
+        session = self._build_session_mock([catchup_page])
+        earliest_at_edge = datetime.now(UTC) - timedelta(days=POSTMARK_OUTBOUND_MAX_WINDOW_DAYS + 5)
+
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.postmark.postmark.make_tracked_session",
+            return_value=session,
+        ):
+            list(
+                get_rows(
+                    server_token="t",
+                    endpoint_name="outbound_messages",
+                    logger=mock.MagicMock(),
+                    should_use_incremental_field=True,
+                    db_incremental_field_last_value=datetime.now(UTC) - timedelta(days=1),
+                    db_incremental_field_earliest_value=earliest_at_edge,
+                )
+            )
+
+        assert session.get.call_count == 1
+        only_call = session.get.call_args_list[0]
+        assert "todate" not in only_call.kwargs["params"]
+        assert "fromdate" in only_call.kwargs["params"]
+
+    def test_incremental_field_overrides_config_default(self) -> None:
+        """When `inputs.incremental_field` is set, honor it instead of always reaching for the
+        config's default. (Today the values match per endpoint; this protects against silent
+        override if the menu of options ever expands.)"""
+        page = {"TotalCount": 0, "Bounces": []}
+        session = self._build_session_mock([page])
+
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.postmark.postmark.make_tracked_session",
+            return_value=session,
+        ):
+            list(
+                get_rows(
+                    server_token="t",
+                    endpoint_name="bounces",
+                    logger=mock.MagicMock(),
+                    should_use_incremental_field=True,
+                    incremental_field="BouncedAt",
+                    db_incremental_field_last_value=datetime(2026, 4, 1, tzinfo=UTC),
+                )
+            )
+
+        assert session.get.call_count == 1
+
+    def test_incremental_skipped_when_no_field_configured(self) -> None:
+        """templates has no incremental_field_api_name — even if the pipeline asks for incremental,
+        the source falls back to a single full-refresh page with no fromdate."""
+        page = {"Templates": [{"TemplateId": 1}]}
+        session = self._build_session_mock([page])
+
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.postmark.postmark.make_tracked_session",
+            return_value=session,
+        ):
+            chunks = list(
+                get_rows(
+                    server_token="t",
+                    endpoint_name="templates",
+                    logger=mock.MagicMock(),
+                    should_use_incremental_field=True,
+                    db_incremental_field_last_value="2026-04-01T00:00:00Z",
+                    db_incremental_field_earliest_value="2026-03-01T00:00:00Z",
+                )
+            )
+
+        assert chunks == [[{"TemplateId": 1}]]
+        assert session.get.call_count == 1
+        only_call = session.get.call_args_list[0]
+        assert "fromdate" not in only_call.kwargs["params"]
+        assert "todate" not in only_call.kwargs["params"]
+
 
 class TestValidateCredentials:
     def _patch_session(self, status_code: int) -> mock.MagicMock:
@@ -271,13 +390,25 @@ class TestValidateCredentials:
         assert ok is False
         assert "Invalid" in (msg or "")
 
-    def test_forbidden(self) -> None:
+    def test_forbidden_at_source_create_is_accepted(self) -> None:
+        """At source-create (no schema_name) we accept 403: the token is real but may legitimately
+        only be scoped to a subset of endpoints. Per-schema 403 is still a hard fail."""
         session = self._patch_session(403)
         with mock.patch(
             "posthog.temporal.data_imports.sources.postmark.postmark.make_tracked_session",
             return_value=session,
         ):
             ok, msg = validate_credentials("token")
+        assert ok is True
+        assert msg is None
+
+    def test_forbidden_per_schema_is_rejected(self) -> None:
+        session = self._patch_session(403)
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.postmark.postmark.make_tracked_session",
+            return_value=session,
+        ):
+            ok, msg = validate_credentials("token", schema_name="bounces")
         assert ok is False
         assert "permissions" in (msg or "")
 
@@ -349,7 +480,13 @@ class TestPostmarkSource:
         ok, msg = self.source.validate_credentials(self.config, self.team_id)
         assert ok is True
         assert msg is None
-        mock_validate.assert_called_once_with(self.config.server_api_token)
+        mock_validate.assert_called_once_with(self.config.server_api_token, schema_name=None)
+
+    @mock.patch("posthog.temporal.data_imports.sources.postmark.source.validate_postmark_credentials")
+    def test_validate_credentials_threads_schema_name(self, mock_validate: mock.MagicMock) -> None:
+        mock_validate.return_value = (True, None)
+        self.source.validate_credentials(self.config, self.team_id, schema_name="bounces")
+        mock_validate.assert_called_once_with(self.config.server_api_token, schema_name="bounces")
 
     @mock.patch("posthog.temporal.data_imports.sources.postmark.source.validate_postmark_credentials")
     def test_validate_credentials_failure(self, mock_validate: mock.MagicMock) -> None:
@@ -363,7 +500,9 @@ class TestPostmarkSource:
         inputs = mock.MagicMock()
         inputs.schema_name = "bounces"
         inputs.should_use_incremental_field = False
+        inputs.incremental_field = "BouncedAt"
         inputs.db_incremental_field_last_value = "2026-01-01T00:00:00Z"
+        inputs.db_incremental_field_earliest_value = "2025-12-01T00:00:00Z"
 
         self.source.source_for_pipeline(self.config, inputs)
 
@@ -372,7 +511,9 @@ class TestPostmarkSource:
             endpoint_name="bounces",
             logger=inputs.logger,
             should_use_incremental_field=False,
+            incremental_field=None,
             db_incremental_field_last_value=None,
+            db_incremental_field_earliest_value=None,
         )
 
     @mock.patch("posthog.temporal.data_imports.sources.postmark.source.postmark_source")
@@ -380,7 +521,9 @@ class TestPostmarkSource:
         inputs = mock.MagicMock()
         inputs.schema_name = "outbound_messages"
         inputs.should_use_incremental_field = True
+        inputs.incremental_field = "ReceivedAt"
         inputs.db_incremental_field_last_value = "2026-04-01T00:00:00Z"
+        inputs.db_incremental_field_earliest_value = "2026-03-01T00:00:00Z"
 
         self.source.source_for_pipeline(self.config, inputs)
 
@@ -389,5 +532,29 @@ class TestPostmarkSource:
             endpoint_name="outbound_messages",
             logger=inputs.logger,
             should_use_incremental_field=True,
+            incremental_field="ReceivedAt",
             db_incremental_field_last_value="2026-04-01T00:00:00Z",
+            db_incremental_field_earliest_value="2026-03-01T00:00:00Z",
         )
+
+    @parameterized.expand(
+        [
+            ("outbound_messages", "desc"),
+            ("outbound_opens", "desc"),
+            ("outbound_clicks", "desc"),
+            ("bounces", "desc"),
+            ("inbound_messages", "desc"),
+            ("templates", "asc"),
+            ("message_streams", "asc"),
+        ]
+    )
+    def test_postmark_source_sort_mode(self, endpoint: str, expected_sort_mode: str) -> None:
+        """Postmark list endpoints return rows DESC by their time column with no `sorting=` to flip
+        that, so incremental endpoints must declare sort_mode='desc' to match the pipeline's
+        watermark expectations. Full-refresh endpoints can stay 'asc' (their order is irrelevant)."""
+        response = postmark_source(
+            server_token="t",
+            endpoint_name=endpoint,
+            logger=mock.MagicMock(),
+        )
+        assert response.sort_mode == expected_sort_mode
