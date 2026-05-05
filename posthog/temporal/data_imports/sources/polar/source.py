@@ -41,7 +41,10 @@ class PolarSource(ResumableSource[PolarSourceConfig, PolarResumeConfig]):
             caption=(
                 "Connect your Polar.sh account using an "
                 "[Organization Access Token](https://docs.polar.sh/integrate/oat) "
-                "to sync customers, products, orders, subscriptions, and more."
+                "to sync customers, products, orders, subscriptions, and more.\n\n"
+                "**Required scopes:** `benefits:read`, `checkouts:read`, `customers:read`, "
+                "`orders:read`, `organizations:read`, `products:read`, `refunds:read`, "
+                "`subscriptions:read`."
             ),
             docsUrl="https://posthog.com/docs/cdp/sources/polar",
             iconPath="/static/services/polar.png",
