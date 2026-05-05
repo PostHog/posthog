@@ -1423,9 +1423,21 @@ export type AssistantDataVisualizationDisplayType =
     | ChartDisplayType.ActionsAreaGraph
     | ChartDisplayType.TwoDimensionalHeatmap
 
+export interface AssistantDataVisualizationAxisDisplaySettings {
+    /** Which Y axis this numeric series should use. Use `right` for a secondary Y axis. */
+    yAxisPosition?: 'left' | 'right'
+}
+
+export interface AssistantDataVisualizationAxisSettings {
+    /** Display settings for a plotted Y series. */
+    display?: AssistantDataVisualizationAxisDisplaySettings
+}
+
 export interface AssistantDataVisualizationAxis {
     /** Name of a column returned by the SQL query to map onto this axis. */
     column: string
+    /** Optional series settings. Only applies to Y-axis series. */
+    settings?: AssistantDataVisualizationAxisSettings
 }
 
 export interface AssistantDataVisualizationGoalLine {
@@ -1435,11 +1447,30 @@ export interface AssistantDataVisualizationGoalLine {
     value: number
 }
 
+export interface AssistantDataVisualizationYAxisSettings {
+    /** Label rendered beside this Y axis. */
+    label?: string
+    /** Scale used for this Y axis. */
+    scale?: 'linear' | 'logarithmic'
+    /** Whether this Y axis should start at zero. */
+    startAtZero?: boolean
+    /** Show tick labels on this Y axis. */
+    showTicks?: boolean
+    /** Show grid lines for this Y axis. */
+    showGridLines?: boolean
+}
+
 export interface AssistantDataVisualizationChartSettings {
     /** Column used as the X axis. Typically a time bucket or categorical column. */
     xAxis?: AssistantDataVisualizationAxis
+    /** Label rendered under the X axis. */
+    xAxisLabel?: string
     /** One or more numeric columns plotted as Y series. */
     yAxis?: AssistantDataVisualizationAxis[]
+    /** Settings for the left Y axis. */
+    leftYAxisSettings?: AssistantDataVisualizationYAxisSettings
+    /** Settings for the right Y axis. Only applies when a Y series uses `settings.display.yAxisPosition: "right"`. */
+    rightYAxisSettings?: AssistantDataVisualizationYAxisSettings
     /**
      * Column that splits a single Y series into multiple colored series — e.g. breaking down
      * a line chart by `country`. Set to `null` or omit to disable.

@@ -3,6 +3,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { format } from 'oxfmt'
 import { describe, expect, it } from 'vitest'
+import { parse as parseYaml } from 'yaml'
 import { z } from 'zod'
 
 import { buildInstructionsV2 } from '@/lib/instructions'
@@ -199,6 +200,52 @@ describe('exec tool', () => {
         })
     })
 
+    describe('info command', () => {
+        it('returns YAML for the top shape with the input schema embedded as JSON', async () => {
+            const tool = makeMockTool({ schema: z.object({ name: z.string().describe('Person name') }) })
+            const exec = createExec([tool])
+            const result = (await exec.handler(mockContext, { command: 'info mock-tool' })) as string
+            expect(typeof result).toBe('string')
+            // YAML lines for the top shape
+            expect(result).toContain('name: mock-tool')
+            expect(result).toContain('title: Mock tool')
+            // The whole envelope is not JSON
+            expect(() => JSON.parse(result)).toThrow()
+            // inputSchema is dumped as a JSON string within the YAML — parse the
+            // envelope as YAML, then JSON.parse the inputSchema value.
+            const envelope = parseYaml(result) as { inputSchema: string }
+            expect(typeof envelope.inputSchema).toBe('string')
+            const parsedSchema = JSON.parse(envelope.inputSchema)
+            expect(parsedSchema.type).toBe('object')
+            expect(parsedSchema.properties.name.description).toBe('Person name')
+        })
+
+        it('returns JSON with --json flag', async () => {
+            const exec = createExec()
+            const result = (await exec.handler(mockContext, { command: 'info --json mock-tool' })) as string
+            const parsed = JSON.parse(result)
+            expect(parsed.name).toBe('mock-tool')
+            expect(parsed.title).toBe('Mock tool')
+            expect(parsed.description).toBe('A mock tool for testing')
+            // In --json mode, inputSchema is a real object, not a JSON string
+            expect(typeof parsed.inputSchema).toBe('object')
+        })
+
+        it('throws usage error for bare info', async () => {
+            const exec = createExec()
+            await expect(exec.handler(mockContext, { command: 'info' })).rejects.toThrow(
+                'Usage: info [--json] <tool_name>'
+            )
+        })
+
+        it('throws usage error for info --json with no tool name', async () => {
+            const exec = createExec()
+            await expect(exec.handler(mockContext, { command: 'info --json' })).rejects.toThrow(
+                'Usage: info [--json] <tool_name>'
+            )
+        })
+    })
+
     describe('deprecated tool redirects', () => {
         it.each([
             ['entity-search', 'execute-sql'],
@@ -240,6 +287,7 @@ describe('exec tool', () => {
                 } as any,
                 sessionManager: new SessionManager({} as any),
                 getDistinctId: async () => 'test-distinct-id',
+                trackEvent: async () => {},
             }
         }
 

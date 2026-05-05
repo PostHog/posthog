@@ -27,6 +27,7 @@ function createMockContext(): Context {
         } as any,
         sessionManager: new SessionManager({} as any),
         getDistinctId: async () => 'test-distinct-id',
+        trackEvent: async () => {},
     }
 }
 
@@ -105,10 +106,14 @@ describe('Tool schema snapshots', () => {
     it('snapshots runtime tool schemas as common + version deltas', async () => {
         const shouldUpdateSnapshots = isSnapshotUpdateAll()
         const root = path.resolve(__dirname, '__snapshots__', 'tool-schemas')
-        const v1Tools = [...(await getToolsFromContext(context, { version: 1 }))].sort((a, b) =>
+        // Enable the agent-feedback gating flag so its snapshot is captured. Other flag-gated
+        // tools (logs-alerts, visual-review) remain excluded so this test stays scoped to the
+        // tool surface that was previously snapshotted.
+        const featureFlags = { 'mcp-feedback-tool': true }
+        const v1Tools = [...(await getToolsFromContext(context, { version: 1, featureFlags }))].sort((a, b) =>
             a.name.localeCompare(b.name)
         )
-        const v2Tools = [...(await getToolsFromContext(context, { version: 2 }))].sort((a, b) =>
+        const v2Tools = [...(await getToolsFromContext(context, { version: 2, featureFlags }))].sort((a, b) =>
             a.name.localeCompare(b.name)
         )
 

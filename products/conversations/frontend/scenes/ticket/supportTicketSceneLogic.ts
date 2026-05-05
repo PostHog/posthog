@@ -374,12 +374,13 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                     } else if (authorType === 'AI') {
                         displayName = 'PostHog Assistant'
                     } else if (authorType === 'customer') {
-                        // For Slack messages, use the per-message author info
                         const slackAuthorName = message.item_context?.slack_author_name
+                        const emailAuthorName = message.item_context?.email_from_name
                         if (slackAuthorName) {
                             displayName = slackAuthorName
+                        } else if (emailAuthorName) {
+                            displayName = emailAuthorName
                         } else {
-                            // Fallback to ticket-level info for widget messages
                             displayName =
                                 ticket?.person?.properties?.name ||
                                 ticket?.person?.properties?.email ||
