@@ -221,9 +221,8 @@ export class KafkaConsumerV2 {
         if (!this.running) {
             return
         }
-        // Flip to !running so the loop exits at its next iteration AND so the
-        // rebalanceCallback handles the final REVOKE that librdkafka delivers during
-        // disconnect (see rebalanceCallback() for the special-case path).
+        // Flip running so the loop exits and so the final REVOKE during disconnect goes
+        // through rebalanceCallback's special-case path.
         this.running = false
         if (this.loopDone) {
             await this.loopDone.catch((error) => {
@@ -255,10 +254,8 @@ export class KafkaConsumerV2 {
                     break
                 }
 
-                // 2. Always poll. consume() drives the librdkafka group-membership protocol
-                // (heartbeats, JoinGroup, rebalance event delivery) regardless of whether we
-                // currently have any partitions assigned. When we have none it returns 0 messages
-                // within fetch.wait.max.ms; when we have some, it returns whatever's buffered.
+                // 2. Poll. consume() also drives heartbeats / rebalance delivery; with no
+                // assignments it returns empty within fetch.wait.max.ms.
                 await this.fetchAndDispatch(eachBatch)
             }
         } finally {
@@ -280,27 +277,21 @@ export class KafkaConsumerV2 {
             return
         }
 
-        // Bail out if disconnect() ran during consume(). Rebalance events only mutate state
-        // inside handleRebalanceEvent (top of loop), so the only way we land here non-running
-        // is shutdown.
+        // disconnect() may have flipped `running` while we were awaiting consume().
         if (!this.running) {
             return
         }
 
         const startMs = Date.now()
-        // Match v1 — eachBatch errors are NOT caught here. They propagate up to the loop
-        // catch in connect() which re-throws to kill the process. Failing loud is the
-        // intentional contract: ops sees the pod restart, the batch is re-read from the
-        // last committed offset (at-least-once preserved), and any logic bug is visible
-        // immediately rather than silently dropping offsets.
+        // eachBatch errors are intentionally NOT caught — they propagate to the loop and
+        // crash the process. At-least-once is preserved (uncommitted offsets get re-read
+        // on restart) and any logic bug surfaces loudly rather than silently dropping.
         const result: EachBatchResult = await eachBatch(messages)
         consumedBatchDuration.labels(this.config.topic, this.config.groupId).observe(Date.now() - startMs)
 
-        // Intentionally NOT re-checking state here. Even if a REVOKE fired during eachBatch
-        // and we're now DRAINING, we still want this task tracked so drainAll() awaits it —
-        // `inFlight` is the source of truth for drainAll(). The generation tag passed to
-        // trackTask() ensures its storeOffsets call is skipped if the rebalance has already
-        // bumped `this.generation`.
+        // We always track. If a REVOKE arrived while eachBatch ran, the generation tag in
+        // trackTask makes the storeOffsets a no-op, but inFlight still holds the entry so
+        // drainAll waits for it.
         const offsets = findOffsetsToCommit(messages)
         this.trackTask(result, offsets, this.generation)
         await this.applyBackpressure()
