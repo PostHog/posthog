@@ -1,6 +1,6 @@
 import { Counter } from 'prom-client'
 
-import { RedisV2, getRedisPipelineResults } from '~/common/redis/redis-v2'
+import { RedisClientPipeline, RedisV2, getRedisPipelineResults } from '~/common/redis/redis-v2'
 import { LazyLoader } from '~/utils/lazy-loader'
 import { logger } from '~/utils/logger'
 import { captureTeamEvent } from '~/utils/posthog'
@@ -95,11 +95,15 @@ export class HogWatcherService {
         complete: () => void
     } | null = null
 
+    private redisReader: RedisV2
+
     constructor(
         private teamManager: TeamManager,
         private config: HogWatcherConfig,
-        private redis: RedisV2
+        private redis: RedisV2,
+        redisReader?: RedisV2
     ) {
+        this.redisReader = redisReader ?? redis
         this.costsMapping = {
             hog: {
                 lowerBound: this.config.hogCostTimingLowerMs,
@@ -201,12 +205,20 @@ export class HogWatcherService {
         const idsSet = new Set(ids)
         const nowSeconds = Math.round(Date.now() / 1000)
 
-        const res = await this.redis.usePipeline({ name: 'getStates' }, (pipeline) => {
+        const buildGetStatesPipeline = (pipeline: RedisClientPipeline) => {
             for (const id of idsSet) {
                 pipeline.hmget(`${REDIS_KEY_TOKENS}/${id}`, 'pool', 'ts')
                 pipeline.get(`${REDIS_KEY_STATE}/${id}`)
             }
-        })
+        }
+
+        let res
+        try {
+            res = await this.redisReader.usePipeline({ name: 'getStates' }, buildGetStatesPipeline)
+        } catch (err) {
+            logger.warn('🔀', '[HogWatcher] reader getStates failed, falling back to writer', { err })
+            res = await this.redis.usePipeline({ name: 'getStates' }, buildGetStatesPipeline)
+        }
 
         return Array.from(idsSet).reduce(
             (acc, id, index) => {
@@ -280,19 +292,27 @@ export class HogWatcherService {
     }
 
     public async getAllFunctionStates(): Promise<Record<HogFunctionType['id'], HogWatcherFunctionState>> {
-        // Scan all state keys in Redis
-        const stateKeys = await this.redis.useClient({ name: 'scanStates' }, async (client) => {
-            const keys: string[] = []
-            let cursor = '0'
+        const scan = (pool: RedisV2): Promise<string[] | null> =>
+            pool.useClient({ name: 'scanStates' }, async (client) => {
+                const keys: string[] = []
+                let cursor = '0'
 
-            do {
-                const [newCursor, batch] = await client.scan(cursor, 'MATCH', `${REDIS_KEY_STATE}/*`, 'COUNT', 500)
-                cursor = newCursor
-                keys.push(...batch)
-            } while (cursor !== '0')
+                do {
+                    const [newCursor, batch] = await client.scan(cursor, 'MATCH', `${REDIS_KEY_STATE}/*`, 'COUNT', 500)
+                    cursor = newCursor
+                    keys.push(...batch)
+                } while (cursor !== '0')
 
-            return keys
-        })
+                return keys
+            })
+
+        let stateKeys: string[] | null
+        try {
+            stateKeys = await scan(this.redisReader)
+        } catch (err) {
+            logger.warn('🔀', '[HogWatcher] reader scanStates failed, falling back to writer', { err })
+            stateKeys = await scan(this.redis)
+        }
 
         if (!stateKeys || stateKeys.length === 0) {
             return {}

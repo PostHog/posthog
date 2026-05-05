@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useState } from 'react'
@@ -39,10 +40,12 @@ import {
     AccessControlResourceType,
     ActivityScope,
     Experiment,
+    ExperimentConclusion,
     ExperimentStatus,
     ExperimentsTabs,
 } from '~/types'
 
+import { CONCLUSION_DISPLAY_CONFIG } from './constants'
 import { CopyExperimentToProjectModal } from './CopyExperimentToProjectModal'
 import { DuplicateExperimentModal } from './DuplicateExperimentModal'
 import { canArchiveExperiment, confirmArchiveExperiment, confirmDeleteExperiment } from './experimentActions'
@@ -333,6 +336,40 @@ const ExperimentsTable = ({
                     [ExperimentStatus.Stopped]: 4,
                 }
                 return score[statusA] > score[statusB] ? 1 : -1
+            },
+        },
+        {
+            title: 'Result',
+            key: 'conclusion',
+            render: function Render(_, experiment: Experiment) {
+                if (!experiment.conclusion) {
+                    return <span className="text-secondary">—</span>
+                }
+                const config = CONCLUSION_DISPLAY_CONFIG[experiment.conclusion]
+                const tooltip = experiment.conclusion_comment
+                    ? `${config.description} — ${experiment.conclusion_comment}`
+                    : config.description
+                return (
+                    <Tooltip title={tooltip}>
+                        <div className="flex items-center gap-2 cursor-default">
+                            <div className={clsx('w-2 h-2 rounded-full', config.color)} />
+                            <span className="font-medium">{config.title}</span>
+                        </div>
+                    </Tooltip>
+                )
+            },
+            align: 'left',
+            sorter: (a, b) => {
+                const conclusionScore: Record<ExperimentConclusion, number> = {
+                    [ExperimentConclusion.Won]: 1,
+                    [ExperimentConclusion.Lost]: 2,
+                    [ExperimentConclusion.Inconclusive]: 3,
+                    [ExperimentConclusion.StoppedEarly]: 4,
+                    [ExperimentConclusion.Invalid]: 5,
+                }
+                const aScore = a.conclusion ? conclusionScore[a.conclusion] : 6
+                const bScore = b.conclusion ? conclusionScore[b.conclusion] : 6
+                return aScore - bScore
             },
         },
         {

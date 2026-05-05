@@ -296,6 +296,21 @@ export const ErrorTrackingIssuesBulkCreateBody = /* @__PURE__ */ zod.object({
     ),
 })
 
+export const ErrorTrackingSettingsUpdateSettingsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    project_rate_limit_value: zod
+        .number()
+        .min(1)
+        .nullish()
+        .describe(
+            'Maximum number of exception events ingested per bucket for the entire project. Null removes the limit.'
+        ),
+    project_rate_limit_bucket_size_minutes: zod
+        .number()
+        .min(1)
+        .nullish()
+        .describe('Bucket window over which the project-wide rate limit applies, in minutes.'),
+})
+
 export const ErrorTrackingSpikeDetectionConfigUpdateConfigPartialUpdateBody = /* @__PURE__ */ zod.object({
     snooze_duration_minutes: zod
         .number()
