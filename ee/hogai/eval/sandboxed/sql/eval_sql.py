@@ -494,6 +494,25 @@ WHERE properties.interests IS NOT NULL
   AND length(splitByChar(',', coalesce(properties.interests, ''))) > 0
 """,
         ),
+        # HogQL string-to-datetime casting regression. HogQL's
+        # `toDateTime64` requires a DateTime input — the ClickHouse-style
+        # call `toDateTime64('2025-01-01 00:00:00.123456', 6)` (string
+        # literal as the first arg) fails type checking, forcing a retry
+        # and burning tokens. The HogQL-correct path is `toDateTime(...)`,
+        # which parses strings transparently.
+        _sql_case(
+            name="sql_microsecond_precision_timestamp_filter",
+            prompt=(
+                "Write a HogQL query that counts $pageview events whose timestamp is strictly after "
+                "the precise microsecond instant 2025-03-15 14:23:45.123456."
+            ),
+            expected_sql="""
+SELECT count(*) AS pageview_count
+FROM events
+WHERE event = '$pageview'
+  AND timestamp > toDateTime('2025-03-15 14:23:45.123456')
+""",
+        ),
     ]
 
     await SandboxedPublicEval(
