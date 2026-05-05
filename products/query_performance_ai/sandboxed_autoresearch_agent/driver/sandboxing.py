@@ -147,8 +147,14 @@ def lockdown_network(coordinator_url: str) -> None:
     for ip in anthropic_ips:
         allow_rules.append(["-d", ip, "-p", "tcp", "--dport", str(anthropic_port), "-j", "ACCEPT"])
 
-    rules: list[list[str]] = [["iptables", "-I", "OUTPUT", "1", *r] for r in allow_rules]
-    rules.append(["iptables", "-P", "OUTPUT", "DROP"])
+    # Apply DROP first so any partial-rule failure leaves the chain in the
+    # safer "everything blocked" state rather than fail-open. In practice
+    # any ``LockdownFailed`` here also kills this driver process — the
+    # sandbox PID 1 exits, the container terminates, and the coordinator
+    # destroys it — so the half-locked window is sub-second and pi never
+    # gets to run. The ordering is defense-in-depth, not load-bearing.
+    rules: list[list[str]] = [["iptables", "-P", "OUTPUT", "DROP"]]
+    rules.extend(["iptables", "-I", "OUTPUT", "1", *r] for r in allow_rules)
 
     for argv in rules:
         try:

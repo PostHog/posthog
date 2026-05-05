@@ -7,9 +7,9 @@ locks the network down to the coordinator port, initializes the workspace,
 and hands control to ``pi /skill::clickhouse-autoresearch-campaign``.
 
 The coordinator decides whether to capture the baseline up front
-(``capture_baseline_in_orchestrator=true``, currently the local-CH path)
-or hand the agent a non-pre-initialized workspace and instructions to
-rewrite the query first (test_cluster path with the team-1 prompt).
+(``capture_baseline_in_orchestrator=true``) or hand the agent a
+non-pre-initialized workspace and instructions to rewrite the query
+first (whenever a backend ships a non-empty ``prompt_addendum``).
 """
 
 from __future__ import annotations

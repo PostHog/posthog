@@ -6,10 +6,11 @@ to ``localhost:$PORT`` (best-effort iptables; see run_campaign.py).
 
 Run:
 
+    # --query-log-database-id 142 is ClickHouse PROD US - OFFLINE
     python -m products.query_performance_ai.orchestrator.coordinator \\
         --target test_cluster \\
         --metabase-region us \\
-        --query-log-database-id 142   # ClickHouse PROD US - OFFLINE \\
+        --query-log-database-id 142 \\
         --test-cluster-database-id 146 \\
         --team-id 2 --max-queries 5
 
@@ -516,10 +517,18 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         help=(
             "Skip Metabase entirely and feed `SELECT 1, sleep(1)` as the campaign SQL. "
             "Useful as an end-to-end smoke: the agent should drop the sleep call within "
-            "a couple of iterations. Mutually exclusive with --query-log-database-id."
+            "a couple of iterations. When set, --query-log-database-id is ignored."
         ),
     )
-    parser.add_argument("--keep-sandboxes", action="store_true")
+    parser.add_argument(
+        "--keep-sandboxes",
+        action="store_true",
+        help=(
+            "Don't destroy sandboxes after the campaign exits. Useful for debugging — "
+            "you can `docker exec` into the container post-mortem to inspect the workspace. "
+            "By default each sandbox is torn down after artifacts are harvested."
+        ),
+    )
     return parser.parse_args(argv)
 
 

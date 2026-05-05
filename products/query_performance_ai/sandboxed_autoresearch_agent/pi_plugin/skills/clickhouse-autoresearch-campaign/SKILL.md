@@ -58,7 +58,7 @@ Only fall back to the interactive Setup sequence below when the workspace is emp
 
 Campaign queries flow through the adapter configured in `adapter.json`. Every campaign script (`ch_capture_baseline.py`, `ch_run_candidate.py`, any ad-hoc probe) ultimately submits SQL through this adapter, and the adapter enforces what ClickHouse sees.
 
-When `adapter.json` has `type: "coordinator"`, your SQL is routed to whichever ClickHouse the host-side coordinator is pointed at — typically a read-only test cluster (currently team 1 data) or a local dev ClickHouse. Either way the cluster runs SQL under a profile that pins `readonly = 2`, so writes (INSERT, ALTER, CREATE, OPTIMIZE, SYSTEM, TRUNCATE, DROP, ATTACH, DETACH) will fail with a ClickHouse error. **Read `GET /v1/info` (or check `autoresearch.md` — the coordinator's prompt addendum is prepended there)** before issuing any predicate that depends on a specific `team_id`: in test-cluster mode you may need to rewrite team_id predicates to `team_id = 1`. For experiments treat every read-only statement form as available:
+When `adapter.json` has `type: "coordinator"`, your SQL is routed to whichever ClickHouse the host-side coordinator is pointed at — typically a read-only test cluster or a local dev ClickHouse. Either way the cluster runs SQL under a profile that pins `readonly = 2`, so writes (INSERT, ALTER, CREATE, OPTIMIZE, SYSTEM, TRUNCATE, DROP, ATTACH, DETACH) will fail with a ClickHouse error. **Read `GET /v1/info` (or check `autoresearch.md` — the coordinator's prompt addendum is prepended there)** before issuing any predicate that depends on a specific `team_id`: the prompt addendum tells you which `team_id` the target cluster has data for, and you must rewrite team_id predicates to match it. For experiments treat every read-only statement form as available:
 
 - `SELECT …` — arbitrary subqueries, CTEs, joins
 - `WITH … SELECT …`
@@ -76,7 +76,7 @@ When `adapter.json` has `type: "coordinator"`, your SQL is routed to whichever C
 
 **Timeout**: every submission is wrapped with `SETTINGS max_execution_time = 60`. Keep ad-hoc probes short. If the target query itself routinely exceeds 60s, use range narrowing (see Setup step 6) and only then start the campaign.
 
-**Cluster scoping**: depends on the coordinator's `target`. The test cluster currently contains only team-1 data — you must rewrite team_id predicates to `team_id = 1` (the prompt addendum prepended to `autoresearch.md` spells this out). The local-CH target runs whatever data your dev container has; no rewrite needed. Read the addendum first.
+**Cluster scoping**: depends on the coordinator's `target`. The prompt addendum prepended to `autoresearch.md` tells you which `team_id` the target cluster has data for and asks you to rewrite team_id predicates accordingly. Read the addendum first.
 
 **Profiling ClickHouse's perspective**:
 

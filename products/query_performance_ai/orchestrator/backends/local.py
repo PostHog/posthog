@@ -18,7 +18,7 @@ from typing import Any
 
 from .base import BackendError, ExecutionBackend, ExecutionResult
 
-_TEAM_ONE_PROMPT_TEMPLATE = (
+_LOCAL_DEV_DB_PROMPT = (
     "## Coordinator routing — LOCAL CLICKHOUSE MODE\n"
     "\n"
     "The coordinator is forwarding your SQL to a developer-local ClickHouse instance "
@@ -52,7 +52,7 @@ class LocalClickhouseBackend(ExecutionBackend):
         return "local"
 
     def prompt_addendum(self) -> str:
-        return _TEAM_ONE_PROMPT_TEMPLATE.format(team_id=self._team_id)
+        return _LOCAL_DEV_DB_PROMPT.format(team_id=self._team_id)
 
     def run(self, sql: str, *, timeout_s: int) -> ExecutionResult:
         # Lazy import — both clickhouse_driver and django.conf are in the

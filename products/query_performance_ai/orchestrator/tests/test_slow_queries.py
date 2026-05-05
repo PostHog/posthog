@@ -27,7 +27,7 @@ def test_build_sql_with_available_dictionaries_adds_has_all_filter() -> None:
         available_dictionaries=["posthog.web_pre_aggregated_teams_dict"],
     )
     assert "used_dictionaries" in sql
-    assert "posthog.web_pre_aggregated_teams_dict" in sql
+    assert "'posthog.web_pre_aggregated_teams_dict'" in sql
     # Empty list (`[]`) is meaningful — it requires queries to use no
     # dictionaries at all. Distinguish from `None` (skip the filter).
     sql_empty = slow_queries.build_sql(
@@ -52,10 +52,21 @@ def test_build_sql_with_available_columns_adds_has_all_filter() -> None:
     # Compare on column NAME only, not full database.table.column; that lets
     # prod's `sharded_events` and the test cluster's `events` match.
     assert "splitByChar('.', c)[3]" in sql
-    assert "team_id" in sql
-    assert "event" in sql
+    assert "'team_id'" in sql
+    assert "'event'" in sql
     # backticks must be stripped before comparison so `mat_$host` matches `mat_$host`.
     assert "'`'" in sql
+
+
+def test_ch_string_array_handles_apostrophes_and_braces() -> None:
+    """Names with `'` or `{` would break a naive `repr()` interpolation; verify they're escaped safely."""
+    rendered = slow_queries._ch_string_array(["foo'bar", "baz{name}", "plain"])
+    # Single quotes inside the value get doubled per ClickHouse string-literal rules.
+    assert rendered == "['foo''bar','baz{name}','plain']"
+    # Curly braces are passed through unchanged — no `.format()` step happens
+    # downstream because `build_sql` interpolates the rendered string into a
+    # placeholder that's not itself `.format`'d again.
+    assert "{name}" in rendered
 
 
 def test_parse_metabase_response_typed_records() -> None:

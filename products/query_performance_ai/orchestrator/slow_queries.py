@@ -59,13 +59,27 @@ LIMIT {limit}
 # with backticks around any column whose name needs quoting (e.g.
 # `mat_$host`); strip the prefix and the backticks before comparing.
 _COLUMN_FILTER_CLAUSE = (
-    "AND hasAll({available!r}, arrayDistinct(arrayMap(c -> replaceAll(splitByChar('.', c)[3], '`', ''), columns)))"
+    "AND hasAll({available}, arrayDistinct(arrayMap(c -> replaceAll(splitByChar('.', c)[3], '`', ''), columns)))"
 )
 
 # Same idea as the column filter, but for ClickHouse dictionaries (referenced via
 # dictGet*/dictHas etc.). `system.query_log.used_dictionaries` is already in
 # `database.name` form, so we compare directly without splitting.
-_DICTIONARY_FILTER_CLAUSE = "AND hasAll({available!r}, used_dictionaries)"
+_DICTIONARY_FILTER_CLAUSE = "AND hasAll({available}, used_dictionaries)"
+
+
+def _ch_string_array(items: list[str]) -> str:
+    """Render ``items`` as a ClickHouse string-literal array.
+
+    Uses single quotes with `''` escaping. Avoids ``repr()`` because Python's
+    repr switches to double quotes when a string contains a single quote, and
+    ClickHouse parses double-quoted tokens as identifier references — not
+    string literals — silently turning a name like ``foo'bar`` into a column
+    reference instead of a value. Curly braces in names are also passed
+    through unchanged (no ``.format`` interpolation here).
+    """
+    quoted = ",".join("'" + s.replace("'", "''") + "'" for s in items)
+    return "[" + quoted + "]"
 
 
 @dataclass(frozen=True)
@@ -103,9 +117,9 @@ def build_sql(
     """
     clauses: list[str] = []
     if available_columns:
-        clauses.append(_COLUMN_FILTER_CLAUSE.format(available=sorted(available_columns)))
+        clauses.append(_COLUMN_FILTER_CLAUSE.format(available=_ch_string_array(sorted(available_columns))))
     if available_dictionaries is not None:
-        clauses.append(_DICTIONARY_FILTER_CLAUSE.format(available=sorted(available_dictionaries)))
+        clauses.append(_DICTIONARY_FILTER_CLAUSE.format(available=_ch_string_array(sorted(available_dictionaries))))
     return _SLOW_QUERIES_SQL.format(
         lookback_hours=int(lookback_hours),
         team_id=int(team_id),

@@ -7,6 +7,7 @@ cookie never appears in this process's env or argv.
 
 from __future__ import annotations
 
+import re
 import json
 import time
 import shlex
@@ -14,7 +15,39 @@ import subprocess
 
 from .base import BackendError, ExecutionBackend, ExecutionResult
 
-LOCAL_DEV_DB_PROMPT = (
+# Match the LAST `SETTINGS` keyword in the query so we can splice
+# `log_comment = '...'` into an existing settings clause. Word-bounded and
+# case-insensitive. Naive but adequate: prod query_log SQL doesn't contain
+# the literal string "SETTINGS" inside string literals or comments in
+# practice, and the worst case is one query getting an extra trailing
+# settings clause that ClickHouse rejects with a clear parse error.
+_SETTINGS_KEYWORD_RE = re.compile(r"\bSETTINGS\b", re.IGNORECASE)
+
+
+def _tag_with_log_comment(sql: str, log_comment: str) -> str:
+    """Inject ``SETTINGS log_comment = '...'`` into ``sql``.
+
+    If the query already has a ``SETTINGS`` clause, merges by inserting
+    ``log_comment = '<json>',`` right after the last SETTINGS keyword.
+    Otherwise appends ``\\nSETTINGS log_comment = '<json>'`` after stripping
+    any trailing semicolon / whitespace. The JSON is single-quote-escaped
+    per ClickHouse string-literal rules (``''`` for embedded ``'``).
+    """
+    escaped = log_comment.replace("'", "''")
+    settings_fragment = f"log_comment = '{escaped}'"
+
+    matches = list(_SETTINGS_KEYWORD_RE.finditer(sql))
+    if matches:
+        # Splice into the existing SETTINGS clause. Putting log_comment first
+        # is fine — ClickHouse doesn't care about settings ordering.
+        last = matches[-1]
+        return sql[: last.end()] + " " + settings_fragment + "," + sql[last.end() :]
+
+    stripped = sql.rstrip().rstrip(";").rstrip()
+    return f"{stripped}\nSETTINGS {settings_fragment}"
+
+
+_TEST_CLUSTER_PROMPT = (
     "## Coordinator routing — TEST CLUSTER MODE\n"
     "\n"
     "The coordinator is forwarding your SQL to a Metabase database that contains "
@@ -51,9 +84,23 @@ class MetabaseBackend(ExecutionBackend):
         return self._target_label
 
     def prompt_addendum(self) -> str:
-        return LOCAL_DEV_DB_PROMPT.format(team_id=self._team_id)
+        return _TEST_CLUSTER_PROMPT.format(team_id=self._team_id)
 
     def run(self, sql: str, *, timeout_s: int) -> ExecutionResult:
+        # Tag the candidate SQL with `log_comment` so `system.query_log` can
+        # attribute these replays to autoresearch (and not the metabase
+        # `default` user) for cost / memory accounting. Same shape as the
+        # local backend's tag so a single query_log filter sees both paths.
+        log_comment = json.dumps(
+            {
+                "product": "internal",
+                "feature": "autoresearch",
+                "team_id": self._team_id,
+                "kind": "autoresearch_test_cluster_replay",
+                "query_type": "autoresearch_candidate",
+            }
+        )
+        tagged_sql = _tag_with_log_comment(sql, log_comment)
         cmd = [
             "hogli",
             "metabase:query",
@@ -70,7 +117,7 @@ class MetabaseBackend(ExecutionBackend):
         try:
             result = subprocess.run(  # noqa: S603 — fixed argv, sql via stdin
                 cmd,
-                input=sql,
+                input=tagged_sql,
                 text=True,
                 capture_output=True,
                 check=False,
