@@ -848,10 +848,18 @@ snapshots:
         hash: v1.k794b7964.d2eaad42c4d74ab148ba3075a6260d7aeda90562fbfdb49738afcc37fddacd73.DqxeQtB6IVGsvji5psBPT4qyAC-3MAkB4svhAvYak7w
     components-playerinspector-itemcomment--annotation-comment--light:
         hash: v1.k794b7964.0a40401aeeab8b030f049c50e5bd2f06e7214f3a3f54cf7ebb6ee833ab1e86d9.WFa_btlQmiN2RXRF54iREIGG55SZw-tglgfv-6zjXwM
+    components-playerinspector-itemcomment--completed-task-comment--dark:
+        hash: v1.k794b7964.8b468f06d21dfabb6e4d32fd256a9bf87e52350dfe8e49a596e7d9f59943888e.cLRjVufvLlBeZNvRMjKwUdQfryELRC7BZJJrDCDlaTY
+    components-playerinspector-itemcomment--completed-task-comment--light:
+        hash: v1.k794b7964.ab5ab66e9f71eee925e0c7944cd37c16a4d56cc6c310b68dcb637d9689a41f8d.3729KwyyfkFtq39lrQH3m33-BhEh7CN4-kqPR_-EaV8
     components-playerinspector-itemcomment--notebook-comment--dark:
         hash: v1.k794b7964.5fc859a363f3a918e931bf1952d7499058dd453b54a522ade4d7eb11807bd068.MYbqflkQ9moZYBdT8ZIBs8pfI49s-dU35gw_qGRuGds
     components-playerinspector-itemcomment--notebook-comment--light:
         hash: v1.k794b7964.3627e64b9a9b8d3235b914c45e5c18d338a7f76f4aadfececa3f6fd603b07ea0.9dRlJzLENNUKtE6UrSZB1vTargITdoO9sH-M8Tco9Y8
+    components-playerinspector-itemcomment--task-comment--dark:
+        hash: v1.k794b7964.8b468f06d21dfabb6e4d32fd256a9bf87e52350dfe8e49a596e7d9f59943888e.YrC-JPLiBQFApQ44aPLdAq7PtxtvlHg8k5vKL_0fWug
+    components-playerinspector-itemcomment--task-comment--light:
+        hash: v1.k794b7964.ab5ab66e9f71eee925e0c7944cd37c16a4d56cc6c310b68dcb637d9689a41f8d.Ijq_0XEoLkk2T8ibO3GOtYvemIuJTZFn3D5MGJB9Do8
     components-playerinspector-itemconsole--app-state-item--dark:
         hash: v1.k794b7964.678cf149664891abac2e8c126c15102722cdd290ab61619547d2d286afd8445a.DBT7DFnfiVKxOsPXWcsS2Abrlh7soVHvef5vItUimUw
     components-playerinspector-itemconsole--app-state-item--light:
@@ -3895,13 +3903,17 @@ snapshots:
     scenes-app-data-management-actions--screen-action--light:
         hash: v1.k794b7964.d8bf73932b4afa31b9f38a86a55d96c1e4c12f6970168badd52faccbae7b890f.b6EHh73OZeepK8-PbH0_B-xwdwe_loNTxYBXcCb_95s
     scenes-app-data-management-comments--comments--dark:
-        hash: v1.k794b7964.4718fab57e9c454d3f9fec825cda6dd0ef9eb2e9e6fe3a61453df043dca2e251.BT46ByXB1FNK-bIuw2rzM81XA3V6pi4NzIkmW1nDPTw
+        hash: v1.k794b7964.81fcc362d31948514c45cdf715ec11fc51bf0694a8abf85c2e5b1321b32af4e2.5VTjHjgDNqGn6UzFZSr5OF2RalMbuxdBWV_bSF-GYrc
     scenes-app-data-management-comments--comments--light:
-        hash: v1.k794b7964.a90a254fb0fda5a4053b1b5d966a1dd5a52dbbad69d4a6bacdcc8d0dadf8422f.oXtSQ_Vv4RU1Eyw120Q_m-jF4c63rd5ck5ShCnQd3Ck
+        hash: v1.k794b7964.d1ecb9ecc72ed524adae75ddca19110c5f311e038c7359ffb180f5759c83cedc.aSGa-IDtzarceQZInAt35q-Cw4ChVJNySxEyjTHotOI
     scenes-app-data-management-comments--long-content--dark:
-        hash: v1.k794b7964.4dd3aa5aa87124df2bfd7b43ba0c918a3c822bcd13bd9ef0caf4258e028ede38.Fqcb1ozn9DqcPxCf9sUotPw9NOBxblWu5IjqzyLjVqs
+        hash: v1.k794b7964.de2a7d31407b309a91e5ecce6ee24e7e9741e8e2ba54a65cd04267e2b3f0aa20.vLswCp_m6lw3kvPpwVxwfYFItlEPVDln1jLNEt2IWA8
     scenes-app-data-management-comments--long-content--light:
-        hash: v1.k794b7964.4198d7931a0c423c93d1fd8f5024c23d923ef8b25e1e016f26adf24cb45750b9.N8kMJ6McV90YxBhB292YEU3XSIIUTPsZB4ZJyRPxGZM
+        hash: v1.k794b7964.a92306ea8b882e0b2915217a5f2c2ab1d60c7eaaa0975bee4059a950f956f4eb.Lq81_I_Rg6aMsA8FtOa9kpwo74j2Tk76RhbDmxH-xUM
+    scenes-app-data-management-comments--tasks--dark:
+        hash: v1.k794b7964.3b422c913873a6fdceebb2828b2fe356e74539c4a193133a419673fd2e952c05.g0gxv7yUQKFGufjG6Wk_m7i5FZbx7ZGC1lD9kSiCrpU
+    scenes-app-data-management-comments--tasks--light:
+        hash: v1.k794b7964.e15d8c406b7b96f6e0d0b636ee25d5d4bc45fbd1437d5ccdb490cb9771007472.uvAEGrGkBqUZjbN3pnoRgzUQ2_dHdQwtBFLmgk2QgmM
     scenes-app-data-management-definition-view--event-definition-metadata--medium--dark:
         hash: v1.k794b7964.c7b7d2c5f95c3ce99ecaeab9d9ed6e6d9499a98861b3ede5440393419c17f5cb.ueYV6XuLO_0K2pwfh4CJF2Y1rmtIOh1THmrrS_BXxpI
     scenes-app-data-management-definition-view--event-definition-metadata--medium--light:

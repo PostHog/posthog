@@ -11,6 +11,9 @@ ui_apps:
     session-recording:
         type: detail
         view_prop: recording
+    session-summary:
+        type: detail
+        view_prop: data
 tools:
     session-recording-delete:
         operation: session_recordings_destroy
@@ -165,6 +168,7 @@ tools:
         include_params:
             - session_ids
             - focus_area
+        ui_app: session-summary
         requires_ai_consent: true
         feature_flag: replay-video-based-summarization
     session-recordings-list:
