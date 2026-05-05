@@ -545,7 +545,7 @@
   FROM "posthog_cohort"
   INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
   WHERE (("posthog_cohort"."team_id" =
-            (SELECT U0."parent_team_id"
+            (SELECT U0."parent_team_id" AS "parent_team_id"
              FROM "posthog_team" U0
              WHERE U0."id" = 99999
              LIMIT 1)
@@ -707,7 +707,7 @@
   FROM "posthog_cohort"
   INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
   WHERE (("posthog_cohort"."team_id" =
-            (SELECT U0."parent_team_id"
+            (SELECT U0."parent_team_id" AS "parent_team_id"
              FROM "posthog_team" U0
              WHERE U0."id" = 99999
              LIMIT 1)
@@ -869,7 +869,7 @@
   FROM "posthog_cohort"
   INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
   WHERE (("posthog_cohort"."team_id" =
-            (SELECT U0."parent_team_id"
+            (SELECT U0."parent_team_id" AS "parent_team_id"
              FROM "posthog_team" U0
              WHERE U0."id" = 99999
              LIMIT 1)
@@ -1072,7 +1072,7 @@
   FROM "posthog_cohort"
   INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
   WHERE (("posthog_cohort"."team_id" =
-            (SELECT U0."parent_team_id"
+            (SELECT U0."parent_team_id" AS "parent_team_id"
              FROM "posthog_team" U0
              WHERE U0."id" = 99999
              LIMIT 1)
@@ -1266,7 +1266,7 @@
   FROM "posthog_cohort"
   INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
   WHERE (("posthog_cohort"."team_id" =
-            (SELECT U0."parent_team_id"
+            (SELECT U0."parent_team_id" AS "parent_team_id"
              FROM "posthog_team" U0
              WHERE U0."id" = 99999
              LIMIT 1)
@@ -1574,7 +1574,7 @@
   FROM "posthog_cohort"
   INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
   WHERE (("posthog_cohort"."team_id" =
-            (SELECT U0."parent_team_id"
+            (SELECT U0."parent_team_id" AS "parent_team_id"
              FROM "posthog_team" U0
              WHERE U0."id" = 99999
              LIMIT 1)
@@ -2082,7 +2082,7 @@
   FROM "posthog_cohort"
   INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
   WHERE (("posthog_cohort"."team_id" =
-            (SELECT U0."parent_team_id"
+            (SELECT U0."parent_team_id" AS "parent_team_id"
              FROM "posthog_team" U0
              WHERE U0."id" = 99999
              LIMIT 1)
