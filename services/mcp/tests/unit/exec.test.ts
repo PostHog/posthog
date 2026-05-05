@@ -285,6 +285,7 @@ describe('exec tool', () => {
                 } as any,
                 sessionManager: new SessionManager({} as any),
                 getDistinctId: async () => 'test-distinct-id',
+                trackEvent: async () => {},
             }
         }
 

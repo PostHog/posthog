@@ -1,8 +1,10 @@
 from datetime import UTC, datetime
-from typing import Optional
+from typing import Any, Optional
 
 from django.core.cache import cache
-from django.db import models
+from django.db import models, transaction
+from django.db.models.signals import post_delete, post_save, pre_save
+from django.dispatch import receiver
 
 import structlog
 from celery import shared_task
@@ -18,7 +20,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import RootTeamMixin, UUIDTModel
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
-from posthog.utils import get_instance_realm
+from posthog.utils import get_instance_realm, get_safe_cache, safe_cache_delete, safe_cache_set
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.error_tracking.backend.models import ErrorTrackingIssue
@@ -375,3 +377,66 @@ def enqueue_product_activation_calc_debounced(team_id: int) -> bool:
         calculate_product_activation.delay(team_id, only_calc_if_days_since_last_checked=1)
         return True
     return False
+
+
+PRODUCT_INTENTS_CACHE_TTL_SECONDS = 60 * 60
+
+
+def _team_product_intents_cache_key(team_id: int) -> str:
+    return f"team_serializer:product_intents:{team_id}"
+
+
+def _fetch_product_intents(team_id: int) -> list[dict[str, Any]]:
+    return list(
+        ProductIntent.objects.filter(team_id=team_id).values(
+            "product_type", "created_at", "onboarding_completed_at", "updated_at"
+        )
+    )
+
+
+def cached_product_intents_for_team(team_id: int) -> list[dict[str, Any]]:
+    """Per-team cache for the product_intents response on the team serializer.
+
+    Production traces showed `team_serializer.product_intents` taking up to 532ms
+    on the home view. The query result changes only when a ProductIntent row writes
+    or deletes; the post_save / post_delete receivers below invalidate immediately.
+    A 1h TTL caps staleness for any path that bypasses the ORM signals.
+    """
+    cache_key = _team_product_intents_cache_key(team_id)
+    cached = get_safe_cache(cache_key)
+    if cached is not None:
+        return cached
+    result = _fetch_product_intents(team_id)
+    safe_cache_set(cache_key, result, timeout=PRODUCT_INTENTS_CACHE_TTL_SECONDS)
+    return result
+
+
+def _invalidate_product_intents_cache(team_id: int) -> None:
+    safe_cache_delete(_team_product_intents_cache_key(team_id))
+    transaction.on_commit(lambda: safe_cache_delete(_team_product_intents_cache_key(team_id)))
+
+
+@receiver(pre_save, sender=ProductIntent)
+def _capture_original_team_id(sender: type[ProductIntent], instance: ProductIntent, **kwargs: Any) -> None:
+    # Stash the persisted team_id before save so post_save can invalidate the previous
+    # team's cache when an intent is reassigned (instance.team_id != original).
+    # For new rows the filter returns None (no row yet), which is the right value to stash.
+    try:
+        instance._original_team_id = (  # type: ignore[attr-defined]
+            ProductIntent.objects.filter(pk=instance.pk).values_list("team_id", flat=True).first()
+        )
+    except Exception:
+        instance._original_team_id = None  # type: ignore[attr-defined]
+
+
+@receiver(post_save, sender=ProductIntent)
+def _invalidate_product_intents_on_save(sender: type[ProductIntent], instance: ProductIntent, **kwargs: Any) -> None:
+    _invalidate_product_intents_cache(instance.team_id)
+    original_team_id = getattr(instance, "_original_team_id", None)
+    if original_team_id is not None and original_team_id != instance.team_id:
+        _invalidate_product_intents_cache(original_team_id)
+
+
+@receiver(post_delete, sender=ProductIntent)
+def _invalidate_product_intents_on_delete(sender: type[ProductIntent], instance: ProductIntent, **kwargs: Any) -> None:
+    _invalidate_product_intents_cache(instance.team_id)
