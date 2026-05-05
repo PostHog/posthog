@@ -1,6 +1,6 @@
 from unittest.mock import patch
 
-from products.tasks.backend.services.custom_prompt_runner import _check_logs, _stream_new_lines
+from products.tasks.backend.services.custom_prompt_internals import _check_logs, _stream_new_lines
 from products.tasks.backend.tests.agent_log_fixtures import (
     FakeTaskRun,
     _agent_message_line,
@@ -72,7 +72,7 @@ class TestCheckLogs:
 
     def test_empty_end_turn_flagged_on_first_turn_too(self):
         """SDK short-circuit on the very first turn must surface as empty_end_turn too.
-        Otherwise run_prompt / MultiTurnSession.start silently poll until timeout."""
+        Otherwise MultiTurnSession.start silently polls until timeout."""
         log = "\n".join([_end_turn_line()])
         with patch("posthog.storage.object_storage.read", return_value=log):
             finished, text, _, _, empty_end_turn = _check_logs(FakeTaskRun(), skip_lines=0)

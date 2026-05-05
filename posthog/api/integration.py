@@ -16,6 +16,7 @@ from django.utils.crypto import get_random_string
 import stripe
 import requests
 import structlog
+from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, extend_schema_serializer
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.exceptions import ValidationError
@@ -26,7 +27,7 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
-from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.auth import SessionAuthentication
 from posthog.domain_connect import discover_domain_connect, extract_root_domain_and_host, get_available_providers
 from posthog.exceptions_capture import capture_exception
 from posthog.models import User
@@ -581,6 +582,8 @@ class IntegrationViewSet(
     permission_classes = [TeamMemberStrictManagementPermission]
     queryset = defer_repository_cache_fields(Integration.objects.all())
     serializer_class = IntegrationSerializer
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ["kind"]
 
     def dangerously_get_permissions(self):
         if self.action == "refresh_github_repos":
@@ -607,18 +610,6 @@ class IntegrationViewSet(
                 capture_exception(e)
 
         super().perform_destroy(instance)
-
-    def safely_get_queryset(self, queryset):
-        if isinstance(self.request.successful_authenticator, PersonalAPIKeyAuthentication) or isinstance(
-            self.request.successful_authenticator, OAuthAccessTokenAuthentication
-        ):
-            # GitHub and Slack integrations are exposed via API-key / OAuth. The serializer
-            # only returns id, kind, config, errors, and display metadata — access tokens stay
-            # in sensitive_config and are never serialized. The channels action's kind guard
-            # (see `channels` below) is the actual gate against running Slack-only code on a
-            # non-Slack integration.
-            return defer_repository_cache_fields(queryset.filter(kind__in=["github", *SLACK_INTEGRATION_KINDS]))
-        return queryset
 
     @action(methods=["GET"], detail=False)
     def authorize(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
@@ -902,7 +893,10 @@ class IntegrationViewSet(
         limit = query_serializer.validated_data["limit"]
         offset = query_serializer.validated_data["offset"]
 
-        github = GitHubIntegration(self.get_object())
+        instance = self.get_object()
+        if instance.kind != "github":
+            raise ValidationError("github_repos endpoint is only supported for GitHub integrations")
+        github = GitHubIntegration(instance)
         repositories, has_more = github.list_cached_repositories(search=search, limit=limit, offset=offset)
 
         return Response({"repositories": repositories, "has_more": has_more})
@@ -1062,7 +1056,10 @@ class IntegrationViewSet(
     @extend_schema(request=None, responses={200: GitHubReposRefreshResponseSerializer})
     @action(methods=["POST"], detail=True, url_path="github_repos/refresh")
     def refresh_github_repos(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        github = GitHubIntegration(self.get_object())
+        instance = self.get_object()
+        if instance.kind != "github":
+            raise ValidationError("refresh_github_repos endpoint is only supported for GitHub integrations")
+        github = GitHubIntegration(instance)
         repositories = github.sync_repository_cache(
             min_refresh_interval_seconds=GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS
         )
@@ -1085,7 +1082,10 @@ class IntegrationViewSet(
 
         validate_github_repository_name(repo)
 
-        github = GitHubIntegration(self.get_object())
+        instance = self.get_object()
+        if instance.kind != "github":
+            raise ValidationError("github_branches endpoint is only supported for GitHub integrations")
+        github = GitHubIntegration(instance)
         branches, default_branch, has_more = github.list_cached_branches(
             repo,
             search=search,

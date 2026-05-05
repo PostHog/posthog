@@ -24,6 +24,10 @@
                     "minimum": -9007199254740991,
                     "type": "integer"
                 },
+                "breakdown_path_cleaning": {
+                    "description": "When `true`, applies the project's configured path cleaning rules to URL or path breakdown values (e.g. `$pathname`, `$current_url`). Use this whenever the user asks for a breakdown by a URL or path property and there is no specific reason to keep the raw values. The user does not need to provide a regex — path cleaning rules come from the project's settings.",
+                    "type": "boolean"
+                },
                 "breakdowns": {
                     "description": "Use this field to define breakdowns.",
                     "items": {

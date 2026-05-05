@@ -1695,6 +1695,11 @@ export namespace Schemas {
        * @nullable
        */
       sessionIdPushdown?: boolean | null;
+      /**
+       * Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap pre-aggregation that only materializes the columns referenced by the outer-WHERE session predicate)`. Useful when the breakdown/SELECT pulls in many session columns (e.g. `$channel_type`) but the filter only references one (e.g. `$entry_current_url`).
+       * @nullable
+       */
+      sessionPropertyPreAggregation?: boolean | null;
       sessionTableVersion?: SessionTableVersion | null;
       sessionsV2JoinMode?: SessionsV2JoinMode | null;
       /** @nullable */
@@ -6467,15 +6472,7 @@ export namespace Schemas {
       Zmw: 'ZMW',
     } as const;
 
-    export interface BaselineSparklineDay {
-      clean: number;
-      tolerated: number;
-      changed: number;
-      quarantined: number;
-    }
-
     export interface BaselineEntry {
-      sparkline: BaselineSparklineDay[];
       identifier: string;
       run_type: string;
       /** @nullable */
@@ -6490,8 +6487,9 @@ export namespace Schemas {
       tolerate_count_90d: number;
       is_quarantined: boolean;
       last_run_at: string;
+      baseline_change_count: number;
       /** @nullable */
-      recent_diff_avg: number | null;
+      recent_drift_avg: number | null;
     }
 
     export type BaselineTotalsByRunType = {[key: string]: number};
@@ -6576,6 +6574,7 @@ export namespace Schemas {
     * `Workflows` - Workflows
     * `HTTP` - Http
     * `NoOp` - Noop
+    * `FileDownload` - File Download
      */
     export type BatchExportDestinationTypeEnum = typeof BatchExportDestinationTypeEnum[keyof typeof BatchExportDestinationTypeEnum];
 
@@ -6591,6 +6590,7 @@ export namespace Schemas {
       Workflows: 'Workflows',
       Http: 'HTTP',
       NoOp: 'NoOp',
+      FileDownload: 'FileDownload',
     } as const;
 
     /**
@@ -6608,7 +6608,8 @@ export namespace Schemas {
     * `AzureBlob` - Azure Blob
     * `Workflows` - Workflows
     * `HTTP` - Http
-    * `NoOp` - Noop */
+    * `NoOp` - Noop
+    * `FileDownload` - File Download */
       type: BatchExportDestinationTypeEnum;
       /** A JSON field to store all configuration parameters required to access a BatchExportDestination. */
       config?: unknown;
@@ -7525,6 +7526,7 @@ export namespace Schemas {
     * `teams_bot_mention` - Teams bot mention
     * `widget_embedded` - Widget
     * `widget_api` - API
+    * `github_issue` - GitHub issue
      */
     export type ChannelDetailEnum = typeof ChannelDetailEnum[keyof typeof ChannelDetailEnum];
 
@@ -7537,6 +7539,7 @@ export namespace Schemas {
       TeamsBotMention: 'teams_bot_mention',
       WidgetEmbedded: 'widget_embedded',
       WidgetApi: 'widget_api',
+      GithubIssue: 'github_issue',
     } as const;
 
     /**
@@ -7544,6 +7547,7 @@ export namespace Schemas {
     * `email` - Email
     * `slack` - Slack
     * `teams` - Microsoft Teams
+    * `github` - GitHub
      */
     export type ChannelSourceEnum = typeof ChannelSourceEnum[keyof typeof ChannelSourceEnum];
 
@@ -7553,6 +7557,7 @@ export namespace Schemas {
       Email: 'email',
       Slack: 'slack',
       Teams: 'teams',
+      Github: 'github',
     } as const;
 
     export type DisplayType = typeof DisplayType[keyof typeof DisplayType];
@@ -7669,6 +7674,8 @@ export namespace Schemas {
     } as const;
 
     export interface YAxisSettings {
+      /** @nullable */
+      label?: string | null;
       scale?: Scale | null;
       /** @nullable */
       showGridLines?: boolean | null;
@@ -7711,6 +7718,8 @@ export namespace Schemas {
        */
       stackBars100?: boolean | null;
       xAxis?: ChartAxis | null;
+      /** @nullable */
+      xAxisLabel?: string | null;
       /** @nullable */
       yAxis?: ChartAxis[] | null;
       /**
@@ -14247,6 +14256,16 @@ export namespace Schemas {
       CosineDistance: 'cosineDistance',
     } as const;
 
+    export interface DocsSearchRequest {
+      /** Natural-language description of what to find in the PostHog documentation. Inkeep performs hybrid (semantic + full-text) RAG, so phrase the query the way a user would ask the question. */
+      query: string;
+    }
+
+    export interface DocsSearchResponse {
+      /** Markdown-formatted documentation results. Each block has a title, URL and excerpt; an empty result set returns guidance to navigate to https://posthog.com/docs. */
+      content: string;
+    }
+
     export type DocumentSimilarityQueryKind = typeof DocumentSimilarityQueryKind[keyof typeof DocumentSimilarityQueryKind];
 
 
@@ -15193,7 +15212,7 @@ export namespace Schemas {
        * @maxLength 400
        * @nullable
        */
-      promoted_property?: string | null;
+      primary_property?: string | null;
       readonly is_action: boolean;
       readonly action_id: number;
       readonly is_calculating: boolean;
@@ -15516,16 +15535,17 @@ export namespace Schemas {
       new_issue_ids: string[];
     }
 
+    export type ErrorTrackingRecommendationMeta = { [key: string]: unknown };
+
     export interface ErrorTrackingRecommendation {
       readonly id: string;
       readonly type: string;
-      readonly meta: unknown;
+      readonly meta: ErrorTrackingRecommendationMeta;
+      readonly completed: boolean;
       /** @nullable */
       readonly computed_at: string | null;
       /** @nullable */
       readonly dismissed_at: string | null;
-      /** @nullable */
-      readonly next_refresh_at: string | null;
       readonly created_at: string;
       readonly updated_at: string;
     }
@@ -15538,6 +15558,33 @@ export namespace Schemas {
       metadata?: unknown | null;
       version: string;
       project: string;
+    }
+
+    export interface ErrorTrackingSettings {
+      /**
+       * Maximum number of exception events ingested per bucket for the entire project. Null removes the limit.
+       * @minimum 1
+       * @nullable
+       */
+      project_rate_limit_value?: number | null;
+      /**
+       * Bucket window over which the project-wide rate limit applies, in minutes.
+       * @minimum 1
+       * @nullable
+       */
+      project_rate_limit_bucket_size_minutes?: number | null;
+      /**
+       * Maximum number of exception events ingested per bucket for each individual issue. Null removes the limit.
+       * @minimum 1
+       * @nullable
+       */
+      per_issue_rate_limit_value?: number | null;
+      /**
+       * Bucket window over which the per-issue rate limit applies, in minutes.
+       * @minimum 1
+       * @nullable
+       */
+      per_issue_rate_limit_bucket_size_minutes?: number | null;
     }
 
     export type ErrorTrackingSimilarIssuesQueryKind = typeof ErrorTrackingSimilarIssuesQueryKind[keyof typeof ErrorTrackingSimilarIssuesQueryKind];
@@ -15685,27 +15732,86 @@ export namespace Schemas {
     }
 
     /**
-     * Release associated with this symbol set
+     * Release associated with this symbol set, if any.
      * @nullable
      */
     export type ErrorTrackingSymbolSetRelease = { [key: string]: unknown } | null | null;
 
     export interface ErrorTrackingSymbolSet {
+      /** Unique symbol set ID. */
       readonly id: string;
-      ref: string;
+      /** Reference used to match stack frames to this symbol set. */
+      readonly ref: string;
+      /** Project/team ID that owns this symbol set. */
       readonly team_id: number;
+      /** When this symbol set row was created. */
       readonly created_at: string;
-      /** @nullable */
-      last_used?: string | null;
-      /** @nullable */
-      storage_ptr?: string | null;
-      /** @nullable */
-      failure_reason?: string | null;
       /**
-       * Release associated with this symbol set
+       * When this symbol set was last used to resolve a stack frame.
+       * @nullable
+       */
+      readonly last_used: string | null;
+      /**
+       * Reason symbol lookup failed, if the source map is missing or invalid.
+       * @nullable
+       */
+      readonly failure_reason: string | null;
+      /** Whether this symbol set has an uploaded source map file available to download. */
+      readonly has_uploaded_file: boolean;
+      /**
+       * Release associated with this symbol set, if any.
        * @nullable
        */
       readonly release: ErrorTrackingSymbolSetRelease;
+    }
+
+    export interface ErrorTrackingSymbolSetBulkDelete {
+      /** Symbol set IDs to delete. */
+      ids: string[];
+    }
+
+    /**
+     * Map of symbol set ID to uploaded content hash.
+     */
+    export type ErrorTrackingSymbolSetBulkFinishUploadContentHashes = {[key: string]: string};
+
+    export interface ErrorTrackingSymbolSetBulkFinishUpload {
+      /** Map of symbol set ID to uploaded content hash. */
+      content_hashes: ErrorTrackingSymbolSetBulkFinishUploadContentHashes;
+    }
+
+    export interface ErrorTrackingSymbolSetUpload {
+      /** Symbol set reference to upload. */
+      chunk_id: string;
+      /**
+       * Optional error tracking release ID associated with this symbol set.
+       * @nullable
+       */
+      release_id?: string | null;
+      /**
+       * Optional hash of the symbol set content, used to skip unchanged uploads.
+       * @nullable
+       */
+      content_hash?: string | null;
+    }
+
+    export interface ErrorTrackingSymbolSetBulkStartUpload {
+      /** Legacy list of symbol set references to upload, all associated with `release_id`. */
+      chunk_ids?: string[];
+      /**
+       * Optional error tracking release ID used with `chunk_ids`.
+       * @nullable
+       */
+      release_id?: string | null;
+      /** Symbol sets to upload with per-symbol release IDs and content hashes. */
+      symbol_sets?: ErrorTrackingSymbolSetUpload[];
+      /** Whether to overwrite uploaded symbol sets whose content hash changed. */
+      force?: boolean;
+    }
+
+    export interface ErrorTrackingSymbolSetFinishUpload {
+      /** Hash of the uploaded symbol set content. */
+      content_hash: string;
     }
 
     /**
@@ -16125,7 +16231,7 @@ export namespace Schemas {
        * @maxLength 400
        * @nullable
        */
-      promoted_property?: string | null;
+      primary_property?: string | null;
       readonly is_action: boolean;
       readonly action_id: number;
       readonly is_calculating: boolean;
@@ -21507,6 +21613,12 @@ export namespace Schemas {
       /** Window size in minutes — determines bucket interval. */
       window_minutes: number;
       /**
+       * How often the alert is evaluated, in minutes.
+       * @minimum 1
+       * @maximum 60
+       */
+      check_interval_minutes?: number;
+      /**
        * Total check periods in the N-of-M evaluation window (M).
        * @minimum 1
        * @maximum 10
@@ -21574,7 +21686,7 @@ export namespace Schemas {
        * @nullable
        */
       priority?: number | null;
-      /** Rule kind: severity_sampling, path_drop, or rate_limit (rate_limit reserved for a future release).
+      /** Rule kind: severity_sampling, path_drop, or rate_limit (caps logs/sec for scope_service at ingestion).
 
     * `severity_sampling` - Severity-based reduction
     * `path_drop` - Path exclusion
@@ -21594,7 +21706,7 @@ export namespace Schemas {
       scope_path_pattern?: string | null;
       /** Optional list of predicates over string attributes, e.g. [{"key":"http.route","op":"eq","value":"/api"}]. */
       scope_attribute_filters?: LogsSamplingRuleScopeAttributeFiltersItem[];
-      /** Type-specific JSON. For path_drop: object with required `patterns` (list of regex strings) and optional `match_attribute_key` (string). When `match_attribute_key` is omitted or empty, patterns match the same virtual path string as ingestion (url.path, http.path, http.route, path). When set, each pattern is tested only against that string attribute on the log record. For severity_sampling: object with `actions` per severity level and optional `always_keep`. rate_limit is reserved. */
+      /** Type-specific JSON. For path_drop: object with required `patterns` (list of regex strings) and optional `match_attribute_key` (string). When `match_attribute_key` is omitted or empty, patterns match the same virtual path string as ingestion (url.path, http.path, http.route, path). When set, each pattern is tested only against that string attribute on the log record. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with required `logs_per_second` (integer 1–1000000) and optional `burst_logs` (integer ≥ logs_per_second, max 60000000); rate_limit rules require non-null `scope_service` matching `service.name` on each log line. */
       config: unknown;
       /** Incremented on each update for worker cache coherency. */
       readonly version: number;
@@ -22383,6 +22495,52 @@ export namespace Schemas {
     }
 
     /**
+     * * `later` - Later
+    * `other` - Other
+     */
+    export type OnboardingSkipRequestReasonEnum = typeof OnboardingSkipRequestReasonEnum[keyof typeof OnboardingSkipRequestReasonEnum];
+
+
+    export const OnboardingSkipRequestReasonEnum = {
+      Later: 'later',
+      Other: 'other',
+    } as const;
+
+    /**
+     * Request body for POST /api/users/{id}/onboarding/skip/.
+
+    Source of truth for OpenAPI / generated TS / zod / MCP — bind this serializer at
+    runtime so the contract clients believe is enforced (length cap, choice validation,
+    no extra fields) is actually enforced server-side.
+     */
+    export interface OnboardingSkipRequest {
+      /** Why the user is leaving onboarding. 'later' keeps them able to return; 'other' is a catch-all. 'delegated' is rejected here — use the delegate endpoint so the delegation invite is created atomically.
+
+    * `later` - Later
+    * `other` - Other */
+      reason: OnboardingSkipRequestReasonEnum;
+      /**
+       * Onboarding step key the user was on when skipping, for analytics only.
+       * @maxLength 64
+       */
+      step_at_skip?: string;
+    }
+
+    /**
+     * * `delegated` - Delegated to teammate
+    * `later` - Skipped for later
+    * `other` - Other
+     */
+    export type OnboardingSkippedReasonEnum = typeof OnboardingSkippedReasonEnum[keyof typeof OnboardingSkippedReasonEnum];
+
+
+    export const OnboardingSkippedReasonEnum = {
+      Delegated: 'delegated',
+      Later: 'later',
+      Other: 'other',
+    } as const;
+
+    /**
      * * `latest` - latest
     * `earliest` - earliest
      */
@@ -22602,6 +22760,21 @@ export namespace Schemas {
       private_project_access?: unknown | null;
       send_email?: boolean;
       combine_pending_invites?: boolean;
+    }
+
+    export interface OrganizationInviteDelegate {
+      /** Email of the teammate who should complete setup on the inviter's behalf. Receives a PostHog-branded delegation invite granting admin-level membership on accept. */
+      target_email: string;
+      /**
+       * Optional personal message included in the delegation email (up to 1000 characters).
+       * @maxLength 1000
+       */
+      message?: string;
+      /**
+       * Onboarding step key the delegator was on when delegating, for analytics only.
+       * @maxLength 64
+       */
+      step_at_delegation?: string;
     }
 
     export interface OrganizationMember {
@@ -25314,10 +25487,10 @@ export namespace Schemas {
     * `failed` - Failed
     * `cancelled` - Cancelled
      */
-    export type TaskRunDetailStatusEnum = typeof TaskRunDetailStatusEnum[keyof typeof TaskRunDetailStatusEnum];
+    export type TaskRunStatusEnum = typeof TaskRunStatusEnum[keyof typeof TaskRunStatusEnum];
 
 
-    export const TaskRunDetailStatusEnum = {
+    export const TaskRunStatusEnum = {
       NotStarted: 'not_started',
       Queued: 'queued',
       InProgress: 'in_progress',
@@ -25330,10 +25503,10 @@ export namespace Schemas {
      * * `local` - Local
     * `cloud` - Cloud
      */
-    export type TaskRunDetailEnvironmentEnum = typeof TaskRunDetailEnvironmentEnum[keyof typeof TaskRunDetailEnvironmentEnum];
+    export type TaskRunEnvironmentEnum = typeof TaskRunEnvironmentEnum[keyof typeof TaskRunEnvironmentEnum];
 
 
-    export const TaskRunDetailEnvironmentEnum = {
+    export const TaskRunEnvironmentEnum = {
       Local: 'local',
       Cloud: 'cloud',
     } as const;
@@ -25392,12 +25565,12 @@ export namespace Schemas {
        * @nullable
        */
       branch?: string | null;
-      status?: TaskRunDetailStatusEnum;
+      status?: TaskRunStatusEnum;
       /** Execution environment
 
     * `local` - Local
     * `cloud` - Cloud */
-      environment?: TaskRunDetailEnvironmentEnum;
+      environment?: TaskRunEnvironmentEnum;
       /** Configured runtime adapter for this run, such as 'claude' or 'codex'. */
       readonly runtime_adapter: RuntimeAdapterEnum | NullEnum | null;
       /** Configured LLM provider for this run, such as 'anthropic' or 'openai'. */
@@ -25437,6 +25610,30 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: TaskRunDetail[];
+    }
+
+    export interface TaskRunSummary {
+      status: TaskRunStatusEnum | NullEnum | null;
+      environment: TaskRunEnvironmentEnum | NullEnum | null;
+    }
+
+    export interface TaskSummary {
+      readonly id: string;
+      readonly title: string;
+      /** @nullable */
+      readonly repository: string | null;
+      readonly created_at: string;
+      readonly updated_at: string;
+      readonly latest_run: TaskRunSummary | null;
+    }
+
+    export interface PaginatedTaskSummaryList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: TaskSummary[];
     }
 
     /**
@@ -25620,6 +25817,10 @@ export namespace Schemas {
       /** @nullable */
       readonly email_to: string | null;
       readonly cc_participants: unknown;
+      /** @nullable */
+      readonly github_repo: string | null;
+      /** @nullable */
+      readonly github_issue_number: number | null;
       readonly person: TicketPerson | null;
       tags?: unknown[];
     }
@@ -25934,7 +26135,23 @@ export namespace Schemas {
        */
       passkeys_enabled_for_2fa?: boolean | null;
       /** @nullable */
+      readonly onboarding_skipped_at: string | null;
+      readonly onboarding_skipped_reason: OnboardingSkippedReasonEnum | NullEnum | null;
+      /** @nullable */
+      readonly onboarding_skipped_organization_id: string | null;
+      /** @nullable */
+      readonly onboarding_delegated_to_invite: string | null;
+      /**
+       * Organization ID of the pending delegation invite, if any. Used by the frontend to scope the 'waiting for teammate' UI to the org where delegation was initiated.
+       * @nullable
+       */
+      readonly onboarding_delegated_to_organization_id: string | null;
+      /** @nullable */
+      readonly onboarding_delegation_accepted_at: string | null;
+      /** @nullable */
       readonly is_organization_first_user: boolean | null;
+      /** Real-time notification types that currently have a live dispatch site. Drives the in-app notifications settings UI. Read-only. */
+      readonly active_realtime_notification_types: readonly string[];
       readonly pending_invites: readonly PendingInvite[];
     }
 
@@ -25955,11 +26172,12 @@ export namespace Schemas {
     * `used_on_separate_team` - Used on Separate Team
     * `new_product` - New Product
     * `sales_led` - Sales Led
+    * `onboarding_delegated` - Onboarding Delegated
      */
-    export type ReasonEnum = typeof ReasonEnum[keyof typeof ReasonEnum];
+    export type UserProductListReasonEnum = typeof UserProductListReasonEnum[keyof typeof UserProductListReasonEnum];
 
 
-    export const ReasonEnum = {
+    export const UserProductListReasonEnum = {
       Onboarding: 'onboarding',
       ProductIntent: 'product_intent',
       UsedByColleagues: 'used_by_colleagues',
@@ -25967,13 +26185,14 @@ export namespace Schemas {
       UsedOnSeparateTeam: 'used_on_separate_team',
       NewProduct: 'new_product',
       SalesLed: 'sales_led',
+      OnboardingDelegated: 'onboarding_delegated',
     } as const;
 
     export interface UserProductList {
       readonly id: string;
       readonly product_path: string;
       enabled?: boolean;
-      readonly reason: ReasonEnum | NullEnum | null;
+      readonly reason: UserProductListReasonEnum | NullEnum | null;
       /** @nullable */
       readonly reason_text: string | null;
       readonly created_at: string;
@@ -27094,7 +27313,7 @@ export namespace Schemas {
        * @maxLength 400
        * @nullable
        */
-      promoted_property?: string | null;
+      primary_property?: string | null;
       readonly is_action?: boolean;
       readonly action_id?: number;
       readonly is_calculating?: boolean;
@@ -27226,6 +27445,33 @@ export namespace Schemas {
       project?: string;
     }
 
+    export interface PatchedErrorTrackingSettings {
+      /**
+       * Maximum number of exception events ingested per bucket for the entire project. Null removes the limit.
+       * @minimum 1
+       * @nullable
+       */
+      project_rate_limit_value?: number | null;
+      /**
+       * Bucket window over which the project-wide rate limit applies, in minutes.
+       * @minimum 1
+       * @nullable
+       */
+      project_rate_limit_bucket_size_minutes?: number | null;
+      /**
+       * Maximum number of exception events ingested per bucket for each individual issue. Null removes the limit.
+       * @minimum 1
+       * @nullable
+       */
+      per_issue_rate_limit_value?: number | null;
+      /**
+       * Bucket window over which the per-issue rate limit applies, in minutes.
+       * @minimum 1
+       * @nullable
+       */
+      per_issue_rate_limit_bucket_size_minutes?: number | null;
+    }
+
     export interface PatchedErrorTrackingSpikeDetectionConfig {
       /**
        * Time to wait before alerting again for the same issue after a spike is detected.
@@ -27259,24 +27505,34 @@ export namespace Schemas {
     }
 
     /**
-     * Release associated with this symbol set
+     * Release associated with this symbol set, if any.
      * @nullable
      */
     export type PatchedErrorTrackingSymbolSetRelease = { [key: string]: unknown } | null | null;
 
     export interface PatchedErrorTrackingSymbolSet {
+      /** Unique symbol set ID. */
       readonly id?: string;
-      ref?: string;
+      /** Reference used to match stack frames to this symbol set. */
+      readonly ref?: string;
+      /** Project/team ID that owns this symbol set. */
       readonly team_id?: number;
+      /** When this symbol set row was created. */
       readonly created_at?: string;
-      /** @nullable */
-      last_used?: string | null;
-      /** @nullable */
-      storage_ptr?: string | null;
-      /** @nullable */
-      failure_reason?: string | null;
       /**
-       * Release associated with this symbol set
+       * When this symbol set was last used to resolve a stack frame.
+       * @nullable
+       */
+      readonly last_used?: string | null;
+      /**
+       * Reason symbol lookup failed, if the source map is missing or invalid.
+       * @nullable
+       */
+      readonly failure_reason?: string | null;
+      /** Whether this symbol set has an uploaded source map file available to download. */
+      readonly has_uploaded_file?: boolean;
+      /**
+       * Release associated with this symbol set, if any.
        * @nullable
        */
       readonly release?: PatchedErrorTrackingSymbolSetRelease;
@@ -28387,7 +28643,7 @@ export namespace Schemas {
        * @nullable
        */
       priority?: number | null;
-      /** Rule kind: severity_sampling, path_drop, or rate_limit (rate_limit reserved for a future release).
+      /** Rule kind: severity_sampling, path_drop, or rate_limit (caps logs/sec for scope_service at ingestion).
 
     * `severity_sampling` - Severity-based reduction
     * `path_drop` - Path exclusion
@@ -28407,7 +28663,7 @@ export namespace Schemas {
       scope_path_pattern?: string | null;
       /** Optional list of predicates over string attributes, e.g. [{"key":"http.route","op":"eq","value":"/api"}]. */
       scope_attribute_filters?: PatchedLogsSamplingRuleScopeAttributeFiltersItem[];
-      /** Type-specific JSON. For path_drop: object with required `patterns` (list of regex strings) and optional `match_attribute_key` (string). When `match_attribute_key` is omitted or empty, patterns match the same virtual path string as ingestion (url.path, http.path, http.route, path). When set, each pattern is tested only against that string attribute on the log record. For severity_sampling: object with `actions` per severity level and optional `always_keep`. rate_limit is reserved. */
+      /** Type-specific JSON. For path_drop: object with required `patterns` (list of regex strings) and optional `match_attribute_key` (string). When `match_attribute_key` is omitted or empty, patterns match the same virtual path string as ingestion (url.path, http.path, http.route, path). When set, each pattern is tested only against that string attribute on the log record. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with required `logs_per_second` (integer 1–1000000) and optional `burst_logs` (integer ≥ logs_per_second, max 60000000); rate_limit rules require non-null `scope_service` matching `service.name` on each log line. */
       config?: unknown;
       /** Incremented on each update for worker cache coherency. */
       readonly version?: number;
@@ -31146,6 +31402,10 @@ export namespace Schemas {
       /** @nullable */
       readonly email_to?: string | null;
       readonly cc_participants?: unknown;
+      /** @nullable */
+      readonly github_repo?: string | null;
+      /** @nullable */
+      readonly github_issue_number?: number | null;
       readonly person?: TicketPerson | null;
       tags?: unknown[];
     }
@@ -31296,7 +31556,23 @@ export namespace Schemas {
        */
       passkeys_enabled_for_2fa?: boolean | null;
       /** @nullable */
+      readonly onboarding_skipped_at?: string | null;
+      readonly onboarding_skipped_reason?: OnboardingSkippedReasonEnum | NullEnum | null;
+      /** @nullable */
+      readonly onboarding_skipped_organization_id?: string | null;
+      /** @nullable */
+      readonly onboarding_delegated_to_invite?: string | null;
+      /**
+       * Organization ID of the pending delegation invite, if any. Used by the frontend to scope the 'waiting for teammate' UI to the org where delegation was initiated.
+       * @nullable
+       */
+      readonly onboarding_delegated_to_organization_id?: string | null;
+      /** @nullable */
+      readonly onboarding_delegation_accepted_at?: string | null;
+      /** @nullable */
       readonly is_organization_first_user?: boolean | null;
+      /** Real-time notification types that currently have a live dispatch site. Drives the in-app notifications settings UI. Read-only. */
+      readonly active_realtime_notification_types?: readonly string[];
       readonly pending_invites?: readonly PendingInvite[];
     }
 
@@ -31314,7 +31590,7 @@ export namespace Schemas {
       readonly id?: string;
       readonly product_path?: string;
       enabled?: boolean;
-      readonly reason?: ReasonEnum | NullEnum | null;
+      readonly reason?: UserProductListReasonEnum | NullEnum | null;
       /** @nullable */
       readonly reason_text?: string | null;
       readonly created_at?: string;
@@ -31521,6 +31797,16 @@ export namespace Schemas {
       tabs?: PinnedSceneTab[];
       /** Tab descriptor for the user's chosen home page — the destination opened when they click the PostHog logo or hit `/`. Set to a tab descriptor to pick a homepage, send `null` or `{}` to clear it and fall back to the project default. */
       homepage?: PinnedSceneTab | null;
+    }
+
+    /**
+     * Mapping from event name to the team-configured primary property for that event. Names without a configured primary property are omitted; callers should fall back to the core taxonomy defaults for those.
+     */
+    export type PrimaryPropertiesResponsePrimaryProperties = {[key: string]: string};
+
+    export interface PrimaryPropertiesResponse {
+      /** Mapping from event name to the team-configured primary property for that event. Names without a configured primary property are omitted; callers should fall back to the core taxonomy defaults for those. */
+      primary_properties: PrimaryPropertiesResponsePrimaryProperties;
     }
 
     /**
@@ -32347,16 +32633,6 @@ export namespace Schemas {
       /** @nullable */
       proactive_tasks_enabled?: boolean | null;
       readonly available_setup_task_ids: readonly AvailableSetupTaskIdsEnum[];
-    }
-
-    /**
-     * Mapping from event name to the team-configured promoted property for that event. Names without a configured promoted property are omitted; callers should fall back to the core taxonomy defaults for those.
-     */
-    export type PromotedPropertiesResponsePromotedProperties = {[key: string]: string};
-
-    export interface PromotedPropertiesResponse {
-      /** Mapping from event name to the team-configured promoted property for that event. Names without a configured promoted property are omitted; callers should fall back to the core taxonomy defaults for those. */
-      promoted_properties: PromotedPropertiesResponsePromotedProperties;
     }
 
     /**
@@ -35683,6 +35959,21 @@ export namespace Schemas {
     }
 
     /**
+     * Filter shape mirrors the previous frontend `api.query({filters: ...})` payload.
+
+    `filters` accepts the same `HogQLFilters` schema that the legacy frontend HogQL
+    path used (dateRange, filterTestAccounts, properties), so the migration is
+    behaviour-preserving for callers that pass a request unchanged.
+     */
+    export interface SentimentGenerationsRequest {
+      filters?: unknown;
+    }
+
+    export interface SentimentGenerationsResponse {
+      results: unknown[][];
+    }
+
+    /**
      * * `trace` - trace
     * `generation` - generation
      */
@@ -35696,7 +35987,7 @@ export namespace Schemas {
 
     export interface SentimentRequest {
       /**
-       * Trace IDs or generation IDs to classify, depending on analysis_level.
+       * Trace IDs (analysis_level=trace) or generation event UUIDs (analysis_level=generation).
        * @minItems 1
        * @maxItems 5
        */
@@ -36973,6 +37264,14 @@ export namespace Schemas {
       artifacts: TaskStagedArtifactPrepareUploadResponse[];
     }
 
+    export interface TaskSummariesRequest {
+      /**
+       * Task IDs to fetch summaries for (max 5000). Response is paginated; follow the `next` cursor to retrieve all results.
+       * @maxItems 5000
+       */
+      ids: string[];
+    }
+
     export type TeamDefaultModifiers = { [key: string]: unknown };
 
     export type TeamGroupTypesItem = { [key: string]: unknown };
@@ -37881,7 +38180,7 @@ export namespace Schemas {
     }
 
     export interface _SymbolSetDownloadResponse {
-      /** Presigned URL to download the source map file */
+      /** Presigned URL to download the source map file. Use immediately; expires after one hour. */
       url: string;
     }
 
@@ -38022,6 +38321,10 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Optional. Fuzzy match against dashboard `name` and `description` using Postgres trigram word similarity (handles typos, transpositions, and prefix-as-you-type). `name` matches rank above `description` matches. Results are ordered by relevance, then pinned status, then name. When omitted, dashboards are ordered by pinned status then alphabetical name. Capped at 200 characters; longer queries return a 400 error.
+     */
+    search?: string;
     };
 
     export type EnvironmentsDashboardsListFormat = typeof EnvironmentsDashboardsListFormat[keyof typeof EnvironmentsDashboardsListFormat];
@@ -38046,12 +38349,12 @@ export namespace Schemas {
 
     export type EnvironmentsDashboardsRetrieveParams = {
     /**
-     * JSON object to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. See the dashboard filters schema for available keys (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a dashboard sharing token.
+     * Object (or pre-encoded JSON string) to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
      */
     filters_override?: string;
     format?: EnvironmentsDashboardsRetrieveFormat;
     /**
-     * JSON object to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response's `variables` field, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a dashboard sharing token.
+     * Object (or pre-encoded JSON string) to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
      */
     variables_override?: string;
     };
@@ -38150,7 +38453,7 @@ export namespace Schemas {
 
     export type EnvironmentsDashboardsRunInsightsRetrieveParams = {
     /**
-     * JSON object to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. See the dashboard filters schema for available keys (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a dashboard sharing token.
+     * Object (or pre-encoded JSON string) to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
      */
     filters_override?: string;
     format?: EnvironmentsDashboardsRunInsightsRetrieveFormat;
@@ -38163,7 +38466,7 @@ export namespace Schemas {
      */
     refresh?: EnvironmentsDashboardsRunInsightsRetrieveRefresh;
     /**
-     * JSON object to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response's `variables` field, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a dashboard sharing token.
+     * Object (or pre-encoded JSON string) to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
      */
     variables_override?: string;
     };
@@ -38207,7 +38510,7 @@ export namespace Schemas {
 
     export type EnvironmentsDashboardsStreamTilesRetrieveParams = {
     /**
-     * JSON object to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. See the dashboard filters schema for available keys (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a dashboard sharing token.
+     * Object (or pre-encoded JSON string) to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
      */
     filters_override?: string;
     format?: EnvironmentsDashboardsStreamTilesRetrieveFormat;
@@ -38216,7 +38519,7 @@ export namespace Schemas {
      */
     layoutSize?: EnvironmentsDashboardsStreamTilesRetrieveLayoutSize;
     /**
-     * JSON object to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response's `variables` field, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a dashboard sharing token.
+     * Object (or pre-encoded JSON string) to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
      */
     variables_override?: string;
     };
@@ -38411,7 +38714,42 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Sort order for symbol sets. Prefix with `-` for descending order.
+
+    * `created_at` - created_at
+    * `-created_at` - -created_at
+    * `ref` - ref
+    * `-ref` - -ref
+    * `last_used` - last_used
+    * `-last_used` - -last_used
+     * @minLength 1
+     */
+    order_by?: string;
+    /**
+     * Exact symbol set reference to filter by.
+     * @minLength 1
+     */
+    ref?: string;
+    /**
+     * Upload status filter: `valid` has an uploaded file, `invalid` is missing a file, `all` returns both.
+
+    * `all` - all
+    * `valid` - valid
+    * `invalid` - invalid
+     * @minLength 1
+     */
+    status?: EnvironmentsErrorTrackingSymbolSetsListStatus;
     };
+
+    export type EnvironmentsErrorTrackingSymbolSetsListStatus = typeof EnvironmentsErrorTrackingSymbolSetsListStatus[keyof typeof EnvironmentsErrorTrackingSymbolSetsListStatus];
+
+
+    export const EnvironmentsErrorTrackingSymbolSetsListStatus = {
+      All: 'all',
+      Valid: 'valid',
+      Invalid: 'invalid',
+    } as const;
 
     export type EnvironmentsEventsListParams = {
     /**
@@ -38934,10 +39272,6 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * A search term.
-     */
-    search?: string;
-    /**
      * Multiple values may be separated by commas.
      */
     type?: string[];
@@ -39251,6 +39585,10 @@ export namespace Schemas {
     };
 
     export type EnvironmentsInsightsRetrieveParams = {
+    /**
+     * Object (or pre-encoded JSON string) to override the insight's filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
+     */
+    filters_override?: string;
     format?: EnvironmentsInsightsRetrieveFormat;
     /**
      * 
@@ -39270,6 +39608,10 @@ export namespace Schemas {
     Background calculation can be tracked using the `query_status` response field.
      */
     refresh?: EnvironmentsInsightsRetrieveRefresh;
+    /**
+     * Object (or pre-encoded JSON string) to override the insight's HogQL variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `insight-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
+     */
+    variables_override?: string;
     };
 
     export type EnvironmentsInsightsRetrieveFormat = typeof EnvironmentsInsightsRetrieveFormat[keyof typeof EnvironmentsInsightsRetrieveFormat];
@@ -39463,6 +39805,43 @@ export namespace Schemas {
 
     export type EnvironmentsIntegrationsListParams = {
     /**
+     * * `apns` - Apple Push
+    * `azure-blob` - Azure Blob
+    * `bing-ads` - Bing Ads
+    * `clickup` - Clickup
+    * `customerio-app` - Customerio App
+    * `customerio-track` - Customerio Track
+    * `customerio-webhook` - Customerio Webhook
+    * `databricks` - Databricks
+    * `email` - Email
+    * `firebase` - Firebase
+    * `github` - Github
+    * `gitlab` - Gitlab
+    * `google-ads` - Google Ads
+    * `google-cloud-service-account` - Google Cloud Service Account
+    * `google-cloud-storage` - Google Cloud Storage
+    * `google-pubsub` - Google Pubsub
+    * `google-sheets` - Google Sheets
+    * `hubspot` - Hubspot
+    * `intercom` - Intercom
+    * `jira` - Jira
+    * `linear` - Linear
+    * `linkedin-ads` - Linkedin Ads
+    * `meta-ads` - Meta Ads
+    * `pinterest-ads` - Pinterest Ads
+    * `postgresql` - Postgresql
+    * `reddit-ads` - Reddit Ads
+    * `salesforce` - Salesforce
+    * `slack` - Slack
+    * `slack-posthog-code` - Slack Posthog Code
+    * `snapchat` - Snapchat
+    * `stripe` - Stripe
+    * `tiktok-ads` - Tiktok Ads
+    * `twilio` - Twilio
+    * `vercel` - Vercel
+     */
+    kind?: EnvironmentsIntegrationsListKind;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -39471,6 +39850,46 @@ export namespace Schemas {
      */
     offset?: number;
     };
+
+    export type EnvironmentsIntegrationsListKind = typeof EnvironmentsIntegrationsListKind[keyof typeof EnvironmentsIntegrationsListKind];
+
+
+    export const EnvironmentsIntegrationsListKind = {
+      Apns: 'apns',
+      AzureBlob: 'azure-blob',
+      BingAds: 'bing-ads',
+      Clickup: 'clickup',
+      CustomerioApp: 'customerio-app',
+      CustomerioTrack: 'customerio-track',
+      CustomerioWebhook: 'customerio-webhook',
+      Databricks: 'databricks',
+      Email: 'email',
+      Firebase: 'firebase',
+      Github: 'github',
+      Gitlab: 'gitlab',
+      GoogleAds: 'google-ads',
+      GoogleCloudServiceAccount: 'google-cloud-service-account',
+      GoogleCloudStorage: 'google-cloud-storage',
+      GooglePubsub: 'google-pubsub',
+      GoogleSheets: 'google-sheets',
+      Hubspot: 'hubspot',
+      Intercom: 'intercom',
+      Jira: 'jira',
+      Linear: 'linear',
+      LinkedinAds: 'linkedin-ads',
+      MetaAds: 'meta-ads',
+      PinterestAds: 'pinterest-ads',
+      Postgresql: 'postgresql',
+      RedditAds: 'reddit-ads',
+      Salesforce: 'salesforce',
+      Slack: 'slack',
+      SlackPosthogCode: 'slack-posthog-code',
+      Snapchat: 'snapchat',
+      Stripe: 'stripe',
+      TiktokAds: 'tiktok-ads',
+      Twilio: 'twilio',
+      Vercel: 'vercel',
+    } as const;
 
     export type EnvironmentsIntegrationsGithubBranchesRetrieveParams = {
     /**
@@ -40152,6 +40571,13 @@ export namespace Schemas {
       Webhook: 'webhook',
     } as const;
 
+    export type EnvironmentsSubscriptionsSummaryQuotaRetrieve200 = {
+      active_count: number;
+      /** @nullable */
+      limit: number | null;
+      at_limit: boolean;
+    };
+
     export type EnvironmentsUserProductListListParams = {
     /**
      * Number of results to return per page.
@@ -40725,6 +41151,10 @@ export namespace Schemas {
     export type LlmAnalyticsSentimentCreate400 = { [key: string]: unknown };
 
     export type LlmAnalyticsSentimentCreate500 = { [key: string]: unknown };
+
+    export type LlmAnalyticsSentimentGenerationsCreate400 = { [key: string]: unknown };
+
+    export type LlmAnalyticsSentimentGenerationsCreate500 = { [key: string]: unknown };
 
     export type LlmAnalyticsSummarizationCreate400 = { [key: string]: unknown };
 
@@ -41321,6 +41751,10 @@ export namespace Schemas {
      * Sort order. Defaults to `-joined_at`.
      */
     order?: string;
+    /**
+     * Fuzzy match against member `first_name`, `last_name`, and `email` using Postgres trigram word similarity. Supports typos and prefix-as-you-type. Capped at 200 characters.
+     */
+    search?: string;
     };
 
     export type OauthApplicationsListParams = {
@@ -42083,6 +42517,7 @@ export namespace Schemas {
 
 
     export const ConversationsTicketsListChannelDetail = {
+      GithubIssue: 'github_issue',
       SlackBotMention: 'slack_bot_mention',
       SlackChannelMessage: 'slack_channel_message',
       SlackEmojiReaction: 'slack_emoji_reaction',
@@ -42097,6 +42532,7 @@ export namespace Schemas {
 
     export const ConversationsTicketsListChannelSource = {
       Email: 'email',
+      Github: 'github',
       Slack: 'slack',
       Teams: 'teams',
       Widget: 'widget',
@@ -42153,6 +42589,10 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Optional. Fuzzy match against dashboard `name` and `description` using Postgres trigram word similarity (handles typos, transpositions, and prefix-as-you-type). `name` matches rank above `description` matches. Results are ordered by relevance, then pinned status, then name. When omitted, dashboards are ordered by pinned status then alphabetical name. Capped at 200 characters; longer queries return a 400 error.
+     */
+    search?: string;
     };
 
     export type DashboardsListFormat = typeof DashboardsListFormat[keyof typeof DashboardsListFormat];
@@ -42177,12 +42617,12 @@ export namespace Schemas {
 
     export type DashboardsRetrieveParams = {
     /**
-     * JSON object to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. See the dashboard filters schema for available keys (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a dashboard sharing token.
+     * Object (or pre-encoded JSON string) to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
      */
     filters_override?: string;
     format?: DashboardsRetrieveFormat;
     /**
-     * JSON object to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response's `variables` field, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a dashboard sharing token.
+     * Object (or pre-encoded JSON string) to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
      */
     variables_override?: string;
     };
@@ -42281,7 +42721,7 @@ export namespace Schemas {
 
     export type DashboardsRunInsightsRetrieveParams = {
     /**
-     * JSON object to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. See the dashboard filters schema for available keys (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a dashboard sharing token.
+     * Object (or pre-encoded JSON string) to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
      */
     filters_override?: string;
     format?: DashboardsRunInsightsRetrieveFormat;
@@ -42294,7 +42734,7 @@ export namespace Schemas {
      */
     refresh?: DashboardsRunInsightsRetrieveRefresh;
     /**
-     * JSON object to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response's `variables` field, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a dashboard sharing token.
+     * Object (or pre-encoded JSON string) to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
      */
     variables_override?: string;
     };
@@ -42338,7 +42778,7 @@ export namespace Schemas {
 
     export type DashboardsStreamTilesRetrieveParams = {
     /**
-     * JSON object to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. See the dashboard filters schema for available keys (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a dashboard sharing token.
+     * Object (or pre-encoded JSON string) to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
      */
     filters_override?: string;
     format?: DashboardsStreamTilesRetrieveFormat;
@@ -42347,7 +42787,7 @@ export namespace Schemas {
      */
     layoutSize?: DashboardsStreamTilesRetrieveLayoutSize;
     /**
-     * JSON object to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response's `variables` field, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a dashboard sharing token.
+     * Object (or pre-encoded JSON string) to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
      */
     variables_override?: string;
     };
@@ -42564,7 +43004,42 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Sort order for symbol sets. Prefix with `-` for descending order.
+
+    * `created_at` - created_at
+    * `-created_at` - -created_at
+    * `ref` - ref
+    * `-ref` - -ref
+    * `last_used` - last_used
+    * `-last_used` - -last_used
+     * @minLength 1
+     */
+    order_by?: string;
+    /**
+     * Exact symbol set reference to filter by.
+     * @minLength 1
+     */
+    ref?: string;
+    /**
+     * Upload status filter: `valid` has an uploaded file, `invalid` is missing a file, `all` returns both.
+
+    * `all` - all
+    * `valid` - valid
+    * `invalid` - invalid
+     * @minLength 1
+     */
+    status?: ErrorTrackingSymbolSetsListStatus;
     };
+
+    export type ErrorTrackingSymbolSetsListStatus = typeof ErrorTrackingSymbolSetsListStatus[keyof typeof ErrorTrackingSymbolSetsListStatus];
+
+
+    export const ErrorTrackingSymbolSetsListStatus = {
+      All: 'all',
+      Valid: 'valid',
+      Invalid: 'invalid',
+    } as const;
 
     export type EventDefinitionsListParams = {
     /**
@@ -42584,9 +43059,9 @@ export namespace Schemas {
     name: string;
     };
 
-    export type EventDefinitionsPromotedPropertiesRetrieveParams = {
+    export type EventDefinitionsPrimaryPropertiesRetrieveParams = {
     /**
-     * Optional: restrict the response to these event names. Repeat the parameter for multiple names (e.g. `?names=a&names=b`). When omitted, returns every team-configured promoted property.
+     * Optional: restrict the response to these event names. Repeat the parameter for multiple names (e.g. `?names=a&names=b`). When omitted, returns every team-configured primary property.
      */
     names?: string[];
     };
@@ -43370,10 +43845,6 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * A search term.
-     */
-    search?: string;
-    /**
      * Multiple values may be separated by commas.
      */
     type?: string[];
@@ -43687,6 +44158,10 @@ export namespace Schemas {
     };
 
     export type InsightsRetrieveParams = {
+    /**
+     * Object (or pre-encoded JSON string) to override the insight's filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
+     */
+    filters_override?: string;
     format?: InsightsRetrieveFormat;
     /**
      * 
@@ -43706,6 +44181,10 @@ export namespace Schemas {
     Background calculation can be tracked using the `query_status` response field.
      */
     refresh?: InsightsRetrieveRefresh;
+    /**
+     * Object (or pre-encoded JSON string) to override the insight's HogQL variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `insight-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
+     */
+    variables_override?: string;
     };
 
     export type InsightsRetrieveFormat = typeof InsightsRetrieveFormat[keyof typeof InsightsRetrieveFormat];
@@ -43899,6 +44378,43 @@ export namespace Schemas {
 
     export type IntegrationsListParams = {
     /**
+     * * `apns` - Apple Push
+    * `azure-blob` - Azure Blob
+    * `bing-ads` - Bing Ads
+    * `clickup` - Clickup
+    * `customerio-app` - Customerio App
+    * `customerio-track` - Customerio Track
+    * `customerio-webhook` - Customerio Webhook
+    * `databricks` - Databricks
+    * `email` - Email
+    * `firebase` - Firebase
+    * `github` - Github
+    * `gitlab` - Gitlab
+    * `google-ads` - Google Ads
+    * `google-cloud-service-account` - Google Cloud Service Account
+    * `google-cloud-storage` - Google Cloud Storage
+    * `google-pubsub` - Google Pubsub
+    * `google-sheets` - Google Sheets
+    * `hubspot` - Hubspot
+    * `intercom` - Intercom
+    * `jira` - Jira
+    * `linear` - Linear
+    * `linkedin-ads` - Linkedin Ads
+    * `meta-ads` - Meta Ads
+    * `pinterest-ads` - Pinterest Ads
+    * `postgresql` - Postgresql
+    * `reddit-ads` - Reddit Ads
+    * `salesforce` - Salesforce
+    * `slack` - Slack
+    * `slack-posthog-code` - Slack Posthog Code
+    * `snapchat` - Snapchat
+    * `stripe` - Stripe
+    * `tiktok-ads` - Tiktok Ads
+    * `twilio` - Twilio
+    * `vercel` - Vercel
+     */
+    kind?: IntegrationsListKind;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -43907,6 +44423,46 @@ export namespace Schemas {
      */
     offset?: number;
     };
+
+    export type IntegrationsListKind = typeof IntegrationsListKind[keyof typeof IntegrationsListKind];
+
+
+    export const IntegrationsListKind = {
+      Apns: 'apns',
+      AzureBlob: 'azure-blob',
+      BingAds: 'bing-ads',
+      Clickup: 'clickup',
+      CustomerioApp: 'customerio-app',
+      CustomerioTrack: 'customerio-track',
+      CustomerioWebhook: 'customerio-webhook',
+      Databricks: 'databricks',
+      Email: 'email',
+      Firebase: 'firebase',
+      Github: 'github',
+      Gitlab: 'gitlab',
+      GoogleAds: 'google-ads',
+      GoogleCloudServiceAccount: 'google-cloud-service-account',
+      GoogleCloudStorage: 'google-cloud-storage',
+      GooglePubsub: 'google-pubsub',
+      GoogleSheets: 'google-sheets',
+      Hubspot: 'hubspot',
+      Intercom: 'intercom',
+      Jira: 'jira',
+      Linear: 'linear',
+      LinkedinAds: 'linkedin-ads',
+      MetaAds: 'meta-ads',
+      PinterestAds: 'pinterest-ads',
+      Postgresql: 'postgresql',
+      RedditAds: 'reddit-ads',
+      Salesforce: 'salesforce',
+      Slack: 'slack',
+      SlackPosthogCode: 'slack-posthog-code',
+      Snapchat: 'snapchat',
+      Stripe: 'stripe',
+      TiktokAds: 'tiktok-ads',
+      Twilio: 'twilio',
+      Vercel: 'vercel',
+    } as const;
 
     export type IntegrationsGithubBranchesRetrieveParams = {
     /**
@@ -44937,6 +45493,13 @@ export namespace Schemas {
       Webhook: 'webhook',
     } as const;
 
+    export type SubscriptionsSummaryQuotaRetrieve200 = {
+      active_count: number;
+      /** @nullable */
+      limit: number | null;
+      at_limit: boolean;
+    };
+
     export type SurveysListParams = {
     archived?: boolean;
     /**
@@ -44948,7 +45511,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * A search term.
+     * Fuzzy match against survey `name` and `description` using Postgres trigram word similarity. Supports typos and prefix-as-you-type.
      */
     search?: string;
     };
@@ -45003,7 +45566,7 @@ export namespace Schemas {
      */
     created_by?: number;
     /**
-     * When true, list internal tasks instead of user-facing ones. Honored only in debug environments; ignored in production. Defaults to excluding internal tasks.
+     * When true, list internal tasks instead of user-facing ones. Honored in debug environments or for staff users; ignored for non-staff users in production. Defaults to excluding internal tasks.
      */
     internal?: boolean;
     /**
@@ -45115,6 +45678,17 @@ export namespace Schemas {
      * @maximum 30
      */
     window_days?: number;
+    };
+
+    export type TasksSummariesCreateParams = {
+    /**
+     * Page size for the paginated response.
+     */
+    limit?: number;
+    /**
+     * Offset into the result set for pagination.
+     */
+    offset?: number;
     };
 
     export type UploadedMediaCreate201 = { [key: string]: unknown };
