@@ -2,13 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { initKeaTests } from '~/test/init'
-import {
-    AnyPropertyFilter,
-    FeatureFlagEvaluationRuntime,
-    FeatureFlagGroupType,
-    PropertyFilterType,
-    PropertyOperator,
-} from '~/types'
+import { AnyPropertyFilter, FeatureFlagEvaluationRuntime, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { featureFlagConditionWarningLogic } from './featureFlagConditionWarningLogic'
 
@@ -31,7 +25,6 @@ describe('featureFlagConditionWarningLogic', () => {
             const logic = featureFlagConditionWarningLogic({
                 properties,
                 evaluationRuntime: FeatureFlagEvaluationRuntime.CLIENT,
-                filterGroups: undefined,
             })
             logic.mount()
 
@@ -55,7 +48,6 @@ describe('featureFlagConditionWarningLogic', () => {
             const logic = featureFlagConditionWarningLogic({
                 properties,
                 evaluationRuntime: FeatureFlagEvaluationRuntime.SERVER,
-                filterGroups: undefined,
             })
             logic.mount()
 
@@ -83,7 +75,6 @@ describe('featureFlagConditionWarningLogic', () => {
             const logic = featureFlagConditionWarningLogic({
                 properties,
                 evaluationRuntime: FeatureFlagEvaluationRuntime.SERVER,
-                filterGroups: undefined,
             })
             logic.mount()
 
@@ -96,7 +87,6 @@ describe('featureFlagConditionWarningLogic', () => {
             const logic = featureFlagConditionWarningLogic({
                 properties: [],
                 evaluationRuntime: FeatureFlagEvaluationRuntime.SERVER,
-                filterGroups: undefined,
             })
             logic.mount()
 
@@ -120,7 +110,6 @@ describe('featureFlagConditionWarningLogic', () => {
             const logic = featureFlagConditionWarningLogic({
                 properties,
                 evaluationRuntime: FeatureFlagEvaluationRuntime.SERVER,
-                filterGroups: undefined,
             })
             logic.mount()
 
@@ -142,7 +131,6 @@ describe('featureFlagConditionWarningLogic', () => {
             const logic = featureFlagConditionWarningLogic({
                 properties,
                 evaluationRuntime: FeatureFlagEvaluationRuntime.SERVER,
-                filterGroups: undefined,
             })
             logic.mount()
 
@@ -166,7 +154,6 @@ describe('featureFlagConditionWarningLogic', () => {
             const logic = featureFlagConditionWarningLogic({
                 properties,
                 evaluationRuntime: FeatureFlagEvaluationRuntime.SERVER,
-                filterGroups: undefined,
             })
             logic.mount()
 
@@ -188,7 +175,6 @@ describe('featureFlagConditionWarningLogic', () => {
             const logic = featureFlagConditionWarningLogic({
                 properties,
                 evaluationRuntime: FeatureFlagEvaluationRuntime.SERVER,
-                filterGroups: undefined,
             })
             logic.mount()
 
@@ -215,7 +201,6 @@ describe('featureFlagConditionWarningLogic', () => {
                 const logic = featureFlagConditionWarningLogic({
                     properties,
                     evaluationRuntime: FeatureFlagEvaluationRuntime.SERVER,
-                    filterGroups: undefined,
                 })
                 logic.mount()
 
@@ -240,7 +225,6 @@ describe('featureFlagConditionWarningLogic', () => {
             const logic = featureFlagConditionWarningLogic({
                 properties,
                 evaluationRuntime: FeatureFlagEvaluationRuntime.SERVER,
-                filterGroups: undefined,
             })
             logic.mount()
 
@@ -264,7 +248,6 @@ describe('featureFlagConditionWarningLogic', () => {
             const logic = featureFlagConditionWarningLogic({
                 properties,
                 evaluationRuntime: FeatureFlagEvaluationRuntime.SERVER,
-                filterGroups: undefined,
             })
             logic.mount()
 
@@ -299,7 +282,6 @@ describe('featureFlagConditionWarningLogic', () => {
             const logic = featureFlagConditionWarningLogic({
                 properties,
                 evaluationRuntime: FeatureFlagEvaluationRuntime.SERVER,
-                filterGroups: undefined,
             })
             logic.mount()
 
@@ -330,7 +312,6 @@ describe('featureFlagConditionWarningLogic', () => {
             const logic = featureFlagConditionWarningLogic({
                 properties,
                 evaluationRuntime: FeatureFlagEvaluationRuntime.SERVER,
-                filterGroups: undefined,
             })
             logic.mount()
 
@@ -358,7 +339,6 @@ describe('featureFlagConditionWarningLogic', () => {
             const logic = featureFlagConditionWarningLogic({
                 properties,
                 evaluationRuntime: FeatureFlagEvaluationRuntime.SERVER,
-                filterGroups: undefined,
             })
             logic.mount()
 
@@ -382,7 +362,6 @@ describe('featureFlagConditionWarningLogic', () => {
             const logic = featureFlagConditionWarningLogic({
                 properties,
                 evaluationRuntime: FeatureFlagEvaluationRuntime.ALL,
-                filterGroups: undefined,
             })
             logic.mount()
 
@@ -406,7 +385,6 @@ describe('featureFlagConditionWarningLogic', () => {
             const logic = featureFlagConditionWarningLogic({
                 properties,
                 evaluationRuntime: FeatureFlagEvaluationRuntime.SERVER,
-                filterGroups: undefined,
             })
             logic.mount()
 
@@ -439,7 +417,6 @@ describe('featureFlagConditionWarningLogic', () => {
             const logic = featureFlagConditionWarningLogic({
                 properties,
                 evaluationRuntime: FeatureFlagEvaluationRuntime.SERVER,
-                filterGroups: undefined,
             })
             logic.mount()
 
@@ -459,7 +436,6 @@ describe('featureFlagConditionWarningLogic', () => {
             const logic = featureFlagConditionWarningLogic({
                 properties,
                 evaluationRuntime: FeatureFlagEvaluationRuntime.SERVER,
-                filterGroups: undefined,
             })
             logic.mount()
 
@@ -490,62 +466,10 @@ describe('featureFlagConditionWarningLogic', () => {
             const logic = featureFlagConditionWarningLogic({
                 properties,
                 evaluationRuntime: FeatureFlagEvaluationRuntime.SERVER,
-                filterGroups: undefined,
             })
             logic.mount()
 
             expect(logic.values.warning).toBeUndefined()
-        })
-    })
-
-    describe('server runtime - mixed user/group targeting', () => {
-        const groupWithAggregation = (index: number | null): FeatureFlagGroupType => ({
-            properties: [],
-            rollout_percentage: 100,
-            variant: null,
-            aggregation_group_type_index: index,
-        })
-
-        it.each([
-            {
-                name: 'warns when groups have different aggregation_group_type_index values on SERVER runtime',
-                aggregations: [null, 0],
-                evaluationRuntime: FeatureFlagEvaluationRuntime.SERVER,
-                expectedWarning: 'mixed user and group targeting',
-            },
-            {
-                name: 'warns on ALL runtime with mixed aggregations',
-                aggregations: [null, 0],
-                evaluationRuntime: FeatureFlagEvaluationRuntime.ALL,
-                expectedWarning: 'mixed user and group targeting',
-            },
-            {
-                name: 'does not warn when all groups share the same aggregation (user-level)',
-                aggregations: [null, null],
-                evaluationRuntime: FeatureFlagEvaluationRuntime.SERVER,
-                expectedWarning: undefined,
-            },
-            {
-                name: 'does not warn when all groups share the same aggregation (group-level)',
-                aggregations: [0, 0],
-                evaluationRuntime: FeatureFlagEvaluationRuntime.SERVER,
-                expectedWarning: undefined,
-            },
-            {
-                name: 'does not warn for client-only runtime even with mixed targeting',
-                aggregations: [null, 0],
-                evaluationRuntime: FeatureFlagEvaluationRuntime.CLIENT,
-                expectedWarning: undefined,
-            },
-        ])('$name', ({ aggregations, evaluationRuntime, expectedWarning }) => {
-            const logic = featureFlagConditionWarningLogic({
-                properties: [],
-                filterGroups: aggregations.map(groupWithAggregation),
-                evaluationRuntime,
-            })
-            logic.mount()
-
-            expectLogic(logic).toMatchValues({ warning: expectedWarning })
         })
     })
 
@@ -563,7 +487,6 @@ describe('featureFlagConditionWarningLogic', () => {
             const logic = featureFlagConditionWarningLogic({
                 properties,
                 evaluationRuntime: FeatureFlagEvaluationRuntime.SERVER,
-                filterGroups: undefined,
             })
             logic.mount()
 
@@ -585,7 +508,6 @@ describe('featureFlagConditionWarningLogic', () => {
             const logic = featureFlagConditionWarningLogic({
                 properties,
                 evaluationRuntime: FeatureFlagEvaluationRuntime.SERVER,
-                filterGroups: undefined,
             })
             logic.mount()
 
@@ -607,7 +529,6 @@ describe('featureFlagConditionWarningLogic', () => {
             const logic = featureFlagConditionWarningLogic({
                 properties,
                 evaluationRuntime: FeatureFlagEvaluationRuntime.SERVER,
-                filterGroups: undefined,
             })
             logic.mount()
 

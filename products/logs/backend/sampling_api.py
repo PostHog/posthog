@@ -37,7 +37,7 @@ class LogsSamplingRuleSerializer(serializers.ModelSerializer):
     )
     rule_type = serializers.ChoiceField(
         choices=LogsExclusionRule.RuleType.choices,
-        help_text="Rule kind: severity_sampling, path_drop, or rate_limit (rate_limit reserved for a future release).",
+        help_text="Rule kind: severity_sampling, path_drop, or rate_limit (caps logs/sec for scope_service at ingestion).",
     )
     scope_service = serializers.CharField(
         required=False,
@@ -65,7 +65,9 @@ class LogsSamplingRuleSerializer(serializers.ModelSerializer):
             "`match_attribute_key` (string). When `match_attribute_key` is omitted or empty, patterns match the same "
             "virtual path string as ingestion (url.path, http.path, http.route, path). When set, each pattern is "
             "tested only against that string attribute on the log record. For severity_sampling: object with "
-            "`actions` per severity level and optional `always_keep`. rate_limit is reserved."
+            "`actions` per severity level and optional `always_keep`. For rate_limit: object with required "
+            "`logs_per_second` (integer 1–1000000) and optional `burst_logs` (integer ≥ logs_per_second, max 60000000); "
+            "rate_limit rules require non-null `scope_service` matching `service.name` on each log line."
         )
     )
     version = serializers.IntegerField(
@@ -114,6 +116,33 @@ class LogsSamplingRuleSerializer(serializers.ModelSerializer):
             mak = config.get("match_attribute_key")
             if mak is not None and mak != "" and not isinstance(mak, str):
                 raise ValidationError({"config": {"match_attribute_key": "Must be a string when provided."}})
+        if rule_type == LogsExclusionRule.RuleType.RATE_LIMIT:
+            if not isinstance(config, dict):
+                raise ValidationError({"config": "rate_limit rules require config to be a JSON object."})
+            scope_service = attrs.get("scope_service")
+            if scope_service is None and self.instance is not None:
+                scope_service = self.instance.scope_service
+            if not scope_service or not str(scope_service).strip():
+                raise ValidationError(
+                    {"scope_service": "rate_limit rules require a non-empty service name (service.name on logs)."}
+                )
+            lps = config.get("logs_per_second")
+            if isinstance(lps, bool) or not isinstance(lps, int):
+                raise ValidationError(
+                    {"config": {"logs_per_second": "Must be an integer (logs per second sustained)."}}
+                )
+            if lps < 1 or lps > 1_000_000:
+                raise ValidationError({"config": {"logs_per_second": "Must be between 1 and 1000000 inclusive."}})
+            burst = config.get("burst_logs", None)
+            if burst is not None:
+                if isinstance(burst, bool) or not isinstance(burst, int):
+                    raise ValidationError({"config": {"burst_logs": "Must be an integer when provided."}})
+                if burst < lps:
+                    raise ValidationError(
+                        {"config": {"burst_logs": "Must be greater than or equal to logs_per_second."}}
+                    )
+                if burst > 60_000_000:
+                    raise ValidationError({"config": {"burst_logs": "Must be at most 60000000."}})
         return attrs
 
     def validate_scope_attribute_filters(self, value: Any) -> Any:

@@ -5,7 +5,14 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from posthog.temporal.data_imports.sources.slack.slack import SlackResumeConfig, _channel_messages_generator
+from posthog.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
+from posthog.temporal.data_imports.sources.slack.slack import (
+    SlackResumeConfig,
+    _channel_messages_generator,
+    _fetch_all_channels,
+    _fetch_channels_by_type,
+    slack_source,
+)
 
 
 def _make_response(payload: dict[str, Any]) -> MagicMock:
@@ -155,3 +162,144 @@ class TestChannelMessagesGeneratorResumable:
         call_kwargs = mock_get.call_args.kwargs
         assert "cursor" not in call_kwargs["params"]
         assert call_kwargs["params"]["oldest"] == "original_oldest"
+
+
+def _make_channel_page(channels: list[dict[str, Any]], next_cursor: str = "") -> dict[str, Any]:
+    return {
+        "ok": True,
+        "channels": channels,
+        "response_metadata": {"next_cursor": next_cursor},
+    }
+
+
+class TestFetchChannelsByType:
+    @parameterized.expand(
+        [
+            (
+                "public_with_authed_user_ignores_user_scoping",
+                "public_channel",
+                "U_INSTALLER",
+                "https://slack.com/api/conversations.list",
+                False,
+            ),
+            (
+                "private_with_authed_user_scopes_to_installer",
+                "private_channel",
+                "U_INSTALLER",
+                "https://slack.com/api/users.conversations",
+                True,
+            ),
+            (
+                "private_without_authed_user_omits_user_param",
+                "private_channel",
+                None,
+                "https://slack.com/api/users.conversations",
+                False,
+            ),
+        ]
+    )
+    def test_routes_to_expected_endpoint(
+        self,
+        _name: str,
+        channel_type: str,
+        authed_user: str | None,
+        expected_url: str,
+        expects_user_param: bool,
+    ) -> None:
+        responses = [_make_response(_make_channel_page([{"id": "X1", "name": "x"}]))]
+        with patch(
+            "posthog.temporal.data_imports.sources.slack.slack._slack_get",
+            side_effect=responses,
+        ) as mock_get:
+            channels = _fetch_channels_by_type("token", channel_type, authed_user=authed_user)
+
+        assert channels == [{"id": "X1", "name": "x"}]
+        assert mock_get.call_args.args[0] == expected_url
+        params = mock_get.call_args.kwargs["params"]
+        assert params["types"] == channel_type
+        if expects_user_param:
+            assert params["user"] == authed_user
+        else:
+            assert "user" not in params
+
+    def test_paginates_until_cursor_empty(self) -> None:
+        pages = [
+            _make_channel_page([{"id": "C1", "name": "a"}], next_cursor="page2"),
+            _make_channel_page([{"id": "C2", "name": "b"}], next_cursor=""),
+        ]
+        responses = [_make_response(p) for p in pages]
+        with patch(
+            "posthog.temporal.data_imports.sources.slack.slack._slack_get",
+            side_effect=responses,
+        ) as mock_get:
+            channels = _fetch_channels_by_type("token", "public_channel")
+
+        assert [c["id"] for c in channels] == ["C1", "C2"]
+        assert mock_get.call_count == 2
+        assert mock_get.call_args_list[1].kwargs["params"]["cursor"] == "page2"
+
+
+class TestFetchAllChannels:
+    def test_combines_public_and_private(self) -> None:
+        pages = [
+            _make_channel_page([{"id": "C1", "name": "general"}], next_cursor=""),
+            _make_channel_page([{"id": "G1", "name": "secret"}], next_cursor=""),
+        ]
+        responses = [_make_response(p) for p in pages]
+        with patch(
+            "posthog.temporal.data_imports.sources.slack.slack._slack_get",
+            side_effect=responses,
+        ) as mock_get:
+            channels = _fetch_all_channels("token", authed_user="U_INSTALLER")
+
+        assert [c["id"] for c in channels] == ["C1", "G1"]
+        assert mock_get.call_count == 2
+        first_url, second_url = mock_get.call_args_list[0].args[0], mock_get.call_args_list[1].args[0]
+        assert first_url == "https://slack.com/api/conversations.list"
+        assert second_url == "https://slack.com/api/users.conversations"
+        # public call must not carry user= scoping; private call must
+        assert "user" not in mock_get.call_args_list[0].kwargs["params"]
+        assert mock_get.call_args_list[1].kwargs["params"]["user"] == "U_INSTALLER"
+
+
+class TestSlackSourceChannelsEndpoint:
+    def _build_source(self, authed_user: str | None) -> Any:
+        return slack_source(
+            access_token="token",
+            endpoint="$channels",
+            team_id=1,
+            job_id="job-1",
+            webhook_source_manager=MagicMock(spec=WebhookSourceManager),
+            resumable_source_manager=MagicMock(spec=ResumableSourceManager),
+            authed_user=authed_user,
+        )
+
+    @parameterized.expand(
+        [
+            (
+                "with_authed_user",
+                "U_INSTALLER",
+                [{"id": "C1", "name": "general"}, {"id": "G1", "name": "secret"}],
+            ),
+            (
+                "without_authed_user",
+                None,
+                [],
+            ),
+        ]
+    )
+    def test_uses_fetch_all_channels_and_threads_authed_user(
+        self,
+        _name: str,
+        authed_user: str | None,
+        sample: list[dict[str, Any]],
+    ) -> None:
+        with patch(
+            "posthog.temporal.data_imports.sources.slack.slack._fetch_all_channels",
+            return_value=sample,
+        ) as mock_fetch:
+            response = self._build_source(authed_user=authed_user)
+            items = list(response.items())
+
+        assert items == sample
+        mock_fetch.assert_called_once_with("token", authed_user)
