@@ -459,13 +459,13 @@ const WaitingRecords = (): JSX.Element | null => {
 
 const checkStatusIcon = (status: DiagnosticCheckStatus): JSX.Element => {
     switch (status) {
-        case 'pass':
+        case 'passed':
             return <IconCheckCircle className="text-success" />
-        case 'warn':
+        case 'warned':
             return <IconWarning className="text-warning-dark" />
-        case 'fail':
+        case 'failed':
             return <IconX className="text-danger" />
-        case 'skip':
+        case 'skipped':
             return <IconInfo className="text-secondary" />
     }
 }

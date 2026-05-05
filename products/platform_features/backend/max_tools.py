@@ -1,4 +1,3 @@
-from textwrap import dedent
 from typing import Any
 
 from asgiref.sync import sync_to_async
@@ -11,33 +10,33 @@ from posthog.models.organization import OrganizationMembership
 
 from ee.hogai.tool import MaxTool
 
-DIAGNOSE_PROXY_TOOL_DESCRIPTION = dedent("""
-    Run a deep diagnostic on a managed reverse proxy that's stuck or erroring.
+DIAGNOSE_PROXY_TOOL_DESCRIPTION = """
+Run a deep diagnostic on a managed reverse proxy that's stuck or erroring.
 
-    # When to use
-    - User asks why a reverse proxy isn't working / is stuck
-    - User mentions an erroring or timed-out proxy
-    - User mentions a managed proxy domain by name and reports it's not live
-    - The proxy settings page shows a record in 'erroring', 'warning', or 'timed_out' state
+# When to use
+- User asks why a reverse proxy isn't working / is stuck
+- User mentions an erroring or timed-out proxy
+- User mentions a managed proxy domain by name and reports it's not live
+- The proxy settings page shows a record in 'erroring', 'warning', or 'timed_out' state
 
-    # What it checks
-    - Customer DNS CNAME alignment with the expected proxy target
-    - Cloudflare custom hostname state (active / pending_validation / pending_issuance / etc.)
-    - CAA records walked up the customer's DNS tree (most common stuck-validation cause)
-    - HTTP-01 challenge URL reachability and content
-    - Live event probe to the customer's proxy domain
-    - Certificate expiry
+# What it checks
+- Customer DNS CNAME alignment with the expected proxy target
+- Cloudflare custom hostname state (active / pending_validation / pending_issuance / etc.)
+- CAA records walked up the customer's DNS tree (most common stuck-validation cause)
+- HTTP-01 challenge URL reachability and content
+- Live event probe to the customer's proxy domain
+- Certificate expiry
 
-    # Output
-    Returns a structured report. Each check has a status (pass / warn / fail / skip) and a
-    customer-facing detail string. Failed checks include a remediation block with the exact
-    DNS records the customer should add.
+# Output
+Returns a structured report. Each check has a status (pass / warn / fail / skip) and a
+customer-facing detail string. Failed checks include a remediation block with the exact
+DNS records the customer should add.
 
-    # Identifying the proxy
-    - Pass `proxy_record_id` (UUID) when known. The user-visible settings page lists records.
-    - When the user names a proxy by domain (e.g. "diagnose e.example.com"), look up the
-      record in the contextual `proxy_records` list provided to you and pass its id.
-""").strip()
+# Identifying the proxy
+- Pass `proxy_record_id` (UUID) when known. The user-visible settings page lists records.
+- When the user names a proxy by domain (e.g. "diagnose e.example.com"), look up the
+  record in the contextual `proxy_records` list provided to you and pass its id.
+""".strip()
 
 
 DIAGNOSE_PROXY_CONTEXT_PROMPT_TEMPLATE = """

@@ -69,7 +69,7 @@ class TestCheckCname(TestCase):
 
         result = diagnostics._check_cname(_record())
 
-        self.assertEqual(result.status, "pass")
+        self.assertEqual(result.status, "passed")
         self.assertIsNone(result.remediation)
 
     @patch("posthog.api.proxy_record_diagnostics.dns.resolver.Resolver")
@@ -80,7 +80,7 @@ class TestCheckCname(TestCase):
 
         result = diagnostics._check_cname(_record())
 
-        self.assertEqual(result.status, "fail")
+        self.assertEqual(result.status, "failed")
         self.assertIn("wrong.example.net", result.detail)
         assert result.remediation is not None
         self.assertEqual(result.remediation.records[0].type, "CNAME")
@@ -91,7 +91,7 @@ class TestCheckCname(TestCase):
 
         result = diagnostics._check_cname(_record())
 
-        self.assertEqual(result.status, "fail")
+        self.assertEqual(result.status, "failed")
         self.assertIn("doesn't have a CNAME", result.detail)
 
 
@@ -100,21 +100,21 @@ class TestCheckCloudflare(TestCase):
     def test_pass_when_ssl_active(self, get_mock):
         get_mock.return_value = _hostname_info(ssl_status=CustomHostnameSSLStatus.ACTIVE)
         result, info = diagnostics._check_cloudflare(_record())
-        self.assertEqual(result.status, "pass")
+        self.assertEqual(result.status, "passed")
         self.assertIsNotNone(info)
 
     @patch("posthog.api.proxy_record_diagnostics.get_custom_hostname_by_domain")
     def test_warn_when_pending_validation(self, get_mock):
         get_mock.return_value = _hostname_info(ssl_status=CustomHostnameSSLStatus.PENDING_VALIDATION)
         result, info = diagnostics._check_cloudflare(_record())
-        self.assertEqual(result.status, "warn")
+        self.assertEqual(result.status, "warned")
         self.assertIn("verification is pending", result.detail.lower())
 
     @patch("posthog.api.proxy_record_diagnostics.get_custom_hostname_by_domain")
     def test_fail_when_hostname_missing(self, get_mock):
         get_mock.return_value = None
         result, info = diagnostics._check_cloudflare(_record())
-        self.assertEqual(result.status, "fail")
+        self.assertEqual(result.status, "failed")
         assert result.remediation is not None
         self.assertEqual(result.remediation.type, "retry")
         self.assertIsNone(info)
@@ -124,7 +124,7 @@ class TestCheckCloudflare(TestCase):
         get_mock.side_effect = CloudflareAPIError("boom")
         with patch("posthog.api.proxy_record_diagnostics.capture_exception"):
             result, info = diagnostics._check_cloudflare(_record())
-        self.assertEqual(result.status, "fail")
+        self.assertEqual(result.status, "failed")
         self.assertIn("certificate provider", result.detail.lower())
 
 
@@ -133,21 +133,21 @@ class TestCheckCaa(TestCase):
     def test_pass_when_no_caa_records(self, ResolverMock):
         ResolverMock.return_value.resolve.side_effect = dns.resolver.NoAnswer()
         result = diagnostics._check_caa(_record(), _hostname_info())
-        self.assertEqual(result.status, "pass")
+        self.assertEqual(result.status, "passed")
         self.assertIn("unrestricted", result.detail.lower())
 
     @patch("posthog.api.proxy_record_diagnostics.dns.resolver.Resolver")
     def test_pass_when_caa_authorizes_required_issuer(self, ResolverMock):
         ResolverMock.return_value.resolve.return_value = [_caa_rdata(b"issue", "pki.goog")]
         result = diagnostics._check_caa(_record(), _hostname_info(certificate_authority="google"))
-        self.assertEqual(result.status, "pass")
+        self.assertEqual(result.status, "passed")
         self.assertIn("pki.goog", result.detail)
 
     @patch("posthog.api.proxy_record_diagnostics.dns.resolver.Resolver")
     def test_fail_when_caa_blocks_required_issuer(self, ResolverMock):
         ResolverMock.return_value.resolve.return_value = [_caa_rdata(b"issue", "digicert.com")]
         result = diagnostics._check_caa(_record(), _hostname_info(certificate_authority="google"))
-        self.assertEqual(result.status, "fail")
+        self.assertEqual(result.status, "failed")
         self.assertIn("digicert.com", result.detail)
         self.assertIn("pki.goog", result.detail)
         assert result.remediation is not None
@@ -160,20 +160,20 @@ class TestCheckHttpChallenge(TestCase):
     def test_pass_when_body_matches(self, get_mock):
         get_mock.return_value = MagicMock(status_code=200, text="tok.body")
         result = diagnostics._check_http_challenge(_record(), _hostname_info())
-        self.assertEqual(result.status, "pass")
+        self.assertEqual(result.status, "passed")
 
     @patch("posthog.api.proxy_record_diagnostics.requests.get")
     def test_fail_when_body_mismatch(self, get_mock):
         get_mock.return_value = MagicMock(status_code=200, text="other content")
         result = diagnostics._check_http_challenge(_record(), _hostname_info())
-        self.assertEqual(result.status, "fail")
+        self.assertEqual(result.status, "failed")
         self.assertIn("wrong content", result.detail.lower())
 
     @patch("posthog.api.proxy_record_diagnostics.requests.get")
     def test_fail_when_unreachable(self, get_mock):
         get_mock.side_effect = requests.exceptions.ConnectionError("refused")
         result = diagnostics._check_http_challenge(_record(), _hostname_info())
-        self.assertEqual(result.status, "fail")
+        self.assertEqual(result.status, "failed")
         assert result.remediation is not None
         self.assertEqual(result.remediation.type, "config")
 
@@ -181,15 +181,15 @@ class TestCheckHttpChallenge(TestCase):
     def test_fail_when_non_200(self, get_mock):
         get_mock.return_value = MagicMock(status_code=404, text="")
         result = diagnostics._check_http_challenge(_record(), _hostname_info())
-        self.assertEqual(result.status, "fail")
+        self.assertEqual(result.status, "failed")
         self.assertIn("404", result.detail)
 
 
 class TestCheckLiveEvent(TestCase):
     @parameterized.expand(
         [
-            ("ssl_error", requests.exceptions.SSLError("bad cert"), "fail", "tls"),
-            ("conn_error", requests.exceptions.ConnectionError("refused"), "fail", "connect"),
+            ("ssl_error", requests.exceptions.SSLError("bad cert"), "failed", "tls"),
+            ("conn_error", requests.exceptions.ConnectionError("refused"), "failed", "connect"),
         ]
     )
     @patch("posthog.api.proxy_record_diagnostics.requests.post")
@@ -203,19 +203,19 @@ class TestCheckLiveEvent(TestCase):
     def test_5xx_is_fail(self, post_mock):
         post_mock.return_value = MagicMock(status_code=502)
         result = diagnostics._check_live_event(_record())
-        self.assertEqual(result.status, "fail")
+        self.assertEqual(result.status, "failed")
 
     @patch("posthog.api.proxy_record_diagnostics.requests.post")
     def test_4xx_is_warn(self, post_mock):
         post_mock.return_value = MagicMock(status_code=403)
         result = diagnostics._check_live_event(_record())
-        self.assertEqual(result.status, "warn")
+        self.assertEqual(result.status, "warned")
 
     @patch("posthog.api.proxy_record_diagnostics.requests.post")
     def test_2xx_is_pass(self, post_mock):
         post_mock.return_value = MagicMock(status_code=200)
         result = diagnostics._check_live_event(_record())
-        self.assertEqual(result.status, "pass")
+        self.assertEqual(result.status, "passed")
 
 
 class TestDiagnoseOrchestrator(TestCase):
@@ -232,7 +232,7 @@ class TestDiagnoseOrchestrator(TestCase):
         get_mock.return_value = _hostname_info(ssl_status=CustomHostnameSSLStatus.ACTIVE)
         post_mock.return_value = MagicMock(status_code=200)
         cert_mock.return_value = diagnostics.CheckResult(
-            id="cert_expiry", name="Certificate expiry", status="pass", detail="ok"
+            id="cert_expiry", name="Certificate expiry", status="passed", detail="ok"
         )
 
         report = diagnostics.diagnose(_record())

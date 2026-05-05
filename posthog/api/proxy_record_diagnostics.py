@@ -111,7 +111,7 @@ def _msg_cert_expiring_soon(domain: str, days_remaining: int) -> str:
 
 LOGGER = structlog.get_logger(__name__)
 
-CheckStatus = Literal["pass", "warn", "fail", "skip"]
+CheckStatus = Literal["passed", "warned", "failed", "skipped"]
 SummaryStatus = Literal["healthy", "warn", "fail"]
 RemediationType = Literal["dns", "config", "wait", "retry"]
 
@@ -196,7 +196,7 @@ def diagnose(record: ProxyRecord) -> DiagnosticReport:
     else:
         live_check = _check_live_event(record)
         checks.append(live_check)
-        if live_check.status == "pass":
+        if live_check.status == "passed":
             checks.append(_check_cert_expiry(record))
         else:
             checks.append(_skip("cert_expiry", "Certificate expiry", "Skipped — live event probe failed."))
@@ -207,16 +207,16 @@ def diagnose(record: ProxyRecord) -> DiagnosticReport:
 
 
 def _skip(check_id: str, name: str, detail: str) -> CheckResult:
-    return CheckResult(id=check_id, name=name, status="skip", detail=detail)
+    return CheckResult(id=check_id, name=name, status="skipped", detail=detail)
 
 
 def _build_summary(checks: list[CheckResult]) -> ReportSummary:
     by_id = {c.id: c for c in checks}
     live_event = by_id.get("live_event")
 
-    if live_event is not None and live_event.status == "pass":
+    if live_event is not None and live_event.status == "passed":
         cert = by_id.get("cert_expiry")
-        if cert is not None and cert.status == "fail":
+        if cert is not None and cert.status == "failed":
             return ReportSummary(status="warn", primary_issue="cert_expiry", next_action=cert.detail)
         return ReportSummary(status="healthy", primary_issue=None, next_action=None)
 
@@ -224,11 +224,11 @@ def _build_summary(checks: list[CheckResult]) -> ReportSummary:
     priority = ("cname", "caa", "http_challenge", "cloudflare", "live_event", "cert_expiry")
     for check_id in priority:
         c = by_id.get(check_id)
-        if c is None or c.status not in ("fail", "warn"):
+        if c is None or c.status not in ("failed", "warned"):
             continue
         next_action = c.remediation.summary if c.remediation else c.detail
         return ReportSummary(
-            status="fail" if c.status == "fail" else "warn",
+            status="fail" if c.status == "failed" else "warn",
             primary_issue=check_id,
             next_action=next_action,
         )
@@ -246,13 +246,13 @@ def _check_cname(record: ProxyRecord) -> CheckResult:
             return CheckResult(
                 id="cname",
                 name="DNS CNAME",
-                status="pass",
+                status="passed",
                 detail=f"`{record.domain}` is correctly configured.",
             )
         return CheckResult(
             id="cname",
             name="DNS CNAME",
-            status="fail",
+            status="failed",
             detail=_msg_cname_mismatch(record.domain, actual),
             remediation=Remediation(
                 type="dns",
@@ -264,7 +264,7 @@ def _check_cname(record: ProxyRecord) -> CheckResult:
         return CheckResult(
             id="cname",
             name="DNS CNAME",
-            status="fail",
+            status="failed",
             detail=_msg_cname_missing(record.domain),
             remediation=Remediation(
                 type="dns",
@@ -276,7 +276,7 @@ def _check_cname(record: ProxyRecord) -> CheckResult:
         return CheckResult(
             id="cname",
             name="DNS CNAME",
-            status="warn",
+            status="warned",
             detail=f"Couldn't resolve DNS for `{record.domain}` ({e.__class__.__name__}).",
         )
 
@@ -290,7 +290,7 @@ def _check_cloudflare(record: ProxyRecord) -> tuple[CheckResult, Optional[Custom
             CheckResult(
                 id="cloudflare",
                 name="Cloudflare custom hostname",
-                status="fail",
+                status="failed",
                 detail=f"Couldn't reach our certificate provider: {e}.",
             ),
             None,
@@ -301,7 +301,7 @@ def _check_cloudflare(record: ProxyRecord) -> tuple[CheckResult, Optional[Custom
             CheckResult(
                 id="cloudflare",
                 name="Cloudflare custom hostname",
-                status="fail",
+                status="failed",
                 detail=_msg_cloudflare_hostname_missing(record.domain),
                 remediation=Remediation(type="retry", summary="Hit Retry to recreate the proxy."),
             ),
@@ -314,7 +314,7 @@ def _check_cloudflare(record: ProxyRecord) -> tuple[CheckResult, Optional[Custom
             CheckResult(
                 id="cloudflare",
                 name="Cloudflare custom hostname",
-                status="pass",
+                status="passed",
                 detail=f"Certificate is active for `{record.domain}`.",
             ),
             info,
@@ -325,7 +325,7 @@ def _check_cloudflare(record: ProxyRecord) -> tuple[CheckResult, Optional[Custom
             CheckResult(
                 id="cloudflare",
                 name="Cloudflare custom hostname",
-                status="warn",
+                status="warned",
                 detail=(
                     f"Certificate verification is pending for `{record.domain}`. "
                     "If this persists, the CAA records or HTTP challenge checks below explain why."
@@ -339,7 +339,7 @@ def _check_cloudflare(record: ProxyRecord) -> tuple[CheckResult, Optional[Custom
             CheckResult(
                 id="cloudflare",
                 name="Cloudflare custom hostname",
-                status="warn",
+                status="warned",
                 detail=_msg_pending_issuance(record.domain),
                 remediation=Remediation(type="wait", summary="Wait up to an hour. Hit Retry if it stays this way."),
             ),
@@ -351,7 +351,7 @@ def _check_cloudflare(record: ProxyRecord) -> tuple[CheckResult, Optional[Custom
             CheckResult(
                 id="cloudflare",
                 name="Cloudflare custom hostname",
-                status="warn",
+                status="warned",
                 detail=f"Certificate issued for `{record.domain}` but not yet deployed to our edge.",
                 remediation=Remediation(type="wait", summary="Wait a few minutes for deployment."),
             ),
@@ -362,7 +362,7 @@ def _check_cloudflare(record: ProxyRecord) -> tuple[CheckResult, Optional[Custom
         CheckResult(
             id="cloudflare",
             name="Cloudflare custom hostname",
-            status="fail",
+            status="failed",
             detail=f"Unexpected certificate status: {ssl_status.value}.",
             remediation=Remediation(type="retry", summary="Hit Retry to start a fresh provisioning attempt."),
         ),
@@ -403,13 +403,13 @@ def _check_caa(record: ProxyRecord, hostname_info: Optional[CustomHostnameInfo])
             return CheckResult(
                 id="caa",
                 name="CAA records",
-                status="pass",
+                status="passed",
                 detail=f"CAA records on `{zone}` authorize `{required_issuer}`.",
             )
         return CheckResult(
             id="caa",
             name="CAA records",
-            status="fail",
+            status="failed",
             detail=_msg_caa_blocking(record.domain, zone, allowed, required_issuer),
             remediation=Remediation(
                 type="dns",
@@ -421,7 +421,7 @@ def _check_caa(record: ProxyRecord, hostname_info: Optional[CustomHostnameInfo])
     return CheckResult(
         id="caa",
         name="CAA records",
-        status="pass",
+        status="passed",
         detail="No CAA records found in the DNS chain — issuance is unrestricted.",
     )
 
@@ -455,7 +455,7 @@ def _check_http_challenge(record: ProxyRecord, hostname_info: CustomHostnameInfo
         return CheckResult(
             id="http_challenge",
             name="HTTP-01 challenge",
-            status="fail",
+            status="failed",
             detail=_msg_http_challenge_unreachable(record.domain) + f" ({e.__class__.__name__})",
             remediation=Remediation(
                 type="config",
@@ -467,7 +467,7 @@ def _check_http_challenge(record: ProxyRecord, hostname_info: CustomHostnameInfo
         return CheckResult(
             id="http_challenge",
             name="HTTP-01 challenge",
-            status="fail",
+            status="failed",
             detail=_msg_http_challenge_unreachable(record.domain) + f" (Got HTTP {response.status_code}.)",
         )
 
@@ -475,24 +475,26 @@ def _check_http_challenge(record: ProxyRecord, hostname_info: CustomHostnameInfo
         return CheckResult(
             id="http_challenge",
             name="HTTP-01 challenge",
-            status="fail",
+            status="failed",
             detail=_msg_http_challenge_wrong_body(record.domain),
         )
 
     return CheckResult(
         id="http_challenge",
         name="HTTP-01 challenge",
-        status="pass",
+        status="passed",
         detail="Challenge URL responded with the expected verification token.",
     )
 
 
 def _check_live_event(record: ProxyRecord) -> CheckResult:
     try:
-        # allow_redirects=False is a security boundary, not just a behavior choice:
-        # an org admin controlling the customer's domain could otherwise redirect
-        # us to internal targets (cloud metadata, management APIs) and exfiltrate
-        # whether they respond. Same protection as _check_http_challenge.
+        # Same dummy payload the daily monitor uses (posthog/temporal/proxy_service/monitor.py
+        # check_proxy_is_live). PostHog's capture endpoint accepts unknown api_keys and returns
+        # 2xx — team_id resolution happens later in the ingestion pipeline — so a working proxy
+        # forwards this to a 2xx response. allow_redirects=False is a security boundary: an org
+        # admin controlling the customer's domain could otherwise redirect us to internal
+        # targets (cloud metadata, management APIs). Same protection as _check_http_challenge.
         response = requests.post(
             f"https://{record.domain}/i/v0/e/",
             headers={"Content-Type": "application/json"},
@@ -504,21 +506,21 @@ def _check_live_event(record: ProxyRecord) -> CheckResult:
         return CheckResult(
             id="live_event",
             name="Live event probe",
-            status="fail",
+            status="failed",
             detail=f"TLS connection to `{record.domain}` failed.",
         )
     except requests.exceptions.ConnectionError as e:
         return CheckResult(
             id="live_event",
             name="Live event probe",
-            status="fail",
+            status="failed",
             detail=f"Couldn't connect to `{record.domain}` ({e.__class__.__name__}).",
         )
     except requests.exceptions.RequestException as e:
         return CheckResult(
             id="live_event",
             name="Live event probe",
-            status="warn",
+            status="warned",
             detail=f"Live probe failed unexpectedly ({e.__class__.__name__}).",
         )
 
@@ -526,21 +528,21 @@ def _check_live_event(record: ProxyRecord) -> CheckResult:
         return CheckResult(
             id="live_event",
             name="Live event probe",
-            status="fail",
+            status="failed",
             detail=f"Live probe got HTTP {response.status_code} — proxy is up but failing.",
         )
     if response.status_code >= 400:
         return CheckResult(
             id="live_event",
             name="Live event probe",
-            status="warn",
+            status="warned",
             detail=f"Live probe got HTTP {response.status_code} — unexpected for a test event.",
         )
 
     return CheckResult(
         id="live_event",
         name="Live event probe",
-        status="pass",
+        status="passed",
         detail=f"Sent a test event to `{record.domain}` successfully.",
     )
 
@@ -559,7 +561,7 @@ def _check_cert_expiry(record: ProxyRecord) -> CheckResult:
         return CheckResult(
             id="cert_expiry",
             name="Certificate expiry",
-            status="warn",
+            status="warned",
             detail=f"Couldn't fetch the certificate to inspect expiry ({e.__class__.__name__}).",
         )
 
@@ -567,7 +569,7 @@ def _check_cert_expiry(record: ProxyRecord) -> CheckResult:
         return CheckResult(
             id="cert_expiry",
             name="Certificate expiry",
-            status="warn",
+            status="warned",
             detail="Certificate fetched but expiry could not be determined.",
         )
 
@@ -576,7 +578,7 @@ def _check_cert_expiry(record: ProxyRecord) -> CheckResult:
         return CheckResult(
             id="cert_expiry",
             name="Certificate expiry",
-            status="warn",
+            status="warned",
             detail="Certificate fetched but expiry has an unexpected type.",
         )
     try:
@@ -585,7 +587,7 @@ def _check_cert_expiry(record: ProxyRecord) -> CheckResult:
         return CheckResult(
             id="cert_expiry",
             name="Certificate expiry",
-            status="warn",
+            status="warned",
             detail="Certificate fetched but expiry could not be parsed.",
         )
     days_remaining = (expires_at - dt.datetime.now(dt.UTC)).days
@@ -594,7 +596,7 @@ def _check_cert_expiry(record: ProxyRecord) -> CheckResult:
         return CheckResult(
             id="cert_expiry",
             name="Certificate expiry",
-            status="fail",
+            status="failed",
             detail=_msg_cert_expiring_soon(record.domain, days_remaining),
             remediation=Remediation(type="retry", summary="Hit Retry to start a fresh issuance."),
         )
@@ -602,6 +604,6 @@ def _check_cert_expiry(record: ProxyRecord) -> CheckResult:
     return CheckResult(
         id="cert_expiry",
         name="Certificate expiry",
-        status="pass",
+        status="passed",
         detail=f"Certificate is valid for {days_remaining} more days.",
     )

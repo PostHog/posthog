@@ -400,11 +400,11 @@ class TestProxyRecordAPI(APIBaseTest):
             ran_at=dt.datetime(2026, 5, 2, 12, 0, 0, tzinfo=dt.UTC),
             summary=ReportSummary(status="fail", primary_issue="caa", next_action="Authorize pki.goog in CAA."),
             checks=[
-                CheckResult(id="cname", name="DNS CNAME", status="pass", detail="ok"),
+                CheckResult(id="cname", name="DNS CNAME", status="passed", detail="ok"),
                 CheckResult(
                     id="caa",
                     name="CAA records",
-                    status="fail",
+                    status="failed",
                     detail="CAA blocks pki.goog.",
                     remediation=Remediation(
                         type="dns",
@@ -426,7 +426,7 @@ class TestProxyRecordAPI(APIBaseTest):
         assert "pki.goog" in data["summary"]["next_action"]
         assert len(data["checks"]) == 2
         caa_check = next(c for c in data["checks"] if c["id"] == "caa")
-        assert caa_check["status"] == "fail"
+        assert caa_check["status"] == "failed"
         assert caa_check["remediation"]["type"] == "dns"
         assert caa_check["remediation"]["records"][0]["type"] == "CAA"
         mock_diagnose.assert_called_once()
@@ -470,3 +470,35 @@ class TestProxyRecordAPI(APIBaseTest):
             f"/api/organizations/{self.organization.id}/proxy_records/{record.id}/diagnose/",
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    @patch("posthog.api.proxy_record.diagnose_proxy_record")
+    def test_diagnose_rate_limits_repeated_calls_per_record(self, mock_diagnose):
+        import datetime as dt
+
+        from django.core.cache import cache
+
+        from posthog.api.proxy_record_diagnostics import DiagnosticReport, ReportSummary
+
+        cache.clear()
+        mock_diagnose.return_value = DiagnosticReport(
+            ran_at=dt.datetime(2026, 5, 5, 12, 0, 0, tzinfo=dt.UTC),
+            summary=ReportSummary(status="healthy", primary_issue=None, next_action=None),
+            checks=[],
+        )
+        record = ProxyRecord.objects.create(
+            organization=self.organization,
+            created_by=self.user,
+            domain="ratelimit.example.com",
+            target_cname="abc123.proxy.posthog.com",
+            status=ProxyRecord.Status.VALID,
+        )
+
+        first = self.client.post(f"/api/organizations/{self.organization.id}/proxy_records/{record.id}/diagnose/")
+        assert first.status_code == status.HTTP_200_OK
+
+        second = self.client.post(f"/api/organizations/{self.organization.id}/proxy_records/{record.id}/diagnose/")
+        assert second.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert "wait" in second.json()["detail"].lower()
+
+        # Sanity: diagnose function only called once despite two requests.
+        assert mock_diagnose.call_count == 1

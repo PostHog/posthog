@@ -3,6 +3,7 @@ import asyncio
 import hashlib
 
 from django.conf import settings
+from django.core.cache import cache
 
 import posthoganalytics
 from drf_spectacular.utils import extend_schema
@@ -106,7 +107,9 @@ class ProxyRecordListResponseSerializer(serializers.Serializer):
 # These are pure response shapes — drf-spectacular generates frontend types and MCP tool
 # schemas from them, so every field needs help_text and every choice list must be enumerated.
 
-DIAGNOSTIC_CHECK_STATUS_CHOICES = ["pass", "warn", "fail", "skip"]
+DIAGNOSE_COOLDOWN_SECONDS = 30
+
+DIAGNOSTIC_CHECK_STATUS_CHOICES = ["passed", "warned", "failed", "skipped"]
 DIAGNOSTIC_SUMMARY_STATUS_CHOICES = ["healthy", "warn", "fail"]
 DIAGNOSTIC_REMEDIATION_TYPE_CHOICES = ["dns", "config", "wait", "retry"]
 
@@ -139,7 +142,7 @@ class DiagnosticCheckResultSerializer(serializers.Serializer):
     name = serializers.CharField(help_text="Human-readable check name.")
     status = serializers.ChoiceField(
         choices=DIAGNOSTIC_CHECK_STATUS_CHOICES,
-        help_text="pass: ok. warn: degraded but not blocking. fail: blocking. skip: not run for this state.",
+        help_text="passed: ok. warned: degraded but not blocking. failed: blocking. skipped: not run for this state.",
     )
     detail = serializers.CharField(help_text="Customer-facing explanation of the check's outcome.")
     remediation = DiagnosticRemediationSerializer(
@@ -291,6 +294,17 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
             record = self.organization.proxy_records.get(id=pk)
         except ProxyRecord.DoesNotExist:
             raise NotFound()
+
+        # Per-user, per-record cooldown. Each diagnose makes ~5–10 outbound requests
+        # against the customer's domain (DNS CAA walk, HTTP probes, TLS handshake) plus a
+        # Cloudflare API call. Even gated to admins, repeated calls would amplify
+        # network traffic toward the configured CNAME chain.
+        cooldown_key = f"proxy_records:diagnose:cooldown:{record.id}:{request.user.id}"
+        if not cache.add(cooldown_key, "1", timeout=DIAGNOSE_COOLDOWN_SECONDS):
+            return Response(
+                {"detail": "A diagnostic was just run for this proxy. Please wait a few seconds before trying again."},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
 
         report = diagnose_proxy_record(record)
         serializer = DiagnosticReportSerializer(report)

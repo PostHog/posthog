@@ -28,7 +28,7 @@ export type ProxyRecord = {
 
 export type FormState = 'collapsed' | 'active'
 
-export type DiagnosticCheckStatus = 'pass' | 'warn' | 'fail' | 'skip'
+export type DiagnosticCheckStatus = 'passed' | 'warned' | 'failed' | 'skipped'
 export type DiagnosticSummaryStatus = 'healthy' | 'warn' | 'fail'
 export type DiagnosticRemediationType = 'dns' | 'config' | 'wait' | 'retry'
 
