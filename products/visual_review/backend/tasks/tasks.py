@@ -14,6 +14,7 @@ import structlog
 from celery import shared_task
 
 from posthog.models.scoping import with_team_scope
+
 from ..logic import HashIntegrityError
 
 logger = structlog.get_logger(__name__)

@@ -70,6 +70,14 @@ rules:
       languages: [python]
       severity: WARNING
       paths:
+          # Scope to products that have adopted TeamScopedManager / ProductTeamModel.
+          # Expand this list as more products migrate. The rule would otherwise
+          # over-match Celery tasks across the whole codebase, including tasks
+          # against models that haven't adopted the new manager (FeatureFlag, etc.
+          # still use RootTeamManager which auto-rewrites on save and doesn't
+          # care about ContextVar).
+          include:
+              - 'products/visual_review/**'
           exclude:
               - '**/test/**'
               - '**/tests/**'

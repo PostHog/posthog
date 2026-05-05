@@ -185,6 +185,7 @@ rules:
                               |SignalSourceConfig
                               |SingleSessionSummary
                               |SlackThreadTaskMapping
+                              |SourceBatch
                               |StreamlitApp
                               |Subscription
                               |SubscriptionDelivery
@@ -389,6 +390,7 @@ rules:
                         |SignalSourceConfig
                         |SingleSessionSummary
                         |SlackThreadTaskMapping
+                        |SourceBatch
                         |StreamlitApp
                         |Subscription
                         |SubscriptionDelivery
