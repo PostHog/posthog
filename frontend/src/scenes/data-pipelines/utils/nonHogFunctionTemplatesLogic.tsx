@@ -76,10 +76,12 @@ export const nonHogFunctionTemplatesLogic = kea<nonHogFunctionTemplatesLogicType
                 const managed = connectors.map((connector: SourceConfig): HogFunctionTemplateType => {
                     const featureFlagDefined = !!connector.featureFlag
                     const featureFlagRaw = featureFlags[connector.featureFlag as FeatureFlagKey]
-                    let featureFlagValue: boolean | undefined = undefined
-                    if (featureFlagDefined && featureFlagRaw !== undefined) {
-                        featureFlagValue = !!featureFlagRaw
-                    }
+                    // Treat "flag declared but absent in featureFlags" as off — non-cloud
+                    // featureFlagLogic only exposes truthy flags, so an undefined lookup means the
+                    // gate is closed for this user. Without this coercion, getSourceDisplayStatus
+                    // falls back to `unreleasedSource` and any flagged-but-not-unreleased source
+                    // (plain, supabase) would render as connectable instead of "Notify me".
+                    const featureFlagValue: boolean | undefined = featureFlagDefined ? !!featureFlagRaw : undefined
                     const unreleasedValue = !!connector.unreleasedSource
                     const { status, descriptionEl } = getSourceDisplayStatus(unreleasedValue, featureFlagValue)
                     // Only surface alpha/beta while the source is actually connectable — a source
