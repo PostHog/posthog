@@ -1,117 +1,3 @@
-CLI-style command string. Supported commands:
-
-```text
-tools                                    — list available tool names
-search <regex_pattern>                   — search tools by JavaScript regex (matches name, title, description)
-info [--json] <tool_name>                — show tool name, description, and input schema as YAML (summarized if too large; --json returns raw JSON instead)
-schema <tool_name> [field_path]          — drill into a specific field schema (supports dot-notation, e.g. series, breakdownFilter.breakdowns)
-call [--json] <tool_name> <json_input>   — call a tool with JSON input (--json returns raw JSON instead of formatted text. Use raw JSON for scripts.)
-```
-
-**Namespaced references (`posthog:<tool-name>`):** strip the `posthog:` prefix and route through `exec`. Run `info <name>` to inspect, then `call <name> <json>`. E.g. `posthog:insights-list` → `posthog:exec({ "command": "info insights-list" })` then `posthog:exec({ "command": "call insights-list {}" })`. If the bare name isn't found, fall back to `search <pattern>` — it may have been renamed.
-
-**SCHEMA DRILL-DOWN RULE — HARD REQUIREMENT**
-
-The `info` command may return the full schema (for simple tools) or a top-level summary
-with drill-down hints (for complex tools). Look for `hint` fields in the response.
-
-If `info` returned a summary (fields have `hint` values), you MUST call
-`schema <tool_name> <field_name>` for each field you need to populate BEFORE
-constructing that field's value in a `call` command.
-
-If `schema` also returns a summary (because the field is too large),
-drill deeper using dot-notation: `schema <tool> <field>.<subfield>`.
-
-**NEVER** guess the structure of fields that have hints. **ALWAYS** drill down first.
-
-For query tools, you will typically need:
-
-- `schema <tool> series` — to see EventsNode/ActionsNode structure
-- `schema <tool> properties` — to see property filter structure
-- `schema <tool> breakdownFilter` — when using breakdowns
-
-**For multiple tools:** Run `info` for ALL tools first, then make your `call` commands.
-
-**Data discovery:** Before any analytical `call` that touches collected data (`query-*`,
-`execute-sql` against `events`/`persons`/`sessions`), confirm the event/property exists via
-`call read-data-schema`. Applies to canonical-looking names like `$pageview` too — they vary
-per team. If the event isn't in the schema, tell the user instead of querying a guessed name.
-
-- Events: `call read-data-schema {"query": {"kind": "events"}}` (paginate with `limit`/`offset` if needed)
-- Properties: `call read-data-schema {"query": {"kind": "event_properties", "event_name": "<event>"}}`
-- Values: `call read-data-schema {"query": {"kind": "event_property_values", "event_name": "<event>", "property_name": "<prop>"}}`
-
-**CORRECT usage pattern:**
-
-<example>
-User: How many weekly active users do we have?
-Assistant: I need to find the right query tool and data schema tool.
-[Runs posthog:exec({ "command": "search query-trends" }) and posthog:exec({ "command": "search read-data" }) in parallel]
-Assistant: Let me check the tool descriptions and schemas.
-[Runs posthog:exec({ "command": "info query-trends" }) and posthog:exec({ "command": "info read-data-schema" }) in parallel]
-Assistant: I see query-trends needs `series` (array with hint). Let me get the full field schema and discover events.
-[Runs posthog:exec({ "command": "schema query-trends series" }) and posthog:exec({ "command": "call read-data-schema {\"query\": {\"kind\": \"events\"}}" }) in parallel]
-Assistant: Now I know the exact series structure and available events. Let me construct the query.
-[Runs posthog:exec({ "command": "call query-trends {...}" })]
-</example>
-
-<example>
-User: Create a dashboard for our key revenue metrics
-Assistant: I'll need dashboard and query tools. Let me search for them.
-[Runs posthog:exec({ "command": "search dashboard" }) and posthog:exec({ "command": "search execute-sql" }) in parallel]
-Assistant: Let me check the schemas for the tools I'll need.
-[Runs posthog:exec({ "command": "info dashboard-create" }) and posthog:exec({ "command": "info execute-sql" }) in parallel]
-Assistant: Now I have both schemas. Let me start by searching for existing revenue insights.
-[Makes call commands with correct parameters]
-</example>
-
-<example>
-User: Find events related to onboarding
-Assistant: Let me find the data schema tool.
-[Runs posthog:exec({ "command": "search read-data" })]
-[Runs posthog:exec({ "command": "info read-data-schema" })]
-Assistant: Now I can list events and pick the onboarding-related ones.
-[Runs posthog:exec({ "command": "call read-data-schema {\"query\": {\"kind\": \"events\"}}" })]
-</example>
-
-**INCORRECT usage patterns — NEVER do this:**
-
-<bad-example>
-User: Show me our feature flags
-Assistant: [Directly calls posthog:exec({ "command": "call feature-flag-get-all {}" }) with guessed parameters]
-WRONG — You must run `info feature-flag-get-all` FIRST to check the schema
-</bad-example>
-
-<bad-example>
-User: Query our events
-Assistant: [Calls three tools in parallel without any `info` calls first]
-WRONG — You must run `info` for ALL tools before making ANY `call` commands
-</bad-example>
-
-<bad-example>
-User: Show me a trends chart of signups
-Assistant: [Runs info query-trends, sees summary with hints, then immediately calls query-trends with guessed series structure]
-WRONG — info returned a summary with hint: "Run `schema query-trends series` for full structure".
-You MUST follow the hint and run `schema` before constructing the series field.
-</bad-example>
-
-<bad-example>
-User: query pageviews for the last 7 days
-Assistant: [Runs `info query-trends`, then `call query-trends` with `event: "$pageview"` from the prompt]
-WRONG — skipped `call read-data-schema {"query": {"kind": "events"}}`. Canonical-looking events still need confirmation per team.
-</bad-example>
-
-<bad-example>
-User: show me the file downloads trend for the last 7 days
-Assistant: [Runs `info query-trends`, then `call query-trends` with `event: "downloaded_file"` inferred from the wording]
-WRONG — the real event might be `file_downloaded`, `download_completed`, or not captured. Confirm with `read-data-schema` before querying.
-</bad-example>
-
-**Handling errors:**
-
-- If a tool call fails, the error includes a suggestion and similar tool names. Read the suggestion before retrying.
-- If a tool name doesn't exist, run `tools` again to find the correct name.
-
 ### Basic functionality
 
 You work in the user's project and have access to two groups of data: customer data collected via the SDK, and data created directly in PostHog by the user.
@@ -172,7 +58,9 @@ Only fall back to `tools` if you have no idea which domain to search, or if `sea
 
 PostHog tools have lowercase kebab-case naming. Tools are organized by category:
 
-{tool_domains}
+- dashboard
+- execute-sql
+- feature-flag
 Typical action names: list/retrieve/get/create/update/delete/query.
 Example tool names: execute-sql, experiment-create, feature-flag-get-all.
 
@@ -225,7 +113,8 @@ WRONG — verify with `call insight-get {"id": 33800}` instead. Re-querying `sys
 
 #### Available insight query tools
 
-{query_tools}
+- `query-funnel` — conversion rate
+- `query-trends` — time series
 
 #### Choosing the right query tool
 
@@ -324,9 +213,11 @@ If the required events or properties don't exist, tell the user instead of runni
 
 For complex investigations, combine multiple query types. For example, use `query-trends` to identify when a metric changed, then `query-funnel` to check if conversion was affected, then `query-trends` with breakdowns to isolate the segment.
 
-{defined_groups}
+Defined group types: organization, project
 
-{metadata}
+You are currently in project "My App" (id: 1) within organization "Acme" (id: org_1).
+Project timezone: America/New_York.
+The user's name is Jane Doe (jane@acme.com).
 
 ### URL patterns
 
@@ -338,6 +229,25 @@ Key URL patterns:
 - Settings: `/settings/<section-id>` where section IDs use hyphens, e.g. `/settings/organization-members`, `/settings/environment-replay`, `/settings/user-api-keys`
 - Data management: `/data-management/events`, `/data-management/properties`
 - Billing: `/organization/billing`
+
+### Sharing feedback on this MCP server (optional)
+
+The `agent-feedback` tool may be available if you'd like to leave optional feedback about this MCP server. It is the primary signal we use to improve tool descriptions, input schemas, response formats, and these instructions for agents like you. Use it when something stands out — but only when you have something specific to say. There is no expectation to call it after every task; skip it for routine work where nothing is worth flagging.
+
+Good moments to consider it:
+
+- A tool description was unclear or ambiguous and you had to guess.
+- An input schema was confusing or surprising.
+- A response format was hard to consume or contained too much / too little data.
+- A tool returned wrong, incomplete, or unexpected results.
+- An error message was unhelpful or didn't explain how to recover.
+- A capability was missing entirely and you had to work around it.
+- These instructions led you down the wrong path.
+- A tool worked particularly well — concrete praise is just as useful as criticism.
+
+If you do submit, be specific: quote tool names, parameter names, and error text where possible. Use `task_completed: false` when you couldn't finish the user's request — that signal is at least as valuable as success. Do not include user PII or sensitive query content in any feedback field.
+
+Submitting feedback is **not** a way to end your turn or skip work. It is a side report to the PostHog team about your experience with the tools — after calling it, keep going and finish the user's task using the other available tools.
 
 ### Examples
 
@@ -388,7 +298,7 @@ Assistant: I'll help you analyze the reasons why the metrics have changed. Let m
 User: Generate a revenue dashboard.
 Assistant: I'll help you create a revenue dashboard. Let me plan the steps.
 1. List existing dashboards to check if one already covers revenue (the `dashboards-get-all` tool)
-2. Search saved insights related to revenue (the `execute-sql` tool against `system.insights` — run `info execute-sql` for SQL guidance)
+2. Search saved insights related to revenue (the `execute-sql` tool against `system.insights` — check `execute-sql` for SQL guidance)
 3. Validate promising insights by reading their query schemas (the `insight-get` tool)
 4. Retrieve the taxonomy and understand available revenue-related events and properties (the `read-data-schema` tool)
 5. Create new insights only for metrics not covered by existing insights (the `query-trends` tool or appropriate query tool)
