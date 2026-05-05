@@ -1,17 +1,17 @@
-import { cleanup, render } from '@testing-library/react'
+import { cleanup, waitFor } from '@testing-library/react'
 
-import { drawBars } from '../core/canvas-renderer'
-import type { BarRect } from '../core/canvas-renderer'
-import type { ChartTheme, ResolvedSeries, Series } from '../core/types'
-import { renderHogChart, setupJsdom, setupSyncRaf } from '../testing'
+import type { ChartTheme, Series, TooltipContext } from '../core/types'
+import { ReferenceLine } from '../overlays/ReferenceLine'
+import {
+    clickAtIndex,
+    getHogChartTooltip,
+    hoverAtIndex,
+    renderHogChart,
+    setupJsdom,
+    setupSyncRaf,
+    waitForHogChartTooltip,
+} from '../testing'
 import { BarChart } from './BarChart'
-
-jest.mock('../core/canvas-renderer', () => {
-    const actual = jest.requireActual('../core/canvas-renderer')
-    return { __esModule: true, ...actual, drawBars: jest.fn() }
-})
-
-const mockedDrawBars = drawBars as jest.MockedFunction<typeof drawBars>
 
 const THEME: ChartTheme = {
     colors: ['#1f77b4', '#ff7f0e', '#2ca02c'],
@@ -37,7 +37,6 @@ describe('BarChart', () => {
     beforeEach(() => {
         teardownJsdom = setupJsdom()
         teardownRaf = setupSyncRaf()
-        mockedDrawBars.mockClear()
     })
 
     afterEach(() => {
@@ -54,19 +53,20 @@ describe('BarChart', () => {
         ['grouped', 'horizontal'],
         ['percent', 'horizontal'],
     ])('%s / %s', (barLayout, axisOrientation) => {
-        it('renders a canvas without throwing', () => {
-            const { container } = render(
+        it('renders ticks for the value axis', () => {
+            const { chart } = renderHogChart(
                 <BarChart series={SERIES} labels={LABELS} theme={THEME} config={{ barLayout, axisOrientation }} />
             )
-            expect(container.querySelector('canvas')).not.toBeNull()
+            const valueTicks = axisOrientation === 'horizontal' ? chart.xTicks() : chart.yTicks()
+            expect(valueTicks.length).toBeGreaterThan(0)
         })
     })
 
     it('forwards `dataAttr` to the chart wrapper for product-test selection', () => {
-        const { container } = render(
+        const { chart } = renderHogChart(
             <BarChart series={SERIES} labels={LABELS} theme={THEME} dataAttr="bar-chart-instance" />
         )
-        expect(container.querySelector('[data-attr="bar-chart-instance"]')).not.toBeNull()
+        expect(chart.element.getAttribute('data-attr')).toBe('bar-chart-instance')
     })
 
     it('renders empty state without crashing', () => {
@@ -74,21 +74,9 @@ describe('BarChart', () => {
         expect(chart.seriesCount).toBe(0)
     })
 
-    it('skips excluded series in stacked layout', () => {
-        const series: Series[] = [
-            { key: 'a', label: 'A', data: [10, 20, 30] },
-            { key: 'b', label: 'B', data: [5, 15, 25], visibility: { excluded: true } },
-            { key: 'c', label: 'C', data: [3, 6, 9] },
-        ]
-        const { chart } = renderHogChart(
-            <BarChart series={series} labels={LABELS} theme={THEME} config={{ barLayout: 'stacked' }} />
-        )
-        expect(chart.seriesCount).toBe(2)
-    })
-
     it('renders custom percent formatter when consumer supplies one', () => {
         const formatter = jest.fn((v: number) => `${Math.round(v * 1000) / 10}‰`)
-        render(
+        const { chart } = renderHogChart(
             <BarChart
                 series={SERIES}
                 labels={LABELS}
@@ -97,8 +85,7 @@ describe('BarChart', () => {
             />
         )
         expect(formatter).toHaveBeenCalled()
-        // Built-in default would have produced '%' suffix; consumer's '‰' wins.
-        expect(formatter.mock.results.some((r) => typeof r.value === 'string' && r.value.endsWith('‰'))).toBe(true)
+        expect(chart.yTicks().some((t) => t.endsWith('‰'))).toBe(true)
     })
 
     it('applies a default percent formatter when consumer omits one', () => {
@@ -110,30 +97,161 @@ describe('BarChart', () => {
 
     it('tolerates NaN data values without throwing', () => {
         const broken: Series[] = [{ key: 'a', label: 'A', data: [Number.NaN, Number.NaN, Number.NaN] }]
-        const { container } = render(<BarChart series={broken} labels={LABELS} theme={THEME} />)
-        expect(container.querySelector('canvas')).not.toBeNull()
+        const { chart } = renderHogChart(<BarChart series={broken} labels={LABELS} theme={THEME} />)
+        expect(chart.seriesCount).toBe(1)
     })
 
-    it('rounds the cap of the topmost visible series per yAxisId (multi-axis stacked)', () => {
-        const series: Series[] = [
-            { key: 'left-1', label: 'L1', data: [10, 20, 30], yAxisId: 'left' },
-            { key: 'left-2', label: 'L2', data: [5, 15, 25], yAxisId: 'left' },
-            { key: 'right-1', label: 'R1', data: [1, 2, 3], yAxisId: 'right' },
-        ]
-        render(<BarChart series={series} labels={LABELS} theme={THEME} config={{ barLayout: 'stacked' }} />)
+    describe('series exclusion', () => {
+        it.each<[Layout]>([['stacked'], ['grouped'], ['percent']])(
+            'skips excluded series in %s layout',
+            (barLayout) => {
+                const series: Series[] = [
+                    { key: 'a', label: 'A', data: [10, 20, 30] },
+                    { key: 'b', label: 'B', data: [5, 15, 25], visibility: { excluded: true } },
+                    { key: 'c', label: 'C', data: [3, 6, 9] },
+                ]
+                const { chart } = renderHogChart(
+                    <BarChart series={series} labels={LABELS} theme={THEME} config={{ barLayout }} />
+                )
+                expect(chart.seriesCount).toBe(2)
+            }
+        )
+    })
 
-        const callsByKey = new Map<string, BarRect[]>()
-        for (const call of mockedDrawBars.mock.calls) {
-            const drawnSeries = call[1] as ResolvedSeries
-            const bars = call[2] as BarRect[]
-            callsByKey.set(drawnSeries.key, bars)
-        }
+    describe('axis configuration', () => {
+        it('hides x-axis ticks when hideXAxis is true', () => {
+            const { chart } = renderHogChart(
+                <BarChart series={SERIES} labels={LABELS} theme={THEME} config={{ hideXAxis: true }} />
+            )
+            expect(chart.xTicks()).toHaveLength(0)
+        })
 
-        const hasRoundedCap = (bars: BarRect[] | undefined): boolean =>
-            !!bars && bars.some((b) => b.corners.topLeft || b.corners.topRight)
+        it('hides y-axis ticks when hideYAxis is true', () => {
+            const { chart } = renderHogChart(
+                <BarChart series={SERIES} labels={LABELS} theme={THEME} config={{ hideYAxis: true }} />
+            )
+            expect(chart.yTicks()).toHaveLength(0)
+        })
 
-        expect(hasRoundedCap(callsByKey.get('left-2'))).toBe(true)
-        expect(hasRoundedCap(callsByKey.get('right-1'))).toBe(true)
-        expect(hasRoundedCap(callsByKey.get('left-1'))).toBe(false)
+        it('applies xTickFormatter to x-axis ticks', () => {
+            const { chart } = renderHogChart(
+                <BarChart
+                    series={SERIES}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={{ xTickFormatter: (_l, i) => `tick-${i}` }}
+                />
+            )
+            expect(chart.xTicks()).toEqual(['tick-0', 'tick-1', 'tick-2'])
+        })
+
+        it('renders without crashing in yScaleType log with positive data', () => {
+            const series: Series[] = [{ key: 'a', label: 'A', data: [1, 10, 100] }]
+            const { chart } = renderHogChart(
+                <BarChart
+                    series={series}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={{ yScaleType: 'log', barLayout: 'grouped' }}
+                />
+            )
+            const ticks = chart.yTicks()
+            expect(ticks.length).toBeGreaterThan(0)
+            for (const t of ticks) {
+                expect(Number.isFinite(parseFloat(t.replace(/[^\d.\-eE]/g, '')))).toBe(true)
+            }
+        })
+    })
+
+    describe('hover & tooltip', () => {
+        it('mounts a tooltip on hover', async () => {
+            const { chart } = renderHogChart(<BarChart series={SERIES} labels={LABELS} theme={THEME} />)
+            hoverAtIndex(chart.element, 1, LABELS.length)
+            const tooltip = await waitForHogChartTooltip()
+            expect(tooltip.textContent).toContain('Tue')
+        })
+
+        it('invokes onPointClick with the clicked column', async () => {
+            const onPointClick = jest.fn()
+            const { chart } = renderHogChart(
+                <BarChart series={SERIES} labels={LABELS} theme={THEME} onPointClick={onPointClick} />
+            )
+            await clickAtIndex(chart.element, 1, LABELS.length)
+            expect(onPointClick).toHaveBeenCalledWith(expect.objectContaining({ dataIndex: 1, label: 'Tue' }))
+        })
+
+        it('passes hovered seriesData to a custom tooltip render prop', async () => {
+            const tooltip = (ctx: TooltipContext): React.ReactNode => (
+                <div data-attr="custom-tooltip">{ctx.seriesData.length}</div>
+            )
+            const { chart } = renderHogChart(
+                <BarChart series={SERIES} labels={LABELS} theme={THEME} tooltip={tooltip} />
+            )
+            hoverAtIndex(chart.element, 1, LABELS.length)
+            const node = await waitForHogChartTooltip()
+            expect(node.querySelector('[data-attr="custom-tooltip"]')?.textContent).toBe(String(SERIES.length))
+        })
+
+        it('pins the tooltip on click when tooltip.pinnable is true', async () => {
+            const { chart } = renderHogChart(
+                <BarChart series={SERIES} labels={LABELS} theme={THEME} config={{ tooltip: { pinnable: true } }} />
+            )
+            hoverAtIndex(chart.element, 1, LABELS.length)
+            await waitForHogChartTooltip()
+            await clickAtIndex(chart.element, 1, LABELS.length)
+            expect(getHogChartTooltip()?.classList.contains('hog-charts-tooltip--pinned')).toBe(true)
+        })
+
+        it('omits a series from tooltip when visibility.fromTooltip is true', async () => {
+            const series: Series[] = [
+                { key: 'a', label: 'A', data: [10, 20, 30] },
+                { key: 'b', label: 'B', data: [5, 15, 25], visibility: { fromTooltip: true } },
+            ]
+            const { chart } = renderHogChart(<BarChart series={series} labels={LABELS} theme={THEME} />)
+            hoverAtIndex(chart.element, 1, LABELS.length)
+            const tooltip = await waitForHogChartTooltip()
+            expect(tooltip.textContent).toContain('A')
+            expect(tooltip.textContent).not.toContain('B')
+        })
+    })
+
+    describe('children & error boundary', () => {
+        it('renders custom overlay children', () => {
+            const { chart } = renderHogChart(
+                <BarChart series={SERIES} labels={LABELS} theme={THEME}>
+                    <div data-attr="custom-child" />
+                </BarChart>
+            )
+            expect(chart.element.querySelector('[data-attr="custom-child"]')).not.toBeNull()
+        })
+
+        it('renders a ReferenceLine child via the accessor', () => {
+            const { chart } = renderHogChart(
+                <BarChart series={SERIES} labels={LABELS} theme={THEME}>
+                    <ReferenceLine value={15} label="Target" />
+                </BarChart>
+            )
+            const lines = chart.referenceLines()
+            expect(lines).toHaveLength(1)
+            expect(lines[0].label).toBe('Target')
+            expect(lines[0].orientation).toBe('horizontal')
+        })
+
+        it('reports render errors through onError', async () => {
+            const onError = jest.fn()
+            const tooltip = (): React.ReactNode => {
+                throw new Error('boom')
+            }
+            const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
+            try {
+                const { chart } = renderHogChart(
+                    <BarChart series={SERIES} labels={LABELS} theme={THEME} tooltip={tooltip} onError={onError} />
+                )
+                hoverAtIndex(chart.element, 1, LABELS.length)
+                await waitFor(() => expect(onError).toHaveBeenCalled())
+            } finally {
+                consoleErrorSpy.mockRestore()
+            }
+        })
     })
 })

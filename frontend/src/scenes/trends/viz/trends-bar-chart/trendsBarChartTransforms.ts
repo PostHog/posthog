@@ -1,7 +1,7 @@
 import type { Series } from 'lib/hog-charts'
 import { hexToRGBA } from 'lib/utils'
 
-const COMPARE_PREVIOUS_DIM_OPACITY = 0.5
+import { COMPARE_PREVIOUS_DIM_OPACITY } from '../trendsAdapterConstants'
 
 // Shape both IndexedTrendResult (kea) and TrendsResultItem (MCP) satisfy.
 export interface TrendsBarResultLike {

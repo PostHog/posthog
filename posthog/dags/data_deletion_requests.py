@@ -110,7 +110,10 @@ def _event_removal_where(obj) -> tuple[str, dict]:
     """Full WHERE predicate + params for event-removal queries.
 
     Combines the mandatory team/timestamp bounds, the events filter (skipped
-    when ``delete_all_events`` is set), and any compiled HogQL predicate.
+    when ``delete_all_events`` is set), and any compiled HogQL predicate. The
+    compiled HogQL fragment uses unqualified column references, so the result
+    is safe to splice into queries against either the Distributed ``events``
+    proxy or the local ``sharded_events`` MergeTree.
     """
     parts = [_EVENT_REMOVAL_TIME_PREDICATE, event_match_sql_fragment(obj)]
     params = event_match_params(obj)
