@@ -7,10 +7,10 @@ from posthog.schema import ProductKey
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
-from products.error_tracking.backend.models import ErrorTrackingRateLimitConfig
+from products.error_tracking.backend.models import ErrorTrackingSettings
 
 
-class ErrorTrackingRateLimitConfigSerializer(serializers.ModelSerializer):
+class ErrorTrackingSettingsSerializer(serializers.ModelSerializer):
     project_rate_limit_value = serializers.IntegerField(
         min_value=1,
         allow_null=True,
@@ -25,33 +25,33 @@ class ErrorTrackingRateLimitConfigSerializer(serializers.ModelSerializer):
     )
 
     class Meta:
-        model = ErrorTrackingRateLimitConfig
+        model = ErrorTrackingSettings
         fields = ["project_rate_limit_value", "project_rate_limit_bucket_size_minutes"]
 
 
 @extend_schema(tags=[ProductKey.ERROR_TRACKING])
-class ErrorTrackingRateLimitConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
+class ErrorTrackingSettingsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "error_tracking"
 
-    def _get_or_create_config(self) -> ErrorTrackingRateLimitConfig:
-        config, _ = ErrorTrackingRateLimitConfig.objects.get_or_create(team=self.team)
-        return config
+    def _get_or_create_settings(self) -> ErrorTrackingSettings:
+        settings, _ = ErrorTrackingSettings.objects.get_or_create(team=self.team)
+        return settings
 
-    @extend_schema(responses={200: ErrorTrackingRateLimitConfigSerializer})
+    @extend_schema(responses={200: ErrorTrackingSettingsSerializer})
     @action(detail=False, methods=["get"])
-    def retrieve_config(self, request, *args, **kwargs):
-        config = self._get_or_create_config()
-        serializer = ErrorTrackingRateLimitConfigSerializer(config)
+    def retrieve_settings(self, request, *args, **kwargs):
+        settings = self._get_or_create_settings()
+        serializer = ErrorTrackingSettingsSerializer(settings)
         return Response(serializer.data)
 
     @extend_schema(
-        request=ErrorTrackingRateLimitConfigSerializer,
-        responses={200: ErrorTrackingRateLimitConfigSerializer},
+        request=ErrorTrackingSettingsSerializer,
+        responses={200: ErrorTrackingSettingsSerializer},
     )
     @action(detail=False, methods=["patch"])
-    def update_config(self, request, *args, **kwargs):
-        config = self._get_or_create_config()
-        serializer = ErrorTrackingRateLimitConfigSerializer(config, data=request.data, partial=True)
+    def update_settings(self, request, *args, **kwargs):
+        settings = self._get_or_create_settings()
+        serializer = ErrorTrackingSettingsSerializer(settings, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data, status=status.HTTP_200_OK)

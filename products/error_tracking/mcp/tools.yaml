@@ -239,11 +239,11 @@ tools:
     error-tracking-issues-values-retrieve:
         operation: error_tracking_issues_values_retrieve
         enabled: false
-    error-tracking-rate-limit-config-retrieve-config-retrieve:
-        operation: error_tracking_rate_limit_config_retrieve_config_retrieve
+    error-tracking-settings-retrieve-settings-retrieve:
+        operation: error_tracking_settings_retrieve_settings_retrieve
         enabled: false
-    error-tracking-rate-limit-config-update-config-partial-update:
-        operation: error_tracking_rate_limit_config_update_config_partial_update
+    error-tracking-settings-update-settings-partial-update:
+        operation: error_tracking_settings_update_settings_partial_update
         enabled: false
     error-tracking-recommendations-dismiss-create:
         operation: error_tracking_recommendations_dismiss_create

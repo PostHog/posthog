@@ -155,7 +155,7 @@ export interface ErrorTrackingSpikeDetectionConfig {
     threshold: number
 }
 
-export interface ErrorTrackingRateLimitConfig {
+export interface ErrorTrackingSettings {
     project_rate_limit_value: number | null
     project_rate_limit_bucket_size_minutes: number | null
 }

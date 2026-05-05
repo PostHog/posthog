@@ -246,8 +246,8 @@ import { MaxUIContext } from '../scenes/max/maxTypes'
 import { AlertSimulationResult, AlertType, AlertTypeWrite } from './components/Alerts/types'
 import {
     ErrorTrackingFingerprint,
-    ErrorTrackingRateLimitConfig,
     ErrorTrackingRelease,
+    ErrorTrackingSettings,
     ErrorTrackingSpikeDetectionConfig,
     ErrorTrackingSpikeEvent,
     ErrorTrackingStackFrame,
@@ -1326,8 +1326,8 @@ export class ApiRequest {
         return this.errorTracking(teamId).addPathComponent('spike_detection_config')
     }
 
-    public errorTrackingRateLimitConfig(teamId?: TeamType['id']): ApiRequest {
-        return this.errorTracking(teamId).addPathComponent('rate_limit_config')
+    public errorTrackingSettings(teamId?: TeamType['id']): ApiRequest {
+        return this.errorTracking(teamId).addPathComponent('settings')
     }
 
     public errorTrackingSpikeEvents(teamId?: TeamType['id']): ApiRequest {
@@ -4133,14 +4133,12 @@ const api = {
                 .update({ data })
         },
 
-        async getRateLimitConfig(): Promise<ErrorTrackingRateLimitConfig> {
-            return await new ApiRequest().errorTrackingRateLimitConfig().withAction('retrieve_config').get()
+        async getSettings(): Promise<ErrorTrackingSettings> {
+            return await new ApiRequest().errorTrackingSettings().withAction('retrieve_settings').get()
         },
 
-        async updateRateLimitConfig(
-            data: Partial<ErrorTrackingRateLimitConfig>
-        ): Promise<ErrorTrackingRateLimitConfig> {
-            return await new ApiRequest().errorTrackingRateLimitConfig().withAction('update_config').update({ data })
+        async updateSettings(data: Partial<ErrorTrackingSettings>): Promise<ErrorTrackingSettings> {
+            return await new ApiRequest().errorTrackingSettings().withAction('update_settings').update({ data })
         },
 
         async getSpikeEvents(params?: {

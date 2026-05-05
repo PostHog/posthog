@@ -4,7 +4,7 @@ import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
-import { ErrorTrackingRateLimitConfig } from 'lib/components/Errors/types'
+import { ErrorTrackingSettings } from 'lib/components/Errors/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { HogQLQueryResponse, NodeKind, ProductKey } from '~/queries/schema/schema-general'
@@ -75,10 +75,10 @@ export const rateLimitConfigLogic = kea<rateLimitConfigLogicType>([
 
     loaders({
         config: [
-            null as ErrorTrackingRateLimitConfig | null,
+            null as ErrorTrackingSettings | null,
             {
                 loadConfig: async () => {
-                    return await api.errorTracking.getRateLimitConfig()
+                    return await api.errorTracking.getSettings()
                 },
             },
         ],
@@ -123,12 +123,12 @@ export const rateLimitConfigLogic = kea<rateLimitConfigLogicType>([
             submit: async ({ project_rate_limit_value, project_rate_limit_bucket_size_minutes }) => {
                 try {
                     const payload = { project_rate_limit_value, project_rate_limit_bucket_size_minutes }
-                    const updated = await api.errorTracking.updateRateLimitConfig(payload)
+                    const updated = await api.errorTracking.updateSettings(payload)
                     actions.loadConfigSuccess(updated)
-                    posthog.capture('error_tracking_rate_limit_settings_updated', payload)
-                    lemonToast.success('Rate limit settings saved')
+                    posthog.capture('error_tracking_settings_updated', payload)
+                    lemonToast.success('Settings saved')
                 } catch (e) {
-                    lemonToast.error('Failed to save rate limit settings')
+                    lemonToast.error('Failed to save settings')
                     throw e
                 }
             },

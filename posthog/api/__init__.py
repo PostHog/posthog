@@ -63,9 +63,9 @@ from products.error_tracking.backend.api import (
     ErrorTrackingFingerprintViewSet,
     ErrorTrackingGroupingRuleViewSet,
     ErrorTrackingIssueViewSet,
-    ErrorTrackingRateLimitConfigViewSet,
     ErrorTrackingRecommendationViewSet,
     ErrorTrackingReleaseViewSet,
+    ErrorTrackingSettingsViewSet,
     ErrorTrackingSpikeDetectionConfigViewSet,
     ErrorTrackingSpikeEventViewSet,
     ErrorTrackingStackFrameViewSet,
@@ -1019,9 +1019,9 @@ environments_router.register(
 )
 
 environments_router.register(
-    r"error_tracking/rate_limit_config",
-    ErrorTrackingRateLimitConfigViewSet,
-    "environment_error_tracking_rate_limit_config",
+    r"error_tracking/settings",
+    ErrorTrackingSettingsViewSet,
+    "environment_error_tracking_settings",
     ["team_id"],
 )
 
