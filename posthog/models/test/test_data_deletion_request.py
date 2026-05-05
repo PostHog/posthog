@@ -114,6 +114,54 @@ def test_compile_hogql_predicate_empty_returns_empty():
     assert compile_hogql_predicate(request) == ("", {})
 
 
+def test_compile_hogql_predicate_emits_no_table_qualifier(team, snapshot):
+    """Predicate is spliced into both ``SELECT … FROM events`` and ``DELETE FROM
+    sharded_events WHERE …``, so the compiled SQL must use unqualified column
+    references — neither ``events.`` nor ``sharded_events.``.
+
+    Snapshots the full SQL fragment so any regression that re-introduces a table
+    prefix is caught.
+    """
+    from posthog.models.data_deletion_request import compile_hogql_predicate
+
+    request = DataDeletionRequest(
+        **_base_kwargs(
+            team_id=team.id,
+            events=["$pageview"],
+            hogql_predicate="properties.$browser = 'Chrome' AND event = '$pageview'",
+        )
+    )
+    sql, _ = compile_hogql_predicate(request)
+    assert sql == snapshot
+
+
+def test_compile_hogql_predicate_emits_unqualified_materialized_column(team, snapshot):
+    """When a property has a materialized column, the printer emits the ``mat_<prop>``
+    column without a table prefix. ClickHouse's lightweight DELETE rewrites the
+    predicate into a mutation whose expression analyzer rejects table-qualified
+    references, so ``sharded_events.mat_$current_url`` would fail with "Missing
+    columns" even when the column exists on every replica.
+    """
+    from posthog.models.data_deletion_request import compile_hogql_predicate
+
+    from ee.clickhouse.materialized_columns.analyze import materialize
+
+    materialize("events", "$current_url")
+
+    request = DataDeletionRequest(
+        **_base_kwargs(
+            team_id=team.id,
+            events=["$pageview"],
+            hogql_predicate="properties.$current_url LIKE '%message=%'",
+        )
+    )
+    sql, _ = compile_hogql_predicate(request)
+    assert "events.`mat_$current_url`" not in sql
+    assert "sharded_events.`mat_$current_url`" not in sql
+    assert "`mat_$current_url`" in sql
+    assert sql == snapshot
+
+
 def test_rendered_count_query_substitutes_parameters():
     from posthog.admin.admins.data_deletion_request_admin import build_deletion_count_query
     from posthog.clickhouse.client.escape import substitute_params_for_display
