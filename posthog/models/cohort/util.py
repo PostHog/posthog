@@ -1166,7 +1166,7 @@ def check_cohort_membership(team_id: int, person_id: int, cohort_ids: list[int])
 
     def orm_fn() -> dict[int, bool]:
         member_ids = set(
-            CohortPeople.objects.db_manager(READ_DB_FOR_PERSONS)
+            CohortPeople.objects.db_manager(READ_DB_FOR_PERSONS)  # nosemgrep: no-direct-persons-db-orm
             .filter(person_id=person_id, cohort_id__in=scoped_cohort_ids)
             .values_list("cohort_id", flat=True)
         )
@@ -1231,7 +1231,7 @@ def list_cohort_member_ids(team_id: int, cohort_id: int) -> list[int]:
 
     def orm_fn() -> list[int]:
         return list(
-            CohortPeople.objects.db_manager(READ_DB_FOR_PERSONS)
+            CohortPeople.objects.db_manager(READ_DB_FOR_PERSONS)  # nosemgrep: no-direct-persons-db-orm
             .filter(cohort_id=cohort_id)
             .values_list("person_id", flat=True)
         )
@@ -1343,7 +1343,9 @@ def delete_cohort_member(team_id: int, cohort_id: int, person_id: int) -> bool:
         return False
 
     def orm_fn() -> bool:
-        deleted_count, _ = CohortPeople.objects.filter(cohort_id=cohort_id, person_id=person_id).delete()
+        deleted_count, _ = CohortPeople.objects.filter(  # nosemgrep: no-direct-persons-db-orm
+            cohort_id=cohort_id, person_id=person_id
+        ).delete()  # nosemgrep: no-direct-persons-db-orm
         return deleted_count > 0
 
     return _personhog_routed(
@@ -1400,7 +1402,7 @@ def delete_cohort_members_bulk(team_id: int, cohort_ids: list[int], batch_size: 
     def orm_fn() -> int:
         from django.db import router
 
-        qs = CohortPeople.objects.filter(cohort_id__in=cohort_ids)
+        qs = CohortPeople.objects.filter(cohort_id__in=cohort_ids)  # nosemgrep: no-direct-persons-db-orm
         db_alias = router.db_for_write(CohortPeople)
         return qs._raw_delete(db_alias)
 
@@ -1447,7 +1449,9 @@ def count_cohort_members(team_id: int, cohort_id: int, *, consistency: ReadConsi
         return 0
 
     def orm_fn() -> int:
-        qs = CohortPeople.objects.filter(cohort_id=cohort_id, person__team_id=team_id)
+        qs = CohortPeople.objects.filter(  # nosemgrep: no-direct-persons-db-orm
+            cohort_id=cohort_id, person__team_id=team_id
+        )
         if consistency == "strong":
             from posthog.person_db_router import PERSONS_DB_FOR_WRITE
 

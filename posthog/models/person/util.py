@@ -26,7 +26,6 @@ from posthog.models.person.sql import (
     INSERT_PERSON_SQL,
 )
 from posthog.models.signals import mutable_receiver
-from posthog.models.team import Team
 from posthog.models.utils import UUIDT
 from posthog.personhog_client.converters import proto_person_to_model
 from posthog.personhog_client.metrics import (
@@ -444,16 +443,16 @@ def _fetch_persons_by_uuids_via_personhog(team_id: int, uuids: list[str]) -> lis
     return [proto_person_to_model(p, distinct_ids=distinct_ids_by_person.get(p.id, [])) for p in valid_persons]
 
 
-def get_persons_by_uuids(team: Team, uuids: list[str]) -> QuerySet | list[Person]:
-    personhog_fn: Callable[[], QuerySet | list[Person]] = lambda: _fetch_persons_by_uuids_via_personhog(team.pk, uuids)
+def get_persons_by_uuids(team_id: int, uuids: list[str]) -> QuerySet | list[Person]:
+    personhog_fn: Callable[[], QuerySet | list[Person]] = lambda: _fetch_persons_by_uuids_via_personhog(team_id, uuids)
     orm_fn: Callable[[], QuerySet | list[Person]] = lambda: Person.objects.db_manager(READ_DB_FOR_PERSONS).filter(
-        team_id=team.pk, uuid__in=uuids
+        team_id=team_id, uuid__in=uuids
     )
     return _personhog_routed(
         "get_persons_by_uuids",
         personhog_fn,
         orm_fn,
-        team_id=team.pk,
+        team_id=team_id,
     )
 
 

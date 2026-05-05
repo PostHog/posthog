@@ -722,8 +722,10 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                 for batch_index, batch in batch_iterator:
                     current_batch_index = batch_index
 
-                    persons_query = (  # nosemgrep: no-direct-persons-db-orm
-                        Person.objects.db_manager(db_read).filter(team_id=team_id).filter(uuid__in=batch)
+                    persons_query = (
+                        Person.objects.db_manager(db_read)  # nosemgrep: no-direct-persons-db-orm
+                        .filter(team_id=team_id)
+                        .filter(uuid__in=batch)  # nosemgrep: no-direct-persons-db-orm
                     )
                     if insert_in_clickhouse:
                         # Both querysets must use db_write so Django can merge the
@@ -815,7 +817,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         from posthog.models.person.sql import PERSON_STATIC_COHORT_TABLE
         from posthog.models.person.util import get_persons_by_uuids
 
-        persons = get_persons_by_uuids(self.team, batch)
+        persons = get_persons_by_uuids(team_id, batch)
         if not persons:
             return
 

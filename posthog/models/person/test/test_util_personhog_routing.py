@@ -317,17 +317,18 @@ class TestGetPersonsByUuidsRouting(SimpleTestCase):
         mock_qs = MagicMock()
         mock_objects.db_manager.return_value.filter.return_value = mock_qs
 
-        team = MagicMock()
-        team.pk = 1
+        team_id = 1
         uuids = ["uuid-1", "uuid-2"]
 
-        result = get_persons_by_uuids(team, uuids)
+        result = get_persons_by_uuids(team_id, uuids)
 
         if personhog_data is not None and gate_on:
             assert result == personhog_data
+            mock_fetch_personhog.assert_called_once_with(team_id, uuids)
             mock_objects.db_manager.assert_not_called()
         else:
             assert result == mock_qs
+            mock_objects.db_manager.return_value.filter.assert_called_with(team_id=team_id, uuid__in=uuids)
 
         mock_routing_counter.labels.assert_called_with(
             operation="get_persons_by_uuids", source=expected_source, client_name="posthog-django"
