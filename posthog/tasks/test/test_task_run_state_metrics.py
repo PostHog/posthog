@@ -3,6 +3,7 @@ from typing import ClassVar, Optional
 
 from unittest.mock import MagicMock, patch
 
+from django.db.utils import ProgrammingError
 from django.test import TestCase
 from django.utils import timezone
 
@@ -208,3 +209,18 @@ class TestCaptureTaskRunStateMetrics(TestCase):
             )
             == 1
         )
+
+    def test_swallows_missing_table_without_capturing_exception(self) -> None:
+        # Simulate a deploy where products.tasks migrations haven't been applied:
+        # the underlying ORM call raises ProgrammingError. The task should return
+        # quietly without forwarding the exception to error tracking.
+        with (
+            patch(
+                "products.tasks.backend.models.TaskRun.objects",
+            ) as mock_objects,
+            patch("posthog.tasks.tasks.capture_exception") as mock_capture_exception,
+        ):
+            mock_objects.filter.side_effect = ProgrammingError('relation "posthog_task_run" does not exist')
+            capture_task_run_state_metrics()
+
+        mock_capture_exception.assert_not_called()

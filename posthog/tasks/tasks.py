@@ -8,6 +8,7 @@ from uuid import UUID
 
 from django.conf import settings
 from django.db import connection
+from django.db.utils import OperationalError, ProgrammingError
 from django.utils import timezone
 
 import requests
@@ -627,6 +628,12 @@ def capture_task_run_state_metrics() -> None:
                     run_environment=row["environment"],
                 ).set(row["count"])
 
+    except (ProgrammingError, OperationalError):
+        # The Tasks product migrations may not have been applied (e.g. in regions
+        # where the product isn't deployed, or on a fresh deploy before migrations
+        # finish). Skip metric emission silently rather than fingerprinting a new
+        # error every minute in environments where the table simply doesn't exist.
+        return
     except Exception as err:
         logger.exception("capture_task_run_state_metrics", exception=err)
         capture_exception(err)
