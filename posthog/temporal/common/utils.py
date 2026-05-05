@@ -9,7 +9,7 @@ from django.conf import settings
 from django.db import close_old_connections
 
 from asgiref.sync import sync_to_async
-from temporalio import workflow
+from temporalio import activity, workflow
 
 P = ParamSpec("P")
 T = TypeVar("T")
@@ -65,7 +65,16 @@ def asyncify(fn: Callable[P, T]) -> Callable[P, Coroutine[Any, Any, T]]:
 
     @wraps(fn)
     async def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
-        return await sync_to_async(fn)(*args, **kwargs)
+        # Generate a unique activity ID for logging context. Temporal guarantees that retries of the same activity will have the same activity ID, so we can use this to correlate logs across retries.
+        activity_id: str | None = None
+        if activity.in_activity():
+            activity_id = activity.info().activity_id
+            activity.logger.info(f"Running '{fn.__name__}' in async wrapper (activity_id={activity_id})")
+        try:
+            return await sync_to_async(close_db_connections(fn))(*args, **kwargs)
+        finally:
+            if activity_id:
+                activity.logger.info(f"Finished '{fn.__name__}' in async wrapper (activity_id={activity_id})")
 
     return wrapper
 
