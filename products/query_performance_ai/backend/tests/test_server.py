@@ -155,7 +155,7 @@ def test_query_lock_serializes_concurrent_runs(server_fixture) -> None:
             in_flight -= 1
         return ExecutionResult(rows=[[1]], elapsed_ms=1.0, rows_read=None, bytes_read=None, query_id=None)
 
-    backend.run = slow_run  # type: ignore[method-assign]
+    backend.run = slow_run
 
     def hit() -> int:
         status, _body = _request(port, path="/v1/run", method="POST", token=token, body={"sql": "SELECT 1"})

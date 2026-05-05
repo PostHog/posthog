@@ -34,8 +34,12 @@ import threading
 import subprocess
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from .backends.base import ExecutionBackend
+
+if TYPE_CHECKING:
+    from products.tasks.backend.services.sandbox import SandboxBase
 from .backends.local import LocalClickhouseBackend
 from .backends.metabase import MetabaseBackend
 from .server import ServerInfo, generate_token, make_server, serve_forever_in_thread
@@ -54,7 +58,7 @@ MAX_CONCURRENT_SANDBOXES = 10
 # destroy each entry. Entries are added on `create()` success and removed
 # after `destroy()`; the lock keeps the iteration in the signal handler safe
 # vs. concurrent worker mutations.
-_LIVE_SANDBOXES: dict[str, object] = {}
+_LIVE_SANDBOXES: dict[str, SandboxBase] = {}
 _LIVE_SANDBOXES_LOCK = threading.Lock()
 
 
