@@ -5069,6 +5069,35 @@ class TestPostgresPrinter(BaseTest):
     @parameterized.expand(
         [
             (
+                "three_args_returns_input_when_no_match",
+                "transform(event, ['a', 'b'], ['x', 'y'])",
+                "CASE events.event WHEN %(hogql_val_0)s THEN %(hogql_val_1)s WHEN %(hogql_val_2)s THEN %(hogql_val_3)s ELSE events.event END",
+            ),
+            (
+                "four_args_returns_default_when_no_match",
+                "transform(event, ['a', 'b'], ['x', 'y'], 'fallback')",
+                "CASE events.event WHEN %(hogql_val_1)s THEN %(hogql_val_2)s WHEN %(hogql_val_3)s THEN %(hogql_val_4)s ELSE %(hogql_val_0)s END",
+            ),
+        ]
+    )
+    def test_transform(self, _name: str, expr: str, expected: str):
+        self.assertEqual(self._expr(expr), expected)
+
+    @parameterized.expand(
+        [
+            ("non_array_keys", "transform(event, event, ['a'], 'x')", "array literals"),
+            ("mismatched_lengths", "transform(event, ['a', 'b'], ['x'], 'd')", "same length"),
+            ("empty_arrays", "transform(event, [], [], 'd')", "non-empty"),
+        ]
+    )
+    def test_transform_invalid_args_raise(self, _name: str, expr: str, expected_substring: str):
+        with self.assertRaises(QueryError) as ctx:
+            self._expr(expr)
+        self.assertIn(expected_substring, str(ctx.exception))
+
+    @parameterized.expand(
+        [
+            (
                 "sum_desc",
                 "SELECT sum(event ORDER BY timestamp DESC) FROM events",
                 "SELECT sum(events.event ORDER BY events.timestamp DESC) FROM events LIMIT 50000",

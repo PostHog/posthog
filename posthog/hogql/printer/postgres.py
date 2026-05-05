@@ -118,6 +118,9 @@ class PostgresPrinter(BasePrinter):
         }:
             return self._visit_to_start_of_call(node)
 
+        if node.name.lower() == "transform":
+            return self._visit_transform_call(node)
+
         if node.name in {"toStartOfFiveMinutes", "toStartOfTenMinutes", "toStartOfFifteenMinutes"}:
             if len(node.args) != 1:
                 raise QueryError(f"{node.name} expects exactly 1 argument in Postgres mode.")
@@ -241,6 +244,39 @@ class PostgresPrinter(BasePrinter):
             for function_name in available_functions
             if isinstance(function_name, str) and _SAFE_FUNCTION_NAME_RE.match(function_name)
         }
+
+    def _visit_transform_call(self, node: ast.Call) -> str:
+        if len(node.args) not in (3, 4):
+            raise QueryError(
+                f"Function 'transform' expects 3 or 4 arguments in the Postgres dialect, got {len(node.args)}."
+            )
+
+        keys_node = node.args[1]
+        values_node = node.args[2]
+
+        if not isinstance(keys_node, ast.Array) or not isinstance(values_node, ast.Array):
+            raise QueryError(
+                "Function 'transform' requires the keys and values to be array literals in the Postgres dialect."
+            )
+
+        if len(keys_node.exprs) != len(values_node.exprs):
+            raise QueryError(
+                f"Function 'transform' requires keys ({len(keys_node.exprs)}) and values "
+                f"({len(values_node.exprs)}) arrays to be the same length."
+            )
+
+        if not keys_node.exprs:
+            raise QueryError("Function 'transform' requires non-empty keys and values arrays.")
+
+        rendered_input = self.visit(node.args[0])
+        # 3-arg form returns the input value when no key matches; 4-arg form returns the explicit default.
+        rendered_default = self.visit(node.args[3]) if len(node.args) == 4 else rendered_input
+
+        parts = [f"CASE {rendered_input}"]
+        for key_expr, value_expr in zip(keys_node.exprs, values_node.exprs):
+            parts.append(f"WHEN {self.visit(key_expr)} THEN {self.visit(value_expr)}")
+        parts.append(f"ELSE {rendered_default} END")
+        return " ".join(parts)
 
     def _visit_to_start_of_call(self, node: ast.Call) -> str:
         if len(node.args) == 0:
