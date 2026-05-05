@@ -70,9 +70,9 @@ tools:
         title: Update batch export
         description: >
             Partially update a batch export. Top-level fields (name, paused, interval, schema, filters) work for any
-            destination type. Destination config updates are only typed for Databricks and AzureBlob destinations.
-            Do not change the model field on an existing export — the destination table schema is created on the first
-            run, so switching models causes errors unless the table name is also changed.
+            destination type. Destination config updates are only typed for Databricks and AzureBlob destinations. Do
+            not change the model field on an existing export — the destination table schema is created on the first run,
+            so switching models causes errors unless the table name is also changed.
         exclude_params:
             - id
             - team_id
