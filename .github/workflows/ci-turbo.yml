@@ -49,19 +49,6 @@ jobs:
                     echo "TURBO_SCM_BASE=master" >> $GITHUB_ENV
                   fi
 
-            - name: Set up Python
-              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-              with:
-                  python-version-file: 'pyproject.toml'
-
-            - name: Install uv
-              id: setup-uv
-              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
-              with:
-                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
-                  enable-cache: true
-                  cache-dependency-glob: uv.lock
-
             - name: Install pnpm
               uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
 
@@ -71,35 +58,8 @@ jobs:
                   node-version-file: .nvmrc
                   cache: 'pnpm'
 
-            - name: Run Python and Node setup in parallel
-              env:
-                  UV_CACHE_HIT: ${{ steps.setup-uv.outputs.cache-hit }}
-              run: |
-                  set -e
-                  set -m
-
-                  (
-                    if [ "$UV_CACHE_HIT" != "true" ]; then
-                      echo ">>> [Python] Installing SAML (python3-saml) dependencies..."
-                      sudo apt-get update
-                      sudo apt-get install -y libxml2-dev libxmlsec1 libxmlsec1-dev libxmlsec1-openssl
-                    fi
-
-                    echo ">>> [Python] Installing dependencies..."
-                    UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
-                  ) &
-                  PY_PID=$!
-
-                  (
-                    echo ">>> [Node] Installing dependencies..."
-                    pnpm install --frozen-lockfile --filter=@posthog/root
-                  ) &
-                  NODE_PID=$!
-
-                  wait -n || (echo ">>> One of the parallel tasks failed, killing the other..." && kill $PY_PID $NODE_PID 2>/dev/null && exit 1)
-                  wait -n || (echo ">>> The second parallel task failed" && exit 1)
-
-                  echo ">>> Both parallel tasks completed successfully!"
+            - name: Install Node dependencies
+              run: pnpm install --frozen-lockfile --filter=@posthog/root
 
             - name: Turbo Affected
               run: |
