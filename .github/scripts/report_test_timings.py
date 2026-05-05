@@ -18,8 +18,8 @@ trace per workflow run shaped:
         ├── <pytest nodeid>          (test)
         └── ...
 
-Trace ID is deterministic per (run_id, run_attempt) so reruns extend the same
-trace. Failures and errors mark spans Status.ERROR.
+Trace ID is deterministic per (run_id, run_attempt) so each workflow attempt
+gets its own trace. Failures and errors mark spans Status.ERROR.
 
 This script must NEVER fail the workflow: any unexpected error is logged and
 the process exits 0. The workflow job is also `continue-on-error: true` as a
@@ -65,6 +65,8 @@ class TestCase:
     classname: str
     name: str
     duration_seconds: float
+    start: datetime
+    end: datetime
     outcome: str  # passed | failed | error | skipped | rerun_passed
     attempts: int  # 1 + number of pytest-rerunfailures retries before final outcome
 
@@ -84,6 +86,8 @@ class Shard:
     junit_filename: str
     start: datetime
     end: datetime
+    testcase_seconds: float
+    overhead_seconds: float
     tests: list[TestCase]
 
 
@@ -195,6 +199,7 @@ def parse_shard(xml_path: Path, info: ArtifactInfo) -> Shard | None:
         wall_seconds = 0.0
 
     tests: list[TestCase] = []
+    cursor = start
     for tc in suite_elem.iter("testcase"):
         classname = tc.get("classname", "")
         name = tc.get("name", "")
@@ -203,19 +208,33 @@ def parse_shard(xml_path: Path, info: ArtifactInfo) -> Shard | None:
             duration = float(tc.get("time", "0"))
         except ValueError:
             duration = 0.0
+        test_start = cursor
+        test_end = cursor + timedelta(seconds=duration)
+        cursor = test_end
         tests.append(
             TestCase(
                 nodeid=to_nodeid(classname, name),
                 classname=classname,
                 name=name,
                 duration_seconds=duration,
+                start=test_start,
+                end=test_end,
                 outcome=outcome,
                 attempts=attempts,
             )
         )
 
     end = start + timedelta(seconds=wall_seconds)
-    return Shard(info=info, junit_filename=xml_path.name, start=start, end=end, tests=tests)
+    testcase_seconds = sum(t.duration_seconds for t in tests)
+    return Shard(
+        info=info,
+        junit_filename=xml_path.name,
+        start=start,
+        end=end,
+        testcase_seconds=testcase_seconds,
+        overhead_seconds=max(0.0, wall_seconds - testcase_seconds),
+        tests=tests,
+    )
 
 
 def collect_shards(artifacts_root: Path) -> list[Shard]:
@@ -248,6 +267,8 @@ def filter_shards(shards: list[Shard], min_duration_seconds: float) -> list[Shar
             junit_filename=s.junit_filename,
             start=s.start,
             end=s.end,
+            testcase_seconds=s.testcase_seconds,
+            overhead_seconds=s.overhead_seconds,
             tests=[t for t in s.tests if should_emit(t, min_duration_seconds)],
         )
         for s in shards
@@ -368,17 +389,16 @@ def _emit_shard_span(tracer: trace.Tracer, shard: Shard) -> bool:
     if info.total is not None:
         shard_span.set_attribute("shard.total", info.total)
     shard_span.set_attribute("shard.junit_filename", shard.junit_filename)
+    shard_span.set_attribute("shard.testcase_seconds", shard.testcase_seconds)
+    shard_span.set_attribute("shard.overhead_seconds", shard.overhead_seconds)
 
     has_error = False
     with trace.use_span(shard_span, end_on_exit=False):
         # Pytest runs serially within a shard (no `-n` flag — confirmed in pytest.ini),
-        # so cumulative testcase durations give non-overlapping per-test windows.
-        cursor = shard.start
+        # so parse-time cumulative durations give non-overlapping per-test windows
+        # that stay stable even after threshold filtering.
         for test in shard.tests:
-            test_start = cursor
-            test_end = cursor + timedelta(seconds=test.duration_seconds)
-            cursor = test_end
-            test_span = tracer.start_span(test.nodeid, start_time=_to_ns(test_start))
+            test_span = tracer.start_span(test.nodeid, start_time=_to_ns(test.start))
             test_span.set_attribute("test.outcome", test.outcome)
             test_span.set_attribute("test.attempts", test.attempts)
             test_span.set_attribute("test.classname", test.classname)
@@ -386,7 +406,7 @@ def _emit_shard_span(tracer: trace.Tracer, shard: Shard) -> bool:
             if test.outcome in ("failed", "error"):
                 test_span.set_status(Status(StatusCode.ERROR))
                 has_error = True
-            test_span.end(end_time=_to_ns(test_end))
+            test_span.end(end_time=_to_ns(test.end))
 
     if has_error:
         shard_span.set_status(Status(StatusCode.ERROR))
