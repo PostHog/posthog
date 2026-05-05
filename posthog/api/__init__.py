@@ -802,7 +802,7 @@ register_grandfathered_environment_nested_viewset(r"saved", SavedHeatmapViewSet,
 register_grandfathered_environment_nested_viewset(r"sessions", SessionViewSet, "environment_sessions", ["team_id"])
 
 if EE_AVAILABLE:
-    from products.experiments.backend.presentation.experiments import EnterpriseExperimentsViewSet
+    from products.experiments.backend.presentation.views import EnterpriseExperimentsViewSet
 
     from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutViewSet
     from ee.clickhouse.views.experiment_saved_metrics import ExperimentSavedMetricViewSet
@@ -1233,6 +1233,9 @@ environments_router.register(
 register_grandfathered_environment_nested_viewset(r"logs", logs.LogsViewSet, "environment_logs", ["team_id"])
 register_grandfathered_environment_nested_viewset(
     r"logs/alerts", logs.LogsAlertViewSet, "environment_logs_alerts", ["team_id"]
+)
+register_grandfathered_environment_nested_viewset(
+    r"logs/sampling_rules", logs.LogsSamplingRuleViewSet, "environment_logs_sampling_rules", ["team_id"]
 )
 environments_router.register(r"logs/views", logs.LogsViewViewSet, "environment_logs_views", ["team_id"])
 

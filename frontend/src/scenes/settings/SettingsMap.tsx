@@ -44,6 +44,8 @@ import { CustomerAnalyticsDashboardEvents } from 'products/customer_analytics/fr
 import { ExceptionAutocaptureToggle } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/exception_autocapture/ExceptionAutocaptureSettings'
 import { SuppressionRules } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/suppression_rules/SuppressionRules'
 import { LogsAlertingSection } from 'products/logs/frontend/components/LogsAlerting/LogsAlertingSection'
+import { LogsSamplingSection } from 'products/logs/frontend/components/LogsSampling/LogsSamplingSection'
+import { LogsFeatureFlagKeys } from 'products/logs/frontend/logsFeatureFlagKeys'
 
 import { IntegrationsList } from '../../lib/integrations/IntegrationsList'
 import {
@@ -729,6 +731,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['retention', 'storage', 'delete', 'ttl'],
             },
             {
+                id: 'logs-drop-rules',
+                title: 'Drop rules',
+                description:
+                    'Drop matching log lines before storage using ordered rules. Rules run in ingestion order (after optional scrub and JSON parse).',
+                component: <LogsSamplingSection />,
+                flag: LogsFeatureFlagKeys.dropRules,
+                keywords: ['drop', 'exclude', 'filter', 'rules', 'path', 'attribute', 'volume', 'noise'],
+            },
+            {
                 id: 'logs-alerting',
                 title: 'Alerting',
                 description: 'Configure alerts to get notified when log volumes breach thresholds.',
@@ -1041,7 +1052,6 @@ export const SETTINGS_MAP: SettingSection[] = [
         id: 'environment-conversations',
         title: 'Support',
         group: 'Products',
-        flag: 'PRODUCT_SUPPORT',
         settings: [
             {
                 id: 'conversations-general',

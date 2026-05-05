@@ -434,11 +434,7 @@ class QueryTimeCountingMiddleware:
         self.get_response = get_response
 
     def __call__(self, request: HttpRequest):
-        if not (
-            settings.CAPTURE_TIME_TO_SEE_DATA
-            and "api" in request.path
-            and any(key in request.path for key in self.ALLOW_LIST_ROUTES)
-        ):
+        if not settings.CAPTURE_TIME_TO_SEE_DATA or not self._should_instrument(request):
             return self.get_response(request)
 
         pg_query_counter, ch_query_counter = QueryCounter(), QueryCounter()
@@ -447,8 +443,8 @@ class QueryTimeCountingMiddleware:
             response: HttpResponse = self.get_response(request)
 
         response.headers["Server-Timing"] = self._construct_header(
-            durations={
-                "django": time.perf_counter() - start_time,
+            durations_ms={
+                "django": (time.perf_counter() - start_time) * 1000,
                 "pg": pg_query_counter.query_time_ms,
                 "pg_max": pg_query_counter.max_query_time_ms,
                 "ch": ch_query_counter.query_time_ms,
@@ -463,10 +459,19 @@ class QueryTimeCountingMiddleware:
         )
         return response
 
-    def _construct_header(self, durations: dict[str, float], counts: dict[str, int]) -> str:
-        parts = [f"{key};dur={round(value)}" for key, value in durations.items()]
+    def _construct_header(self, durations_ms: dict[str, float], counts: dict[str, int]) -> str:
+        parts = [f"{key};dur={round(value)}" for key, value in durations_ms.items()]
         parts += [f'{key};desc="{value}"' for key, value in counts.items()]
         return ", ".join(parts)
+
+    def _should_instrument(self, request: HttpRequest) -> bool:
+        path = request.path
+        if "api" in path and any(key in path for key in self.ALLOW_LIST_ROUTES):
+            return True
+        try:
+            return resolve(path).func.__name__ == "home"
+        except Exception:
+            return False
 
 
 def shortcircuitmiddleware(f):
