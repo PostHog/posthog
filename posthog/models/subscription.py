@@ -1,4 +1,3 @@
-import copy
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Literal, Optional, cast
@@ -36,6 +35,14 @@ class SubscriptionResourceInfo:
     kind: str
     name: str
     url: str
+
+
+_SUBSCRIPTION_FREQ_MAP: dict[str, int] = {
+    "daily": DAILY,
+    "weekly": WEEKLY,
+    "monthly": MONTHLY,
+    "yearly": YEARLY,
+}
 
 
 class Subscription(models.Model):
@@ -142,53 +149,57 @@ class Subscription(models.Model):
                 kwargs["update_fields"].append("next_delivery_date")
         super().save(*args, **kwargs)
 
-    @property
-    def rrule(self):
-        freq_map: dict[str, int] = {
-            self.SubscriptionFrequency.DAILY: DAILY,
-            self.SubscriptionFrequency.WEEKLY: WEEKLY,
-            self.SubscriptionFrequency.MONTHLY: MONTHLY,
-            self.SubscriptionFrequency.YEARLY: YEARLY,
-        }
-        freq = cast(Literal[0, 1, 2, 3, 4, 5, 6], freq_map[self.frequency])
+    @staticmethod
+    def _build_rrule(
+        *,
+        frequency: str,
+        start_date: Any,
+        count: Any = None,
+        interval: Any = None,
+        until_date: Any = None,
+        bysetpos: Any = None,
+        byweekday: Any = None,
+    ) -> rrule:
+        freq = cast(Literal[0, 1, 2, 3, 4, 5, 6], _SUBSCRIPTION_FREQ_MAP[frequency])
         return rrule(
             freq=freq,
-            count=self.count,
-            interval=self.interval,
-            dtstart=self.start_date,
-            until=self.until_date,
-            bysetpos=self.bysetpos if self.byweekday else None,
-            byweekday=to_rrule_weekdays(self.byweekday) if self.byweekday else None,
+            count=count,
+            interval=interval,
+            dtstart=start_date,
+            until=until_date,
+            bysetpos=bysetpos if byweekday else None,
+            byweekday=to_rrule_weekdays(byweekday) if byweekday else None,
         )
 
-    def set_next_delivery_date(self, from_dt=None):
+    @staticmethod
+    def _compute_next_delivery_date(*, from_dt: Optional[datetime] = None, **rrule_fields: Any) -> Optional[datetime]:
+        # Buffer of 15 minutes since we might run a bit early — never schedule into the past.
+        now = timezone.now() + timedelta(minutes=15)
+        return Subscription._build_rrule(**rrule_fields).after(dt=max(from_dt or now, now), inc=False)
+
+    @property
+    def rrule(self) -> rrule:
+        return self._build_rrule(**{f: getattr(self, f) for f in self.RRULE_FIELDS})
+
+    def set_next_delivery_date(self, from_dt: Optional[datetime] = None) -> None:
         # Authoritative schedule — a client-side preview mirror lives in
-        # frontend/src/lib/components/Subscriptions/utils.tsx (getNextDeliveryDate)
-        # We never want next_delivery_date to be in the past
-        now = timezone.now() + timedelta(minutes=15)  # Buffer of 15 minutes since we might run a bit early
-        self.next_delivery_date = self.rrule.after(dt=max(from_dt or now, now), inc=False)
+        # frontend/src/lib/components/Subscriptions/utils.tsx (getNextDeliveryDate).
+        self.next_delivery_date = self._compute_next_delivery_date(
+            from_dt=from_dt, **{f: getattr(self, f) for f in self.RRULE_FIELDS}
+        )
 
     @classmethod
     def project_next_delivery_date(
         cls, instance: Optional["Subscription"] = None, **overrides: Any
     ) -> Optional[datetime]:
-        """What `next_delivery_date` would be for an rrule defined by `instance` fields
+        """What `next_delivery_date` would be for the rrule defined by `instance` fields
         (when given) layered with `overrides`, without persisting. Returns None on an
         exhausted rrule. Pass `instance` for PATCH validation, omit it for creates."""
-        if instance is not None:
-            candidate = copy.copy(instance)
-            # Drop the cached rrule from `__init__` so a future change to
-            # `set_next_delivery_date` reading `_rrule` doesn't silently use stale fields.
-            candidate.__dict__.pop("_rrule", None)
-            for field in cls.RRULE_FIELDS & overrides.keys():
-                setattr(candidate, field, overrides[field])
-        else:
-            relevant = {k: v for k, v in overrides.items() if k in cls.RRULE_FIELDS}
-            if "frequency" not in relevant or "start_date" not in relevant:
-                return None
-            candidate = cls(**relevant)
-        candidate.set_next_delivery_date()
-        return candidate.next_delivery_date
+        base = {f: getattr(instance, f) for f in cls.RRULE_FIELDS} if instance is not None else {}
+        merged = {**base, **{k: v for k, v in overrides.items() if k in cls.RRULE_FIELDS}}
+        if "frequency" not in merged or "start_date" not in merged:
+            return None  # DRF field validation should reject before we get here.
+        return cls._compute_next_delivery_date(**merged)
 
     @property
     def url(self):
