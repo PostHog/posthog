@@ -2,8 +2,6 @@ import time
 import threading
 from typing import Any
 
-from django.conf import settings
-
 from temporalio.worker import (
     ActivityInboundInterceptor,
     ExecuteActivityInput,
@@ -12,6 +10,8 @@ from temporalio.worker import (
     WorkflowInboundInterceptor,
     WorkflowInterceptorClassInput,
 )
+
+from posthog.temporal.common.interceptor import ALL_TASK_QUEUES
 
 
 class LivenessTracker:
@@ -121,7 +121,7 @@ class _LivenessWorkflowInterceptor(WorkflowInboundInterceptor):
 class LivenessInterceptor(Interceptor):
     """Interceptor that tracks worker liveness for health checks."""
 
-    task_queue = (settings.DATA_WAREHOUSE_TASK_QUEUE, settings.MAX_AI_TASK_QUEUE, settings.TASKS_TASK_QUEUE)
+    task_queue = ALL_TASK_QUEUES
 
     def intercept_activity(self, next: ActivityInboundInterceptor) -> ActivityInboundInterceptor:
         return _LivenessActivityInboundInterceptor(super().intercept_activity(next))
