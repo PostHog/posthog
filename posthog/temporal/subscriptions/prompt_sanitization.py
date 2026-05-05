@@ -15,7 +15,7 @@ _LLM_MARKER_RE = re.compile(
     r"</?\s*(?:system|user|assistant|human|insight_data|user_context|subscription_title)\b[^>]*>?",
     re.IGNORECASE,
 )
-_NEWLINE_RE = re.compile(r"[\r\n]+")
+_NEWLINE_RE = re.compile(r"[\r\n\u2028\u2029]+")
 _WHITESPACE_RUN_RE = re.compile(r"[ \t]+")
 
 _INVISIBLE_KEEP = {"\n", "\r", "\t"}
