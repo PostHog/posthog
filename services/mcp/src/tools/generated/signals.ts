@@ -144,23 +144,76 @@ const inboxSourceConfigsRetrieve = (): ToolBase<
     },
 })
 
-const SignalsAgentRunsListSchema = SignalsAgentRunsListQueryParams
+const SignalsAgentMemoryCreateSchema = SignalsAgentMemoryCreateBody
 
-const signalsAgentRunsList = (): ToolBase<
-    typeof SignalsAgentRunsListSchema,
-    WithPostHogUrl<Schemas.PaginatedSignalAgentRunSummaryList>
-> => ({
-    name: 'signals-agent-runs-list',
-    schema: SignalsAgentRunsListSchema,
-    handler: async (context: Context, params: z.infer<typeof SignalsAgentRunsListSchema>) => {
+const signalsAgentMemoryCreate = (): ToolBase<typeof SignalsAgentMemoryCreateSchema, Schemas.MemoryEntry> => ({
+    name: 'signals-agent-memory-create',
+    schema: SignalsAgentMemoryCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof SignalsAgentMemoryCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedSignalAgentRunSummaryList>({
+        const body: Record<string, unknown> = {}
+        if (params.key !== undefined) {
+            body['key'] = params.key
+        }
+        if (params.content !== undefined) {
+            body['content'] = params.content
+        }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
+        }
+        if (params.ttl_days !== undefined) {
+            body['ttl_days'] = params.ttl_days
+        }
+        if (params.run_id !== undefined) {
+            body['run_id'] = params.run_id
+        }
+        const result = await context.api.request<Schemas.MemoryEntry>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/agent/memory/`,
+            body,
+        })
+        return result
+    },
+})
+
+const SignalsAgentMemoryDeleteSchema = SignalsAgentMemoryDeleteBody
+
+const signalsAgentMemoryDelete = (): ToolBase<typeof SignalsAgentMemoryDeleteSchema, Schemas.ForgetResponse> => ({
+    name: 'signals-agent-memory-delete',
+    schema: SignalsAgentMemoryDeleteSchema,
+    handler: async (context: Context, params: z.infer<typeof SignalsAgentMemoryDeleteSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.key !== undefined) {
+            body['key'] = params.key
+        }
+        const result = await context.api.request<Schemas.ForgetResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/agent/memory/delete/`,
+            body,
+        })
+        return result
+    },
+})
+
+const SignalsAgentMemoryListSchema = SignalsAgentMemoryListQueryParams
+
+const signalsAgentMemoryList = (): ToolBase<
+    typeof SignalsAgentMemoryListSchema,
+    WithPostHogUrl<Schemas.PaginatedMemoryEntryList>
+> => ({
+    name: 'signals-agent-memory-list',
+    schema: SignalsAgentMemoryListSchema,
+    handler: async (context: Context, params: z.infer<typeof SignalsAgentMemoryListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedMemoryEntryList>({
             method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/agent/runs/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/agent/memory/`,
             query: {
+                include_expired: params.include_expired,
                 limit: params.limit,
                 offset: params.offset,
-                since: params.since,
+                tags: params.tags,
                 text: params.text,
             },
         })
@@ -168,14 +221,14 @@ const signalsAgentRunsList = (): ToolBase<
             ...result,
             results: (result.results ?? []).map((item: any) =>
                 pickResponseFields(item, [
-                    'run_id',
-                    'skill_name',
-                    'skill_version',
-                    'status',
-                    'started_at',
-                    'completed_at',
-                    'summary',
-                    'findings_count',
+                    'key',
+                    'content',
+                    'authority',
+                    'tags',
+                    'created_at',
+                    'updated_at',
+                    'expires_at',
+                    'created_by_run_id',
                 ])
             ),
         } as typeof result
@@ -183,16 +236,20 @@ const signalsAgentRunsList = (): ToolBase<
     },
 })
 
-const SignalsAgentRunsRetrieveSchema = SignalsAgentRunsRetrieveParams.omit({ project_id: true })
+const SignalsAgentProjectProfileGetSchema = z.object({})
 
-const signalsAgentRunsRetrieve = (): ToolBase<typeof SignalsAgentRunsRetrieveSchema, Schemas.SignalAgentRunDetail> => ({
-    name: 'signals-agent-runs-retrieve',
-    schema: SignalsAgentRunsRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof SignalsAgentRunsRetrieveSchema>) => {
+const signalsAgentProjectProfileGet = (): ToolBase<
+    typeof SignalsAgentProjectProfileGetSchema,
+    Schemas.ProjectProfile[]
+> => ({
+    name: 'signals-agent-project-profile-get',
+    schema: SignalsAgentProjectProfileGetSchema,
+    // eslint-disable-next-line no-unused-vars
+    handler: async (context: Context, params: z.infer<typeof SignalsAgentProjectProfileGetSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.SignalAgentRunDetail>({
+        const result = await context.api.request<Schemas.ProjectProfile[]>({
             method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/agent/runs/${encodeURIComponent(String(params.id))}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/agent/project_profile/`,
         })
         return result
     },
@@ -250,24 +307,23 @@ const signalsAgentRunsFindingsCreate = (): ToolBase<
     },
 })
 
-const SignalsAgentMemoryListSchema = SignalsAgentMemoryListQueryParams
+const SignalsAgentRunsListSchema = SignalsAgentRunsListQueryParams
 
-const signalsAgentMemoryList = (): ToolBase<
-    typeof SignalsAgentMemoryListSchema,
-    WithPostHogUrl<Schemas.PaginatedMemoryEntryList>
+const signalsAgentRunsList = (): ToolBase<
+    typeof SignalsAgentRunsListSchema,
+    WithPostHogUrl<Schemas.PaginatedSignalAgentRunSummaryList>
 > => ({
-    name: 'signals-agent-memory-list',
-    schema: SignalsAgentMemoryListSchema,
-    handler: async (context: Context, params: z.infer<typeof SignalsAgentMemoryListSchema>) => {
+    name: 'signals-agent-runs-list',
+    schema: SignalsAgentRunsListSchema,
+    handler: async (context: Context, params: z.infer<typeof SignalsAgentRunsListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedMemoryEntryList>({
+        const result = await context.api.request<Schemas.PaginatedSignalAgentRunSummaryList>({
             method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/agent/memory/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/agent/runs/`,
             query: {
-                include_expired: params.include_expired,
                 limit: params.limit,
                 offset: params.offset,
-                tags: params.tags,
+                since: params.since,
                 text: params.text,
             },
         })
@@ -275,14 +331,14 @@ const signalsAgentMemoryList = (): ToolBase<
             ...result,
             results: (result.results ?? []).map((item: any) =>
                 pickResponseFields(item, [
-                    'key',
-                    'content',
-                    'authority',
-                    'tags',
-                    'created_at',
-                    'updated_at',
-                    'expires_at',
-                    'created_by_run_id',
+                    'run_id',
+                    'skill_name',
+                    'skill_version',
+                    'status',
+                    'started_at',
+                    'completed_at',
+                    'summary',
+                    'findings_count',
                 ])
             ),
         } as typeof result
@@ -290,72 +346,16 @@ const signalsAgentMemoryList = (): ToolBase<
     },
 })
 
-const SignalsAgentMemoryCreateSchema = SignalsAgentMemoryCreateBody
+const SignalsAgentRunsRetrieveSchema = SignalsAgentRunsRetrieveParams.omit({ project_id: true })
 
-const signalsAgentMemoryCreate = (): ToolBase<typeof SignalsAgentMemoryCreateSchema, Schemas.MemoryEntry> => ({
-    name: 'signals-agent-memory-create',
-    schema: SignalsAgentMemoryCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof SignalsAgentMemoryCreateSchema>) => {
+const signalsAgentRunsRetrieve = (): ToolBase<typeof SignalsAgentRunsRetrieveSchema, Schemas.SignalAgentRunDetail> => ({
+    name: 'signals-agent-runs-retrieve',
+    schema: SignalsAgentRunsRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof SignalsAgentRunsRetrieveSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.key !== undefined) {
-            body['key'] = params.key
-        }
-        if (params.content !== undefined) {
-            body['content'] = params.content
-        }
-        if (params.tags !== undefined) {
-            body['tags'] = params.tags
-        }
-        if (params.ttl_days !== undefined) {
-            body['ttl_days'] = params.ttl_days
-        }
-        if (params.run_id !== undefined) {
-            body['run_id'] = params.run_id
-        }
-        const result = await context.api.request<Schemas.MemoryEntry>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/agent/memory/`,
-            body,
-        })
-        return result
-    },
-})
-
-const SignalsAgentProjectProfileGetSchema = z.object({})
-
-const signalsAgentProjectProfileGet = (): ToolBase<
-    typeof SignalsAgentProjectProfileGetSchema,
-    Schemas.ProjectProfile[]
-> => ({
-    name: 'signals-agent-project-profile-get',
-    schema: SignalsAgentProjectProfileGetSchema,
-    // eslint-disable-next-line no-unused-vars
-    handler: async (context: Context, params: z.infer<typeof SignalsAgentProjectProfileGetSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.ProjectProfile[]>({
+        const result = await context.api.request<Schemas.SignalAgentRunDetail>({
             method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/agent/project_profile/`,
-        })
-        return result
-    },
-})
-
-const SignalsAgentMemoryDeleteSchema = SignalsAgentMemoryDeleteBody
-
-const signalsAgentMemoryDelete = (): ToolBase<typeof SignalsAgentMemoryDeleteSchema, Schemas.ForgetResponse> => ({
-    name: 'signals-agent-memory-delete',
-    schema: SignalsAgentMemoryDeleteSchema,
-    handler: async (context: Context, params: z.infer<typeof SignalsAgentMemoryDeleteSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.key !== undefined) {
-            body['key'] = params.key
-        }
-        const result = await context.api.request<Schemas.ForgetResponse>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/agent/memory/delete/`,
-            body,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/agent/runs/${encodeURIComponent(String(params.id))}/`,
         })
         return result
     },
@@ -366,11 +366,11 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'inbox-reports-retrieve': inboxReportsRetrieve,
     'inbox-source-configs-list': inboxSourceConfigsList,
     'inbox-source-configs-retrieve': inboxSourceConfigsRetrieve,
+    'signals-agent-memory-create': signalsAgentMemoryCreate,
+    'signals-agent-memory-delete': signalsAgentMemoryDelete,
+    'signals-agent-memory-list': signalsAgentMemoryList,
+    'signals-agent-project-profile-get': signalsAgentProjectProfileGet,
+    'signals-agent-runs-findings-create': signalsAgentRunsFindingsCreate,
     'signals-agent-runs-list': signalsAgentRunsList,
     'signals-agent-runs-retrieve': signalsAgentRunsRetrieve,
-    'signals-agent-runs-findings-create': signalsAgentRunsFindingsCreate,
-    'signals-agent-memory-list': signalsAgentMemoryList,
-    'signals-agent-memory-create': signalsAgentMemoryCreate,
-    'signals-agent-project-profile-get': signalsAgentProjectProfileGet,
-    'signals-agent-memory-delete': signalsAgentMemoryDelete,
 }
