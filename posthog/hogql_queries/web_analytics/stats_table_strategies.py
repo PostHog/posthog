@@ -102,7 +102,9 @@ class MainQueryStrategy(StatsTableQueryStrategy):
                         self.runner._period_comparison_tuple("is_bounce", "context.columns.bounce_rate", "avg")
                     )
 
-            order_by = self.runner._order_by(columns=[select.alias for select in selects])
+            order_by = self.runner._order_by(
+                columns=[select.alias for select in selects if isinstance(select, ast.Alias)]
+            )
             fill_fraction_expr = self.runner._fill_fraction(order_by)
             if fill_fraction_expr:
                 selects.append(fill_fraction_expr)
