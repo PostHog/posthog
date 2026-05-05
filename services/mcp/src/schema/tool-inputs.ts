@@ -84,6 +84,65 @@ export const DocumentationSearchSchema = z.object({
     query: z.string(),
 })
 
+export const FeedbackSubmitSchema = z.object({
+    summary: z
+        .string()
+        .min(1)
+        .describe(
+            'A one-sentence headline summarising your feedback (e.g. "query-trends descriptions made it hard to choose between trends and funnels").'
+        ),
+    sentiment: z
+        .enum(['positive', 'negative', 'mixed'])
+        .describe(
+            'Your overall impression of the MCP server for this task. Use "positive" if it helped you, "negative" if it blocked you, "mixed" for a bit of both.'
+        ),
+    category: z
+        .enum([
+            'tool_correctness',
+            'tool_description',
+            'tool_input_schema',
+            'tool_output_format',
+            'missing_tool',
+            'instructions_clarity',
+            'performance',
+            'error_message',
+            'other',
+        ])
+        .describe(
+            'The single category that best describes the dominant theme of this feedback. Pick "missing_tool" if a capability was absent, "tool_description" if the tool docs were unclear, "tool_input_schema" if input args were confusing, "tool_output_format" if the response was hard to consume, "instructions_clarity" if these MCP instructions were unclear, "tool_correctness" if a tool returned wrong data, "error_message" if an error was unhelpful, "performance" if latency was the issue.'
+        ),
+    task_completed: z
+        .boolean()
+        .describe(
+            'Were you able to complete the user\'s task using PostHog MCP tools? Be honest — "false" is just as useful as "true".'
+        ),
+    tools_used: z
+        .array(z.string())
+        .optional()
+        .describe(
+            'The tool names you called while working on the user\'s task (e.g. ["read-data-schema", "query-trends"]). Helps us correlate feedback to specific tools.'
+        ),
+    friction_points: z
+        .string()
+        .optional()
+        .describe(
+            'Concrete points of friction, confusion, or surprise — what slowed you down or made you guess. Quote the exact tool name, parameter, or error text where possible.'
+        ),
+    suggested_improvement: z
+        .string()
+        .optional()
+        .describe(
+            'The single most impactful change you would make to the MCP server right now. Be specific (e.g. "add a `filters` example to query-funnel\'s description").'
+        ),
+    user_request: z
+        .string()
+        .optional()
+        .describe(
+            'A short, anonymised paraphrase of what the user originally asked you to do. Do not include PII, customer names, or sensitive query content.'
+        ),
+    details: z.string().optional().describe("Any additional context that doesn't fit the other fields."),
+})
+
 export const ExperimentResultsGetSchema = z.object({
     id: z.number().describe('The ID of the experiment to get comprehensive results for'),
     refresh: z

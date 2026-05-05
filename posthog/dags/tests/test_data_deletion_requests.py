@@ -109,6 +109,39 @@ def test_load_deletion_request_transitions_to_in_progress():
 
     request.refresh_from_db()
     assert request.status == RequestStatus.IN_PROGRESS
+    assert request.attempt_count == 1
+    assert request.first_executed_at is not None
+    assert request.last_executed_at == request.first_executed_at
+
+
+@pytest.mark.django_db
+def test_load_deletion_request_increments_attempt_on_retry():
+    request = DataDeletionRequest.objects.create(
+        team_id=TEAM_ID,
+        request_type=RequestType.EVENT_REMOVAL,
+        events=["$pageview"],
+        start_time=datetime.now() - timedelta(days=7),
+        end_time=datetime.now(),
+        status=RequestStatus.APPROVED,
+    )
+    config = DataDeletionRequestConfig(request_id=str(request.pk))
+
+    load_deletion_request(build_op_context(), config)
+    request.refresh_from_db()
+    first_attempt_at = request.first_executed_at
+    first_last_at = request.last_executed_at
+    assert first_attempt_at is not None
+    assert first_last_at is not None
+
+    DataDeletionRequest.objects.filter(pk=request.pk).update(status=RequestStatus.APPROVED)
+
+    load_deletion_request(build_op_context(), config)
+    request.refresh_from_db()
+
+    assert request.attempt_count == 2
+    assert request.first_executed_at == first_attempt_at
+    assert request.last_executed_at is not None
+    assert request.last_executed_at >= first_last_at
 
 
 @pytest.mark.django_db

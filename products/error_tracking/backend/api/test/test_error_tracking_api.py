@@ -8,6 +8,7 @@ from boto3 import resource
 from botocore.config import Config
 from rest_framework import status
 
+from posthog.models import User
 from posthog.models.utils import uuid7
 from posthog.settings import (
     OBJECT_STORAGE_ACCESS_KEY_ID,
@@ -419,6 +420,18 @@ class TestErrorTracking(APIBaseTest):
         )
         # cannot assign issues from other teams
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    @patch("products.error_tracking.backend.api.issues.dispatch_issue_assigned_realtime")
+    @patch("products.error_tracking.backend.api.issues.send_error_tracking_issue_assigned")
+    def test_assign_issue_dispatches_realtime_after_assignment(self, _send_email, mock_realtime):
+        issue = self.create_issue()
+        other_user = User.objects.create_and_join(self.organization, "other@test.com", "password")
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}/assign",
+            data={"assignee": {"id": other_user.id, "type": "user"}},
+        )
+        assert response.status_code in (200, 202), response.json()
+        mock_realtime.assert_called_once()
 
     def test_error_tracking_issue_bulk_resolve(self):
         issue_one = self.create_issue()

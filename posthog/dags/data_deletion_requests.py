@@ -74,6 +74,27 @@ class PersonRemovalContext:
 # ---------------------------------------------------------------------------
 
 
+def _record_execution_attempt(request: DataDeletionRequest) -> None:
+    """Mark the request IN_PROGRESS and update execution-tracking fields.
+
+    Called from inside the ``select_for_update`` block of each ``load_*`` op so
+    the counter and timestamps are bumped exactly once per APPROVED → IN_PROGRESS
+    transition. ``first_executed_at`` is preserved across retries; ``attempt_count``
+    counts every actual execution attempt (not Retry button clicks).
+    """
+    from django.utils import timezone
+
+    now = timezone.now()
+    request.status = RequestStatus.IN_PROGRESS
+    request.attempt_count = (request.attempt_count or 0) + 1
+    request.last_executed_at = now
+    update_fields = ["status", "updated_at", "attempt_count", "last_executed_at"]
+    if request.first_executed_at is None:
+        request.first_executed_at = now
+        update_fields.append("first_executed_at")
+    request.save(update_fields=update_fields)
+
+
 def _temp_table_name(team_id: int, request_id: str) -> str:
     return f"tmp_dag_team_{team_id}_prop_rm_{request_id[:8]}"
 
@@ -106,20 +127,18 @@ def _base_params(ctx: DeletionRequestContext) -> dict:
 _EVENT_REMOVAL_TIME_PREDICATE = "team_id = %(team_id)s AND timestamp >= %(start_time)s AND timestamp < %(end_time)s"
 
 
-def _event_removal_where(obj, *, target_data_table: bool = False) -> tuple[str, dict]:
+def _event_removal_where(obj) -> tuple[str, dict]:
     """Full WHERE predicate + params for event-removal queries.
 
     Combines the mandatory team/timestamp bounds, the events filter (skipped
-    when ``delete_all_events`` is set), and any compiled HogQL predicate.
-
-    ``target_data_table`` is forwarded to ``compile_hogql_predicate`` — pass
-    ``True`` for queries running against ``sharded_events`` (DELETE, deferred
-    queueing) and leave ``False`` for the Distributed ``events`` proxy
-    (cluster-wide read counts).
+    when ``delete_all_events`` is set), and any compiled HogQL predicate. The
+    compiled HogQL fragment uses unqualified column references, so the result
+    is safe to splice into queries against either the Distributed ``events``
+    proxy or the local ``sharded_events`` MergeTree.
     """
     parts = [_EVENT_REMOVAL_TIME_PREDICATE, event_match_sql_fragment(obj)]
     params = event_match_params(obj)
-    hogql_sql, hogql_values = compile_hogql_predicate(obj, target_data_table=target_data_table)
+    hogql_sql, hogql_values = compile_hogql_predicate(obj)
     if hogql_sql:
         parts.append(f"AND ({hogql_sql})")
         params.update(hogql_values)
@@ -210,8 +229,7 @@ def load_deletion_request(
                 f"Request {config.request_id} is not an approved event_removal request.",
             )
 
-        request.status = RequestStatus.IN_PROGRESS
-        request.save(update_fields=["status", "updated_at"])
+        _record_execution_attempt(request)
 
     events_desc = "<all events>" if request.delete_all_events else f"{request.events}"
     context.log.info(
@@ -262,7 +280,7 @@ def _run_immediate_event_deletion(
         context.log.info(f"Processing shard {shard_num} ({idx}/{len(shards)})")
         shard_start = time.monotonic()
 
-        predicate, parameters = _event_removal_where(deletion_request, target_data_table=True)
+        predicate, parameters = _event_removal_where(deletion_request)
         runner = LightweightDeleteMutationRunner(
             table=table,
             predicate=predicate,
@@ -290,7 +308,7 @@ def _queue_events_for_deferred_deletion(
     source_table = EVENTS_DATA_TABLE()
     db = django_settings.CLICKHOUSE_DATABASE
     shards = sorted(cluster.shards)
-    predicate, params = _event_removal_where(deletion_request, target_data_table=True)
+    predicate, params = _event_removal_where(deletion_request)
     # nosemgrep: clickhouse-fstring-param-audit (all interpolated values are internal constants/settings)
     insert_sql = (
         f"INSERT INTO {db}.{ADHOC_EVENTS_DELETION_TABLE} (team_id, uuid) "
@@ -370,8 +388,7 @@ def load_property_removal_request(
                 f"Request {config.request_id} has no properties specified.",
             )
 
-        request.status = RequestStatus.IN_PROGRESS
-        request.save(update_fields=["status", "updated_at"])
+        _record_execution_attempt(request)
 
     context.log.info(
         f"Processing property removal {request.pk}: "
@@ -587,8 +604,7 @@ def load_person_removal_request(
                 "they are mutually exclusive."
             )
 
-        request.status = RequestStatus.IN_PROGRESS
-        request.save(update_fields=["status", "updated_at"])
+        _record_execution_attempt(request)
 
     # The fields are nullable on the model (NULL for non-person_removal rows), but
     # PersonRemovalContext and the downstream `if not drop_x` consumers want plain bools.

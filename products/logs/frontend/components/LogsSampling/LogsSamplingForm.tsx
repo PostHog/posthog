@@ -4,6 +4,7 @@ import { LemonBanner, LemonInput, LemonSelect, LemonSwitch, LemonTag, LemonTextA
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
+import { ServiceFilter } from 'products/logs/frontend/components/LogsViewer/Filters/ServiceFilter'
 import { RuleTypeEnumApi } from 'products/logs/frontend/generated/api.schemas'
 
 import { LogsSamplingFormType, PathDropMatchTarget, SeverityActionChoice } from './logsSamplingFormLogic'
@@ -18,6 +19,10 @@ const RULE_TYPE_OPTIONS_CREATE: { value: RuleTypeEnumApi; label: string }[] = [
     {
         value: RuleTypeEnumApi.SeveritySampling,
         label: 'Drop by severity',
+    },
+    {
+        value: RuleTypeEnumApi.RateLimit,
+        label: 'Rate limit by service (logs/sec)',
     },
 ]
 
@@ -49,12 +54,21 @@ function SeverityRow({ label, actionKey }: { label: string; actionKey: keyof Log
 }
 
 export function LogsSamplingForm(): JSX.Element {
-    const { samplingForm, samplingFormErrors, simulation, simulationLoading, canSimulate, isNewRule } =
-        useValues(logsSamplingFormLogic)
+    const {
+        samplingForm,
+        samplingFormErrors,
+        simulation,
+        simulationLoading,
+        canSimulate,
+        isNewRule,
+        serviceTraffic,
+        serviceTrafficLoading,
+    } = useValues(logsSamplingFormLogic)
     const { setSamplingFormValue } = useActions(logsSamplingFormLogic)
 
     const isPathDrop = samplingForm.rule_type === RuleTypeEnumApi.PathDrop
     const isSeverity = samplingForm.rule_type === RuleTypeEnumApi.SeveritySampling
+    const isRateLimit = samplingForm.rule_type === RuleTypeEnumApi.RateLimit
 
     return (
         <div className="flex flex-col gap-4 max-w-3xl">
@@ -72,7 +86,7 @@ export function LogsSamplingForm(): JSX.Element {
                           : 'Impact estimate will appear after you save or change the rule.'}
                 </LemonBanner>
             )}
-            <LemonField.Pure label="Name">
+            <LemonField.Pure label="Name" error={samplingFormErrors.name}>
                 <LemonInput
                     value={samplingForm.name}
                     onChange={(v) => setSamplingFormValue('name', v)}
@@ -89,7 +103,9 @@ export function LogsSamplingForm(): JSX.Element {
                     help={
                         <>
                             “Drop by severity” is for whole severity levels (debug, info, warn, error). “Drop when
-                            matched” is for regex on a path string or one attribute you pick.
+                            matched” is for regex on a path string or one attribute you pick. “Rate limit by service”
+                            caps how many log lines per second from one service are stored (extras are dropped at
+                            ingestion).
                         </>
                     }
                 >
@@ -104,26 +120,70 @@ export function LogsSamplingForm(): JSX.Element {
                     <LemonTag>{ruleTypeLabel(samplingForm.rule_type)}</LemonTag>
                 </LemonField.Pure>
             )}
-            <LemonField.Pure
-                label="Scope: service name (optional)"
-                info="If set, the rule only runs for logs from this service.name. Leave empty to apply to all services."
-            >
-                <LemonInput
-                    value={samplingForm.scope_service}
-                    onChange={(v) => setSamplingFormValue('scope_service', v)}
-                    placeholder="Empty = all services"
-                />
-            </LemonField.Pure>
-            <LemonField.Pure
-                label="Limit rule to matching path (optional)"
-                info="If set, this rule only runs for log lines where this regex matches the automatic path string (first non-empty among url.path, http.path, http.route, path). Separate from “what your drop patterns match” below. Applies to severity rules too."
-            >
-                <LemonInput
-                    value={samplingForm.scope_path_pattern}
-                    onChange={(v) => setSamplingFormValue('scope_path_pattern', v)}
-                    placeholder="e.g. ^/api/internal/"
-                />
-            </LemonField.Pure>
+            {isRateLimit ? (
+                <>
+                    <LemonBanner type="info">
+                        <div className="text-sm">
+                            <strong>Which service?</strong> This must match the log&apos;s OpenTelemetry{' '}
+                            <code className="text-xs font-mono bg-bg-mid rounded px-1 py-0.5">service.name</code>{' '}
+                            exactly (same string as the Service column or log details—no wildcards, case-sensitive).
+                            Example:{' '}
+                            <code className="text-xs font-mono bg-bg-mid rounded px-1 py-0.5">payment-api</code>.
+                        </div>
+                    </LemonBanner>
+                    <LemonField.Pure
+                        label="Service"
+                        help="Pick from names seen in the last 24h, or type the full name in the field below if it does not appear in the list."
+                        error={samplingFormErrors.scope_service}
+                    >
+                        <div className="flex flex-col gap-2">
+                            <ServiceFilter
+                                selectionMode="single"
+                                emptyButtonLabel="Pick from last 24h…"
+                                value={samplingForm.scope_service ? [samplingForm.scope_service] : []}
+                                onChange={(names) => setSamplingFormValue('scope_service', names[0] ?? '')}
+                                dateRange={{ date_from: '-24h', date_to: null }}
+                            />
+                            <LemonInput
+                                value={samplingForm.scope_service}
+                                onChange={(v) => setSamplingFormValue('scope_service', v)}
+                                placeholder="Type exact service.name (required)"
+                            />
+                            {serviceTrafficLoading ? (
+                                <span className="text-muted text-sm">Loading recent volume…</span>
+                            ) : serviceTraffic && samplingForm.scope_service.trim() ? (
+                                <span className="text-muted text-sm">
+                                    ~{serviceTraffic.avg_logs_per_sec.toFixed(2)} logs/sec average over the last 24h (
+                                    {serviceTraffic.log_count.toLocaleString()} lines).
+                                </span>
+                            ) : null}
+                        </div>
+                    </LemonField.Pure>
+                </>
+            ) : (
+                <LemonField.Pure
+                    label="Scope: service name (optional)"
+                    info="If set, the rule only runs for logs from this service.name. Leave empty to apply to all services."
+                >
+                    <LemonInput
+                        value={samplingForm.scope_service}
+                        onChange={(v) => setSamplingFormValue('scope_service', v)}
+                        placeholder="Empty = all services"
+                    />
+                </LemonField.Pure>
+            )}
+            {!isRateLimit ? (
+                <LemonField.Pure
+                    label="Limit rule to matching path (optional)"
+                    info="If set, this rule only runs for log lines where this regex matches the automatic path string (first non-empty among url.path, http.path, http.route, path). Separate from “what your drop patterns match” below. Applies to severity rules too."
+                >
+                    <LemonInput
+                        value={samplingForm.scope_path_pattern}
+                        onChange={(v) => setSamplingFormValue('scope_path_pattern', v)}
+                        placeholder="e.g. ^/api/internal/"
+                    />
+                </LemonField.Pure>
+            ) : null}
             {isPathDrop ? (
                 <>
                     <LemonField.Pure
@@ -210,6 +270,42 @@ export function LogsSamplingForm(): JSX.Element {
                             onChange={(v) => setSamplingFormValue('path_drop_patterns', v)}
                             placeholder={'/healthz\n/metrics'}
                             rows={4}
+                        />
+                    </LemonField.Pure>
+                </>
+            ) : null}
+            {isRateLimit ? (
+                <>
+                    <LemonBanner type="info">
+                        <div className="text-sm">
+                            <strong>How limits work:</strong> lines above your sustained cap are dropped at ingestion.
+                            Optional <strong>burst</strong> is how many lines can be stored in a short spike before the
+                            limiter pulls you back toward the sustained rate. Example: sustained{' '}
+                            <code className="text-xs font-mono bg-bg-mid rounded px-1 py-0.5">100</code>, burst{' '}
+                            <code className="text-xs font-mono bg-bg-mid rounded px-1 py-0.5">300</code> — you can admit
+                            up to 300 lines quickly, then stored volume trends toward ~100/sec for this service.
+                        </div>
+                    </LemonBanner>
+                    <LemonField.Pure
+                        label="Sustained limit (lines per second)"
+                        help="Whole number from 1 to 1,000,000. Average stored lines/sec for this service while this rule is the first match."
+                        error={samplingFormErrors.rate_limit_logs_per_second}
+                    >
+                        <LemonInput
+                            value={samplingForm.rate_limit_logs_per_second}
+                            onChange={(v) => setSamplingFormValue('rate_limit_logs_per_second', v)}
+                            placeholder="e.g. 5000"
+                        />
+                    </LemonField.Pure>
+                    <LemonField.Pure
+                        label="Burst capacity (optional)"
+                        help="Whole number at least equal to sustained, up to 60,000,000, or leave empty for 3× sustained. Larger burst allows a bigger one-off spike before extra lines drop."
+                        error={samplingFormErrors.rate_limit_burst_logs}
+                    >
+                        <LemonInput
+                            value={samplingForm.rate_limit_burst_logs}
+                            onChange={(v) => setSamplingFormValue('rate_limit_burst_logs', v)}
+                            placeholder="Empty = 3× sustained"
                         />
                     </LemonField.Pure>
                 </>

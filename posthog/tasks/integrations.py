@@ -14,7 +14,7 @@ def refresh_integrations() -> int:
     from posthog.models.integration import Integration, OauthIntegration
 
     oauth_integrations = defer_repository_cache_fields(
-        Integration.objects.filter(kind__in=OauthIntegration.supported_kinds).all()
+        Integration.objects.filter(kind__in=OauthIntegration.supported_kinds).exclude(kind="meta-ads").all()
     )
 
     for integration in oauth_integrations:
