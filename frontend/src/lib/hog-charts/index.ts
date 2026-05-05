@@ -67,6 +67,7 @@ export { computeVisibleXLabels } from './overlays/AxisLabels'
 // Timeseries overlays
 export { AnomalyPointsLayer } from './charts/TimeSeriesLineChart/overlays/AnomalyPointsLayer'
 export type { AnomalyMarker } from './charts/TimeSeriesLineChart/overlays/AnomalyPointsLayer'
+export { movingAverageKey } from './charts/TimeSeriesLineChart/utils/derived-series'
 
 // Timeseries utils
 export { createXAxisTickCallback, parseDateForAxis } from './charts/TimeSeriesLineChart/utils/dates'
