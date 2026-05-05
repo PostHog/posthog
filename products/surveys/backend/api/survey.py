@@ -63,7 +63,7 @@ from posthog.helpers.trigram_search import (
     MIN_NAME_TRIGRAM_SIMILARITY,
     normalize_search_term,
 )
-from posthog.models import Action
+from posthog.models import Action, Insight
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.feature_flag import FeatureFlag
@@ -1058,6 +1058,13 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 FeatureFlag.objects.get(pk=targeting_flag_id, team_id=self.context["team_id"])
             except FeatureFlag.DoesNotExist:
                 raise serializers.ValidationError("Targeting Feature Flag with this ID does not exist")
+
+        linked_insight_id = data.get("linked_insight_id")
+        if linked_insight_id:
+            try:
+                Insight.objects.get(pk=linked_insight_id, team_id=self.context["team_id"])
+            except Insight.DoesNotExist:
+                raise serializers.ValidationError("Insight with this ID does not exist")
 
         # Validate linkedFlagVariant if provided
         conditions = data.get("conditions") or {}
