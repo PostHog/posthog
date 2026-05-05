@@ -71,7 +71,7 @@ def asyncify(fn: Callable[P, T]) -> Callable[P, Coroutine[Any, Any, T]]:
             activity_id = activity.info().activity_id
             activity.logger.info(f"Running '{fn.__name__}' in async wrapper (activity_id={activity_id})")
         try:
-            return await sync_to_async(close_db_connections(fn))(*args, **kwargs)
+            return await sync_to_async(fn)(*args, **kwargs)
         finally:
             if activity_id:
                 activity.logger.info(f"Finished '{fn.__name__}' in async wrapper (activity_id={activity_id})")
