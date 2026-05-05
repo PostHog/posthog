@@ -501,7 +501,7 @@ fn apply_person_cohort_to_state(state: &mut FlagEvaluationState, result: PersonC
         state.set_cohort_matches(cohort_matches);
     }
 
-    let person_properties: HashMap<String, Value> = if let Some(ref person) = result.person {
+    let mut person_properties: HashMap<String, Value> = if let Some(ref person) = result.person {
         match person.properties.as_object() {
             Some(obj) => obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
             None => HashMap::new(),
@@ -509,6 +509,23 @@ fn apply_person_cohort_to_state(state: &mut FlagEvaluationState, result: PersonC
     } else {
         HashMap::new()
     };
+
+    // PersonMetadata fields (top-level columns on the persons table) are written under a
+    // sentinel prefix to avoid colliding with user-set properties of the same name (e.g.
+    // a customer setting `properties.created_at` for their own analytics). The matcher
+    // applies the prefix when `filter.prop_type == PersonMetadata` — see `match_property`.
+    // The field list lives in `PERSON_METADATA_FIELDS`; the match arm maps each field to the
+    // persons-table column to read, so adding a field is a compile-time signal here.
+    if let Some(ref person) = result.person {
+        for field in crate::properties::property_matching::PERSON_METADATA_FIELDS {
+            let value = match *field {
+                "created_at" => Value::String(person.created_at.to_rfc3339()),
+                _ => continue,
+            };
+            person_properties
+                .insert(crate::properties::property_matching::person_metadata_key(field), value);
+        }
+    }
 
     state.set_person_properties(person_properties);
     person_processing_timer.fin();

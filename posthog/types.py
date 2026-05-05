@@ -30,6 +30,7 @@ from posthog.schema import (
     LogEntryPropertyFilter,
     LogPropertyFilter,
     PathsQuery,
+    PersonMetadataPropertyFilter,
     PersonPropertyFilter,
     RecordingPropertyFilter,
     RetentionQuery,
@@ -59,6 +60,7 @@ type InsightActorsQueryNode = Union[
 type AnyPropertyFilter = Union[
     EventPropertyFilter,
     PersonPropertyFilter,
+    PersonMetadataPropertyFilter,
     ElementPropertyFilter,
     EventMetadataPropertyFilter,
     RevenueAnalyticsPropertyFilter,

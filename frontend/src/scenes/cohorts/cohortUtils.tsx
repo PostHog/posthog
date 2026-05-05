@@ -2,6 +2,7 @@ import equal from 'fast-deep-equal'
 import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
 
 import { isEmptyProperty, propertyFilterTypeToPropertyDefinitionType } from 'lib/components/PropertyFilters/utils'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { ENTITY_MATCH_TYPE, PROPERTY_MATCH_TYPE } from 'lib/constants'
 import { calculateDays } from 'lib/utils/durations'
 import { isNumeric } from 'lib/utils/guards'
@@ -63,7 +64,14 @@ export function cleanBehavioralTypeCriteria(criteria: AnyCohortCriteriaType): An
             criteria.value as BehavioralEventType
         )
     ) {
-        type = BehavioralFilterKey.Person
+        // `event_type` records which taxonomic group the user picked the property from.
+        // It's a transient UI hint that lets us derive the durable `type` once on first
+        // selection. Subsequent cleanCriteria passes (and the negation flow in
+        // determineFilterType) key on `criteria.type`, which is what gets persisted.
+        type =
+            criteria.event_type === TaxonomicFilterGroupType.PersonMetadata
+                ? BehavioralFilterKey.PersonMetadata
+                : BehavioralFilterKey.Person
     }
     return {
         ...criteria,
@@ -375,11 +383,13 @@ export function validateGroup(
                         fieldKey === 'value_property' &&
                         'key' in c &&
                         'type' in c &&
-                        c.type === BehavioralFilterKey.Person
+                        (c.type === BehavioralFilterKey.Person || c.type === BehavioralFilterKey.PersonMetadata)
                     ) {
                         const propertyKey = c.key as string
                         const propertyDefinitionType = propertyFilterTypeToPropertyDefinitionType(
-                            PropertyFilterType.Person
+                            c.type === BehavioralFilterKey.PersonMetadata
+                                ? PropertyFilterType.PersonMetadata
+                                : PropertyFilterType.Person
                         )
 
                         const mountedModel = propertyDefinitionsModel.findMounted()
@@ -431,7 +441,7 @@ export function criteriaToBehavioralFilterType(criteria: AnyCohortCriteriaType):
         if (criteria.value === BehavioralEventType.PerformEvent) {
             return BehavioralEventType.NotPerformedEvent
         }
-        if (criteria.type === BehavioralFilterKey.Person) {
+        if (criteria.type === BehavioralFilterKey.Person || criteria.type === BehavioralFilterKey.PersonMetadata) {
             return BehavioralEventType.NotHaveProperty
         }
         if (criteria.type === BehavioralFilterKey.Cohort) {
@@ -472,7 +482,14 @@ export function determineFilterType(
     }
     if (value === BehavioralEventType.NotHaveProperty || (value === BehavioralEventType.HaveProperty && negation)) {
         return {
-            type: BehavioralFilterKey.Person,
+            // Preserve PersonMetadata vs Person — the original type drives whether the
+            // filter targets the persons-table column or the JSON properties blob.
+            // Without this, a negated PersonMetadata criterion silently degrades to
+            // a JSON-blob lookup on every cleanCriteria pass.
+            type:
+                type === BehavioralFilterKey.PersonMetadata
+                    ? BehavioralFilterKey.PersonMetadata
+                    : BehavioralFilterKey.Person,
             value: BehavioralEventType.HaveProperty,
             negation: true,
         }

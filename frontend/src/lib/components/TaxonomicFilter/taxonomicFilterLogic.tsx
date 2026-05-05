@@ -342,7 +342,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             joinsLogic,
             ['columnsJoinedToPersons'],
             propertyDefinitionsModel,
-            ['eventMetadataPropertyDefinitions'],
+            ['eventMetadataPropertyDefinitions', 'personMetadataPropertyDefinitions'],
             featureFlagLogic,
             ['featureFlags'],
             primaryEventPropertiesModel,
@@ -571,6 +571,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 s.suggestedFiltersLabel,
                 s.propertyFilters,
                 s.eventMetadataPropertyDefinitions,
+                s.personMetadataPropertyDefinitions,
                 s.maxContextOptions,
                 s.hideBehavioralCohorts,
                 s.endpointFilters,
@@ -592,6 +593,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 suggestedFiltersLabel: string | undefined,
                 propertyFilters,
                 eventMetadataPropertyDefinitions: PropertyDefinition[],
+                personMetadataPropertyDefinitions: PropertyDefinition[],
                 maxContextOptions: MaxContextTaxonomicFilterOption[],
                 hideBehavioralCohorts: boolean,
                 endpointFilters: Record<string, any> | undefined,
@@ -1102,6 +1104,21 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         propertyAllowList:
                             propertyAllowList?.[TaxonomicFilterGroupType.PersonProperties]?.filter(isString),
                         ...propertyTaxonomicGroupProps(CORE_FILTER_DEFINITIONS_BY_GROUP.person_properties),
+                    },
+                    {
+                        name: 'Person metadata',
+                        searchPlaceholder: 'person metadata',
+                        type: TaxonomicFilterGroupType.PersonMetadata,
+                        options: personMetadataPropertyDefinitions,
+                        getName: (option: PropertyDefinition) => {
+                            const coreDefinition = getCoreFilterDefinition(
+                                option.id,
+                                TaxonomicFilterGroupType.PersonMetadata
+                            )
+                            return coreDefinition ? coreDefinition.label : option.name
+                        },
+                        getValue: (option: PropertyDefinition) => option.id,
+                        getPopoverHeader: () => 'Person metadata',
                     },
                     {
                         name: 'Cohorts',
