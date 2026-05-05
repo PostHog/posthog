@@ -674,14 +674,15 @@ export function FeatureFlagReleaseConditions({
                                     setBucketingIdentifier(FeatureFlagBucketingIdentifier.DISTINCT_ID)
                                 } else if (targetValue === 'device') {
                                     setAggregationGroupTypeIndex(null)
-                                    setBucketingIdentifier(FeatureFlagBucketingIdentifier.DEVICE_ID)
-                                    // Auto-disable persist across auth when switching to device ID
+                                    // Auto-disable persist across auth before changing bucketing so the
+                                    // setFeatureFlag payload doesn't stomp the new bucketing identifier.
                                     if (featureFlag.ensure_experience_continuity) {
                                         setFeatureFlag({
                                             ...featureFlag,
                                             ensure_experience_continuity: false,
                                         })
                                     }
+                                    setBucketingIdentifier(FeatureFlagBucketingIdentifier.DEVICE_ID)
                                 } else if (targetValue === 'group') {
                                     // Default to first group type when selecting Group
                                     const firstGroupType = Array.from(groupTypes.values())[0]
@@ -692,8 +693,10 @@ export function FeatureFlagReleaseConditions({
                                 }
                             }
 
-                            // If changing from current value, show confirmation
-                            if (value !== currentValue) {
+                            // Only confirm when changing bucketing on an existing flag
+                            const isExistingFlag = id !== 'new'
+                            const isChangingValue = value !== currentValue
+                            if (isExistingFlag && isChangingValue) {
                                 LemonDialog.open({
                                     title: 'Change bucketing option?',
                                     description:
@@ -710,7 +713,6 @@ export function FeatureFlagReleaseConditions({
                                     },
                                 })
                             } else {
-                                // No change, just apply directly
                                 applyChange(value)
                             }
                         }}
