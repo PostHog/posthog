@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use common_types::CapturedEventHeaders;
+use common_types::{CapturedEvent, CapturedEventHeaders, RawEvent};
 use rdkafka::error::RDKafkaErrorCode;
 use rstest::rstest;
 use uuid::Uuid;
@@ -13,6 +13,7 @@ use crate::v1::sinks::event::Event;
 use crate::v1::sinks::sink::Sink;
 use crate::v1::sinks::types::{BatchSummary, Outcome};
 use crate::v1::sinks::{Config, Destination, SinkName};
+use crate::v1::test_utils::{self, WrappedEventMut};
 
 use super::mock::MockProducer;
 use super::producer::ProduceError;
@@ -46,7 +47,7 @@ struct FakeEvent {
     parsed_uuid: Uuid,
     publish: bool,
     destination: Destination,
-    partition_key: String,
+    partition_key: Option<String>,
     payload: Result<String, String>,
     event_headers: CapturedEventHeaders,
 }
@@ -57,7 +58,7 @@ impl FakeEvent {
             parsed_uuid: Uuid::new_v4(),
             publish: true,
             destination: Destination::AnalyticsMain,
-            partition_key: format!("phc_test:{uuid}"),
+            partition_key: Some(format!("phc_test:{uuid}")),
             payload: Ok(r#"{"event":"test"}"#.to_string()),
             event_headers: empty_captured_headers(),
         }
@@ -75,6 +76,11 @@ impl FakeEvent {
 
     fn with_payload(mut self, p: Result<String, String>) -> Self {
         self.payload = p;
+        self
+    }
+
+    fn with_partition_key(mut self, k: Option<&str>) -> Self {
+        self.partition_key = k.map(String::from);
         self
     }
 }
@@ -96,8 +102,14 @@ impl Event for FakeEvent {
         self.event_headers.clone()
     }
 
-    fn write_partition_key(&self, _ctx: &Context, buf: &mut String) {
-        buf.push_str(&self.partition_key);
+    fn partition_key<'buf>(&self, _ctx: &Context, buf: &'buf mut String) -> Option<&'buf str> {
+        match &self.partition_key {
+            Some(k) => {
+                buf.push_str(k);
+                Some(buf.as_str())
+            }
+            None => None,
+        }
     }
 
     fn serialize_into(&self, _ctx: &Context, buf: &mut String) -> anyhow::Result<()> {
@@ -114,20 +126,6 @@ impl Event for FakeEvent {
 // ---------------------------------------------------------------------------
 // TestHarness
 // ---------------------------------------------------------------------------
-
-fn test_kafka_config() -> super::config::Config {
-    let env: HashMap<String, String> = [
-        ("HOSTS", "localhost:9092"),
-        ("TOPIC_MAIN", "events_main"),
-        ("TOPIC_HISTORICAL", "events_hist"),
-        ("TOPIC_OVERFLOW", "events_overflow"),
-        ("TOPIC_DLQ", "events_dlq"),
-    ]
-    .into_iter()
-    .map(|(k, v)| (k.to_string(), v.to_string()))
-    .collect();
-    envconfig::Envconfig::init_from_hashmap(&env).unwrap()
-}
 
 struct TestHarness {
     sink: KafkaSink<MockProducer>,
@@ -254,7 +252,7 @@ impl HarnessBuilder {
 
         let producer = Arc::new(mock);
 
-        let mut kafka_config = test_kafka_config();
+        let mut kafka_config = crate::v1::test_utils::test_kafka_config();
         if let Some(n) = self.enqueue_retry_max {
             kafka_config.enqueue_retry_max = n;
         }
@@ -879,4 +877,258 @@ async fn health_refreshed_on_partial_success() {
         h.handle.is_healthy(),
         "handle should stay healthy when at least one event succeeded"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Partition key: None vs Some
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn none_partition_key_propagates_as_none() {
+    let h = TestHarness::new();
+    let event = FakeEvent::ok("evt-1").with_partition_key(None);
+    let events: Vec<&(dyn Event + Send + Sync)> = vec![&event];
+
+    let results = h.sink.publish_batch(&h.ctx, &events).await;
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].outcome(), Outcome::Success);
+    h.producer.with_records(|records| {
+        assert_eq!(
+            records[0].key, None,
+            "None partition key must propagate as None"
+        );
+    });
+}
+
+#[tokio::test]
+async fn some_partition_key_propagates_as_some() {
+    let h = TestHarness::new();
+    let event = FakeEvent::ok("evt-1").with_partition_key(Some("phc_test:user-1"));
+    let events: Vec<&(dyn Event + Send + Sync)> = vec![&event];
+
+    let results = h.sink.publish_batch(&h.ctx, &events).await;
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].outcome(), Outcome::Success);
+    h.producer.with_records(|records| {
+        assert_eq!(records[0].key.as_deref(), Some("phc_test:user-1"));
+    });
+}
+
+// ===========================================================================
+// Realistic WrappedEvent round-trip tests
+//
+// These use production-shaped fixtures from test_utils and verify the
+// MockProducer payload deserializes as CapturedEvent + RawEvent.
+// ===========================================================================
+
+#[tokio::test]
+async fn realistic_single_pageview_round_trip() {
+    let h = TestHarness::new();
+    let wrapped = test_utils::realistic_pageview("user-42");
+    let events: Vec<&(dyn Event + Send + Sync)> = vec![&wrapped];
+
+    let results = h.sink.publish_batch(&h.ctx, &events).await;
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].key(), wrapped.uuid);
+    assert_eq!(results[0].outcome(), Outcome::Success);
+
+    h.producer.with_records(|records| {
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].topic, "events_main");
+
+        let captured: CapturedEvent =
+            serde_json::from_str(&records[0].payload).expect("must deserialize as CapturedEvent");
+        assert_eq!(captured.uuid, wrapped.uuid);
+        assert_eq!(captured.distinct_id, "user-42");
+        assert_eq!(captured.event, "$pageview");
+
+        let data: RawEvent =
+            serde_json::from_str(&captured.data).expect("data must deserialize as RawEvent");
+        assert_eq!(data.event, "$pageview");
+        assert_eq!(data.properties["$browser"], "Chrome");
+        assert_eq!(
+            data.properties["$session_id"],
+            "01jq9abc-def0-1234-5678-9abcdef01234"
+        );
+        assert_eq!(data.properties["$process_person_profile"], true);
+    });
+}
+
+#[tokio::test]
+async fn realistic_batch_round_trip() {
+    let h = TestHarness::new();
+    let batch = test_utils::realistic_batch();
+    let events: Vec<&(dyn Event + Send + Sync)> = vec![&batch[0], &batch[1], &batch[2]];
+
+    let results = h.sink.publish_batch(&h.ctx, &events).await;
+
+    assert_eq!(results.len(), 3);
+    for r in &results {
+        assert_eq!(r.outcome(), Outcome::Success);
+    }
+
+    h.producer.with_records(|records| {
+        assert_eq!(records.len(), 3);
+        for record in records {
+            let captured: CapturedEvent =
+                serde_json::from_str(&record.payload).expect("must deserialize as CapturedEvent");
+            let _data: RawEvent =
+                serde_json::from_str(&captured.data).expect("data must deserialize as RawEvent");
+        }
+
+        let names: Vec<&str> = records
+            .iter()
+            .map(|r| {
+                let c: CapturedEvent = serde_json::from_str(&r.payload).unwrap();
+                match c.event.as_str() {
+                    "$pageview" => "$pageview",
+                    "$identify" => "$identify",
+                    _ => "custom",
+                }
+            })
+            .collect();
+        assert_eq!(names, vec!["$pageview", "$identify", "custom"]);
+    });
+}
+
+#[tokio::test]
+async fn realistic_event_with_destination_mutation() {
+    let h = TestHarness::new();
+    let wrapped = test_utils::realistic_pageview("user-42")
+        .with_destination(Destination::AnalyticsHistorical);
+    let events: Vec<&(dyn Event + Send + Sync)> = vec![&wrapped];
+
+    let results = h.sink.publish_batch(&h.ctx, &events).await;
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].outcome(), Outcome::Success);
+    h.producer.with_records(|records| {
+        assert_eq!(records[0].topic, "events_hist");
+    });
+}
+
+#[tokio::test]
+async fn realistic_dropped_event_not_published() {
+    use crate::v1::analytics::types::EventResult;
+
+    let h = TestHarness::new();
+    let wrapped = test_utils::realistic_pageview("user-42")
+        .with_result(EventResult::Drop, Some("rate_limited"));
+    let events: Vec<&(dyn Event + Send + Sync)> = vec![&wrapped];
+
+    let results = h.sink.publish_batch(&h.ctx, &events).await;
+
+    assert!(results.is_empty());
+    assert_eq!(h.producer.record_count(), 0);
+}
+
+// ===========================================================================
+// Coverage gap fills (C5)
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// Mixed send error + ack error in one batch: first event fails at send,
+// remaining events fail at ack. Verifies both error types are reported.
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn mixed_send_error_and_ack_error_in_batch() {
+    let h = TestHarness::builder()
+        .send_error(|| ProduceError::Kafka {
+            code: RDKafkaErrorCode::QueueFull,
+        })
+        .send_error_count(1)
+        .enqueue_retry_max(0)
+        .ack_error(|| ProduceError::DeliveryCancelled)
+        .build();
+    let e1 = FakeEvent::ok("evt-1");
+    let e2 = FakeEvent::ok("evt-2");
+    let e3 = FakeEvent::ok("evt-3");
+    let events: Vec<&(dyn Event + Send + Sync)> = vec![&e1, &e2, &e3];
+
+    let results = h.sink.publish_batch(&h.ctx, &events).await;
+
+    assert_eq!(results.len(), 3);
+    let by_key: HashMap<Uuid, _> = results.iter().map(|r| (r.key(), r)).collect();
+
+    // evt-1: send error (queue_full)
+    assert_eq!(by_key[&e1.parsed_uuid].outcome(), Outcome::RetriableError);
+    assert_eq!(by_key[&e1.parsed_uuid].cause(), Some("queue_full"));
+
+    // evt-2 and evt-3: enqueued successfully, but ack error (delivery_cancelled)
+    assert_eq!(by_key[&e2.parsed_uuid].outcome(), Outcome::RetriableError);
+    assert_eq!(by_key[&e2.parsed_uuid].cause(), Some("delivery_cancelled"));
+    assert_eq!(by_key[&e3.parsed_uuid].outcome(), Outcome::RetriableError);
+    assert_eq!(by_key[&e3.parsed_uuid].cause(), Some("delivery_cancelled"));
+
+    // Only evt-2 and evt-3 were enqueued (evt-1 failed at send)
+    assert_eq!(h.producer.record_count(), 2);
+}
+
+// ---------------------------------------------------------------------------
+// Partial timeout: first event fails at send (immediate), remaining time out.
+// Verifies mixed Outcome::RetriableError and Outcome::Timeout in one batch.
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn partial_timeout_with_send_error() {
+    let h = TestHarness::builder()
+        .send_error(|| ProduceError::Kafka {
+            code: RDKafkaErrorCode::QueueFull,
+        })
+        .send_error_count(1)
+        .enqueue_retry_max(0)
+        .ack_delay(Duration::from_secs(60))
+        .produce_timeout(Duration::from_millis(50))
+        .build();
+    let e1 = FakeEvent::ok("evt-1");
+    let e2 = FakeEvent::ok("evt-2");
+    let events: Vec<&(dyn Event + Send + Sync)> = vec![&e1, &e2];
+
+    let results = h.sink.publish_batch(&h.ctx, &events).await;
+
+    assert_eq!(results.len(), 2);
+    let by_key: HashMap<Uuid, _> = results.iter().map(|r| (r.key(), r)).collect();
+
+    // evt-1: immediate send error
+    assert_eq!(by_key[&e1.parsed_uuid].outcome(), Outcome::RetriableError);
+    assert_eq!(by_key[&e1.parsed_uuid].cause(), Some("queue_full"));
+
+    // evt-2: enqueued successfully, but ack times out
+    assert_eq!(by_key[&e2.parsed_uuid].outcome(), Outcome::Timeout);
+    assert_eq!(by_key[&e2.parsed_uuid].cause(), Some("timeout"));
+}
+
+// ---------------------------------------------------------------------------
+// Partial timeout: serialization failure + timeout in one batch.
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn partial_timeout_with_serialization_error() {
+    let h = TestHarness::builder()
+        .ack_delay(Duration::from_secs(60))
+        .produce_timeout(Duration::from_millis(50))
+        .build();
+    let e1 = FakeEvent::ok("evt-1").with_payload(Err("bad".into()));
+    let e2 = FakeEvent::ok("evt-2");
+    let events: Vec<&(dyn Event + Send + Sync)> = vec![&e1, &e2];
+
+    let results = h.sink.publish_batch(&h.ctx, &events).await;
+
+    assert_eq!(results.len(), 2);
+    let by_key: HashMap<Uuid, _> = results.iter().map(|r| (r.key(), r)).collect();
+
+    // evt-1: serialization failure (immediate, fatal)
+    assert_eq!(by_key[&e1.parsed_uuid].outcome(), Outcome::FatalError);
+    assert_eq!(
+        by_key[&e1.parsed_uuid].cause(),
+        Some("serialization_failed")
+    );
+
+    // evt-2: enqueued, times out
+    assert_eq!(by_key[&e2.parsed_uuid].outcome(), Outcome::Timeout);
+    assert_eq!(by_key[&e2.parsed_uuid].cause(), Some("timeout"));
 }

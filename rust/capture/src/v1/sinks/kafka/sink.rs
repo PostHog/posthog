@@ -133,6 +133,14 @@ impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
 
             payload_buf.clear();
             if let Err(e) = event.serialize_into(ctx, &mut payload_buf) {
+                crate::ctx_log!(
+                    Level::ERROR,
+                    ctx,
+                    sink = labels.sink,
+                    event_uuid = %uuid,
+                    error = %e,
+                    "event serialization failed, dropping event"
+                );
                 counter!(
                     "capture_v1_kafka_publish_total",
                     "mode" => labels.mode,
@@ -153,11 +161,11 @@ impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
             let headers: rdkafka::message::OwnedHeaders = event.headers(ctx).into();
 
             key_buf.clear();
-            event.write_partition_key(ctx, &mut key_buf);
+            let key = event.partition_key(ctx, &mut key_buf);
 
             let mut record = ProduceRecord {
                 topic,
-                key: Some(&key_buf),
+                key,
                 payload: &payload_buf,
                 headers,
             };
