@@ -84,7 +84,7 @@ jobs:
                     MATRIX=$(jq -cn --argjson c "$CHROMIUM" '{include: $c}')
                   else
                     WEBKIT=$(shards webkit "$WEBKIT_SHARDS")
-                    MATRIX=$(jq -cn --argjson c "$CHROMIUM" --argjson w "$WEBKIT" '{include: $c + $w}')
+                    MATRIX=$(jq -cn --argjson c "$CHROMIUM" --argjson w "$WEBKIT" '{include: ($c + $w)}')
                   fi
                   echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
 
