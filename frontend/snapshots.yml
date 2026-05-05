@@ -4081,7 +4081,7 @@ snapshots:
     scenes-app-feature-flags--new-remote-config-flag-payload-error--dark:
         hash: v1.k794b7964.41717dc825a37facb7c1fe3bb7cbbcb135f80f69971279a9ffba4a88d2946316.fHerCbJ-eNkDoZmMfgM39T2qWIFZdpxFjcAhPDzBlhQ
     scenes-app-feature-flags--new-remote-config-flag-payload-error--light:
-        hash: v1.k794b7964.f3e18be97daf06224537ca31788bae43c5f655ea421e145c8627bd6443b45c90.hew88eUBN6Gj7O9OtsPpSZpZnvnhki3kd2s2vXPLWu0
+        hash: v1.k794b7964.f51fc88581aa9679f0315bdfcc665968a85dc44d3a351b4b558fa10508e1c3b2.TDiDX5REkSVUJtb_HL095q3zzOlFMJHDngWeGy0LNS8
     scenes-app-feature-flags-code-examples--code-instructions-node-with-group-multivariate-flag-local-evaluation--dark:
         hash: v1.k794b7964.ac812954f56156e7283a5103f2d7ef66391e452a67c60df53ab7bb23f08231c4.GayyB5gpMu03PVFXWLU0h99-6qG28mNLT2sdqZpb64c
     scenes-app-feature-flags-code-examples--code-instructions-node-with-group-multivariate-flag-local-evaluation--light:
