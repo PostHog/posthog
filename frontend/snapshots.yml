@@ -6039,9 +6039,9 @@ snapshots:
     utils-autocapture-preview-image--absolute-image-url--light:
         hash: v1.k794b7964.557019ae51ff6382a94b5a5294dca3dc6b7b73134e23cde8d21b7b4dfc4ae628.-ZFMYQCQTcklupuBtQEEChhD75kYOAL7dI4tj54kUQ4
     utils-autocapture-preview-image--all-scenarios--dark:
-        hash: v1.k794b7964.491d0bfff28a09e9f850145c6b06f1b6ce104d605c0bb77eb69e70ba4cff8a0d.2fevjRiIU5SxgQ3YmkOQ11Vazd9sgk2RlYhbpwdH70c
+        hash: v1.k794b7964.433e5f641a349d68761d0bf62e56175409dc3edc9732744b6f5797939d49978e.tH-ffw-i1qCecCYoF5P8f7F7eQ7bcejpH2zy7UvVoY8
     utils-autocapture-preview-image--all-scenarios--light:
-        hash: v1.k794b7964.e0e73f7d9224ce70bb334a5dd9f0b2c3fe8f7c4cb9b03f9ec578807b2399c376.wG2cJsId1PKpus-JiGvr5LDc1yxdFpel2Y90UOBtAZE
+        hash: v1.k794b7964.1eafcb7c2721d5fea4af7b1b2418c92657b61fd29471a57db385c038be9da51b.RhjrSWEL2xwgvuYdVsph99FpIW42zv_SaePy-EZXgEU
     utils-autocapture-preview-image--no-image--dark:
         hash: v1.k794b7964.452d23848014e418de2845c12132bcc369a2b0996a5720a452c0319b909f50c5.Aa1SKeSCuPXCqVeGjJoTOt3A7rtXnrmF4QaL1QB3huk
     utils-autocapture-preview-image--no-image--light:
@@ -6055,13 +6055,13 @@ snapshots:
     utils-autocapture-preview-image--relative-image-no-properties--light:
         hash: v1.k794b7964.ac0b1b273673606c050f2456d4e4f89ed9b51f4ff81d19bd49c27012df7228b9.QqebZ5ofiSy7_l4SI8CY2r7Bmsct0UVC6p6a0jrlzyE
     utils-autocapture-preview-image--relative-image-with-current-url--dark:
-        hash: v1.k794b7964.48c9ad84447a7cf6eedb21aa1d70b677378a086143186350c6e2c6e430de17a7.LhWlE_L0KsftkvF9Ynor-N2aCDrt9MfOjG5niURwheA
+        hash: v1.k794b7964.c7acd105f6399d63776bfed3561242a2f2edb6c492aa4aaca9ff0c4ffc3dde61.MtawQTsrzaoXnXXtolm5QpozUgSON1UcrpYcyRbunok
     utils-autocapture-preview-image--relative-image-with-current-url--light:
-        hash: v1.k794b7964.40629f1bd3f9753485b2f88f7d9c847bedcca10ad53732e6af07f0c35189921c._YqcNPIrJEOTw-PzxQNeQyhX5USWhWCOawKB5McdiZI
+        hash: v1.k794b7964.65bee2b7efa6b972209d7d76b559b5499d6de41ffba62f41b44848e568f2b353.zu-E-JmCsic7u11XS1CTH0b7-1SpSLizRgQmaBJHlVE
     utils-autocapture-preview-image--tab-absolute-image-url--dark:
-        hash: v1.k794b7964.b0aa280220fa39328102672dbcabb12ef54a801ec4c6f83ec045d4db98e42a0c.L8T9YIquW3BBPX7zyYwzbpPHQqehJQbFmj_5IBWZks4
+        hash: v1.k794b7964.756ee4ace843deb938f58fdfc6b75bf725775896532bd860be82ae13f45e4c7c.O31RlVZFnP3ys1B8VboOrdJs6usMKzuXbRJ6RWlyvLU
     utils-autocapture-preview-image--tab-absolute-image-url--light:
-        hash: v1.k794b7964.56af0614799bad86be74ecb2818cae11a46b14fcd725705dccf1670d49372ab4.rfokQ6NrU5eVcOXVnH1-kPFI6olsctegfLc297TCwpk
+        hash: v1.k794b7964.5bb2feec5d7b932826253d43e46a7f9098167c45a091183c02017537f11e6526.Umf_SptLw2x00ojcUPEHmaMSdthd5EGKFfN55-wJOg0
     utils-autocapture-preview-image--tab-no-image--dark:
         hash: v1.k794b7964.2c17ecf22b3d5cd72b5a6cb1ca7dfc91d6c0f7f9b5d6f9d7511d112c30e9546f.qmVW41cbrmRWTfeEkCo9cMI3T6StO2PT_WHL_-tCZBw
     utils-autocapture-preview-image--tab-no-image--light:
@@ -6075,9 +6075,9 @@ snapshots:
     utils-autocapture-preview-image--tab-relative-image-no-properties--light:
         hash: v1.k794b7964.2c406580df118291d17464a1781ad1be0c9fe376f3f4cfbef37bb6e249dcf82d.9YWp7aFfdz-dk1FsFAQevtDvczasOp0QcHWOMkIo4Qk
     utils-autocapture-preview-image--tab-relative-image-with-current-url--dark:
-        hash: v1.k794b7964.43897672d73fbe5df0a81e43c8cef8febcb1b7b8a9738b94a18983aa29618292.XiUgwh9l4aFs_jrXFbben26cZal3-mcDaVep8Kg_usA
+        hash: v1.k794b7964.c17be7ebf593bcdc6ad760d1ae2035be3dadad1e049d39ef6c72b9e093a03067.KVwJMpXcfhchvEMKnnqsNnyBE6EI5d9YIUWIB-08xfY
     utils-autocapture-preview-image--tab-relative-image-with-current-url--light:
-        hash: v1.k794b7964.ff569a4fc9304ad767d4ec81bdaade8d817ee64c1668a336b6c5470e2f4ef430.Y3XNq6SDCz1zrTzuCi9lyj2VMTpVa4bR9lStB1lTBMc
+        hash: v1.k794b7964.3e7d7a6fa83916bae8280f36864538241c45bd4122e167b299a046939c802b03.oW1U5X9JYmxSLcn72S6kPmgj_jxgZTKyJa0uZ1kbRJs
     web-analytics-tiles--browser--dark:
         hash: v1.k794b7964.f9113090553180b179c722ac50c23bccba78eccd9f52118e44d2e75508891caa._n7yHWlX4M5OdGHBMMtM9f5-Um0fVBOgTk0h_4yWY-E
     web-analytics-tiles--browser--light:
