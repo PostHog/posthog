@@ -119,7 +119,11 @@ Return a `SourceResponse` directly. **Do not** use `dlt_source_to_source_respons
 
 Prefer yielding data in the shape the API returns it. No custom dataclasses, no heavy parsing. Yield either `dict`, `list[dict]` (preferred when possible), or a `pyarrow.Table`. The pipeline buffers and batches for you.
 
+**Don't import or instantiate `Batcher` at the source layer.** The pipeline already runs one (`pipelines/pipeline/pipeline.py`) at the same 5000-row / 200 MiB thresholds. Yielding raw `dict` / `list[dict]` from your generator is the canonical path — reach for `pyarrow.Table` only when you already have arrow-shaped data (e.g., a ClickHouse adapter). Source-level batching results in double-buffering with no behavioral win.
+
 For pyarrow tables, cap in-memory rows at ~200 MiB or ~5000 rows. Use helpers like `table_from_iterator()` / `table_from_py_list()` from `posthog/temporal/data_imports/pipelines/pipeline/utils.py`.
+
+**URL construction:** use `urllib.parse.urlencode` for query strings. Don't use `requests.Request(...).prepare().url` — `PreparedRequest.url` is typed `Optional[str]` and the typical workaround (`prepared.url or f"..."`) carries an unreachable fallback. `urlencode` is shorter, dependency-free, and produces identical output for ASCII-safe params.
 
 ### Resumable source pattern
 
@@ -224,7 +228,11 @@ short "Notes on partially-tracked sources" entry explaining what blocks tracking
 
 ## Incremental sync guidance
 
+- **Only set `supports_incremental=True` when the API exposes a server-side timestamp filter** (`<field>_gte`, `since`, `modified_after`, etc.). A "client-side cursor" that fetches every page and skips already-seen rows in Python is **not** incremental — every run still hits every page, so users on row-based billing get charged for the full table on every "incremental" sync. If the API has no server filter, ship full refresh only and document the limitation in the caption.
 - If the API supports server-side time filtering, use it and map from `db_incremental_field_last_value`.
+- **Honor `inputs.incremental_field`** — that's the user's chosen cursor field from the schema settings. `INCREMENTAL_FIELDS` per-endpoint is the menu of _advertised options_; don't reach into `INCREMENTAL_FIELDS[endpoint][0]` to pick a default and silently override the user's selection.
+- **Per-endpoint sort enums vary.** Don't hardcode `?sorting=created_at` (or whatever) globally. Verify each list endpoint's allowed sort values against the API spec **and** with a curl smoke-test against the live API — APIs frequently document one set of options and silently reject another. Polar's `subscriptions` rejects `sorting=created_at` (allows `started_at`); generic "ordering by created_at" assumptions break here.
+- **Specify `?sorting=` explicitly when destination row order matters.** Different endpoints on the same API often have different default sorts (newest-first vs oldest-first), so leaving it implicit produces inconsistent destination tables.
 - If the API only supports cursor pagination, still declare incremental fields if reliable and let merge semantics dedupe.
 - `sort_mode="desc"` only if the endpoint truly cannot return ascending. For descending sources, handle `db_incremental_field_earliest_value` to scroll earlier rows before newer ones (see Stripe).
 - Default unknown endpoints to full refresh first; enable incremental only after confirming a stable filter field and API ordering semantics.
@@ -232,11 +240,13 @@ short "Notes on partially-tracked sources" entry explaining what blocks tracking
 
 ## API behavior verification checklist
 
-Before finalizing endpoint logic, verify from docs (or reliable API examples):
+Before finalizing endpoint logic, verify from docs **and** with curl against the live API (not just docs — APIs frequently silently ignore unknown params or document outdated enums):
 
 - Response shape: list vs object vs wrapped data (`{"data": [...]}`).
 - Pagination: Link header vs body cursor vs offset/page; how next-page termination is signaled.
-- Ordering guarantees: ascending/descending/undefined for time fields.
+- Ordering guarantees: ascending/descending/undefined for time fields, and the API's _default_ sort if you don't pass one.
+- **Sort enum per endpoint:** which `sorting=` values does each list endpoint accept? Some APIs vary the allowed enum per resource (Polar's subscriptions doesn't accept `created_at` — `started_at` only). Confirm with curl that the value you intend to pass returns 200, and probe with a future-date cutoff to confirm whether timestamp filters are honored or silently ignored.
+- **Server-side timestamp filter:** does `<field>_gte` / `since` / `modified_after` actually filter, or does the API accept it and ignore it? Test by passing a future date and checking whether the row drops out.
 - Rate-limit headers (window reset timestamp, concurrent limits).
 - Field stability: whether candidate incremental/partition fields can change over time.
 
@@ -319,6 +329,47 @@ def get_non_retryable_errors(self) -> dict[str, str | None]:
 ```
 
 Common cases: 401 Unauthorized, 403 Forbidden, invalid/expired tokens, OAuth tokens needing re-auth.
+
+## `validate_credentials`
+
+Called from two places with different intent:
+
+1. **Source-create** (Django, synchronous, blocks the user's "Connect" click) — `validate_credentials(config, team_id)` with **no `schema_name`**. Goal: confirm the token is genuine. Should be one cheap probe.
+2. **Per-schema, via the `incremental_fields` action** — `validate_credentials(config, team_id, schema_name=<name>)`. Goal: confirm the token has scope for that specific endpoint before the wizard reveals sync settings.
+
+**Distinguish 401 from 403 at source-create time.** If the API returns 403 for "valid token, missing scope" and 401 for "invalid token", accept 403 at source-create — the user may legitimately only intend to grant scopes for the endpoints they want to sync. Re-raise 403 only when `schema_name` is set, since at that point the user is asking to validate one specific endpoint.
+
+```python
+if table_name and table_name in ENDPOINTS:
+    is_create_probe = False
+    endpoints_to_check: list[str] = [table_name]
+else:
+    is_create_probe = True
+    endpoints_to_check = [ENDPOINTS[0]]
+
+for endpoint in endpoints_to_check:
+    response = session.get(f"{BASE_URL}/{endpoint}/", params={"limit": 1}, ...)
+    if response.status_code == 403:
+        if is_create_probe:
+            continue          # token authentic; defer scope check to per-schema validate or first sync
+        raise PermissionError(f"Missing permissions for {endpoint}")
+    response.raise_for_status()  # 401 → invalid token → fail
+```
+
+Sync-time 403s are caught separately by `get_non_retryable_errors()` mapping the friendly message onto the schema's `latest_error`.
+
+## Document required token scopes in the caption
+
+If the API issues OAuth scopes or per-resource access tokens, list every scope the source actually calls in `caption` (or `permissionsCaption`). Don't make the user guess and grant the full set defensively. Example:
+
+```python
+caption=(
+    "Connect your Foo account using a [Personal Access Token](https://docs.foo.com/tokens). \n\n"
+    "**Required scopes:** `customers:read`, `orders:read`, `products:read`."
+),
+```
+
+Captions are rendered through `LemonMarkdown`, so backticks, bold, and links work.
 
 ## Mixins
 
