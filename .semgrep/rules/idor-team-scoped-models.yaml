@@ -63,6 +63,7 @@ rules:
                               |ApprovalPolicy
                               |BatchExport
                               |BatchExportBackfill
+                              |BatchExportFileDownload
                               |BatchImport
                               |ButtonTile
                               |ChangeRequest
@@ -272,6 +273,7 @@ rules:
                         |ApprovalPolicy
                         |BatchExport
                         |BatchExportBackfill
+                        |BatchExportFileDownload
                         |BatchImport
                         |ButtonTile
                         |ChangeRequest
