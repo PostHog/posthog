@@ -1129,4 +1129,51 @@ describe('cohortEditLogic', () => {
                 })
         }, 15000)
     })
+
+    describe('active tab URL routing', () => {
+        beforeEach(async () => {
+            await initCohortLogic({ id: 1 })
+            router.actions.replace(urls.cohort(1))
+        })
+
+        it('defaults to overview when no hash is set', async () => {
+            await expectLogic(logic).toMatchValues({ activeTab: 'overview' })
+        })
+
+        it('writes #tab=history when switching to history', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setActiveTab('history')
+            }).toFinishAllListeners()
+            expect(router.values.hashParams.tab).toBe('history')
+        })
+
+        it('strips the tab key from the hash when switching back to overview', async () => {
+            logic.actions.setActiveTab('history')
+            await expectLogic(logic).toFinishAllListeners()
+            expect(router.values.hashParams.tab).toBe('history')
+
+            await expectLogic(logic, () => {
+                logic.actions.setActiveTab('overview')
+            }).toFinishAllListeners()
+            expect(router.values.hashParams.tab).toBeUndefined()
+        })
+
+        it('reads the tab from the URL on navigation', async () => {
+            router.actions.replace(urls.cohort(1), {}, { tab: 'history' })
+            await expectLogic(logic).toFinishAllListeners().toMatchValues({ activeTab: 'history' })
+        })
+
+        it('falls back to overview when the hash tab value is unrecognized', async () => {
+            router.actions.replace(urls.cohort(1), {}, { tab: 'garbage' })
+            await expectLogic(logic).toFinishAllListeners().toMatchValues({ activeTab: 'overview' })
+        })
+    })
+
+    describe('new cohort hash hygiene', () => {
+        it('clears a stale #tab=history hash on mount', async () => {
+            router.actions.replace(urls.cohort('new'), {}, { tab: 'history' })
+            await initCohortLogic({ id: 'new' })
+            expect(router.values.hashParams.tab).toBeUndefined()
+        })
+    })
 })

@@ -684,6 +684,11 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
     afterMount(({ actions, props }) => {
         if (!props.id || props.id === 'new') {
             actions.setCohort(NEW_COHORT)
+            // Tabs aren't shown for new cohorts; clear any stale `#tab=…` hash so the URL reflects reality.
+            if (router.values.hashParams.tab) {
+                const { tab: _, ...restHash } = router.values.hashParams
+                router.actions.replace(router.values.location.pathname, router.values.searchParams, restHash)
+            }
         } else {
             actions.fetchCohort(props.id)
         }
