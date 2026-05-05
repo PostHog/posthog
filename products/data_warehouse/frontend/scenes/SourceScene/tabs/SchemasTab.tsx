@@ -265,13 +265,25 @@ function ManagedSchemaTable({
                     title: 'Schema',
                     key: 'name',
                     render: function RenderName(_, schema) {
-                        const name = schema.label ?? schema.name
+                        // Multi-schema warehouse rows are stored as `schema.table`. Split for display
+                        // so the table name reads cleanly with the source schema as the subtitle,
+                        // matching the two-line look used everywhere else.
+                        const rawName = schema.label ?? schema.name
+                        const firstDot = rawName.indexOf('.')
+                        const titleText = firstDot === -1 ? rawName : rawName.slice(firstDot + 1)
+                        const sourceSchemaName = firstDot === -1 ? null : rawName.slice(0, firstDot)
+                        const dwhTableName = schema.table?.name
+                        const subtitle = dwhTableName ? (
+                            <code>{dwhTableName}</code>
+                        ) : sourceSchemaName ? (
+                            <code>{sourceSchemaName}</code>
+                        ) : undefined
                         return (
                             <LemonTableLink
                                 to={urls.dataWarehouseSourceSchema(prefixedSourceId, schema.id)}
                                 title={
                                     <div className="flex items-center gap-1">
-                                        <span>{name}</span>
+                                        <span>{titleText}</span>
                                         {schema.description && (
                                             <Tooltip title={schema.description}>
                                                 <IconInfo className="text-muted-alt text-base" />
@@ -279,7 +291,7 @@ function ManagedSchemaTable({
                                         )}
                                     </div>
                                 }
-                                description={schema.table?.name ? <code>{schema.table.name}</code> : undefined}
+                                description={subtitle}
                             />
                         )
                     },
