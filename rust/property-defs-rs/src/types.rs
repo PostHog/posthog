@@ -335,11 +335,15 @@ impl Event {
                 continue;
             }
 
+            // Property keys flow into posthog_eventproperty.property and
+            // posthog_propertydefinition.name — both text columns. Postgres rejects null bytes
+            // in text, so any payload with an embedded \u{0000} burns the full 3-retry cycle and
+            // is then dropped. Mirror the existing sanitize on event names (line 222 above).
             updates.push(Update::EventProperty(EventProperty {
                 team_id: self.team_id,
                 project_id: self.project_id,
                 event: sanitize_string(&self.event),
-                property: key.clone(),
+                property: sanitize_string(key),
             }));
 
             let property_type = detect_property_type(key, value);
@@ -348,7 +352,7 @@ impl Event {
             updates.push(Update::Property(PropertyDefinition {
                 team_id: self.team_id,
                 project_id: self.project_id,
-                name: key.clone(),
+                name: sanitize_string(key),
                 is_numerical,
                 property_type,
                 event_type: parent_type,
