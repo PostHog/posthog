@@ -323,6 +323,7 @@ class CalendarHeatmapQueryRunner(AnalyticsQueryRunner[CalendarHeatmapResponse]):
             team=self.team,
             interval=interval,
             now=datetime.now(),
+            exact_timerange=bool(self.query.dateRange and self.query.dateRange.explicitDate),
         )
 
     def series_event(self, series: Union[EventsNode, ActionsNode, DataWarehouseNode]) -> str | None:

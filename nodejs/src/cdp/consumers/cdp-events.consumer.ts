@@ -5,7 +5,7 @@ import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
 
 import { convertToHogFunctionInvocationGlobals } from '../../cdp/utils'
 import { KAFKA_EVENTS_JSON } from '../../config/kafka-topics'
-import { KafkaConsumer } from '../../kafka/consumer'
+import { KafkaConsumerInterface, createKafkaConsumer } from '../../kafka/consumer'
 import { HealthCheckResult, PluginsServerConfig, RawClickHouseEvent } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
@@ -33,7 +33,7 @@ export class CdpEventsConsumer<
     protected name = 'CdpEventsConsumer'
     protected hogTypes: HogFunctionTypeType[] = ['destination']
     private cyclotronJobQueue: CyclotronJobQueue
-    protected kafkaConsumer: KafkaConsumer
+    protected kafkaConsumer: KafkaConsumerInterface
 
     private hogRateLimiter: HogRateLimiterService
 
@@ -45,7 +45,7 @@ export class CdpEventsConsumer<
     ) {
         super(config, deps)
         this.cyclotronJobQueue = new CyclotronJobQueue(config.CONSUMER_BATCH_SIZE, config.KAFKA_CLIENT_RACK, config)
-        this.kafkaConsumer = new KafkaConsumer({ groupId, topic })
+        this.kafkaConsumer = createKafkaConsumer({ groupId, topic })
         this.hogRateLimiter = new HogRateLimiterService(
             {
                 bucketSize: config.CDP_RATE_LIMITER_BUCKET_SIZE,

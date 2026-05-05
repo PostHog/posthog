@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import os
 import re
 import base64
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from django.conf import settings
+
 import structlog
+import posthoganalytics
+from posthoganalytics.ai.openai import OpenAI
 from prometheus_client import Counter
 
 if TYPE_CHECKING:
@@ -13,7 +18,6 @@ if TYPE_CHECKING:
 
 from posthog.api.insight_suggestions import get_query_specific_instructions
 from posthog.exceptions_capture import capture_exception
-from posthog.llm.gateway_client import get_llm_client
 from posthog.models.llm_prompt import normalize_prompt_to_string
 from posthog.utils import get_instance_region
 
@@ -314,6 +318,12 @@ def _attach_images_to_user_message(
     return AttachedImageSummary(len(ordered_ids), bytes_total, len(user_text))
 
 
+def _get_openai_client() -> OpenAI:
+    if not os.environ.get("OPENAI_API_KEY"):
+        raise ValueError("OPENAI_API_KEY environment variable not set")
+    return OpenAI(posthog_client=posthoganalytics, base_url=settings.OPENAI_BASE_URL, max_retries=3)  # type: ignore[arg-type]
+
+
 def generate_change_summary(
     previous_states: list[dict] | None,
     current_states: list[dict],
@@ -343,19 +353,33 @@ def generate_change_summary(
         user_message_length=attached.user_text_length,
     )
 
-    client = get_llm_client(product="subscriptions")
+    client = _get_openai_client()
 
     instance_region = get_instance_region() or "HOBBY"
     user_tag = f"{instance_region}/subscription-summary-team-{team_id}"
     if delivery_id:
         user_tag = f"{user_tag}-delivery-{delivery_id}"
-    result = client.chat.completions.create(
+
+    posthog_properties: dict[str, object] = {"ai_product": "subscriptions"}
+    if delivery_id:
+        posthog_properties["delivery_id"] = delivery_id
+
+    extra_capture_kwargs: dict[str, object] = {}
+    if team is not None:
+        posthog_properties["$ai_billable"] = True
+        posthog_properties["team_id"] = team.id
+        extra_capture_kwargs["posthog_groups"] = {"project": str(team.id)}
+
+    result = client.chat.completions.create(  # type: ignore[call-overload]
         model="gpt-4.1-mini",
         temperature=0.3,
         max_tokens=500,
         timeout=60,
-        messages=messages,  # type: ignore[arg-type]
+        messages=messages,
         user=user_tag,
+        posthog_distinct_id=user_tag,
+        posthog_properties=posthog_properties,
+        **extra_capture_kwargs,
     )
 
     content: str = ""

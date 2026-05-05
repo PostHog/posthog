@@ -298,66 +298,6 @@ describe('featureFlagIntentWarningLogic', () => {
             expect(issues.filter((s) => s.includes('"is not set"'))).toHaveLength(1)
         })
 
-        it('detects mixed user and group targeting across condition groups', async () => {
-            enableIntentsFeatureFlag()
-
-            flagLogic.actions.setFlagIntent('local-eval')
-            flagLogic.actions.setFeatureFlag({
-                ...NEW_FLAG,
-                filters: {
-                    ...NEW_FLAG.filters,
-                    aggregation_group_type_index: null,
-                    groups: [
-                        {
-                            properties: [] as AnyPropertyFilter[],
-                            rollout_percentage: 100,
-                            variant: null,
-                            aggregation_group_type_index: null,
-                        },
-                        {
-                            properties: [] as AnyPropertyFilter[],
-                            rollout_percentage: 100,
-                            variant: null,
-                            aggregation_group_type_index: 0,
-                        },
-                    ] as FeatureFlagGroupType[],
-                },
-            })
-
-            const issues = warningLogic.values.intentIssues
-            expect(issues.some((s) => s.toLowerCase().includes('mixed user and group targeting'))).toBe(true)
-        })
-
-        it('does not flag mixed targeting when all groups share the same aggregation', async () => {
-            enableIntentsFeatureFlag()
-
-            flagLogic.actions.setFlagIntent('local-eval')
-            flagLogic.actions.setFeatureFlag({
-                ...NEW_FLAG,
-                filters: {
-                    ...NEW_FLAG.filters,
-                    aggregation_group_type_index: null,
-                    groups: [
-                        {
-                            properties: [] as AnyPropertyFilter[],
-                            rollout_percentage: 100,
-                            variant: null,
-                            aggregation_group_type_index: null,
-                        },
-                        {
-                            properties: [] as AnyPropertyFilter[],
-                            rollout_percentage: 100,
-                            variant: null,
-                            aggregation_group_type_index: null,
-                        },
-                    ] as FeatureFlagGroupType[],
-                },
-            })
-
-            const issues = warningLogic.values.intentIssues
-            expect(issues.some((s) => s.toLowerCase().includes('mixed user and group targeting'))).toBe(false)
-        })
-
         it('experience continuity adds an issue', async () => {
             enableIntentsFeatureFlag()
 

@@ -1291,3 +1291,33 @@ class TestCalendarHeatmapQueryRunner(ClickhouseTestMixin, APIBaseTest):
             f"Expected no Firefox+Windows event at 12:00, got {results_dict.get((6, 12))}"
         )
         assert response.results.allAggregations == 1, f"Expected 1 total event, got {response.results.allAggregations}"
+
+    @freeze_time("2026-05-01 14:32:11")
+    def test_explicit_date_keeps_relative_window_exact(self):
+        # Without explicitDate, "-7d" truncates the lower bound to start-of-day and rounds the
+        # upper bound to end-of-day, so the window spans 8 calendar days.
+        query_default = CalendarHeatmapQuery(
+            dateRange=DateRange(date_from="-7d"),
+            properties=[],
+            filterTestAccounts=False,
+            series=[EventsNode(kind="EventsNode", math="dau")],
+        )
+        runner_default = CalendarHeatmapQueryRunner(team=self.team, query=query_default)
+        date_from_default = runner_default.query_date_range.date_from()
+        date_to_default = runner_default.query_date_range.date_to()
+        assert (date_from_default.hour, date_from_default.minute, date_from_default.second) == (0, 0, 0)
+        assert (date_to_default.hour, date_to_default.minute, date_to_default.second) == (23, 59, 59)
+
+        # With explicitDate, both bounds are precise so the window is a true rolling 7 days.
+        query_explicit = CalendarHeatmapQuery(
+            dateRange=DateRange(date_from="-7d", explicitDate=True),
+            properties=[],
+            filterTestAccounts=False,
+            series=[EventsNode(kind="EventsNode", math="dau")],
+        )
+        runner_explicit = CalendarHeatmapQueryRunner(team=self.team, query=query_explicit)
+        date_from_explicit = runner_explicit.query_date_range.date_from()
+        date_to_explicit = runner_explicit.query_date_range.date_to()
+        assert (date_from_explicit.hour, date_from_explicit.minute, date_from_explicit.second) == (14, 32, 11)
+        assert (date_to_explicit.hour, date_to_explicit.minute, date_to_explicit.second) == (14, 32, 11)
+        assert (date_to_explicit - date_from_explicit).total_seconds() == 7 * 24 * 60 * 60

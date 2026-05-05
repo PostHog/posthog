@@ -1,7 +1,12 @@
 import { useMemo } from 'react'
 
 import type { Series } from '../../../core/types'
-import { buildConfidenceIntervalSeries, buildMovingAverageSeries } from './derived-series'
+import {
+    applyComparisonDimming,
+    buildConfidenceIntervalSeries,
+    buildMovingAverageSeries,
+    buildTrendLineSeries,
+} from './derived-series'
 
 export interface ConfidenceIntervalConfig {
     seriesKey: string
@@ -15,27 +20,43 @@ export interface MovingAverageConfig {
     label?: string
 }
 
+export interface TrendLineConfig {
+    seriesKey: string
+    kind: 'linear' | 'exponential'
+    label?: string
+}
+
 export interface DerivedSeriesOptions {
     confidenceIntervals?: ConfidenceIntervalConfig[]
     movingAverage?: MovingAverageConfig[]
+    trendLines?: TrendLineConfig[]
+    /** Map of comparison series key → its primary series key. Comparison series render
+     *  at reduced opacity so they read as subordinate to their primary. */
+    comparisonOf?: Record<string, string>
 }
 
-/** Builds CI bands and moving averages from `source` and merges them with the source
- *  series in paint order: CI behind, then main, then MA on top (matches
- *  `LineChart.drawStatic` array iteration). Returns the original `source` reference
- *  when no derived-series options are set. */
+/** Builds CI bands, moving averages, and trend lines from `source` and merges them
+ *  with the source series in paint order: CI behind, then main, then MA, then trend
+ *  lines on top (matches `LineChart.drawStatic` array iteration). Comparison-period
+ *  dimming runs as a final pass. Returns the original `source` reference when no
+ *  derived-series options are set. */
 export function useDerivedSeries<Meta>(source: Series<Meta>[], options: DerivedSeriesOptions): Series<Meta>[] {
-    const { confidenceIntervals, movingAverage } = options
+    const { confidenceIntervals, movingAverage, trendLines, comparisonOf } = options
     // Reduce each config to a primitive signature so callers passing inline configs
-    // (`config={{ movingAverage: [...] }}`) don't reallocate the dep refs on every render
+    // (`config={{ trendLines: [...] }}`) don't reallocate the dep refs on every render
     // and miss the cache. CI's lower/upper data arrays aren't included — we assume the
     // caller hands us stable references when the underlying numbers haven't changed.
     const ciSignature = ciSig(confidenceIntervals)
     const maSignature = maSig(movingAverage)
+    const tlSignature = tlSig(trendLines)
+    const cmpSignature = cmpSig(comparisonOf)
     return useMemo(() => {
         const hasDerived =
-            (confidenceIntervals && confidenceIntervals.length > 0) || (movingAverage && movingAverage.length > 0)
-        if (!hasDerived) {
+            (confidenceIntervals && confidenceIntervals.length > 0) ||
+            (movingAverage && movingAverage.length > 0) ||
+            (trendLines && trendLines.length > 0)
+        const hasComparisons = comparisonOf && Object.keys(comparisonOf).length > 0
+        if (!hasDerived && !hasComparisons) {
             return source
         }
 
@@ -70,11 +91,20 @@ export function useDerivedSeries<Meta>(source: Series<Meta>[], options: DerivedS
             maSeries.push(buildMovingAverageSeries<Meta>({ sourceSeries: found, window: ma.window, label: ma.label }))
         }
 
-        return [...ciSeries, ...source, ...maSeries]
-        // The signatures above stand in for the two reference-typed config inputs; the
+        const tlSeries: Series<Meta>[] = []
+        for (const tl of trendLines ?? []) {
+            const found = sourceByKey.get(tl.seriesKey)
+            if (!found) {
+                continue
+            }
+            tlSeries.push(buildTrendLineSeries<Meta>({ sourceSeries: found, kind: tl.kind, label: tl.label }))
+        }
+
+        return applyComparisonDimming([...ciSeries, ...source, ...maSeries, ...tlSeries], comparisonOf)
+        // The signatures above stand in for the four reference-typed config inputs; the
         // raw refs are intentionally absent so inline-config callers don't bust the cache.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [source, ciSignature, maSignature])
+    }, [source, ciSignature, maSignature, tlSignature, cmpSignature])
 }
 
 function ciSig(ci: ConfidenceIntervalConfig[] | undefined): string {
@@ -92,6 +122,23 @@ function maSig(ma: MovingAverageConfig[] | undefined): string {
         return ''
     }
     return ma.map((m) => `${m.seriesKey}|${m.window}|${m.label ?? ''}`).join(';')
+}
+
+function tlSig(tl: TrendLineConfig[] | undefined): string {
+    if (!tl?.length) {
+        return ''
+    }
+    return tl.map((t) => `${t.seriesKey}|${t.kind}|${t.label ?? ''}`).join(';')
+}
+
+function cmpSig(cmp: Record<string, string> | undefined): string {
+    if (!cmp) {
+        return ''
+    }
+    return Object.entries(cmp)
+        .map(([k, v]) => `${k}=${v}`)
+        .sort()
+        .join(';')
 }
 
 const refIds = new WeakMap<object, number>()
