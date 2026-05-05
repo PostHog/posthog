@@ -150,6 +150,12 @@ export function buildDerivedConfigs<R extends TrendsResultLike>(
     for (const r of results) {
         if (r.compare && r.compare_label === 'previous') {
             const key = String(r.id)
+            // The library contract for `comparisonOf` is "comparison key → primary key",
+            // but the paired primary's `id` isn't carried on `TrendsResultLike` (the
+            // pairing lives on `IndexedTrendResult.colorIndex` upstream in trendsDataLogic).
+            // Self-mapping is functionally correct because `applyComparisonDimming` only
+            // checks key presence today; if/when the library starts reading the value,
+            // wire the real pairing through.
             comparisonOf[key] = key
             // Derived MA series of the comparison should also render dimmed; same for
             // any future derived keys built from the comparison source.
