@@ -106,8 +106,6 @@ If you prefer to use Docker instead of running npx directly:
 1. Build the Docker image:
 
 ```bash
-pnpm docker:build
-# or
 docker build -t posthog-mcp .
 ```
 
@@ -141,8 +139,6 @@ docker build -t posthog-mcp .
 3. Test Docker with MCP Inspector:
 
 ```bash
-pnpm docker:inspector
-# or
 npx @modelcontextprotocol/inspector docker run -i --rm --env POSTHOG_AUTH_HEADER=${POSTHOG_AUTH_HEADER} posthog-mcp
 ```
 

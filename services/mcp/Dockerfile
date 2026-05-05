@@ -1,11 +1,12 @@
-# Use a lightweight Node.js image
-FROM node:20-slim
+# Track the repo's Node baseline (.nvmrc). Node 20 is past Maintenance LTS EOL (2026-04-30).
+FROM node:24.13.0-bookworm-slim
 
 # Set the working directory inside the container
 WORKDIR /usr/src/app
 
-# Install mcp-remote globally to avoid npx overhead on each run
-RUN npm install -g mcp-remote@latest
+# Pin mcp-remote so two `docker build` invocations produce the same image.
+# Bump deliberately when upstream ships a fix; do not float `@latest` into a baked image.
+RUN npm install -g mcp-remote@0.1.38
 
 # Set default environment variable for POSTHOG_REMOTE_MCP_URL
 ENV POSTHOG_REMOTE_MCP_URL=https://mcp.posthog.com/mcp
