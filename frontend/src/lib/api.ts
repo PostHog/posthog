@@ -18,7 +18,7 @@ import { RecordingComment } from 'scenes/session-recordings/player/inspector/pla
 import { SessionSummaryContent } from 'scenes/session-recordings/player/player-meta/types'
 import { LINK_PAGE_SIZE, SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
 
-import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
+import { getCurrentExporterData, isSharedView } from '~/exporter/exporterViewLogic'
 import { OrganizationOAuthApplicationApi } from '~/generated/core/api.schemas'
 import { Variable } from '~/queries/nodes/DataVisualization/types'
 import {
@@ -6893,6 +6893,7 @@ async function handleFetch(url: string, method: string, fetcher: () => Promise<R
     if (!response.ok) {
         const duration = new Date().getTime() - startTime
         const pathname = new URL(url, location.origin).pathname
+        const inSharedView = isSharedView()
         // when used inside the posthog toolbar, `posthog.capture` isn't loaded
         // check if the function is available before calling it.
         if (posthog.capture) {
@@ -6901,7 +6902,13 @@ async function handleFetch(url: string, method: string, fetcher: () => Promise<R
                 method,
                 duration,
                 status: response.status,
+                is_shared_view: inSharedView,
             })
+        }
+        if (inSharedView && (response.status === 401 || response.status === 403)) {
+            console.warn(
+                `[shared-view] ${method} ${pathname} returned ${response.status} — call site should be gated with isSharedView()`
+            )
         }
 
         const data = await getJSONOrNull(response)
