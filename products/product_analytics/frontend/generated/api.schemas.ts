@@ -4586,6 +4586,7 @@ export interface ErrorTrackingIssueCohortApi {
 export type IntegrationKindApi = (typeof IntegrationKindApi)[keyof typeof IntegrationKindApi]
 
 export const IntegrationKindApi = {
+    Anthropic: 'anthropic',
     Slack: 'slack',
     SlackPosthogCode: 'slack-posthog-code',
     Salesforce: 'salesforce',

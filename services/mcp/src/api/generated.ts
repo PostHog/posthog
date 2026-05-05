@@ -10265,6 +10265,7 @@ export namespace Schemas {
 
 
     export const IntegrationKind = {
+      Anthropic: 'anthropic',
       Slack: 'slack',
       SlackPosthogCode: 'slack-posthog-code',
       Salesforce: 'salesforce',
