@@ -9,12 +9,6 @@ export DEBIAN_FRONTEND=noninteractive
 export RESTART_MODE=l
 export POSTHOG_APP_TAG="${POSTHOG_APP_TAG:-latest}"
 
-POSTHOG_SECRET=$(head -c 28 /dev/urandom | sha224sum -b | head -c 56)
-export POSTHOG_SECRET
-
-ENCRYPTION_SALT_KEYS=$(openssl rand -hex 16)
-export ENCRYPTION_SALT_KEYS
-
 # Talk to the user
 echo "Welcome to the single instance PostHog installer 🦔"
 echo ""
@@ -131,17 +125,45 @@ fi
 
 
 
-# Write .env file
-cat > .env <<EOF
-POSTHOG_SECRET=$POSTHOG_SECRET
-ENCRYPTION_SALT_KEYS=$ENCRYPTION_SALT_KEYS
-DOMAIN=$DOMAIN
-TLS_BLOCK=$TLS_BLOCK
-REGISTRY_URL=$REGISTRY_URL
-CADDY_TLS_BLOCK=$TLS_BLOCK
-CADDY_HOST="$DOMAIN, http://, https://"
-POSTHOG_APP_TAG=$POSTHOG_APP_TAG
+# Reject tag values that would be unsafe to interpolate into a sed replacement string.
+if [[ ! "$POSTHOG_APP_TAG" =~ ^[A-Za-z0-9._:/-]+$ ]]; then
+    echo "Error: POSTHOG_APP_TAG '${POSTHOG_APP_TAG}' contains invalid characters."
+    exit 1
+fi
+
+# Write .env file - only on first install.
+# On a re-run (e.g. after a partial failure), preserve the existing file so that
+# POSTHOG_SECRET and ENCRYPTION_SALT_KEYS are not regenerated, which would break
+# an already-running instance and invalidate existing sessions.
+if [ -f ".env" ]; then
+    echo "Existing .env found - preserving configuration"
+    # Ensure a trailing newline before appending so keys land on their own line.
+    [ -n "$(tail -c 1 .env)" ] && echo "" >> .env
+    # Update version tag in place; append if the key is absent.
+    # Pattern covers both bare and shell-exported forms (export KEY=value).
+    if grep -qE "^(export[[:space:]]+)?POSTHOG_APP_TAG=" .env; then
+        sed -i "s|^\(export[[:space:]]*\)\{0,1\}POSTHOG_APP_TAG=.*|POSTHOG_APP_TAG=${POSTHOG_APP_TAG}|" .env
+    else
+        echo "POSTHOG_APP_TAG=${POSTHOG_APP_TAG}" >> .env
+    fi
+    # ENCRYPTION_SALT_KEYS was added after the initial release; backfill if absent.
+    if ! grep -qE "^(export[[:space:]]+)?ENCRYPTION_SALT_KEYS=" .env; then
+        echo "ENCRYPTION_SALT_KEYS=$(openssl rand -hex 16)" >> .env
+    fi
+else
+    posthog_secret=$(head -c 28 /dev/urandom | sha224sum -b | head -c 56)
+    encryption_salt_keys=$(openssl rand -hex 16)
+    cat > .env <<EOF
+POSTHOG_SECRET=${posthog_secret}
+ENCRYPTION_SALT_KEYS=${encryption_salt_keys}
+DOMAIN=${DOMAIN}
+TLS_BLOCK=${TLS_BLOCK}
+REGISTRY_URL=${REGISTRY_URL}
+CADDY_TLS_BLOCK=${TLS_BLOCK}
+CADDY_HOST="${DOMAIN}, http://, https://"
+POSTHOG_APP_TAG=${POSTHOG_APP_TAG}
 EOF
+fi
 
 # Download GeoLite2-City.mmdb if it doesn't exist
 echo "Downloading GeoIP database file"
