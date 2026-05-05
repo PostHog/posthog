@@ -925,6 +925,10 @@ function InternalDataTableVisualization(
         component = <HogQLBoldNumber />
     }
 
+    if (props.embedded && !props.showSettingsPanel) {
+        return <div className="DataVisualization InsightCard__viz">{component}</div>
+    }
+
     return (
         <div className="DataVisualization h-full hide-scrollbar flex flex-1 gap-2">
             <div className="relative w-full flex flex-col gap-4 flex-1">

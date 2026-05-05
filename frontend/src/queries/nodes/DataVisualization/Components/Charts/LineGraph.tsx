@@ -698,15 +698,9 @@ export const LineGraph = ({
         ],
     })
 
-    // Critical: the wrapper is NOT a flex container. When it was, the canvas became a
-    // flex item whose default `min-height: auto` clamped to the canvas's intrinsic
-    // content size — that prevented the wrapper from shrinking below the canvas's
-    // previous render size, so Chart.js never saw a parent shrink and never resized
-    // the canvas. Plain block layout + overflow-hidden + Chart.js `responsive: true`
-    // handles all sizing correctly.
     return (
         <div
-            className={clsx(className, 'rounded bg-surface-primary w-full relative overflow-hidden', {
+            className={clsx(className, 'rounded bg-surface-primary w-full grow relative overflow-hidden', {
                 'h-[60vh]': presetChartHeight,
                 'h-full': !presetChartHeight,
             })}
