@@ -231,6 +231,24 @@ def _recover_dmarc_rewritten_sender(
     return sender_email, sender_name
 
 
+def _sender_authenticated(request: HttpRequest, sender_email: str) -> bool:
+    """Check that the From header is authenticated via DKIM with domain alignment.
+
+    Mailgun's X-Mailgun-Dkim-Check-Result only confirms a valid DKIM signature
+    exists — it does NOT verify which domain signed. An attacker at evil.com can
+    sign with their own key and forge From: teammate@posthog.com, and DKIM still
+    passes. We close this gap by requiring the envelope sender (MAIL FROM) domain
+    to match the From header domain.
+    """
+    dkim_passed = request.POST.get("X-Mailgun-Dkim-Check-Result", "").lower() == "pass"
+    if not dkim_passed:
+        return False
+    envelope_sender = request.POST.get("sender", "")
+    envelope_domain = envelope_sender.rsplit("@", 1)[-1].lower() if "@" in envelope_sender else ""
+    from_domain = sender_email.rsplit("@", 1)[-1].lower() if "@" in sender_email else ""
+    return bool(envelope_domain and from_domain and envelope_domain == from_domain)
+
+
 def _resolve_team_member(email: str, team: Team) -> User | None:
     """Match a sender email to a PostHog user within the team's organization."""
     if not email:
@@ -327,10 +345,9 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
     content = (request.POST.get("stripped-text", "") or request.POST.get("body-plain", ""))[:MAX_EMAIL_BODY_LENGTH]
     subject = request.POST.get("subject", "")
 
-    # 7b. Detect team member sender — only trust From when DKIM passes,
-    # since the From header is trivially forgeable without it.
-    dkim_passed = request.POST.get("X-Mailgun-Dkim-Check-Result", "").lower() == "pass"
-    posthog_user = _resolve_team_member(sender_email, team) if dkim_passed else None
+    # 7b. Detect team member sender — only trust From when DKIM passes
+    # AND the envelope-sender domain aligns with the From domain.
+    posthog_user = _resolve_team_member(sender_email, team) if _sender_authenticated(request, sender_email) else None
     is_team_member = posthog_user is not None
 
     # 8. Create ticket/comment/mapping in a transaction

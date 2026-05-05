@@ -960,6 +960,7 @@ class TestEmailInboundTeamMemberDetection(BaseTest):
         self._post(
             {
                 "recipient": "team-ab01cd23ef45@mg.posthog.com",
+                "sender": self.user.email,
                 "from": f"{self.user.first_name} <{self.user.email}>",
                 "Message-Id": "<reply@team.com>",
                 "In-Reply-To": "<init@external.com>",
@@ -983,31 +984,57 @@ class TestEmailInboundTeamMemberDetection(BaseTest):
         assert ticket.unread_team_count == 1
 
     @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
-    def test_forged_team_member_from_without_dkim_treated_as_customer(self, _mock_sig: MagicMock):
+    def test_no_dkim_treated_as_customer(self, _mock_sig: MagicMock):
+        """From header matches a team member but no DKIM → customer."""
         self._post(
             {
                 "recipient": "team-ab01cd23ef45@mg.posthog.com",
                 "from": "Customer <customer@external.com>",
-                "Message-Id": "<dkim-init@external.com>",
+                "Message-Id": "<nodkim-init@external.com>",
                 "subject": "Question",
                 "stripped-text": "Hello",
             }
         )
-
         self._post(
             {
                 "recipient": "team-ab01cd23ef45@mg.posthog.com",
+                "sender": self.user.email,
                 "from": f"Forged <{self.user.email}>",
-                "Message-Id": "<dkim-forged@external.com>",
-                "In-Reply-To": "<dkim-init@external.com>",
+                "Message-Id": "<nodkim-reply@external.com>",
+                "In-Reply-To": "<nodkim-init@external.com>",
                 "stripped-text": "I am totally a team member",
             }
         )
+        forged = Comment.objects.filter(team=self.team, scope="conversations_ticket").order_by("created_at")[1]
+        assert forged.item_context["author_type"] == "customer"
+        assert forged.created_by is None
 
-        comments = Comment.objects.filter(team=self.team, scope="conversations_ticket").order_by("created_at")
-        forged_comment = comments[1]
-        assert forged_comment.item_context["author_type"] == "customer"
-        assert forged_comment.created_by is None
+    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    def test_dkim_pass_but_mismatched_envelope_treated_as_customer(self, _mock_sig: MagicMock):
+        """DKIM passes but envelope sender domain != From domain → customer."""
+        self._post(
+            {
+                "recipient": "team-ab01cd23ef45@mg.posthog.com",
+                "from": "Customer <customer@external.com>",
+                "Message-Id": "<align-init@external.com>",
+                "subject": "Question",
+                "stripped-text": "Hello",
+            }
+        )
+        self._post(
+            {
+                "recipient": "team-ab01cd23ef45@mg.posthog.com",
+                "sender": "attacker@evil.com",
+                "from": f"Forged <{self.user.email}>",
+                "Message-Id": "<align-reply@evil.com>",
+                "In-Reply-To": "<align-init@external.com>",
+                "stripped-text": "Cross-domain forgery attempt",
+                "X-Mailgun-Dkim-Check-Result": "Pass",
+            }
+        )
+        forged = Comment.objects.filter(team=self.team, scope="conversations_ticket").order_by("created_at")[1]
+        assert forged.item_context["author_type"] == "customer"
+        assert forged.created_by is None
 
 
 class TestEmailInboundCcParticipants(BaseTest):
