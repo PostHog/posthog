@@ -19,6 +19,7 @@ import {
     IconBalance,
     IconCollapse,
     IconCopy,
+    IconEllipsis,
     IconExpand,
     IconInfo,
     IconLaptop,
@@ -28,7 +29,16 @@ import {
     IconTrash,
     IconCheckCircle,
 } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonInput, LemonLabel, LemonSelect, Spinner, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonInput,
+    LemonLabel,
+    LemonMenu,
+    LemonSelect,
+    Spinner,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { EditableField } from 'lib/components/EditableField/EditableField'
@@ -55,11 +65,11 @@ import {
     GroupTypeIndex,
     MultivariateFlagVariant,
     PropertyFilterType,
-    PropertyOperator,
 } from '~/types'
 
 import { INTENT_METADATA } from 'products/feature_flags/frontend/featureFlagTemplateConstants'
 
+import { COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS } from './cohortPickerProps'
 import { FeatureFlagConditionDragHandle } from './FeatureFlagConditionDragHandle'
 import { FeatureFlagConditionWarning } from './FeatureFlagConditionWarning'
 import { FlagIntent, featureFlagIntentWarningLogic } from './featureFlagIntentWarningLogic'
@@ -172,28 +182,33 @@ function ConditionHeader({
                     ({rollout}%{group.variant && ` · ${group.variant}`}
                     {countSummary !== null && ` · ${countSummary}`})
                 </span>
-                <LemonButton
-                    icon={<IconCopy />}
-                    size="xsmall"
-                    noPadding
-                    tooltip="Duplicate condition set"
-                    onClick={(e) => {
-                        e.stopPropagation()
-                        onDuplicate()
-                    }}
-                />
-                {totalGroups > 1 && (
+                <LemonMenu
+                    items={[
+                        {
+                            label: 'Duplicate condition set',
+                            icon: <IconCopy />,
+                            onClick: onDuplicate,
+                        },
+                        ...(totalGroups > 1
+                            ? [
+                                  {
+                                      label: 'Remove condition set',
+                                      icon: <IconTrash />,
+                                      onClick: onRemove,
+                                      status: 'danger' as const,
+                                  },
+                              ]
+                            : []),
+                    ]}
+                >
                     <LemonButton
-                        icon={<IconTrash />}
+                        icon={<IconEllipsis />}
                         size="xsmall"
                         noPadding
-                        tooltip="Remove condition set"
-                        onClick={(e) => {
-                            e.stopPropagation()
-                            onRemove()
-                        }}
+                        aria-label="Condition set actions"
+                        onClick={(e) => e.stopPropagation()}
                     />
-                )}
+                </LemonMenu>
             </div>
         </div>
     )
@@ -553,10 +568,7 @@ const ConditionContent = ({
                                             )}
                                             taxonomicFilterOptionsFromProp={filtersTaxonomicOptions}
                                             hasRowOperator={false}
-                                            excludedOperators={{
-                                                [TaxonomicFilterGroupType.Cohorts]: [PropertyOperator.NotIn],
-                                            }}
-                                            selectingKeyOnly={{ [TaxonomicFilterGroupType.Cohorts]: true }}
+                                            {...COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS}
                                             hideBehavioralCohorts={!realtimeCohortFlagTargeting}
                                         />
                                     </div>

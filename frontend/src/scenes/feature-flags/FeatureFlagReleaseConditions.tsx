@@ -42,6 +42,7 @@ import {
     PropertyOperator,
 } from '~/types'
 
+import { COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS } from './cohortPickerProps'
 import { featureFlagLogic } from './featureFlagLogic'
 import {
     FeatureFlagReleaseConditionsLogicProps,
@@ -389,8 +390,7 @@ export function FeatureFlagReleaseConditions({
                                           })
                                         : null
                                 }
-                                excludedOperators={{ [TaxonomicFilterGroupType.Cohorts]: [PropertyOperator.NotIn] }}
-                                selectingKeyOnly={{ [TaxonomicFilterGroupType.Cohorts]: true }}
+                                {...COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS}
                                 hideBehavioralCohorts={!realtimeCohortFlagTargeting}
                             />
                         </div>

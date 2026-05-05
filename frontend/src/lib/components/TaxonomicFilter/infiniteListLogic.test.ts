@@ -3,7 +3,10 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic, partial } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
-import { recentTaxonomicFiltersLogic } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
+import {
+    hasRecentContext,
+    recentTaxonomicFiltersLogic,
+} from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsSceneLogic'
@@ -875,6 +878,14 @@ describe('infiniteListLogic', () => {
     })
 
     describe('contextFilteredRecentItems', () => {
+        // Generic wrapper around hasRecentContext so .filter() preserves the input type
+        // (the production type guard uses `unknown` which TS can't narrow through Array.filter).
+        const onlyWithRecentContext = <T>(
+            item: T
+        ): item is T & {
+            _recentContext: { sourceGroupType: TaxonomicFilterGroupType; propertyFilter?: { value?: any } }
+        } => hasRecentContext(item)
+
         // Recent cohort filters can carry any operator the user previously chose elsewhere
         // (insights, recordings, etc). Feature flag release conditions intentionally hide
         // the operator dropdown for cohorts (only `in` is supported), so a non-`in` recent
@@ -955,10 +966,46 @@ describe('infiniteListLogic', () => {
 
             const filtered = listLogic.values.contextFilteredRecentItems
             const cohortValues = filtered
-                .filter((i: any) => i._recentContext?.sourceGroupType === TaxonomicFilterGroupType.Cohorts)
-                .map((i: any) => i._recentContext.propertyFilter.value)
+                .filter(onlyWithRecentContext)
+                .filter((i) => i._recentContext.sourceGroupType === TaxonomicFilterGroupType.Cohorts)
+                .map((i) => i._recentContext.propertyFilter?.value)
             expect(cohortValues).toEqual([1])
-            expect(filtered.some((i: any) => i.name === '$browser')).toBe(true)
+            expect(filtered.some((i) => 'name' in i && i.name === '$browser')).toBe(true)
+        })
+
+        it('keeps cohort recents whose operator is undefined even when excludedOperators is set', () => {
+            const recentCohortNoOperator = {
+                name: 'Static Users',
+                _recentContext: {
+                    sourceGroupType: TaxonomicFilterGroupType.Cohorts,
+                    sourceGroupName: 'Cohorts',
+                    propertyFilter: {
+                        type: PropertyFilterType.Cohort,
+                        key: 'id',
+                        value: 3,
+                        operator: undefined,
+                        cohort_name: 'Static Users',
+                    },
+                },
+            }
+            seedRecents([recentCohortIn, recentCohortNoOperator, recentCohortNotIn])
+
+            const listLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'flag-recents-no-op-test',
+                listGroupType: TaxonomicFilterGroupType.RecentFilters,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Cohorts, TaxonomicFilterGroupType.RecentFilters],
+                showNumericalPropsOnly: false,
+                excludedOperators: { [TaxonomicFilterGroupType.Cohorts]: [PropertyOperator.NotIn] },
+            })
+            listLogic.mount()
+
+            const cohortValues = listLogic.values.contextFilteredRecentItems
+                .filter(onlyWithRecentContext)
+                .filter((i) => i._recentContext.sourceGroupType === TaxonomicFilterGroupType.Cohorts)
+                .map((i) => i._recentContext.propertyFilter?.value)
+            // The undefined-operator recent stays (1 + 3); the explicit NotIn (2) is hidden.
+            expect(cohortValues).toEqual(expect.arrayContaining([1, 3]))
+            expect(cohortValues).not.toContain(2)
         })
 
         it('keeps all recents when excludedOperators is not set', () => {
@@ -973,8 +1020,9 @@ describe('infiniteListLogic', () => {
             listLogic.mount()
 
             const cohortValues = listLogic.values.contextFilteredRecentItems
-                .filter((i: any) => i._recentContext?.sourceGroupType === TaxonomicFilterGroupType.Cohorts)
-                .map((i: any) => i._recentContext.propertyFilter.value)
+                .filter(onlyWithRecentContext)
+                .filter((i) => i._recentContext.sourceGroupType === TaxonomicFilterGroupType.Cohorts)
+                .map((i) => i._recentContext.propertyFilter?.value)
             expect(cohortValues).toEqual(expect.arrayContaining([1, 2]))
         })
     })

@@ -175,7 +175,6 @@ export function TaxonomicPropertyFilter({
             endpointFilters={endpointFilters}
             hogQLGlobals={hogQLGlobals}
             excludedOperators={excludedOperators}
-            selectingKeyOnly={selectingKeyOnly}
             enableKeywordShortcuts
         />
     )

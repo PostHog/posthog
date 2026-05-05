@@ -84,20 +84,20 @@ export type AllowedProperties = TaxonomicFilterGroupValueMap
 export type ExcludedOperators = { [key in TaxonomicFilterGroupType]?: PropertyOperator[] }
 
 /**
- * Whether the picker's selection is final on key-pick — no operator+value pair
- * is rendered alongside it.
+ * Tells `TaxonomicPropertyFilter` to render a row as key-only — the picked
+ * value IS the answer, no operator+value pair alongside it. Used when a
+ * specific filter type's operator is implicit (e.g. feature flag release
+ * conditions accept any operator on event properties but treat cohort rows
+ * as key-only because the cohort *is* the value and the operator is
+ * implicitly `in`).
  *
- * - `true` — applies to all groups in this picker (column pickers, event-name
- *   pickers, FlagSelector — there's no operator/value pair anywhere).
+ * - `true` — every row in this `PropertyFilters` is key-only.
  * - `Partial<Record<TaxonomicFilterGroupType, boolean>>` — per-group switch.
- *   Useful when a `TaxonomicPropertyFilter` row mixes types: e.g. feature flag
- *   release conditions render the full operator+value pair for event properties
- *   but treat cohort rows as key-only (the cohort *is* the value, operator is
- *   implicitly `in`).
  *
  * Hosts that go key-only for a group almost always also want
  * `excludedOperators` set for that group, otherwise a recent stored with a
  * different operator silently applies as that operator with no UI to show it.
+ * The shared `COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS` preset bundles both.
  */
 export type SelectingKeyOnly = boolean | { [key in TaxonomicFilterGroupType]?: boolean }
 
@@ -171,10 +171,6 @@ export interface TaxonomicFilterProps {
      *  picker never surfaces a value the surrounding UI can't represent. See `ExcludedOperators`
      *  above for how this differs from `operatorAllowlist` on `OperatorValueSelect`. */
     excludedOperators?: ExcludedOperators
-    /** Mark the picker (or specific groups within it) as key-only — there's no operator+value pair
-     *  alongside the picked key. See `SelectingKeyOnly` for the full contract and how it pairs with
-     *  `excludedOperators`. */
-    selectingKeyOnly?: SelectingKeyOnly
 }
 
 export interface DataWarehousePopoverField {
