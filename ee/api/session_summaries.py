@@ -70,6 +70,12 @@ class SessionSummariesSerializer(serializers.Serializer):
 
 _PRODUCT_CONTEXT_WRAPPER_TAG_RE = re.compile(r"</?\s*product_context\b[^>]*>", re.IGNORECASE)
 _CUSTOM_TAG_NAME_RE = re.compile(rf"^[a-z0-9_]{{1,{CUSTOM_TAG_NAME_MAX_LENGTH}}}$")
+_WHITESPACE_RUN_RE = re.compile(r"\s+")
+
+
+def _sanitize_custom_tag_description(value: str) -> str:
+    collapsed = _WHITESPACE_RUN_RE.sub(" ", value or "").strip()
+    return collapsed.replace("<", "").replace(">", "")
 
 
 class SessionSummariesConfigSerializer(serializers.ModelSerializer):
@@ -111,7 +117,7 @@ class SessionSummariesConfigSerializer(serializers.ModelSerializer):
                     f"Invalid tag name '{name}': must be lowercase snake_case, "
                     f"1-{CUSTOM_TAG_NAME_MAX_LENGTH} chars, [a-z0-9_]."
                 )
-            description = (description or "").strip()
+            description = _sanitize_custom_tag_description(description or "")
             if not description:
                 raise exceptions.ValidationError(f"Description for tag '{name}' is required.")
             if len(description) > CUSTOM_TAG_DESCRIPTION_MAX_LENGTH:

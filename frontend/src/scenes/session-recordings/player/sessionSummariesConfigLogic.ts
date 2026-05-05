@@ -12,7 +12,7 @@ import type { sessionSummariesConfigLogicType } from './sessionSummariesConfigLo
 export const CUSTOM_TAGS_MAX_COUNT = 15
 export const CUSTOM_TAG_NAME_MAX_LENGTH = 60
 export const CUSTOM_TAG_DESCRIPTION_MAX_LENGTH = 200
-export const CUSTOM_TAG_NAME_REGEX = /^[a-z0-9_]{1,60}$/
+export const CUSTOM_TAG_NAME_REGEX = new RegExp(`^[a-z0-9_]{1,${CUSTOM_TAG_NAME_MAX_LENGTH}}$`)
 
 export type CustomTagFormEntry = {
     name: string
