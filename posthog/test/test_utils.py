@@ -963,7 +963,7 @@ class TestTemplateContextHistogram(TestCase):
 
         # Drive only the label-selection wrapper; bypass the heavy inner body so this
         # stays a fast, hermetic unit test of the metric plumbing itself.
-        with patch("posthog.utils._get_context_for_template_inner", return_value={}):
+        with patch("posthog.utils._build_template_context", return_value={}):
             from posthog.utils import get_context_for_template
 
             get_context_for_template("index.html", request)

@@ -62,6 +62,9 @@ from posthog.redis import get_client
 
 tracer = trace.get_tracer(__name__)
 
+# Cardinality is bounded: render_template is only called with the literal template
+# names "index.html", "demo.html", and "render_query.html" — 3 templates × 2 auth
+# states = 6 series total.
 TEMPLATE_CONTEXT_DURATION_HISTOGRAM = Histogram(
     "posthog_template_context_duration_seconds",
     "Time spent building the SPA template context (get_context_for_template).",
@@ -396,12 +399,12 @@ def get_context_for_template(
     context: Optional[dict] = None,
     team_for_public_context: Optional["Team"] = None,
 ) -> dict:
-    authenticated = "true" if getattr(request.user, "is_authenticated", False) else "false"
+    authenticated = "true" if request.user.is_authenticated else "false"
     with TEMPLATE_CONTEXT_DURATION_HISTOGRAM.labels(template_name=template_name, authenticated=authenticated).time():
-        return _get_context_for_template_inner(template_name, request, context, team_for_public_context)
+        return _build_template_context(template_name, request, context, team_for_public_context)
 
 
-def _get_context_for_template_inner(
+def _build_template_context(
     template_name: str,
     request: HttpRequest,
     context: Optional[dict],
