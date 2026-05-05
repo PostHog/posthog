@@ -1,3 +1,4 @@
+from collections.abc import Iterator
 from typing import Any, Optional
 
 from requests import Request, Response
@@ -24,6 +25,10 @@ def _default_headers() -> dict[str, str]:
         "Content-Type": "application/json",
         "Intercom-Version": INTERCOM_API_VERSION,
     }
+
+
+def _auth_headers(access_token: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {access_token}", **_default_headers()}
 
 
 class IntercomSearchPaginator(BasePaginator):
@@ -116,25 +121,36 @@ def get_resource(
         endpoint["method"] = "POST"
 
     if cfg.paginator_kind == "search":
-        if not incremental_field:
-            raise ValueError(f"Intercom search endpoint {name!r} requires an incremental_field")
-        endpoint["json"] = _build_search_body(cfg, incremental_field, db_incremental_field_last_value)
+        # Even in full-refresh mode the search endpoints need a query body;
+        # `value: 0` matches every record. Default to "updated_at" (the only
+        # cursor Intercom search endpoints support) when no field is passed.
+        endpoint["json"] = _build_search_body(cfg, incremental_field or "updated_at", db_incremental_field_last_value)
     elif cfg.method == "POST" and cfg.paginator_kind in ("cursor", "next_url"):
         # POST list endpoints (`/companies/list`) take `per_page` in the body.
         # The next-URL paginator preserves the POST method and body when it
         # follows `pages.next`, so the body just needs to be set once.
         endpoint["json"] = {"per_page": cfg.page_size}
     elif cfg.paginator_kind in ("cursor", "next_url"):
-        endpoint["params"] = {"per_page": cfg.page_size}
+        params: dict[str, Any] = {"per_page": cfg.page_size, **cfg.extra_params}
+        if cfg.incremental_query_param:
+            # Intercom's `/admins/activity_logs` returns a much smaller default
+            # window when called without `created_at_after`, so we always set
+            # the param. `0` matches every record (Unix epoch start).
+            if should_use_incremental_field and db_incremental_field_last_value is not None:
+                params[cfg.incremental_query_param] = int(db_incremental_field_last_value)
+            else:
+                params[cfg.incremental_query_param] = 0
+        endpoint["params"] = params
+    elif cfg.paginator_kind == "single" and cfg.extra_params:
+        endpoint["params"] = dict(cfg.extra_params)
 
-    # Upsert on incremental search syncs so updates to existing rows replace
-    # the prior version instead of appending duplicates. Non-incremental
-    # endpoints stay on full-refresh replace.
-    write_disposition: Any = (
-        {"disposition": "merge", "strategy": "upsert"}
-        if should_use_incremental_field and cfg.paginator_kind == "search"
-        else "replace"
+    # Upsert on incremental syncs so updates to existing rows replace the
+    # prior version instead of appending duplicates. Full-refresh endpoints
+    # stay on replace.
+    is_incremental = should_use_incremental_field and (
+        cfg.paginator_kind == "search" or cfg.incremental_query_param is not None
     )
+    write_disposition: Any = {"disposition": "merge", "strategy": "upsert"} if is_incremental else "replace"
 
     return {
         "name": cfg.name,
@@ -143,6 +159,106 @@ def get_resource(
         "endpoint": endpoint,
         "table_format": "delta",
     }
+
+
+def _intercom_get(access_token: str, path_or_url: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+    url = path_or_url if path_or_url.startswith("http") else f"{INTERCOM_API_BASE}{path_or_url}"
+    response = make_tracked_session().get(url, headers=_auth_headers(access_token), params=params, timeout=30)
+    response.raise_for_status()
+    return response.json()
+
+
+def _intercom_post(access_token: str, path: str, body: dict[str, Any]) -> dict[str, Any]:
+    response = make_tracked_session().post(
+        f"{INTERCOM_API_BASE}{path}", headers=_auth_headers(access_token), json=body, timeout=30
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+def _iter_conversations(
+    access_token: str,
+    incremental_field: str,
+    db_incremental_field_last_value: Optional[Any],
+) -> Iterator[dict[str, Any]]:
+    """Walk `POST /conversations/search` honoring the same `updated_at >`
+    server-side filter the conversations endpoint uses, so substreams only
+    refetch parents whose timestamp advanced."""
+    body = _build_search_body(INTERCOM_ENDPOINTS["conversations"], incremental_field, db_incremental_field_last_value)
+    while True:
+        payload = _intercom_post(access_token, "/conversations/search", body)
+        yield from (payload.get("conversations") or [])
+        next_block = (payload.get("pages") or {}).get("next") or {}
+        cursor = next_block.get("starting_after") if isinstance(next_block, dict) else None
+        if not cursor:
+            return
+        body["pagination"]["starting_after"] = cursor
+
+
+def _conversation_parts_generator(
+    access_token: str,
+    incremental_field: str,
+    db_incremental_field_last_value: Optional[Any],
+) -> Iterator[dict[str, Any]]:
+    """Yield each conversation part. Parents are server-filtered by
+    `updated_at >`; the part rows themselves carry their own `updated_at`,
+    so the pipeline's cursor watermark advances per-part. `conversation_id`
+    is injected onto each row for joinability."""
+    for conv in _iter_conversations(access_token, incremental_field, db_incremental_field_last_value):
+        full = _intercom_get(access_token, f"/conversations/{conv['id']}")
+        parts = (full.get("conversation_parts") or {}).get("conversation_parts") or []
+        for part in parts:
+            part["conversation_id"] = conv["id"]
+            yield part
+
+
+def _iter_companies(access_token: str) -> Iterator[dict[str, Any]]:
+    """Walk `POST /companies/list` page by page (no server-side timestamp
+    filter — full refresh)."""
+    body: dict[str, Any] = {"per_page": INTERCOM_ENDPOINTS["companies"].page_size}
+    next_url: str | None = None
+    while True:
+        if next_url is None:
+            payload = _intercom_post(access_token, "/companies/list", body)
+        else:
+            # `pages.next` is a full URL; the framework follows it as GET, but
+            # /companies/list is POST. Empirically Intercom honors GET on the
+            # `pages.next` URL too — same response shape — so we use GET to
+            # avoid having to re-build the body with the embedded cursor.
+            payload = _intercom_get(access_token, next_url)
+        yield from (payload.get("data") or [])
+        next_url = (payload.get("pages") or {}).get("next")
+        if not next_url:
+            return
+
+
+def _company_segments_generator(access_token: str) -> Iterator[dict[str, Any]]:
+    """Walk all companies and yield each attached segment with `company_id`
+    injected. Full refresh — Intercom has no server-side timestamp filter on
+    either parent or child."""
+    for company in _iter_companies(access_token):
+        payload = _intercom_get(access_token, f"/companies/{company['id']}/segments")
+        for seg in payload.get("data", []) or []:
+            seg["company_id"] = company["id"]
+            yield seg
+
+
+def _substream_items(
+    access_token: str,
+    endpoint: str,
+    incremental_field: str | None,
+    db_incremental_field_last_value: Optional[Any],
+) -> Iterator[dict[str, Any]]:
+    if endpoint == "conversation_parts":
+        if not incremental_field:
+            # Substream still works without an incremental field — we just
+            # walk every conversation. `updated_at` is the only declared
+            # cursor, so default to it for the parent search filter.
+            incremental_field = "updated_at"
+        return _conversation_parts_generator(access_token, incremental_field, db_incremental_field_last_value)
+    if endpoint == "company_segments":
+        return _company_segments_generator(access_token)
+    raise ValueError(f"Unknown Intercom substream endpoint: {endpoint}")
 
 
 def validate_credentials(access_token: str, schema_name: str | None = None) -> tuple[bool, str | None]:
@@ -163,10 +279,7 @@ def validate_credentials(access_token: str, schema_name: str | None = None) -> t
     try:
         response = make_tracked_session().get(
             f"{INTERCOM_API_BASE}/me",
-            headers={
-                "Authorization": f"Bearer {access_token}",
-                **_default_headers(),
-            },
+            headers=_auth_headers(access_token),
             timeout=10,
         )
     except Exception as e:
@@ -194,36 +307,39 @@ def intercom_source(
 ) -> SourceResponse:
     cfg = INTERCOM_ENDPOINTS[endpoint]
 
-    config: RESTAPIConfig = {
-        "client": {
-            "base_url": INTERCOM_API_BASE,
-            "auth": {
-                "type": "bearer",
-                "token": access_token,
+    if cfg.paginator_kind == "substream":
+        items = lambda: _substream_items(access_token, endpoint, incremental_field, db_incremental_field_last_value)
+    else:
+        config: RESTAPIConfig = {
+            "client": {
+                "base_url": INTERCOM_API_BASE,
+                "auth": {
+                    "type": "bearer",
+                    "token": access_token,
+                },
+                "headers": _default_headers(),
             },
-            "headers": _default_headers(),
-        },
-        "resource_defaults": {},
-        "resources": [
-            get_resource(
-                endpoint,
-                should_use_incremental_field,
-                incremental_field,
-                db_incremental_field_last_value,
-            )
-        ],
-    }
-
-    resource = rest_api_resource(config, team_id, job_id, db_incremental_field_last_value)
+            "resource_defaults": {},
+            "resources": [
+                get_resource(
+                    endpoint,
+                    should_use_incremental_field,
+                    incremental_field,
+                    db_incremental_field_last_value,
+                )
+            ],
+        }
+        resource = rest_api_resource(config, team_id, job_id, db_incremental_field_last_value)
+        items = lambda: resource
 
     return SourceResponse(
         name=endpoint,
-        items=lambda: resource,
-        primary_keys=[cfg.primary_key],
+        items=items,
+        primary_keys=cfg.primary_keys,
         partition_keys=[cfg.partition_key],
         partition_mode=cfg.partition_mode,
         partition_format=cfg.partition_format,
         partition_count=cfg.partition_count,
         partition_size=cfg.partition_size,
-        sort_mode="asc",
+        sort_mode=cfg.sort_mode,
     )
