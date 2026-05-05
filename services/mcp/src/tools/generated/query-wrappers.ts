@@ -705,7 +705,23 @@ const AssistantFunnelsActionsNode = z.object({
     version: z.coerce.number().describe('version of the node, used for schema migrations').optional(),
 })
 
-const AssistantFunnelsNode = z.union([AssistantFunnelsEventsNode, AssistantFunnelsActionsNode])
+const AssistantFunnelsGroupNode = z.object({
+    custom_name: z.string().optional(),
+    kind: z.literal('GroupNode').default('GroupNode'),
+    name: z.string().describe('Display name for the combined step.').optional(),
+    nodes: z
+        .array(z.union([AssistantFunnelsEventsNode, AssistantFunnelsActionsNode]))
+        .describe(
+            'Events and actions combined into the step. Use per-node `properties` to filter each event; there is no step-wide filter on a grouped step.'
+        ),
+    operator: z.literal('OR').describe('Only `OR` is supported.').default('OR'),
+})
+
+const AssistantFunnelsNode = z.union([
+    AssistantFunnelsEventsNode,
+    AssistantFunnelsActionsNode,
+    AssistantFunnelsGroupNode,
+])
 
 const AssistantFunnelsQuery = z.object({
     aggregation_group_type_index: integer

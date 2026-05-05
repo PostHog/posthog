@@ -1791,6 +1791,45 @@
             },
             "type": "object"
         },
+        "AssistantFunnelsGroupNode": {
+            "additionalProperties": false,
+            "description": "Defines a funnel step that combines multiple events or actions with OR (e.g. \"Pageview OR Pageleave\" counted as a single step). Filters live on the inner nodes — set per-node `properties` to give each event its own filter. Step-wide group filters, funnel math, and `optionalInFunnel` are not supported on grouped steps.",
+            "properties": {
+                "custom_name": {
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "GroupNode",
+                    "type": "string"
+                },
+                "name": {
+                    "description": "Display name for the combined step.",
+                    "type": "string"
+                },
+                "nodes": {
+                    "description": "Events and actions combined into the step. Use per-node `properties` to filter each event; there is no step-wide filter on a grouped step.",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/AssistantFunnelsEventsNode"
+                            },
+                            {
+                                "$ref": "#/definitions/AssistantFunnelsActionsNode"
+                            }
+                        ]
+                    },
+                    "minItems": 2,
+                    "type": "array"
+                },
+                "operator": {
+                    "const": "OR",
+                    "description": "Only `OR` is supported.",
+                    "type": "string"
+                }
+            },
+            "required": ["kind", "operator", "nodes"],
+            "type": "object"
+        },
         "AssistantFunnelsMath": {
             "enum": ["first_time_for_user", "first_time_for_user_with_filters"],
             "type": "string"
@@ -1802,6 +1841,9 @@
                 },
                 {
                     "$ref": "#/definitions/AssistantFunnelsActionsNode"
+                },
+                {
+                    "$ref": "#/definitions/AssistantFunnelsGroupNode"
                 }
             ]
         },
