@@ -1170,10 +1170,13 @@ describe('cohortEditLogic', () => {
     })
 
     describe('new cohort hash hygiene', () => {
-        it('clears a stale #tab=history hash on mount', async () => {
+        it('clears a stale #tab=history hash on mount and resets activeTab to overview', async () => {
             router.actions.replace(urls.cohort('new'), {}, { tab: 'history' })
             await initCohortLogic({ id: 'new' })
             expect(router.values.hashParams.tab).toBeUndefined()
+            // Without resetting activeTab, the user would land on a blank screen for new cohorts:
+            // overview is hidden via `display:none` while history requires a saved cohort to render.
+            expect(logic.values.activeTab).toBe('overview')
         })
     })
 })

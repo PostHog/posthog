@@ -681,13 +681,18 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         },
     })),
 
-    afterMount(({ actions, props }) => {
+    afterMount(({ actions, props, values }) => {
         if (!props.id || props.id === 'new') {
             actions.setCohort(NEW_COHORT)
-            // Tabs aren't shown for new cohorts; clear any stale `#tab=…` hash so the URL reflects reality.
+            // Tabs aren't shown for new cohorts; clear any stale `#tab=…` hash so the URL reflects reality
+            // and reset the in-memory tab so the Overview content (the only thing rendered for new cohorts)
+            // is actually visible — otherwise the user lands on a blank page.
             if (router.values.hashParams.tab) {
                 const { tab: _, ...restHash } = router.values.hashParams
                 router.actions.replace(router.values.location.pathname, router.values.searchParams, restHash)
+            }
+            if (values.activeTab !== 'overview') {
+                actions.setActiveTab('overview')
             }
         } else {
             actions.fetchCohort(props.id)
