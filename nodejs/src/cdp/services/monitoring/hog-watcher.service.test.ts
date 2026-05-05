@@ -1,4 +1,5 @@
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
+import { logger } from '~/utils/logger'
 
 import { Hub, ProjectId, Team } from '../../../types'
 import { closeHub, createHub } from '../../../utils/db/hub'
@@ -550,6 +551,72 @@ describe('HogWatcher', () => {
             expect(observeResultsSpy).toHaveBeenCalledTimes(2)
             expect(observeResultsSpy).toHaveBeenCalledWith([results[0], results[1], results[2]])
             expect(observeResultsSpy).toHaveBeenCalledWith([results[3]])
+        })
+    })
+
+    describe('reader fallback', () => {
+        let loggerWarnSpy: jest.SpyInstance
+
+        const makeFailingReader = (err: Error): RedisV2 => ({
+            useClient: jest.fn(() => Promise.reject(err)),
+            usePipeline: jest.fn(() => Promise.reject(err)),
+        })
+
+        beforeEach(() => {
+            loggerWarnSpy = jest.spyOn(logger, 'warn').mockImplementation(() => undefined)
+        })
+
+        afterEach(() => {
+            loggerWarnSpy.mockRestore()
+        })
+
+        it('should fall back to the writer when the reader throws on getPersistedStates', async () => {
+            const failingReader = makeFailingReader(new Error('reader unavailable'))
+            const watcherWithFailingReader = new HogWatcherService(hub.teamManager, watcherConfig, redis, failingReader)
+
+            // Seed state on the writer so a successful fallback returns real data
+            await watcherWithFailingReader.observeResults([createResult({ duration: 1000, kind: 'hog' })])
+
+            const state = await watcherWithFailingReader.getPersistedState(hogFunctionId)
+
+            expect(failingReader.usePipeline).toHaveBeenCalledTimes(1)
+            expect(state.tokens).toBeLessThan(watcherConfig.bucketSize)
+            expect(loggerWarnSpy).toHaveBeenCalledWith(
+                '🔀',
+                expect.stringContaining('reader getStates failed'),
+                expect.any(Object)
+            )
+        })
+
+        it('should fall back to the writer when the reader throws on getAllFunctionStates', async () => {
+            // Seed enough cost to trigger a state transition - that's what writes the
+            // state key that getAllFunctionStates SCANs for.
+            await watcher.observeResults(Array(10000).fill(createResult({ duration: 25000, kind: 'async_function' })))
+
+            const failingReader = makeFailingReader(new Error('reader unavailable'))
+            const watcherWithFailingReader = new HogWatcherService(hub.teamManager, watcherConfig, redis, failingReader)
+
+            const states = await watcherWithFailingReader.getAllFunctionStates()
+
+            expect(failingReader.useClient).toHaveBeenCalledTimes(1)
+            expect(Object.keys(states)).toContain(hogFunctionId)
+            expect(loggerWarnSpy).toHaveBeenCalledWith(
+                '🔀',
+                expect.stringContaining('reader scanStates failed'),
+                expect.any(Object)
+            )
+        })
+
+        it('should not log a fallback when the reader is healthy', async () => {
+            const healthyWatcher = new HogWatcherService(hub.teamManager, watcherConfig, redis, redis)
+
+            await healthyWatcher.getPersistedState(hogFunctionId)
+
+            expect(loggerWarnSpy).not.toHaveBeenCalledWith(
+                '🔀',
+                expect.stringContaining('reader getStates failed'),
+                expect.any(Object)
+            )
         })
     })
 })

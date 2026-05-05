@@ -3,7 +3,7 @@ import { Counter } from 'prom-client'
 
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
 
-import { KafkaConsumer } from '../../kafka/consumer'
+import { KafkaConsumerInterface, createKafkaConsumer } from '../../kafka/consumer'
 import {
     HealthCheckResult,
     ISOTimestamp,
@@ -71,7 +71,7 @@ export interface CdpLegacyEventsConsumerDeps extends CdpConsumerBaseDeps {
 export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsConsumerConfig> {
     protected name = 'CdpLegacyEventsConsumer'
     protected promiseScheduler = new PromiseScheduler()
-    protected kafkaConsumer: KafkaConsumer
+    protected kafkaConsumer: KafkaConsumerInterface
 
     private pluginConfigsLoader: LazyLoader<PluginConfigHogFunction[]>
     private legacyPluginExecutor: LegacyPluginExecutorService
@@ -83,7 +83,7 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsCons
     ) {
         super(config, deps)
 
-        this.kafkaConsumer = new KafkaConsumer({
+        this.kafkaConsumer = createKafkaConsumer({
             groupId: config.CDP_LEGACY_EVENT_CONSUMER_GROUP_ID,
             topic: config.CDP_LEGACY_EVENT_CONSUMER_TOPIC,
         })

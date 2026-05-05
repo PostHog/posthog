@@ -1717,6 +1717,67 @@ jobs:
 
                   echo "All checks passed."
 
+    test-selection-verdict:
+        needs: [django, turbo-tests, changes]
+        name: Test selection verdict
+        if: always() && github.event_name == 'pull_request'
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        permissions:
+            contents: read
+        steps:
+            - uses: actions/checkout@v6
+              with:
+                  fetch-depth: 0
+
+            - name: Install uv
+              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              with:
+                  version: '0.10.2'
+
+            - name: Download JUnit artifacts
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  pattern: junit-results-backend-*
+                  path: /tmp/junit-results/
+              continue-on-error: true
+
+            - name: Run test selection and verdict
+              env:
+                  BASE_REF: ${{ github.event.pull_request.base.ref }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+                  PR_SHA: ${{ github.event.pull_request.head.sha }}
+                  PR_BRANCH: ${{ github.event.pull_request.head.ref }}
+              run: |
+                  set -euo pipefail
+                  mkdir -p /tmp/verdict
+
+                  # Fetch the *current* tip of the base branch, not pull_request.base.sha:
+                  # base.sha is captured at webhook time and goes stale if the branch
+                  # later merges a newer master, which makes `base.sha...HEAD` balloon
+                  # to include every merged-in master change.
+                  git fetch --no-tags origin "$BASE_REF"
+
+                  uv run tools/snob_backend_test_selection_shadow.py \
+                      --base-ref "origin/$BASE_REF" \
+                      --pretty \
+                      > /tmp/verdict/selection.json
+
+                  uv run tools/test_selection_verdict.py \
+                      /tmp/verdict/selection.json \
+                      /tmp/junit-results/ \
+                      --summary-path "$GITHUB_STEP_SUMMARY" \
+                      --pretty \
+                      > /tmp/verdict/verdict.json
+
+            - name: Upload verdict
+              if: always()
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: test-selection-verdict-pr${{ github.event.pull_request.number }}
+                  path: /tmp/verdict/
+                  retention-days: 90
+
     async-migrations:
         name: Async migrations tests -  ${{ matrix.clickhouse-server-image }} (${{ matrix.runner }})
         needs: [changes, turbo-discover, get_clickhouse_versions]
