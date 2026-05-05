@@ -627,16 +627,14 @@ def build_session_property_pre_aggregation_predicate(
 ) -> Optional[ast.Expr]:
     """Build ``raw_sessions.session_id_v7 IN (SELECT session_id_v7 FROM <small inner> WHERE <session predicate>)``.
 
-    The "small inner" is a recursive call to ``select_from_fn`` (the same v2/v3 builder) with a
-    pruned ``requested_fields`` containing only the session aliases referenced by the predicate.
-    That keeps the small inner's GROUP BY hash table cheap — one or two AggregateFunction states
-    per session instead of however many the outer SELECT pulls in (e.g. ``$channel_type`` drags in
+    The "small inner" is a recursive call to ``select_from_fn`` (the same builder) with a pruned
+    ``requested_fields`` containing only the session aliases referenced by the predicate. That
+    keeps the small inner's GROUP BY hash table cheap — one or two AggregateFunction states per
+    session instead of however many the outer SELECT pulls in (e.g. ``$channel_type`` drags in
     7+).
 
-    Returns None when the optimization wouldn't pay off:
-    - no session-only predicate to lift
-    - the lifted predicate references the same set of fields the outer aggregation already needs
-      (no shrink, just doubled work)
+    Returns None when there's no session-only predicate to lift, or the predicate doesn't
+    reference any of the outer query's session fields.
     """
     extractor = WhereClauseExtractor(context)
     extractor.add_local_tables(join_to_add)
@@ -645,12 +643,8 @@ def build_session_property_pre_aggregation_predicate(
         return None
 
     referenced_aliases = _collect_referenced_top_level_aliases(lifted)
-    if not referenced_aliases:
-        return None
-
-    outer_fields = {name for name in requested_fields if name != "session_id_v7"}
-    referenced_in_outer = referenced_aliases & outer_fields
-    if not referenced_in_outer or referenced_in_outer >= outer_fields:
+    referenced_in_outer = referenced_aliases & {name for name in requested_fields if name != "session_id_v7"}
+    if not referenced_in_outer:
         return None
 
     pruned_fields: dict[str, list[str | int]] = {name: requested_fields[name] for name in referenced_in_outer}

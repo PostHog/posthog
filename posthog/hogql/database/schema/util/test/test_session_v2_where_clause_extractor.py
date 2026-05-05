@@ -763,33 +763,14 @@ GROUP BY chan
         )
         assert has_pre_agg == modifier_on, f"Expected pre-agg={modifier_on}; got:\n{actual}"
 
-    @parameterized.expand(
-        [
-            (
-                "filter_and_breakdown_share_column",
-                # filter cols ⊆ outer cols isn't strict — same-cost pre-agg, skip.
-                """
-SELECT events.session.$entry_current_url AS url
-FROM events
-WHERE events.event = '$pageview'
-  AND events.timestamp >= '2026-03-01 00:00:00'
-  AND match(events.session.$entry_current_url, 'http')
-""",
-            ),
-            (
-                "no_session_filter",
-                # nothing to lift.
-                """
+    def test_no_pre_agg_when_no_session_filter(self):
+        query = """
 SELECT count(), events.session.$channel_type AS chan
 FROM events
 WHERE events.event = '$pageview'
   AND events.timestamp >= '2026-03-01 00:00:00'
 GROUP BY chan
-""",
-            ),
-        ]
-    )
-    def test_no_pre_agg(self, _name: str, query: str):
+"""
         actual = self.print_query(query, modifier_on=True)
         normalized = " ".join(actual.split())
         assert "in(raw_sessions.session_id_v7" not in normalized, f"Expected no pre-agg; got:\n{actual}"

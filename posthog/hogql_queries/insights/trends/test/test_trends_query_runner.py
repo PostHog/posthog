@@ -2883,6 +2883,36 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert modifiers.inCohortVia == InCohortVia.AUTO
 
+    @parameterized.expand(
+        [
+            ("flag_off_no_breakdown", False, None, False),
+            ("flag_off_session_breakdown", False, "session", False),
+            ("flag_on_no_breakdown", True, None, False),
+            ("flag_on_event_breakdown", True, "event", False),
+            ("flag_on_session_breakdown", True, "session", True),
+        ]
+    )
+    @patch("posthog.hogql_queries.insights.trends.trends_query_runner.posthoganalytics.feature_enabled")
+    def test_session_property_pre_aggregation_modifier_gate(
+        self,
+        _name: str,
+        flag_enabled: bool,
+        breakdown_type: Optional[str],
+        expected: bool,
+        patch_feature_enabled,
+    ):
+        patch_feature_enabled.return_value = flag_enabled
+        breakdown_filter = (
+            BreakdownFilter(breakdowns=[Breakdown(type=MultipleBreakdownType(breakdown_type), property="$browser")])
+            if breakdown_type
+            else None
+        )
+        runner = TrendsQueryRunner(
+            team=self.team,
+            query=TrendsQuery(series=[EventsNode(event="$pageview")], breakdownFilter=breakdown_filter),
+        )
+        assert runner.modifiers.sessionPropertyPreAggregation is expected
+
     def test_raises_for_empty_series(self):
         query_runner = TrendsQueryRunner(
             team=self.team,
