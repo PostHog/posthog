@@ -11,7 +11,7 @@ import { OnboardingStepKey, type SDK, SDKInstructionsMap, SDKTagOverrides } from
 
 import { onboardingLogic, OnboardingStepComponentType } from '../../onboardingLogic'
 import { OnboardingStep } from '../../OnboardingStep'
-import { availableOnboardingProducts, toSentenceCase } from '../../utils'
+import { availableOnboardingProducts } from '../../utils'
 import { useAdblockDetection } from '../hooks/useAdblockDetection'
 import { useInstallationComplete } from '../hooks/useInstallationComplete'
 import { AdblockWarning, RealtimeCheckIndicator } from '../RealtimeCheckIndicator'
@@ -81,10 +81,10 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
     const productName = currentStepProductKey
         ? availableOnboardingProducts[currentStepProductKey as keyof typeof availableOnboardingProducts]?.name
         : undefined
-    // Sentence-case the product name to match PostHog's UI convention ("Install web
-    // analytics" rather than "Install Web Analytics"). Single-word names ("Logs",
-    // "Surveys") are unchanged. Initialisms ("LLM", "SQL") preserved.
-    const installTitle = productName ? `Install ${toSentenceCase(productName)}` : 'Install your SDK'
+    // Use the registry's stored casing as-is ("Product Analytics", "LLM Analytics",
+    // "Web Analytics") — proper-noun product names are Title Case here, not the
+    // sentence-case convention used for generic UI strings.
+    const installTitle = productName ? `Install ${productName}` : 'Install your SDK'
 
     const installationCompleteFromTeam = useInstallationComplete(teamPropertyToVerify)
     const installationComplete = hideInstallationCheck || installationCompleteFromTeam

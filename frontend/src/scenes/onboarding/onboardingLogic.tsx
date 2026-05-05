@@ -25,7 +25,7 @@ import type { onboardingLogicType } from './onboardingLogicType'
 import { postOnboardingModalLogic } from './postOnboardingModalLogic'
 import { appendSharedTrailingSteps } from './sharedSteps'
 import { onboardingProviderRegistry } from './stepProviderRegistry'
-import { type OnboardingFlowContext, type OnboardingStepDescriptor } from './types'
+import { INSTALL_DEDUP_KEYS, type OnboardingFlowContext, type OnboardingStepDescriptor } from './types'
 import { availableOnboardingProducts } from './utils'
 
 /** Interface kept for callers that import it (legacy step components). */
@@ -361,7 +361,21 @@ export const onboardingLogic = kea<onboardingLogicType>([
                         })
                     )
                 }
-                return result
+                // Reorder: all install steps to the front, with the SDK install (the
+                // posthog-js-deduped survivor) first among them. Stable sort preserves
+                // each provider's intra-group order — non-install steps (configure,
+                // link_data, plans, invite) keep their relative positions, just appear
+                // after the installs. Buckets:
+                //   0 — Install + posthog-js dedup survivor (the canonical "SDK install")
+                //   1 — Install (any other dedupKey or none — Logs/OTel, Workflows, etc.)
+                //   2 — everything else (configure, plans, invite, link_data, …)
+                const sortBucket = (step: OnboardingStepDescriptor): number => {
+                    if (step.stepKey !== OnboardingStepKey.INSTALL) {
+                        return 2
+                    }
+                    return step.dedupKey === INSTALL_DEDUP_KEYS.POSTHOG_JS ? 0 : 1
+                }
+                return result.slice().sort((a, b) => sortBucket(a) - sortBucket(b))
             },
         ],
         onboardingStepKeys: [

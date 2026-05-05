@@ -8,7 +8,7 @@ import { Link } from '@posthog/lemon-ui'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import { onboardingLogic, stepKeyToTitle } from './onboardingLogic'
-import { availableOnboardingProducts, toSentenceCase } from './utils'
+import { availableOnboardingProducts } from './utils'
 
 export function OnboardingBreadcrumbs(): JSX.Element | null {
     const { flow, currentFlowStep } = useValues(onboardingLogic)
@@ -39,8 +39,10 @@ export function OnboardingBreadcrumbs(): JSX.Element | null {
                 availableOnboardingProducts[step.productKey as keyof typeof availableOnboardingProducts]?.name
             if (productName) {
                 // Middle dot scopes the product name as a qualifier rather than reading
-                // as one phrase ("Install · Web analytics" instead of "Install Web analytics").
-                return `${base} · ${toSentenceCase(productName)}`
+                // as one phrase ("Install · Web Analytics" instead of "Install Web Analytics").
+                // Product names use the registry's Title Case ("Product Analytics",
+                // "LLM Analytics") as-is — these are proper-noun product names.
+                return `${base} · ${productName}`
             }
         }
         return base

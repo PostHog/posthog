@@ -122,6 +122,11 @@ export const productAnalyticsOnboarding: ProductOnboardingProvider = {
                 stepKey: OnboardingStepKey.INSTALL,
                 role: ctx.role,
                 setupTaskId: SetupTaskId.IngestFirstEvent,
+                // Same dedupKey as the secondary branch above — without this on the
+                // primary install step, picking Product Analytics + Session Replay (or
+                // any other posthog-js product) would render two install steps because
+                // the survivor here would carry no dedupKey for the secondary to match.
+                dedupKey: INSTALL_DEDUP_KEYS.POSTHOG_JS,
                 render: () => (
                     <OnboardingInstallStep
                         sdkInstructionMap={ProductAnalyticsSDKInstructions}
