@@ -1,16 +1,23 @@
-"""Deterministic scorers for the insight-retrieval eval.
+"""Deterministic scorers for the retrieval evals.
 
-Two binary scorers grade the retrieval flow:
+Three binary scorers grade the retrieval flow:
 
 * ``SkillLoaded`` — did the agent load the named skill (e.g.
   ``querying-posthog-data``) before producing its answer?
 * ``LookupIdInOutput`` — does the agent's final assistant message contain
   the seeded lookup insight's ID, proving it actually queried PostHog
   rather than hallucinating?
+* ``WarehouseSchemaBeforeSql`` — did the agent call
+  ``read-data-warehouse-schema`` before every successful ``execute-sql``
+  call? Catches the failure mode where the agent guesses column names on
+  ``system.*`` tables and gets a query that fails or silently returns
+  wrong rows. Mode-agnostic: works for both v2 tools mode and CLI exec
+  mode because ``LogParser`` normalizes both to the same tool name.
 
-Both scorers walk ``output["messages"]`` (Anthropic-format) and
+The first two scorers walk ``output["messages"]`` (Anthropic-format) and
 ``output["seed"]`` (set by the seeder hook in ``base.py:task()``), so
-nothing has to be threaded through ``expected``.
+nothing has to be threaded through ``expected``. The third opts in via
+``expected = {"warehouse_schema_before_sql": {}}``.
 """
 
 from __future__ import annotations
@@ -23,7 +30,7 @@ from braintrust_core.score import Scorer
 
 from ee.hogai.eval.sandboxed.log_parser import LogParser
 
-__all__ = ["SkillLoaded", "LookupIdInOutput"]
+__all__ = ["LookupIdInOutput", "SkillLoaded", "WarehouseSchemaBeforeSql"]
 
 
 class SkillLoaded(Scorer):
@@ -247,3 +254,83 @@ class LookupIdInOutput(Scorer):
                         if isinstance(text, str) and text:
                             return text
         return ""
+
+
+class WarehouseSchemaBeforeSql(Scorer):
+    """Binary: did the agent run ``read-data-warehouse-schema`` before any successful ``execute-sql``?
+
+    Opt-in via presence of ``expected = {"warehouse_schema_before_sql": {}}``.
+
+    For each successful ``execute-sql`` call, requires that a successful
+    ``read-data-warehouse-schema`` call appeared earlier in the same run.
+    Mode-agnostic — walks all tool calls regardless of whether they came
+    via tools-mode dispatch or via ``posthog:exec`` unwrapping; the
+    ``LogParser`` normalizes both into the same tool name.
+
+    Score 1.0 if every successful ``execute-sql`` was preceded by a
+    successful ``read-data-warehouse-schema``. 0.0 otherwise (with the
+    offending call IDs in metadata). ``None`` when ``execute-sql`` was
+    never called successfully — the case didn't exercise the path this
+    scorer grades.
+    """
+
+    SCHEMA_TOOL = "read-data-warehouse-schema"
+    SQL_TOOL = "execute-sql"
+
+    def _name(self) -> str:
+        return "warehouse_schema_before_sql"
+
+    async def _run_eval_async(self, output, expected=None, **kwargs):
+        return self._evaluate(output, expected)
+
+    def _run_eval_sync(self, output, expected=None, **kwargs):
+        return self._evaluate(output, expected)
+
+    def _evaluate(self, output: dict | None, expected: dict | None = None) -> Score:
+        if not output:
+            return Score(name=self._name(), score=None, metadata={"reason": "No output"})
+        if not isinstance(expected, dict) or self._name() not in expected:
+            return Score(name=self._name(), score=None, metadata={"reason": f"No {self._name()} key on case"})
+
+        raw_log = output.get("raw_log")
+        if not raw_log:
+            return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
+
+        parser = LogParser(raw_log, initial_prompt=output.get("prompt", "") or "")
+        calls = sorted(parser.get_tool_calls(), key=lambda c: c.position)
+
+        seen_schema = False
+        offenders: list[str] = []
+        successful_calls = 0
+        for call in calls:
+            if call.is_error:
+                continue
+            if call.name == self.SCHEMA_TOOL:
+                seen_schema = True
+                continue
+            if call.name == self.SQL_TOOL:
+                successful_calls += 1
+                if not seen_schema:
+                    offenders.append(call.call_id)
+
+        if successful_calls == 0:
+            return Score(
+                name=self._name(),
+                score=None,
+                metadata={"reason": f"'{self.SQL_TOOL}' was never called successfully"},
+            )
+        if offenders:
+            return Score(
+                name=self._name(),
+                score=0.0,
+                metadata={
+                    "reason": f"'{self.SQL_TOOL}' was called without a prior successful '{self.SCHEMA_TOOL}'",
+                    "offenders": offenders,
+                    "total_calls": successful_calls,
+                },
+            )
+        return Score(
+            name=self._name(),
+            score=1.0,
+            metadata={"total_calls": successful_calls},
+        )
