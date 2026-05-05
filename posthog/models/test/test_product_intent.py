@@ -17,6 +17,8 @@ from posthog.models.hog_flow.hog_flow import HogFlow
 from posthog.models.insight import Insight
 from posthog.models.product_intent.product_intent import (
     ProductIntent,
+    _team_product_intents_cache_key,
+    cached_product_intents_for_team,
     calculate_product_activation,
     enqueue_product_activation_calc_debounced,
 )
@@ -817,6 +819,56 @@ class TestEnqueueProductActivationCalcDebounced(BaseTest):
             results = [enqueue_product_activation_calc_debounced(self.team.id + offset) for offset in team_id_offsets]
         assert results == expected_returns
         assert mock_delay.call_count == expected_delay_calls
+
+    def test_cached_product_intents_caches_results(self):
+        ProductIntent.objects.create(team=self.team, product_type=ProductKey.SURVEYS)
+
+        with patch(
+            "posthog.models.product_intent.product_intent._fetch_product_intents",
+            wraps=lambda team_id: list(
+                ProductIntent.objects.filter(team_id=team_id).values(
+                    "product_type", "created_at", "onboarding_completed_at", "updated_at"
+                )
+            ),
+        ) as spy:
+            first = cached_product_intents_for_team(self.team.id)
+            second = cached_product_intents_for_team(self.team.id)
+        assert spy.call_count == 1
+        assert first == second
+        assert {row["product_type"] for row in first} == {"surveys"}
+
+    def test_cached_product_intents_invalidates_on_create(self):
+        cached_product_intents_for_team(self.team.id)
+        assert cache.get(_team_product_intents_cache_key(self.team.id)) is not None
+
+        with self.captureOnCommitCallbacks(execute=True):
+            ProductIntent.objects.create(team=self.team, product_type=ProductKey.FEATURE_FLAGS)
+
+        assert cache.get(_team_product_intents_cache_key(self.team.id)) is None
+        refreshed = cached_product_intents_for_team(self.team.id)
+        assert {row["product_type"] for row in refreshed} == {"feature_flags"}
+
+    def test_cached_product_intents_invalidates_on_delete(self):
+        intent = ProductIntent.objects.create(team=self.team, product_type=ProductKey.EXPERIMENTS)
+        cached_product_intents_for_team(self.team.id)
+        assert cache.get(_team_product_intents_cache_key(self.team.id)) is not None
+
+        with self.captureOnCommitCallbacks(execute=True):
+            intent.delete()
+
+        assert cache.get(_team_product_intents_cache_key(self.team.id)) is None
+
+    def test_cached_product_intents_isolates_per_team(self):
+        from posthog.models import Team
+
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        ProductIntent.objects.create(team=self.team, product_type=ProductKey.SURVEYS)
+        ProductIntent.objects.create(team=other_team, product_type=ProductKey.EXPERIMENTS)
+
+        team_a = cached_product_intents_for_team(self.team.id)
+        team_b = cached_product_intents_for_team(other_team.id)
+        assert {row["product_type"] for row in team_a} == {"surveys"}
+        assert {row["product_type"] for row in team_b} == {"experiments"}
 
     def test_cache_failure_falls_open_logs_and_still_enqueues(self):
         # Redis blip must not 500 the team list endpoint. The helper falls open:
