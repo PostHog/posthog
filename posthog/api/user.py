@@ -96,7 +96,6 @@ from posthog.rate_limit import (
     UserAuthenticationThrottle,
     UserEmailVerificationThrottle,
 )
-from posthog.tasks import user_identify
 from posthog.tasks.email import (
     send_email_change_emails,
     send_password_changed_email,
@@ -355,13 +354,19 @@ class UserSerializer(serializers.ModelSerializer):
             OrganizationDomain.objects.get_sso_enforcement_for_email_address(instance.email, organization=organization)
         )
 
+    def _is_self_request(self, instance: User) -> bool:
+        # True when the requesting user is the same as the user being serialized.
+        # Several SerializerMethodFields short-circuit when this is False so we don't
+        # pay extra queries on staff retrievals or leak per-user data across users.
+        request = self.context.get("request")
+        return bool(request and request.user.id == instance.id)
+
     @tracer.start_as_current_span("user_serializer.is_organization_first_user")
     def get_is_organization_first_user(self, instance: User) -> bool | None:
         # Only compute when the serialized user is the requesting user. Avoids paying an
         # extra membership query on every /api/users/@me/ hit for admin/staff flows that
         # don't need this field, and ensures invitee attribution can't leak across users.
-        request = self.context.get("request")
-        if not request or request.user.id != instance.id:
+        if not self._is_self_request(instance):
             return None
 
         organization = instance.current_organization
@@ -388,8 +393,7 @@ class UserSerializer(serializers.ModelSerializer):
         Only returned when the serialized user is the requesting user — staff retrieving
         another account should not see that user's private invites.
         """
-        request = self.context.get("request")
-        if not request or request.user.id != instance.id or not instance.email:
+        if not self._is_self_request(instance) or not instance.email:
             return []
 
         normalized_email = EmailNormalizer.normalize(instance.email)
@@ -613,8 +617,21 @@ class UserSerializer(serializers.ModelSerializer):
         return instance
 
     def to_representation(self, instance: Any) -> Any:
-        with tracer.start_as_current_span("user_serializer.identify_task_delay"):
-            user_identify.identify_task.delay(user_id=instance.id)
+        # Refresh PostHog person properties so the dogfood instance keeps the user's
+        # org/project/role properties current. posthoganalytics.capture is non-blocking
+        # (the SDK ships events on a background thread) so this call doesn't add request
+        # latency. Inline rather than via celery — the previous celery .delay() was a
+        # synchronous broker round-trip that spiked to ~500ms+ in slow traces, which
+        # was the whole reason for moving away from it. Server-side capture also keeps
+        # working for clients running ad blockers, which a frontend-side identify would
+        # silently miss.
+        with tracer.start_as_current_span("user_serializer.identify"):
+            posthoganalytics.capture(
+                distinct_id=instance.distinct_id,
+                event="update user properties",
+                properties={"$set": instance.get_analytics_metadata()},
+            )
+
         with tracer.start_as_current_span("user_serializer.default_fields"):
             data = super().to_representation(instance)
 
