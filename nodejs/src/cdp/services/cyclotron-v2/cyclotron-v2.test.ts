@@ -194,104 +194,64 @@ describe('Cyclotron V2', () => {
             expect(await totalJobCount()).toBe(0)
         })
 
-        it('createJob persists distinct_id when provided', async () => {
-            const id = await manager.createJob({ teamId: 1, queueName: QUEUE, distinctId: 'user-42' })
+        // [columnName, initKey, sampleValueFactory]
+        const lookupColumns: Array<[keyof RawJobRow, keyof CyclotronV2JobInit, () => string]> = [
+            ['distinct_id', 'distinctId', () => 'user-42'],
+            ['person_id', 'personId', () => uuidv7()],
+            ['action_id', 'actionId', () => 'action-7'],
+        ]
+
+        it.each(lookupColumns)('createJob persists %s when provided', async (column, initKey, factory) => {
+            const value = factory()
+            const id = await manager.createJob({ teamId: 1, queueName: QUEUE, [initKey]: value })
             const row = await queryJob(id)
-            expect(row.distinct_id).toBe('user-42')
+            expect(row[column]).toBe(value)
         })
 
-        it('createJob defaults distinct_id to null when omitted', async () => {
+        it.each(lookupColumns)('createJob defaults %s to null when omitted', async (column) => {
             const id = await manager.createJob({ teamId: 1, queueName: QUEUE })
             const row = await queryJob(id)
-            expect(row.distinct_id).toBeNull()
+            expect(row[column]).toBeNull()
         })
 
-        it('partial index supports lookup by (team_id, distinct_id)', async () => {
-            await manager.createJob({ teamId: 1, queueName: QUEUE, distinctId: 'shared-user' })
-            await manager.createJob({ teamId: 1, queueName: QUEUE, distinctId: 'shared-user' })
-            await manager.createJob({ teamId: 2, queueName: QUEUE, distinctId: 'shared-user' })
-            await manager.createJob({ teamId: 1, queueName: QUEUE })
-
-            const res = await assertPool.query<{ count: string }>(
-                'SELECT COUNT(*) AS count FROM cyclotron_jobs WHERE team_id = $1 AND distinct_id = $2',
-                [1, 'shared-user']
-            )
-            expect(Number(res.rows[0].count)).toBe(2)
-        })
-
-        it('createJob persists person_id when provided', async () => {
-            const personId = uuidv7()
-            const id = await manager.createJob({ teamId: 1, queueName: QUEUE, personId })
-            const row = await queryJob(id)
-            expect(row.person_id).toBe(personId)
-        })
-
-        it('createJob defaults person_id to null when omitted', async () => {
-            const id = await manager.createJob({ teamId: 1, queueName: QUEUE })
-            const row = await queryJob(id)
-            expect(row.person_id).toBeNull()
-        })
-
-        it('bulkCreateJobs persists person_id per row', async () => {
-            const personA = uuidv7()
-            const personB = uuidv7()
+        it.each(lookupColumns)('bulkCreateJobs persists %s per row', async (column, initKey, factory) => {
+            const a = factory()
+            const b = factory()
             const ids = await manager.bulkCreateJobs([
-                { teamId: 1, queueName: QUEUE, personId: personA },
-                { teamId: 1, queueName: QUEUE, personId: personB },
+                { teamId: 1, queueName: QUEUE, [initKey]: a },
+                { teamId: 1, queueName: QUEUE, [initKey]: b },
                 { teamId: 1, queueName: QUEUE },
             ])
             expect(ids).toHaveLength(3)
             const rows = await assertPool.query<RawJobRow>(
-                'SELECT id, person_id FROM cyclotron_jobs WHERE id = ANY($1::uuid[]) ORDER BY id',
+                `SELECT id, ${column} FROM cyclotron_jobs WHERE id = ANY($1::uuid[]) ORDER BY id`,
                 [ids]
             )
-            const byId = new Map(rows.rows.map((r) => [r.id, r.person_id]))
-            expect(byId.get(ids[0])).toBe(personA)
-            expect(byId.get(ids[1])).toBe(personB)
+            const byId = new Map(rows.rows.map((r) => [r.id, r[column]]))
+            expect(byId.get(ids[0])).toBe(a)
+            expect(byId.get(ids[1])).toBe(b)
             expect(byId.get(ids[2])).toBeNull()
         })
 
-        it('partial index supports lookup by (team_id, person_id)', async () => {
-            const sharedPerson = uuidv7()
-            await manager.createJob({ teamId: 1, queueName: QUEUE, personId: sharedPerson })
-            await manager.createJob({ teamId: 1, queueName: QUEUE, personId: sharedPerson })
-            await manager.createJob({ teamId: 2, queueName: QUEUE, personId: sharedPerson })
-            await manager.createJob({ teamId: 1, queueName: QUEUE })
+        // Only distinct_id and person_id are indexed; action_id intentionally is not.
+        const indexedLookupColumns = lookupColumns.filter(([col]) => col !== 'action_id')
 
-            const res = await assertPool.query<{ count: string }>(
-                'SELECT COUNT(*) AS count FROM cyclotron_jobs WHERE team_id = $1 AND person_id = $2',
-                [1, sharedPerson]
-            )
-            expect(Number(res.rows[0].count)).toBe(2)
-        })
+        it.each(indexedLookupColumns)(
+            'partial index supports lookup by (team_id, %s)',
+            async (column, initKey, factory) => {
+                const shared = factory()
+                await manager.createJob({ teamId: 1, queueName: QUEUE, [initKey]: shared })
+                await manager.createJob({ teamId: 1, queueName: QUEUE, [initKey]: shared })
+                await manager.createJob({ teamId: 2, queueName: QUEUE, [initKey]: shared })
+                await manager.createJob({ teamId: 1, queueName: QUEUE })
 
-        it('createJob persists action_id when provided', async () => {
-            const id = await manager.createJob({ teamId: 1, queueName: QUEUE, actionId: 'action-7' })
-            const row = await queryJob(id)
-            expect(row.action_id).toBe('action-7')
-        })
-
-        it('createJob defaults action_id to null when omitted', async () => {
-            const id = await manager.createJob({ teamId: 1, queueName: QUEUE })
-            const row = await queryJob(id)
-            expect(row.action_id).toBeNull()
-        })
-
-        it('bulkCreateJobs persists action_id per row', async () => {
-            const ids = await manager.bulkCreateJobs([
-                { teamId: 1, queueName: QUEUE, actionId: 'action-a' },
-                { teamId: 1, queueName: QUEUE, actionId: 'action-b' },
-                { teamId: 1, queueName: QUEUE },
-            ])
-            const rows = await assertPool.query<RawJobRow>(
-                'SELECT id, action_id FROM cyclotron_jobs WHERE id = ANY($1::uuid[]) ORDER BY id',
-                [ids]
-            )
-            const byId = new Map(rows.rows.map((r) => [r.id, r.action_id]))
-            expect(byId.get(ids[0])).toBe('action-a')
-            expect(byId.get(ids[1])).toBe('action-b')
-            expect(byId.get(ids[2])).toBeNull()
-        })
+                const res = await assertPool.query<{ count: string }>(
+                    `SELECT COUNT(*) AS count FROM cyclotron_jobs WHERE team_id = $1 AND ${column} = $2`,
+                    [1, shared]
+                )
+                expect(Number(res.rows[0].count)).toBe(2)
+            }
+        )
 
         it('backpressure throws when queue depth exceeds limit', async () => {
             const smallManager = createManager({ depthLimit: 2, depthCheckIntervalMs: 0 })
@@ -441,6 +401,14 @@ describe('Cyclotron V2', () => {
             expect(row.distinct_id).toBe('d-new')
         })
 
+        it('reschedule({ distinctId: null }) clears distinct_id', async () => {
+            const { id, job } = await seedAndDequeue({ distinctId: 'd-old' })
+            await job.reschedule({ distinctId: null })
+
+            const row = await queryJob(id)
+            expect(row.distinct_id).toBeNull()
+        })
+
         it('reschedule({ personId }) updates person_id column', async () => {
             const original = uuidv7()
             const next = uuidv7()
@@ -449,6 +417,14 @@ describe('Cyclotron V2', () => {
 
             const row = await queryJob(id)
             expect(row.person_id).toBe(next)
+        })
+
+        it('reschedule({ personId: null }) clears person_id', async () => {
+            const { id, job } = await seedAndDequeue({ personId: uuidv7() })
+            await job.reschedule({ personId: null })
+
+            const row = await queryJob(id)
+            expect(row.person_id).toBeNull()
         })
 
         it('reschedule() without identifiers leaves them unchanged', async () => {
