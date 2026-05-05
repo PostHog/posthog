@@ -10,10 +10,18 @@ from __future__ import annotations
 import re
 import json
 import time
+import uuid
 import shlex
 import subprocess
 
 from .base import BackendError, ExecutionBackend, ExecutionResult
+
+# How long to wait for a candidate's row to appear in `system.query_log`.
+# ClickHouse buffers query_log writes; the cluster's `flush_interval_milliseconds`
+# is typically 7.5s (default). We poll the log up to ~9s in 1.5s steps before
+# giving up and falling back to Metabase's `running_time`.
+_QUERY_LOG_POLL_ATTEMPTS = 6
+_QUERY_LOG_POLL_INTERVAL_S = 1.5
 
 # Match the LAST `SETTINGS` keyword in the query so we can splice
 # `log_comment = '...'` into an existing settings clause. Word-bounded and
@@ -89,8 +97,13 @@ class MetabaseBackend(ExecutionBackend):
     def run(self, sql: str, *, timeout_s: int) -> ExecutionResult:
         # Tag the candidate SQL with `log_comment` so `system.query_log` can
         # attribute these replays to autoresearch (and not the metabase
-        # `default` user) for cost / memory accounting. Same shape as the
-        # local backend's tag so a single query_log filter sees both paths.
+        # `default` user). The `autoresearch_run_id` field is what we use
+        # below to find this exact run in query_log — it lets us pull the
+        # authoritative ClickHouse-side metrics (query_duration_ms,
+        # read_rows, read_bytes, query_id) instead of trusting Metabase's
+        # `running_time` (which bakes in JDBC + JSON-serialisation overhead
+        # and only reports wall-clock).
+        run_id = uuid.uuid4().hex[:16]
         log_comment = json.dumps(
             {
                 "product": "internal",
@@ -98,9 +111,46 @@ class MetabaseBackend(ExecutionBackend):
                 "team_id": self._team_id,
                 "kind": "autoresearch_test_cluster_replay",
                 "query_type": "autoresearch_candidate",
+                "autoresearch_run_id": run_id,
             }
         )
         tagged_sql = _tag_with_log_comment(sql, log_comment)
+
+        body, round_trip_ms = self._exec_via_hogli(tagged_sql, timeout_s=timeout_s)
+        if body.get("status") == "failed" or body.get("error"):
+            raise BackendError(f"metabase exec failed: {body.get('error') or body.get('status')}")
+        rows = body.get("data", {}).get("rows") or []
+
+        # CH-side authoritative metrics from system.query_log. None if the
+        # log row hasn't flushed inside our poll budget — fall back to
+        # Metabase's running_time / round-trip below.
+        log_metrics = self._fetch_query_log_metrics(run_id)
+        if log_metrics is not None:
+            elapsed_ms, rows_read, bytes_read, query_id = log_metrics
+        else:
+            running_time = body.get("running_time")
+            elapsed_ms = float(running_time) if isinstance(running_time, int | float) else round_trip_ms
+            rows_read = None
+            bytes_read = None
+            query_id = None
+
+        return ExecutionResult(
+            rows=[list(r) for r in rows],
+            elapsed_ms=elapsed_ms,
+            rows_read=rows_read,
+            bytes_read=bytes_read,
+            query_id=query_id,
+        )
+
+    def _exec_via_hogli(self, sql: str, *, timeout_s: int) -> tuple[dict, float]:
+        """Invoke ``hogli metabase:query`` with ``sql`` on stdin.
+
+        Returns ``(parsed_body, round_trip_ms)``. Raises ``BackendError`` on
+        any failure to communicate (timeout, non-zero exit, non-JSON body).
+        Does NOT inspect ``body['status']`` / ``body['error']`` — the caller
+        decides whether a CH-side failure should propagate or be tolerated
+        (the query_log lookup tolerates "no results yet" as a poll miss).
+        """
         cmd = [
             "hogli",
             "metabase:query",
@@ -117,7 +167,7 @@ class MetabaseBackend(ExecutionBackend):
         try:
             result = subprocess.run(  # noqa: S603 — fixed argv, sql via stdin
                 cmd,
-                input=tagged_sql,
+                input=sql,
                 text=True,
                 capture_output=True,
                 check=False,
@@ -139,26 +189,38 @@ class MetabaseBackend(ExecutionBackend):
             body = json.loads(result.stdout)
         except json.JSONDecodeError as e:
             raise BackendError(f"metabase returned non-JSON response: {result.stdout[:500]!r}") from e
+        return body, round_trip_ms
 
-        if body.get("status") == "failed" or body.get("error"):
-            raise BackendError(f"metabase exec failed: {body.get('error') or body.get('status')}")
+    def _fetch_query_log_metrics(self, run_id: str) -> tuple[float, int, int, str] | None:
+        """Poll `system.query_log` for the row matching ``autoresearch_run_id``.
 
-        rows = body.get("data", {}).get("rows") or []
-        # Metabase reports server-side `running_time` in ms; prefer it over
-        # the round-trip time so the agent's metrics aren't polluted by HTTP
-        # latency.
-        running_time = body.get("running_time")
-        elapsed_ms = float(running_time) if isinstance(running_time, int | float) else round_trip_ms
-
-        # Metabase doesn't surface ClickHouse's read_rows / read_bytes /
-        # query_id directly. We could ask the agent to fish them out of
-        # system.query_log via a follow-up query, but that doubles every
-        # candidate run — leave them None and let the SKILL document the
-        # query_log lookup as an explicit step when they're needed.
-        return ExecutionResult(
-            rows=[list(r) for r in rows],
-            elapsed_ms=elapsed_ms,
-            rows_read=None,
-            bytes_read=None,
-            query_id=None,
+        Returns ``(query_duration_ms, read_rows, read_bytes, query_id)`` once
+        the row has flushed, or ``None`` if the poll budget elapses without a
+        match. ``run_id`` is hex-only (``uuid.hex[:16]``) so it's safe to
+        interpolate into the SQL string-literal directly.
+        """
+        # Defence-in-depth: refuse anything that isn't 16 hex chars.
+        if not re.fullmatch(r"[0-9a-f]{16}", run_id):
+            return None
+        sql = (
+            "SELECT query_duration_ms, read_rows, read_bytes, query_id "
+            "FROM clusterAllReplicas(posthog, system, query_log) "
+            "WHERE event_date >= today() - 1 "
+            "AND type = 'QueryFinish' "
+            f"AND JSONExtractString(log_comment, 'autoresearch_run_id') = '{run_id}' "
+            "ORDER BY event_time DESC LIMIT 1"
         )
+        for attempt in range(_QUERY_LOG_POLL_ATTEMPTS):
+            if attempt > 0:
+                time.sleep(_QUERY_LOG_POLL_INTERVAL_S)
+            try:
+                body, _ = self._exec_via_hogli(sql, timeout_s=15)
+            except BackendError:
+                return None
+            if body.get("status") == "failed" or body.get("error"):
+                return None
+            rows = body.get("data", {}).get("rows") or []
+            if rows:
+                duration_ms, rows_read, bytes_read, query_id = rows[0]
+                return float(duration_ms), int(rows_read), int(bytes_read), str(query_id)
+        return None
