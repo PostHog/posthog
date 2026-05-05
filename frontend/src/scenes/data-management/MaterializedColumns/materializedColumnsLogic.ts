@@ -31,7 +31,7 @@ export interface MaterializedColumnSlot {
     /** Set during compaction — ingestion dual-writes to both columns until the workflow swaps. */
     compaction_target_slot_index: number | null
     state: MaterializedColumnSlotState
-    backfill_temporal_workflow_id: string | null
+    backfill_temporal_run_id: string | null
     error_message: string | null
     created_at: string
     updated_at: string

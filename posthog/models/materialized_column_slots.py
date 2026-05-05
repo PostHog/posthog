@@ -67,14 +67,10 @@ class MaterializedColumnSlot(UUIDTModel):
         choices=MaterializedColumnSlotState,
         default=MaterializedColumnSlotState.PENDING,
     )
-    # Stores the Temporal `workflow_run_id`, not the `workflow_id`. The legacy field name predates
-    # the weekly schedule — once a single Temporal schedule (`weekly-dmat-backfill-execution`)
-    # reuses the same workflow_id every Sunday, that value would no longer distinguish "this
-    # firing's commits" from "last week's firing's commits". The activity uses run_id (which is
-    # unique per execution and stable across activity retries) for that idempotency check.
-    # Rename held back per safe-django-migrations.md ("Don't rename columns in production");
-    # use `slot.backfill_temporal_workflow_id` knowing it actually contains a run_id.
-    backfill_temporal_workflow_id = models.CharField(max_length=400, null=True, blank=True)
+    # Temporal run_id of the workflow execution that owns this slot's current BACKFILL transition.
+    # The weekly schedule reuses one workflow_id, so run_id (unique per execution, stable across
+    # activity retries) is what the assign activity uses for idempotency and stranded-slot detection.
+    backfill_temporal_run_id = models.CharField(max_length=400, null=True, blank=True)
     error_message = models.TextField(null=True, blank=True)
 
     class Meta:
@@ -128,7 +124,7 @@ class MaterializedColumnSlot(UUIDTModel):
             models.Index(fields=["team", "state"], name="posthog_mat_team_st_idx"),
             models.Index(fields=["team", "property_definition"], name="posthog_mat_team_pr_idx"),
             models.Index(fields=["team", "slot_index"], name="posthog_mat_team_sl_idx"),
-            models.Index(fields=["backfill_temporal_workflow_id"], name="posthog_mat_backfi_idx"),
+            models.Index(fields=["backfill_temporal_run_id"], name="posthog_mat_backfi_run_idx"),
         ]
 
     def __str__(self) -> str:

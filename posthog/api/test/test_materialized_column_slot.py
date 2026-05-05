@@ -277,7 +277,7 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
         assert slot.state == MaterializedColumnSlotState.PENDING
         assert slot.slot_index is None
         # PENDING slots have no Temporal workflow until the weekly cron picks them up.
-        assert slot.backfill_temporal_workflow_id is None
+        assert slot.backfill_temporal_run_id is None
 
     def test_assign_slot_rejects_when_team_at_limit(self):
         for i in range(MAX_SLOTS_PER_TEAM):
@@ -436,7 +436,7 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
             slot_index=0,
             state=MaterializedColumnSlotState.ERROR,
             error_message="Previous error",
-            backfill_temporal_workflow_id="failed-wf-1",
+            backfill_temporal_run_id="failed-wf-1",
         )
 
         response = self.client.post(
@@ -451,7 +451,7 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
         # slot_index is cleared so the next weekly run can re-pack into a fresh column.
         assert slot.slot_index is None
         assert slot.error_message is None
-        assert slot.backfill_temporal_workflow_id is None
+        assert slot.backfill_temporal_run_id is None
 
     @parameterized.expand([["PENDING"], ["BACKFILL"], ["READY"]])
     def test_retry_backfill_rejects_non_error_states(self, current_state):

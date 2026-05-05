@@ -173,10 +173,10 @@ Output is `AssignPendingSlotsResult` with three lists:
 `assignments` (column → branches), `assigned_slot_ids` (PENDING → BACKFILL +
 reclaimed), and `compacted_slot_ids` (READY slots with a fresh target).
 
-**Important nuance**: the slot's `backfill_temporal_workflow_id` field actually
-stores the **run_id**, not the workflow_id. The schedule reuses the same workflow_id
-every week, so workflow_id wouldn't distinguish "this firing's commits" from "last
-week's". The field rename is held back per safe-django-migrations.
+The slot stamps the per-execution **run_id** into `backfill_temporal_run_id`. The
+schedule reuses the same workflow_id every week, so workflow_id alone wouldn't
+distinguish "this firing's commits" from "last week's"; run_id is unique per
+execution and stable across activity retries.
 
 ### 5.2 Cache wait (3 minutes)
 
@@ -359,10 +359,10 @@ These are the areas most likely to drift from the RFC:
    never run the workflow until someone runs the function from a Django shell.
    Consider auto-registering on worker startup (with the existing
    `ScheduleOverlapPolicy.SKIP` it's safe to re-register).
-2. **Single-column chunk overflow** is logged but not split. If MAX_SLOTS_PER_TEAM
+2. **Single-column chunk overflow** is logged but not split. If MAX*SLOTS_PER_TEAM
    and team count combine to put > 500 branches on one column the mutation may
    exceed `max_query_size`. Currently bounded by 100 columns × 5 slots = 500
-   theoretical max per column, so this is _just_ under the line. Tightening either
+   theoretical max per column, so this is \_just* under the line. Tightening either
    constant requires revisiting.
 3. **Crash between mutation completion and `finalize_compaction`** is openly
    documented as a v1 gap (deployment doc). Slot stays correctly dual-written, but
@@ -399,8 +399,9 @@ These are the areas most likely to drift from the RFC:
   columns). Likely intentional but worth confirming the spec's wording allows
   this.
 - **Reclaim only "this run", not "this workflow"** — relies on the slot table
-  storing `workflow_run_id` (per-execution) under a field still named
-  `backfill_temporal_workflow_id`. The semantic is correct; the field name lies.
+  storing the per-execution `run_id` in `backfill_temporal_run_id`, which is
+  stable across activity retries within one execution but unique across
+  scheduled firings.
 - **Compaction trigger threshold of 5** assumes a worst-case weekly demand of 5
   new columns. If MAX_SLOTS_PER_TEAM × signups-per-week ever exceeds this, the
   pool can be exhausted mid-cycle.

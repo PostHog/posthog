@@ -199,7 +199,7 @@ class TestAssignPendingColumns:
 
         result = activity_environment.run(
             assign_pending_columns,
-            AssignPendingColumnsInputs(workflow_id="wf-test"),
+            AssignPendingColumnsInputs(run_id="wf-test"),
         )
 
         assert sorted(result.assigned_slot_ids) == sorted([str(slot_a.id), str(slot_b.id)])
@@ -210,12 +210,12 @@ class TestAssignPendingColumns:
         assert slot_a.slot_index is not None
         assert slot_b.slot_index is not None
         assert slot_a.slot_index != slot_b.slot_index
-        assert slot_a.backfill_temporal_workflow_id == "wf-test"
+        assert slot_a.backfill_temporal_run_id == "wf-test"
 
     def test_no_pending_slots_returns_empty_plan(self, team, activity_environment):
         result = activity_environment.run(
             assign_pending_columns,
-            AssignPendingColumnsInputs(workflow_id="wf-test"),
+            AssignPendingColumnsInputs(run_id="wf-test"),
         )
 
         assert result.assigned_slot_ids == []
@@ -235,12 +235,12 @@ class TestAssignPendingColumns:
             property_definition=prop_def,
             slot_index=7,
             state=MaterializedColumnSlotState.BACKFILL,
-            backfill_temporal_workflow_id="run-abc",
+            backfill_temporal_run_id="run-abc",
         )
 
         result = activity_environment.run(
             assign_pending_columns,
-            AssignPendingColumnsInputs(workflow_id="run-abc"),
+            AssignPendingColumnsInputs(run_id="run-abc"),
         )
 
         # The reclaimed slot should be in assigned_slot_ids and a column 7 assignment should
@@ -263,19 +263,19 @@ class TestAssignPendingColumns:
             property_definition=prop_def,
             slot_index=7,
             state=MaterializedColumnSlotState.BACKFILL,
-            backfill_temporal_workflow_id="run-OLD",
+            backfill_temporal_run_id="run-OLD",
         )
 
         result = activity_environment.run(
             assign_pending_columns,
-            AssignPendingColumnsInputs(workflow_id="run-NEW"),
+            AssignPendingColumnsInputs(run_id="run-NEW"),
         )
 
         assert str(stranded.id) not in result.assigned_slot_ids
-        # And the slot stays in BACKFILL with its old workflow_id intact — operator must intervene.
+        # And the slot stays in BACKFILL with its old run_id intact — operator must intervene.
         stranded.refresh_from_db()
         assert stranded.state == MaterializedColumnSlotState.BACKFILL
-        assert stranded.backfill_temporal_workflow_id == "run-OLD"
+        assert stranded.backfill_temporal_run_id == "run-OLD"
 
     def test_avoids_collisions_with_existing_ready_slot_indexes(self, team, activity_environment):
         # Pre-existing READY slot at index 0 means the new pending slot must land elsewhere.
@@ -295,7 +295,7 @@ class TestAssignPendingColumns:
 
         activity_environment.run(
             assign_pending_columns,
-            AssignPendingColumnsInputs(workflow_id="wf-test"),
+            AssignPendingColumnsInputs(run_id="wf-test"),
         )
 
         new_slot.refresh_from_db()
@@ -334,7 +334,7 @@ class TestAssignPendingColumns:
 
         result = activity_environment.run(
             assign_pending_columns,
-            AssignPendingColumnsInputs(workflow_id="wf-test"),
+            AssignPendingColumnsInputs(run_id="wf-test"),
         )
 
         assert result.assigned_slot_ids == []
@@ -371,7 +371,7 @@ class TestAssignPendingColumns:
                 state=MaterializedColumnSlotState.READY,
             )
 
-        # Reclaimed slot — already in BACKFILL with workflow_id matching this run.
+        # Reclaimed slot — already in BACKFILL with run_id matching this run.
         reclaim_team = Team.objects.create(organization=organization, name="reclaim_team")
         reclaim_prop = PropertyDefinition.objects.create(
             team=reclaim_team,
@@ -383,12 +383,12 @@ class TestAssignPendingColumns:
             property_definition=reclaim_prop,
             slot_index=slots_needed,  # next free index
             state=MaterializedColumnSlotState.BACKFILL,
-            backfill_temporal_workflow_id="wf-test",
+            backfill_temporal_run_id="wf-test",
         )
 
         result = activity_environment.run(
             assign_pending_columns,
-            AssignPendingColumnsInputs(workflow_id="wf-test"),
+            AssignPendingColumnsInputs(run_id="wf-test"),
         )
 
         # Reclaimed slot makes it into the assignment plan (mutation will re-run idempotently).
@@ -419,7 +419,7 @@ class TestAssignPendingColumns:
 
         activity_environment.run(
             assign_pending_columns,
-            AssignPendingColumnsInputs(workflow_id="wf-test"),
+            AssignPendingColumnsInputs(run_id="wf-test"),
         )
 
         new_slot.refresh_from_db()
@@ -739,7 +739,7 @@ class TestAssignCompactionTargets:
 
         result = activity_environment.run(
             assign_compaction_targets,
-            AssignCompactionTargetsInputs(workflow_id="wf-test"),
+            AssignCompactionTargetsInputs(run_id="wf-test"),
         )
 
         # Compaction should have planned a target for every existing READY slot. Each team has
@@ -777,7 +777,7 @@ class TestAssignCompactionTargets:
 
         result = activity_environment.run(
             assign_compaction_targets,
-            AssignCompactionTargetsInputs(workflow_id="wf-test"),
+            AssignCompactionTargetsInputs(run_id="wf-test"),
         )
 
         assert result.compacted_slot_ids == []
@@ -793,7 +793,7 @@ class TestAssignCompactionTargets:
 
         activity_environment.run(
             assign_compaction_targets,
-            AssignCompactionTargetsInputs(workflow_id="wf-test"),
+            AssignCompactionTargetsInputs(run_id="wf-test"),
         )
 
         pending.refresh_from_db()
@@ -825,7 +825,7 @@ class TestAssignCompactionTargets:
 
         result = activity_environment.run(
             assign_compaction_targets,
-            AssignCompactionTargetsInputs(workflow_id="wf-different-run"),
+            AssignCompactionTargetsInputs(run_id="wf-different-run"),
         )
 
         assert str(in_flight.id) in result.compacted_slot_ids

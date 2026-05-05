@@ -57,7 +57,7 @@ class MaterializedColumnSlotSerializer(serializers.ModelSerializer):
             "slot_index",
             "compaction_target_slot_index",
             "state",
-            "backfill_temporal_workflow_id",
+            "backfill_temporal_run_id",
             "error_message",
             "created_at",
             "updated_at",
@@ -311,13 +311,13 @@ class MaterializedColumnSlotViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         slot.state = MaterializedColumnSlotState.PENDING
         slot.slot_index = None
         slot.error_message = None
-        slot.backfill_temporal_workflow_id = None
+        slot.backfill_temporal_run_id = None
         slot.save(
             update_fields=[
                 "state",
                 "slot_index",
                 "error_message",
-                "backfill_temporal_workflow_id",
+                "backfill_temporal_run_id",
                 "updated_at",
             ]
         )

@@ -105,17 +105,17 @@ class BackfillMaterializedPropertiesBatchWorkflow(PostHogWorkflow):
         # from "last week's firing's commits". run_id is unique per execution and stays constant
         # across activity retries — exactly what we need to make the assign activity idempotent
         # against a retry that hits a partially-committed PENDING→BACKFILL transition.
-        workflow_run_id = workflow.info().workflow_run_id
+        run_id = workflow.info().run_id
         # Embedded in the mutation's WHERE clause as `AND <int> = <int>` so the formatted SQL
         # text differs across cycles. Without this, the dict-based mutation SQL would be
         # byte-identical week-to-week and AlterTableMutationRunner would reattach to the
         # previous cycle's already-completed mutation. Same hash across activity retries
         # within one run, different across runs. See `compute_cycle_marker_int` for details.
-        cycle_marker_int = compute_cycle_marker_int(workflow_run_id)
+        cycle_marker_int = compute_cycle_marker_int(run_id)
 
         assignment: AssignPendingColumnsResult = await workflow.execute_activity(
             assign_pending_columns,
-            AssignPendingColumnsInputs(workflow_id=workflow_run_id),
+            AssignPendingColumnsInputs(run_id=run_id),
             start_to_close_timeout=dt.timedelta(minutes=5),
             retry_policy=RetryPolicy(
                 initial_interval=dt.timedelta(seconds=10),
@@ -125,7 +125,7 @@ class BackfillMaterializedPropertiesBatchWorkflow(PostHogWorkflow):
         )
 
         if not assignment.assigned_slot_ids:
-            logger.info("Nothing to do — no PENDING slots", workflow_run_id=workflow_run_id)
+            logger.info("Nothing to do — no PENDING slots", run_id=run_id)
             return
 
         # Sync the (team_id, column_index) → property_name mapping from Postgres to the
@@ -170,9 +170,7 @@ class BackfillMaterializedPropertiesBatchWorkflow(PostHogWorkflow):
                     ),
                 )
             except Exception as e:
-                logger.exception(
-                    "Batched mutation failed; rolling back slot transitions", workflow_run_id=workflow_run_id
-                )
+                logger.exception("Batched mutation failed; rolling back slot transitions", run_id=run_id)
                 try:
                     await workflow.execute_activity(
                         fail_slots,
@@ -190,7 +188,7 @@ class BackfillMaterializedPropertiesBatchWorkflow(PostHogWorkflow):
                 except Exception:
                     logger.exception(
                         "Failed to roll back slot transitions after mutation failure",
-                        workflow_run_id=workflow_run_id,
+                        run_id=run_id,
                     )
                 raise
 
@@ -207,7 +205,7 @@ class BackfillMaterializedPropertiesBatchWorkflow(PostHogWorkflow):
 
         logger.info(
             "Batched dmat PENDING workflow completed",
-            workflow_run_id=workflow_run_id,
+            run_id=run_id,
             pending_count=len(assignment.assigned_slot_ids),
             column_count=len(assignment.assignments),
         )
@@ -264,15 +262,15 @@ class CompactMaterializedColumnsWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, inputs: CompactMaterializedColumnsInputs) -> None:
         logger = structlog.get_logger("compact_materialized_columns")
-        workflow_run_id = workflow.info().workflow_run_id
+        run_id = workflow.info().run_id
         # See the equivalent comment in BackfillMaterializedPropertiesBatchWorkflow.run —
         # the marker distinguishes this cycle's mutation from prior cycles' mutations
         # for AlterTableMutationRunner's SQL-text dedup.
-        cycle_marker_int = compute_cycle_marker_int(workflow_run_id)
+        cycle_marker_int = compute_cycle_marker_int(run_id)
 
         assignment: AssignCompactionTargetsResult = await workflow.execute_activity(
             assign_compaction_targets,
-            AssignCompactionTargetsInputs(workflow_id=workflow_run_id),
+            AssignCompactionTargetsInputs(run_id=run_id),
             start_to_close_timeout=dt.timedelta(minutes=5),
             retry_policy=RetryPolicy(
                 initial_interval=dt.timedelta(seconds=10),
@@ -282,7 +280,7 @@ class CompactMaterializedColumnsWorkflow(PostHogWorkflow):
         )
 
         if not assignment.compacted_slot_ids:
-            logger.info("Compaction not needed and no in-flight targets", workflow_run_id=workflow_run_id)
+            logger.info("Compaction not needed and no in-flight targets", run_id=run_id)
             return
 
         # Sync the (team_id, column_index) → property_name mapping from Postgres to the
@@ -326,7 +324,7 @@ class CompactMaterializedColumnsWorkflow(PostHogWorkflow):
         except Exception:
             logger.exception(
                 "Compaction mutation failed; clearing targets so the next cycle re-plans",
-                workflow_run_id=workflow_run_id,
+                run_id=run_id,
             )
             try:
                 # Compacted slots stay READY on their original column — their data is
@@ -345,7 +343,7 @@ class CompactMaterializedColumnsWorkflow(PostHogWorkflow):
             except Exception:
                 logger.exception(
                     "Failed to clear compaction targets after mutation failure",
-                    workflow_run_id=workflow_run_id,
+                    run_id=run_id,
                 )
             raise
 
@@ -362,7 +360,7 @@ class CompactMaterializedColumnsWorkflow(PostHogWorkflow):
 
         logger.info(
             "Dmat compaction workflow completed",
-            workflow_run_id=workflow_run_id,
+            run_id=run_id,
             compacted_count=len(assignment.compacted_slot_ids),
             column_count=len(assignment.assignments),
         )

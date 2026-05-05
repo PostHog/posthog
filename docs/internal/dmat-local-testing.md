@@ -129,7 +129,7 @@ for s in MaterializedColumnSlot.objects.all():
     print(f"{s.id} team={s.team_id} prop={s.property_definition.name} "
           f"slot_index={s.slot_index} state={s.state} "
           f"compaction_target={s.compaction_target_slot_index} "
-          f"workflow_run={s.backfill_temporal_workflow_id}")
+          f"run_id={s.backfill_temporal_run_id}")
 PY
 ```
 

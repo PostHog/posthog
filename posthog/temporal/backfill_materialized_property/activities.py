@@ -63,7 +63,7 @@ class _ColumnAssignment:
 
 @dataclasses.dataclass
 class AssignPendingColumnsInputs:
-    workflow_id: str
+    run_id: str
 
 
 @dataclasses.dataclass
@@ -78,7 +78,7 @@ class AssignPendingColumnsResult:
 
 @dataclasses.dataclass
 class AssignCompactionTargetsInputs:
-    workflow_id: str
+    run_id: str
 
 
 @dataclasses.dataclass
@@ -196,25 +196,25 @@ def assign_pending_columns(inputs: AssignPendingColumnsInputs) -> AssignPendingC
 
     Atomically:
       1. Read all PENDING slots PLUS any BACKFILL slots already claimed by THIS workflow run
-         (their backfill_temporal_workflow_id == inputs.workflow_id). The latter happens when
+         (their backfill_temporal_run_id == inputs.run_id). The latter happens when
          the activity is retried after the DB transaction commits but before Temporal records
          the activity completion — without this, those slots would be silently stranded in
          BACKFILL forever and the next weekly run would never pick them up.
       2. Compute column assignments for PENDING slots, avoiding per-team collisions with the
          union of existing slot_index and compaction_target_slot_index across all slots.
       3. Update each PENDING slot in-place: set slot_index, transition to BACKFILL, stamp
-         workflow_run_id (in `backfill_temporal_workflow_id`).
+         the run_id into `backfill_temporal_run_id`.
 
     Returns the assignment plan (PENDING new columns) plus reclaimed in-progress slots so the
     workflow can submit a single idempotent batched mutation. Reclaimed slots re-use their
     existing `slot_index` (we do NOT re-pack them — that would risk repeating a successful
     mutation against the wrong column).
 
-    Stranded BACKFILL slots from PRIOR runs (workflow_id != current) are NOT reclaimed by this
+    Stranded BACKFILL slots from PRIOR runs (run_id != current) are NOT reclaimed by this
     activity — they need operator intervention because we can't safely tell whether their
     mutation completed. We log a warning and a metric so they're observable.
     """
-    logger.info("Assigning pending slots to columns", workflow_run_id=inputs.workflow_id)
+    logger.info("Assigning pending slots to columns", run_id=inputs.run_id)
 
     with transaction.atomic():
         # Lock all slot rows we may inspect for collision avoidance. The slot table only ever
@@ -236,13 +236,13 @@ def assign_pending_columns(inputs: AssignPendingColumnsInputs) -> AssignPendingC
             s
             for s in all_string_slots
             if s.state == MaterializedColumnSlotState.BACKFILL
-            and s.backfill_temporal_workflow_id == inputs.workflow_id
+            and s.backfill_temporal_run_id == inputs.run_id
             and s.slot_index is not None
         ]
         if reclaimed_from_this_run:
             logger.info(
                 "Reclaiming BACKFILL slots from a previous attempt of this workflow run",
-                workflow_run_id=inputs.workflow_id,
+                run_id=inputs.run_id,
                 count=len(reclaimed_from_this_run),
                 slot_ids=[str(s.id) for s in reclaimed_from_this_run],
             )
@@ -253,18 +253,18 @@ def assign_pending_columns(inputs: AssignPendingColumnsInputs) -> AssignPendingC
             s
             for s in all_string_slots
             if s.state == MaterializedColumnSlotState.BACKFILL
-            and s.backfill_temporal_workflow_id is not None
-            and s.backfill_temporal_workflow_id != inputs.workflow_id
+            and s.backfill_temporal_run_id is not None
+            and s.backfill_temporal_run_id != inputs.run_id
         ]
         if stranded:
-            stale_workflow_ids = sorted({s.backfill_temporal_workflow_id for s in stranded})
+            stale_run_ids = sorted({s.backfill_temporal_run_id for s in stranded})
             stranded_slot_ids = [str(s.id) for s in stranded]
             logger.warning(
                 "Stranded BACKFILL slots from a prior workflow run — operator action required to retry",
-                current_workflow_run_id=inputs.workflow_id,
+                current_run_id=inputs.run_id,
                 count=len(stranded),
                 slot_ids=stranded_slot_ids,
-                stale_workflow_ids=stale_workflow_ids,
+                stale_run_ids=stale_run_ids,
             )
             # Surface to Sentry so oncall is alerted (the workflow itself does not fail —
             # stranded slots are harmless to users because HogQL falls back to JSON for
@@ -273,9 +273,9 @@ def assign_pending_columns(inputs: AssignPendingColumnsInputs) -> AssignPendingC
             posthoganalytics.capture_exception(
                 Exception("dmat: stranded BACKFILL slots require operator action"),
                 properties={
-                    "current_workflow_run_id": inputs.workflow_id,
+                    "current_run_id": inputs.run_id,
                     "stranded_slot_ids": stranded_slot_ids,
-                    "stale_workflow_ids": stale_workflow_ids,
+                    "stale_run_ids": stale_run_ids,
                 },
             )
 
@@ -295,7 +295,7 @@ def assign_pending_columns(inputs: AssignPendingColumnsInputs) -> AssignPendingC
             skipped_pending_ids = [str(s.id) for s in pending]
             logger.warning(
                 "Refusing to allocate PENDING — free column pool below threshold; compaction must run first",
-                workflow_run_id=inputs.workflow_id,
+                run_id=inputs.run_id,
                 free_count=free_count,
                 threshold=COMPACTION_FREE_COLUMN_THRESHOLD,
                 skipped_pending_count=len(pending),
@@ -306,7 +306,7 @@ def assign_pending_columns(inputs: AssignPendingColumnsInputs) -> AssignPendingC
                     "dmat: PENDING allocation refused — free column pool below threshold; compaction must run first"
                 ),
                 properties={
-                    "workflow_run_id": inputs.workflow_id,
+                    "run_id": inputs.run_id,
                     "free_count": free_count,
                     "threshold": COMPACTION_FREE_COLUMN_THRESHOLD,
                     "skipped_pending_ids": skipped_pending_ids,
@@ -317,7 +317,7 @@ def assign_pending_columns(inputs: AssignPendingColumnsInputs) -> AssignPendingC
         if not pending and not reclaimed_from_this_run:
             logger.info(
                 "Nothing to do — no PENDING slots and nothing reclaimed",
-                workflow_run_id=inputs.workflow_id,
+                run_id=inputs.run_id,
             )
             return AssignPendingColumnsResult(assignments=[], assigned_slot_ids=[])
 
@@ -346,13 +346,13 @@ def assign_pending_columns(inputs: AssignPendingColumnsInputs) -> AssignPendingC
         for slot in pending:
             slot.slot_index = slot_index_by_id[str(slot.id)]
             slot.state = MaterializedColumnSlotState.BACKFILL
-            slot.backfill_temporal_workflow_id = inputs.workflow_id
+            slot.backfill_temporal_run_id = inputs.run_id
             slot.error_message = None
             slot.save(
                 update_fields=[
                     "slot_index",
                     "state",
-                    "backfill_temporal_workflow_id",
+                    "backfill_temporal_run_id",
                     "error_message",
                     "updated_at",
                 ]
@@ -379,7 +379,7 @@ def assign_pending_columns(inputs: AssignPendingColumnsInputs) -> AssignPendingC
 
     logger.info(
         "Assigned PENDING slots",
-        workflow_run_id=inputs.workflow_id,
+        run_id=inputs.run_id,
         assigned_count=len(assigned_slot_ids),
         reclaimed_count=len(reclaimed_from_this_run),
         column_count=len(all_assignments),
@@ -419,7 +419,7 @@ def assign_compaction_targets(inputs: AssignCompactionTargetsInputs) -> AssignCo
     assignments and the slot IDs to drive through mutation+finalize. If neither branch fires
     (no in-flight, plenty of capacity), returns an empty result and the workflow no-ops.
     """
-    logger.info("Evaluating compaction trigger", workflow_run_id=inputs.workflow_id)
+    logger.info("Evaluating compaction trigger", run_id=inputs.run_id)
 
     with transaction.atomic():
         all_string_slots = list(
@@ -448,7 +448,7 @@ def assign_compaction_targets(inputs: AssignCompactionTargetsInputs) -> AssignCo
         if in_flight:
             logger.info(
                 "Resuming in-flight compaction targets — skipping fresh trigger this run",
-                workflow_run_id=inputs.workflow_id,
+                run_id=inputs.run_id,
                 in_flight_count=len(in_flight),
             )
         elif free_count < COMPACTION_FREE_COLUMN_THRESHOLD:
@@ -463,7 +463,7 @@ def assign_compaction_targets(inputs: AssignCompactionTargetsInputs) -> AssignCo
             if slots_to_compact:
                 logger.info(
                     "Triggering dmat compaction",
-                    workflow_run_id=inputs.workflow_id,
+                    run_id=inputs.run_id,
                     free_count=free_count,
                     slots_to_compact=len(slots_to_compact),
                 )
@@ -477,7 +477,7 @@ def assign_compaction_targets(inputs: AssignCompactionTargetsInputs) -> AssignCo
                     posthoganalytics.capture_exception(
                         Exception("dmat: compaction planner skipped slots — column pool may be exhausting"),
                         properties={
-                            "workflow_run_id": inputs.workflow_id,
+                            "run_id": inputs.run_id,
                             "free_count_before_compaction": free_count,
                             "skipped_slot_ids": skipped,
                             "compacted_slot_count": len(compaction_plan),
@@ -486,7 +486,7 @@ def assign_compaction_targets(inputs: AssignCompactionTargetsInputs) -> AssignCo
         else:
             logger.info(
                 "Compaction not needed this run",
-                workflow_run_id=inputs.workflow_id,
+                run_id=inputs.run_id,
                 free_count=free_count,
             )
             return AssignCompactionTargetsResult(assignments=[], compacted_slot_ids=[])
@@ -523,7 +523,7 @@ def assign_compaction_targets(inputs: AssignCompactionTargetsInputs) -> AssignCo
 
     logger.info(
         "Assigned compaction targets",
-        workflow_run_id=inputs.workflow_id,
+        run_id=inputs.run_id,
         new_targets=len(slots_to_compact) - len([s for s in slots_to_compact if str(s.id) not in compaction_plan]),
         in_flight_resumed=len(in_flight),
         column_count=len(all_assignments),

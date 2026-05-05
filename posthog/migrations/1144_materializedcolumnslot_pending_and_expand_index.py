@@ -25,6 +25,11 @@ class Migration(migrations.Migration):
     #    constraints/indexes that were keyed on `(team, property_type, slot_index)` collapse
     #    to `(team, slot_index)` — per-team uniqueness is what protects against two slots in
     #    one team dual-writing to the same dmat column.
+    #
+    # 4) Rename `backfill_temporal_workflow_id` to `backfill_temporal_run_id`. The column has
+    #    always stored a Temporal `run_id` (the schedule reuses one workflow_id for every
+    #    weekly firing, so workflow_id can't distinguish cycles). Renaming now while the table
+    #    is empty avoids carrying the misleading name through every future read site.
 
     operations = [
         # Drop everything keyed on the old shape first, so we can drop the property_type field cleanly.
@@ -113,5 +118,20 @@ class Migration(migrations.Migration):
         migrations.AddIndex(
             model_name="materializedcolumnslot",
             index=models.Index(fields=["team", "slot_index"], name="posthog_mat_team_sl_idx"),
+        ),
+        # Rename the legacy `backfill_temporal_workflow_id` column to `backfill_temporal_run_id`.
+        # The old index is dropped first so the rename doesn't leave a stale index name behind.
+        migrations.RemoveIndex(
+            model_name="materializedcolumnslot",
+            name="posthog_mat_backfi_idx",
+        ),
+        migrations.RenameField(
+            model_name="materializedcolumnslot",
+            old_name="backfill_temporal_workflow_id",
+            new_name="backfill_temporal_run_id",
+        ),
+        migrations.AddIndex(
+            model_name="materializedcolumnslot",
+            index=models.Index(fields=["backfill_temporal_run_id"], name="posthog_mat_backfi_run_idx"),
         ),
     ]

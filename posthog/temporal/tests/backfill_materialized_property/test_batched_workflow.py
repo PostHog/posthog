@@ -65,7 +65,7 @@ class TestBackfillMaterializedPropertiesBatchWorkflow:
 
         @activity.defn(name="assign_pending_columns")
         async def mock_assign(inputs: AssignPendingColumnsInputs) -> AssignPendingColumnsResult:
-            recorded["assign"].append(inputs.workflow_id)
+            recorded["assign"].append(inputs.run_id)
             return AssignPendingColumnsResult(
                 assignments=sample_assignments,
                 assigned_slot_ids=["aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"],
@@ -113,13 +113,13 @@ class TestBackfillMaterializedPropertiesBatchWorkflow:
                 )
                 await handle.result()
                 description = await handle.describe()
-                workflow_run_id = description.run_id
+                run_id = description.run_id
 
         assert recorded["assign"], "assign activity should run"
         assert recorded["populate"] == [True], "populate activity should run between assign and mutation"
         assert len(recorded["mutation"]) == 1
-        # cycle_marker_int passed through from workflow_run_id (NOT workflow_id).
-        assert recorded["mutation"][0]["cycle_marker_int"] == compute_cycle_marker_int(workflow_run_id)
+        # cycle_marker_int passed through from run_id (NOT workflow_id).
+        assert recorded["mutation"][0]["cycle_marker_int"] == compute_cycle_marker_int(run_id)
         assert recorded["mutation"][0]["assignments"] == [
             (10, [(1, "browser", "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")])
         ]
@@ -254,7 +254,7 @@ class TestCompactMaterializedColumnsWorkflow:
 
         @activity.defn(name="assign_compaction_targets")
         async def mock_assign(inputs: AssignCompactionTargetsInputs) -> AssignCompactionTargetsResult:
-            recorded["assign"].append(inputs.workflow_id)
+            recorded["assign"].append(inputs.run_id)
             return AssignCompactionTargetsResult(
                 assignments=sample_assignments,
                 compacted_slot_ids=["bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"],
@@ -302,12 +302,12 @@ class TestCompactMaterializedColumnsWorkflow:
                 )
                 await handle.result()
                 description = await handle.describe()
-                workflow_run_id = description.run_id
+                run_id = description.run_id
 
         assert recorded["assign"], "assign_compaction_targets should run"
         assert recorded["populate"] == [True], "populate must run between assign and mutation"
         assert len(recorded["mutation"]) == 1
-        assert recorded["mutation"][0]["cycle_marker_int"] == compute_cycle_marker_int(workflow_run_id)
+        assert recorded["mutation"][0]["cycle_marker_int"] == compute_cycle_marker_int(run_id)
         assert recorded["mutation"][0]["assignments"] == [(3, [(1, "browser", "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")])]
         assert recorded["finalize"] == [["bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"]]
         assert recorded["clear"] == []
