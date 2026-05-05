@@ -693,7 +693,7 @@ export const searchLogic = kea<searchLogicType>([
                             : toSentenceCase(section.id.replace(/[-]/g, ' '))
 
                     const displayNameSuffix =
-                        displayName === 'General' || displayName === 'Danger zone'
+                        displayName === 'General' || displayName === 'Danger zone' || displayName === 'Integrations'
                             ? ` (${toSentenceCase(effectiveLevel)})`
                             : ''
 
