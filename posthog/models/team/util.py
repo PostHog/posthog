@@ -27,8 +27,6 @@ def delete_bulky_postgres_data(team_ids: list[int]):
 
     from posthog.models.cohort import Cohort, CohortPeople
     from posthog.models.feature_flag.feature_flag import FeatureFlagHashKeyOverride
-    from posthog.models.group.group import Group
-    from posthog.models.group_type_mapping import GroupTypeMapping
     from posthog.models.insight_caching_state import InsightCachingState
     from posthog.models.person import PersonlessDistinctId
 
@@ -51,8 +49,8 @@ def delete_bulky_postgres_data(team_ids: list[int]):
     _raw_delete(CohortPeople.objects.filter(cohort_id__in=cohort_ids))  # nosemgrep: no-direct-persons-db-orm
 
     _raw_delete(FeatureFlagHashKeyOverride.objects.filter(team_id__in=team_ids))  # nosemgrep: no-direct-persons-db-orm
-    _raw_delete(Group.objects.filter(team_id__in=team_ids))  # nosemgrep: no-direct-persons-db-orm
-    _raw_delete(GroupTypeMapping.objects.filter(team_id__in=team_ids))  # nosemgrep: no-direct-persons-db-orm
+    _delete_groups_for_teams(team_ids)
+    _delete_group_type_mappings_for_teams(team_ids)
 
     # Delete Person + PersonDistinctId via personhog RPC (handles both tables).
     # Falls back to ORM batch deletion when personhog is not available.
@@ -100,6 +98,76 @@ def _delete_persons_for_team_via_orm(team_id: int) -> None:
 
     _raw_delete_batch(PersonDistinctId.objects.filter(team_id=team_id))  # nosemgrep: no-direct-persons-db-orm
     _raw_delete_batch(Person.objects.filter(team_id=team_id))  # nosemgrep: no-direct-persons-db-orm
+
+
+def _delete_groups_for_teams(team_ids: list[int]) -> None:
+    from posthog.models.group.group import Group
+    from posthog.models.person.util import PERSONHOG_ROUTING_ERRORS_TOTAL, PERSONHOG_ROUTING_TOTAL, get_client_name
+    from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.proto import DeleteGroupsBatchForTeamRequest
+
+    client = get_personhog_client()
+    for team_id in team_ids:
+        if client is not None:
+            try:
+                while True:
+                    resp = client.delete_groups_batch_for_team(
+                        DeleteGroupsBatchForTeamRequest(team_id=team_id, batch_size=10000)
+                    )
+                    if resp.deleted_count == 0:
+                        break
+                PERSONHOG_ROUTING_TOTAL.labels(
+                    operation="delete_groups_for_team", source="personhog", client_name=get_client_name()
+                ).inc()
+                continue
+            except Exception:
+                PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
+                    operation="delete_groups_for_team",
+                    source="personhog",
+                    error_type="grpc_error",
+                    client_name=get_client_name(),
+                ).inc()
+                logger.warning("personhog_delete_groups_for_team_failure", team_id=team_id, exc_info=True)
+
+        PERSONHOG_ROUTING_TOTAL.labels(
+            operation="delete_groups_for_team", source="django_orm", client_name=get_client_name()
+        ).inc()
+        _raw_delete(Group.objects.filter(team_id=team_id))  # nosemgrep: no-direct-persons-db-orm
+
+
+def _delete_group_type_mappings_for_teams(team_ids: list[int]) -> None:
+    from posthog.models.group_type_mapping import GroupTypeMapping
+    from posthog.models.person.util import PERSONHOG_ROUTING_ERRORS_TOTAL, PERSONHOG_ROUTING_TOTAL, get_client_name
+    from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.proto import DeleteGroupTypeMappingsBatchForTeamRequest
+
+    client = get_personhog_client()
+    for team_id in team_ids:
+        if client is not None:
+            try:
+                while True:
+                    resp = client.delete_group_type_mappings_batch_for_team(
+                        DeleteGroupTypeMappingsBatchForTeamRequest(team_id=team_id, batch_size=10000)
+                    )
+                    if resp.deleted_count == 0:
+                        break
+                PERSONHOG_ROUTING_TOTAL.labels(
+                    operation="delete_group_type_mappings_for_team", source="personhog", client_name=get_client_name()
+                ).inc()
+                continue
+            except Exception:
+                PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
+                    operation="delete_group_type_mappings_for_team",
+                    source="personhog",
+                    error_type="grpc_error",
+                    client_name=get_client_name(),
+                ).inc()
+                logger.warning("personhog_delete_group_type_mappings_for_team_failure", team_id=team_id, exc_info=True)
+
+        PERSONHOG_ROUTING_TOTAL.labels(
+            operation="delete_group_type_mappings_for_team", source="django_orm", client_name=get_client_name()
+        ).inc()
+        _raw_delete(GroupTypeMapping.objects.filter(team_id=team_id))  # nosemgrep: no-direct-persons-db-orm
 
 
 def _raw_delete(queryset: Any):
