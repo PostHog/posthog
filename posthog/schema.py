@@ -2660,6 +2660,7 @@ class IntegrationFilter(BaseModel):
 
 
 class IntegrationKind(StrEnum):
+    ANTHROPIC = "anthropic"
     SLACK = "slack"
     SLACK_POSTHOG_CODE = "slack-posthog-code"
     SALESFORCE = "salesforce"
