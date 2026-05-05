@@ -5,6 +5,24 @@ import { toolbarConfigLogic } from './toolbarConfigLogic'
 
 type OAuthTokens = { access_token: string; refresh_token: string; expires_in: number }
 
+// Marker base class for errors thrown by `refreshOAuthTokens`. Both subclasses are reported
+// to analytics inside the function, so `withTokenRefresh` skips its own capture for these.
+class RefreshError extends Error {}
+
+class RefreshHTTPError extends RefreshError {
+    constructor(public readonly status: number) {
+        super(`Refresh failed: ${status}`)
+        this.name = 'RefreshHTTPError'
+    }
+}
+
+class RefreshNetworkError extends RefreshError {
+    constructor(cause: unknown) {
+        super(`Refresh network error: ${cause instanceof Error ? cause.message : String(cause)}`)
+        this.name = 'RefreshNetworkError'
+    }
+}
+
 let refreshPromise: Promise<OAuthTokens> | null = null
 
 export async function refreshOAuthTokens(
@@ -19,14 +37,26 @@ export async function refreshOAuthTokens(
     refreshPromise = (async () => {
         const startTime = performance.now()
         try {
-            const response = await fetch(`${uiHost}/api/user/toolbar_oauth_refresh/`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ refresh_token: currentRefreshToken, client_id: clientId }),
-            })
+            let response: Response
+            try {
+                response = await fetch(`${uiHost}/api/user/toolbar_oauth_refresh/`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ refresh_token: currentRefreshToken, client_id: clientId }),
+                })
+            } catch (cause) {
+                // Browser-level fetch failures (offline, navigation, ad blocker, CORS) surface as
+                // `TypeError: Failed to fetch`. Capture as a typed event only — these are transient
+                // and shouldn't pollute exception tracking with an untyped TypeError fingerprint.
+                toolbarPosthogJS.capture('toolbar token refresh', {
+                    status: 'network_error',
+                    duration_ms: Math.round(performance.now() - startTime),
+                })
+                throw new RefreshNetworkError(cause)
+            }
 
             if (!response.ok) {
-                const err = new Error(`Refresh failed: ${response.status}`)
+                const err = new RefreshHTTPError(response.status)
                 toolbarPosthogJS.capture('toolbar token refresh', {
                     status: 'error',
                     http_status: response.status,
@@ -77,7 +107,10 @@ export async function withTokenRefresh(
         return await retryRequest(tokens.access_token)
     } catch (e) {
         toolbarLogger.error('auth', 'Token refresh retry failed', { status: response.status })
-        captureToolbarException(e, 'token_refresh_retry')
+        // `refreshOAuthTokens` already reports its own failure paths; avoid double-capturing.
+        if (!(e instanceof RefreshError)) {
+            captureToolbarException(e, 'token_refresh_retry')
+        }
         toolbarConfigLogic.actions.tokenExpired()
         return response
     }
