@@ -45,12 +45,14 @@ import {
 import {
     TaxonomicAutocomplete,
     TaxonomicAutocompleteConfigureState,
-    TaxonomicAutocompleteDetailsState,
     TaxonomicFilterHeadless,
-    useTaxonomicAutocomplete,
-    useTaxonomicAutocompleteItemDetails,
+    useTaxonomicAutocomplete
 } from 'lib/components/TaxonomicFilter/headless'
-import { MenuFilterEntry, TaxonomicFilterMenu } from 'lib/components/TaxonomicFilter/menu'
+import {
+    MenuFilterEntry,
+    MenuFilterPreviewPane,
+    TaxonomicFilterMenu,
+} from 'lib/components/TaxonomicFilter/menu'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import {
     TaxonomicFilterGroup,
@@ -336,6 +338,21 @@ export function TaxonomicFilterPreview(): JSX.Element {
     )
 }
 
+/**
+ * Bridges the old headless autocomplete's transient highlight state into
+ * the new menu's `MenuFilterPreviewPane` so the two components share the
+ * same preview UI without copying its layout into the headless module.
+ */
+function OldHeadlessPreviewBridge(): JSX.Element {
+    const { highlightedEntry } = useTaxonomicAutocomplete()
+    return (
+        <MenuFilterPreviewPane
+            entry={highlightedEntry}
+            className="hidden md:flex flex-col w-[300px] shrink-0 min-w-0 border-l"
+        />
+    )
+}
+
 function ScenarioCard({ scenario }: { scenario: Scenario }): JSX.Element {
     const [legacy, setLegacy] = useState<ScenarioSelection | null>(null)
     const [autocomplete, setAutocomplete] = useState<ScenarioSelection | null>(null)
@@ -410,14 +427,19 @@ function ScenarioCard({ scenario }: { scenario: Scenario }): JSX.Element {
                         >
                             <TaxonomicAutocomplete.Popover>
                                 <TaxonomicAutocomplete.MenuTrigger />
-                                <TaxonomicAutocomplete.Content>
+                                <TaxonomicAutocomplete.Content className="!w-[720px] !min-w-[720px]">
                                     <TaxonomicAutocomplete.Header rootTitle={scenario.label} />
                                     <TaxonomicAutocomplete.RootView>
-                                        <div className="p-1">
-                                            <TaxonomicAutocomplete.Input />
+                                        <div className="flex flex-1 min-h-0">
+                                            <div className="flex flex-col flex-1 min-w-0 min-h-0">
+                                                <div className="p-1">
+                                                    <TaxonomicAutocomplete.Input />
+                                                </div>
+                                                <TaxonomicAutocomplete.Chips />
+                                                <TaxonomicAutocomplete.List />
+                                            </div>
+                                            <OldHeadlessPreviewBridge />
                                         </div>
-                                        <TaxonomicAutocomplete.Chips />
-                                        <TaxonomicAutocomplete.List />
                                     </TaxonomicAutocomplete.RootView>
                                     {scenario.extras}
                                 </TaxonomicAutocomplete.Content>
@@ -642,60 +664,6 @@ function ColumnField({
                 </Select>
             </FieldContent>
         </Field>
-    )
-}
-
-/**
- * Demo `<DetailsView>` body for property groups. Mirrors the layout in the
- * Pin / Edit / View → reference screenshot. All data comes from
- * `useTaxonomicAutocompleteItemDetails(entry)`.
- */
-function PropertyDetails({ entry, cancel }: TaxonomicAutocompleteDetailsState): JSX.Element | null {
-    const details = useTaxonomicAutocompleteItemDetails(entry)
-    if (!details) {
-        return null
-    }
-    return (
-        <div className="flex flex-col flex-1 text-sm">
-            <div className="flex flex-col gap-4 p-4 flex-1">
-                <div className="flex items-center justify-between">
-                    <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={details.togglePin}
-                        disabled={!details.isPinnable}
-                        aria-pressed={details.isPinned}
-                    >
-                        {details.isPinned ? 'Pinned' : 'Pin'}
-                    </Button>
-                    <div className="flex items-center gap-2">
-                        <Button type="button" variant="link" size="sm">
-                            Edit
-                        </Button>
-                        <Button type="button" variant="link" size="sm" onClick={cancel}>
-                            View ↗
-                        </Button>
-                    </div>
-                </div>
-                <div className="flex flex-col gap-1">
-                    <div className="text-xxs uppercase tracking-wide text-secondary">{details.groupLabel}</div>
-                    <div className="text-base font-semibold">{details.title}</div>
-                </div>
-                {details.description && <p className="text-sm text-secondary">{details.description}</p>}
-                {details.example && <p className="text-sm italic text-secondary">Example: {details.example}</p>}
-                {details.propertyType && (
-                    <div className="flex flex-col gap-1 border-t pt-3">
-                        <div className="text-xxs uppercase tracking-wide text-secondary">Property type</div>
-                        <div>{details.propertyType}</div>
-                    </div>
-                )}
-                <div className="flex flex-col gap-1 border-t pt-3">
-                    <div className="text-xxs uppercase tracking-wide text-secondary">Sent as</div>
-                    <code className="text-xxs">{details.rawName}</code>
-                </div>
-            </div>
-        </div>
     )
 }
 

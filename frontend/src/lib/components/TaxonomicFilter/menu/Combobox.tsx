@@ -69,7 +69,16 @@ export function MenuFilterCombobox({
     // `searchQuery` from the orchestrator's `getGroupListInput`, not from
     // us. Keeping a local mirror just for the controlled input ergonomics.
     const { groups, searchQuery, setSearchQuery } = useTaxonomicFilterContext()
-    const [activeChip, setActiveChip] = useState<DrillCategory>(drillTo)
+    // When opening with chips visible (`drillTo='all'`) and a current
+    // selection exists, start on the matching chip so the user lands on
+    // their selection's category by default — they can still tab back to
+    // "All" or any other chip without leaving the combobox.
+    const [activeChip, setActiveChip] = useState<DrillCategory>(() => {
+        if (drillTo === 'all' && selectedEntry) {
+            return selectedEntry.group.type
+        }
+        return drillTo
+    })
     const [itemsByType, setItemsByType] = useState<Record<string, TaxonomicDefinitionTypes[]>>({})
     const [highlightedEntry, setHighlightedEntry] = useState<MenuFilterEntry | null>(null)
     const inputRef = useRef<HTMLInputElement | null>(null)
@@ -351,14 +360,23 @@ function Row({ entry, showGroupLabel, showGroupSubtitle, opensSubmenu, selectedR
         <Autocomplete.Item
             id={stableId}
             value={entry}
-            data-selected={isSelected || undefined}
+            data-checked={isSelected || undefined}
             onClick={(e) => {
                 e.preventDefault()
                 onCommit(entry)
             }}
             className={cn(
                 'flex flex-row items-center gap-2 rounded-sm px-2 py-1 cursor-pointer outline-none',
-                'data-[highlighted]:bg-[var(--fill-selected)]',
+                // `data-selected` mirrors base-ui's `highlighted` state via
+                // the render fn below — keyboard / pointer cursor on this
+                // row gets a soft hover tint.
+                'data-[selected]:bg-[var(--fill-hover)]',
+            )}
+            render={(itemProps, state) => (
+                <div
+                    {...itemProps}
+                    data-selected={state.highlighted ? '' : undefined}
+                />
             )}
         >
             <div className="flex flex-col items-start gap-0 min-w-0 flex-1">

@@ -177,6 +177,9 @@ interface AutocompleteCtx {
     /** Last entry selected through this UI (rich data: group + item + labels). */
     selectedEntry: IndexedItem | null
     clearSelection: () => void
+    /** Currently keyboard/pointer-highlighted row (transient — reset on close). */
+    highlightedEntry: IndexedItem | null
+    setHighlightedEntry: (entry: IndexedItem | null) => void
     /** Currently controlled value from the orchestrator (raw, no item context). */
     value: TaxonomicFilterValue | undefined
     /** Ref to the search input — Input attaches it on mount. */
@@ -333,6 +336,10 @@ export function Root({
     const [loadingByType, setLoadingByType] = useState<Record<string, boolean>>({})
     const [needsMoreByType, setNeedsMoreByType] = useState<Record<string, boolean>>({})
     const [selectedEntry, setSelectedEntry] = useState<IndexedItem | null>(null)
+    // Transient — base-ui's `onItemHighlighted` writes here so consumers
+    // can render side panels (preview, hover details) keyed off the
+    // currently-cursored row without DOM-walking.
+    const [highlightedEntry, setHighlightedEntry] = useState<IndexedItem | null>(null)
     const [pendingPage, setPendingPage] = useState<TaxonomicAutocompletePage | null>(null)
     const [pendingTitle, setPendingTitle] = useState<ReactNode | null>(null)
     const [configuredTypes, setConfiguredTypes] = useState<Set<TaxonomicFilterGroupType>>(() => new Set())
@@ -415,6 +422,11 @@ export function Root({
         (v: boolean): void => {
             if (!isControlled) {
                 setInternalOpen(v)
+            }
+            // Reset transient highlight when the popover closes — the
+            // next open should start fresh rather than echo a stale row.
+            if (!v) {
+                setHighlightedEntry(null)
             }
             onOpenChange?.(v)
         },
@@ -631,6 +643,8 @@ export function Root({
             emptyState,
             selectedEntry,
             clearSelection,
+            highlightedEntry,
+            setHighlightedEntry,
             value,
             inputRef,
             focusInput,
@@ -676,6 +690,7 @@ export function Root({
             emptyState,
             selectedEntry,
             clearSelection,
+            highlightedEntry,
             value,
             focusInput,
             triggerLabel,
@@ -910,6 +925,9 @@ function Content({ children, className }: TaxonomicAutocompleteContentProps): JS
                 autoHighlight="always"
                 openOnInputClick={false}
                 itemToStringValue={(entry: IndexedItem) => entry.name}
+                onItemHighlighted={(entry) =>
+                    ctx.setHighlightedEntry((entry as IndexedItem | undefined) ?? null)
+                }
             >
                 {/* Wrapper owns: Esc-as-back in sub-view, Tab loop in
                     sub-view (covers Header back button + form fields), and
@@ -1086,7 +1104,6 @@ export interface TaxonomicAutocompleteItemsProps {
 }
 
 function Items({ children }: TaxonomicAutocompleteItemsProps): JSX.Element {
-    const ctx = useAutocompleteCtx()
     return (
         <Autocomplete.Collection>
             {(entry: IndexedItem) => (children ? children(entry) : <DefaultRow entry={entry} />)}
@@ -1266,6 +1283,8 @@ export function useTaxonomicAutocomplete(): {
     setOpen: (v: boolean) => void
     selectedEntry: TaxonomicAutocompleteEntry | null
     clearSelection: () => void
+    /** Currently keyboard/pointer-cursored row — useful for side-panel previews. */
+    highlightedEntry: TaxonomicAutocompleteEntry | null
     value: TaxonomicFilterValue | undefined
     searchQuery: string
     setSearchQuery: (q: string) => void
@@ -1281,6 +1300,7 @@ export function useTaxonomicAutocomplete(): {
         setOpen: ctx.setOpen,
         selectedEntry: ctx.selectedEntry,
         clearSelection: ctx.clearSelection,
+        highlightedEntry: ctx.highlightedEntry,
         value: ctx.value,
         searchQuery: ctx.searchQuery,
         setSearchQuery: ctx.setSearchQuery,

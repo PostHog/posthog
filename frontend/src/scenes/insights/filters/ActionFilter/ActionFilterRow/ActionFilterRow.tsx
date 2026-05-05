@@ -11,10 +11,8 @@ import { useCallback } from 'react'
 import { IconChevronDown, IconCopy, IconFilter, IconGroupIntersect, IconPencil, IconTrash } from '@posthog/icons'
 
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
-import {
-    TaxonomicAutocomplete,
-    TaxonomicFilterHeadless,
-} from 'lib/components/TaxonomicFilter/headless'
+import { TaxonomicFilterHeadless } from 'lib/components/TaxonomicFilter/headless'
+import { MenuFilterEntry, TaxonomicFilterMenu } from 'lib/components/TaxonomicFilter/menu'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { SeriesGlyph, SeriesLetter } from 'lib/components/SeriesGlyph'
 import { defaultDataWarehousePopoverFields } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
@@ -546,11 +544,11 @@ export function ActionFilterRow({
                             )}
                         >
                             <div className="flex-1 min-w-36 overflow-hidden">{filterElement}</div>
-                            {/* Disposable parity preview: render the new
-                                TaxonomicAutocomplete next to the legacy
-                                TaxonomicPopover so we can A/B them on the
-                                same Series row. Remove once the new picker
-                                replaces the old one. */}
+                            {/* Production-testing variant: the new
+                                TaxonomicFilterMenu (column / preview-pane
+                                view) renders alongside the legacy
+                                TaxonomicPopover so we can ramp it as the
+                                series-row picker. */}
                             <div
                                 className="flex-1 min-w-36 overflow-hidden"
                                 data-attr={`series-parity-autocomplete-${index}`}
@@ -575,49 +573,46 @@ export function ActionFilterRow({
                                         })
                                     }}
                                 >
-                                    <TaxonomicAutocomplete.Root
-                                        key={`${filter.type}:${String(filter.id ?? '')}`}
+                                    <TaxonomicFilterMenu
                                         triggerLabel="All events"
-                                        defaultSelected={
+                                        // Synthetic entry — the menu only
+                                        // reads `group.type` (to route the
+                                        // initial open) and `name` /
+                                        // `friendlyLabel` (for the trigger
+                                        // label). A full
+                                        // `TaxonomicFilterGroup` isn't
+                                        // needed here.
+                                        selected={
                                             filter.id != null && filter.type
-                                                ? {
-                                                      groupType:
-                                                          filter.type === EntityTypes.ACTIONS
-                                                              ? TaxonomicFilterGroupType.Actions
-                                                              : TaxonomicFilterGroupType.Events,
-                                                      value: value ?? null,
+                                                ? ({
+                                                      item: { id: filter.id, name: filter.name },
+                                                      group: {
+                                                          type:
+                                                              filter.type === EntityTypes.ACTIONS
+                                                                  ? TaxonomicFilterGroupType.Actions
+                                                                  : TaxonomicFilterGroupType.Events,
+                                                      },
                                                       name: String(name ?? filter.id),
                                                       friendlyLabel: name ? String(name) : undefined,
-                                                  }
+                                                  } as unknown as MenuFilterEntry)
                                                 : null
                                         }
-                                    >
-                                        <TaxonomicAutocomplete.Popover>
-                                            <TaxonomicAutocomplete.Trigger>
-                                                {({ selected, label, open }) => (
-                                                    <LemonButton
-                                                        type="secondary"
-                                                        fullWidth
-                                                        data-attr={`series-parity-autocomplete-trigger-${index}`}
-                                                        aria-expanded={open}
-                                                        sideIcon={<IconChevronDown />}
-                                                    >
-                                                         {selected ? <EntityFilterInfo filter={filter} showIcon /> : <span className="text-secondary">{label}</span>}
-                                                    </LemonButton>
+                                        trigger={({ selected, label, open }) => (
+                                            <LemonButton
+                                                type="secondary"
+                                                fullWidth
+                                                data-attr={`series-parity-autocomplete-trigger-${index}`}
+                                                aria-expanded={open}
+                                                sideIcon={<IconChevronDown />}
+                                            >
+                                                {selected ? (
+                                                    <EntityFilterInfo filter={filter} showIcon />
+                                                ) : (
+                                                    <span className="text-secondary">{label}</span>
                                                 )}
-                                            </TaxonomicAutocomplete.Trigger>
-                                            <TaxonomicAutocomplete.Content>
-                                                <TaxonomicAutocomplete.Header rootTitle="Pick event or action" />
-                                                <TaxonomicAutocomplete.RootView>
-                                                    <div className="p-1">
-                                                        <TaxonomicAutocomplete.Input />
-                                                    </div>
-                                                    <TaxonomicAutocomplete.Chips />
-                                                    <TaxonomicAutocomplete.List />
-                                                </TaxonomicAutocomplete.RootView>
-                                            </TaxonomicAutocomplete.Content>
-                                        </TaxonomicAutocomplete.Popover>
-                                    </TaxonomicAutocomplete.Root>
+                                            </LemonButton>
+                                        )}
+                                    />
                                 </TaxonomicFilterHeadless.Root>
                             </div>
                             {customRowSuffix !== undefined && <>{suffix}</>}

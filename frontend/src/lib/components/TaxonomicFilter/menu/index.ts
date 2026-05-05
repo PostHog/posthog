@@ -22,6 +22,9 @@ export type { MenuFilterHogQLEditorProps } from './HogQLEditor'
 export { MenuFilterHeader } from './Header'
 export type { MenuFilterHeaderProps } from './Header'
 
+export { PreviewPane as MenuFilterPreviewPane } from './PreviewPane'
+export type { PreviewPaneProps as MenuFilterPreviewPaneProps } from './PreviewPane'
+
 export type {
     CommitFn as MenuFilterCommitFn,
     DrillCategory as MenuFilterDrillCategory,

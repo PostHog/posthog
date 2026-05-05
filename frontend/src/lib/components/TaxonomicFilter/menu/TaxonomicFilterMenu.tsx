@@ -112,7 +112,11 @@ export function TaxonomicFilterMenu({
         if (selected.group.type === TaxonomicFilterGroupType.DataWarehouse) {
             return { kind: 'dwh-config', table: selected.item, group: selected.group }
         }
-        return { kind: 'combobox', drillTo: selected.group.type }
+        // Land on the regular combobox with chips visible — the matching
+        // chip auto-selects via `selectedEntry` inside the combobox so the
+        // user keeps full context and can switch categories without
+        // bouncing back to the dropdown menu.
+        return { kind: 'combobox', drillTo: 'all' }
     }, [selected])
 
     // -- Recent / Pinned shortcuts -- read from kea so menu items reflect
