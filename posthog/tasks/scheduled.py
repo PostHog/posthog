@@ -51,6 +51,7 @@ from posthog.tasks.tasks import (
     clickhouse_part_count,
     clickhouse_row_count,
     clickhouse_send_license_usage,
+    delete_expired_delegation_invites,
     delete_expired_exported_assets,
     find_flags_with_enriched_analytics,
     ingestion_lag,
@@ -546,6 +547,15 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
             crontab(hour="0", minute=str(randrange(0, 40))),
             delete_expired_exported_assets.s(),
             name="delete expired exported assets",
+        )
+
+        # Daily cleanup of expired onboarding delegation invites. `pre_delete` re-enables
+        # the delegator's onboarding, so a missed sweep strands delegators on the "waiting
+        # for teammate" screen forever.
+        sender.add_periodic_task(
+            crontab(hour="1", minute=str(randrange(0, 40))),
+            delete_expired_delegation_invites.s(),
+            name="delete expired delegation invites",
         )
 
         from ee.tasks.scim_request_log_cleanup import cleanup_old_scim_request_logs

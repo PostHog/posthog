@@ -10,7 +10,6 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.models import Team
 from posthog.models.filters.utils import validate_group_type_index
-from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property import GroupTypeIndex
 from posthog.queries.actor_base_query import (
     SerializedActor,
@@ -49,12 +48,13 @@ class RelatedActorsQuery:
         results: list[SerializedActor] = []
         results.extend(self._query_related_people())
 
-        group_type_indexes = list(
-            GroupTypeMapping.objects.filter(project_id=self.team.project_id)  # nosemgrep: no-direct-persons-db-orm
-            .exclude(group_type_index=self.group_type_index)
-            .order_by("group_type_index")
-            .values_list("group_type_index", flat=True)
-        )
+        from posthog.models.group_type_mapping import get_group_types_for_project
+
+        group_type_indexes = [
+            m["group_type_index"]
+            for m in get_group_types_for_project(self.team.project_id)
+            if m["group_type_index"] != self.group_type_index
+        ]
 
         results.extend(self._query_related_groups(group_type_indexes=group_type_indexes))
         return results

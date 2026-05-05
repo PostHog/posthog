@@ -386,6 +386,7 @@ function VisualizationActions({
                     size="small"
                     onClick={onToggleChartSettingsPanel}
                     tooltip="Visualization settings"
+                    data-attr="sql-editor-visualization-settings-button"
                 />
             </div>
         </div>
@@ -399,7 +400,7 @@ interface ResultsActionsProps {
     exportContext: ExportContext | undefined
     hasQueryInput: boolean
     isEmbeddedMode: boolean
-    onShareTab: () => void
+    onShareTab?: () => void
 }
 
 function ResultsActions({
@@ -457,7 +458,7 @@ function ResultsActions({
                     />
                 </Tooltip>
             )}
-            {!isEmbeddedMode && (
+            {!isEmbeddedMode && onShareTab && (
                 <Tooltip title="Share your current query">
                     <LemonButton
                         id="sql-editor-share"
@@ -482,7 +483,7 @@ interface OutputActionsProps {
     hasQueryInput: boolean
     isEmbeddedMode: boolean
     settingsOpen: boolean
-    onShareTab: () => void
+    onShareTab?: () => void
     onToggleChartSettingsPanel: () => void
 }
 
@@ -528,14 +529,15 @@ function OutputActions({
 interface OutputPaneProps {
     tabId: string
     showToolbar?: boolean
+    onShareTab?: () => void
 }
 
-export function OutputPane({ tabId, showToolbar = true }: OutputPaneProps): JSX.Element {
+export function OutputPane({ tabId, showToolbar = true, onShareTab }: OutputPaneProps): JSX.Element {
     const { activeTab } = useValues(outputPaneLogic)
     const { setActiveTab } = useActions(outputPaneLogic)
 
     const { sourceQuery, exportContext, insightLoading, hasQueryInput, isEmbeddedMode } = useValues(sqlEditorLogic)
-    const { setSourceQuery, shareTab } = useActions(sqlEditorLogic)
+    const { setSourceQuery } = useActions(sqlEditorLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     const {
         response: dataNodeResponse,
@@ -750,7 +752,7 @@ export function OutputPane({ tabId, showToolbar = true }: OutputPaneProps): JSX.
         hasQueryInput,
         isEmbeddedMode,
         settingsOpen: isChartSettingsPanelOpen,
-        onShareTab: shareTab,
+        onShareTab,
         onToggleChartSettingsPanel: toggleVisualizationSettingsPanel,
     }
 

@@ -142,6 +142,7 @@ _PRODUCT_ANALYTICS_TEMPLATE: dict[str, Any] = {
         },
     ],
     "tags": [],
+    "scope": "global",
 }
 
 _FEATURE_FLAG_TEMPLATE: dict[str, Any] = {

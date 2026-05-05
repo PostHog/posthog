@@ -45,7 +45,7 @@ export type LogsIngestionConsumerConfig = {
     LOGS_LIMITER_TTL_SECONDS: number
     LOGS_LIMITER_TEAM_BUCKET_SIZE_KB: string
     LOGS_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND: string
-    /** Comma-separated team IDs, or `*` for all teams, or empty to disable sampling evaluation entirely. */
+    /** Comma-separated team IDs, or `*` for all teams, or empty to disable sampling evaluation entirely. Default `*`; set empty in env to turn off globally. */
     LOGS_SAMPLING_ENABLED_TEAMS: string
     /** When `true`, sampling always keeps every record (metrics path may still run). */
     LOGS_SAMPLING_KILLSWITCH: boolean
@@ -73,7 +73,7 @@ export function getDefaultLogsIngestionConsumerConfig(): LogsIngestionConsumerCo
         LOGS_LIMITER_TTL_SECONDS: 60 * 60 * 24,
         LOGS_LIMITER_TEAM_BUCKET_SIZE_KB: '',
         LOGS_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND: '',
-        LOGS_SAMPLING_ENABLED_TEAMS: '',
+        LOGS_SAMPLING_ENABLED_TEAMS: '*',
         LOGS_SAMPLING_KILLSWITCH: false,
         // Overlapping fields with CommonConfig, included for standalone usage
         // ok to connect to localhost over plaintext

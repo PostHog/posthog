@@ -236,6 +236,9 @@ tools:
             - client_secret
             - account_id
             - job_inputs
+            - created_via
+        inject_body:
+            created_via: mcp
         param_overrides:
             source_type:
                 input_schema: ExternalDataSourceTypeSchema
