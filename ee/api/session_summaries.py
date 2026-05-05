@@ -84,7 +84,7 @@ class SessionSummariesConfigSerializer(serializers.ModelSerializer):
         ),
     )
     custom_tags = serializers.DictField(
-        child=serializers.CharField(allow_blank=False, max_length=CUSTOM_TAG_DESCRIPTION_MAX_LENGTH),
+        child=serializers.CharField(),
         required=False,
         help_text=(
             f"Team-defined tags layered on top of the fixed taxonomy, as a {{name: description}} map. "
@@ -111,7 +111,14 @@ class SessionSummariesConfigSerializer(serializers.ModelSerializer):
                     f"Invalid tag name '{name}': must be lowercase snake_case, "
                     f"1-{CUSTOM_TAG_NAME_MAX_LENGTH} chars, [a-z0-9_]."
                 )
-            cleaned[name] = description.strip()
+            description = (description or "").strip()
+            if not description:
+                raise exceptions.ValidationError(f"Description for tag '{name}' is required.")
+            if len(description) > CUSTOM_TAG_DESCRIPTION_MAX_LENGTH:
+                raise exceptions.ValidationError(
+                    f"Description for tag '{name}' exceeds {CUSTOM_TAG_DESCRIPTION_MAX_LENGTH} characters."
+                )
+            cleaned[name] = description
         return cleaned
 
 

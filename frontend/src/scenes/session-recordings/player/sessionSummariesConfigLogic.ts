@@ -88,16 +88,6 @@ export const sessionSummariesConfigLogic = kea<sessionSummariesConfigLogicType>(
     forms(({ actions }) => ({
         configForm: {
             defaults: { product_context: '', custom_tags: [] } as SessionSummariesConfigForm,
-            errors: ({ custom_tags }) => ({
-                custom_tags: custom_tags.map((tag) => ({
-                    name: !tag.name.trim()
-                        ? 'Name is required'
-                        : !CUSTOM_TAG_NAME_REGEX.test(tag.name)
-                          ? 'Lowercase letters, numbers, and underscores only'
-                          : undefined,
-                    description: !tag.description.trim() ? 'Description is required' : undefined,
-                })),
-            }),
             submit: (values) => {
                 actions.updateConfig(values)
             },

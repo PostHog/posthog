@@ -3,7 +3,7 @@ import { Form } from 'kea-forms'
 import { useEffect, useState } from 'react'
 
 import { IconPencil, IconPlus, IconX } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSkeleton, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSkeleton, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
@@ -102,9 +102,11 @@ function CustomTagsField({ disabled }: { disabled: boolean }): JSX.Element {
                                 }`}
                             >
                                 <span className="font-mono text-xs font-semibold text-warning">{tag.name}</span>
-                                <span className="text-xs text-muted-alt max-w-[280px] truncate" title={tag.description}>
-                                    {tag.description}
-                                </span>
+                                <Tooltip title={tag.description}>
+                                    <span className="text-xs text-muted-alt max-w-[280px] truncate">
+                                        {tag.description}
+                                    </span>
+                                </Tooltip>
                                 <LemonButton
                                     icon={<IconPencil />}
                                     size="xsmall"
