@@ -225,7 +225,7 @@ describe('TimeSeriesLineChart', () => {
             ['omitted', undefined],
             ['empty', [] as AnomalyMarker[]],
         ])('does not render anomaly points when anomalies is %s', (_, anomalies) => {
-            const { container } = renderHogChart(
+            const { chart } = renderHogChart(
                 <TimeSeriesLineChart
                     series={SERIES}
                     labels={LABELS}
@@ -233,7 +233,7 @@ describe('TimeSeriesLineChart', () => {
                     config={anomalies === undefined ? undefined : { anomalies }}
                 />
             )
-            expect(container.querySelectorAll('[data-attr="hog-chart-anomaly-point"]')).toHaveLength(0)
+            expect(chart.anomalyPoints()).toHaveLength(0)
         })
 
         it('renders one anomaly point per marker', () => {
@@ -241,13 +241,13 @@ describe('TimeSeriesLineChart', () => {
                 { dataIndex: 1, value: 2, color: '#f00', yAxisId: 'left' },
                 { dataIndex: 2, value: 3, color: '#0f0', yAxisId: 'left' },
             ]
-            const { container } = renderHogChart(
+            const { chart } = renderHogChart(
                 <TimeSeriesLineChart series={SERIES} labels={LABELS} theme={THEME} config={{ anomalies: markers }} />
             )
-            const dots = container.querySelectorAll<HTMLElement>('[data-attr="hog-chart-anomaly-point"]')
-            expect(dots).toHaveLength(2)
-            expect(dots[0].style.backgroundColor).toBe('rgb(255, 0, 0)')
-            expect(dots[1].style.backgroundColor).toBe('rgb(0, 255, 0)')
+            const points = chart.anomalyPoints()
+            expect(points).toHaveLength(2)
+            expect(points[0].color).toBe('rgb(255, 0, 0)')
+            expect(points[1].color).toBe('rgb(0, 255, 0)')
         })
     })
 
