@@ -67,6 +67,12 @@ class SessionSummariesSerializer(serializers.Serializer):
 
 _PRODUCT_CONTEXT_WRAPPER_TAG_RE = re.compile(r"</?\s*product_context\b[^>]*>", re.IGNORECASE)
 
+# Substring used by ``execute_summarize_session`` (via the Temporal workflow) when the workflow
+# finished successfully but produced no summary row — typically because ``fetch_session_data_activity``
+# returned False (no events / recording too short). Kept here as a module-level constant so the coupling
+# between the workflow's exception text and the API-layer classification is explicit and grep-able.
+_NO_READY_SUMMARY_ERROR_SUBSTRING = "No ready summary found in DB"
+
 
 class SessionSummariesConfigSerializer(serializers.ModelSerializer):
     product_context = serializers.CharField(
@@ -241,7 +247,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         message = str(err)
         # Raised by execute_summarize_session when the workflow finished but no summary row was written —
         # in practice that means fetch_session_data_activity returned False (no events / too short).
-        if isinstance(err, ValueError) and "No ready summary found in DB" in message:
+        if isinstance(err, ValueError) and _NO_READY_SUMMARY_ERROR_SUBSTRING in message:
             return (
                 "no_events_or_too_short",
                 "Recording has no usable events to summarize (typically because it is too short).",

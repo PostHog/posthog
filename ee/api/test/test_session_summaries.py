@@ -8,6 +8,7 @@ from unittest.mock import Mock, patch
 
 from django.http import HttpResponse
 
+from parameterized import parameterized
 from rest_framework import exceptions
 
 from posthog.temporal.session_replay.session_summary_group.types import SessionSummaryStreamUpdate
@@ -312,26 +313,52 @@ class TestSessionSummariesAPI(APIBaseTest):
         self.assertEqual(data["session_2"]["error"], "summary_failed")
         self.assertIn("error_message", data["session_2"])
 
+    @parameterized.expand(
+        [
+            (
+                "no_events_or_too_short_from_value_error",
+                ValueError(
+                    "No ready summary found in DB when generating single session summary for session short_session"
+                ),
+                "no_events_or_too_short",
+                "too short",
+            ),
+            (
+                "summary_failed_from_generic_exception",
+                Exception("Failed to summarize session"),
+                "summary_failed",
+                "please try again",
+            ),
+            (
+                "summary_failed_from_unrelated_value_error",
+                ValueError("Some other unrelated failure"),
+                "summary_failed",
+                "please try again",
+            ),
+        ]
+    )
     @patch("ee.api.session_summaries.partition_sessions_by_recording_existence")
     @patch("ee.api.session_summaries.execute_summarize_session")
-    def test_create_summaries_individually_classifies_no_events_error(
+    def test_create_summaries_individually_classifies_summary_errors(
         self,
+        _name: str,
+        raised_exception: BaseException,
+        expected_error_type: str,
+        expected_message_substring: str,
         mock_execute: Mock,
         mock_partition: Mock,
     ) -> None:
-        mock_partition.return_value = (["short_session"], [])
-        mock_execute.side_effect = ValueError(
-            "No ready summary found in DB when generating single session summary for session short_session"
-        )
+        mock_partition.return_value = (["session_x"], [])
+        mock_execute.side_effect = raised_exception
 
         url = f"/api/environments/{self.team.id}/session_summaries/create_session_summaries_individually/"
-        response = self.client.post(url, {"session_ids": ["short_session"]}, format="json")
+        response = self.client.post(url, {"session_ids": ["session_x"]}, format="json")
 
         self.assertEqual(response.status_code, 200)
         data = response.json()
-        self.assertEqual(set(data.keys()), {"short_session"})
-        self.assertEqual(data["short_session"]["error"], "no_events_or_too_short")
-        self.assertIn("too short", data["short_session"]["error_message"].lower())
+        self.assertEqual(set(data.keys()), {"session_x"})
+        self.assertEqual(data["session_x"]["error"], expected_error_type)
+        self.assertIn(expected_message_substring, data["session_x"]["error_message"].lower())
 
     @patch("ee.api.session_summaries.partition_sessions_by_recording_existence")
     @patch("ee.api.session_summaries.execute_summarize_session")
