@@ -113,18 +113,16 @@ describe('getFormattedDate', () => {
             expect(getFormattedDate(timestamp, { timezone: 'Asia/Tokyo' })).toEqual('29 Apr 2024')
         })
 
-        it('preserves wall-clock date for date-only daily input across project timezones', () => {
-            // Regression: date-only strings from the trends backend (e.g. "2024-05-01") must
-            // format to the same day regardless of the project timezone. The previous
-            // implementation used dayjs.tz(string, tz) which goes through new Date() and could
-            // shift the date by a day, leaving the tooltip header out of sync with the x-axis.
-            const expected = '1\u00A0May\u00A02024'
-            expect(getFormattedDate('2024-05-01', { interval: 'day', timezone: 'UTC' })).toEqual(expected)
-            expect(getFormattedDate('2024-05-01', { interval: 'day', timezone: 'America/Los_Angeles' })).toEqual(
-                expected
-            )
-            expect(getFormattedDate('2024-05-01', { interval: 'day', timezone: 'Asia/Tokyo' })).toEqual(expected)
-        })
+        // Regression: date-only strings from the trends backend (e.g. "2024-05-01") must
+        // format to the same day regardless of the project timezone. The previous
+        // implementation used dayjs.tz(string, tz) which goes through new Date() and could
+        // shift the date by a day, leaving the tooltip header out of sync with the x-axis.
+        it.each(['UTC', 'America/Los_Angeles', 'Asia/Tokyo'])(
+            'preserves wall-clock date for date-only daily input in timezone %s',
+            (timezone) => {
+                expect(getFormattedDate('2024-05-01', { interval: 'day', timezone })).toEqual('1\u00A0May\u00A02024')
+            }
+        )
 
         it('preserves wall-clock date across a US DST boundary', () => {
             // Spring-forward day in the US — make sure date-only input still maps cleanly.
