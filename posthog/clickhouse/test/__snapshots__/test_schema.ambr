@@ -604,7 +604,7 @@
       `property_key` String,
       `property_value` String,
       `_timestamp` DateTime
-  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_property_values_test', kafka_group_name = 'clickhouse_property_values', kafka_format = 'JSONEachRow')
+  ) ENGINE = Kafka(warpstream_ingestion, kafka_topic_list = 'clickhouse_property_values_test', kafka_group_name = 'clickhouse_property_values', kafka_format = 'JSONEachRow')
   
   '''
 # ---
@@ -2332,7 +2332,7 @@
       `property_key` String,
       `property_value` String,
       `_timestamp` DateTime
-  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_property_values_test', kafka_group_name = 'clickhouse_property_values', kafka_format = 'JSONEachRow')
+  ) ENGINE = Kafka(warpstream_ingestion, kafka_topic_list = 'clickhouse_property_values_test', kafka_group_name = 'clickhouse_property_values', kafka_format = 'JSONEachRow')
   
   '''
 # ---
