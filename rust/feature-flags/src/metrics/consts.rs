@@ -20,6 +20,26 @@ pub const COHORT_CACHE_HIT_COUNTER: &str = "flags_cohort_cache_hit_total";
 pub const COHORT_CACHE_MISS_COUNTER: &str = "flags_cohort_cache_miss_total";
 pub const COHORT_CACHE_SIZE_BYTES_GAUGE: &str = "flags_cohort_cache_size_bytes";
 pub const COHORT_CACHE_ENTRIES_GAUGE: &str = "flags_cohort_cache_entries";
+// In-memory flag definitions cache (deserialized + regex-compiled).
+// Keyed on `(team_id, etag)` where `etag` is the version tag Django writes
+// alongside the hypercache payload (`enable_etag=True`). Cache hits avoid the
+// payload fetch + deserialization entirely.
+pub const FLAG_DEFINITIONS_INMEM_CACHE_HIT_COUNTER: &str =
+    "flags_definitions_inmem_cache_hit_total";
+pub const FLAG_DEFINITIONS_INMEM_CACHE_MISS_COUNTER: &str =
+    "flags_definitions_inmem_cache_miss_total";
+pub const FLAG_DEFINITIONS_INMEM_CACHE_SIZE_BYTES_GAUGE: &str =
+    "flags_definitions_inmem_cache_size_bytes";
+pub const FLAG_DEFINITIONS_INMEM_CACHE_ENTRIES_GAUGE: &str =
+    "flags_definitions_inmem_cache_entries";
+// Counter for requests that bypassed the version-keyed fast path. Labels are
+// mutually exclusive — a bypassing request increments exactly one:
+//   reason="sentinel"         — Django wrote `__missing__` (empty team).
+//   reason="etag_missing"     — etag key absent but the loader returned a
+//                                non-empty wrapper (TTL drift / pre-etag).
+//   reason="etag_redis_error" — the `get_etag` call itself failed.
+pub const FLAG_DEFINITIONS_INMEM_CACHE_NO_VERSION_COUNTER: &str =
+    "flags_definitions_inmem_cache_no_version_total";
 // Cohort source for flag evaluation
 // Labels: source="preloaded" (from flags hypercache) | source="cache_manager" (CohortCacheManager fallback)
 pub const FLAG_COHORT_SOURCE_COUNTER: &str = "flags_cohort_source_total";
@@ -31,6 +51,29 @@ pub const FLAG_REQUESTS_COUNTER: &str = "flags_requests_total";
 pub const FLAG_REQUESTS_LATENCY: &str = "flags_requests_duration_ms";
 pub const FLAG_QUEUE_TIME_MS: &str = "flags_queue_time_ms";
 pub const FLAG_REQUEST_FAULTS_COUNTER: &str = "flags_request_faults_total";
+
+// Pre-handler timing decomposition for `flags_queue_time_ms`.
+// Together these subdivide the "Envoy stamp → handler entry" wall time into
+// known synchronous pre-handler work + (residual) proxy/tower wait, so we
+// can attribute spikes to the right tier instead of guessing.
+
+// Total time spent in synchronous pre-handler work inside `endpoint::flags`
+// (UA parse, IP rate-limit, token extract, token rate-limit). Labeled by
+// `team_id` so noisy customers are attributable.
+pub const FLAG_PRE_HANDLER_TIME_MS: &str = "flags_pre_handler_time_ms";
+
+// Per-step rate-limit check timing. Labeled by `kind="ip"|"token"` to
+// distinguish the two rate-limiter calls inside the endpoint.
+pub const FLAG_RATE_LIMIT_CHECK_TIME_MS: &str = "flags_rate_limit_check_ms";
+
+// Time spent inside `decoding::extract_token` (sync JSON DOM scan over the
+// raw body). Pathological large bodies are the suspected outlier driver.
+pub const FLAG_TOKEN_EXTRACT_TIME_MS: &str = "flags_token_extract_ms";
+
+// Permit-acquisition wait time on the tower `ConcurrencyLimitLayer`.
+// Populated by Phase F; emitted only when populated. No `team_id` label
+// because permit wait is a property of pod-level load, not of any one team.
+pub const FLAG_CONCURRENCY_LIMIT_WAIT_TIME_MS: &str = "flags_concurrency_limit_wait_ms";
 
 // Performance monitoring
 pub const DB_CONNECTION_POOL_ACTIVE_COUNTER: &str = "flags_db_connection_pool_active_total";

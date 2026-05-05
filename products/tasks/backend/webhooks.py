@@ -6,8 +6,8 @@ from datetime import timedelta
 from typing import TYPE_CHECKING
 
 from django.core.cache import cache
-from django.http import HttpRequest, HttpResponse
 from django.views.decorators.csrf import csrf_exempt
+from django.http import HttpResponse
 
 import structlog
 import posthoganalytics
@@ -99,61 +99,21 @@ def get_github_webhook_secret() -> str | None:
     return secret if secret else None
 
 
-@csrf_exempt
-def github_pr_webhook(request: HttpRequest) -> HttpResponse:
-    """
-    Handle GitHub webhook events for pull requests and PR comments.
-
-    This endpoint:
-    1. Validates the HMAC-SHA256 signature from GitHub
-    2. Dispatches to event-specific handlers based on X-GitHub-Event header
-
-    Supported events:
-    - pull_request: PR lifecycle (opened, closed, merged)
-    - issue_comment: General PR comments
-    - pull_request_review_comment: Inline code review comments
-    - pull_request_review: Top-level review summaries
-    - check_run: CI check completion (only failing conclusions trigger forwarding)
-    """
-    if request.method != "POST":
-        return HttpResponse(status=405)
-
-    webhook_secret = get_github_webhook_secret()
-    if not webhook_secret:
-        logger.error(
-            "github_pr_webhook_no_secret",
-            message="GITHUB_WEBHOOK_SECRET not configured",
-        )
-        return HttpResponse("Webhook not configured", status=500)
-
-    signature = request.headers.get("X-Hub-Signature-256")
-    if not verify_github_signature(request.body, signature, webhook_secret):
-        logger.warning(
-            "github_pr_webhook_invalid_signature",
-            has_signature=bool(signature),
-        )
-        return HttpResponse("Invalid signature", status=403)
-
-    event_type = request.headers.get("X-GitHub-Event")
-    raw = request.body
-
+def handle_github_webhook(event_type: str, payload: dict) -> HttpResponse:
     try:
-        if event_type == "pull_request":
-            return _handle_pull_request_event(PullRequestEvent.model_validate_json(raw))
-        elif event_type in ("issue_comment", "pull_request_review_comment", "pull_request_review"):
-            return _handle_comment_event(CommentEvent.model_validate_json(raw), event_type=event_type)
-        elif event_type == "check_run":
-            return _handle_check_run_event(CheckRunEvent.model_validate_json(raw))
-        else:
-            return HttpResponse(status=200)
+        match event_type:
+            case "issue_comment" | "pull_request_review_comment" | "pull_request_review":
+                return _handle_comment_event(CommentEvent.model_validate(payload), event_type=event_type)
+            case "check_run":
+                return _handle_check_run_event(CheckRunEvent.model_validate(payload))
+            case "pull_request":
+                return _handle_pull_request_event(PullRequestEvent.model_validate(payload))
+            case _:
+                logger.debug("github_webhook_unhandled_event_type", event_type=event_type)
+                return HttpResponse(status=200)
     except ValidationError as e:
-        logger.warning(
-            "github_pr_webhook_invalid_payload",
-            event_type=event_type,
-            errors=e.errors(),
-        )
-        return HttpResponse("Invalid payload", status=400)
-
+        logger.warning("github_webhook_payload_validation_failed", event_type=event_type, error=str(e))
+        return HttpResponse(status=400)
 
 def _handle_check_run_event(event: CheckRunEvent) -> HttpResponse:
     check_run = event.check_run

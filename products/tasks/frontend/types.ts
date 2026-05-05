@@ -60,6 +60,7 @@ export interface Task {
     repository: string | null
     github_integration: number | null
     json_schema: Record<string, any> | null
+    internal: boolean
     latest_run: TaskRun | null
     created_at: string
     updated_at: string

@@ -1776,6 +1776,1314 @@
                         },
                         "required": ["id", "name"],
                         "type": "object"
+                    },
+                    {
+                        "properties": {
+                            "custom_name": {
+                                "type": "string"
+                            },
+                            "kind": {
+                                "const": "GroupNode",
+                                "default": "GroupNode",
+                                "type": "string"
+                            },
+                            "name": {
+                                "description": "Display name for the combined step.",
+                                "type": "string"
+                            },
+                            "nodes": {
+                                "description": "Events and actions combined into the step. Use per-node `properties` to filter each event; there is no step-wide filter on a grouped step.",
+                                "items": {
+                                    "anyOf": [
+                                        {
+                                            "properties": {
+                                                "custom_name": {
+                                                    "description": "Optional custom name for the event if it is needed to be renamed.",
+                                                    "type": "string"
+                                                },
+                                                "event": {
+                                                    "description": "Name of the event.",
+                                                    "type": "string"
+                                                },
+                                                "kind": {
+                                                    "const": "EventsNode",
+                                                    "default": "EventsNode",
+                                                    "type": "string"
+                                                },
+                                                "math": {
+                                                    "description": "Optional math aggregation type for the series. Only specify this math type if the user wants one of these. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time.",
+                                                    "enum": ["first_time_for_user", "first_time_for_user_with_filters"],
+                                                    "type": "string"
+                                                },
+                                                "optionalInFunnel": {
+                                                    "default": false,
+                                                    "description": "If true, this step can be skipped without breaking the funnel — conversion between the surrounding required steps still counts even if this step didn't happen. Set this when the user asks for a non-required, skippable, or optional step in the funnel. Do not set it on the first or last step (those must be required).",
+                                                    "type": "boolean"
+                                                },
+                                                "properties": {
+                                                    "items": {
+                                                        "anyOf": [
+                                                            {
+                                                                "anyOf": [
+                                                                    {
+                                                                        "properties": {
+                                                                            "key": {
+                                                                                "description": "Use one of the properties the user has provided in the plan.",
+                                                                                "type": "string"
+                                                                            },
+                                                                            "operator": {
+                                                                                "description": "`icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern.",
+                                                                                "enum": [
+                                                                                    "exact",
+                                                                                    "is_not",
+                                                                                    "icontains",
+                                                                                    "not_icontains",
+                                                                                    "regex",
+                                                                                    "not_regex"
+                                                                                ],
+                                                                                "type": "string"
+                                                                            },
+                                                                            "type": {
+                                                                                "enum": [
+                                                                                    "event",
+                                                                                    "person",
+                                                                                    "session",
+                                                                                    "feature"
+                                                                                ],
+                                                                                "type": "string"
+                                                                            },
+                                                                            "value": {
+                                                                                "description": "Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties.",
+                                                                                "type": "string"
+                                                                            }
+                                                                        },
+                                                                        "required": [
+                                                                            "key",
+                                                                            "operator",
+                                                                            "type",
+                                                                            "value"
+                                                                        ],
+                                                                        "type": "object"
+                                                                    },
+                                                                    {
+                                                                        "properties": {
+                                                                            "key": {
+                                                                                "description": "Use one of the properties the user has provided in the plan.",
+                                                                                "type": "string"
+                                                                            },
+                                                                            "operator": {
+                                                                                "enum": ["exact", "gt", "lt"],
+                                                                                "type": "string"
+                                                                            },
+                                                                            "type": {
+                                                                                "enum": [
+                                                                                    "event",
+                                                                                    "person",
+                                                                                    "session",
+                                                                                    "feature"
+                                                                                ],
+                                                                                "type": "string"
+                                                                            },
+                                                                            "value": {
+                                                                                "type": "number"
+                                                                            }
+                                                                        },
+                                                                        "required": [
+                                                                            "key",
+                                                                            "operator",
+                                                                            "type",
+                                                                            "value"
+                                                                        ],
+                                                                        "type": "object"
+                                                                    },
+                                                                    {
+                                                                        "properties": {
+                                                                            "key": {
+                                                                                "description": "Use one of the properties the user has provided in the plan.",
+                                                                                "type": "string"
+                                                                            },
+                                                                            "operator": {
+                                                                                "description": "`exact` - exact match of any of the values. `is_not` - does not match any of the values.",
+                                                                                "enum": ["exact", "is_not"],
+                                                                                "type": "string"
+                                                                            },
+                                                                            "type": {
+                                                                                "enum": [
+                                                                                    "event",
+                                                                                    "person",
+                                                                                    "session",
+                                                                                    "feature"
+                                                                                ],
+                                                                                "type": "string"
+                                                                            },
+                                                                            "value": {
+                                                                                "description": "Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string \"true\" or \"false\".",
+                                                                                "items": {
+                                                                                    "type": "string"
+                                                                                },
+                                                                                "type": "array"
+                                                                            }
+                                                                        },
+                                                                        "required": [
+                                                                            "key",
+                                                                            "operator",
+                                                                            "type",
+                                                                            "value"
+                                                                        ],
+                                                                        "type": "object"
+                                                                    },
+                                                                    {
+                                                                        "properties": {
+                                                                            "key": {
+                                                                                "description": "Use one of the properties the user has provided in the plan.",
+                                                                                "type": "string"
+                                                                            },
+                                                                            "operator": {
+                                                                                "enum": [
+                                                                                    "is_date_exact",
+                                                                                    "is_date_before",
+                                                                                    "is_date_after"
+                                                                                ],
+                                                                                "type": "string"
+                                                                            },
+                                                                            "type": {
+                                                                                "enum": [
+                                                                                    "event",
+                                                                                    "person",
+                                                                                    "session",
+                                                                                    "feature"
+                                                                                ],
+                                                                                "type": "string"
+                                                                            },
+                                                                            "value": {
+                                                                                "description": "Value must be a date in ISO 8601 format.",
+                                                                                "type": "string"
+                                                                            }
+                                                                        },
+                                                                        "required": [
+                                                                            "key",
+                                                                            "operator",
+                                                                            "type",
+                                                                            "value"
+                                                                        ],
+                                                                        "type": "object"
+                                                                    },
+                                                                    {
+                                                                        "properties": {
+                                                                            "key": {
+                                                                                "description": "Use one of the properties the user has provided in the plan.",
+                                                                                "type": "string"
+                                                                            },
+                                                                            "operator": {
+                                                                                "description": "`is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected.",
+                                                                                "enum": ["is_set", "is_not_set"],
+                                                                                "type": "string"
+                                                                            },
+                                                                            "type": {
+                                                                                "enum": [
+                                                                                    "event",
+                                                                                    "person",
+                                                                                    "session",
+                                                                                    "feature"
+                                                                                ],
+                                                                                "type": "string"
+                                                                            }
+                                                                        },
+                                                                        "required": ["key", "operator", "type"],
+                                                                        "type": "object"
+                                                                    }
+                                                                ]
+                                                            },
+                                                            {
+                                                                "anyOf": [
+                                                                    {
+                                                                        "properties": {
+                                                                            "group_type_index": {
+                                                                                "description": "Index of the group type from the group mapping.",
+                                                                                "maximum": 9007199254740991,
+                                                                                "minimum": -9007199254740991,
+                                                                                "type": "integer"
+                                                                            },
+                                                                            "key": {
+                                                                                "description": "Use one of the properties the user has provided in the plan.",
+                                                                                "type": "string"
+                                                                            },
+                                                                            "operator": {
+                                                                                "description": "`icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern.",
+                                                                                "enum": [
+                                                                                    "exact",
+                                                                                    "is_not",
+                                                                                    "icontains",
+                                                                                    "not_icontains",
+                                                                                    "regex",
+                                                                                    "not_regex"
+                                                                                ],
+                                                                                "type": "string"
+                                                                            },
+                                                                            "type": {
+                                                                                "const": "group",
+                                                                                "default": "group",
+                                                                                "type": "string"
+                                                                            },
+                                                                            "value": {
+                                                                                "description": "Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties.",
+                                                                                "type": "string"
+                                                                            }
+                                                                        },
+                                                                        "required": [
+                                                                            "group_type_index",
+                                                                            "key",
+                                                                            "operator",
+                                                                            "value"
+                                                                        ],
+                                                                        "type": "object"
+                                                                    },
+                                                                    {
+                                                                        "properties": {
+                                                                            "group_type_index": {
+                                                                                "description": "Index of the group type from the group mapping.",
+                                                                                "maximum": 9007199254740991,
+                                                                                "minimum": -9007199254740991,
+                                                                                "type": "integer"
+                                                                            },
+                                                                            "key": {
+                                                                                "description": "Use one of the properties the user has provided in the plan.",
+                                                                                "type": "string"
+                                                                            },
+                                                                            "operator": {
+                                                                                "enum": ["exact", "gt", "lt"],
+                                                                                "type": "string"
+                                                                            },
+                                                                            "type": {
+                                                                                "const": "group",
+                                                                                "default": "group",
+                                                                                "type": "string"
+                                                                            },
+                                                                            "value": {
+                                                                                "type": "number"
+                                                                            }
+                                                                        },
+                                                                        "required": [
+                                                                            "group_type_index",
+                                                                            "key",
+                                                                            "operator",
+                                                                            "value"
+                                                                        ],
+                                                                        "type": "object"
+                                                                    },
+                                                                    {
+                                                                        "properties": {
+                                                                            "group_type_index": {
+                                                                                "description": "Index of the group type from the group mapping.",
+                                                                                "maximum": 9007199254740991,
+                                                                                "minimum": -9007199254740991,
+                                                                                "type": "integer"
+                                                                            },
+                                                                            "key": {
+                                                                                "description": "Use one of the properties the user has provided in the plan.",
+                                                                                "type": "string"
+                                                                            },
+                                                                            "operator": {
+                                                                                "description": "`exact` - exact match of any of the values. `is_not` - does not match any of the values.",
+                                                                                "enum": ["exact", "is_not"],
+                                                                                "type": "string"
+                                                                            },
+                                                                            "type": {
+                                                                                "const": "group",
+                                                                                "default": "group",
+                                                                                "type": "string"
+                                                                            },
+                                                                            "value": {
+                                                                                "description": "Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string \"true\" or \"false\".",
+                                                                                "items": {
+                                                                                    "type": "string"
+                                                                                },
+                                                                                "type": "array"
+                                                                            }
+                                                                        },
+                                                                        "required": [
+                                                                            "group_type_index",
+                                                                            "key",
+                                                                            "operator",
+                                                                            "value"
+                                                                        ],
+                                                                        "type": "object"
+                                                                    },
+                                                                    {
+                                                                        "properties": {
+                                                                            "group_type_index": {
+                                                                                "description": "Index of the group type from the group mapping.",
+                                                                                "maximum": 9007199254740991,
+                                                                                "minimum": -9007199254740991,
+                                                                                "type": "integer"
+                                                                            },
+                                                                            "key": {
+                                                                                "description": "Use one of the properties the user has provided in the plan.",
+                                                                                "type": "string"
+                                                                            },
+                                                                            "operator": {
+                                                                                "enum": [
+                                                                                    "is_date_exact",
+                                                                                    "is_date_before",
+                                                                                    "is_date_after"
+                                                                                ],
+                                                                                "type": "string"
+                                                                            },
+                                                                            "type": {
+                                                                                "const": "group",
+                                                                                "default": "group",
+                                                                                "type": "string"
+                                                                            },
+                                                                            "value": {
+                                                                                "description": "Value must be a date in ISO 8601 format.",
+                                                                                "type": "string"
+                                                                            }
+                                                                        },
+                                                                        "required": [
+                                                                            "group_type_index",
+                                                                            "key",
+                                                                            "operator",
+                                                                            "value"
+                                                                        ],
+                                                                        "type": "object"
+                                                                    },
+                                                                    {
+                                                                        "properties": {
+                                                                            "group_type_index": {
+                                                                                "description": "Index of the group type from the group mapping.",
+                                                                                "maximum": 9007199254740991,
+                                                                                "minimum": -9007199254740991,
+                                                                                "type": "integer"
+                                                                            },
+                                                                            "key": {
+                                                                                "description": "Use one of the properties the user has provided in the plan.",
+                                                                                "type": "string"
+                                                                            },
+                                                                            "operator": {
+                                                                                "description": "`is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected.",
+                                                                                "enum": ["is_set", "is_not_set"],
+                                                                                "type": "string"
+                                                                            },
+                                                                            "type": {
+                                                                                "const": "group",
+                                                                                "default": "group",
+                                                                                "type": "string"
+                                                                            }
+                                                                        },
+                                                                        "required": [
+                                                                            "group_type_index",
+                                                                            "key",
+                                                                            "operator"
+                                                                        ],
+                                                                        "type": "object"
+                                                                    }
+                                                                ]
+                                                            },
+                                                            {
+                                                                "properties": {
+                                                                    "key": {
+                                                                        "const": "id",
+                                                                        "default": "id",
+                                                                        "type": "string"
+                                                                    },
+                                                                    "operator": {
+                                                                        "const": "in",
+                                                                        "default": "in",
+                                                                        "type": "string"
+                                                                    },
+                                                                    "type": {
+                                                                        "const": "cohort",
+                                                                        "default": "cohort",
+                                                                        "description": "Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Example: `{ type: \"cohort\", key: \"id\", value: 42, operator: \"in\" }`",
+                                                                        "type": "string"
+                                                                    },
+                                                                    "value": {
+                                                                        "description": "The cohort ID to filter by.",
+                                                                        "maximum": 9007199254740991,
+                                                                        "minimum": -9007199254740991,
+                                                                        "type": "integer"
+                                                                    }
+                                                                },
+                                                                "required": ["value"],
+                                                                "type": "object"
+                                                            },
+                                                            {
+                                                                "anyOf": [
+                                                                    {
+                                                                        "properties": {
+                                                                            "key": {
+                                                                                "description": "The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`).",
+                                                                                "enum": [
+                                                                                    "tag_name",
+                                                                                    "text",
+                                                                                    "href",
+                                                                                    "selector"
+                                                                                ],
+                                                                                "type": "string"
+                                                                            },
+                                                                            "operator": {
+                                                                                "description": "`icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern.",
+                                                                                "enum": [
+                                                                                    "exact",
+                                                                                    "is_not",
+                                                                                    "icontains",
+                                                                                    "not_icontains",
+                                                                                    "regex",
+                                                                                    "not_regex"
+                                                                                ],
+                                                                                "type": "string"
+                                                                            },
+                                                                            "type": {
+                                                                                "const": "element",
+                                                                                "default": "element",
+                                                                                "description": "Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: \"element\", key: \"text\", value: \"Sign Up\", operator: \"exact\" }`",
+                                                                                "type": "string"
+                                                                            },
+                                                                            "value": {
+                                                                                "description": "Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties.",
+                                                                                "type": "string"
+                                                                            }
+                                                                        },
+                                                                        "required": ["key", "operator", "value"],
+                                                                        "type": "object"
+                                                                    },
+                                                                    {
+                                                                        "properties": {
+                                                                            "key": {
+                                                                                "description": "The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`).",
+                                                                                "enum": [
+                                                                                    "tag_name",
+                                                                                    "text",
+                                                                                    "href",
+                                                                                    "selector"
+                                                                                ],
+                                                                                "type": "string"
+                                                                            },
+                                                                            "operator": {
+                                                                                "enum": ["exact", "gt", "lt"],
+                                                                                "type": "string"
+                                                                            },
+                                                                            "type": {
+                                                                                "const": "element",
+                                                                                "default": "element",
+                                                                                "description": "Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: \"element\", key: \"text\", value: \"Sign Up\", operator: \"exact\" }`",
+                                                                                "type": "string"
+                                                                            },
+                                                                            "value": {
+                                                                                "type": "number"
+                                                                            }
+                                                                        },
+                                                                        "required": ["key", "operator", "value"],
+                                                                        "type": "object"
+                                                                    },
+                                                                    {
+                                                                        "properties": {
+                                                                            "key": {
+                                                                                "description": "The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`).",
+                                                                                "enum": [
+                                                                                    "tag_name",
+                                                                                    "text",
+                                                                                    "href",
+                                                                                    "selector"
+                                                                                ],
+                                                                                "type": "string"
+                                                                            },
+                                                                            "operator": {
+                                                                                "description": "`exact` - exact match of any of the values. `is_not` - does not match any of the values.",
+                                                                                "enum": ["exact", "is_not"],
+                                                                                "type": "string"
+                                                                            },
+                                                                            "type": {
+                                                                                "const": "element",
+                                                                                "default": "element",
+                                                                                "description": "Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: \"element\", key: \"text\", value: \"Sign Up\", operator: \"exact\" }`",
+                                                                                "type": "string"
+                                                                            },
+                                                                            "value": {
+                                                                                "description": "Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string \"true\" or \"false\".",
+                                                                                "items": {
+                                                                                    "type": "string"
+                                                                                },
+                                                                                "type": "array"
+                                                                            }
+                                                                        },
+                                                                        "required": ["key", "operator", "value"],
+                                                                        "type": "object"
+                                                                    },
+                                                                    {
+                                                                        "properties": {
+                                                                            "key": {
+                                                                                "description": "The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`).",
+                                                                                "enum": [
+                                                                                    "tag_name",
+                                                                                    "text",
+                                                                                    "href",
+                                                                                    "selector"
+                                                                                ],
+                                                                                "type": "string"
+                                                                            },
+                                                                            "operator": {
+                                                                                "enum": [
+                                                                                    "is_date_exact",
+                                                                                    "is_date_before",
+                                                                                    "is_date_after"
+                                                                                ],
+                                                                                "type": "string"
+                                                                            },
+                                                                            "type": {
+                                                                                "const": "element",
+                                                                                "default": "element",
+                                                                                "description": "Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: \"element\", key: \"text\", value: \"Sign Up\", operator: \"exact\" }`",
+                                                                                "type": "string"
+                                                                            },
+                                                                            "value": {
+                                                                                "description": "Value must be a date in ISO 8601 format.",
+                                                                                "type": "string"
+                                                                            }
+                                                                        },
+                                                                        "required": ["key", "operator", "value"],
+                                                                        "type": "object"
+                                                                    },
+                                                                    {
+                                                                        "properties": {
+                                                                            "key": {
+                                                                                "description": "The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`).",
+                                                                                "enum": [
+                                                                                    "tag_name",
+                                                                                    "text",
+                                                                                    "href",
+                                                                                    "selector"
+                                                                                ],
+                                                                                "type": "string"
+                                                                            },
+                                                                            "operator": {
+                                                                                "description": "`is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected.",
+                                                                                "enum": ["is_set", "is_not_set"],
+                                                                                "type": "string"
+                                                                            },
+                                                                            "type": {
+                                                                                "const": "element",
+                                                                                "default": "element",
+                                                                                "description": "Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: \"element\", key: \"text\", value: \"Sign Up\", operator: \"exact\" }`",
+                                                                                "type": "string"
+                                                                            }
+                                                                        },
+                                                                        "required": ["key", "operator"],
+                                                                        "type": "object"
+                                                                    }
+                                                                ]
+                                                            },
+                                                            {
+                                                                "properties": {
+                                                                    "key": {
+                                                                        "description": "A HogQL boolean expression used as a filter condition.\n\nExamples:\n- Filter where a property exceeds a threshold: `toFloat(properties.load_time) > 5.0`\n- Filter with string matching: `properties.$current_url LIKE '%/pricing%'`\n- Filter with multiple conditions: `properties.$browser = 'Chrome' AND toFloat(properties.duration) > 30`",
+                                                                        "type": "string"
+                                                                    },
+                                                                    "type": {
+                                                                        "const": "hogql",
+                                                                        "default": "hogql",
+                                                                        "description": "Filter by a HogQL boolean expression for advanced filtering that can't be expressed with standard property filters.",
+                                                                        "type": "string"
+                                                                    }
+                                                                },
+                                                                "required": ["key"],
+                                                                "type": "object"
+                                                            },
+                                                            {
+                                                                "properties": {
+                                                                    "key": {
+                                                                        "description": "The feature flag key.",
+                                                                        "type": "string"
+                                                                    },
+                                                                    "operator": {
+                                                                        "const": "flag_evaluates_to",
+                                                                        "default": "flag_evaluates_to",
+                                                                        "type": "string"
+                                                                    },
+                                                                    "type": {
+                                                                        "const": "flag",
+                                                                        "default": "flag",
+                                                                        "description": "Filter events by feature flag state — only include events where a specific flag evaluated to a given value. Examples:\n- Flag enabled: `{ type: \"flag\", key: \"new-onboarding\", operator: \"flag_evaluates_to\", value: true }`\n- Specific variant: `{ type: \"flag\", key: \"checkout-experiment\", operator: \"flag_evaluates_to\", value: \"variant-a\" }`",
+                                                                        "type": "string"
+                                                                    },
+                                                                    "value": {
+                                                                        "anyOf": [
+                                                                            {
+                                                                                "type": "boolean"
+                                                                            },
+                                                                            {
+                                                                                "type": "string"
+                                                                            }
+                                                                        ],
+                                                                        "description": "`true`/`false` for boolean flags, or a variant name string for multivariate flags."
+                                                                    }
+                                                                },
+                                                                "required": ["key", "value"],
+                                                                "type": "object"
+                                                            }
+                                                        ]
+                                                    },
+                                                    "type": "array"
+                                                },
+                                                "version": {
+                                                    "description": "version of the node, used for schema migrations",
+                                                    "type": "number"
+                                                }
+                                            },
+                                            "required": ["event"],
+                                            "type": "object"
+                                        },
+                                        {
+                                            "properties": {
+                                                "id": {
+                                                    "description": "Action ID from the plan.",
+                                                    "type": "number"
+                                                },
+                                                "kind": {
+                                                    "const": "ActionsNode",
+                                                    "default": "ActionsNode",
+                                                    "type": "string"
+                                                },
+                                                "math": {
+                                                    "description": "Optional math aggregation type for the series. Only specify this math type if the user wants one of these. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time.",
+                                                    "enum": ["first_time_for_user", "first_time_for_user_with_filters"],
+                                                    "type": "string"
+                                                },
+                                                "name": {
+                                                    "description": "Action name from the plan.",
+                                                    "type": "string"
+                                                },
+                                                "optionalInFunnel": {
+                                                    "default": false,
+                                                    "description": "If true, this step can be skipped without breaking the funnel — conversion between the surrounding required steps still counts even if this step didn't happen. Set this when the user asks for a non-required, skippable, or optional step in the funnel. Do not set it on the first or last step (those must be required).",
+                                                    "type": "boolean"
+                                                },
+                                                "properties": {
+                                                    "items": {
+                                                        "anyOf": [
+                                                            {
+                                                                "anyOf": [
+                                                                    {
+                                                                        "properties": {
+                                                                            "key": {
+                                                                                "description": "Use one of the properties the user has provided in the plan.",
+                                                                                "type": "string"
+                                                                            },
+                                                                            "operator": {
+                                                                                "description": "`icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern.",
+                                                                                "enum": [
+                                                                                    "exact",
+                                                                                    "is_not",
+                                                                                    "icontains",
+                                                                                    "not_icontains",
+                                                                                    "regex",
+                                                                                    "not_regex"
+                                                                                ],
+                                                                                "type": "string"
+                                                                            },
+                                                                            "type": {
+                                                                                "enum": [
+                                                                                    "event",
+                                                                                    "person",
+                                                                                    "session",
+                                                                                    "feature"
+                                                                                ],
+                                                                                "type": "string"
+                                                                            },
+                                                                            "value": {
+                                                                                "description": "Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties.",
+                                                                                "type": "string"
+                                                                            }
+                                                                        },
+                                                                        "required": [
+                                                                            "key",
+                                                                            "operator",
+                                                                            "type",
+                                                                            "value"
+                                                                        ],
+                                                                        "type": "object"
+                                                                    },
+                                                                    {
+                                                                        "properties": {
+                                                                            "key": {
+                                                                                "description": "Use one of the properties the user has provided in the plan.",
+                                                                                "type": "string"
+                                                                            },
+                                                                            "operator": {
+                                                                                "enum": ["exact", "gt", "lt"],
+                                                                                "type": "string"
+                                                                            },
+                                                                            "type": {
+                                                                                "enum": [
+                                                                                    "event",
+                                                                                    "person",
+                                                                                    "session",
+                                                                                    "feature"
+                                                                                ],
+                                                                                "type": "string"
+                                                                            },
+                                                                            "value": {
+                                                                                "type": "number"
+                                                                            }
+                                                                        },
+                                                                        "required": [
+                                                                            "key",
+                                                                            "operator",
+                                                                            "type",
+                                                                            "value"
+                                                                        ],
+                                                                        "type": "object"
+                                                                    },
+                                                                    {
+                                                                        "properties": {
+                                                                            "key": {
+                                                                                "description": "Use one of the properties the user has provided in the plan.",
+                                                                                "type": "string"
+                                                                            },
+                                                                            "operator": {
+                                                                                "description": "`exact` - exact match of any of the values. `is_not` - does not match any of the values.",
+                                                                                "enum": ["exact", "is_not"],
+                                                                                "type": "string"
+                                                                            },
+                                                                            "type": {
+                                                                                "enum": [
+                                                                                    "event",
+                                                                                    "person",
+                                                                                    "session",
+                                                                                    "feature"
+                                                                                ],
+                                                                                "type": "string"
+                                                                            },
+                                                                            "value": {
+                                                                                "description": "Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string \"true\" or \"false\".",
+                                                                                "items": {
+                                                                                    "type": "string"
+                                                                                },
+                                                                                "type": "array"
+                                                                            }
+                                                                        },
+                                                                        "required": [
+                                                                            "key",
+                                                                            "operator",
+                                                                            "type",
+                                                                            "value"
+                                                                        ],
+                                                                        "type": "object"
+                                                                    },
+                                                                    {
+                                                                        "properties": {
+                                                                            "key": {
+                                                                                "description": "Use one of the properties the user has provided in the plan.",
+                                                                                "type": "string"
+                                                                            },
+                                                                            "operator": {
+                                                                                "enum": [
+                                                                                    "is_date_exact",
+                                                                                    "is_date_before",
+                                                                                    "is_date_after"
+                                                                                ],
+                                                                                "type": "string"
+                                                                            },
+                                                                            "type": {
+                                                                                "enum": [
+                                                                                    "event",
+                                                                                    "person",
+                                                                                    "session",
+                                                                                    "feature"
+                                                                                ],
+                                                                                "type": "string"
+                                                                            },
+                                                                            "value": {
+                                                                                "description": "Value must be a date in ISO 8601 format.",
+                                                                                "type": "string"
+                                                                            }
+                                                                        },
+                                                                        "required": [
+                                                                            "key",
+                                                                            "operator",
+                                                                            "type",
+                                                                            "value"
+                                                                        ],
+                                                                        "type": "object"
+                                                                    },
+                                                                    {
+                                                                        "properties": {
+                                                                            "key": {
+                                                                                "description": "Use one of the properties the user has provided in the plan.",
+                                                                                "type": "string"
+                                                                            },
+                                                                            "operator": {
+                                                                                "description": "`is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected.",
+                                                                                "enum": ["is_set", "is_not_set"],
+                                                                                "type": "string"
+                                                                            },
+                                                                            "type": {
+                                                                                "enum": [
+                                                                                    "event",
+                                                                                    "person",
+                                                                                    "session",
+                                                                                    "feature"
+                                                                                ],
+                                                                                "type": "string"
+                                                                            }
+                                                                        },
+                                                                        "required": ["key", "operator", "type"],
+                                                                        "type": "object"
+                                                                    }
+                                                                ]
+                                                            },
+                                                            {
+                                                                "anyOf": [
+                                                                    {
+                                                                        "properties": {
+                                                                            "group_type_index": {
+                                                                                "description": "Index of the group type from the group mapping.",
+                                                                                "maximum": 9007199254740991,
+                                                                                "minimum": -9007199254740991,
+                                                                                "type": "integer"
+                                                                            },
+                                                                            "key": {
+                                                                                "description": "Use one of the properties the user has provided in the plan.",
+                                                                                "type": "string"
+                                                                            },
+                                                                            "operator": {
+                                                                                "description": "`icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern.",
+                                                                                "enum": [
+                                                                                    "exact",
+                                                                                    "is_not",
+                                                                                    "icontains",
+                                                                                    "not_icontains",
+                                                                                    "regex",
+                                                                                    "not_regex"
+                                                                                ],
+                                                                                "type": "string"
+                                                                            },
+                                                                            "type": {
+                                                                                "const": "group",
+                                                                                "default": "group",
+                                                                                "type": "string"
+                                                                            },
+                                                                            "value": {
+                                                                                "description": "Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties.",
+                                                                                "type": "string"
+                                                                            }
+                                                                        },
+                                                                        "required": [
+                                                                            "group_type_index",
+                                                                            "key",
+                                                                            "operator",
+                                                                            "value"
+                                                                        ],
+                                                                        "type": "object"
+                                                                    },
+                                                                    {
+                                                                        "properties": {
+                                                                            "group_type_index": {
+                                                                                "description": "Index of the group type from the group mapping.",
+                                                                                "maximum": 9007199254740991,
+                                                                                "minimum": -9007199254740991,
+                                                                                "type": "integer"
+                                                                            },
+                                                                            "key": {
+                                                                                "description": "Use one of the properties the user has provided in the plan.",
+                                                                                "type": "string"
+                                                                            },
+                                                                            "operator": {
+                                                                                "enum": ["exact", "gt", "lt"],
+                                                                                "type": "string"
+                                                                            },
+                                                                            "type": {
+                                                                                "const": "group",
+                                                                                "default": "group",
+                                                                                "type": "string"
+                                                                            },
+                                                                            "value": {
+                                                                                "type": "number"
+                                                                            }
+                                                                        },
+                                                                        "required": [
+                                                                            "group_type_index",
+                                                                            "key",
+                                                                            "operator",
+                                                                            "value"
+                                                                        ],
+                                                                        "type": "object"
+                                                                    },
+                                                                    {
+                                                                        "properties": {
+                                                                            "group_type_index": {
+                                                                                "description": "Index of the group type from the group mapping.",
+                                                                                "maximum": 9007199254740991,
+                                                                                "minimum": -9007199254740991,
+                                                                                "type": "integer"
+                                                                            },
+                                                                            "key": {
+                                                                                "description": "Use one of the properties the user has provided in the plan.",
+                                                                                "type": "string"
+                                                                            },
+                                                                            "operator": {
+                                                                                "description": "`exact` - exact match of any of the values. `is_not` - does not match any of the values.",
+                                                                                "enum": ["exact", "is_not"],
+                                                                                "type": "string"
+                                                                            },
+                                                                            "type": {
+                                                                                "const": "group",
+                                                                                "default": "group",
+                                                                                "type": "string"
+                                                                            },
+                                                                            "value": {
+                                                                                "description": "Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string \"true\" or \"false\".",
+                                                                                "items": {
+                                                                                    "type": "string"
+                                                                                },
+                                                                                "type": "array"
+                                                                            }
+                                                                        },
+                                                                        "required": [
+                                                                            "group_type_index",
+                                                                            "key",
+                                                                            "operator",
+                                                                            "value"
+                                                                        ],
+                                                                        "type": "object"
+                                                                    },
+                                                                    {
+                                                                        "properties": {
+                                                                            "group_type_index": {
+                                                                                "description": "Index of the group type from the group mapping.",
+                                                                                "maximum": 9007199254740991,
+                                                                                "minimum": -9007199254740991,
+                                                                                "type": "integer"
+                                                                            },
+                                                                            "key": {
+                                                                                "description": "Use one of the properties the user has provided in the plan.",
+                                                                                "type": "string"
+                                                                            },
+                                                                            "operator": {
+                                                                                "enum": [
+                                                                                    "is_date_exact",
+                                                                                    "is_date_before",
+                                                                                    "is_date_after"
+                                                                                ],
+                                                                                "type": "string"
+                                                                            },
+                                                                            "type": {
+                                                                                "const": "group",
+                                                                                "default": "group",
+                                                                                "type": "string"
+                                                                            },
+                                                                            "value": {
+                                                                                "description": "Value must be a date in ISO 8601 format.",
+                                                                                "type": "string"
+                                                                            }
+                                                                        },
+                                                                        "required": [
+                                                                            "group_type_index",
+                                                                            "key",
+                                                                            "operator",
+                                                                            "value"
+                                                                        ],
+                                                                        "type": "object"
+                                                                    },
+                                                                    {
+                                                                        "properties": {
+                                                                            "group_type_index": {
+                                                                                "description": "Index of the group type from the group mapping.",
+                                                                                "maximum": 9007199254740991,
+                                                                                "minimum": -9007199254740991,
+                                                                                "type": "integer"
+                                                                            },
+                                                                            "key": {
+                                                                                "description": "Use one of the properties the user has provided in the plan.",
+                                                                                "type": "string"
+                                                                            },
+                                                                            "operator": {
+                                                                                "description": "`is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected.",
+                                                                                "enum": ["is_set", "is_not_set"],
+                                                                                "type": "string"
+                                                                            },
+                                                                            "type": {
+                                                                                "const": "group",
+                                                                                "default": "group",
+                                                                                "type": "string"
+                                                                            }
+                                                                        },
+                                                                        "required": [
+                                                                            "group_type_index",
+                                                                            "key",
+                                                                            "operator"
+                                                                        ],
+                                                                        "type": "object"
+                                                                    }
+                                                                ]
+                                                            },
+                                                            {
+                                                                "properties": {
+                                                                    "key": {
+                                                                        "const": "id",
+                                                                        "default": "id",
+                                                                        "type": "string"
+                                                                    },
+                                                                    "operator": {
+                                                                        "const": "in",
+                                                                        "default": "in",
+                                                                        "type": "string"
+                                                                    },
+                                                                    "type": {
+                                                                        "const": "cohort",
+                                                                        "default": "cohort",
+                                                                        "description": "Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Example: `{ type: \"cohort\", key: \"id\", value: 42, operator: \"in\" }`",
+                                                                        "type": "string"
+                                                                    },
+                                                                    "value": {
+                                                                        "description": "The cohort ID to filter by.",
+                                                                        "maximum": 9007199254740991,
+                                                                        "minimum": -9007199254740991,
+                                                                        "type": "integer"
+                                                                    }
+                                                                },
+                                                                "required": ["value"],
+                                                                "type": "object"
+                                                            },
+                                                            {
+                                                                "anyOf": [
+                                                                    {
+                                                                        "properties": {
+                                                                            "key": {
+                                                                                "description": "The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`).",
+                                                                                "enum": [
+                                                                                    "tag_name",
+                                                                                    "text",
+                                                                                    "href",
+                                                                                    "selector"
+                                                                                ],
+                                                                                "type": "string"
+                                                                            },
+                                                                            "operator": {
+                                                                                "description": "`icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern.",
+                                                                                "enum": [
+                                                                                    "exact",
+                                                                                    "is_not",
+                                                                                    "icontains",
+                                                                                    "not_icontains",
+                                                                                    "regex",
+                                                                                    "not_regex"
+                                                                                ],
+                                                                                "type": "string"
+                                                                            },
+                                                                            "type": {
+                                                                                "const": "element",
+                                                                                "default": "element",
+                                                                                "description": "Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: \"element\", key: \"text\", value: \"Sign Up\", operator: \"exact\" }`",
+                                                                                "type": "string"
+                                                                            },
+                                                                            "value": {
+                                                                                "description": "Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties.",
+                                                                                "type": "string"
+                                                                            }
+                                                                        },
+                                                                        "required": ["key", "operator", "value"],
+                                                                        "type": "object"
+                                                                    },
+                                                                    {
+                                                                        "properties": {
+                                                                            "key": {
+                                                                                "description": "The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`).",
+                                                                                "enum": [
+                                                                                    "tag_name",
+                                                                                    "text",
+                                                                                    "href",
+                                                                                    "selector"
+                                                                                ],
+                                                                                "type": "string"
+                                                                            },
+                                                                            "operator": {
+                                                                                "enum": ["exact", "gt", "lt"],
+                                                                                "type": "string"
+                                                                            },
+                                                                            "type": {
+                                                                                "const": "element",
+                                                                                "default": "element",
+                                                                                "description": "Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: \"element\", key: \"text\", value: \"Sign Up\", operator: \"exact\" }`",
+                                                                                "type": "string"
+                                                                            },
+                                                                            "value": {
+                                                                                "type": "number"
+                                                                            }
+                                                                        },
+                                                                        "required": ["key", "operator", "value"],
+                                                                        "type": "object"
+                                                                    },
+                                                                    {
+                                                                        "properties": {
+                                                                            "key": {
+                                                                                "description": "The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`).",
+                                                                                "enum": [
+                                                                                    "tag_name",
+                                                                                    "text",
+                                                                                    "href",
+                                                                                    "selector"
+                                                                                ],
+                                                                                "type": "string"
+                                                                            },
+                                                                            "operator": {
+                                                                                "description": "`exact` - exact match of any of the values. `is_not` - does not match any of the values.",
+                                                                                "enum": ["exact", "is_not"],
+                                                                                "type": "string"
+                                                                            },
+                                                                            "type": {
+                                                                                "const": "element",
+                                                                                "default": "element",
+                                                                                "description": "Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: \"element\", key: \"text\", value: \"Sign Up\", operator: \"exact\" }`",
+                                                                                "type": "string"
+                                                                            },
+                                                                            "value": {
+                                                                                "description": "Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string \"true\" or \"false\".",
+                                                                                "items": {
+                                                                                    "type": "string"
+                                                                                },
+                                                                                "type": "array"
+                                                                            }
+                                                                        },
+                                                                        "required": ["key", "operator", "value"],
+                                                                        "type": "object"
+                                                                    },
+                                                                    {
+                                                                        "properties": {
+                                                                            "key": {
+                                                                                "description": "The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`).",
+                                                                                "enum": [
+                                                                                    "tag_name",
+                                                                                    "text",
+                                                                                    "href",
+                                                                                    "selector"
+                                                                                ],
+                                                                                "type": "string"
+                                                                            },
+                                                                            "operator": {
+                                                                                "enum": [
+                                                                                    "is_date_exact",
+                                                                                    "is_date_before",
+                                                                                    "is_date_after"
+                                                                                ],
+                                                                                "type": "string"
+                                                                            },
+                                                                            "type": {
+                                                                                "const": "element",
+                                                                                "default": "element",
+                                                                                "description": "Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: \"element\", key: \"text\", value: \"Sign Up\", operator: \"exact\" }`",
+                                                                                "type": "string"
+                                                                            },
+                                                                            "value": {
+                                                                                "description": "Value must be a date in ISO 8601 format.",
+                                                                                "type": "string"
+                                                                            }
+                                                                        },
+                                                                        "required": ["key", "operator", "value"],
+                                                                        "type": "object"
+                                                                    },
+                                                                    {
+                                                                        "properties": {
+                                                                            "key": {
+                                                                                "description": "The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`).",
+                                                                                "enum": [
+                                                                                    "tag_name",
+                                                                                    "text",
+                                                                                    "href",
+                                                                                    "selector"
+                                                                                ],
+                                                                                "type": "string"
+                                                                            },
+                                                                            "operator": {
+                                                                                "description": "`is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected.",
+                                                                                "enum": ["is_set", "is_not_set"],
+                                                                                "type": "string"
+                                                                            },
+                                                                            "type": {
+                                                                                "const": "element",
+                                                                                "default": "element",
+                                                                                "description": "Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: \"element\", key: \"text\", value: \"Sign Up\", operator: \"exact\" }`",
+                                                                                "type": "string"
+                                                                            }
+                                                                        },
+                                                                        "required": ["key", "operator"],
+                                                                        "type": "object"
+                                                                    }
+                                                                ]
+                                                            },
+                                                            {
+                                                                "properties": {
+                                                                    "key": {
+                                                                        "description": "A HogQL boolean expression used as a filter condition.\n\nExamples:\n- Filter where a property exceeds a threshold: `toFloat(properties.load_time) > 5.0`\n- Filter with string matching: `properties.$current_url LIKE '%/pricing%'`\n- Filter with multiple conditions: `properties.$browser = 'Chrome' AND toFloat(properties.duration) > 30`",
+                                                                        "type": "string"
+                                                                    },
+                                                                    "type": {
+                                                                        "const": "hogql",
+                                                                        "default": "hogql",
+                                                                        "description": "Filter by a HogQL boolean expression for advanced filtering that can't be expressed with standard property filters.",
+                                                                        "type": "string"
+                                                                    }
+                                                                },
+                                                                "required": ["key"],
+                                                                "type": "object"
+                                                            },
+                                                            {
+                                                                "properties": {
+                                                                    "key": {
+                                                                        "description": "The feature flag key.",
+                                                                        "type": "string"
+                                                                    },
+                                                                    "operator": {
+                                                                        "const": "flag_evaluates_to",
+                                                                        "default": "flag_evaluates_to",
+                                                                        "type": "string"
+                                                                    },
+                                                                    "type": {
+                                                                        "const": "flag",
+                                                                        "default": "flag",
+                                                                        "description": "Filter events by feature flag state — only include events where a specific flag evaluated to a given value. Examples:\n- Flag enabled: `{ type: \"flag\", key: \"new-onboarding\", operator: \"flag_evaluates_to\", value: true }`\n- Specific variant: `{ type: \"flag\", key: \"checkout-experiment\", operator: \"flag_evaluates_to\", value: \"variant-a\" }`",
+                                                                        "type": "string"
+                                                                    },
+                                                                    "value": {
+                                                                        "anyOf": [
+                                                                            {
+                                                                                "type": "boolean"
+                                                                            },
+                                                                            {
+                                                                                "type": "string"
+                                                                            }
+                                                                        ],
+                                                                        "description": "`true`/`false` for boolean flags, or a variant name string for multivariate flags."
+                                                                    }
+                                                                },
+                                                                "required": ["key", "value"],
+                                                                "type": "object"
+                                                            }
+                                                        ]
+                                                    },
+                                                    "type": "array"
+                                                },
+                                                "version": {
+                                                    "description": "version of the node, used for schema migrations",
+                                                    "type": "number"
+                                                }
+                                            },
+                                            "required": ["id", "name"],
+                                            "type": "object"
+                                        }
+                                    ]
+                                },
+                                "type": "array"
+                            },
+                            "operator": {
+                                "const": "OR",
+                                "default": "OR",
+                                "description": "Only `OR` is supported.",
+                                "type": "string"
+                            }
+                        },
+                        "required": ["nodes"],
+                        "type": "object"
                     }
                 ]
             },

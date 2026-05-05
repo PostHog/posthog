@@ -5,16 +5,16 @@ from typing import TYPE_CHECKING, Any
 from django.conf import settings
 from django.db import models
 
-if TYPE_CHECKING:
-    from posthog.models.integration import GitHubInstallationAccess, GitHubUserAuthorization
-    from posthog.models.user import User
-
 import requests
 import structlog
 
 from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.utils import UUIDModel
+
+if TYPE_CHECKING:
+    from posthog.models.integration import GitHubInstallationAccess, GitHubUserAuthorization
+    from posthog.models.user import User
 
 logger = structlog.get_logger(__name__)
 
@@ -137,6 +137,26 @@ class UserGitHubIntegration(GitHubIntegrationBase):
             gh_id = github_user.get("id")
             return int(gh_id) if gh_id is not None else None
         return None
+
+    @property
+    def coauthor_trailer(self) -> str | None:
+        """`Co-authored-by` trailer for git commits attributed to this GitHub user.
+
+        Uses GitHub's `<id>+<login>@users.noreply.github.com` format so attribution
+        works regardless of the user's email privacy settings. Returns None if the
+        stored identity is incomplete or malformed — co-author attribution is
+        optional and must not abort the caller.
+        """
+        login = self.github_login
+        github_user = self.integration.config.get("github_user")
+        raw_id = github_user.get("id") if isinstance(github_user, dict) else None
+        try:
+            gh_id = int(raw_id) if raw_id is not None else None
+        except (TypeError, ValueError):
+            return None
+        if not login or gh_id is None:
+            return None
+        return f"Co-authored-by: {login} <{gh_id}+{login}@users.noreply.github.com>"
 
     # --- User-to-server token ---
 
@@ -267,18 +287,24 @@ def user_github_integration_from_installation(
     user: "User",
     installation: "GitHubInstallationAccess",
     authorization: "GitHubUserAuthorization",
+    *,
+    create_only: bool = False,
 ) -> UserIntegration:
-    """Create or update the user-scoped GitHub integration for an installation + authorization pair.
+    """Create or update a UserIntegration from a GitHub App installation + user authorization.
 
-    Uses ``update_or_create`` keyed on ``(user, kind, integration_id)`` so that
-    re-authorizing the same installation refreshes the stored tokens rather than
-    creating a duplicate row.
+    Called when a user installs the GitHub App and authorizes it in one flow.
+    Writes both installation-level and user-level credentials atomically.
+
+    When ``create_only=True`` the row is created only if one does not already exist
+    (using ``get_or_create``). This is the correct mode for the auto-create path on
+    team App installation, where an existing personal integration must not be overwritten.
+    The default (``False``) performs ``update_or_create`` — appropriate for the explicit
+    Linked Accounts connect flow where the user is intentionally replacing credentials.
     """
-    from posthog.models.integration import dot_get
-
     now = int(time.time())
     try:
-        expires_in = datetime.fromisoformat(installation.token_expires_at).timestamp() - now
+        raw_expires = installation.token_expires_at
+        expires_in = int(datetime.fromisoformat(raw_expires.replace("Z", "+00:00")).timestamp() - now)
     except (ValueError, AttributeError):
         expires_in = 3600
 
@@ -288,13 +314,10 @@ def user_github_integration_from_installation(
         "refreshed_at": now,
         "repository_selection": installation.repository_selection,
         "account": {
-            "type": dot_get(installation.installation_info, "account.type", None),
-            "name": dot_get(installation.installation_info, "account.login", installation.installation_id),
+            "type": (installation.installation_info.get("account") or {}).get("type"),
+            "name": (installation.installation_info.get("account") or {}).get("login", installation.installation_id),
         },
-        "github_user": {
-            "login": authorization.gh_login,
-            "id": authorization.gh_id,
-        },
+        "github_user": {"login": authorization.gh_login, "id": authorization.gh_id},
         "user_token_refreshed_at": now,
     }
     if authorization.access_token_expires_in is not None:
@@ -308,13 +331,24 @@ def user_github_integration_from_installation(
         "user_refresh_token": authorization.refresh_token,
     }
 
-    integration, _ = UserIntegration.objects.update_or_create(
-        user=user,
-        kind=UserIntegration.IntegrationKind.GITHUB,
-        integration_id=installation.installation_id,
-        defaults={
-            "config": config,
-            "sensitive_config": sensitive_config,
-        },
-    )
+    if create_only:
+        integration, _created = UserIntegration.objects.get_or_create(
+            user=user,
+            kind=UserIntegration.IntegrationKind.GITHUB,
+            integration_id=installation.installation_id,
+            defaults={
+                "config": config,
+                "sensitive_config": sensitive_config,
+            },
+        )
+    else:
+        integration, _created = UserIntegration.objects.update_or_create(
+            user=user,
+            kind=UserIntegration.IntegrationKind.GITHUB,
+            integration_id=installation.installation_id,
+            defaults={
+                "config": config,
+                "sensitive_config": sensitive_config,
+            },
+        )
     return integration

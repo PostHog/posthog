@@ -162,9 +162,11 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
             suffix = showPasswordButton
         }
     }
-    // allowClear button takes precedence if set
+    // when allowClear is set with a value, render a clear button alongside any
+    // existing suffix so consumers (e.g. TaxonomicFilter's category dropdown)
+    // remain reachable while the user is typing
     if (allowClear && value) {
-        suffix = (
+        const clearButton = (
             <LemonButton
                 size="small"
                 noPadding
@@ -187,6 +189,14 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
                     focus()
                 }}
             />
+        )
+        suffix = suffix ? (
+            <>
+                {suffix}
+                {clearButton}
+            </>
+        ) : (
+            clearButton
         )
     }
 

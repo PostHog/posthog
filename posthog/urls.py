@@ -46,7 +46,7 @@ from posthog.models import User
 from posthog.models.instance_setting import get_instance_setting
 from posthog.oauth2_urls import urlpatterns as oauth2_urls
 from posthog.temporal.codec_server import decode_payloads
-
+from products.tasks.backend.webhooks import handle_github_webhook
 from products.data_warehouse.backend.api.public_source_configs import PublicSourceConfigViewSet
 from products.early_access_features.backend.api import early_access_features
 from products.legal_documents.backend.presentation.webhook import legal_document_pandadoc_webhook
@@ -56,7 +56,7 @@ from products.signals.backend import views as signals_views
 from products.signals.backend.views import SignalUserAutonomyConfigView as signals_user_autonomy_view
 from products.slack_app.backend.api import posthog_code_event_handler, posthog_code_interactivity_handler
 from products.surveys.backend.api.survey import public_survey_page
-from products.tasks.backend.webhooks import github_pr_webhook
+from products.conversations.backend.api.github_events import dispatch_github_event
 
 from .utils import opt_slash_path, render_template
 from .views import (
@@ -85,6 +85,45 @@ except ImportError:
     pass
 else:
     extend_api_router()
+
+
+@csrf_exempt
+def github_webhook(request: HttpRequest) -> HttpResponse:
+    """Unified GitHub App webhook dispatcher.
+
+    Verifies the HMAC-SHA256 signature once, parses JSON once, then routes
+    by ``X-GitHub-Event`` to the appropriate product handler.
+    """
+    import json
+
+    from products.tasks.backend.webhooks import get_github_webhook_secret, verify_github_signature
+
+    if request.method != "POST":
+        return HttpResponse(status=405)
+
+    secret = get_github_webhook_secret()
+    if not secret:
+        return HttpResponse("Webhook not configured", status=500)
+
+    signature = request.headers.get("X-Hub-Signature-256")
+    if not verify_github_signature(request.body, signature, secret):
+        return HttpResponse("Invalid signature", status=403)
+
+    try:
+        payload = json.loads(request.body)
+    except json.JSONDecodeError:
+        return HttpResponse("Invalid JSON", status=400)
+
+    event_type = request.headers.get("X-GitHub-Event", "")
+    products_response = None
+    tasks_response = None
+    if event_type in ("issues", "issue_comment"):
+        products_response = dispatch_github_event(request, event_type, payload)
+
+    if event_type in ("issue_comment", "pull_request_review_comment", "pull_request_review", "pull_request", "check_run"):
+        tasks_response = handle_github_webhook(event_type, payload)
+
+    return products_response or tasks_response or HttpResponse(status=200)
 
 
 @requires_csrf_token
@@ -234,6 +273,7 @@ urlpatterns = [
     opt_slash_path("api/product_tours", product_tours),
     re_path(r"^external_surveys/(?P<survey_id>[^/]+)/?$", public_survey_page),
     opt_slash_path("api/signup/precheck", signup.SignupEmailPrecheckViewset.as_view()),
+    opt_slash_path("api/signup/resend-invite", signup.SignupResendInviteViewset.as_view()),
     opt_slash_path("api/signup", signup.SignupViewset.as_view()),
     opt_slash_path("api/social_signup", signup.SocialSignupViewset.as_view()),
     path("api/signup/<str:invite_id>/", signup.InviteSignupViewset.as_view()),
@@ -319,16 +359,19 @@ urlpatterns = [
     opt_slash_path(".well-known/security.txt", security_txt),
     # auth
     opt_slash_path("logout", authentication.logout, name="logout"),
-    opt_slash_path("complete/github-link", github_link_complete, name="github_link_complete"),
     path(
         "login/<str:backend>/", authentication.sso_login, name="social_begin"
     ),  # overrides from `social_django.urls` to validate proper license
+    # GitHub account linking (identity-only, separate from the login pipeline).
+    # Must precede `social_django.urls` so the latter's `complete/<str:backend>/` doesn't swallow it.
+    path("complete/github-link/", github_link_complete, name="github_link_complete"),
     path("", include("social_django.urls", namespace="social")),
     path("uploaded_media/<str:image_uuid>", uploaded_media.download),
     opt_slash_path("slack/interactivity-callback", posthog_code_interactivity_handler),
     opt_slash_path("slack/event-callback", posthog_code_event_handler),
-    # GitHub webhooks for task lifecycle events
-    opt_slash_path("webhooks/github/pr", github_pr_webhook),
+    # GitHub App webhook — fans out to tasks (PRs) and conversations (issues)
+    opt_slash_path("webhooks/github/pr", github_webhook),
+    opt_slash_path("webhooks/github", github_webhook),
     # Message preferences
     path("messaging-preferences/<str:token>/", preferences_page, name="message_preferences"),
     opt_slash_path("messaging-preferences/update", update_preferences, name="message_preferences_update"),

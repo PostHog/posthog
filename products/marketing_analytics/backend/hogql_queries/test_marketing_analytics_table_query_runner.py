@@ -1,3 +1,4 @@
+import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import Mock, patch
 
@@ -16,6 +17,8 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.test.utils import pretty_print_in_tests
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
@@ -436,6 +439,61 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
+            ("google", "Paid Search"),
+            ("meta", "Paid Social"),
+            ("facebook", "Paid Social"),
+            ("instagram", "Paid Social"),
+            ("linkedin", "Paid Social"),
+            ("snapchat", "Paid Social"),
+            ("tiktok", "Paid Social"),
+            ("reddit", "Paid Social"),
+            ("bing", "Paid Search"),
+            ("pinterest", "Paid Social"),
+            ("totally_unknown_source", "Paid Unknown"),
+        ]
+    )
+    def test_channel_drill_down_classifies_adapter_source(self, source: str, expected_channel: str):
+        """Adapter rows group into the channel_type derived from their source column."""
+        query = MarketingAnalyticsTableQuery(
+            dateRange=self.default_date_range,
+            limit=DEFAULT_LIMIT,
+            offset=0,
+            properties=[],
+            drillDownLevel=MarketingAnalyticsDrillDownLevel.CHANNEL,
+        )
+        runner = self._create_query_runner(query)
+        runner._apply_drill_down_level()
+
+        union_subquery = _build_synthetic_adapter_union([source])
+        cte_select = runner._build_campaign_cost_select(union_subquery)
+        response = execute_hogql_query(query=cte_select, team=self.team)
+
+        channels = {row[0] for row in response.results}
+        assert channels == {expected_channel}, (
+            f"source={source!r} expected channel={expected_channel!r}, got {channels}"
+        )
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_channel_drill_down_meta_to_facebook_mapping_snapshot(self):
+        """Channel drill-down rewrites adapter source 'meta' to 'facebook' before lookupPaidSourceType."""
+        query = MarketingAnalyticsTableQuery(
+            dateRange=self.default_date_range,
+            limit=DEFAULT_LIMIT,
+            offset=0,
+            properties=[],
+            drillDownLevel=MarketingAnalyticsDrillDownLevel.CHANNEL,
+        )
+        runner = self._create_query_runner(query)
+        runner._apply_drill_down_level()
+
+        union_subquery = _build_synthetic_adapter_union(["meta"])
+        cte_select = runner._build_campaign_cost_select(union_subquery)
+        response = execute_hogql_query(query=cte_select, team=self.team)
+
+        assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
+
+    @parameterized.expand(
+        [
             (MarketingAnalyticsDrillDownLevel.CHANNEL, True),
             (MarketingAnalyticsDrillDownLevel.SOURCE, True),
             (MarketingAnalyticsDrillDownLevel.CAMPAIGN, True),
@@ -504,6 +562,27 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
             join_expr = join_expr.next_join
 
         assert runner.config.campaign_costs_cte_name not in tables_in_from
+
+
+def _build_synthetic_adapter_union(source_names: list[str]) -> ast.SelectSetQuery | ast.SelectQuery:
+    """UNION ALL matching MarketingSourceAdapter.build_query's 9-column schema."""
+    queries: list[ast.SelectQuery | ast.SelectSetQuery] = [
+        ast.SelectQuery(
+            select=[
+                ast.Alias(alias="match_key", expr=ast.Constant(value="")),
+                ast.Alias(alias="campaign", expr=ast.Constant(value=f"campaign_{source}")),
+                ast.Alias(alias="id", expr=ast.Constant(value=f"id_{source}")),
+                ast.Alias(alias="source", expr=ast.Constant(value=source)),
+                ast.Alias(alias="impressions", expr=ast.Constant(value=0.0)),
+                ast.Alias(alias="clicks", expr=ast.Constant(value=0.0)),
+                ast.Alias(alias="cost", expr=ast.Constant(value=0.0)),
+                ast.Alias(alias="reported_conversion", expr=ast.Constant(value=0.0)),
+                ast.Alias(alias="reported_conversion_value", expr=ast.Constant(value=0.0)),
+            ]
+        )
+        for source in source_names
+    ]
+    return ast.SelectSetQuery.create_from_queries(queries, set_operator="UNION ALL")
 
 
 def config_alias_in_columns(columns: list, alias: str) -> bool:

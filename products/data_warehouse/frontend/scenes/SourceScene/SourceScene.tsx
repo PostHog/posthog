@@ -56,10 +56,9 @@ export function isManagedSourceSceneId(id: string): boolean {
 }
 
 export function shouldShowManagedSourceSyncsTab(
-    source: Pick<ExternalDataSource, 'access_method'> | null | undefined,
-    isDirectQueryEnabled: boolean
+    source: Pick<ExternalDataSource, 'access_method'> | null | undefined
 ): boolean {
-    return !!source && !(isDirectQueryEnabled && source.access_method === 'direct')
+    return !!source && source.access_method !== 'direct'
 }
 
 export const sourceSceneLogic = kea<sourceSceneLogicType>([
@@ -222,10 +221,7 @@ function ManagedSourceTabs({
 
     useAttachedLogic(settingsLogic, attachTo)
 
-    const showSyncsTab = shouldShowManagedSourceSyncsTab(
-        source,
-        !!featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]
-    )
+    const showSyncsTab = shouldShowManagedSourceSyncsTab(source)
     const showWebhookTab = !!featureFlags[FEATURE_FLAGS.WAREHOUSE_SOURCE_WEBHOOKS] && !!source?.supports_webhooks
     const showMetricsTab = !!featureFlags[FEATURE_FLAGS.DWH_SOURCE_METRICS]
 

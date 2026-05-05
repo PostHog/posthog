@@ -1,0 +1,30 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "limit": {
+            "description": "Number of results to return per page.",
+            "type": "number"
+        },
+        "offset": {
+            "description": "The initial index from which to return the results.",
+            "type": "number"
+        },
+        "order_by": {
+            "description": "Sort order for symbol sets. Prefix with `-` for descending order.\n\n* `created_at` - created_at\n* `-created_at` - -created_at\n* `ref` - ref\n* `-ref` - -ref\n* `last_used` - last_used\n* `-last_used` - -last_used",
+            "minLength": 1,
+            "type": "string"
+        },
+        "ref": {
+            "description": "Exact symbol set reference to filter by.",
+            "minLength": 1,
+            "type": "string"
+        },
+        "status": {
+            "default": "all",
+            "description": "Upload status filter: `valid` has an uploaded file, `invalid` is missing a file, `all` returns both.\n\n* `all` - all\n* `valid` - valid\n* `invalid` - invalid",
+            "enum": ["all", "valid", "invalid"],
+            "type": "string"
+        }
+    },
+    "type": "object"
+}
