@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
-import { ArrowRightIcon, CalendarIcon, Cog, FileTextIcon, MoonIcon, PlusIcon, SearchIcon, SunIcon, UserIcon } from 'lucide-react'
+import { CalendarIcon, Cog, FileTextIcon, MoonIcon, SearchIcon, SunIcon, UserIcon } from 'lucide-react'
 import * as React from 'react'
 
 import {
@@ -211,9 +211,9 @@ export const CommandPalette: Story = {
         const [query, setQuery] = React.useState('')
 
         const handleSelect = (id: string | null): void => {
-            if (id === null) return
+            if (id === null) {return}
             const cmd = COMMANDS.find((c) => c.id === id)
-            if (!cmd) return
+            if (!cmd) {return}
             cmd.onRun()
             setOpen(false)
             setQuery('')
@@ -285,9 +285,9 @@ export const CommandPaletteCustomEmpty: Story = {
         const [query, setQuery] = React.useState('asdfasdfasdf')
 
         const handleSelect = (id: string | null): void => {
-            if (id === null) return
+            if (id === null) {return}
             const cmd = COMMANDS.find((c) => c.id === id)
-            if (!cmd) return
+            if (!cmd) {return}
             cmd.onRun()
             setOpen(false)
             setQuery('')

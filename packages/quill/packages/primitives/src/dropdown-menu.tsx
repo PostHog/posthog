@@ -246,7 +246,7 @@ function DropdownMenuSeparator({ className, ...props }: MenuPrimitive.Separator.
  */
 type SelectAllState = 'none' | 'some' | 'all'
 
-type UseSelectAllResult<T> = {
+type UseSelectAllResult = {
     state: SelectAllState
     isAllSelected: boolean
     toggle: () => void
@@ -275,7 +275,7 @@ function useDropdownMenuSelectAll<T>(
     selected: readonly T[],
     onChange: (next: T[]) => void,
     getKey?: (value: T) => string | number
-): UseSelectAllResult<T> {
+): UseSelectAllResult {
     const selectedKeys = React.useMemo(() => {
         const keys = new Set<unknown>()
         for (const v of selected) {
@@ -337,7 +337,7 @@ function DropdownMenuSelectAll<T>({
     getKey?: (value: T) => string | number
     selectLabel?: React.ReactNode
     deselectLabel?: React.ReactNode
-    children?: (result: UseSelectAllResult<T>) => React.ReactNode
+    children?: (result: UseSelectAllResult) => React.ReactNode
 } & Omit<
     React.ComponentProps<typeof DropdownMenuItem>,
     'children' | 'onClick' | 'onChange' | 'closeOnClick' | 'data-state'

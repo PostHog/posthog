@@ -9,7 +9,6 @@ import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from '
 import { cn } from './lib/utils'
 import { MenuEmpty } from './menu-empty'
 import { MenuLabel } from './menu-label'
-import { Separator } from './separator'
 
 const ComboboxAnchorContext = React.createContext<React.RefObject<HTMLDivElement> | null>(null)
 

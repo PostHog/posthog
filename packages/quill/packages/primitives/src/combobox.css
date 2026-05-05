@@ -213,9 +213,17 @@
      *
      * Visibility is driven by a scroll-driven animation tied to the
      * nearest ancestor scroller (`scroll(nearest block)`). Keyframe shape:
-     *   0%       → opacity 0   (at scroll start; also the no-overflow case)
-     *   1%, 99%  → opacity 1   (mid-scroll: fade visible)
+     *   0%, 99%  → opacity 1   (top of scroll OR no-overflow, AND mid-scroll)
      *   100%     → opacity 0   (at scroll end: fade hidden, footer is solid)
+     *
+     * No explicit `0% → opacity 0` for the no-overflow case: the gradient
+     * is `var(--card) → transparent` and the popup background is also
+     * `var(--card)`, so when no item content sits under the pseudo, every
+     * stop of the gradient is `var(--card)` blending with `var(--card)` —
+     * effectively invisible. The fade only renders visibly when there's
+     * actual content behind it, which is exactly when scrolling is
+     * possible. Trade-off: one less keyframe stop, free no-overflow
+     * handling via color math.
      *
      * We avoid `container-type: scroll-state` because it establishes
      * containment that breaks `position: sticky` on the consumer in

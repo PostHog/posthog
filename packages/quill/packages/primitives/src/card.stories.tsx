@@ -3,7 +3,6 @@ import { MoreVertical, UserIcon } from 'lucide-react'
 
 import { Button } from './button'
 import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from './card'
-import { Field } from './field'
 import { Item, ItemContent, ItemDescription, ItemGroup, ItemMedia, ItemTitle } from './item'
 
 const meta = {

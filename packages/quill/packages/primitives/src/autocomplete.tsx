@@ -240,7 +240,7 @@ function AutocompleteSeparator({
  * each entry has an `items` property (returns sum of all `.items.length`).
  */
 function countAutocompleteLeaves(items: unknown): number {
-    if (!Array.isArray(items)) return 0
+    if (!Array.isArray(items)) {return 0}
     return items.reduce<number>((acc, item) => {
         if (item && typeof item === 'object' && 'items' in item && Array.isArray((item as { items: unknown[] }).items)) {
             return acc + (item as { items: unknown[] }).items.length
