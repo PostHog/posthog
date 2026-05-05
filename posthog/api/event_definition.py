@@ -89,12 +89,12 @@ def create_event_definitions_sql(
         """
 
 
-class PromotedPropertiesResponseSerializer(serializers.Serializer):
-    promoted_properties = serializers.DictField(
+class PrimaryPropertiesResponseSerializer(serializers.Serializer):
+    primary_properties = serializers.DictField(
         child=serializers.CharField(),
         help_text=(
-            "Mapping from event name to the team-configured promoted property for that event. "
-            "Names without a configured promoted property are omitted; callers should fall back "
+            "Mapping from event name to the team-configured primary property for that event. "
+            "Names without a configured primary property are omitted; callers should fall back "
             "to the core taxonomy defaults for those."
         ),
     )
@@ -109,7 +109,7 @@ class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSeri
     last_calculated_at = serializers.DateTimeField(read_only=True)
     last_updated_at = serializers.DateTimeField(read_only=True)
     post_to_slack = serializers.BooleanField(default=False)
-    promoted_property = serializers.CharField(
+    primary_property = serializers.CharField(
         required=False,
         allow_null=True,
         allow_blank=False,
@@ -131,7 +131,7 @@ class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSeri
             "last_updated_at",
             "tags",
             "enforcement_mode",
-            "promoted_property",
+            "primary_property",
             # Action fields
             "is_action",
             "action_id",
@@ -582,31 +582,31 @@ class EventDefinitionViewSet(
                 description=(
                     "Optional: restrict the response to these event names. "
                     "Repeat the parameter for multiple names (e.g. `?names=a&names=b`). "
-                    "When omitted, returns every team-configured promoted property."
+                    "When omitted, returns every team-configured primary property."
                 ),
             ),
         ],
-        responses={200: PromotedPropertiesResponseSerializer},
+        responses={200: PrimaryPropertiesResponseSerializer},
     )
-    @action(detail=False, methods=["GET"], url_path="promoted_properties", required_scopes=["event_definition:read"])
-    def promoted_properties(self, request, *args, **kwargs):
-        """Resolve team-configured promoted properties for event definitions.
+    @action(detail=False, methods=["GET"], url_path="primary_properties", required_scopes=["event_definition:read"])
+    def primary_properties(self, request, *args, **kwargs):
+        """Resolve team-configured primary properties for event definitions.
 
-        The response only contains entries where a non-null promoted_property is set on the
+        The response only contains entries where a non-null primary_property is set on the
         EventDefinition. Callers should fall back to the core taxonomy defaults client-side
         for names not present in the response.
         """
         queryset = EventDefinition.objects.filter(
             team__project_id=self.project_id,
-            promoted_property__isnull=False,
-        ).exclude(promoted_property="")
+            primary_property__isnull=False,
+        ).exclude(primary_property="")
 
         names = [name for name in request.query_params.getlist("names") if name]
         if names:
             queryset = queryset.filter(name__in=list(set(names)))
 
-        rows = queryset.values_list("name", "promoted_property")
-        return response.Response({"promoted_properties": dict(rows)})
+        rows = queryset.values_list("name", "primary_property")
+        return response.Response({"primary_properties": dict(rows)})
 
 
 def fetch_30day_event_queries(

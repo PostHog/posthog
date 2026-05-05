@@ -3,7 +3,6 @@ import { MoreVertical, UserIcon } from 'lucide-react'
 
 import { Button } from './button'
 import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from './card'
-import { Field } from './field'
 import { Item, ItemContent, ItemDescription, ItemGroup, ItemMedia, ItemTitle } from './item'
 
 const meta = {
@@ -168,9 +167,8 @@ export const CardWithItems: Story = {
             <CardHeader>
                 <CardTitle>Team members</CardTitle>
             </CardHeader>
-            <CardContent>
-                <Field>
-                    <ItemGroup combined>
+            <CardContent className="py-0">
+                    <ItemGroup>
                         <Item
                             variant="pressable"
                             render={
@@ -202,7 +200,6 @@ export const CardWithItems: Story = {
                             }
                         />
                     </ItemGroup>
-                </Field>
             </CardContent>
         </Card>
     ),

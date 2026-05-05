@@ -9,6 +9,7 @@ import {
     DropdownMenuContent,
     DropdownMenuTrigger,
     DropdownMenuItem,
+    DropdownMenuSelectAll,
     DropdownMenuSeparator,
     DropdownMenuSub,
     DropdownMenuSubTrigger,
@@ -17,6 +18,7 @@ import {
     DropdownMenuRadioItem,
     DropdownMenuRadioGroup,
     DropdownMenuLabel,
+    useDropdownMenuSelectAll,
 } from './dropdown-menu'
 import { Kbd } from './kbd'
 
@@ -174,6 +176,178 @@ export const Radios: Story = {
                                 Expand
                             </DropdownMenuItem>
                         </DropdownMenuRadioGroup>
+                    </DropdownMenuGroup>
+                </DropdownMenuContent>
+            </DropdownMenu>
+        )
+    },
+} satisfies Story
+
+const FRAMEWORKS = ['Next.js', 'Remix', 'SvelteKit', 'Nuxt'] as const
+
+export const SelectAll: Story = {
+    render: () => {
+        const [open, setOpen] = useState(true)
+        const [selected, setSelected] = useState<string[]>([])
+
+        const toggle = (value: string, checked: boolean): void => {
+            setSelected((prev) =>
+                checked ? [...prev, value] : prev.filter((v) => v !== value)
+            )
+        }
+
+        return (
+            <DropdownMenu open={open} onOpenChange={setOpen}>
+                <DropdownMenuTrigger render={<Button variant="outline" size="sm" />}>
+                    {selected.length} selected
+                </DropdownMenuTrigger>
+                <DropdownMenuContent className="w-auto min-w-48">
+                    <DropdownMenuGroup>
+                        <DropdownMenuSelectAll
+                            values={FRAMEWORKS}
+                            selected={selected}
+                            onChange={(next) => setSelected([...next])}
+                        />
+                        <DropdownMenuSeparator />
+                        {FRAMEWORKS.map((value) => (
+                            <DropdownMenuCheckboxItem
+                                key={value}
+                                checked={selected.includes(value)}
+                                onCheckedChange={(checked) => toggle(value, !!checked)}
+                                closeOnClick={false}
+                            >
+                                {value}
+                            </DropdownMenuCheckboxItem>
+                        ))}
+                    </DropdownMenuGroup>
+                </DropdownMenuContent>
+            </DropdownMenu>
+        )
+    },
+} satisfies Story
+
+export const SelectAllWithRenderProp: Story = {
+    render: () => {
+        const [open, setOpen] = useState(true)
+        const [selected, setSelected] = useState<string[]>([FRAMEWORKS[0]])
+
+        const toggle = (value: string, checked: boolean): void => {
+            setSelected((prev) =>
+                checked ? [...prev, value] : prev.filter((v) => v !== value)
+            )
+        }
+
+        return (
+            <DropdownMenu open={open} onOpenChange={setOpen}>
+                <DropdownMenuTrigger render={<Button variant="outline" size="sm" />}>
+                    {selected.length} / {FRAMEWORKS.length}
+                </DropdownMenuTrigger>
+                <DropdownMenuContent className="w-auto min-w-56">
+                    <DropdownMenuGroup>
+                        <DropdownMenuSelectAll
+                            values={FRAMEWORKS}
+                            selected={selected}
+                            onChange={(next) => setSelected([...next])}
+                        >
+                            {({ state, toggle: toggleAll }) => (
+                                <DropdownMenuItem closeOnClick={false} onClick={toggleAll}>
+                                    {state === 'all' && 'Clear selection'}
+                                    {state === 'some' &&
+                                        `Select remaining (${FRAMEWORKS.length - selected.length})`}
+                                    {state === 'none' && 'Select all'}
+                                </DropdownMenuItem>
+                            )}
+                        </DropdownMenuSelectAll>
+                        <DropdownMenuSeparator />
+                        {FRAMEWORKS.map((value) => (
+                            <DropdownMenuCheckboxItem
+                                key={value}
+                                checked={selected.includes(value)}
+                                onCheckedChange={(checked) => toggle(value, !!checked)}
+                                closeOnClick={false}
+                            >
+                                {value}
+                            </DropdownMenuCheckboxItem>
+                        ))}
+                    </DropdownMenuGroup>
+                </DropdownMenuContent>
+            </DropdownMenu>
+        )
+    },
+} satisfies Story
+
+export const SelectAllWithHook: Story = {
+    render: () => {
+        const [open, setOpen] = useState(true)
+        const [selected, setSelected] = useState<string[]>([])
+        const { state, toggle: toggleAll } = useDropdownMenuSelectAll(
+            FRAMEWORKS,
+            selected,
+            (next) => setSelected([...next])
+        )
+
+        const toggle = (value: string, checked: boolean): void => {
+            setSelected((prev) =>
+                checked ? [...prev, value] : prev.filter((v) => v !== value)
+            )
+        }
+
+        return (
+            <DropdownMenu open={open} onOpenChange={setOpen}>
+                <DropdownMenuTrigger render={<Button variant="outline" size="sm" />}>
+                    Frameworks
+                </DropdownMenuTrigger>
+                <DropdownMenuContent className="w-auto min-w-56">
+                    <DropdownMenuGroup>
+                        <DropdownMenuLabel>
+                            Frameworks ({selected.length}/{FRAMEWORKS.length})
+                        </DropdownMenuLabel>
+                        <DropdownMenuItem closeOnClick={false} onClick={toggleAll}>
+                            {state === 'all' ? 'Deselect all' : 'Select all'}
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        {FRAMEWORKS.map((value) => (
+                            <DropdownMenuCheckboxItem
+                                key={value}
+                                checked={selected.includes(value)}
+                                onCheckedChange={(checked) => toggle(value, !!checked)}
+                                closeOnClick={false}
+                            >
+                                {value}
+                            </DropdownMenuCheckboxItem>
+                        ))}
+                    </DropdownMenuGroup>
+                </DropdownMenuContent>
+            </DropdownMenu>
+        )
+    },
+} satisfies Story
+
+const TIMEZONES = [
+    'Pacific/Midway', 'Pacific/Honolulu', 'America/Anchorage', 'America/Los_Angeles',
+    'America/Denver', 'America/Phoenix', 'America/Chicago', 'America/Mexico_City',
+    'America/New_York', 'America/Toronto', 'America/Halifax', 'America/Sao_Paulo',
+    'Atlantic/Azores', 'Europe/London', 'Europe/Dublin', 'Europe/Lisbon',
+    'Europe/Paris', 'Europe/Berlin', 'Europe/Madrid', 'Europe/Rome',
+    'Europe/Athens', 'Europe/Helsinki', 'Africa/Cairo', 'Europe/Moscow',
+    'Asia/Dubai', 'Asia/Karachi', 'Asia/Kolkata', 'Asia/Bangkok',
+    'Asia/Singapore', 'Asia/Hong_Kong', 'Asia/Shanghai', 'Asia/Tokyo',
+    'Asia/Seoul', 'Australia/Perth', 'Australia/Sydney', 'Pacific/Auckland',
+] as const
+
+export const Overflow: Story = {
+    render: () => {
+        const [open, setOpen] = useState(true)
+        return (
+            <DropdownMenu open={open} onOpenChange={setOpen}>
+                <DropdownMenuTrigger render={<Button variant="outline" size="sm" />}>
+                    Pick a timezone
+                </DropdownMenuTrigger>
+                <DropdownMenuContent className="w-auto min-w-56">
+                    <DropdownMenuGroup>
+                        {TIMEZONES.map((tz) => (
+                            <DropdownMenuItem key={tz}>{tz}</DropdownMenuItem>
+                        ))}
                     </DropdownMenuGroup>
                 </DropdownMenuContent>
             </DropdownMenu>

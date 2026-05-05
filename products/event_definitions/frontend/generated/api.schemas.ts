@@ -108,7 +108,7 @@ export interface EnterpriseEventDefinitionApi {
      * @maxLength 400
      * @nullable
      */
-    promoted_property?: string | null
+    primary_property?: string | null
     readonly is_action: boolean
     readonly action_id: number
     readonly is_calculating: boolean
@@ -159,7 +159,7 @@ export interface PatchedEnterpriseEventDefinitionApi {
      * @maxLength 400
      * @nullable
      */
-    promoted_property?: string | null
+    primary_property?: string | null
     readonly is_action?: boolean
     readonly action_id?: number
     readonly is_calculating?: boolean
@@ -233,7 +233,7 @@ export interface EventDefinitionRecordApi {
      * @maxLength 400
      * @nullable
      */
-    promoted_property?: string | null
+    primary_property?: string | null
     readonly is_action: boolean
     readonly action_id: number
     readonly is_calculating: boolean
@@ -243,13 +243,13 @@ export interface EventDefinitionRecordApi {
 }
 
 /**
- * Mapping from event name to the team-configured promoted property for that event. Names without a configured promoted property are omitted; callers should fall back to the core taxonomy defaults for those.
+ * Mapping from event name to the team-configured primary property for that event. Names without a configured primary property are omitted; callers should fall back to the core taxonomy defaults for those.
  */
-export type PromotedPropertiesResponseApiPromotedProperties = { [key: string]: string }
+export type PrimaryPropertiesResponseApiPrimaryProperties = { [key: string]: string }
 
-export interface PromotedPropertiesResponseApi {
-    /** Mapping from event name to the team-configured promoted property for that event. Names without a configured promoted property are omitted; callers should fall back to the core taxonomy defaults for those. */
-    promoted_properties: PromotedPropertiesResponseApiPromotedProperties
+export interface PrimaryPropertiesResponseApi {
+    /** Mapping from event name to the team-configured primary property for that event. Names without a configured primary property are omitted; callers should fall back to the core taxonomy defaults for those. */
+    primary_properties: PrimaryPropertiesResponseApiPrimaryProperties
 }
 
 export type EventDefinitionsListParams = {
@@ -270,9 +270,9 @@ export type EventDefinitionsByNameRetrieveParams = {
     name: string
 }
 
-export type EventDefinitionsPromotedPropertiesRetrieveParams = {
+export type EventDefinitionsPrimaryPropertiesRetrieveParams = {
     /**
-     * Optional: restrict the response to these event names. Repeat the parameter for multiple names (e.g. `?names=a&names=b`). When omitted, returns every team-configured promoted property.
+     * Optional: restrict the response to these event names. Repeat the parameter for multiple names (e.g. `?names=a&names=b`). When omitted, returns every team-configured primary property.
      */
     names?: string[]
 }

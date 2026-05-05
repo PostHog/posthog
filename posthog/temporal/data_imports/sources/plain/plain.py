@@ -1,12 +1,12 @@
 from datetime import UTC, datetime
 from typing import Any
 
-import requests
 from dateutil import parser
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from posthog.temporal.data_imports.sources.common.http import make_tracked_session
 from posthog.temporal.data_imports.sources.plain.queries import (
     QUERIES,
     THREADS_LIST_QUERY,
@@ -170,9 +170,8 @@ def _make_paginated_request(
     if not query:
         raise ValueError(f"No GraphQL query for endpoint: {endpoint_name}")
 
-    sess = requests.Session()
-    sess.headers.update(
-        {
+    sess = make_tracked_session(
+        headers={
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         }
@@ -360,12 +359,14 @@ def plain_source(
 
 def validate_credentials(api_key: str) -> tuple[bool, str | None]:
     try:
-        response = requests.post(
-            PLAIN_API_URL,
+        sess = make_tracked_session(
             headers={
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
-            },
+            }
+        )
+        response = sess.post(
+            PLAIN_API_URL,
             json={"query": VIEWER_QUERY},
             timeout=10,
         )

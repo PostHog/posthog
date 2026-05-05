@@ -2,11 +2,11 @@ import { hasScopes } from '@/lib/api'
 
 // Debug
 import debugMcpUiApps from './debug/debugMcpUiApps'
-// Documentation
-import searchDocs from './documentation/searchDocs'
 // Experiments (hand-written — CRUD + lifecycle are codegen in generated/experiments.ts)
 import getExperimentResults from './experiments/getResults'
 import experimentListDeprecated from './experiments/listDeprecated'
+// Feedback
+import submitFeedback from './feedback/submit'
 // Generated tools (from definitions/*.yaml)
 import { GENERATED_TOOL_MAP } from './generated'
 // Insights
@@ -33,6 +33,8 @@ import updateEventDefinition from './projects/updateEventDefinition'
 // Query
 import generateHogQLFromQuestion from './query/generateHogQLFromQuestion'
 import queryRun from './query/run'
+import hogqlSchema from './query/schema'
+import queryValidate from './query/validate'
 // Search
 import entitySearch from './search/entitySearch'
 // Misc
@@ -55,9 +57,6 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'event-definition-update': updateEventDefinition,
     'properties-list': getProperties,
 
-    // Documentation - handled separately due to env check
-    // "docs-search": searchDocs,
-
     // Experiments (results is hand-written; CRUD + lifecycle are codegen)
     'experiment-results-get': getExperimentResults,
     // Deprecated alias for experiment-list — forwards and annotates the response.
@@ -69,6 +68,8 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     // Queries
     'query-generate-hogql-from-question': generateHogQLFromQuestion,
     'query-run': queryRun,
+    'query-validate': queryValidate,
+    'hogql-schema': hogqlSchema,
 
     // LLM Analytics
     'get-llm-total-costs-for-project': getLLMCosts,
@@ -78,6 +79,9 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
 
     // Debug
     'debug-mcp-ui-apps': debugMcpUiApps,
+
+    // Feedback
+    'agent-feedback': submitFeedback,
 
     // PostHog AI tools
     'execute-sql': executeSql,
@@ -103,14 +107,9 @@ export const getToolsFromContext = async (
     const toolBases: ToolBase<ZodObjectAny>[] = []
 
     for (const toolName of allowedToolNames) {
-        // Special handling for docs-search which requires API key
-        if (toolName === 'docs-search' && context.env.INKEEP_API_KEY) {
-            toolBases.push(searchDocs())
-        } else {
-            const toolFactory = effectiveMap[toolName]
-            if (toolFactory) {
-                toolBases.push(toolFactory())
-            }
+        const toolFactory = effectiveMap[toolName]
+        if (toolFactory) {
+            toolBases.push(toolFactory())
         }
     }
 

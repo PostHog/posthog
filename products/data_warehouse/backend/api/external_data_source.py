@@ -31,6 +31,7 @@ from posthog.schema import (
 
 from posthog.hogql.database.database import Database
 
+from posthog.api.hog_function import HogFunctionSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.exceptions_capture import capture_exception
@@ -395,6 +396,19 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
     )
     access_method = serializers.ChoiceField(choices=ExternalDataSource.AccessMethod.choices, read_only=True)
     supports_webhooks = serializers.SerializerMethodField(read_only=True)
+    # Optional on both create and update. On create, missing values default to `api`
+    # in the viewset to preserve backward compatibility with direct API callers that
+    # predate this field; the in-app UI and MCP tool always send it explicitly.
+    # `update` strips it to make the field write-once.
+    created_via = serializers.ChoiceField(
+        choices=ExternalDataSource.CreatedVia.choices,
+        required=False,
+        help_text=(
+            "How this source was created. Defaults to `api` on create when omitted. "
+            "`web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. "
+            "Ignored on update."
+        ),
+    )
 
     class Meta:
         model = ExternalDataSource
@@ -402,6 +416,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "id",
             "created_at",
             "created_by",
+            "created_via",
             "status",
             "client_secret",
             "account_id",
@@ -486,12 +501,15 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
     def get_status(self, instance: ExternalDataSource) -> str:
         active_schemas: list[ExternalDataSchema] = list(instance.active_schemas)  # type: ignore
-        any_failures = any(schema.status == ExternalDataSchema.Status.FAILED for schema in active_schemas)
+        # Negative statuses should ignore schemas the user has disabled — those can linger in
+        # active_schemas via the latest_error prefetch but shouldn't drag the source into a failed state.
+        syncing_schemas = [schema for schema in active_schemas if schema.should_sync]
+        any_failures = any(schema.status == ExternalDataSchema.Status.FAILED for schema in syncing_schemas)
         any_billing_limits_reached = any(
-            schema.status == ExternalDataSchema.Status.BILLING_LIMIT_REACHED for schema in active_schemas
+            schema.status == ExternalDataSchema.Status.BILLING_LIMIT_REACHED for schema in syncing_schemas
         )
         any_billing_limits_too_low = any(
-            schema.status == ExternalDataSchema.Status.BILLING_LIMIT_TOO_LOW for schema in active_schemas
+            schema.status == ExternalDataSchema.Status.BILLING_LIMIT_TOO_LOW for schema in syncing_schemas
         )
         any_paused = any(schema.status == ExternalDataSchema.Status.PAUSED for schema in active_schemas)
         any_running = any(schema.status == ExternalDataSchema.Status.RUNNING for schema in active_schemas)
@@ -541,6 +559,8 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             raise ValidationError("Access method cannot be changed. Create a new source instead.")
 
         validated_data.pop("access_method", None)
+        # created_via is set at creation time and cannot be mutated afterwards
+        validated_data.pop("created_via", None)
         incoming_prefix = validated_data.get("prefix", instance.prefix)
 
         if instance.is_direct_postgres:
@@ -708,6 +728,12 @@ class ExternalDataSourceCreateSerializer(serializers.Serializer):
         default=ExternalDataSource.AccessMethod.WAREHOUSE,
         help_text="Connection mode: 'warehouse' (import) or 'direct' (live query).",
     )
+    created_via = serializers.ChoiceField(
+        choices=ExternalDataSource.CreatedVia.values,
+        required=False,
+        default=ExternalDataSource.CreatedVia.API,
+        help_text="Where the request came from",
+    )
 
 
 class DatabaseSchemaRequestSerializer(serializers.Serializer):
@@ -822,6 +848,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         description = serializer.validated_data.get("description")
         source_type = serializer.validated_data["source_type"]
         access_method = serializer.validated_data.get("access_method", ExternalDataSource.AccessMethod.WAREHOUSE)
+        created_via = serializer.validated_data.get("created_via", ExternalDataSource.CreatedVia.API)
+
         is_direct_postgres = (
             access_method == ExternalDataSource.AccessMethod.DIRECT and source_type == ExternalDataSourceType.POSTGRES
         )
@@ -894,6 +922,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             connection_id=str(uuid.uuid4()),
             destination_id=str(uuid.uuid4()),
             created_by=request.user if isinstance(request.user, User) else None,
+            created_via=created_via,
             team=self.team,
             status="Running",
             source_type=source_type_model,
@@ -1476,14 +1505,19 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 data={"message": str(e)},
             )
 
+        # Cache the CDC flag once: in non-DEBUG environments this calls posthoganalytics.feature_enabled,
+        # which makes a network round-trip per call. With large schema lists (e.g. Slack workspaces with
+        # thousands of channels) the per-iteration call inflated the response loop past the 120s gateway.
+        cdc_enabled = is_cdc_enabled_for_team(self.team)
         data = [
             {
                 "table": schema.name,
+                "label": schema.label,
                 "should_sync": False,
                 "incremental_fields": schema.incremental_fields,
                 "incremental_available": schema.supports_incremental,
                 "append_available": schema.supports_append,
-                "cdc_available": schema.supports_cdc if is_cdc_enabled_for_team(self.team) else None,
+                "cdc_available": schema.supports_cdc if cdc_enabled else None,
                 "incremental_field": schema.incremental_fields[0]["field"]
                 if len(schema.incremental_fields) > 0 and len(schema.incremental_fields[0]["field"]) > 0
                 else None,
@@ -1795,6 +1829,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         if hog_function.inputs:
             schema_mapping = hog_function.inputs.get("schema_mapping", {}).get("value", {})
 
+        webhook_field_names = {f.name for f in (source.get_source_config.webhookFields or [])}
+        all_inputs = HogFunctionSerializer(hog_function).data.get("inputs") or {}
+        webhook_inputs = {k: v for k, v in all_inputs.items() if k in webhook_field_names}
+
         return Response(
             status=status.HTTP_200_OK,
             data={
@@ -1809,6 +1847,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 },
                 "webhook_url": webhook_url,
                 "schema_mapping": schema_mapping,
+                "inputs": webhook_inputs,
                 "external_status": dataclasses.asdict(external_status) if external_status else None,
             },
         )
@@ -1879,12 +1918,19 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 "success": result.success,
                 "webhook_url": result.webhook_url,
                 "error": result.error,
+                "pending_inputs": result.pending_inputs,
             },
         )
 
     @action(methods=["POST"], detail=True)
     def update_webhook_inputs(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance: ExternalDataSource = self.get_object()
+
+        if not instance.job_inputs:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Source has no configuration"},
+            )
 
         source_type = ExternalDataSourceType(instance.source_type)
         source = SourceRegistry.get_source(source_type)
@@ -1913,12 +1959,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 data={"message": f"Invalid input keys: {', '.join(invalid_keys)}"},
             )
 
-        required_fields = [f.name for f in webhook_fields if hasattr(f, "required") and f.required]
-        missing_fields = [name for name in required_fields if not inputs.get(name)]
-        if missing_fields:
+        required_fields = [f.name for f in webhook_fields if getattr(f, "required", False)]
+        blanked_required = [name for name in required_fields if name in inputs and not inputs[name]]
+        if blanked_required:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": f"Missing required fields: {', '.join(missing_fields)}"},
+                data={"message": f"Missing required fields: {', '.join(blanked_required)}"},
             )
 
         schema_ids = list(
@@ -1951,12 +1997,33 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 data={"message": "No webhook function found for this source. Create a webhook first."},
             )
 
+        try:
+            config = source.parse_config(instance.job_inputs)
+        except ValidationError as e:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Invalid source configuration", "details": getattr(e, "detail", str(e))},
+            )
+        except Exception as e:
+            capture_exception(e)
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Failed to load source configuration"},
+            )
+
         assert hog_function.inputs is not None
         hog_function.inputs = {
             **hog_function.inputs,
             **{key: {"value": value} for key, value in inputs.items()},
         }
         hog_function.save(update_fields=["inputs", "encrypted_inputs"])
+
+        success, error = source.webhook_inputs_updated(config, get_webhook_url(hog_function.id), self.team.pk, inputs)
+        if not success:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"success": False, "error": error or "Failed to update webhook on the external source."},
+            )
 
         return Response(status=status.HTTP_200_OK, data={"success": True})
 

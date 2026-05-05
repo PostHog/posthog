@@ -169,6 +169,12 @@ const HogQLQuerySchema = z.object({
     query: z.string(),
     filters: HogQLFilters.optional(),
     tags: QueryLogTagsSchema.optional(),
+    connectionId: z
+        .string()
+        .optional()
+        .describe(
+            'Optional id of an external data source (e.g. a Postgres or DuckDB direct-query connection). When set, the query runs against that source instead of ClickHouse. Use external-data-sources-list to discover available connection ids.'
+        ),
 })
 
 // Funnels filter

@@ -2,8 +2,10 @@ use serde::de::{self, Deserializer};
 use serde::ser::{SerializeMap, Serializer};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use crate::cohorts::cohort_models::Cohort;
+use crate::flags::feature_flag_list::PreparedFlags;
 use crate::properties::property_models::PropertyFilter;
 
 // NOTE: The `evaluation_tags` field was renamed to `evaluation_contexts` in the Python
@@ -273,22 +275,111 @@ pub struct FeatureFlagRow {
     pub bucketing_identifier: Option<String>,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+/// Request-scoped view of flag definitions plus the per-request filter set.
+/// All shared fields are `Arc`-backed so `clone()` is a refcount bump rather
+/// than a deep copy.
+#[derive(Clone, Debug, Default)]
 pub struct FeatureFlagList {
-    pub flags: Vec<FeatureFlag>,
-    /// Runtime-only set of flag IDs that should be skipped during evaluation.
-    /// Includes inactive, deleted, survey-excluded, runtime-mismatched, and tag-filtered flags.
-    /// Not serialized — this is a request-scoped concern, not a cache concern.
-    #[serde(skip)]
+    pub flags: PreparedFlags,
+    /// Flag IDs to skip during evaluation: inactive, deleted, survey-excluded,
+    /// runtime-mismatched, or tag-filtered. Recomputed per request, so it
+    /// isn't part of the cached value.
     pub filtered_out_flag_ids: HashSet<i32>,
     /// Pre-computed dependency metadata from Django's hypercache.
-    #[serde(skip)]
-    pub evaluation_metadata: EvaluationMetadata,
+    pub evaluation_metadata: Arc<EvaluationMetadata>,
     /// Cohort definitions referenced by flags (including transitive deps),
-    /// precomputed by Django at cache-write time.
-    /// When present, the matcher uses these instead of querying CohortCacheManager.
-    #[serde(skip)]
-    pub cohorts: Option<Vec<Cohort>>,
+    /// precomputed by Django. When present, the matcher uses these instead of
+    /// querying `CohortCacheManager`. `None` for PG-fallback or pre-cohort-bake
+    /// teams.
+    pub cohorts: Option<Arc<[Cohort]>>,
+}
+
+/// Immutable, pre-compiled flag definitions cached across requests. The
+/// outer `Arc<PreparedFlagDefinitions>` is shared per team; each inner field
+/// is independently reference-counted so a request-scoped `FeatureFlagList`
+/// can share any subset without copying.
+#[derive(Clone, Debug)]
+pub struct PreparedFlagDefinitions {
+    pub flags: PreparedFlags,
+    pub evaluation_metadata: Arc<EvaluationMetadata>,
+    pub cohorts: Option<Arc<[Cohort]>>,
+}
+
+impl PreparedFlagDefinitions {
+    /// Estimates the heap memory footprint of this struct in bytes.
+    /// Used by moka's weight-based eviction to enforce cache capacity limits.
+    pub fn estimated_size_bytes(&self) -> usize {
+        use crate::utils::json_size::estimate_json_size;
+
+        let base = std::mem::size_of::<Self>();
+
+        let flags_size: usize = self
+            .flags
+            .iter()
+            .map(|f| {
+                let struct_size = std::mem::size_of::<FeatureFlag>();
+                let key_size = f.key.len();
+                let name_size = f.name.as_ref().map_or(0, |n| n.len());
+                let runtime_size = f.evaluation_runtime.as_ref().map_or(0, |r| r.len());
+                let tags_size = f
+                    .evaluation_tags
+                    .as_ref()
+                    .map_or(0, |tags| tags.iter().map(|t| t.len() + 24).sum());
+                let bucketing_size = f.bucketing_identifier.as_ref().map_or(0, |b| b.len());
+                // Each PropertyFilter with a compiled regex costs ~2KB for the
+                // DFA/NFA automata inside fancy_regex::Regex. The `value` JSON
+                // payload can dominate for cohort/group filters, so walk it.
+                // Include `super_groups` alongside `groups` — `prepare_regexes_in_place`
+                // compiles regexes in both, so the weigher must account for both.
+                let group_size = |groups: &[FlagPropertyGroup]| -> usize {
+                    groups
+                        .iter()
+                        .map(|g| {
+                            g.properties.as_ref().map_or(0, |props| {
+                                props
+                                    .iter()
+                                    .map(|p| {
+                                        let prop_base = std::mem::size_of::<PropertyFilter>();
+                                        let prop_key = p.key.len();
+                                        let prop_value =
+                                            p.value.as_ref().map_or(0, estimate_json_size);
+                                        let regex_overhead =
+                                            if p.compiled_regex.is_some() { 2048 } else { 0 };
+                                        prop_base + prop_key + prop_value + regex_overhead
+                                    })
+                                    .sum()
+                            })
+                        })
+                        .sum()
+                };
+                let filters_size: usize = group_size(&f.filters.groups)
+                    + f.filters.super_groups.as_deref().map_or(0, group_size);
+
+                let payloads_size = f.filters.payloads.as_ref().map_or(0, estimate_json_size);
+
+                struct_size
+                    + key_size
+                    + name_size
+                    + runtime_size
+                    + tags_size
+                    + bucketing_size
+                    + filters_size
+                    + payloads_size
+            })
+            .sum();
+
+        let metadata_size = self.evaluation_metadata.dependency_stages.len() * 24
+            + self.evaluation_metadata.transitive_deps.len() * 48;
+
+        let cohorts_size = self.cohorts.as_ref().map_or(0, |cohorts| {
+            cohorts
+                .iter()
+                .map(|c| c.estimated_size_bytes())
+                .sum::<usize>()
+        });
+
+        base + flags_size + metadata_size + cohorts_size
+    }
 }
 
 #[cfg(test)]
@@ -419,7 +510,7 @@ mod mock_impls {
     impl Mock for FeatureFlagList {
         fn mock() -> Self {
             FeatureFlagList {
-                flags: vec![Mock::mock()],
+                flags: PreparedFlags::seal(vec![<FeatureFlag as Mock>::mock()]),
                 ..Default::default()
             }
         }
@@ -458,9 +549,9 @@ mod mock_impls {
 
     impl MockFrom<Vec<FeatureFlag>> for FeatureFlagList {
         fn mock_from(flags: Vec<FeatureFlag>) -> Self {
-            let evaluation_metadata = EvaluationMetadata::single_stage(&flags);
+            let evaluation_metadata = Arc::new(EvaluationMetadata::single_stage(&flags));
             FeatureFlagList {
-                flags,
+                flags: PreparedFlags::seal(flags),
                 evaluation_metadata,
                 ..Default::default()
             }

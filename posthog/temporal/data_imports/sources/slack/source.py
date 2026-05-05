@@ -2,6 +2,7 @@ from typing import TYPE_CHECKING, Optional, cast
 
 if TYPE_CHECKING:
     from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
+    from posthog.models.integration import Integration
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
@@ -62,6 +63,10 @@ class SlackSource(ResumableSource[SlackSourceConfig, SlackResumeConfig], Webhook
     def get_webhook_source_manager(self, inputs: SourceInputs) -> WebhookSourceManager:
         return WebhookSourceManager(inputs, inputs.logger)
 
+    @staticmethod
+    def _get_authed_user_id(integration: "Integration") -> str | None:
+        return (integration.config or {}).get("authed_user", {}).get("id")
+
     def create_webhook(self, config: SlackSourceConfig, webhook_url: str, team_id: int) -> WebhookCreationResult:
         return WebhookCreationResult(
             success=False,
@@ -95,15 +100,43 @@ class SlackSource(ResumableSource[SlackSourceConfig, SlackResumeConfig], Webhook
                     )
                 ],
             ),
-            webhookSetupCaption="""To set up the webhook manually:
+            webhookManualOnly=True,
+            webhookSetupCaption="""Use the manifest below to create a Slack app with the webhook URL and event subscriptions already configured.
 
-1. Go to your [Slack App Settings](https://api.slack.com/apps) and select your app
-2. Click **Event Subscriptions** in the left sidebar and toggle it on
-3. Paste the webhook URL shown below into the **Request URL** field
-4. Under **Subscribe to bot events**, add the events: `message.channels`, `message.groups`
-5. Click **Save Changes**
+1. Open [Slack apps](https://api.slack.com/apps?new_app=1) and click **From a manifest**
+2. Pick your workspace and click **Next**
+3. Paste the manifest below into the editor, click **Next**, then **Create**
+4. In the left sidebar, click **Install App**, then **Install to Workspace**, and authorize
+5. Open **Basic information > App credentials**, copy the **Signing secret**, and paste it in the form below
 
-Once saved, copy the **Signing Secret** from **Basic Information > App Credentials** and add it to your source configuration for signature verification.""",
+```json
+{
+    "display_information": {
+        "name": "PostHog data warehouse",
+        "description": "Sync Slack messages and channels to PostHog data warehouse"
+    },
+    "oauth_config": {
+        "scopes": {
+            "user": [
+                "channels:history",
+                "groups:history"
+            ]
+        }
+    },
+    "settings": {
+        "event_subscriptions": {
+            "request_url": "{webhook_url}",
+            "user_events": [
+                "message.channels",
+                "message.groups"
+            ]
+        },
+        "org_deploy_enabled": false,
+        "socket_mode_enabled": false,
+        "token_rotation_enabled": false
+    }
+}
+```""",
             webhookFields=cast(
                 list[FieldType],
                 [
@@ -151,7 +184,8 @@ Once saved, copy the **Signing Secret** from **Basic Information > App Credentia
 
         msg_config = messages_endpoint_config()
         webhook_flag_enabled = is_webhook_feature_flag_enabled(team_id)
-        channels = get_channels(access_token)
+        authed_user = self._get_authed_user_id(integration)
+        channels = get_channels(access_token, authed_user)
         for ch in channels:
             if ch["id"] in ENDPOINTS:
                 continue
@@ -218,4 +252,5 @@ Once saved, copy the **Signing Secret** from **Basic Information > App Credentia
             incremental_field=inputs.incremental_field,
             channel_id=channel_id,
             webhook_source_manager=webhook_source_manager,
+            authed_user=self._get_authed_user_id(integration),
         )
