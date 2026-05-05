@@ -1200,21 +1200,24 @@ projects_router.register(
     ["team_id"],
 )
 
-# Agent harness HTTP surface — exposed via MCP so the headless Signals agent can call
-# `search-recent-runs`, `get-run`, `search-memory`, `remember`, `forget`, and `emit-finding`
-# from inside its sandbox using the standard `task:read` / `task:write` scopes.
-from products.signals.backend.agent_harness.views import SignalAgentRunViewSet, SignalMemoryViewSet  # noqa: E402
+# Signals agent HTTP surface — exposed via MCP as `signals-agent-*` tools. Reads (runs,
+# memory) are public-grantable via `signal_agent:read`; writes (findings, memory
+# create/delete) are sandbox-scope only via `signal_agent:write`.
+from products.signals.backend.agent_harness.views import (  # noqa: E402
+    SignalAgentRunViewSet,
+    SignalMemoryViewSet,
+)
 
 projects_router.register(
-    r"signals/agent_harness/runs",
+    r"signals/agent/runs",
     SignalAgentRunViewSet,
-    "environment_signals_agent_harness_runs",
+    "environment_signals_agent_runs",
     ["team_id"],
 )
 projects_router.register(
-    r"signals/agent_harness/memory",
+    r"signals/agent/memory",
     SignalMemoryViewSet,
-    "environment_signals_agent_harness_memory",
+    "environment_signals_agent_memory",
     ["team_id"],
 )
 

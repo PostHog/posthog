@@ -18,7 +18,7 @@ def _make_run(team, **overrides) -> SignalAgentRun:
     config, _ = SignalAgentConfig.objects.get_or_create(team=team)
     defaults: dict = {
         "agent_config": config,
-        "skill_name": "signals-agent-scout",
+        "skill_name": "signals-agent-general",
         "skill_version": 1,
         "status": SignalAgentRun.Status.RUNNING,
         "summary": "investigating checkout 500s",
@@ -29,10 +29,10 @@ def _make_run(team, **overrides) -> SignalAgentRun:
 
 class TestAgentHarnessRunsAPI(APIBaseTest):
     def _list_url(self) -> str:
-        return f"/api/projects/{self.team.id}/signals/agent_harness/runs/"
+        return f"/api/projects/{self.team.id}/signals/agent/runs/"
 
     def _detail_url(self, run_id: str) -> str:
-        return f"/api/projects/{self.team.id}/signals/agent_harness/runs/{run_id}/"
+        return f"/api/projects/{self.team.id}/signals/agent/runs/{run_id}/"
 
     def test_list_returns_runs_for_team_newest_first(self) -> None:
         older = _make_run(self.team, summary="old work")
@@ -112,7 +112,7 @@ class TestAgentHarnessEmitFindingAPI(APIBaseTest):
         )
 
     def _findings_url(self, run_id: str) -> str:
-        return f"/api/projects/{self.team.id}/signals/agent_harness/runs/{run_id}/findings/"
+        return f"/api/projects/{self.team.id}/signals/agent/runs/{run_id}/findings/"
 
     def _payload(self, **overrides) -> dict:
         body: dict = {
@@ -195,10 +195,10 @@ class TestAgentHarnessEmitFindingAPI(APIBaseTest):
 
 class TestAgentHarnessMemoryAPI(APIBaseTest):
     def _list_url(self) -> str:
-        return f"/api/projects/{self.team.id}/signals/agent_harness/memory/"
+        return f"/api/projects/{self.team.id}/signals/agent/memory/"
 
-    def _forget_url(self) -> str:
-        return f"/api/projects/{self.team.id}/signals/agent_harness/memory/forget/"
+    def _delete_url(self) -> str:
+        return f"/api/projects/{self.team.id}/signals/agent/memory/delete/"
 
     def test_remember_creates_agent_inference_entry(self) -> None:
         body = {"key": "k1", "content": "checkout regression noise — already tracked", "tags": ["checkout"]}
@@ -274,13 +274,13 @@ class TestAgentHarnessMemoryAPI(APIBaseTest):
 
     def test_forget_removes_agent_entry(self) -> None:
         SignalMemory.objects.create(team=self.team, key="k1", content="v")
-        response = self.client.post(self._forget_url(), data={"key": "k1"}, format="json")
+        response = self.client.post(self._delete_url(), data={"key": "k1"}, format="json")
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"deleted": True}
         assert not SignalMemory.objects.filter(team=self.team, key="k1").exists()
 
     def test_forget_returns_false_when_key_missing(self) -> None:
-        response = self.client.post(self._forget_url(), data={"key": "ghost"}, format="json")
+        response = self.client.post(self._delete_url(), data={"key": "ghost"}, format="json")
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"deleted": False}
 
@@ -291,7 +291,7 @@ class TestAgentHarnessMemoryAPI(APIBaseTest):
             content="curated",
             authority=SignalMemory.Authority.HUMAN_CONFIRMED,
         )
-        response = self.client.post(self._forget_url(), data={"key": "locked"}, format="json")
+        response = self.client.post(self._delete_url(), data={"key": "locked"}, format="json")
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_remember_accepts_run_id_belonging_to_same_team(self) -> None:
@@ -339,3 +339,5 @@ class TestAgentHarnessMemoryAPI(APIBaseTest):
             format="json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+

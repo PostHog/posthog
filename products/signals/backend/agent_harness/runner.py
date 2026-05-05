@@ -11,9 +11,9 @@ from django.utils import timezone
 from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
 
-from products.signals.backend.agent_harness.budgets import BudgetCaps, resolve_budget
+from products.signals.backend.agent_harness.budgets import DEFAULT_MAX_RUNTIME_S, BudgetCaps, resolve_budget
 from products.signals.backend.agent_harness.lazy_seed import seed_canonical_skills
-from products.signals.backend.agent_harness.prompt import build_run_prompt
+from products.signals.backend.agent_harness.prompt import SignalAgentRunSummary, build_run_prompt
 from products.signals.backend.agent_harness.skill_loader import LoadedSkill, load_skill_for_run
 from products.signals.backend.models import SignalAgentConfig, SignalAgentRun
 from products.signals.backend.temporal.agentic import (
@@ -22,7 +22,8 @@ from products.signals.backend.temporal.agentic import (
     resolve_user_id_for_team,
 )
 from products.tasks.backend.models import SandboxEnvironment, Task
-from products.tasks.backend.services.custom_prompt_runner import CustomPromptSandboxContext, run_prompt
+from products.tasks.backend.services.custom_prompt_internals import CustomPromptSandboxContext
+from products.tasks.backend.services.custom_prompt_multi_turn_runner import MultiTurnSession
 
 logger = logging.getLogger(__name__)
 
@@ -86,14 +87,14 @@ async def arun_signals_agent(
     """Async core. Safe to call from inside a running event loop (Temporal activity)."""
     team = await database_sync_to_async(_get_team, thread_sensitive=False)(team_id)
     config = await database_sync_to_async(_resolve_config, thread_sensitive=False)(team)
-    # Lazy-seed canonical signals-agent-* skills before we resolve the skill the run
-    # asked for. No-op when the team already has any signals-agent-* row (preserves
-    # edits/forks). Failures here should not crash the run — we log and continue.
+    # Lazy-seed canonical signals-agent-* skills if the team has none yet, so the run
+    # has something to load. Failures here should not crash the run — we log and continue
+    # with whatever skills the team already has.
     try:
         await database_sync_to_async(seed_canonical_skills, thread_sensitive=False)(team)
     except Exception:
         logger.exception(
-            "signals_agent: lazy seed failed; continuing with existing team skills",
+            "signals_agent: canonical skill seed failed; continuing with existing team skills",
             extra={"team_id": team_id},
         )
     skill = await database_sync_to_async(load_skill_for_run, thread_sensitive=False)(
@@ -198,17 +199,21 @@ async def _spawn_and_run(
         "signals_agent: spawning sandbox",
         extra={"team_id": team.id, "skill_name": skill.name, "skill_version": skill.version},
     )
-    last_message, _full_log = await run_prompt(
-        prompt,
-        context,
+    session, result = await MultiTurnSession.start(
+        prompt=prompt,
+        context=context,
+        model=SignalAgentRunSummary,
         step_name=_step_name(skill),
-        origin_product=Task.OriginProduct.SIGNALS_AGENT.value,
         verbose=verbose,
+        origin_product=Task.OriginProduct.SIGNALS_AGENT,
     )
-    # Budget is captured on the run row but not enforced here — the spawn path is one-shot,
-    # so per-tool-call iteration will gate against the budget once the agent-SDK glue lands.
-    _ = budget
-    return last_message
+    try:
+        # Budget is captured on the run row but not enforced here — the spawn path is one-shot,
+        # so per-tool-call iteration will gate against the budget once the agent-SDK glue lands.
+        _ = budget
+        return result.summary
+    finally:
+        await session.end()
 
 
 def _get_team(team_id: int) -> Team:
@@ -227,7 +232,6 @@ def _has_running_run(team_id: int, config_id: str) -> bool:
         agent_config_id=config_id,
         status=SignalAgentRun.Status.RUNNING,
     ).exists()
-
 
 def _create_run_row(
     *,

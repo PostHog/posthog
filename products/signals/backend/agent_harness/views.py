@@ -1,11 +1,14 @@
-"""DRF viewsets exposing the Signals agent harness over HTTP for MCP consumption.
+"""DRF viewsets exposing the Signals agent surface over HTTP for MCP consumption.
 
 These wrap the sync Python tools in `agent_harness/tools/` so the headless agent
-can call `search-recent-runs`, `get-run`, `search-memory`, `remember`, `forget`,
-and `emit-finding` from inside its sandbox via the standard PostHog MCP plumbing.
+(and any other agent on the team's PostHog MCP) can call the `signals-agent-*`
+tools — `runs-list`, `runs-retrieve`, `runs-findings-create`, `memory-list`,
+`memory-create`, and `memory-delete` — over the standard PostHog MCP plumbing.
 
-Auth is the existing `task:read` / `task:write` scope split. Every read filters
-on `team_id` first; the agent's MCP token is already pinned to the team.
+Auth uses the dedicated `signal_agent:read` / `signal_agent:write` scopes. Read
+is user-grantable via the personal-API-key picker; write is sandbox-internal
+only (added to MCP tokens via `INTERNAL_SCOPES`). Every read filters on
+`team_id` first; the agent's MCP token is already pinned to the team.
 """
 
 from __future__ import annotations
@@ -54,7 +57,7 @@ class SignalAgentRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = SignalAgentRunSummarySerializer
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission]
-    scope_object = "task"
+    scope_object = "signal_agent"
     queryset = SignalAgentRun.objects.all()
     # Lookup is the run's UUID PK; DRF parses with the default `pk` URL kwarg.
     lookup_field = "id"
@@ -126,7 +129,7 @@ class SignalAgentRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         detail=True,
         methods=["post"],
         url_path="findings",
-        required_scopes=["task:write"],
+        required_scopes=["signal_agent:write"],
         pagination_class=None,
     )
     def findings(self, request: Request, **kwargs) -> Response:
@@ -199,12 +202,12 @@ class SignalAgentRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
 
 class SignalMemoryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
-    """Durable agent memories (`SignalMemory`) — read, write, and forget."""
+    """Durable agent memories (`SignalMemory`) — read, write, and delete."""
 
     serializer_class = MemoryEntrySerializer
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission]
-    scope_object = "task"
+    scope_object = "signal_agent"
 
     @validated_request(
         query_serializer=SearchMemoryQuerySerializer,
@@ -278,25 +281,27 @@ class SignalMemoryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         request_serializer=ForgetRequestSerializer,
         responses={
             200: OpenApiResponse(response=ForgetResponseSerializer, description="Whether a row was removed."),
-            403: OpenApiResponse(description="Tried to forget a `human_confirmed` entry."),
+            403: OpenApiResponse(description="Tried to delete a `human_confirmed` entry."),
         },
-        summary="Forget an agent memory by key",
+        summary="Delete an agent memory by key",
         description=(
             "Delete an `agent_inference` entry by key. Returns `deleted=false` if no row matched. "
             "Cannot delete `human_confirmed` entries — those are human-managed only."
         ),
+        operation_id="signals_agent_memory_delete",
     )
     @action(
         detail=False,
         methods=["post"],
-        url_path="forget",
-        required_scopes=["task:write"],
+        url_path="delete",
+        required_scopes=["signal_agent:write"],
         pagination_class=None,
     )
-    def forget(self, request: Request, **kwargs) -> Response:
+    def delete(self, request: Request, **kwargs) -> Response:
         data = request.validated_data
         try:
             removed = forget(team_id=self.team_id, key=data["key"])
         except HumanConfirmedMemoryError as exc:
             raise exceptions.PermissionDenied(detail=str(exc))
         return Response(ForgetResponseSerializer({"deleted": removed}).data)
+
