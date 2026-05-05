@@ -511,7 +511,7 @@ def _get_query(
 
         return f"""
             SELECT * FROM `{bq_table.dataset_id}`.`{bq_table.table_id}`
-            WHERE `{incremental_field}` >= {last_value}
+            WHERE `{incremental_field}` > {last_value}
             ORDER BY `{incremental_field}` ASC
             """
 

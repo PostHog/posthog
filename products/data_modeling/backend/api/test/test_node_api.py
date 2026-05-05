@@ -1,6 +1,7 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Team
@@ -356,6 +357,65 @@ class TestNodeViewSet(APIBaseTest):
         node_ids = {n["id"] for n in response.json()["nodes"]}
         self.assertNotIn(str(other_table.id), node_ids)
         self.assertNotIn(str(other_view.id), node_ids)
+
+    @parameterized.expand(["post", "put", "patch"])
+    def test_dag_field_rejects_other_teams_dag(self, method):
+        other_team = Team.objects.create(organization=self.organization)
+        foreign_dag = DAG.objects.create(team=other_team, name=f"posthog_{other_team.id}")
+
+        if method == "post":
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/data_modeling_nodes/",
+                data={"name": "new_table", "type": NodeType.TABLE, "dag": str(foreign_dag.id)},
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertFalse(Node.objects.filter(name="new_table", dag=foreign_dag).exists())
+            return
+
+        original_dag_id = self.view_node.dag_id
+        url = f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/"
+        if method == "patch":
+            response = self.client.patch(url, data={"dag": str(foreign_dag.id)}, format="json")
+        else:
+            response = self.client.put(
+                url,
+                data={"name": "test_view", "type": NodeType.VIEW, "dag": str(foreign_dag.id)},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.view_node.refresh_from_db()
+        self.assertEqual(self.view_node.dag_id, original_dag_id)
+
+    @parameterized.expand(["put", "patch"])
+    def test_saved_query_id_cannot_be_bound_to_other_teams_query(self, method):
+        other_team = Team.objects.create(organization=self.organization)
+        foreign_sq = DataWarehouseSavedQuery.objects.create(
+            name="leaked_name",
+            team=other_team,
+            query={"query": "SELECT 1", "kind": "HogQLQuery"},
+        )
+
+        original_saved_query_id = self.view_node.saved_query_id
+        url = f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/"
+        if method == "patch":
+            self.client.patch(url, data={"saved_query_id": str(foreign_sq.id)}, format="json")
+        else:
+            self.client.put(
+                url,
+                data={
+                    "name": "test_view",
+                    "type": NodeType.VIEW,
+                    "dag": str(self.dag.id),
+                    "saved_query_id": str(foreign_sq.id),
+                },
+                format="json",
+            )
+
+        self.view_node.refresh_from_db()
+        self.assertEqual(self.view_node.saved_query_id, original_saved_query_id)
+        self.assertNotEqual(self.view_node.name, foreign_sq.name)
 
 
 class TestEdgeViewSet(APIBaseTest):

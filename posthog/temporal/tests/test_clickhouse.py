@@ -8,12 +8,14 @@ from unittest.mock import MagicMock, patch
 
 from posthog.clickhouse.query_tagging import QueryTags
 from posthog.temporal.common.clickhouse import (
+    ClickHouseAllReplicasAreStaleError,
     ClickHouseCheckQueryStatusError,
     ClickHouseClient,
     ClickHouseError,
     ClickHouseMemoryLimitExceededError,
     ClickHouseQueryNotFound,
     ClickHouseQueryStatus,
+    ClickHouseQueryTimeoutError,
     ClickHouseTooManyBytesError,
     ClickHouseTooManySimultaneousQueriesError,
     add_log_comment_param,
@@ -154,36 +156,43 @@ def _mock_internal_session_post(return_value):
     return patch("posthog.temporal.common.clickhouse.internal_requests_session", mock_factory)
 
 
-def test_clickhouse_memory_limit_exceeded_error(clickhouse_client):
-    """Simulate a ClickHouse memory limit exceeded error and verify that the correct error is raised."""
-    mock_response = MagicMock(
-        status_code=500,
-        text="Code: 241. DB::Exception: (total) memory limit exceeded: would use 99.97 GiB (attempt to allocate chunk of 12.26 MiB bytes), current RSS: 111.22 GiB, maximum: 111.19 GiB. OvercommitTracker decision: Query was selected to stop by OvercommitTracker: While executing MergeSortingTransform. (MEMORY_LIMIT_EXCEEDED) (version x.x.x.x (official build))",
-    )
+@pytest.mark.parametrize(
+    "error_text,expected_exception",
+    [
+        (
+            "Code: 241. DB::Exception: (total) memory limit exceeded: would use 99.97 GiB (attempt to allocate chunk of 12.26 MiB bytes), current RSS: 111.22 GiB, maximum: 111.19 GiB. OvercommitTracker decision: Query was selected to stop by OvercommitTracker: While executing MergeSortingTransform. (MEMORY_LIMIT_EXCEEDED) (version x.x.x.x (official build))",
+            ClickHouseMemoryLimitExceededError,
+        ),
+        (
+            "Code: 307. DB::Exception: Limit for rows or bytes to read exceeded, max bytes: 50.00 TiB, current bytes: 50.00 TiB: While executing MergeTreeSelect(pool: ReadPool, algorithm: Thread). (TOO_MANY_BYTES) (version x.x.x.x (official build))",
+            ClickHouseTooManyBytesError,
+        ),
+        (
+            "Code: 202. DB::Exception: Received from dummy-ch-node.internal. DB::Exception: Too many simultaneous queries for all users. Current: 100, maximum: 100. (TOO_MANY_SIMULTANEOUS_QUERIES) (version x.x.x.x (official build))",
+            ClickHouseTooManySimultaneousQueriesError,
+        ),
+        (
+            "Code: 159. DB::Exception: Estimated query execution time (300.5 seconds) is too long. Maximum: 300. (TIMEOUT_EXCEEDED) (version x.x.x.x (official build))",
+            ClickHouseQueryTimeoutError,
+        ),
+        (
+            "Code: 279. DB::Exception: All replicas are stale: While executing Remote. (ALL_REPLICAS_ARE_STALE) (version x.x.x.x (official build))",
+            ClickHouseAllReplicasAreStaleError,
+        ),
+    ],
+    ids=[
+        "MEMORY_LIMIT_EXCEEDED",
+        "TOO_MANY_BYTES",
+        "TOO_MANY_SIMULTANEOUS_QUERIES",
+        "TIMEOUT_EXCEEDED",
+        "ALL_REPLICAS_ARE_STALE",
+    ],
+)
+def test_clickhouse_error_code_maps_to_exception(clickhouse_client, error_text, expected_exception):
+    """Server-side ClickHouse error codes map to the matching client exception class."""
+    mock_response = MagicMock(status_code=500, text=error_text)
     with _mock_internal_session_post(mock_response):
-        with pytest.raises(ClickHouseMemoryLimitExceededError):
-            with clickhouse_client.post_query("SELECT 1", query_parameters={}, query_id=None):
-                pass
-
-
-def test_clickhouse_too_many_bytes_error(clickhouse_client):
-    mock_response = MagicMock(
-        status_code=500,
-        text="Code: 307. DB::Exception: Limit for rows or bytes to read exceeded, max bytes: 50.00 TiB, current bytes: 50.00 TiB: While executing MergeTreeSelect(pool: ReadPool, algorithm: Thread). (TOO_MANY_BYTES) (version x.x.x.x (official build))",
-    )
-    with _mock_internal_session_post(mock_response):
-        with pytest.raises(ClickHouseTooManyBytesError):
-            with clickhouse_client.post_query("SELECT 1", query_parameters={}, query_id=None):
-                pass
-
-
-def test_clickhouse_too_many_simultaneous_queries_error(clickhouse_client):
-    mock_response = MagicMock(
-        status_code=500,
-        text="Code: 202. DB::Exception: Received from dummy-ch-node.internal. DB::Exception: Too many simultaneous queries for all users. Current: 100, maximum: 100. (TOO_MANY_SIMULTANEOUS_QUERIES) (version x.x.x.x (official build))",
-    )
-    with _mock_internal_session_post(mock_response):
-        with pytest.raises(ClickHouseTooManySimultaneousQueriesError):
+        with pytest.raises(expected_exception):
             with clickhouse_client.post_query("SELECT 1", query_parameters={}, query_id=None):
                 pass
 

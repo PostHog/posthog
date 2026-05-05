@@ -46,7 +46,11 @@ export const sessionSummaryProgressLogic = kea<sessionSummaryProgressLogicType>(
         cancelSummarization: (sessionId: SessionRecordingType['id']) => ({ sessionId }),
         setLoading: (sessionId: string, loading: boolean) => ({ sessionId, loading }),
         setProgress: (sessionId: string, progress: SummarizationProgress | null) => ({ sessionId, progress }),
-        setSummary: (sessionId: string, summary: SessionSummaryContent | null) => ({ sessionId, summary }),
+        setSummary: (sessionId: string, summary: SessionSummaryContent | null, summaryId: string | null = null) => ({
+            sessionId,
+            summary,
+            summaryId,
+        }),
         setError: (sessionId: string, error: string | null) => ({ sessionId, error }),
         markFeedbackGiven: (sessionId: string) => ({ sessionId }),
         setSummaryOpen: (sessionId: string, open: boolean) => ({ sessionId, open }),
@@ -75,6 +79,12 @@ export const sessionSummaryProgressLogic = kea<sessionSummaryProgressLogicType>(
             {} as Record<string, SessionSummaryContent | null>,
             {
                 setSummary: (state, { sessionId, summary }) => ({ ...state, [sessionId]: summary }),
+            },
+        ],
+        summaryIdBySessionId: [
+            {} as Record<string, string | null>,
+            {
+                setSummary: (state, { sessionId, summaryId }) => ({ ...state, [sessionId]: summaryId }),
             },
         ],
         errorBySessionId: [
@@ -168,8 +178,8 @@ export const sessionSummaryProgressLogic = kea<sessionSummaryProgressLogicType>(
                                 return
                             }
                             const parsedData = JSON.parse(data)
-                            if (parsedData) {
-                                actions.setSummary(sessionId, parsedData)
+                            if (parsedData?.summary) {
+                                actions.setSummary(sessionId, parsedData.summary, parsedData.id ?? null)
                             }
                         } catch {
                             // Don't handle errors as we can afford to fail some chunks silently.
