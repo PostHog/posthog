@@ -9255,6 +9255,8 @@ export const ScaleApi = {
 } as const
 
 export interface YAxisSettingsApi {
+    /** @nullable */
+    label?: string | null
     scale?: ScaleApi | null
     /** @nullable */
     showGridLines?: boolean | null
@@ -9353,6 +9355,8 @@ export interface ChartSettingsApi {
      */
     stackBars100?: boolean | null
     xAxis?: ChartAxisApi | null
+    /** @nullable */
+    xAxisLabel?: string | null
     /** @nullable */
     yAxis?: ChartAxisApi[] | null
     /**

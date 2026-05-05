@@ -35,7 +35,7 @@
             "type": "boolean"
         },
         "ids": {
-            "description": "Trace IDs or generation IDs to classify, depending on analysis_level.",
+            "description": "Trace IDs (analysis_level=trace) or generation event UUIDs (analysis_level=generation).",
             "items": {
                 "type": "string"
             },

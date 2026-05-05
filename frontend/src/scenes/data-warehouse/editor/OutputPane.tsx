@@ -386,6 +386,7 @@ function VisualizationActions({
                     size="small"
                     onClick={onToggleChartSettingsPanel}
                     tooltip="Visualization settings"
+                    data-attr="sql-editor-visualization-settings-button"
                 />
             </div>
         </div>
@@ -742,6 +743,7 @@ export function OutputPane({ tabId, showToolbar = true, onShareTab }: OutputPane
         setProgress,
         progress: queryId ? progressCache[queryId] : undefined,
         showVisualizationSettings: showToolbar && isChartSettingsPanelOpen,
+        isEmbeddedMode,
     }
     const sharedActionsProps = {
         response,
@@ -920,6 +922,10 @@ function InternalDataTableVisualization(
         component = <HogQLBoldNumber />
     }
 
+    if (props.embedded && !props.showSettingsPanel) {
+        return <div className="DataVisualization InsightCard__viz">{component}</div>
+    }
+
     return (
         <div className="DataVisualization h-full hide-scrollbar flex flex-1 gap-2">
             <div className="relative w-full flex flex-col gap-4 flex-1">
@@ -982,6 +988,7 @@ const Content = ({
     progress,
     insightLoading,
     showVisualizationSettings,
+    isEmbeddedMode,
 }: any): JSX.Element | null => {
     const [sortColumns, setSortColumns] = useState<SortColumn[]>([])
 
@@ -1049,6 +1056,7 @@ const Content = ({
                     cachedResults={undefined}
                     exportContext={exportContext}
                     editMode
+                    embedded={isEmbeddedMode}
                     showSettingsPanel={showVisualizationSettings}
                 />
             </div>

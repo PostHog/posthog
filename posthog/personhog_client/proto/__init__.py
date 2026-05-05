@@ -26,11 +26,21 @@ from posthog.personhog_client.proto.generated.personhog.types.v1.cohort_pb2 impo
     ListCohortMemberIdsResponse,
 )
 from posthog.personhog_client.proto.generated.personhog.types.v1.group_pb2 import (
+    CreateGroupRequest,
+    CreateGroupResponse,
+    DeleteGroupsBatchForTeamRequest,
+    DeleteGroupsBatchForTeamResponse,
+    DeleteGroupTypeMappingRequest,
+    DeleteGroupTypeMappingResponse,
+    DeleteGroupTypeMappingsBatchForTeamRequest,
+    DeleteGroupTypeMappingsBatchForTeamResponse,
     GetGroupRequest,
     GetGroupResponse,
     GetGroupsBatchRequest,
     GetGroupsBatchResponse,
     GetGroupsRequest,
+    GetGroupTypeMappingByDashboardIdRequest,
+    GetGroupTypeMappingByDashboardIdResponse,
     GetGroupTypeMappingsByProjectIdRequest,
     GetGroupTypeMappingsByProjectIdsRequest,
     GetGroupTypeMappingsByTeamIdRequest,
@@ -41,6 +51,10 @@ from posthog.personhog_client.proto.generated.personhog.types.v1.group_pb2 impor
     GroupTypeMappingsBatchResponse,
     GroupTypeMappingsResponse,
     GroupWithKey,
+    UpdateGroupRequest,
+    UpdateGroupResponse,
+    UpdateGroupTypeMappingRequest,
+    UpdateGroupTypeMappingResponse,
 )
 from posthog.personhog_client.proto.generated.personhog.types.v1.person_pb2 import (
     DeletePersonsBatchForTeamRequest,
