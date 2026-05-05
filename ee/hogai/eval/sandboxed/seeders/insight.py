@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from products.tasks.backend.services.custom_prompt_runner import CustomPromptSandboxContext
+from products.tasks.backend.services.custom_prompt_internals import CustomPromptSandboxContext
 
 from ee.hogai.eval.sandboxed.seeders.common import LOOKUP_PREFIX, NameProviders, make_name_providers
 

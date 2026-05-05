@@ -26,6 +26,11 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         WAREHOUSE = "warehouse", "warehouse"
         DIRECT = "direct", "direct"
 
+    class CreatedVia(models.TextChoices):
+        WEB = "web", "web"
+        API = "api", "api"
+        MCP = "mcp", "mcp"
+
     class Status(models.TextChoices):
         RUNNING = "Running", "Running"
         PAUSED = "Paused", "Paused"
@@ -56,6 +61,9 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     are_tables_created = models.BooleanField(default=False)
     prefix = models.CharField(max_length=100, null=True, blank=True)
     description = models.CharField(max_length=400, null=True, blank=True)
+    # How this source was created — e.g. web UI, direct API call, or MCP tool. Required for new rows
+    # via the serializer; NULL on historical rows created before this field existed.
+    created_via = models.CharField(max_length=20, choices=CreatedVia, null=True, blank=True)
     access_method = models.CharField(max_length=32, choices=AccessMethod, default=AccessMethod.WAREHOUSE)
 
     # DEPRECATED: Check inside `revenue_analytics_config` instead

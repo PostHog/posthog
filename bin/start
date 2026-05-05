@@ -108,6 +108,18 @@ export DUCKGRES_PORT=${DUCKGRES_PORT:-15432}
 
 PROCESS_MANAGER="phrocs"
 
+# Detect detached mode early (`-d` is the shorthand, `--detach` the long
+# form). Incompatible with --mprocs since mprocs has no detached mode; only
+# phrocs supports it.
+DETACHED=0
+if [[ " $* " == *" --detach "* ]] || [[ " $* " == *" -d "* ]]; then
+    DETACHED=1
+    if [[ " $* " == *" --mprocs "* ]]; then
+        echo "Error: -d / --detach requires phrocs (not compatible with --mprocs)"
+        exit 1
+    fi
+fi
+
 # Only use mprocs when --mprocs is explicitly passed
 if [[ " $* " == *" --mprocs "* ]]; then
     # Ensure mprocs is available
@@ -155,7 +167,12 @@ if [[ "$*" == *"--custom"* ]]; then
         echo "Error: --custom requires a config path"
         exit 1
     fi
-    "$PROCESS_MANAGER" --config "$config_path"
+    if [[ "$DETACHED" == "1" ]]; then
+        exec 9<&-
+        "$PROCESS_MANAGER" --detach --config "$config_path"
+    else
+        "$PROCESS_MANAGER" --config "$config_path"
+    fi
 else
     GENERATED_CONFIG="$REPOSITORY_ROOT/.posthog/.generated/mprocs.yaml"
 
@@ -166,9 +183,21 @@ else
     fi
 
     if [[ -f "$GENERATED_CONFIG" ]]; then
-        "$PROCESS_MANAGER" --config "$GENERATED_CONFIG"
+        CONFIG_TO_USE="$GENERATED_CONFIG"
     else
         # Fallback if hogli not available
-        "$PROCESS_MANAGER" --config "$REPOSITORY_ROOT/bin/mprocs.yaml"
+        CONFIG_TO_USE="$REPOSITORY_ROOT/bin/mprocs.yaml"
+    fi
+
+    if [[ "$DETACHED" == "1" ]]; then
+        # Close fd 9 before spawning the detached child. Go's exec.Command
+        # inherits every open fd by default, and fd 9 holds this script's
+        # flock on $LOCK_FILE. If the child inherits it, the lock stays held
+        # for the child's whole lifetime even after bin/start exits —
+        # blocking the next bin/start invocation.
+        exec 9<&-
+        "$PROCESS_MANAGER" --detach --config "$CONFIG_TO_USE"
+    else
+        "$PROCESS_MANAGER" --config "$CONFIG_TO_USE"
     fi
 fi

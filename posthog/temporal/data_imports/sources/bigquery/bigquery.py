@@ -8,6 +8,7 @@ from datetime import date, datetime
 import pyarrow as pa
 import structlog
 from google.api_core.exceptions import Forbidden
+from google.auth.transport.requests import AuthorizedSession
 from google.cloud import bigquery, bigquery_storage
 from google.cloud.bigquery.job import QueryJobConfig
 from google.oauth2 import service_account
@@ -19,6 +20,7 @@ from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_
 from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_TABLE_SIZE_BYTES
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES
+from posthog.temporal.data_imports.sources.common.http import DEFAULT_RETRY, TrackedHTTPAdapter
 from posthog.temporal.data_imports.sources.generated_configs import BigQuerySourceConfig
 
 from products.data_warehouse.backend.types import IncrementalFieldType, PartitionSettings
@@ -94,10 +96,18 @@ def bigquery_client(
         },
         scopes=["https://www.googleapis.com/auth/drive", "https://www.googleapis.com/auth/cloud-platform"],
     )
+    # AuthorizedSession is a `requests.Session` subclass that injects the OAuth2
+    # bearer token. Mount our TrackedHTTPAdapter on it so every BigQuery REST
+    # call is logged and metered alongside the other warehouse sources.
+    authed_session = AuthorizedSession(credentials)
+    tracked_adapter = TrackedHTTPAdapter(max_retries=DEFAULT_RETRY)
+    authed_session.mount("https://", tracked_adapter)
+    authed_session.mount("http://", tracked_adapter)
     client = bigquery.Client(
         project=project_id,
         location=location,
         credentials=credentials,
+        _http=authed_session,
     )
 
     try:

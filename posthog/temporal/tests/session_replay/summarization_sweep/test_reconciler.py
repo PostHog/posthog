@@ -11,6 +11,7 @@ from temporalio.worker import Worker
 
 from posthog.models.team import Team
 from posthog.temporal.session_replay.summarization_sweep.activities import (
+    compute_schedule_fingerprint,
     list_enabled_teams_activity,
     list_summarization_schedule_team_ids_activity,
     upsert_team_schedule_activity,
@@ -21,12 +22,12 @@ from posthog.temporal.session_replay.summarization_sweep.constants import (
     SCHEDULE_TYPE,
     WORKFLOW_NAME,
 )
-from posthog.temporal.session_replay.summarization_sweep.models import (
+from posthog.temporal.session_replay.summarization_sweep.reconciler import ReconcileSummarizationSchedulesWorkflow
+from posthog.temporal.session_replay.summarization_sweep.types import (
     DeleteTeamScheduleInput,
     ReconcileSchedulesInputs,
     UpsertTeamScheduleInput,
 )
-from posthog.temporal.session_replay.summarization_sweep.reconciler import ReconcileSummarizationSchedulesWorkflow
 
 from products.signals.backend.models import SignalSourceConfig
 
@@ -37,7 +38,7 @@ from .conftest import enable_signal_source
 @pytest.mark.asyncio
 async def test_list_enabled_teams_empty(activity_environment):
     result = await activity_environment.run(list_enabled_teams_activity)
-    assert result == []
+    assert result == {}
 
 
 @pytest.mark.django_db(transaction=True)
@@ -75,7 +76,7 @@ async def test_list_enabled_teams_ignores_other_source_types(activity_environmen
     assert team.id not in result
 
 
-def _make_listing(schedule_id: str, workflow_type: str = WORKFLOW_NAME) -> Any:
+def _make_listing(schedule_id: str, workflow_type: str = WORKFLOW_NAME, fingerprint: str | None = None) -> Any:
     action = MagicMock()
     action.workflow = workflow_type
     schedule = MagicMock()
@@ -83,6 +84,15 @@ def _make_listing(schedule_id: str, workflow_type: str = WORKFLOW_NAME) -> Any:
     listing = MagicMock()
     listing.id = schedule_id
     listing.schedule = schedule
+    typed_attrs: list[Any] = []
+    if fingerprint is not None:
+        key = MagicMock()
+        key.name = "PostHogScheduleFingerprint"
+        pair = MagicMock()
+        pair.key = key
+        pair.value = fingerprint
+        typed_attrs.append(pair)
+    listing.typed_search_attributes = typed_attrs
     return listing
 
 
@@ -104,8 +114,8 @@ class _AsyncIter:
 @pytest.mark.asyncio
 async def test_list_summarization_schedule_team_ids_queries_by_schedule_type(activity_environment):
     listings = [
-        _make_listing(f"{SCHEDULE_ID_PREFIX}-101"),
-        _make_listing(f"{SCHEDULE_ID_PREFIX}-202"),
+        _make_listing(f"{SCHEDULE_ID_PREFIX}-101", fingerprint="abc123"),
+        _make_listing(f"{SCHEDULE_ID_PREFIX}-202"),  # legacy schedule with no fingerprint tag
         # Belt-and-suspenders: guard trips if someone sets the attribute with the wrong workflow type.
         _make_listing(f"{SCHEDULE_ID_PREFIX}-303", workflow_type="some-other-workflow"),
         _make_listing("some-other-schedule-id"),
@@ -118,7 +128,9 @@ async def test_list_summarization_schedule_team_ids_queries_by_schedule_type(act
         AsyncMock(return_value=client),
     ):
         result = await activity_environment.run(list_summarization_schedule_team_ids_activity)
-    assert sorted(result) == [101, 202]
+    # Returns a {team_id: stored_fingerprint} dict; legacy schedules surface as None so
+    # the reconciler treats them as drift and rewrites them on the next tick.
+    assert result == {101: "abc123", 202: None}
     call_kwargs = client.list_schedules.call_args.kwargs
     assert call_kwargs["query"] == f'PostHogScheduleType = "{SCHEDULE_TYPE}"'
 
@@ -137,14 +149,17 @@ async def test_upsert_team_schedule_activity_delegates(activity_environment):
 async def test_reconcile_workflow_upserts_new_and_deletes_stale():
     upserted_ids: list[int] = []
     deleted_ids: list[int] = []
+    fp = compute_schedule_fingerprint({"sample_rate": 0.5})
 
     @activity.defn(name="list_enabled_teams_activity")
-    async def list_enabled_mocked() -> list[int]:
-        return [1, 2, 3]
+    async def list_enabled_mocked() -> dict[int, str]:
+        return {1: fp, 2: fp, 3: fp}
 
     @activity.defn(name="list_summarization_schedule_team_ids_activity")
-    async def list_schedules_mocked() -> list[int]:
-        return [2, 3, 4]
+    async def list_schedules_mocked() -> dict[int, str | None]:
+        # Existing schedules' fingerprints match the freshly-computed ones — no drift,
+        # only the new team (1) and the orphan team (4) need work.
+        return {2: fp, 3: fp, 4: fp}
 
     @activity.defn(name="upsert_team_schedule_activity")
     async def upsert_mocked(inputs: UpsertTeamScheduleInput) -> None:
@@ -181,13 +196,16 @@ async def test_reconcile_workflow_upserts_new_and_deletes_stale():
 
 @pytest.mark.asyncio
 async def test_reconcile_workflow_noop_when_in_sync():
+    fp = compute_schedule_fingerprint({"sample_rate": 0.1})
+
     @activity.defn(name="list_enabled_teams_activity")
-    async def list_enabled_mocked() -> list[int]:
-        return [1, 2]
+    async def list_enabled_mocked() -> dict[int, str]:
+        return {1: fp, 2: fp}
 
     @activity.defn(name="list_summarization_schedule_team_ids_activity")
-    async def list_schedules_mocked() -> list[int]:
-        return [1, 2]
+    async def list_schedules_mocked() -> dict[int, str | None]:
+        # All schedules' fingerprints match the freshly-computed ones — no drift, no work.
+        return {1: fp, 2: fp}
 
     upsert_mock = AsyncMock()
     delete_mock = AsyncMock()
@@ -218,18 +236,20 @@ async def test_reconcile_workflow_noop_when_in_sync():
 
     upsert_mock.assert_not_awaited()
     delete_mock.assert_not_awaited()
-    assert result == {"upserted": 0, "deleted": 0, "failed_upsert": 0, "failed_delete": 0, "dry_run": False}
+    assert result == {"upserted": 0, "deleted": 0, "failed_upsert": 0, "failed_delete": 0}
 
 
 @pytest.mark.asyncio
 async def test_reconcile_workflow_isolates_per_team_failures():
+    fp = compute_schedule_fingerprint({})
+
     @activity.defn(name="list_enabled_teams_activity")
-    async def list_enabled_mocked() -> list[int]:
-        return [1, 2, 3]
+    async def list_enabled_mocked() -> dict[int, str]:
+        return {1: fp, 2: fp, 3: fp}
 
     @activity.defn(name="list_summarization_schedule_team_ids_activity")
-    async def list_schedules_mocked() -> list[int]:
-        return []
+    async def list_schedules_mocked() -> dict[int, str | None]:
+        return {}
 
     seen: list[int] = []
 
@@ -267,25 +287,31 @@ async def test_reconcile_workflow_isolates_per_team_failures():
 
 
 @pytest.mark.asyncio
-async def test_reconcile_workflow_dry_run_does_not_mutate():
-    upsert_inputs: list[UpsertTeamScheduleInput] = []
-    delete_inputs: list[DeleteTeamScheduleInput] = []
+async def test_reconcile_workflow_rewrites_drifted_schedules():
+    upserted_ids: list[int] = []
+    deleted_ids: list[int] = []
+    current_fp = compute_schedule_fingerprint({"sample_rate": 0.5})
+    stale_fp = compute_schedule_fingerprint({"sample_rate": 0.1})
 
     @activity.defn(name="list_enabled_teams_activity")
-    async def list_enabled_mocked() -> list[int]:
-        return [1, 2]
+    async def list_enabled_mocked() -> dict[int, str]:
+        return {1: current_fp, 2: current_fp, 3: current_fp, 4: current_fp}
 
     @activity.defn(name="list_summarization_schedule_team_ids_activity")
-    async def list_schedules_mocked() -> list[int]:
-        return [2, 3]
+    async def list_schedules_mocked() -> dict[int, str | None]:
+        # 1: legacy schedule (no fingerprint tag) — drifted
+        # 2: stale fingerprint from an old config — drifted
+        # 3: matches current — clean
+        # 4: missing entirely — needs upsert as a new team
+        return {1: None, 2: stale_fp, 3: current_fp}
 
     @activity.defn(name="upsert_team_schedule_activity")
     async def upsert_mocked(inputs: UpsertTeamScheduleInput) -> None:
-        upsert_inputs.append(inputs)
+        upserted_ids.append(inputs.team_id)
 
     @activity.defn(name="delete_team_schedule_activity")
     async def delete_mocked(inputs: DeleteTeamScheduleInput) -> None:
-        delete_inputs.append(inputs)
+        deleted_ids.append(inputs.team_id)
 
     task_queue = str(uuid.uuid4())
     async with await WorkflowEnvironment.start_time_skipping() as env:
@@ -298,34 +324,28 @@ async def test_reconcile_workflow_dry_run_does_not_mutate():
         ):
             result = await env.client.execute_workflow(
                 RECONCILER_WORKFLOW_NAME,
-                ReconcileSchedulesInputs(dry_run=True),
+                ReconcileSchedulesInputs(),
                 id=str(uuid.uuid4()),
                 task_queue=task_queue,
             )
 
-    assert upsert_inputs == [UpsertTeamScheduleInput(team_id=1, dry_run=True)]
-    assert delete_inputs == [DeleteTeamScheduleInput(team_id=3, dry_run=True)]
-    assert result == {"upserted": 1, "deleted": 1, "failed_upsert": 0, "failed_delete": 0, "dry_run": True}
+    # 1 (legacy), 2 (stale), 4 (new) all get upserted; 3 stays alone.
+    assert sorted(upserted_ids) == [1, 2, 4]
+    assert deleted_ids == []
+    assert result["upserted"] == 3
+    assert result["deleted"] == 0
 
 
-def test_reconcile_workflow_parse_inputs_dry_run():
-    import json
-
+def test_reconcile_workflow_parse_inputs():
     assert ReconcileSummarizationSchedulesWorkflow.parse_inputs([]) == ReconcileSchedulesInputs()
-    assert ReconcileSummarizationSchedulesWorkflow.parse_inputs(
-        [json.dumps({"dry_run": True})]
-    ) == ReconcileSchedulesInputs(dry_run=True)
 
 
-def test_summarize_team_workflow_parse_inputs_dry_run():
+def test_summarize_team_workflow_parse_inputs():
     import json
 
-    from posthog.temporal.session_replay.summarization_sweep.models import SummarizeTeamSessionsInputs
+    from posthog.temporal.session_replay.summarization_sweep.types import SummarizeTeamSessionsInputs
     from posthog.temporal.session_replay.summarization_sweep.workflow import SummarizeTeamSessionsWorkflow
 
     assert SummarizeTeamSessionsWorkflow.parse_inputs([json.dumps({"team_id": 42})]) == SummarizeTeamSessionsInputs(
         team_id=42
     )
-    assert SummarizeTeamSessionsWorkflow.parse_inputs(
-        [json.dumps({"team_id": 42, "dry_run": True})]
-    ) == SummarizeTeamSessionsInputs(team_id=42, dry_run=True)
