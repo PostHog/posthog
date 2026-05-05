@@ -9,7 +9,7 @@ This skill packages the orchestration for optimizing one ClickHouse query on one
 
 ## Required reads
 
-Before taking action, read `../../docs/orchestration.md` completely. Treat it as the operating contract.
+Before taking action, read `orchestration.md` (sibling of this file) completely. Treat it as the operating contract.
 
 ## Preconditions
 
@@ -259,4 +259,4 @@ You do the reasoning:
 ## Reasoning rules
 
 Review separation, integration, correctness, and closure are defined in
-`../../docs/orchestration.md`. Apply them as written.
+`orchestration.md` (sibling of this file). Apply them as written.
