@@ -41,7 +41,7 @@ import {
 } from 'products/data_warehouse/frontend/utils'
 
 import { syncMethodModalLogic } from '../SourceScene/syncMethodModalLogic'
-import { ColumnSelectionModal } from '../SourceScene/tabs/ColumnSelectionModal'
+import { ColumnSelectionPicker } from '../SourceScene/tabs/ColumnSelectionModal'
 import { sourceSettingsLogic } from '../SourceScene/tabs/sourceSettingsLogic'
 import { SchemaConfigurationSection } from './schemaSceneLogic'
 
@@ -403,16 +403,13 @@ function ColumnsSection({
     schema: ExternalDataSourceSchema
     updateSchema: (schema: ExternalDataSourceSchema) => void
 }): JSX.Element {
-    const [modalOpen, setModalOpen] = useState(false)
     const isPostgres = source?.source_type === 'Postgres'
     const available = schema.available_columns ?? []
     const synced = schema.synced_columns
-    const primaryKeys = new Set(schema.primary_key_columns ?? [])
-    const incrementalField = schema.incremental_field
 
     const summaryLine = !synced
         ? `Syncing all ${available.length || 'discovered'} columns`
-        : `Syncing ${synced.length} of ${available.length} columns`
+        : `Syncing ${synced.length} of ${available.length} columns (plus required primary keys / incremental field)`
 
     return (
         <div>
@@ -425,60 +422,24 @@ function ColumnsSection({
                     <span className="text-muted">
                         Per-column selection is currently available for Postgres sources only.
                     </span>
-                ) : available.length === 0 ? (
-                    <span className="text-muted">
-                        No columns discovered yet. Run <strong>Pull new schemas</strong> on the source's Schemas tab
-                        first.
-                    </span>
                 ) : (
                     <>
-                        <div className="flex items-center justify-between">
-                            <span>{summaryLine}</span>
-                            <SourceEditorAction source={source}>
-                                <LemonButton type="secondary" onClick={() => setModalOpen(true)}>
-                                    Configure columns
-                                </LemonButton>
-                            </SourceEditorAction>
-                        </div>
-                        {synced && (
-                            <div className="flex flex-wrap gap-1">
-                                {synced.map((column) => (
-                                    <LemonTag key={column} type="default">
-                                        <code>{column}</code>
-                                    </LemonTag>
-                                ))}
-                                {Array.from(primaryKeys)
-                                    .filter((pk) => !synced.includes(pk))
-                                    .map((pk) => (
-                                        <Tooltip key={pk} title="Primary key — always synced.">
-                                            <LemonTag type="primary">
-                                                <code>{pk}</code>
-                                            </LemonTag>
-                                        </Tooltip>
-                                    ))}
-                                {incrementalField &&
-                                    !synced.includes(incrementalField) &&
-                                    !primaryKeys.has(incrementalField) && (
-                                        <Tooltip title="Incremental field — always synced.">
-                                            <LemonTag type="primary">
-                                                <code>{incrementalField}</code>
-                                            </LemonTag>
-                                        </Tooltip>
-                                    )}
-                            </div>
-                        )}
+                        <span className="text-sm text-secondary">{summaryLine}</span>
+                        <SourceEditorAction source={source}>
+                            {({ disabledReason }) => (
+                                <fieldset disabled={!!disabledReason}>
+                                    <ColumnSelectionPicker
+                                        schema={schema}
+                                        onSave={(syncedColumns) => {
+                                            updateSchema({ ...schema, synced_columns: syncedColumns })
+                                        }}
+                                    />
+                                </fieldset>
+                            )}
+                        </SourceEditorAction>
                     </>
                 )}
             </div>
-            <ColumnSelectionModal
-                isOpen={modalOpen}
-                schema={modalOpen ? schema : null}
-                onClose={() => setModalOpen(false)}
-                onSave={(syncedColumns) => {
-                    updateSchema({ ...schema, synced_columns: syncedColumns })
-                    setModalOpen(false)
-                }}
-            />
         </div>
     )
 }
