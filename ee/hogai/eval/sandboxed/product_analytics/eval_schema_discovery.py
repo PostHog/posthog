@@ -24,7 +24,7 @@ import pytest
 from ee.hogai.eval.sandboxed.base import SandboxedPublicEval
 from ee.hogai.eval.sandboxed.config import SandboxedEvalCase
 from ee.hogai.eval.sandboxed.product_analytics.scorers import INSIGHT_WRITE_TOOLS, SchemaDiscoveryOrder
-from ee.hogai.eval.sandboxed.scorers import ExitCodeZero, NoToolCall
+from ee.hogai.eval.sandboxed.scorers import ExitCodeZero, LastToolCallNot, NoToolCall
 
 
 def _discovery_case(
@@ -91,6 +91,7 @@ async def eval_schema_discovery(sandboxed_demo_data, pytestconfig, posthog_clien
         scorers=[
             ExitCodeZero(),
             NoToolCall(forbidden=INSIGHT_WRITE_TOOLS, name="no_persistent_insight_save"),
+            LastToolCallNot(forbidden="execute-sql", name="last_call_not_execute_sql"),
             SchemaDiscoveryOrder(),
         ],
         pytestconfig=pytestconfig,

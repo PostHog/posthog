@@ -244,7 +244,13 @@ def build_deletion_count_query(obj: DataDeletionRequest) -> tuple[str, dict]:
 
 
 def _fetch_stats(team_id: int, extra_filter: str, params: dict) -> dict:
-    """Run event count + parts size queries against ClickHouse."""
+    """Run event count + parts size queries against ClickHouse.
+
+    The same predicate is spliced into both queries: the row count against the
+    Distributed ``events`` proxy, and the parts inspection against the local
+    ``sharded_events``. The HogQL predicate emits unqualified column references,
+    so it works in both contexts.
+    """
     from posthog.clickhouse.client import sync_execute
 
     with tags_context(
@@ -274,7 +280,7 @@ def _fetch_stats(team_id: int, extra_filter: str, params: dict) -> dict:
 
         cluster = django_settings.CLICKHOUSE_CLUSTER
 
-        # nosemgrep: clickhouse-fstring-param-audit (extra_filter from internal helpers; cluster from Django settings)
+        # nosemgrep: clickhouse-fstring-param-audit (filter built from internal helpers; cluster from Django settings)
         parts_result = sync_execute(
             f"""
             SELECT

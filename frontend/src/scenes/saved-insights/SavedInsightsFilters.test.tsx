@@ -18,31 +18,45 @@ describe('SavedInsightsFilters Created by dropdown', () => {
     let setFilters: jest.Mock
 
     beforeEach(() => {
+        const allMembers = [
+            {
+                id: '1',
+                user: MOCK_DEFAULT_BASIC_USER,
+                level: 8,
+                joined_at: '2020-09-24T15:05:26.758796Z',
+                updated_at: '2020-09-24T15:05:26.758837Z',
+                is_2fa_enabled: false,
+                has_social_auth: false,
+                last_login: '2020-09-24T15:05:26.758796Z',
+            },
+            {
+                id: '2',
+                user: MOCK_SECOND_BASIC_USER,
+                level: 1,
+                joined_at: '2021-03-11T19:11:11Z',
+                updated_at: '2021-03-11T19:11:11Z',
+                is_2fa_enabled: false,
+                has_social_auth: false,
+                last_login: '2021-03-11T19:11:11Z',
+            },
+        ]
         useMocks({
             get: {
-                '/api/organizations/:organization_id/members/': {
-                    results: [
-                        {
-                            id: '1',
-                            user: MOCK_DEFAULT_BASIC_USER,
-                            level: 8,
-                            joined_at: '2020-09-24T15:05:26.758796Z',
-                            updated_at: '2020-09-24T15:05:26.758837Z',
-                            is_2fa_enabled: false,
-                            has_social_auth: false,
-                            last_login: '2020-09-24T15:05:26.758796Z',
-                        },
-                        {
-                            id: '2',
-                            user: MOCK_SECOND_BASIC_USER,
-                            level: 1,
-                            joined_at: '2021-03-11T19:11:11Z',
-                            updated_at: '2021-03-11T19:11:11Z',
-                            is_2fa_enabled: false,
-                            has_social_auth: false,
-                            last_login: '2021-03-11T19:11:11Z',
-                        },
-                    ],
+                '/api/organizations/:organization_id/members/': (req) => {
+                    // membersLogic now does server-side search; mock honors `?search=`
+                    // by filtering on first_name, last_name, and email substring.
+                    const search = new URL(req.url).searchParams.get('search')?.toLowerCase()
+                    const results = search
+                        ? allMembers.filter((m) => {
+                              const u = m.user
+                              return (
+                                  u.first_name?.toLowerCase().includes(search) ||
+                                  u.last_name?.toLowerCase().includes(search) ||
+                                  u.email?.toLowerCase().includes(search)
+                              )
+                          })
+                        : allMembers
+                    return [200, { results }]
                 },
             },
         })

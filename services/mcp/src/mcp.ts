@@ -62,6 +62,7 @@ export type RequestProperties = {
     readOnly?: boolean
     mode?: McpMode
     transport?: 'streamable-http' | 'sse'
+    viaSseRedirect?: boolean
     requestStartTime?: number
 }
 
@@ -749,6 +750,7 @@ export class MCP extends McpAgent<Env> {
                     has_organization_id: !!organizationId,
                     has_project_id: !!projectId,
                     read_only: !!readOnly,
+                    via_sse_redirect: !!this.requestProperties.viaSseRedirect,
                     ...(mode ? { mcp_mode_explicit: mode } : {}),
                     ...(initDurationMs !== undefined ? { init_duration_ms: initDurationMs } : {}),
                 },
