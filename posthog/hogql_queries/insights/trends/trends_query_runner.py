@@ -845,8 +845,9 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
 
         self.modifiers.dataWarehouseEventsModifiers = datawarehouse_modifiers
 
-        if self._has_session_breakdown() and self._team_flag_session_property_pre_aggregation():
-            self.modifiers.sessionPropertyPreAggregation = True
+        self.modifiers.sessionPropertyPreAggregation = (
+            self._has_session_breakdown() and self._team_flag_session_property_pre_aggregation()
+        )
 
     def _has_session_breakdown(self) -> bool:
         bf = self.query.breakdownFilter

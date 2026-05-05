@@ -2935,6 +2935,34 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         assert runner.modifiers.sessionPropertyPreAggregation is expected
 
+    @patch("posthog.hogql_queries.insights.trends.trends_query_runner.posthoganalytics.feature_enabled")
+    def test_session_property_pre_aggregation_modifier_clears_on_dashboard_reapply(self, patch_feature_enabled):
+        # apply_dashboard_filters re-runs __post_init__. The modifier must reflect the *current*
+        # query state, not the initial one — so a session-breakdown query that gets overridden
+        # with an event breakdown must clear the modifier back to False.
+        from posthog.schema import DashboardFilter
+
+        patch_feature_enabled.return_value = True
+        runner = TrendsQueryRunner(
+            team=self.team,
+            query=TrendsQuery(
+                series=[EventsNode(event="$pageview")],
+                breakdownFilter=BreakdownFilter(
+                    breakdowns=[Breakdown(type=MultipleBreakdownType.SESSION, property="$channel_type")]
+                ),
+            ),
+        )
+        assert runner.modifiers.sessionPropertyPreAggregation is True
+
+        runner.apply_dashboard_filters(
+            DashboardFilter(
+                breakdown_filter=BreakdownFilter(
+                    breakdowns=[Breakdown(type=MultipleBreakdownType.EVENT, property="$browser")]
+                )
+            )
+        )
+        assert runner.modifiers.sessionPropertyPreAggregation is False
+
     def test_raises_for_empty_series(self):
         query_runner = TrendsQueryRunner(
             team=self.team,
