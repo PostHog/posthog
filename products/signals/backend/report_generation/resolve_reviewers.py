@@ -7,7 +7,6 @@ from collections.abc import Iterable, Mapping
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import Any, Literal
-from uuid import UUID
 
 from django.db.models import Prefetch, QuerySet, Subquery
 from django.db.models.functions import Lower
@@ -189,7 +188,7 @@ def get_org_member_github_login_to_user_map(team_id: int) -> dict[str, User] | N
     Returns None if the team doesn't exist, otherwise a dict (possibly empty).
     """
     try:
-        org_id = Team.objects.values_list("organization_id", flat=True).get(id=team_id)
+        org_id = str(Team.objects.values_list("organization_id", flat=True).get(id=team_id))
     except Team.DoesNotExist:
         return None
 
@@ -214,7 +213,7 @@ def get_org_member_github_logins_by_user_uuid(team_id: int, user_uuids: list[str
         return {}
 
     try:
-        org_id = Team.objects.values_list("organization_id", flat=True).get(id=team_id)
+        org_id = str(Team.objects.values_list("organization_id", flat=True).get(id=team_id))
     except Team.DoesNotExist:
         return {}
 
@@ -248,7 +247,7 @@ def resolve_org_github_login_to_users(team_id: int, github_logins: Iterable[str]
         return {}
 
     try:
-        org_id = Team.objects.values_list("organization_id", flat=True).get(id=team_id)
+        org_id = str(Team.objects.values_list("organization_id", flat=True).get(id=team_id))
     except Team.DoesNotExist:
         return {}
 
@@ -269,7 +268,7 @@ def resolve_org_github_login_to_users(team_id: int, github_logins: Iterable[str]
     return login_to_user
 
 
-def _candidate_user_ids_for_organization(org_id: UUID | str) -> set[int]:
+def _candidate_user_ids_for_organization(org_id: str) -> set[int]:
     """Org member IDs that might have any GitHub identity."""
     mid_sq = Subquery(OrganizationMembership.objects.filter(organization_id=org_id).values("user_id"))
     candidates: set[int] = set()
@@ -289,7 +288,7 @@ def _candidate_user_ids_for_organization(org_id: UUID | str) -> set[int]:
     return candidates
 
 
-def _candidate_user_ids_for_org_and_logins(org_id: UUID | str, logins_lower: frozenset[str]) -> set[int]:
+def _candidate_user_ids_for_org_and_logins(org_id: str, logins_lower: frozenset[str]) -> set[int]:
     """Subset of org members whose stored GitHub identity might match one of ``logins_lower`` (case-insensitive)."""
     if not logins_lower:
         return set()
