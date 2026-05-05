@@ -13,7 +13,9 @@ from django.views.decorators.csrf import csrf_exempt
 import structlog
 
 from posthog.models.comment import Comment
+from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
+from posthog.models.user import User
 
 from products.conversations.backend.mailgun import validate_webhook_signature
 from products.conversations.backend.models import Channel, EmailChannel, EmailMessageMapping, Status
@@ -229,6 +231,21 @@ def _recover_dmarc_rewritten_sender(
     return sender_email, sender_name
 
 
+def _resolve_team_member(email: str, team: Team) -> User | None:
+    """Match a sender email to a PostHog user within the team's organization."""
+    if not email:
+        return None
+    membership = (
+        OrganizationMembership.objects.filter(
+            organization_id=team.organization_id,
+            user__email__iexact=email,
+        )
+        .select_related("user")
+        .first()
+    )
+    return membership.user if membership else None
+
+
 @csrf_exempt
 def email_inbound_handler(request: HttpRequest) -> HttpResponse:
     if request.method != "POST":
@@ -310,6 +327,10 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
     content = (request.POST.get("stripped-text", "") or request.POST.get("body-plain", ""))[:MAX_EMAIL_BODY_LENGTH]
     subject = request.POST.get("subject", "")
 
+    # 7b. Detect team member sender
+    posthog_user = _resolve_team_member(sender_email, team)
+    is_team_member = posthog_user is not None
+
     # 8. Create ticket/comment/mapping in a transaction
     # Attachments are extracted inside the transaction so UploadedMedia rows roll back
     # on duplicate-race IntegrityError. Orphaned S3 blobs are acceptable.
@@ -339,13 +360,13 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
                     email_subject=subject,
                     email_from=sender_email,
                     cc_participants=cc_list,
-                    unread_team_count=1,
+                    unread_team_count=0 if is_team_member else 1,
                 )
 
             assert ticket is not None
 
             item_context = {
-                "author_type": "customer",
+                "author_type": "support" if is_team_member else "customer",
                 "is_private": False,
                 "email_from": sender_email,
                 "email_from_name": sender_name,
@@ -360,15 +381,18 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
                 content=content,
                 rich_content=rich_content,
                 item_context=item_context,
+                created_by=posthog_user,
             )
 
             if existing_ticket:
                 qs = Ticket.objects.filter(id=ticket.id, team=team)
+                updates: dict[str, Any] = {}
+                if not is_team_member:
+                    updates["unread_team_count"] = F("unread_team_count") + 1
                 if cc_list:
-                    merged = list(dict.fromkeys(ticket.cc_participants + cc_list))
-                    qs.update(unread_team_count=F("unread_team_count") + 1, cc_participants=merged)
-                else:
-                    qs.update(unread_team_count=F("unread_team_count") + 1)
+                    updates["cc_participants"] = list(dict.fromkeys(ticket.cc_participants + cc_list))
+                if updates:
+                    qs.update(**updates)
 
             EmailMessageMapping.objects.create(
                 message_id=email_message_id,

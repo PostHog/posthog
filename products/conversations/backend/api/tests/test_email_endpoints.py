@@ -924,6 +924,86 @@ class TestEmailInboundDmarcRewrite(BaseTest):
         assert comment.item_context["email_from_name"] == "Alex Smith"
 
 
+class TestEmailInboundTeamMemberDetection(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.client = Client()
+        self.team.conversations_settings = {"email_enabled": True}
+        self.team.save()
+        self.config = EmailChannel.objects.create(
+            team=self.team,
+            inbound_token="ab01cd23ef45",
+            from_email="security@posthog.com",
+            from_name="Security",
+            domain="posthog.com",
+            domain_verified=True,
+        )
+
+    def _post(self, data: dict[str, str]):
+        return self.client.post("/api/conversations/v1/email/inbound", data)
+
+    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    def test_team_member_reply_detected_as_support(self, _mock_sig: MagicMock):
+        self._post(
+            {
+                "recipient": "team-ab01cd23ef45@mg.posthog.com",
+                "from": "Customer <customer@external.com>",
+                "Message-Id": "<init@external.com>",
+                "subject": "Security question",
+                "stripped-text": "Hello",
+            }
+        )
+        ticket = Ticket.objects.get(team=self.team)
+        assert ticket.email_from == "customer@external.com"
+
+        self._post(
+            {
+                "recipient": "team-ab01cd23ef45@mg.posthog.com",
+                "from": f"{self.user.first_name} <{self.user.email}>",
+                "Message-Id": "<reply@team.com>",
+                "In-Reply-To": "<init@external.com>",
+                "stripped-text": "Looking into this",
+            }
+        )
+
+        comments = Comment.objects.filter(team=self.team, scope="conversations_ticket").order_by("created_at")
+        assert comments.count() == 2
+
+        customer_comment = comments[0]
+        assert customer_comment.item_context["author_type"] == "customer"
+        assert customer_comment.created_by is None
+
+        support_comment = comments[1]
+        assert support_comment.item_context["author_type"] == "support"
+        assert support_comment.created_by_id == self.user.id
+
+    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    def test_team_member_reply_does_not_increment_unread(self, _mock_sig: MagicMock):
+        self._post(
+            {
+                "recipient": "team-ab01cd23ef45@mg.posthog.com",
+                "from": "Customer <customer@external.com>",
+                "Message-Id": "<unread-init@external.com>",
+                "subject": "Question",
+                "stripped-text": "Hello",
+            }
+        )
+        ticket = Ticket.objects.get(team=self.team)
+        assert ticket.unread_team_count == 1
+
+        self._post(
+            {
+                "recipient": "team-ab01cd23ef45@mg.posthog.com",
+                "from": f"Agent <{self.user.email}>",
+                "Message-Id": "<unread-reply@team.com>",
+                "In-Reply-To": "<unread-init@external.com>",
+                "stripped-text": "On it",
+            }
+        )
+        ticket.refresh_from_db()
+        assert ticket.unread_team_count == 1
+
+
 class TestEmailInboundCcParticipants(BaseTest):
     def setUp(self):
         super().setUp()
