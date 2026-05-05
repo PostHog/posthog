@@ -25,6 +25,7 @@ from .provision_sandbox import (
     prepare_sandbox_for_repository,
 )
 from .read_sandbox_logs import ReadSandboxLogsInput, read_sandbox_logs
+from .refresh_github_token import RefreshGithubTokenInput, refresh_github_token
 from .relay_sandbox_events import RelaySandboxEventsInput, relay_sandbox_events
 from .send_followup_to_sandbox import SendFollowupToSandboxInput, send_followup_to_sandbox
 from .start_agent_server import StartAgentServerInput, StartAgentServerOutput, start_agent_server
@@ -49,6 +50,7 @@ __all__ = [
     "PrepareSandboxForRepositoryInput",
     "PrepareSandboxForRepositoryOutput",
     "ReadSandboxLogsInput",
+    "RefreshGithubTokenInput",
     "StartAgentServerInput",
     "StartAgentServerOutput",
     "TaskProcessingContext",
@@ -70,6 +72,7 @@ __all__ = [
     "post_slack_update",
     "prepare_sandbox_for_repository",
     "read_sandbox_logs",
+    "refresh_github_token",
     "start_agent_server",
     "track_workflow_event",
     "update_task_run_status",

@@ -18,8 +18,10 @@ CANCEL_TIMEOUT_SECONDS = 10
 # Refresh triggers a query.interrupt() + resume with a 30s SDK timeout on the
 # agent-server, so we need more headroom than a plain command.
 REFRESH_TIMEOUT_SECONDS = 45
+SET_TOKEN_TIMEOUT_SECONDS = 15
 
 REFRESH_SESSION_METHOD = "_posthog/refresh_session"
+SET_TOKEN_METHOD = "posthog/set_token"
 
 ALLOWED_SANDBOX_SCHEMES = {"https"}
 BLOCKED_IP_RANGES = [
@@ -290,6 +292,30 @@ def send_refresh_session(
         task_run,
         method=REFRESH_SESSION_METHOD,
         params={"mcpServers": mcp_servers},
+        auth_token=auth_token,
+        timeout=timeout,
+    )
+
+
+def send_set_gh_token(
+    task_run: Any,
+    token: str,
+    auth_token: str | None = None,
+    timeout: int = SET_TOKEN_TIMEOUT_SECONDS,
+) -> CommandResult:
+    """Push a fresh GitHub token into a live sandbox agent-server.
+
+    The agent-server overwrites ``process.env.GH_TOKEN`` and
+    ``process.env.GITHUB_TOKEN`` so subsequent shell-outs (Claude path) and
+    ``POST /gh`` invocations (Codex path) use the rotated value.
+
+    Does not rewrite ``.git/config`` remote URLs — callers that need git
+    operations to use the new token must update the remote URL separately.
+    """
+    return send_agent_command(
+        task_run,
+        method=SET_TOKEN_METHOD,
+        params={"token": token},
         auth_token=auth_token,
         timeout=timeout,
     )

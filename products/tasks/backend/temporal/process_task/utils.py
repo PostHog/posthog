@@ -186,6 +186,11 @@ GITHUB_USER_TOKEN_CACHE_TTL_SECONDS = 6 * 60 * 60
 # so a long-running sandbox doesn't accumulate stale credentials.
 MCP_TOKEN_REFRESH_INTERVAL_SECONDS = TOKEN_EXPIRATION_SECONDS / 2  # 3 hours
 
+# Minimum interval between GitHub token refreshes pushed to a live sandbox.
+# GitHub installation tokens expire after ~1h, so refreshing twice an hour
+# keeps the in-sandbox copy comfortably ahead of expiry without thrashing.
+GH_TOKEN_REFRESH_INTERVAL_SECONDS = 30 * 60  # 30 minutes
+
 
 def _mcp_token_issued_cache_key(run_id: str) -> str:
     return f"posthog_ai:task-run-mcp-token-issued:{run_id}"
@@ -204,6 +209,27 @@ def should_refresh_mcp_token(run_id: str) -> bool:
     """Return True if no MCP token has been issued for this run within the
     last MCP_TOKEN_REFRESH_INTERVAL_SECONDS window."""
     return cache.get(_mcp_token_issued_cache_key(run_id)) is None
+
+
+def _gh_token_issued_cache_key(run_id: str) -> str:
+    return f"posthog_ai:task-run-gh-token-issued:{run_id}"
+
+
+def mark_gh_token_issued(run_id: str) -> None:
+    """Record that a fresh GitHub token was pushed to the sandbox for this run.
+
+    The cache entry self-expires after GH_TOKEN_REFRESH_INTERVAL_SECONDS, so
+    `should_refresh_gh_token` returns True again past that window. Used as a
+    belt-and-suspenders gate against duplicate refreshes when the periodic
+    workflow timer races with workflow restarts or replays.
+    """
+    cache.set(_gh_token_issued_cache_key(run_id), True, timeout=GH_TOKEN_REFRESH_INTERVAL_SECONDS)
+
+
+def should_refresh_gh_token(run_id: str) -> bool:
+    """Return True if no GitHub token has been pushed for this run within the
+    last GH_TOKEN_REFRESH_INTERVAL_SECONDS window."""
+    return cache.get(_gh_token_issued_cache_key(run_id)) is None
 
 
 @dataclass(frozen=True)

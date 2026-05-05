@@ -44,6 +44,7 @@ from .activities.provision_sandbox import (
     prepare_sandbox_for_repository,
 )
 from .activities.read_sandbox_logs import ReadSandboxLogsInput, read_sandbox_logs
+from .activities.refresh_github_token import RefreshGithubTokenInput, refresh_github_token
 from .activities.relay_sandbox_events import RelaySandboxEventsInput, relay_sandbox_events
 from .activities.send_followup_to_sandbox import SendFollowupToSandboxInput, send_followup_to_sandbox
 from .activities.start_agent_server import StartAgentServerInput, StartAgentServerOutput, start_agent_server
@@ -88,6 +89,10 @@ CI_FOLLOW_UP_DELAY = timedelta(minutes=15)
 RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT = timedelta(hours=24)
 PENDING_MESSAGE_FORWARD_TIMEOUT_SECONDS = 180
 MAX_CI_REPETITIONS = 3
+# Cadence for pushing fresh GitHub tokens into a live sandbox. GitHub
+# installation tokens expire after ~1h; refreshing every 30m keeps the
+# in-sandbox copy comfortably ahead of expiry.
+GITHUB_TOKEN_REFRESH_INTERVAL = timedelta(minutes=30)
 DEFAULT_CI_MESSAGE = """\
 You are re-entering this run to address CI feedback on the pull request you opened.
 
@@ -125,6 +130,12 @@ After fixing, commit and push so CI can re-run.
 #   2. Second cleanup PR (after another full drain): delete this helper and
 #      `_PATCH_ID_CI_FOLLOW_UP_PR_CONTEXT`.
 _PATCH_ID_CI_FOLLOW_UP_PR_CONTEXT = "tasks-ci-follow-up-pr-context"
+
+# Rolling-deploy patch for the periodic GitHub-token refresh loop. The loop
+# schedules new `workflow.sleep` + `refresh_github_token` activity commands
+# that are absent from in-flight workflow histories, so replay would mismatch
+# without this guard. Cleanup follows the same two-step lifecycle as above.
+_PATCH_ID_GH_TOKEN_REFRESH_LOOP = "tasks-gh-token-refresh-loop"
 
 
 def _deprecate_ci_follow_up_pr_context_patch() -> None:
@@ -393,6 +404,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             )
 
             relay_task = asyncio.ensure_future(self._relay_sandbox_events(agent_server_output, sandbox_id=sandbox_id))
+            github_refresh_task: asyncio.Task[None] | None = None
+            if workflow.patched(_PATCH_ID_GH_TOKEN_REFRESH_LOOP):
+                github_refresh_task = asyncio.ensure_future(self._refresh_github_token_loop())
 
             if self._should_forward_pending_user_message():
                 await self._forward_pending_user_message()
@@ -460,6 +474,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
 
             # Stop the relay now that the main loop is done
             await self._cancel_relay(relay_task)
+            if github_refresh_task is not None:
+                await self._cancel_refresh_github_token(github_refresh_task)
 
             if self._task_completed:
                 await self._update_task_run_status(self._completion_status, error_message=self._completion_error)
@@ -832,6 +848,48 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         relay_task.cancel()
         try:
             await relay_task
+        except (asyncio.CancelledError, Exception):
+            pass
+
+    async def _refresh_github_token_loop(self) -> None:
+        """Periodically push a fresh GitHub token into the running sandbox.
+
+        Skipped entirely when the run has no GitHub credentials (e.g. Slack
+        repo-less tasks without a user GitHub link). Each iteration is
+        best-effort — failures are logged and the loop continues.
+        """
+        if not self.context.has_github_credentials:
+            return
+
+        try:
+            while not self._task_completed:
+                await workflow.sleep(GITHUB_TOKEN_REFRESH_INTERVAL.total_seconds())
+                if self._task_completed:
+                    return
+                try:
+                    await workflow.execute_activity(
+                        refresh_github_token,
+                        RefreshGithubTokenInput(run_id=self.context.run_id),
+                        start_to_close_timeout=timedelta(minutes=2),
+                        retry_policy=RetryPolicy(maximum_attempts=2),
+                    )
+                except Exception as e:
+                    workflow.logger.warning(
+                        "refresh_github_token_iteration_failed",
+                        run_id=self.context.run_id,
+                        error=str(e),
+                    )
+        except asyncio.CancelledError:
+            raise
+
+    @staticmethod
+    async def _cancel_refresh_github_token(refresh_task: "asyncio.Task[None]") -> None:
+        """Cancel the github-token refresh loop if still running."""
+        if refresh_task.done():
+            return
+        refresh_task.cancel()
+        try:
+            await refresh_task
         except (asyncio.CancelledError, Exception):
             pass
 

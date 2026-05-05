@@ -8,11 +8,14 @@ import requests
 from products.tasks.backend.services.agent_command import (
     REFRESH_SESSION_METHOD,
     REFRESH_TIMEOUT_SECONDS,
+    SET_TOKEN_METHOD,
+    SET_TOKEN_TIMEOUT_SECONDS,
     CommandResult,
     _build_request_args,
     send_agent_command,
     send_cancel,
     send_refresh_session,
+    send_set_gh_token,
     send_user_message,
     validate_sandbox_url,
 )
@@ -352,3 +355,32 @@ class TestSendRefreshSession:
         )
         assert result.success
         assert REFRESH_SESSION_METHOD == "_posthog/refresh_session"
+
+
+class TestSendSetGhToken:
+    @patch("products.tasks.backend.services.agent_command.send_agent_command")
+    def test_sends_set_token_method(self, mock_send):
+        mock_send.return_value = CommandResult(success=True, status_code=200, data={"result": {"updated": True}})
+        task_run = MagicMock()
+        result = send_set_gh_token(task_run, "ghs_fresh", auth_token="jwt")
+        mock_send.assert_called_once_with(
+            task_run,
+            method=SET_TOKEN_METHOD,
+            params={"token": "ghs_fresh"},
+            auth_token="jwt",
+            timeout=SET_TOKEN_TIMEOUT_SECONDS,
+        )
+        assert result.success
+        # Method matches the agent-server contract from PostHog/code#2018.
+        assert SET_TOKEN_METHOD == "posthog/set_token"
+
+    @patch("products.tasks.backend.services.agent_command.send_agent_command")
+    def test_omits_auth_token_when_not_provided(self, mock_send):
+        mock_send.return_value = CommandResult(success=True, status_code=200)
+        task_run = MagicMock()
+
+        send_set_gh_token(task_run, "ghs_fresh")
+
+        _, kwargs = mock_send.call_args
+        assert kwargs["auth_token"] is None
+        assert kwargs["params"] == {"token": "ghs_fresh"}
