@@ -1,5 +1,6 @@
 import uuid
 import typing as t
+from datetime import UTC
 from typing import cast
 
 from freezegun import freeze_time
@@ -5429,6 +5430,106 @@ class TestWebhookInfo(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
         assert data["inputs"] == {}
+
+    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.get_external_webhook_info", return_value=None
+    )
+    @patch("products.data_warehouse.backend.api.external_data_source.fetch_log_entries", return_value=[])
+    @patch("products.data_warehouse.backend.api.external_data_source.fetch_app_metric_totals")
+    def test_webhook_info_includes_delivery_health(self, mock_totals, _mock_logs, _mock_info, _mock_flag):
+        from posthog.api.app_metrics2 import AppMetricsTotalsResponse
+
+        mock_totals.return_value = AppMetricsTotalsResponse(totals={"succeeded": 42, "failed": 3})
+
+        source = self._create_stripe_source()
+        self._create_hog_function(source)
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/webhook_info/")
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        health = data["delivery_health"]
+        assert health["succeeded"] == 42
+        assert health["failed"] == 3
+        assert health["window_days"] == 7
+        assert health["signature_failures"] == 0
+        assert health["last_signature_failure"] is None
+
+    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.get_external_webhook_info", return_value=None
+    )
+    @patch("products.data_warehouse.backend.api.external_data_source.fetch_app_metric_totals")
+    @patch("products.data_warehouse.backend.api.external_data_source.fetch_log_entries")
+    def test_webhook_info_surfaces_signature_failures(self, mock_logs, mock_totals, _mock_info, _mock_flag):
+        from datetime import datetime
+
+        from posthog.api.app_metrics2 import AppMetricsTotalsResponse
+        from posthog.api.log_entries import LogEntry
+
+        mock_totals.return_value = AppMetricsTotalsResponse(totals={"succeeded": 1200, "failed": 0})
+        # The consumer logs "Responded with response status - 400, reason: <body>" for any 4xx,
+        # so the helper greps for the body substrings the warehouse webhook templates emit.
+        mock_logs.return_value = [
+            LogEntry(
+                log_source_id="x",
+                instance_id="i",
+                timestamp=datetime(2026, 5, 5, 12, 0, tzinfo=UTC),
+                level="WARN",
+                message="Responded with response status - 400, reason: Bad signature",
+            ),
+            LogEntry(
+                log_source_id="x",
+                instance_id="i",
+                timestamp=datetime(2026, 5, 5, 11, 0, tzinfo=UTC),
+                level="WARN",
+                message="Responded with response status - 400, reason: Could not parse signature",
+            ),
+            LogEntry(
+                log_source_id="x",
+                instance_id="i",
+                timestamp=datetime(2026, 5, 5, 10, 0, tzinfo=UTC),
+                level="WARN",
+                message="Responded with response status - 404, reason: Not found",
+            ),
+        ]
+
+        source = self._create_stripe_source()
+        self._create_hog_function(source)
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/webhook_info/")
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        health = data["delivery_health"]
+        # Only the two signature-related entries should be counted; the 404 is unrelated.
+        assert health["signature_failures"] == 2
+        assert health["last_signature_failure"]["message"].endswith("Bad signature")
+        assert health["last_signature_failure"]["timestamp"].startswith("2026-05-05T12:00")
+
+    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.get_external_webhook_info", return_value=None
+    )
+    @patch(
+        "products.data_warehouse.backend.api.external_data_source.fetch_app_metric_totals",
+        side_effect=Exception("clickhouse exploded"),
+    )
+    @patch("products.data_warehouse.backend.api.external_data_source.fetch_log_entries", return_value=[])
+    def test_webhook_info_delivery_health_clickhouse_failure_does_not_break_endpoint(
+        self, _mock_logs, _mock_totals, _mock_info, _mock_flag
+    ):
+        source = self._create_stripe_source()
+        self._create_hog_function(source)
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/webhook_info/")
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        # The endpoint stays usable; we just lose the counts.
+        assert data["delivery_health"]["succeeded"] == 0
+        assert data["delivery_health"]["failed"] == 0
 
 
 class TestDeleteWebhook(APIBaseTest):

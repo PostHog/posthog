@@ -84,15 +84,55 @@ export const webhookTabLogic = kea<webhookTabLogicType>([
             ],
             (sourceFieldConfig: SourceConfig | null): SourceConfig | null => sourceFieldConfig,
         ],
-        internalStateLabel: [
+        signatureFailing: [
             (s) => [s.webhookInfo],
+            (webhookInfo: WebhookInfo | null): boolean => {
+                // Stripe-style signature failures return 400 from the hog template before the
+                // executor records an error, so `succeeded` keeps climbing while real
+                // deliveries fail. Treat any signature-failure log entry in the recent window
+                // as a strong "rotate the signing secret" signal — if there's even one, the
+                // user's incoming traffic is broken.
+                return (webhookInfo?.delivery_health?.signature_failures ?? 0) > 0
+            },
+        ],
+        deliveryFailureRate: [
+            (s) => [s.webhookInfo],
+            (webhookInfo: WebhookInfo | null): number | null => {
+                const dh = webhookInfo?.delivery_health
+                if (!dh) {
+                    return null
+                }
+                const total = dh.succeeded + dh.failed
+                if (total === 0) {
+                    return null
+                }
+                return dh.failed / total
+            },
+        ],
+        internalStateLabel: [
+            (s) => [s.webhookInfo, s.signatureFailing, s.deliveryFailureRate],
             (
-                webhookInfo: WebhookInfo | null
+                webhookInfo: WebhookInfo | null,
+                signatureFailing: boolean,
+                deliveryFailureRate: number | null
             ): { label: string; tagType: 'success' | 'warning' | 'danger' | 'default' } => {
+                if (signatureFailing) {
+                    return { label: 'Failing signature checks', tagType: 'danger' }
+                }
                 const state = webhookInfo?.hog_function?.status?.state
                 switch (state) {
-                    case 1:
+                    case 1: {
+                        // HogWatcher only sees executor-level failures; the warehouse webhook
+                        // templates return 4xx without flagging an error, so we second-guess
+                        // "Healthy" when the recent failure rate is meaningful.
+                        if (deliveryFailureRate !== null && deliveryFailureRate >= 0.5) {
+                            return { label: 'Failing', tagType: 'danger' }
+                        }
+                        if (deliveryFailureRate !== null && deliveryFailureRate >= 0.1) {
+                            return { label: 'Degraded', tagType: 'warning' }
+                        }
                         return { label: 'Healthy', tagType: 'success' }
+                    }
                     case 2:
                     case 11:
                         return { label: 'Degraded', tagType: 'warning' }

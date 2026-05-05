@@ -46,6 +46,8 @@ export function WebhookTab({ id, tabId }: { id: string; tabId?: string }): JSX.E
         createWebhookResult,
         internalStateLabel,
         externalStateLabel,
+        signatureFailing,
+        deliveryFailureRate,
         mappedTables,
         source,
         sourceConfig,
@@ -92,6 +94,8 @@ export function WebhookTab({ id, tabId }: { id: string; tabId?: string }): JSX.E
                 webhookInfoLoading={webhookInfoLoading}
                 internalStateLabel={internalStateLabel}
                 externalStateLabel={externalStateLabel}
+                signatureFailing={signatureFailing}
+                deliveryFailureRate={deliveryFailureRate}
                 onRefresh={loadWebhookInfo}
             />
             {externalMissing && (
@@ -190,15 +194,24 @@ function WebhookStatusSection({
     webhookInfoLoading,
     internalStateLabel,
     externalStateLabel,
+    signatureFailing,
+    deliveryFailureRate,
     onRefresh,
 }: {
     webhookInfo: WebhookInfo
     webhookInfoLoading: boolean
     internalStateLabel: { label: string; tagType: 'success' | 'warning' | 'danger' | 'default' }
     externalStateLabel: { label: string; tagType: 'success' | 'warning' | 'danger' | 'default' }
+    signatureFailing: boolean
+    deliveryFailureRate: number | null
     onRefresh: () => void
 }): JSX.Element {
     const externalStatus = webhookInfo.external_status
+    const deliveryHealth = webhookInfo.delivery_health
+    const lastSignatureFailure = deliveryHealth?.last_signature_failure
+    // Don't double up on the failure-rate banner when the signature banner already
+    // explains exactly what's broken — the signature case is a strict subset.
+    const showFailureRateBanner = !signatureFailing && deliveryFailureRate !== null && deliveryFailureRate >= 0.1
 
     return (
         <LemonCard hoverEffect={false} className="space-y-4">
@@ -209,6 +222,29 @@ function WebhookStatusSection({
 
             <WebhookStatusTags externalStateLabel={externalStateLabel} internalStateLabel={internalStateLabel} />
 
+            {signatureFailing && (
+                <LemonBanner type="error">
+                    <div className="space-y-1">
+                        <p className="font-semibold mb-0">Webhook signature checks are failing</p>
+                        <p className="mb-0">
+                            Recent deliveries from your source were rejected because the signing secret didn't match.
+                            Rotate the secret in your source provider, copy the new value into the Configuration section
+                            below, and save changes.
+                        </p>
+                        {lastSignatureFailure?.message && (
+                            <p className="mb-0 text-xs text-muted">
+                                Most recent error: <code>{lastSignatureFailure.message}</code>
+                            </p>
+                        )}
+                    </div>
+                </LemonBanner>
+            )}
+            {showFailureRateBanner && (
+                <LemonBanner type="warning">
+                    {Math.round((deliveryFailureRate ?? 0) * 100)}% of webhook deliveries in the last{' '}
+                    {deliveryHealth?.window_days ?? 7} days are failing. Check the metrics and logs below for the cause.
+                </LemonBanner>
+            )}
             {externalStatus && !externalStatus.exists && !externalStatus.error && (
                 <LemonBanner type="warning">
                     Webhook not found on your source account. It may have been deleted. You can re-create it below.

@@ -5766,6 +5766,15 @@ export interface WebhookExternalStatus {
 
 export type WebhookInputValue = { secret: true } | { value: unknown }
 
+export interface WebhookDeliveryHealth {
+    succeeded: number
+    failed: number
+    window_days: number
+    signature_failures: number
+    signature_window_hours: number
+    last_signature_failure?: { timestamp: string | null; message: string } | null
+}
+
 export interface WebhookInfo {
     supports_webhooks: boolean
     exists: boolean
@@ -5780,6 +5789,7 @@ export interface WebhookInfo {
     schema_mapping?: Record<string, string>
     inputs?: Record<string, WebhookInputValue>
     external_status?: WebhookExternalStatus | null
+    delivery_health?: WebhookDeliveryHealth | null
 }
 
 export interface DataModelingJob {

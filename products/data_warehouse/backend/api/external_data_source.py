@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 import dataclasses
 from collections.abc import Callable
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 from django.db import transaction
@@ -31,7 +31,9 @@ from posthog.schema import (
 
 from posthog.hogql.database.database import Database
 
+from posthog.api.app_metrics2 import fetch_app_metric_totals
 from posthog.api.hog_function import HogFunctionSerializer
+from posthog.api.log_entries import fetch_log_entries
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.exceptions_capture import capture_exception
@@ -229,6 +231,97 @@ def get_postgres_source_table_location(
         },
         default_schema=default_schema,
     )
+
+
+# Substrings that the warehouse webhook hog templates use in HTTP 4xx response
+# bodies. The Stripe template emits these via `Responded with response status -
+# 400, reason: <body>` log entries. We surface a count of these so the UI can
+# warn the user that signature checks are failing — those branches return early
+# and never set `result.error`, so HogWatcher records them as `succeeded` and
+# the function's internal state stays "Healthy".
+WEBHOOK_SIGNATURE_FAILURE_PATTERNS = (
+    "Bad signature",
+    "Could not parse signature",
+    "Missing signature",
+    "Signing secret not configured",
+)
+
+
+def get_webhook_delivery_health(
+    *,
+    team_id: int,
+    hog_function_id: str,
+    window: timedelta = timedelta(days=7),
+    signature_window: timedelta = timedelta(days=1),
+    log_search_limit: int = 200,
+) -> dict[str, Any]:
+    """Fetch recent delivery counts and signature-failure signals for a webhook hog function.
+
+    Used by the webhook_info endpoint so the UI can degrade the "internal state"
+    indicator when the function is responding with 4xx error bodies (e.g.
+    invalid signing secret) — those return early without setting an executor
+    error, so the HogWatcher state alone reads as healthy.
+    """
+    now = datetime.now(UTC)
+    after = now - window
+    sig_after = now - signature_window
+
+    health: dict[str, Any] = {
+        "succeeded": 0,
+        "failed": 0,
+        "window_days": int(window.total_seconds() // 86400),
+        "signature_failures": 0,
+        "signature_window_hours": int(signature_window.total_seconds() // 3600),
+        "last_signature_failure": None,
+    }
+
+    try:
+        totals = fetch_app_metric_totals(
+            team_id=team_id,
+            app_source="hog_function",
+            app_source_id=hog_function_id,
+            breakdown_by="name",
+            after=after,
+            before=now,
+            name=["succeeded", "failed"],
+        )
+        health["succeeded"] = int(totals.totals.get("succeeded", 0) or 0)
+        health["failed"] = int(totals.totals.get("failed", 0) or 0)
+    except Exception as e:
+        capture_exception(e)
+
+    # Signature failures don't appear in app_metrics today (the executor records
+    # them as `succeeded`), so we sniff the warn-level log stream the source
+    # webhook consumer writes for any 4xx response. Limit and time-box tightly
+    # to keep this cheap on the page-load path.
+    try:
+        entries = fetch_log_entries(
+            team_id=team_id,
+            log_source="hog_function",
+            log_source_id=hog_function_id,
+            limit=log_search_limit,
+            after=sig_after,
+            before=now,
+            level=["WARN"],
+            search="response status - 4",
+        )
+    except Exception as e:
+        capture_exception(e)
+        entries = []
+
+    for entry in entries:
+        message = getattr(entry, "message", "") or ""
+        if any(pattern in message for pattern in WEBHOOK_SIGNATURE_FAILURE_PATTERNS):
+            health["signature_failures"] += 1
+            if health["last_signature_failure"] is None:
+                # `entries` is ordered DESC by timestamp, so the first match is the most recent.
+                timestamp = getattr(entry, "timestamp", None)
+                health["last_signature_failure"] = {
+                    "timestamp": timestamp.isoformat() if isinstance(timestamp, datetime) else None,
+                    "message": message,
+                }
+
+    return health
 
 
 class ExternalDataSourceRevenueAnalyticsConfigSerializer(serializers.ModelSerializer):
@@ -1833,6 +1926,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         all_inputs = HogFunctionSerializer(hog_function).data.get("inputs") or {}
         webhook_inputs = {k: v for k, v in all_inputs.items() if k in webhook_field_names}
 
+        delivery_health = get_webhook_delivery_health(
+            team_id=self.team_id,
+            hog_function_id=str(hog_function.id),
+        )
+
         return Response(
             status=status.HTTP_200_OK,
             data={
@@ -1849,6 +1947,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 "schema_mapping": schema_mapping,
                 "inputs": webhook_inputs,
                 "external_status": dataclasses.asdict(external_status) if external_status else None,
+                "delivery_health": delivery_health,
             },
         )
 
