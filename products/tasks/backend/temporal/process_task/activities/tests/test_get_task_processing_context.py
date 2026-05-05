@@ -99,7 +99,11 @@ class TestGetTaskProcessingContextActivity:
         # The context's run_initiator_id is what every per-run identity
         # decision keys off (effective_initiator_id falls back to the task
         # creator only when the run has no recorded initiator).
-        initiator = User.objects.create_user(email=f"initiator-{User.objects.count()}@example.com", password="x")
+        initiator = User.objects.create_user(
+            email=f"initiator-{User.objects.count()}@example.com",
+            first_name="Initiator",
+            password="x",
+        )
         team.organization.members.add(initiator)
         task = self._create_task_with_repo(team, user, github_integration, "posthog/posthog-js")
         task_run = task.create_run(created_by_id=initiator.id)

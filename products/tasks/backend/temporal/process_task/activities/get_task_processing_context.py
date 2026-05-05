@@ -196,7 +196,15 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     allowed_domains: list[str] | None = None
 
     if sandbox_environment_id:
-        sandbox_environment = task_run.get_sandbox_environment()
+        # Use the resolved initiator (run_initiator with fallback to task creator
+        # for legacy runs) instead of `task_run.get_sandbox_environment()`, which
+        # is strict on `task_run.created_by_id` and would refuse access to private
+        # envs for runs created before run_initiator tracking landed.
+        sandbox_environment = SandboxEnvironment.get_accessible_for_run(
+            environment_id=sandbox_environment_id,
+            team_id=task.team_id,
+            run_initiator_id=run_initiator.id,
+        )
         if sandbox_environment is None:
             raise TaskInvalidStateError(
                 f"Sandbox environment {sandbox_environment_id} not accessible for team {task.team_id}",

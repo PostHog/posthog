@@ -67,10 +67,12 @@ class TestInjectFreshTokensOnResumeActivity:
         assert "GH_TOKEN=ghs_new" in decoded
         assert "POSTHOG_PERSONAL_API_KEY=oauth_new" in decoded
 
-    def test_skips_git_remote_when_github_integration_missing(self, activity_environment, test_task, sandbox):
+    def test_skips_git_remote_when_github_integration_missing(
+        self, activity_environment, test_task, test_task_run, sandbox
+    ):
         context = TaskProcessingContext(
             task_id=str(test_task.id),
-            run_id="run-id",
+            run_id=str(test_task_run.id),
             team_id=test_task.team_id,
             team_uuid=str(test_task.team.uuid),
             organization_id=str(test_task.team.organization_id),

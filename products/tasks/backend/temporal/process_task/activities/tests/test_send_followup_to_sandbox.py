@@ -46,6 +46,10 @@ class TestSendFollowupToSandbox(BaseTest):
         self, mock_task_run_objects, mock_send_user_message, mock_get_redis_connection
     ):
         task_run = MagicMock()
+        # The activity prefers `task_run.created_by` (run initiator) over the
+        # task creator. Both are None here so the auth-token branch is skipped
+        # and we exercise just the stop-reason propagation.
+        task_run.created_by = None
         task_run.task.created_by = None
         mock_task_run_objects.select_related.return_value.get.return_value = task_run
         mock_send_user_message.return_value = MagicMock(
