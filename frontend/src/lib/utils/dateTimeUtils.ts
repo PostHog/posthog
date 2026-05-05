@@ -125,26 +125,18 @@ export function formatLocalizedDate(): string {
  * - Strings with explicit timezone info (trailing "Z" or "±HH:MM") are real instants;
  *   parse them as such and convert into the requested timezone.
  *
- * Avoids the dayjs.tz(string, tz) footgun, which goes through new Date() and uses
- * the browser's local timezone — that can shift the calendar day during DST or
- * whenever the browser tz disagrees with the project tz. */
+ * Don't use the `dayjs.utc(...).tz(timezone, true)` shape: keepLocalTime reads the
+ * **system** local representation of the underlying instant, not the UTC
+ * representation, so when the browser tz is east of UTC (e.g. Berlin, Tokyo) the
+ * calendar date shifts back by one day. */
 export function parseDateInTimezone(dateStr: string, timezone: string): dayjs.Dayjs {
     const hasExplicitTz = /([Zz]|[+-]\d{2}:?\d{2})$/.test(dateStr)
-    if (hasExplicitTz) {
-        try {
+    try {
+        if (hasExplicitTz) {
             const instant = dayjs(dateStr)
             return instant.isValid() ? instant.tz(timezone) : dayjs(null)
-        } catch {
-            return dayjs(null)
         }
-    }
-
-    const hasTime = dateStr.includes(' ') || dateStr.includes('T')
-    try {
-        const utc = hasTime ? dayjs.utc(dateStr) : dayjs.utc(dateStr + ' 00:00:00')
-        // keepLocalTime: true preserves the wall-clock digits while attaching
-        // the project timezone — no conversion arithmetic.
-        return utc.isValid() ? utc.tz(timezone, true) : dayjs(null)
+        return dayjs.tz(dateStr, timezone)
     } catch {
         return dayjs(null)
     }
