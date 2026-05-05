@@ -118,3 +118,39 @@ export const New: Story = {
         pageUrl: urls.heatmap('new'),
     },
 }
+
+const failedSaved = {
+    id: 102,
+    short_id: 'hm_failed',
+    name: 'Failed example',
+    url: 'https://example.com',
+    data_url: 'https://example.com',
+    target_widths: [768, 1024],
+    type: 'screenshot',
+    status: 'failed',
+    has_content: false,
+    snapshots: [],
+    deleted: false,
+    created_by: { id: 1, uuid: 'user-1', distinct_id: 'd1', first_name: 'Alice', email: 'alice@ph.com' },
+    created_at: '2024-01-01T00:00:00Z',
+    updated_at: '2024-01-01T00:00:00Z',
+    exception: 'Screenshot timed out after 240s. The page may be slow, blocked by a login/captcha, or unreachable.',
+}
+
+export const Failed: Story = {
+    parameters: {
+        pageUrl: urls.heatmap('hm_failed'),
+        testOptions: {
+            waitForLoadersToDisappear: true,
+        },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/environments/:team_id/saved/hm_failed/': failedSaved,
+                '/api/environments/:team_id/heatmap_screenshots/:id/content/': (_req, res, ctx) =>
+                    res(ctx.status(202), ctx.json(failedSaved)),
+            },
+        }),
+    ],
+}

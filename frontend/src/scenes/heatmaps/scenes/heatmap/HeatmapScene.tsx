@@ -32,6 +32,7 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
         widthOverride,
         heightOverride,
         screenshotUrl,
+        screenshotError,
         generatingScreenshot,
         screenshotLoaded,
         containerWidth,
@@ -47,6 +48,7 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
         setScreenshotLoaded,
         exportHeatmap,
         setContainerWidth,
+        regenerateScreenshot,
     } = useActions(logic)
 
     const measureRef = useRef<HTMLDivElement | null>(null)
@@ -173,6 +175,21 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                                             </div>
                                             <LoadingBar />
                                         </div>
+                                    </div>
+                                ) : screenshotError && !screenshotUrl ? (
+                                    <div className="flex-1 flex items-center justify-center min-h-96 p-6">
+                                        <LemonBanner
+                                            type="error"
+                                            className="max-w-xl w-full"
+                                            action={{
+                                                children: 'Retry',
+                                                onClick: regenerateScreenshot,
+                                                'data-attr': 'heatmap-screenshot-retry',
+                                            }}
+                                        >
+                                            <div className="font-semibold mb-1">Screenshot couldn't be generated</div>
+                                            <div className="text-sm">{screenshotError}</div>
+                                        </LemonBanner>
                                     </div>
                                 ) : screenshotUrl ? (
                                     <>

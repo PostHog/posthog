@@ -189,36 +189,60 @@ export const heatmapLogic = kea<heatmapLogicType>([
                         )
                         actions.loadHeatmap()
                         actions.setGeneratingScreenshot(false)
-                        break
-                    } else {
-                        const screenshot = contentResponse.data
-                        if (screenshot.status === 'completed' && screenshot.has_content) {
-                            const w = width ?? DEFAULT_HEATMAP_WIDTH
-                            actions.setScreenshotUrl(
-                                `/api/environments/${window.POSTHOG_APP_CONTEXT?.current_team?.id}/heatmap_screenshots/${screenshot.id}/content/?width=${w}`
-                            )
-                            actions.loadHeatmap()
-                            actions.setGeneratingScreenshot(false)
-                            break
-                        } else if (screenshot.status === 'failed') {
-                            actions.setScreenshotError(
-                                screenshot.exception || (screenshot as any).error || 'Screenshot generation failed'
-                            )
-                            actions.setGeneratingScreenshot(false)
-                            break
-                        }
+                        return
+                    }
+                    const screenshot = contentResponse.data
+                    if (screenshot.status === 'completed' && screenshot.has_content) {
+                        const w = width ?? DEFAULT_HEATMAP_WIDTH
+                        actions.setScreenshotUrl(
+                            `/api/environments/${window.POSTHOG_APP_CONTEXT?.current_team?.id}/heatmap_screenshots/${screenshot.id}/content/?width=${w}`
+                        )
+                        actions.loadHeatmap()
+                        actions.setGeneratingScreenshot(false)
+                        return
+                    } else if (screenshot.status === 'failed') {
+                        actions.setScreenshotError(
+                            screenshot.exception || (screenshot as any).error || 'Screenshot generation failed'
+                        )
+                        actions.setGeneratingScreenshot(false)
+                        return
                     }
                     attempts++
                 } catch (e) {
                     actions.setScreenshotError('Failed to check screenshot status')
+                    actions.setGeneratingScreenshot(false)
                     console.error(e)
-                    break
+                    return
                 }
             }
 
-            if (attempts >= maxAttempts) {
-                actions.setGeneratingScreenshot(false)
-                actions.setScreenshotError('Screenshot generation timed out')
+            // Polling exhausted without resolution. Fetch the row directly so we can
+            // surface a backend exception captured after our last poll, and so the
+            // backend's stale-PROCESSING auto-recovery has a chance to fire.
+            actions.setGeneratingScreenshot(false)
+            try {
+                const latest = await api.savedHeatmaps.get(props.id)
+                if (latest.status === 'failed') {
+                    actions.setScreenshotError(
+                        latest.exception ||
+                            'Screenshot generation failed. Click Retry to try again.'
+                    )
+                } else if (latest.status === 'completed' && latest.has_content) {
+                    const w = width ?? DEFAULT_HEATMAP_WIDTH
+                    actions.setScreenshotUrl(
+                        `/api/environments/${window.POSTHOG_APP_CONTEXT?.current_team?.id}/heatmap_screenshots/${latest.id}/content/?width=${w}`
+                    )
+                    actions.loadHeatmap()
+                } else {
+                    actions.setScreenshotError(
+                        'Screenshot is taking longer than expected. ' +
+                            'The page may be slow, blocked by a login/captcha, or unreachable. Click Retry to try again.'
+                    )
+                }
+            } catch {
+                actions.setScreenshotError(
+                    'Screenshot generation timed out. Click Retry to try again.'
+                )
             }
         },
         regenerateScreenshot: async () => {

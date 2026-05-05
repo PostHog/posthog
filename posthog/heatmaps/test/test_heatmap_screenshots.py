@@ -124,8 +124,8 @@ class TestHeatmapsAPI(APIBaseTest):
         )
         HeatmapSnapshot.objects.create(heatmap=saved, width=1024, content=b"old")
 
-        # Force updated_at to 15 minutes ago
-        SavedHeatmap.objects.filter(id=saved.id).update(updated_at=timezone.now() - timedelta(minutes=15))
+        # Force updated_at past the stale threshold
+        SavedHeatmap.objects.filter(id=saved.id).update(updated_at=timezone.now() - timedelta(minutes=10))
 
         r = self.client.get(f"/api/environments/{self.team.id}/saved/{saved.short_id}/")
         self.assertEqual(r.status_code, 200)

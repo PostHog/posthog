@@ -1,8 +1,14 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from celery.exceptions import SoftTimeLimitExceeded
+
 from posthog.models.heatmap_saved import HeatmapSnapshot, SavedHeatmap
-from posthog.tasks.heatmap_screenshot import generate_heatmap_screenshot
+from posthog.tasks.heatmap_screenshot import (
+    SCREENSHOT_HARD_TIME_LIMIT,
+    SCREENSHOT_SOFT_TIME_LIMIT,
+    generate_heatmap_screenshot,
+)
 
 
 class TestHeatmapScreenshotTask(APIBaseTest):
@@ -73,3 +79,33 @@ class TestHeatmapScreenshotTask(APIBaseTest):
         heatmap.refresh_from_db()
         assert heatmap.status == SavedHeatmap.Status.FAILED
         assert "boom" in (heatmap.exception or "")
+
+    @patch("posthog.tasks.heatmap_screenshot.sync_playwright")
+    def test_soft_time_limit_marks_failed_and_does_not_retry(self, mock_sync_playwright: MagicMock) -> None:
+        mock_sync_playwright.return_value.__enter__.side_effect = SoftTimeLimitExceeded()
+
+        heatmap = SavedHeatmap.objects.create(
+            team=self.team,
+            url="https://example.com",
+            created_by=self.user,
+            target_widths=[320],
+            status=SavedHeatmap.Status.PROCESSING,
+        )
+
+        # Should swallow the SoftTimeLimitExceeded so Celery does not autoretry
+        # and burn the same budget on a wedged page.
+        result = generate_heatmap_screenshot(heatmap.id)
+        assert result is None
+
+        heatmap.refresh_from_db()
+        assert heatmap.status == SavedHeatmap.Status.FAILED
+        assert "timed out" in (heatmap.exception or "").lower()
+        assert str(SCREENSHOT_SOFT_TIME_LIMIT) in (heatmap.exception or "")
+
+    def test_task_has_time_limits_configured(self) -> None:
+        # Guards against accidentally removing the time limits, which is the only
+        # thing keeping a wedged Playwright run from holding a row in PROCESSING
+        # forever.
+        assert generate_heatmap_screenshot.soft_time_limit == SCREENSHOT_SOFT_TIME_LIMIT
+        assert generate_heatmap_screenshot.time_limit == SCREENSHOT_HARD_TIME_LIMIT
+        assert SCREENSHOT_SOFT_TIME_LIMIT < SCREENSHOT_HARD_TIME_LIMIT

@@ -39,7 +39,7 @@ from posthog.security.url_validation import is_url_allowed
 from posthog.tasks.heatmap_screenshot import generate_heatmap_screenshot
 from posthog.utils import relative_date_parse_with_delta_mapping
 
-STALE_PROCESSING_THRESHOLD = timedelta(minutes=10)
+STALE_PROCESSING_THRESHOLD = timedelta(minutes=5)
 
 DEFAULT_QUERY = """
             select pointer_target_fixed, pointer_relative_x, client_y, {aggregation_count}

@@ -3,6 +3,7 @@ import os
 import structlog
 import posthoganalytics
 from celery import shared_task
+from celery.exceptions import SoftTimeLimitExceeded
 from playwright.sync_api import (
     Page,
     ProxySettings,
@@ -19,6 +20,9 @@ from posthog.tasks.utils import CeleryQueue
 logger = structlog.get_logger(__name__)
 
 TMP_DIR = "/tmp"
+
+SCREENSHOT_SOFT_TIME_LIMIT = 240
+SCREENSHOT_HARD_TIME_LIMIT = 300
 
 
 def _dismiss_cookie_banners(page: Page) -> None:
@@ -170,6 +174,8 @@ def _scroll_page(page: Page) -> None:
     retry_backoff=2,
     retry_backoff_max=60,
     max_retries=3,
+    soft_time_limit=SCREENSHOT_SOFT_TIME_LIMIT,
+    time_limit=SCREENSHOT_HARD_TIME_LIMIT,
 )
 def generate_heatmap_screenshot(screenshot_id: str) -> None:
     try:
@@ -208,6 +214,25 @@ def generate_heatmap_screenshot(screenshot_id: str) -> None:
                 team_id=screenshot.team_id,
                 url=screenshot.url,
             )
+
+        except SoftTimeLimitExceeded:
+            # Soft-limit fires before the hard kill so we can persist a useful error and
+            # avoid leaving the row stuck in PROCESSING when Playwright wedges. We
+            # deliberately do not re-raise: autoretry on a wedged page would just burn
+            # the same budget again. The user can retry explicitly via the UI.
+            screenshot.status = SavedHeatmap.Status.FAILED
+            screenshot.exception = (
+                f"Screenshot timed out after {SCREENSHOT_SOFT_TIME_LIMIT}s. "
+                "The page may be slow, blocked by a login/captcha, or unreachable."
+            )
+            screenshot.save(update_fields=["status", "exception"])
+            logger.warning(
+                "heatmap_screenshot.soft_time_limit",
+                screenshot_id=screenshot.id,
+                team_id=screenshot.team_id,
+                url=screenshot.url,
+            )
+            return
 
         except Exception as e:
             screenshot.status = SavedHeatmap.Status.FAILED
