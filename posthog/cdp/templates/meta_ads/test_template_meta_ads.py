@@ -28,7 +28,10 @@ class TestTemplateMetaAds(BaseHogFunctionTemplateTest):
         return inputs
 
     def test_function_works(self):
-        self.mock_fetch_response = lambda *args: {"status": 200, "body": {"ok": True}}  # type: ignore
+        self.mock_fetch_response = lambda *args: {  # type: ignore
+            "status": 200,
+            "body": {"events_received": 1, "messages": [], "fbtrace_id": "abc123"},
+        }
         self.run_function(self._inputs())
         assert self.get_mock_fetch_calls()[0] == (
             "https://graph.facebook.com/v21.0/123451234512345/events",
@@ -56,6 +59,9 @@ class TestTemplateMetaAds(BaseHogFunctionTemplateTest):
                 },
             },
         )
+        assert self.get_mock_print_calls() == [
+            ("Meta response (status=200): {'events_received': 1, 'messages': [], 'fbtrace_id': 'abc123'}",)
+        ]
 
     def test_function_handles_arrays_in_custom_data(self):
         self.mock_fetch_response = lambda *args: {"status": 200, "body": {"ok": True}}  # type: ignore
