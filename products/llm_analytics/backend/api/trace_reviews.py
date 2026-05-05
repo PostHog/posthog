@@ -131,7 +131,7 @@ class TraceReviewSerializer(serializers.ModelSerializer):
     comment = serializers.CharField(
         read_only=True,
         allow_null=True,
-        help_text="Optional human comment or reasoning for the review.",
+        help_text="Optional comment or reasoning for the review.",
     )
     created_by = UserBasicSerializer(read_only=True)
     reviewed_by = UserBasicSerializer(read_only=True, help_text="User who last saved this review.")
@@ -215,7 +215,7 @@ class BaseTraceReviewWriteSerializer(serializers.Serializer):
         required=False,
         allow_blank=True,
         allow_null=True,
-        help_text="Optional human comment or reasoning for the review.",
+        help_text="Optional comment or reasoning for the review.",
     )
     scores = TraceReviewScoreWriteSerializer(
         many=True,

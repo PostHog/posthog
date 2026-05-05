@@ -217,6 +217,84 @@ ALLOW_PATH_PATTERNS = [
     "__snapshots__/",
 ]
 
+# ── Dismiss-time allow-list ──────────────────────────────────────
+#
+# Stricter than ALLOW_PATH_PATTERNS / ALLOW_ONLY_EXTENSIONS. Used by
+# dismiss_check.py to decide whether to retain Stamphog's prior approval
+# after new commits land on a PR. At approve time the LLM also reviews;
+# at dismiss time the path alone is the only signal, so this list excludes
+# anything that could carry executable code into CI, prod, or the build
+# pipeline (workflows, configs, build files) even though those paths may
+# be allow-listed at approve time.
+
+DISMISS_TIME_LOCKFILES: frozenset[str] = frozenset(
+    {
+        "package-lock.json",
+        "pnpm-lock.yaml",
+        "yarn.lock",
+        "uv.lock",
+        "cargo.lock",
+        "pipfile.lock",
+        "poetry.lock",
+        "gemfile.lock",
+        "composer.lock",
+    }
+)
+
+_DISMISS_TIME_TEST_RE = re.compile(
+    r"(?:^|/)(?:__tests__|tests?|fixtures)/"
+    r"|(?:^|/)test_[^/]+\.py$"
+    r"|_test\.(py|go)$"
+    r"|\.test\.(ts|tsx|js|jsx)$"
+    r"|\.spec\.(ts|tsx|js|jsx)$"
+    r"|(?:^|/)conftest\.py$",
+    re.IGNORECASE,
+)
+
+# Non-executable-at-dismiss-time on purpose: at dismiss time the path is
+# the only signal, so generated files in runnable backend languages
+# (.py, .go) trigger re-review even though the LLM accepted them at
+# approve time. Type stubs (.pyi) are read by type checkers, not runtime.
+# Real-world cost in this repo: proto regen under
+# posthog/personhog_client/proto/generated/ falls through to re-review,
+# which is rare and cheap.
+_DISMISS_TIME_GENERATED_RE = re.compile(
+    r"(?:^|/)generated/.*\.(ts|tsx|js|jsx|json|md|snap|pyi|txt)$"
+    r"|\.gen\.(ts|tsx|js|jsx)$"
+    r"|\.generated\.(ts|tsx|js|jsx)$"
+    r"|^frontend/src/queries/schema/",
+    re.IGNORECASE,
+)
+
+
+def is_trivial_at_dismiss_time(path: str) -> bool:
+    """Return True if `path` alone is safe enough to retain a prior approval.
+
+    Strictly narrower than `is_allow_listed_only`: excludes `.github/**`,
+    bare `*.yaml`/`*.json` configs, `Dockerfile*`, `*.sh`, `Makefile`, and
+    anything else that can execute or alter build/CI behavior.
+    """
+    name = Path(path).name
+    name_lower = name.lower()
+    if name_lower in DISMISS_TIME_LOCKFILES:
+        return True
+
+    suffix = Path(path).suffix.lower()
+    if suffix in {".md", ".mdx"}:
+        return True
+    if name_lower.startswith(("readme", "changelog")):
+        return True
+    if path.startswith("docs/") or "/docs/" in path:
+        return True
+    if "/__snapshots__/" in path or path.startswith("__snapshots__/"):
+        return True
+    if _DISMISS_TIME_TEST_RE.search(path):
+        return True
+    if _DISMISS_TIME_GENERATED_RE.search(path):
+        return True
+    return False
+
+
 CONVENTIONAL_RE = re.compile(r"^(\w+)(?:\(([^)]*)\))?!?:\s*(.+)")
 
 

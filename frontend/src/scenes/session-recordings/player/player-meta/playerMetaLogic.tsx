@@ -113,7 +113,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
             sessionRecordingPlayerLogic(props),
             ['scale', 'currentTimestamp', 'currentPlayerTime', 'currentSegment', 'currentURL', 'resolution'],
             sessionRecordingsListPropertiesLogic,
-            ['recordingPropertiesById'],
+            ['recordingPropertiesById', 'recordingPropertiesLoading'],
             sessionRecordingPinnedPropertiesLogic,
             ['pinnedProperties'],
             sessionSummaryProgressLogic,
@@ -121,6 +121,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 'loadingBySessionId',
                 'progressBySessionId',
                 'summaryBySessionId',
+                'summaryIdBySessionId',
                 'feedbackBySessionId',
                 'errorBySessionId',
                 'retryStateBySessionId',
@@ -164,6 +165,10 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
             (s) => [s.summaryBySessionId],
             (summaryBySessionId): SessionSummaryContent | null => summaryBySessionId[props.sessionRecordingId] ?? null,
         ],
+        sessionSummaryId: [
+            (s) => [s.summaryIdBySessionId],
+            (summaryIdBySessionId): string | null => summaryIdBySessionId[props.sessionRecordingId] ?? null,
+        ],
         sessionSummaryLoading: [
             (s) => [s.loadingBySessionId],
             (loadingBySessionId): boolean => !!loadingBySessionId[props.sessionRecordingId],
@@ -188,10 +193,6 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
         summaryDisabledReason: [
             (s) => [s.allItemsByMiniFilterKey],
             (allItemsByMiniFilterKey): string | undefined => {
-                const hasAutocapture = !!allItemsByMiniFilterKey['events-autocapture']?.length
-                if (hasAutocapture) {
-                    return undefined
-                }
                 const hasAnyEvents = [
                     'events-posthog',
                     'events-custom',
@@ -199,9 +200,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                     'events-autocapture',
                     'events-exceptions',
                 ].some((key) => allItemsByMiniFilterKey[key]?.length > 0)
-                return hasAnyEvents
-                    ? 'This session has no autocapture events. Enable autocapture in your project settings to use AI summaries.'
-                    : 'Session events are not available yet. Try again in a few minutes.'
+                return hasAnyEvents ? undefined : 'Session events are not available yet. Try again in a few minutes.'
             },
         ],
         loading: [
@@ -463,7 +462,8 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
     })),
     listeners(({ actions, values, props }) => ({
         loadRecordingMetaSuccess: () => {
-            if (values.sessionPlayerMetaData) {
+            // Skip if the list-wide fetch is in flight; calling again cancels it via breakpoint.
+            if (values.sessionPlayerMetaData && !values.recordingPropertiesLoading) {
                 actions.maybeLoadPropertiesForSessions([values.sessionPlayerMetaData])
             }
             if (values.sessionPlayerMetaData?.has_summary && !values.sessionSummary && !values.sessionSummaryLoading) {
@@ -474,6 +474,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
             posthog.capture('session summary feedback', {
                 feedback,
                 session_summary: values.sessionSummary,
+                summary_id: values.sessionSummaryId,
                 summarized_session_id: props.sessionRecordingId,
             })
             actions.markFeedbackGiven(props.sessionRecordingId)

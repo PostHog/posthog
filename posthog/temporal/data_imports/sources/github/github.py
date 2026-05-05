@@ -12,6 +12,7 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 
 from posthog.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from posthog.temporal.data_imports.sources.common.http import make_tracked_session
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.github.settings import GITHUB_ENDPOINTS, GithubEndpointConfig
 
@@ -147,7 +148,7 @@ def validate_credentials(personal_access_token: str, repository: str) -> tuple[b
     }
 
     try:
-        response = requests.get(url, headers=headers, timeout=10)
+        response = make_tracked_session().get(url, headers=headers, timeout=10)
 
         if response.status_code == 200:
             return True, None
@@ -276,7 +277,7 @@ def get_rows(
         reraise=True,
     )
     def fetch_page(page_url: str) -> requests.Response:
-        response = requests.get(page_url, headers=headers, timeout=60)
+        response = make_tracked_session().get(page_url, headers=headers, timeout=60)
 
         if response.status_code == 429 or response.status_code >= 500:
             raise GithubRetryableError(f"Github API error (retryable): status={response.status_code}, url={page_url}")

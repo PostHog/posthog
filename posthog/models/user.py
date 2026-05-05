@@ -47,6 +47,9 @@ class Notifications(TypedDict, total=False):
     organization_member_join_email_disabled: dict[
         str, bool
     ]  # Maps organization ID (str) to disabled status (True = do not email when a new member joins)
+    realtime_notifications_disabled: dict[
+        str, dict[str, bool]
+    ]  # Maps notification_type (str) to {team_id (str) -> disabled (True = muted)}. Absence = enabled (opt-out default).
 
 
 NOTIFICATION_DEFAULTS: Notifications = {
@@ -61,6 +64,7 @@ NOTIFICATION_DEFAULTS: Notifications = {
     "materialized_view_sync_failed": False,  # Materialized view failure disabled by default
     "web_analytics_weekly_digest": True,  # Web analytics weekly digest enabled by default
     "organization_member_join_email_disabled": {},  # No per-org opt-out until user configures
+    "realtime_notifications_disabled": {},  # No opt-outs by default
 }
 
 # We don't need the following attributes in most cases, so we defer them by default
@@ -163,6 +167,12 @@ class ShortcutPosition(models.TextChoices):
     HIDDEN = "hidden", "Hidden"
 
 
+class OnboardingSkippedReason(models.TextChoices):
+    DELEGATED = "delegated", "Delegated to teammate"
+    LATER = "later", "Skipped for later"
+    OTHER = "other", "Other"
+
+
 class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore[django-manager-missing]
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = []
@@ -211,6 +221,36 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
         blank=True,
         help_text="Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.",
     )
+
+    # Onboarding exit tracking. Set when the user explicitly leaves the onboarding flow (skip or delegate).
+    ONBOARDING_SKIPPED_REASONS = OnboardingSkippedReason.choices
+    onboarding_skipped_at = models.DateTimeField(null=True, blank=True)
+    onboarding_skipped_reason = models.CharField(
+        max_length=32, null=True, blank=True, choices=ONBOARDING_SKIPPED_REASONS
+    )
+    # Scopes the skip to a specific organization so a user who skips onboarding in Org A
+    # still sees onboarding when they switch to Org B. Read by `isOnboardingRedirectSuppressed`
+    # on the frontend, which only suppresses the redirect when this matches the current org.
+    onboarding_skipped_organization_id = models.UUIDField(null=True, blank=True)
+    # Index is created out-of-band via `CREATE INDEX CONCURRENTLY` in a follow-up migration —
+    # see 1138_onboarding_delegated_to_invite_index. `db_index=False` keeps Django's base AddField
+    # from emitting a blocking CREATE INDEX on posthog_user during deploy.
+    onboarding_delegated_to_invite = models.ForeignKey(
+        "posthog.OrganizationInvite",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="delegating_users",
+        db_index=False,
+    )
+    # Denormalized org id: filled when the delegation invite is created so that `/api/users/@me/`
+    # doesn't need an extra DB query per page load just to surface which org the delegation is scoped to.
+    # Not a ForeignKey to avoid extra ALTER TABLE lock overhead on posthog_user. Dangling rows on
+    # Organization deletion are tolerated — frontend compares this against current org.id and
+    # treats a no-match the same as "no delegation"; consistency is restored the next time the
+    # delegation state transitions (accept/cancel/expire).
+    onboarding_delegated_to_organization_id = models.UUIDField(null=True, blank=True)
+    onboarding_delegation_accepted_at = models.DateTimeField(null=True, blank=True)
 
     # DEPRECATED
     events_column_config = models.JSONField(default=events_column_config_default)
@@ -354,15 +394,21 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
         """Resolve this user's GitHub login.
 
         Precedence:
-        1. `UserIntegration` (kind=github) - the user's own GitHub integration
-        2. `UserSocialAuth` (provider=github) - fallback for users who log in with GitHub but haven't set up a `UserIntegration` yet
-        3. Team `Integration` `connecting_user_github_login` - legacy fallback from before the user integration model existed
+        1. `UserIntegration` (kind=github) — user's own GitHub integration
+        2. `UserSocialAuth` (provider=github) — OAuth login linkage when no GitHub user integration exists
+        3. Team-level `Integration` (kind=github) `connecting_user_github_login` — identity stored on the
+           team's GitHub integration (e.g. captured at install). Still a supported integration path,
+           lowest precedence as an identity fallback when (1)/(2) do not yield a GitHub username.
         """
-        from posthog.models.integration import Integration
-        from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
+        from posthog.models.user_integration import UserGitHubIntegration
 
-        user_integration = UserIntegration.objects.filter(user=self, kind="github").first()
-        if user_integration:
+        prefetched_user_integrations = getattr(self, "_prefetched_github_user_integrations", None)
+        if prefetched_user_integrations is not None:
+            user_integrations = prefetched_user_integrations
+        else:
+            user_integrations = self.integrations.filter(kind="github")[:1]
+
+        for user_integration in user_integrations:
             login = UserGitHubIntegration(user_integration).github_login
             if login:
                 return login
@@ -378,7 +424,7 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
                 if login:
                     return str(login)
 
-        # Fall back to team Integration identity captured at install time.
+        # Team-level GitHub integration: connecting_user_github_login from install / configuration.
         prefetched_integrations = getattr(self, "_prefetched_github_integrations", None)
         if prefetched_integrations is not None:
             for integration in prefetched_integrations:
@@ -386,14 +432,16 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
                 if login:
                     return str(login)
         else:
-            login = (
-                Integration.objects.filter(kind="github", created_by=self)
-                .values_list("config__connecting_user_github_login", flat=True)
+            team_github_integration = (
+                self.integration_set.filter(kind="github")
                 .exclude(config__connecting_user_github_login=None)
+                .only("config")
                 .first()
             )
-            if login:
-                return str(login)
+            if team_github_integration and isinstance(team_github_integration.config, dict):
+                login_val = team_github_integration.config.get("connecting_user_github_login")
+                if login_val:
+                    return str(login_val)
 
         return None
 

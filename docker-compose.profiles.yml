@@ -1,10 +1,17 @@
-# Docker Compose profile overlay — gates non-core services behind profiles.
+# Docker Compose profile overlay — historical backwards-compatibility layer.
 #
-# Used by hogli dev:start and CI workflows to start only what's needed.
-# Running `docker compose -f docker-compose.dev.yml up` without this overlay
-# will start ALL services as before (backward compatible).
+# This file exists only to retroactively gate services that were added to
+# docker-compose.dev.yml before per-service `profiles:` was adopted there.
+# It shadows those service definitions with a `profiles:` constraint so that
+# `hogli dev:start` and CI can start only what's needed without breaking
+# users who run `docker compose -f docker-compose.dev.yml up` directly
+# (they get all services, same as before).
 #
-# Usage:
+# DO NOT add new services here. New profile-gated services should define
+# `profiles:` directly in docker-compose.dev.yml (see capture, plugins,
+# ingestion-* for examples of the current pattern).
+#
+# Usage (legacy, for services still listed below):
 #   docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml \
 #     --profile temporal up
 #

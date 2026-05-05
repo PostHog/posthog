@@ -20,6 +20,11 @@ class IncrementalField(typing.TypedDict, total=False):
     field: typing.Required[str]  # Actual DB field accessed
     field_type: typing.Required[IncrementalFieldType]  # Actual DB type of the field
     nullable: bool  # Whether the field allows null values
+    # Whether the field is the leading column of an index (or equivalent fast-lookup
+    # structure for the engine: clustering key, sortkey, partition column, etc.).
+    # Used to warn users picking an incremental field that would force a full scan
+    # on every sync. Defaults to True when omitted so missing detection never warns.
+    is_indexed: bool
 
 
 class PartitionSettings(typing.NamedTuple):

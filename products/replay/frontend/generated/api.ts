@@ -17,6 +17,7 @@ import type {
     SessionRecordingPlaylistApi,
     SessionRecordingPlaylistsListParams,
     SessionRecordingsListParams,
+    SessionSummariesApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -35,6 +36,26 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+/**
+ * Generate AI individual summary for each session, without grouping.
+ */
+export const getCreateSessionSummariesIndividuallyUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/session_summaries/create_session_summaries_individually/`
+}
+
+export const createSessionSummariesIndividually = async (
+    projectId: string,
+    sessionSummariesApi: SessionSummariesApi,
+    options?: RequestInit
+): Promise<SessionSummariesApi> => {
+    return apiMutator<SessionSummariesApi>(getCreateSessionSummariesIndividuallyUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sessionSummariesApi),
+    })
+}
 
 /**
  * Override list to include synthetic playlists
