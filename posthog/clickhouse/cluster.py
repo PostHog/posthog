@@ -707,6 +707,15 @@ class MutationRunner(abc.ABC):
         # we match commands by position, so require a stable ordering - this is because this class is provided the
         # command template without parameter values, while the record in the mutation log will have the values inlined
         command_list = [*commands]
+        # Format each command in its own ALTER TABLE statement rather than batching all commands
+        # into one ALTER and splitting by '\n'. ClickHouse's formatQuery wraps long/nested
+        # expressions across multiple lines, so the line-per-command assumption breaks for
+        # complex UPDATE commands. Per-command formatQuery preserves the per-command boundary
+        # and the multi-line text matches what ClickHouse stores in system.mutations.command.
+        per_command_alters = ", ".join(
+            f"$__sql$ALTER TABLE {settings.CLICKHOUSE_DATABASE}.{self.table} {cmd}$__sql$"
+            for cmd in command_list
+        )
         mutations = client.execute(
             f"""
             SELECT mutation_id
@@ -715,11 +724,11 @@ class MutationRunner(abc.ABC):
                     (arrayJoin(
                         arrayZip(
                             arrayMap(
-                                command -> extract(command, '^\\s*(.*?)(?:,)?\\s*$'),  -- strip leading/trailing whitespace and optional trailing comma
-                                arraySlice(  -- drop "ALTER TABLE" preamble line
-                                    splitByChar('\n', formatQuery($__sql$ALTER TABLE {settings.CLICKHOUSE_DATABASE}.{self.table} {", ".join(command_list)}$__sql$)),
-                                    2
-                                )
+                                alter -> arrayStringConcat(
+                                    arraySlice(splitByChar('\n', formatQuery(alter)), 2),  -- drop "ALTER TABLE" preamble line
+                                    '\n'
+                                ),
+                                [{per_command_alters}]
                             ) as commands,
                             arrayEnumerate(commands)
                         )

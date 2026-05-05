@@ -253,6 +253,57 @@ def test_cycle_marker_survives_format_query(cluster: ClickhouseCluster) -> None:
     wait_and_check_mutations_on_shards(cluster, shard_mutations_b)
 
 
+def test_find_existing_mutations_handles_multiline_formatted_command(cluster: ClickhouseCluster) -> None:
+    """Regression test: ClickHouse's `formatQuery` wraps long/nested commands across multiple
+    lines. `find_existing_mutations` must still treat that as a single command — pre-fix the
+    helper formatted one batched ALTER and split by '\n', so a wrapped command produced more
+    rows than `command_list` had entries and the assert at the bottom of the function blew up.
+    """
+    table = EVENTS_DATA_TABLE()
+    count = 100
+
+    cluster.map_one_host_per_shard(Query(f"INSERT INTO {table} SELECT * FROM generateRandom() LIMIT {count}")).result()
+
+    sentinel_uuid = uuid.uuid1()
+    # Marker keeps this run's mutation isolated from prior runs in system.mutations.
+    cycle_int = int(sentinel_uuid.int % 2_000_000_000)
+
+    # Deeply nested no-op UPDATE on `properties`. The shape mirrors the dmat dict-backed
+    # mutation closely enough that formatQuery wraps it across multiple lines — that is the
+    # condition that pre-fix tripped the assertion in find_existing_mutations.
+    long_command = (
+        "UPDATE properties = if(1 = 1, "
+        "if(1 = 1, "
+        "if(1 = 1, "
+        "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'a_long_property_name_to_force_wrapping'), ''), 'null'), '^\"|\"$', ''), "
+        "properties), "
+        "properties), "
+        "properties) "
+        f"WHERE 1 = 1 AND {cycle_int} = {cycle_int}"
+    )
+    runner = AlterTableMutationRunner(table=table, commands={long_command})
+
+    # Pre-fix, this call alone raised AssertionError because formatQuery wraps the command.
+    existing = cluster.map_all_hosts(runner.find_existing_mutations).result()
+    assert all(not mutations for mutations in existing.values()), (
+        "expected no pre-existing mutation for this cycle"
+    )
+
+    shard_mutations = cluster.map_one_host_per_shard(runner).result()
+    wait_and_check_mutations_on_shards(cluster, shard_mutations)
+
+    # After completion, the command must round-trip — i.e. the formatted-command join still
+    # matches what ClickHouse stored in system.mutations.command, multi-line text and all.
+    existing = cluster.map_all_hosts(runner.find_existing_mutations).result()
+    assert all(mutations.keys() == runner.commands for mutations in existing.values()), (
+        "find_existing_mutations failed to reattach to a wrapped multi-line formatted command"
+    )
+
+    # Idempotent re-submission: must reattach, not enqueue a duplicate.
+    duplicate = cluster.map_one_host_per_shard(runner).result()
+    assert shard_mutations == duplicate
+
+
 def test_alter_mutation_multiple_commands(cluster: ClickhouseCluster) -> None:
     table = EVENTS_DATA_TABLE()
     count = 100
