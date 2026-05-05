@@ -8,6 +8,7 @@ Dispatches to span_formatter for $ai_span events.
 """
 
 import json
+from datetime import date, datetime
 from typing import Any
 
 from .constants import SEPARATOR
@@ -248,10 +249,14 @@ def format_event_text_repr_from_ai_events_row(row: dict[str, Any], options: Form
             props["$ai_error"] = row["error"]
 
     timestamp = row.get("timestamp")
+    if isinstance(timestamp, datetime | date):
+        timestamp_str = timestamp.isoformat()
+    else:
+        timestamp_str = str(timestamp or "")
     event_data = {
         "id": str(row.get("uuid", "")),
         "event": row.get("event"),
-        "timestamp": timestamp.isoformat() if hasattr(timestamp, "isoformat") else str(timestamp or ""),
+        "timestamp": timestamp_str,
         "properties": props,
     }
     return format_event_text_repr(event_data, options)
