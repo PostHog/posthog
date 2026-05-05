@@ -1,4 +1,4 @@
-from collections.abc import Iterator
+from collections.abc import AsyncIterable, Callable, Iterable, Iterator
 from typing import Any, Optional
 
 from requests import Request, Response
@@ -306,6 +306,7 @@ def intercom_source(
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     cfg = INTERCOM_ENDPOINTS[endpoint]
+    items: Callable[[], Iterable[Any] | AsyncIterable[Any]]
 
     if cfg.paginator_kind == "substream":
         items = lambda: _substream_items(access_token, endpoint, incremental_field, db_incremental_field_last_value)

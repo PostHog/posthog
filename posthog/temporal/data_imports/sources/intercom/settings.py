@@ -1,6 +1,8 @@
 from dataclasses import dataclass, field
 from typing import Literal
 
+from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat
+
 from products.data_warehouse.backend.types import IncrementalField, IncrementalFieldType
 
 PaginatorKind = Literal["single", "cursor", "next_url", "search", "substream"]
@@ -19,7 +21,7 @@ class IntercomEndpointConfig:
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
     partition_key: str = "created_at"
     partition_mode: PartitionMode = "datetime"
-    partition_format: str | None = "month"
+    partition_format: PartitionFormat | None = "week"
     partition_count: int = 1
     partition_size: int = 1
     page_size: int = 150
