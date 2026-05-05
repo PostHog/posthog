@@ -7,6 +7,7 @@ import { captureTimeToSeeData } from 'lib/internalMetrics'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { colonDelimitedDuration, toString, isKeyOf } from 'lib/utils'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
+import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import {
@@ -155,7 +156,8 @@ const constructValuesEndpoint = (
     eventNames: string[] | undefined,
     newInput: string | undefined,
     properties?: { key: string; values: string | string[] }[],
-    refresh?: string
+    refresh?: string,
+    scene?: string | null
 ): string => {
     let basePath: string
 
@@ -187,6 +189,7 @@ const constructValuesEndpoint = (
         path +
         (newInput ? '&value=' + encodeURIComponent(newInput) : '') +
         (refresh ? '&refresh=' + refresh : '') +
+        (scene ? '&scene=' + encodeURIComponent(scene) : '') +
         eventParams
     )
 }
@@ -443,6 +446,7 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             actions.setOptionsSearchInput(propertyKey, newInput || '')
 
             try {
+                const activeScene = sceneLogic.findMounted()?.values.activeSceneId ?? null
                 const responseData: { results: PropValue[]; refreshing: boolean } = await api.get(
                     constructValuesEndpoint(
                         endpoint,
@@ -452,7 +456,8 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                         eventNames,
                         newInput,
                         properties,
-                        refresh
+                        refresh,
+                        activeScene
                     ),
                     methodOptions
                 )

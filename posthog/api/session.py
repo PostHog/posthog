@@ -4,7 +4,7 @@ from opentelemetry import trace
 from rest_framework import request, response, viewsets
 from rest_framework.exceptions import ValidationError
 
-from posthog.schema import SessionTableVersion
+from posthog.schema import ProductKey, SessionTableVersion
 
 from posthog.hogql.database.schema.sessions_v1 import (
     get_lazy_session_table_properties_v1,
@@ -23,10 +23,18 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
+from posthog.clickhouse.query_tagging import SCENE_TO_TAGS, Feature, Product, tag_queries
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.utils import convert_property_value, flatten
 
 tracer = trace.get_tracer(__name__)
+
+# Container scenes (`Insight`, `Dashboard`, `Notebook`) intentionally map to `None` in
+# `SCENE_TO_TAGS` because they host arbitrary query kinds — for query endpoints the
+# NodeKind drives product attribution. `/sessions/values` has no NodeKind to fall back
+# to, so when one of these scenes calls the endpoint we attribute it to product analytics
+# directly. Any other unmapped scene falls through to a generic API tag below.
+_PRODUCT_ANALYTICS_CONTAINER_SCENES = frozenset({"Insight", "Dashboard", "Notebook"})
 
 
 class SessionViewSet(
@@ -36,6 +44,16 @@ class SessionViewSet(
     scope_object = "query"
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     scope_object_read_actions = ["property_definitions", "values"]
+
+    def _tag_query(self, scene: str | None) -> None:
+        product: Product | ProductKey = Product.API
+        if scene in _PRODUCT_ANALYTICS_CONTAINER_SCENES:
+            product = ProductKey.PRODUCT_ANALYTICS
+        elif scene and (scene_tags := SCENE_TO_TAGS.get(scene)) is not None:
+            mapped_product = scene_tags.get("product")
+            if mapped_product is not None:
+                product = mapped_product
+        tag_queries(product=product, feature=Feature.SESSIONS_VALUES_API, scene=scene)
 
     @action(methods=["GET"], detail=False)
     def values(self, request: request.Request, **kwargs) -> response.Response:
@@ -47,6 +65,13 @@ class SessionViewSet(
 
             key = request.GET.get("key")
             search_term = request.GET.get("value")
+            scene = request.GET.get("scene")
+
+            # `/sessions/values` is hit from many surfaces (insight editor, surveys,
+            # product tours, etc.). Attribute load to product analytics only when the
+            # frontend reports a product-analytics scene; everything else gets a generic
+            # API tag so we don't artificially inflate product-analytics attribution.
+            self._tag_query(scene)
 
             if not key:
                 raise ValidationError(detail=f"Key not provided")

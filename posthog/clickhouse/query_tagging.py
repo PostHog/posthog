@@ -89,6 +89,7 @@ class Feature(StrEnum):
     # is hit from every taxonomic property-value picker across the app, so attribution by scene
     # would be misleading; tagging by endpoint name keeps the signal honest.
     EVENTS_VALUES_API = "events_values_api"
+    SESSIONS_VALUES_API = "sessions_values_api"
     USAGE_REPORT = "usage_report"
     BILLING_ETL = "billing_etl"
     QUOTA_LIMITING = "quota_limiting"
