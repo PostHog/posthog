@@ -59,7 +59,7 @@ interface RawJobRow {
     last_transition: string | Date
     parent_run_id: string | null
     state: Buffer | null
-    distinct_id: string | null
+    person_id: string | null
     action_id: string | null
 }
 
@@ -193,44 +193,48 @@ describe('Cyclotron V2', () => {
             expect(await totalJobCount()).toBe(0)
         })
 
-        it('createJob persists distinct_id when provided', async () => {
-            const id = await manager.createJob({ teamId: 1, queueName: QUEUE, distinctId: 'user-42' })
+        it('createJob persists person_id when provided', async () => {
+            const personId = uuidv7()
+            const id = await manager.createJob({ teamId: 1, queueName: QUEUE, personId })
             const row = await queryJob(id)
-            expect(row.distinct_id).toBe('user-42')
+            expect(row.person_id).toBe(personId)
         })
 
-        it('createJob defaults distinct_id to null when omitted', async () => {
+        it('createJob defaults person_id to null when omitted', async () => {
             const id = await manager.createJob({ teamId: 1, queueName: QUEUE })
             const row = await queryJob(id)
-            expect(row.distinct_id).toBeNull()
+            expect(row.person_id).toBeNull()
         })
 
-        it('bulkCreateJobs persists distinct_id per row', async () => {
+        it('bulkCreateJobs persists person_id per row', async () => {
+            const personA = uuidv7()
+            const personB = uuidv7()
             const ids = await manager.bulkCreateJobs([
-                { teamId: 1, queueName: QUEUE, distinctId: 'user-a' },
-                { teamId: 1, queueName: QUEUE, distinctId: 'user-b' },
-                { teamId: 1, queueName: QUEUE }, // null distinct_id
+                { teamId: 1, queueName: QUEUE, personId: personA },
+                { teamId: 1, queueName: QUEUE, personId: personB },
+                { teamId: 1, queueName: QUEUE },
             ])
             expect(ids).toHaveLength(3)
             const rows = await assertPool.query<RawJobRow>(
-                'SELECT id, distinct_id FROM cyclotron_jobs WHERE id = ANY($1::uuid[]) ORDER BY id',
+                'SELECT id, person_id FROM cyclotron_jobs WHERE id = ANY($1::uuid[]) ORDER BY id',
                 [ids]
             )
-            const byId = new Map(rows.rows.map((r) => [r.id, r.distinct_id]))
-            expect(byId.get(ids[0])).toBe('user-a')
-            expect(byId.get(ids[1])).toBe('user-b')
+            const byId = new Map(rows.rows.map((r) => [r.id, r.person_id]))
+            expect(byId.get(ids[0])).toBe(personA)
+            expect(byId.get(ids[1])).toBe(personB)
             expect(byId.get(ids[2])).toBeNull()
         })
 
-        it('partial index supports lookup by (team_id, distinct_id)', async () => {
-            await manager.createJob({ teamId: 1, queueName: QUEUE, distinctId: 'shared-user' })
-            await manager.createJob({ teamId: 1, queueName: QUEUE, distinctId: 'shared-user' })
-            await manager.createJob({ teamId: 2, queueName: QUEUE, distinctId: 'shared-user' })
-            await manager.createJob({ teamId: 1, queueName: QUEUE }) // null distinct_id, excluded by partial index
+        it('partial index supports lookup by (team_id, person_id)', async () => {
+            const sharedPerson = uuidv7()
+            await manager.createJob({ teamId: 1, queueName: QUEUE, personId: sharedPerson })
+            await manager.createJob({ teamId: 1, queueName: QUEUE, personId: sharedPerson })
+            await manager.createJob({ teamId: 2, queueName: QUEUE, personId: sharedPerson })
+            await manager.createJob({ teamId: 1, queueName: QUEUE })
 
             const res = await assertPool.query<{ count: string }>(
-                'SELECT COUNT(*) AS count FROM cyclotron_jobs WHERE team_id = $1 AND distinct_id = $2',
-                [1, 'shared-user']
+                'SELECT COUNT(*) AS count FROM cyclotron_jobs WHERE team_id = $1 AND person_id = $2',
+                [1, sharedPerson]
             )
             expect(Number(res.rows[0].count)).toBe(2)
         })
@@ -377,6 +381,30 @@ describe('Cyclotron V2', () => {
 
             const row = await queryJob(id)
             expect(row.state).toBeNull()
+        })
+
+        it('reschedule({ actionId }) updates action_id column', async () => {
+            const { id, job } = await seedAndDequeue({ actionId: 'step-a' })
+            await job.reschedule({ actionId: 'step-b' })
+
+            const row = await queryJob(id)
+            expect(row.action_id).toBe('step-b')
+        })
+
+        it('reschedule({ actionId: null }) clears action_id', async () => {
+            const { id, job } = await seedAndDequeue({ actionId: 'step-a' })
+            await job.reschedule({ actionId: null })
+
+            const row = await queryJob(id)
+            expect(row.action_id).toBeNull()
+        })
+
+        it('reschedule() without actionId leaves action_id unchanged', async () => {
+            const { id, job } = await seedAndDequeue({ actionId: 'step-a' })
+            await job.reschedule({ state: Buffer.from('new-state') })
+
+            const row = await queryJob(id)
+            expect(row.action_id).toBe('step-a')
         })
 
         it('heartbeat() extends last_heartbeat', async () => {

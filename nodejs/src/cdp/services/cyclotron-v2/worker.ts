@@ -169,12 +169,11 @@ export class CyclotronV2Worker {
             async reschedule(options?: {
                 scheduledAt?: Date
                 state?: Buffer | null
+                personId?: string | null
                 actionId?: string | null
             }): Promise<void> {
                 releaseGuard('reschedule')
                 const scheduled = options?.scheduledAt ?? new Date()
-                const hasStateUpdate = options?.state !== undefined
-                const hasActionIdUpdate = options?.actionId !== undefined
 
                 const setClauses = [
                     `status = 'available'`,
@@ -186,12 +185,16 @@ export class CyclotronV2Worker {
                 ]
                 const params: any[] = [row.id, lockId, scheduled]
 
-                if (hasStateUpdate) {
-                    params.push(options!.state ?? null)
+                if (options?.state !== undefined) {
+                    params.push(options.state ?? null)
                     setClauses.push(`state = $${params.length}`)
                 }
-                if (hasActionIdUpdate) {
-                    params.push(options!.actionId ?? null)
+                if (options?.personId !== undefined) {
+                    params.push(options.personId ?? null)
+                    setClauses.push(`person_id = $${params.length}`)
+                }
+                if (options?.actionId !== undefined) {
+                    params.push(options.actionId ?? null)
                     setClauses.push(`action_id = $${params.length}`)
                 }
 

@@ -18,8 +18,8 @@ const pendingJobsGauge = new Gauge({
 
 const queuedJobsLookupColumnsCounter = new Counter({
     name: 'cdp_cyclotron_v2_queued_jobs_lookup_columns_total',
-    help: 'Postgres-v2 jobs queued, split by whether distinct_id and action_id were populated.',
-    labelNames: ['has_distinct_id', 'has_action_id'],
+    help: 'Postgres-v2 jobs queued, split by whether person_id and action_id were populated.',
+    labelNames: ['has_person_id', 'has_action_id'],
 })
 
 /**
@@ -182,6 +182,7 @@ export class CyclotronJobQueuePostgresV2 {
                     await job.reschedule({
                         state: stateBuffer,
                         scheduledAt: result.invocation.queueScheduledAt?.toJSDate(),
+                        personId: extractPersonId(result.invocation),
                         actionId: extractActionId(result.invocation),
                     })
                 }
@@ -240,10 +241,10 @@ function invocationToV2JobInit(invocation: CyclotronJobInvocation): CyclotronV2J
     cdpJobSizeKb.labels('postgres-v2').observe(state.length / 1024)
     cdpJobSizeCompressedKb.labels('postgres-v2').observe(state.length / 1024)
 
-    const distinctId = extractDistinctId(invocation)
+    const personId = extractPersonId(invocation)
     const actionId = extractActionId(invocation)
     queuedJobsLookupColumnsCounter
-        .labels(distinctId === null ? 'false' : 'true', actionId === null ? 'false' : 'true')
+        .labels(personId === null ? 'false' : 'true', actionId === null ? 'false' : 'true')
         .inc()
 
     return {
@@ -255,14 +256,20 @@ function invocationToV2JobInit(invocation: CyclotronJobInvocation): CyclotronV2J
         scheduled: invocation.queueScheduledAt?.toJSDate() ?? new Date(),
         parentRunId: invocation.parentRunId ?? null,
         state,
-        distinctId,
+        personId,
         actionId,
     }
 }
 
-export function extractDistinctId(invocation: CyclotronJobInvocation): string | null {
-    const state = invocation.state as { event?: { distinct_id?: string }; personId?: string } | null | undefined
-    return state?.event?.distinct_id || state?.personId || null
+/**
+ * Person UUID for finding parked hogflow jobs by person. For event-triggered
+ * hogflows this comes from invocation.person.id (resolved during ingestion).
+ * For batch-triggered hogflows it's state.personId (the cohort selected by UUID).
+ * Non-hogflow jobs return null.
+ */
+export function extractPersonId(invocation: CyclotronJobInvocation): string | null {
+    const inv = invocation as { person?: { id?: string }; state?: { personId?: string } | null }
+    return inv.person?.id || inv.state?.personId || null
 }
 
 export function extractActionId(invocation: CyclotronJobInvocation): string | null {
