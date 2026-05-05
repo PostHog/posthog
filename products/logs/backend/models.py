@@ -66,7 +66,7 @@ class LogsAlertConfiguration(ModelActivityMixin, CreatedMetaFields, UpdatedMetaF
     filters = models.JSONField(default=dict)
 
     # Threshold
-    threshold_count = models.PositiveIntegerField(validators=[MinValueValidator(1)])
+    threshold_count = models.PositiveIntegerField(validators=[MinValueValidator(1)], default=100)
     threshold_operator = models.CharField(
         max_length=10,
         choices=ThresholdOperator,
@@ -98,6 +98,7 @@ class LogsAlertConfiguration(ModelActivityMixin, CreatedMetaFields, UpdatedMetaF
     last_notified_at = models.DateTimeField(null=True, blank=True)
     last_checked_at = models.DateTimeField(null=True, blank=True)
     consecutive_failures = models.PositiveIntegerField(default=0)
+    first_enabled_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = "logs_logsalertconfiguration"

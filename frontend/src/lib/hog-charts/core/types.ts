@@ -168,6 +168,13 @@ export interface TooltipConfig {
     placement?: 'follow-data' | 'top'
 }
 
+export interface BarChartConfig extends ChartConfig {
+    /** Defaults to `stacked`. */
+    barLayout?: 'stacked' | 'grouped' | 'percent'
+    /** Stacked bars only round the topmost segment. */
+    barCornerRadius?: number
+}
+
 export interface LineChartConfig extends ChartConfig {
     percentStackView?: boolean
 }

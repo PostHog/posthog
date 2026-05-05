@@ -2792,13 +2792,21 @@ const api = {
         },
         async getTrace(
             traceId: string,
-            dateRange?: { date_from?: string | null; date_to?: string | null }
+            query?: {
+                dateRange?: { date_from?: string | null; date_to?: string | null }
+                serviceNames?: string[]
+                statusCodes?: number[]
+                filterGroup?: PropertyGroupFilter
+            }
         ): Promise<{ results: Record<string, any>[] }> {
             return new ApiRequest()
                 .tracingSpans()
                 .withAction(`trace/${traceId}`)
                 .create({
-                    data: { dateRange: dateRange ?? { date_from: '-24h' } },
+                    data: {
+                        ...query,
+                        dateRange: query?.dateRange ?? { date_from: '-24h' },
+                    },
                 })
         },
         async sparkline(query: {
@@ -2930,13 +2938,13 @@ const api = {
                 .withQueryString(toParams({ limit, ...params }))
                 .get()
         },
-        async promotedProperties({
+        async primaryProperties({
             names,
         }: {
             names?: string[]
-        } = {}): Promise<{ promoted_properties: Record<string, string> }> {
+        } = {}): Promise<{ primary_properties: Record<string, string> }> {
             const params = names && names.length > 0 ? toParams({ names }, true) : ''
-            return new ApiRequest().eventDefinitions().withAction('promoted_properties').withQueryString(params).get()
+            return new ApiRequest().eventDefinitions().withAction('primary_properties').withQueryString(params).get()
         },
         async getMetrics({
             eventDefinitionId,
@@ -4053,8 +4061,15 @@ const api = {
             return await new ApiRequest().errorTrackingRecommendation(id).withAction('restore').create()
         },
 
-        async refreshRecommendation(id: string): Promise<ErrorTrackingRecommendation> {
-            return await new ApiRequest().errorTrackingRecommendation(id).withAction('refresh').create()
+        async refreshRecommendation(
+            id: string,
+            { force = true }: { force?: boolean } = {}
+        ): Promise<ErrorTrackingRecommendation> {
+            return await new ApiRequest()
+                .errorTrackingRecommendation(id)
+                .withAction('refresh')
+                .withQueryString({ force })
+                .create()
         },
 
         async createRule(
@@ -5309,7 +5324,7 @@ const api = {
         },
         async createWebhook(
             sourceId: ExternalDataSource['id']
-        ): Promise<{ success: boolean; webhook_url: string; error?: string }> {
+        ): Promise<{ success: boolean; webhook_url: string; error?: string; pending_inputs?: string[] }> {
             return await new ApiRequest().externalDataSource(sourceId).withAction('create_webhook').create()
         },
         async updateWebhookInputs(
@@ -5644,6 +5659,9 @@ const api = {
         async testDelivery(subscriptionId: SubscriptionType['id']): Promise<void> {
             await new ApiRequest().subscription(subscriptionId).withAction('test-delivery').create()
         },
+        async summaryQuota(): Promise<{ active_count: number; limit: number | null; at_limit: boolean }> {
+            return await new ApiRequest().subscriptions().withAction('summary_quota').get()
+        },
     },
 
     integrations: {
@@ -5691,6 +5709,25 @@ const api = {
             params?: { limit?: number; offset?: number }
         ): Promise<GitHubReposResponseApi> {
             return await new ApiRequest().integrationGitHubRepositories(id).withQueryString(params).get()
+        },
+        async githubLinkExisting(
+            data: {
+                source_team_id?: number
+                installation_id?: string | number
+            },
+            teamId?: TeamType['id']
+        ): Promise<IntegrationType> {
+            return await new ApiRequest().integrations(teamId).withAction('github/link_existing').create({ data })
+        },
+        async githubOAuthAuthorize(
+            data: {
+                installation_id: string | number
+                next?: string
+                connect_from?: string
+            },
+            teamId?: TeamType['id']
+        ): Promise<{ oauth_url: string }> {
+            return await new ApiRequest().integrations(teamId).withAction('github/oauth_authorize').create({ data })
         },
         async jiraProjects(id: IntegrationType['id']): Promise<{ projects: JiraProjectType[] }> {
             return await new ApiRequest().integrationJiraProjects(id).get()
