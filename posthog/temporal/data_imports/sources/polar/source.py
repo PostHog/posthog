@@ -68,9 +68,6 @@ class PolarSource(ResumableSource[PolarSourceConfig, PolarResumeConfig]):
             "403 Client Error: Forbidden for url: https://api.polar.sh": "Your Polar Organization Access Token does not have the required permissions. Please check the token's scopes in Polar and reconnect.",
         }
 
-    def should_retry_non_retryable_errors(self) -> bool:
-        return False
-
     def validate_credentials(
         self, config: PolarSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
