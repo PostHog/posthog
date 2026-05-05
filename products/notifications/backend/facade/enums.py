@@ -8,6 +8,8 @@ from posthog.scopes import APIScopeObject
 class NotificationType(str, Enum):
     COMMENT_MENTION = "comment_mention"
     ALERT_FIRING = "alert_firing"
+    ISSUE_ASSIGNED = "issue_assigned"
+    APPROVAL_REQUESTED = "approval_requested"
 
 
 class Priority(str, Enum):

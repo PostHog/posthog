@@ -827,6 +827,36 @@ export interface PaginatedErrorTrackingRecommendationListApi {
     results: ErrorTrackingRecommendationApi[]
 }
 
+export interface ErrorTrackingSettingsApi {
+    /**
+     * Maximum number of exception events ingested per bucket for the entire project. Null removes the limit.
+     * @minimum 1
+     * @nullable
+     */
+    project_rate_limit_value?: number | null
+    /**
+     * Bucket window over which the project-wide rate limit applies, in minutes.
+     * @minimum 1
+     * @nullable
+     */
+    project_rate_limit_bucket_size_minutes?: number | null
+}
+
+export interface PatchedErrorTrackingSettingsApi {
+    /**
+     * Maximum number of exception events ingested per bucket for the entire project. Null removes the limit.
+     * @minimum 1
+     * @nullable
+     */
+    project_rate_limit_value?: number | null
+    /**
+     * Bucket window over which the project-wide rate limit applies, in minutes.
+     * @minimum 1
+     * @nullable
+     */
+    project_rate_limit_bucket_size_minutes?: number | null
+}
+
 export interface ErrorTrackingSpikeDetectionConfigApi {
     /**
      * Time to wait before alerting again for the same issue after a spike is detected.

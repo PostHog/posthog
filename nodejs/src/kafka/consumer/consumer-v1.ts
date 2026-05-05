@@ -13,7 +13,7 @@ import {
     WatermarkOffsets,
 } from 'node-rdkafka'
 import { hostname } from 'os'
-import { Counter, Gauge, Histogram } from 'prom-client'
+import { Counter, Histogram } from 'prom-client'
 
 import {
     EventHeaders,
@@ -28,26 +28,29 @@ import { isTestEnv } from '~/utils/env-utils'
 import { parseJSON } from '~/utils/json-parse'
 import { normalizeSessionId } from '~/utils/utils'
 
-import { instrumentFn } from '../common/tracing/tracing-utils'
-import { defaultConfig } from '../config/config'
-import { logger } from '../utils/logger'
-import { captureException } from '../utils/posthog'
-import { retryIfRetriable } from '../utils/retries'
-import { promisifyCallback } from '../utils/utils'
-import { ensureTopicExists } from './admin'
-import { getKafkaConfigFromEnv } from './config'
-import { parseBrokerStatistics, trackBrokerMetrics } from './kafka-client-metrics'
+import { instrumentFn } from '../../common/tracing/tracing-utils'
+import { defaultConfig } from '../../config/config'
+import { logger } from '../../utils/logger'
+import { captureException } from '../../utils/posthog'
+import { retryIfRetriable } from '../../utils/retries'
+import { promisifyCallback } from '../../utils/utils'
+import { ensureTopicExists } from '../admin'
+import { getKafkaConfigFromEnv } from '../config'
+import { parseBrokerStatistics, trackBrokerMetrics } from '../kafka-client-metrics'
+import {
+    consumedBatchBackgroundDuration,
+    consumedBatchBackpressureDuration,
+    consumedBatchDuration,
+    consumerBatchUtilization as gaugeBatchUtilization,
+    consumerBatchSize as histogramKafkaBatchSize,
+    consumerBatchSizeKb as histogramKafkaBatchSizeKb,
+    kafkaConsumerAssignment,
+} from './metrics'
 
 const DEFAULT_BATCH_TIMEOUT_MS = 500
 const SLOW_BATCH_PROCESSING_LOG_THRESHOLD_MS = 10000
 const MAX_HEALTH_HEARTBEAT_INTERVAL_MS = 60_000
 const STATISTICS_INTERVAL_MS = 5000 // Emit internal metrics every 5 seconds
-
-const kafkaConsumerAssignment = new Gauge({
-    name: 'kafka_consumer_assignment',
-    help: 'Kafka consumer partition assignment status',
-    labelNames: ['topic_name', 'partition_id', 'pod', 'group_id'],
-})
 
 const kafkaHeaderStatusCounter = new Counter({
     name: 'kafka_header_status_total',
@@ -55,42 +58,7 @@ const kafkaHeaderStatusCounter = new Counter({
     labelNames: ['header', 'status'],
 })
 
-const consumedBatchDuration = new Histogram({
-    name: 'consumed_batch_duration_ms',
-    help: 'Main loop consumer batch processing duration in ms',
-    labelNames: ['topic', 'groupId'],
-})
-
-const consumedBatchBackgroundDuration = new Histogram({
-    name: 'consumed_batch_background_duration_ms',
-    help: 'Background task processing duration in ms',
-    labelNames: ['topic', 'groupId'],
-})
-
-const consumedBatchBackpressureDuration = new Histogram({
-    name: 'consumed_batch_backpressure_duration_ms',
-    help: 'Time spent waiting for background work to finish due to backpressure',
-    labelNames: ['topic', 'groupId'],
-})
-
-const gaugeBatchUtilization = new Gauge({
-    name: 'consumer_batch_utilization',
-    help: 'Indicates how big batches are we are processing compared to the max batch size. Useful as a scaling metric',
-    labelNames: ['groupId'],
-})
-
-const histogramKafkaBatchSize = new Histogram({
-    name: 'consumer_batch_size',
-    help: 'The size of the batches we are receiving from Kafka',
-    buckets: [0, 50, 100, 250, 500, 750, 1000, 1500, 2000, 3000, Infinity],
-})
-
-const histogramKafkaBatchSizeKb = new Histogram({
-    name: 'consumer_batch_size_kb',
-    help: 'The size in kb of the batches we are receiving from Kafka',
-    buckets: [0, 128, 512, 1024, 5120, 10240, 20480, 51200, 102400, 204800, Infinity],
-})
-
+// v1-only metrics — v2 doesn't surface these. Kept here until v1 is deleted.
 const histogramKafkaConsumeInterval = new Histogram({
     name: 'kafka_consume_interval_ms',
     help: 'Time elapsed between Kafka consume calls',
