@@ -79,7 +79,6 @@ export class CdpApi {
 
     private hogFlowExecutor: HogFlowExecutorService
     private hogWatcher: HogWatcherService
-    private hogWatcherMirror: HogWatcherService | null
     private hogTransformer: HogTransformerService
     private invocationResultsService: InvocationResultsService
     private cdpSourceWebhooksConsumer: CdpSourceWebhooksConsumer
@@ -103,7 +102,6 @@ export class CdpApi {
         this.nativeDestinationExecutorService = services.nativeDestinationExecutorService
         this.segmentDestinationExecutorService = services.segmentDestinationExecutorService
         this.hogWatcher = services.hogWatcher
-        this.hogWatcherMirror = services.hogWatcherMirror
         this.invocationResultsService = services.invocationResultsService
         this.outputs = services.outputs
 
@@ -128,7 +126,6 @@ export class CdpApi {
             this.hogFunctionManager,
             this.hogExecutor,
             this.hogWatcher,
-            this.hogWatcherMirror,
             this.invocationResultsService
         )
     }
