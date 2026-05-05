@@ -197,6 +197,7 @@ class TestCounter(BaseTest):
         # still cast cleanly.
         consume_summary_quota(self.team.pk, 7)
         raw = get_client().get(_redis_key(self.team.pk))
+        assert raw is not None
         assert int(raw) == 7  # what current_usage does internally
         assert current_usage(self.team.pk) == 7
 

@@ -17,15 +17,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
 
 import structlog
 from redis.exceptions import ResponseError
 
 from posthog.redis import get_client
-
-if TYPE_CHECKING:
-    pass
 
 logger = structlog.get_logger(__name__)
 
@@ -63,9 +59,11 @@ def coerce_max_summaries_per_period(value: object) -> int:
     """
     if value is None or isinstance(value, bool):
         return DEFAULT_MAX_SUMMARIES_PER_PERIOD
+    if not isinstance(value, (int, float, str, bytes, bytearray)):
+        return DEFAULT_MAX_SUMMARIES_PER_PERIOD
     try:
-        cap = int(value)  # type: ignore[arg-type]
-    except (TypeError, ValueError, OverflowError):
+        cap = int(value)
+    except (ValueError, OverflowError):
         return DEFAULT_MAX_SUMMARIES_PER_PERIOD
     if cap <= 0:
         return DEFAULT_MAX_SUMMARIES_PER_PERIOD
