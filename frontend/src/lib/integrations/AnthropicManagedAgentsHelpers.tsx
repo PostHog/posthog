@@ -13,19 +13,43 @@ type CommonPickerProps = {
     onChange?: (value: string | null) => void
 }
 
+function TruncationHint({
+    loading,
+    hasMore,
+    optionCount,
+    label,
+}: {
+    loading: boolean
+    hasMore: boolean
+    optionCount: number
+    label: string
+}): JSX.Element | null {
+    if (loading || !hasMore) {
+        return null
+    }
+    return (
+        <div className="text-xs text-secondary mt-1 italic">
+            Showing the first {optionCount} {label}. Refine the list in the Anthropic console if you don't see yours.
+        </div>
+    )
+}
+
 export function AnthropicManagedAgentPicker({ integration, value, onChange }: CommonPickerProps): JSX.Element {
-    const { options, loading } = useAnthropicManagedAgents(integration.id)
+    const { options, loading, hasMore } = useAnthropicManagedAgents(integration.id)
 
     return (
-        <LemonInputSelect
-            mode="single"
-            data-attr="select-anthropic-managed-agent"
-            placeholder="Select an agent..."
-            options={options}
-            loading={loading}
-            value={value ? [value] : []}
-            onChange={(val) => onChange?.(val[0] ?? null)}
-        />
+        <div>
+            <LemonInputSelect
+                mode="single"
+                data-attr="select-anthropic-managed-agent"
+                placeholder="Select an agent..."
+                options={options}
+                loading={loading}
+                value={value ? [value] : []}
+                onChange={(val) => onChange?.(val[0] ?? null)}
+            />
+            <TruncationHint loading={loading} hasMore={hasMore} optionCount={options.length} label="agents" />
+        </div>
     )
 }
 
@@ -34,45 +58,55 @@ export function AnthropicManagedAgentEnvironmentPicker({
     value,
     onChange,
 }: CommonPickerProps): JSX.Element {
-    const { options, loading } = useAnthropicManagedAgentEnvironments(integration.id)
+    const { options, loading, hasMore } = useAnthropicManagedAgentEnvironments(integration.id)
 
     return (
-        <LemonInputSelect
-            mode="single"
-            data-attr="select-anthropic-managed-agent-environment"
-            placeholder="Select an environment..."
-            options={options}
-            loading={loading}
-            value={value ? [value] : []}
-            onChange={(val) => onChange?.(val[0] ?? null)}
-        />
+        <div>
+            <LemonInputSelect
+                mode="single"
+                data-attr="select-anthropic-managed-agent-environment"
+                placeholder="Select an environment..."
+                options={options}
+                loading={loading}
+                value={value ? [value] : []}
+                onChange={(val) => onChange?.(val[0] ?? null)}
+            />
+            <TruncationHint loading={loading} hasMore={hasMore} optionCount={options.length} label="environments" />
+        </div>
     )
 }
 
 export function AnthropicManagedAgentVaultPicker({ integration, value, onChange }: CommonPickerProps): JSX.Element {
-    const { options, loading } = useAnthropicManagedAgentVaults(integration.id)
+    const { options, loading, hasMore } = useAnthropicManagedAgentVaults(integration.id)
 
     return (
-        <LemonInputSelect
-            mode="single"
-            data-attr="select-anthropic-managed-agent-vault"
-            placeholder="Select a vault..."
-            options={options}
-            loading={loading}
-            value={value ? [value] : []}
-            onChange={(val) => onChange?.(val[0] ?? null)}
-        />
+        <div>
+            <LemonInputSelect
+                mode="single"
+                data-attr="select-anthropic-managed-agent-vault"
+                placeholder="Select a vault..."
+                options={options}
+                loading={loading}
+                value={value ? [value] : []}
+                onChange={(val) => onChange?.(val[0] ?? null)}
+            />
+            <TruncationHint loading={loading} hasMore={hasMore} optionCount={options.length} label="vaults" />
+        </div>
     )
 }
 
-function useAnthropicManagedAgents(integrationId: number): { options: LemonInputSelectOption[]; loading: boolean } {
+function useAnthropicManagedAgents(integrationId: number): {
+    options: LemonInputSelectOption[]
+    loading: boolean
+    hasMore: boolean
+} {
     const logic = anthropicManagedAgentsLogic({ id: integrationId })
-    const { anthropicManagedAgents, anthropicManagedAgentsLoading } = useValues(logic)
+    const { anthropicManagedAgents, anthropicManagedAgentsLoading, anthropicManagedAgentsHasMore } = useValues(logic)
     const { loadAnthropicManagedAgents } = useActions(logic)
 
     const options = useMemo(
         () =>
-            anthropicManagedAgents.map((a) => ({
+            (anthropicManagedAgents ?? []).map((a) => ({
                 key: a.id,
                 label: a.version ? `${a.name} (${a.version})` : a.name,
             })),
@@ -83,19 +117,24 @@ function useAnthropicManagedAgents(integrationId: number): { options: LemonInput
         loadAnthropicManagedAgents()
     }, [loadAnthropicManagedAgents])
 
-    return { options, loading: anthropicManagedAgentsLoading }
+    return { options, loading: anthropicManagedAgentsLoading, hasMore: anthropicManagedAgentsHasMore }
 }
 
 function useAnthropicManagedAgentEnvironments(integrationId: number): {
     options: LemonInputSelectOption[]
     loading: boolean
+    hasMore: boolean
 } {
     const logic = anthropicManagedAgentsLogic({ id: integrationId })
-    const { anthropicManagedAgentEnvironments, anthropicManagedAgentEnvironmentsLoading } = useValues(logic)
+    const {
+        anthropicManagedAgentEnvironments,
+        anthropicManagedAgentEnvironmentsLoading,
+        anthropicManagedAgentEnvironmentsHasMore,
+    } = useValues(logic)
     const { loadAnthropicManagedAgentEnvironments } = useActions(logic)
 
     const options = useMemo(
-        () => anthropicManagedAgentEnvironments.map((e) => ({ key: e.id, label: e.name })),
+        () => (anthropicManagedAgentEnvironments ?? []).map((e) => ({ key: e.id, label: e.name })),
         [anthropicManagedAgentEnvironments]
     )
 
@@ -103,19 +142,25 @@ function useAnthropicManagedAgentEnvironments(integrationId: number): {
         loadAnthropicManagedAgentEnvironments()
     }, [loadAnthropicManagedAgentEnvironments])
 
-    return { options, loading: anthropicManagedAgentEnvironmentsLoading }
+    return {
+        options,
+        loading: anthropicManagedAgentEnvironmentsLoading,
+        hasMore: anthropicManagedAgentEnvironmentsHasMore,
+    }
 }
 
 function useAnthropicManagedAgentVaults(integrationId: number): {
     options: LemonInputSelectOption[]
     loading: boolean
+    hasMore: boolean
 } {
     const logic = anthropicManagedAgentsLogic({ id: integrationId })
-    const { anthropicManagedAgentVaults, anthropicManagedAgentVaultsLoading } = useValues(logic)
+    const { anthropicManagedAgentVaults, anthropicManagedAgentVaultsLoading, anthropicManagedAgentVaultsHasMore } =
+        useValues(logic)
     const { loadAnthropicManagedAgentVaults } = useActions(logic)
 
     const options = useMemo(
-        () => anthropicManagedAgentVaults.map((v) => ({ key: v.id, label: v.display_name })),
+        () => (anthropicManagedAgentVaults ?? []).map((v) => ({ key: v.id, label: v.display_name })),
         [anthropicManagedAgentVaults]
     )
 
@@ -123,5 +168,5 @@ function useAnthropicManagedAgentVaults(integrationId: number): {
         loadAnthropicManagedAgentVaults()
     }, [loadAnthropicManagedAgentVaults])
 
-    return { options, loading: anthropicManagedAgentVaultsLoading }
+    return { options, loading: anthropicManagedAgentVaultsLoading, hasMore: anthropicManagedAgentVaultsHasMore }
 }

@@ -63,6 +63,9 @@ import { HogQLQueryString, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     ActionType,
     ActivityScope,
+    AnthropicManagedAgentEnvironmentsResponse,
+    AnthropicManagedAgentsResponse,
+    AnthropicManagedAgentVaultsResponse,
     AppMetricsTotalsV2Response,
     AppMetricsV2RequestParams,
     AppMetricsV2Response,
@@ -197,9 +200,6 @@ import {
     SessionRecordingUpdateType,
     SessionSummaryResponse,
     SharingConfigurationType,
-    AnthropicManagedAgentEnvironmentType,
-    AnthropicManagedAgentType,
-    AnthropicManagedAgentVaultType,
     SlackChannelType,
     SubscriptionType,
     Survey,
@@ -5784,18 +5784,23 @@ const api = {
         async linearTeams(id: IntegrationType['id']): Promise<{ teams: LinearTeamType[] }> {
             return await new ApiRequest().integrationLinearTeams(id).get()
         },
-        async anthropicManagedAgents(id: IntegrationType['id']): Promise<{ agents: AnthropicManagedAgentType[] }> {
-            return await new ApiRequest().integrationAnthropicManagedAgents(id).get()
+        async anthropicManagedAgents(
+            id: IntegrationType['id'],
+            params?: { after?: string; limit?: number }
+        ): Promise<AnthropicManagedAgentsResponse> {
+            return await new ApiRequest().integrationAnthropicManagedAgents(id).withQueryString(params).get()
         },
         async anthropicManagedAgentEnvironments(
-            id: IntegrationType['id']
-        ): Promise<{ environments: AnthropicManagedAgentEnvironmentType[] }> {
-            return await new ApiRequest().integrationAnthropicManagedAgentEnvironments(id).get()
+            id: IntegrationType['id'],
+            params?: { after?: string; limit?: number }
+        ): Promise<AnthropicManagedAgentEnvironmentsResponse> {
+            return await new ApiRequest().integrationAnthropicManagedAgentEnvironments(id).withQueryString(params).get()
         },
         async anthropicManagedAgentVaults(
-            id: IntegrationType['id']
-        ): Promise<{ vaults: AnthropicManagedAgentVaultType[] }> {
-            return await new ApiRequest().integrationAnthropicManagedAgentVaults(id).get()
+            id: IntegrationType['id'],
+            params?: { after?: string; limit?: number }
+        ): Promise<AnthropicManagedAgentVaultsResponse> {
+            return await new ApiRequest().integrationAnthropicManagedAgentVaults(id).withQueryString(params).get()
         },
         async githubRepositories(
             id: IntegrationType['id'],

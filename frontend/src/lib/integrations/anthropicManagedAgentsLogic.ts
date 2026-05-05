@@ -1,4 +1,4 @@
-import { actions, kea, key, path, props } from 'kea'
+import { actions, kea, key, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -19,14 +19,23 @@ export const anthropicManagedAgentsLogic = kea<anthropicManagedAgentsLogicType>(
         loadAnthropicManagedAgents: () => ({}),
         loadAnthropicManagedAgentEnvironments: () => ({}),
         loadAnthropicManagedAgentVaults: () => ({}),
+        setAgentsHasMore: (hasMore: boolean) => ({ hasMore }),
+        setEnvironmentsHasMore: (hasMore: boolean) => ({ hasMore }),
+        setVaultsHasMore: (hasMore: boolean) => ({ hasMore }),
     }),
-    loaders(({ props }) => ({
+    reducers({
+        anthropicManagedAgentsHasMore: [false, { setAgentsHasMore: (_, { hasMore }) => hasMore }],
+        anthropicManagedAgentEnvironmentsHasMore: [false, { setEnvironmentsHasMore: (_, { hasMore }) => hasMore }],
+        anthropicManagedAgentVaultsHasMore: [false, { setVaultsHasMore: (_, { hasMore }) => hasMore }],
+    }),
+    loaders(({ props, actions }) => ({
         anthropicManagedAgents: [
             [] as AnthropicManagedAgentType[],
             {
                 loadAnthropicManagedAgents: async () => {
                     const res = await api.integrations.anthropicManagedAgents(props.id)
-                    return res.agents
+                    actions.setAgentsHasMore(Boolean(res.has_more))
+                    return res.agents ?? []
                 },
             },
         ],
@@ -35,7 +44,8 @@ export const anthropicManagedAgentsLogic = kea<anthropicManagedAgentsLogicType>(
             {
                 loadAnthropicManagedAgentEnvironments: async () => {
                     const res = await api.integrations.anthropicManagedAgentEnvironments(props.id)
-                    return res.environments
+                    actions.setEnvironmentsHasMore(Boolean(res.has_more))
+                    return res.environments ?? []
                 },
             },
         ],
@@ -44,7 +54,8 @@ export const anthropicManagedAgentsLogic = kea<anthropicManagedAgentsLogicType>(
             {
                 loadAnthropicManagedAgentVaults: async () => {
                     const res = await api.integrations.anthropicManagedAgentVaults(props.id)
-                    return res.vaults
+                    actions.setVaultsHasMore(Boolean(res.has_more))
+                    return res.vaults ?? []
                 },
             },
         ],

@@ -48,7 +48,7 @@ registerIntegrationSetup({
 registerIntegrationSetup({
     kind: 'anthropic',
     menuItem: ({ openModal }) => ({
-        label: 'Configure new Anthropic workspace',
+        label: 'Configure new Anthropic account',
         onClick: () => openModal('anthropic'),
     }),
     SetupModal: ({ isOpen, integration, onComplete }) => (

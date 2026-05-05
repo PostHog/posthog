@@ -37,6 +37,10 @@ export function IntegrationView({
     const { loadGitHubRepositories } = useActions(integrationsLogic)
 
     const isGitHub = integration.kind === 'github'
+    // Non-OAuth kinds (e.g. anthropic with a static API key) can't recover via the OAuth `authorize`
+    // flow — that endpoint only knows about OAuth integrations. Suppress the "Reconnect" link so the
+    // user is steered toward Disconnect + re-add via the integrations menu.
+    const supportsOAuthReconnect = integration.kind !== 'anthropic'
     const repositories = isGitHub ? getGitHubRepositories(integration.id) : []
     const refreshedAtTimestamp = integration.config?.refreshed_at || null
 
@@ -117,18 +121,24 @@ export function IntegrationView({
                 <div className="p-2">
                     <LemonBanner
                         type="error"
-                        action={{
-                            children: 'Reconnect',
-                            disableClientSideRouting: true,
-                            to: api.integrations.authorizeUrl({
-                                kind: integration.kind,
-                                next: window.location.pathname,
-                            }),
-                            disabledReason: restrictedReason,
-                        }}
+                        action={
+                            supportsOAuthReconnect
+                                ? {
+                                      children: 'Reconnect',
+                                      disableClientSideRouting: true,
+                                      to: api.integrations.authorizeUrl({
+                                          kind: integration.kind,
+                                          next: window.location.pathname,
+                                      }),
+                                      disabledReason: restrictedReason,
+                                  }
+                                : undefined
+                        }
                     >
                         {errors[0] === 'TOKEN_REFRESH_FAILED'
-                            ? 'Authentication token could not be refreshed. You can reconnect this account or disconnect it and connect a different one.'
+                            ? supportsOAuthReconnect
+                                ? 'Authentication token could not be refreshed. You can reconnect this account or disconnect it and connect a different one.'
+                                : 'Authentication failed. Disconnect this integration and connect again with a fresh API key.'
                             : `There was an error with this integration: ${errors[0]}`}
                     </LemonBanner>
                 </div>

@@ -5159,6 +5159,24 @@ export interface AnthropicManagedAgentVaultType {
     display_name: string
 }
 
+export interface AnthropicManagedAgentsResponse {
+    agents: AnthropicManagedAgentType[]
+    next_cursor: string | null
+    has_more: boolean
+}
+
+export interface AnthropicManagedAgentEnvironmentsResponse {
+    environments: AnthropicManagedAgentEnvironmentType[]
+    next_cursor: string | null
+    has_more: boolean
+}
+
+export interface AnthropicManagedAgentVaultsResponse {
+    vaults: AnthropicManagedAgentVaultType[]
+    next_cursor: string | null
+    has_more: boolean
+}
+
 export interface JiraProjectType {
     id: string
     key: string
