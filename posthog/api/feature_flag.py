@@ -770,8 +770,8 @@ class FeatureFlagSerializer(
         """Validate feature flag creation/update including evaluation tag requirements."""
         attrs = super().validate(attrs)
 
-        # Validate team-wide flag count limit before any early returns, since it
-        # applies to all creates regardless of creation context (surveys, etc.)
+        # Run universal validations before any early returns so they always apply.
+        self._validate_device_bucketing_with_persist_auth(attrs)
         self._validate_flag_limits()
 
         request = self.context.get("request")
@@ -792,13 +792,9 @@ class FeatureFlagSerializer(
 
         team = get_team()
         if not team or not team.require_evaluation_contexts:
-            # MOVED VALIDATION HERE - before early return
-            self._validate_device_bucketing_with_persist_auth(attrs)
             return attrs
 
         if not self._is_evaluation_contexts_feature_enabled():
-            # MOVED VALIDATION HERE - before early return
-            self._validate_device_bucketing_with_persist_auth(attrs)
             return attrs
 
         # Note: for creation_context, we use initial_data since it's metadata not part of the model
@@ -826,9 +822,6 @@ class FeatureFlagSerializer(
                         "Cannot remove all evaluation contexts. At least one evaluation context is required "
                         "because this flag already has evaluation contexts and the team requires them."
                     )
-
-        # Always validate device bucketing with persist across auth, regardless of evaluation contexts
-        self._validate_device_bucketing_with_persist_auth(attrs)
 
         return attrs
 

@@ -1060,15 +1060,19 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                         isDisabled={!featureFlag.active}
                                         bucketingIdentifier={featureFlag.bucketing_identifier}
                                         onBucketingIdentifierChange={(value: FeatureFlagBucketingIdentifier | null) => {
-                                            // Auto-disable persist across auth when switching to device ID
+                                            // Switching to device bucketing requires disabling persist across auth.
+                                            // Apply both in a single setFeatureFlag so the merged payload doesn't
+                                            // stomp the new bucketing identifier with closure-captured state.
                                             if (
                                                 value === FeatureFlagBucketingIdentifier.DEVICE_ID &&
                                                 featureFlag.ensure_experience_continuity
                                             ) {
                                                 setFeatureFlag({
                                                     ...featureFlag,
+                                                    bucketing_identifier: value,
                                                     ensure_experience_continuity: false,
                                                 })
+                                                return
                                             }
                                             setBucketingIdentifier(value)
                                         }}

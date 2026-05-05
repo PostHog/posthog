@@ -674,15 +674,15 @@ export function FeatureFlagReleaseConditions({
                                     setBucketingIdentifier(FeatureFlagBucketingIdentifier.DISTINCT_ID)
                                 } else if (targetValue === 'device') {
                                     setAggregationGroupTypeIndex(null)
-                                    // Auto-disable persist across auth before changing bucketing so the
-                                    // setFeatureFlag payload doesn't stomp the new bucketing identifier.
-                                    if (featureFlag.ensure_experience_continuity) {
-                                        setFeatureFlag({
-                                            ...featureFlag,
-                                            ensure_experience_continuity: false,
-                                        })
-                                    }
-                                    setBucketingIdentifier(FeatureFlagBucketingIdentifier.DEVICE_ID)
+                                    // Atomically switch to device bucketing and disable persist across auth —
+                                    // these are incompatible, so applying both in one setFeatureFlag avoids any
+                                    // window where the closure-captured featureFlag could overwrite the new
+                                    // bucketing identifier.
+                                    setFeatureFlag({
+                                        ...featureFlag,
+                                        bucketing_identifier: FeatureFlagBucketingIdentifier.DEVICE_ID,
+                                        ensure_experience_continuity: false,
+                                    })
                                 } else if (targetValue === 'group') {
                                     // Default to first group type when selecting Group
                                     const firstGroupType = Array.from(groupTypes.values())[0]
