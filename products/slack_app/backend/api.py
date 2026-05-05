@@ -581,6 +581,70 @@ def _extract_explicit_repo(text: str, all_repos: list[str]) -> str | None:
     return None
 
 
+def _flatten_block_text(node: Any) -> list[str]:
+    """Best-effort plain-text extraction from a Slack block-kit subtree.
+
+    Slack alert posts (subscriptions, log alerts, hog-function destinations) often
+    put the substantive content in `blocks` while the top-level `text` field is a
+    short fallback (or empty). Walking the block tree lets us surface that content
+    to the agent. Always wrap call sites in try/except — Slack block schemas evolve.
+    """
+    if node is None:
+        return []
+    if isinstance(node, str):
+        stripped = node.strip()
+        return [stripped] if stripped else []
+    if isinstance(node, list):
+        out: list[str] = []
+        for item in node:
+            out.extend(_flatten_block_text(item))
+        return out
+    if isinstance(node, dict):
+        # Skip interactive/decorative blocks that don't carry information for the agent.
+        if node.get("type") in ("actions", "divider", "image", "context"):
+            # `context` can carry useful labels — recurse but only into `elements`.
+            if node.get("type") == "context":
+                return _flatten_block_text(node.get("elements"))
+            return []
+        out = []
+        for key in ("text", "fields", "elements", "title", "pretext", "fallback"):
+            if key in node:
+                out.extend(_flatten_block_text(node[key]))
+        return out
+    return []
+
+
+def _extract_message_text(msg: dict) -> str:
+    text = (msg.get("text") or "").strip()
+    if text:
+        return text
+
+    blocks = msg.get("blocks") or []
+    attachments = msg.get("attachments") or []
+    pieces: list[str] = []
+    try:
+        pieces.extend(_flatten_block_text(blocks))
+    except Exception:
+        logger.warning("slack_thread_block_flatten_failed", exc_info=True)
+    try:
+        pieces.extend(_flatten_block_text(attachments))
+    except Exception:
+        logger.warning("slack_thread_attachment_flatten_failed", exc_info=True)
+
+    # Deduplicate adjacent identical lines (Slack often repeats the same string in
+    # `text.text` and a parent wrapper) while preserving order.
+    deduped: list[str] = []
+    for piece in pieces:
+        if not deduped or deduped[-1] != piece:
+            deduped.append(piece)
+    return "\n".join(deduped)
+
+
+def _resolve_bot_author_label(msg: dict) -> str:
+    bot_profile = msg.get("bot_profile") or {}
+    return bot_profile.get("name") or msg.get("username") or "Bot"
+
+
 def _collect_thread_messages(
     slack: SlackIntegration, integration: Integration, channel: str, thread_ts: str, our_bot_id: str | None
 ) -> list[dict[str, str]]:
@@ -608,11 +672,25 @@ def _collect_thread_messages(
 
     messages = []
     for msg in raw_messages:
+        # Skip our own bot's posts to avoid loops where the agent ingests its own replies.
         if our_bot_id and msg.get("bot_id") == our_bot_id:
             continue
+
         user_id = msg.get("user")
-        username = resolve_user(user_id) if user_id else "Unknown"
-        text = replace_user_mentions(msg.get("text", ""))
+        if user_id:
+            username = resolve_user(user_id)
+        elif msg.get("bot_id"):
+            username = _resolve_bot_author_label(msg)
+        else:
+            username = "Unknown"
+
+        try:
+            raw_text = _extract_message_text(msg)
+        except Exception:
+            logger.warning("slack_thread_message_text_extraction_failed", exc_info=True)
+            raw_text = msg.get("text", "") or ""
+
+        text = replace_user_mentions(raw_text)
         messages.append({"user": username, "text": text})
 
     return messages
