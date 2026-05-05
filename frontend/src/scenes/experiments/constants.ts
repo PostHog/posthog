@@ -63,7 +63,7 @@ export const CONCLUSION_DISPLAY_CONFIG: Record<
         color: 'bg-warning',
     },
     [ExperimentConclusion.StoppedEarly]: {
-        title: 'Stopped Early',
+        title: 'Stopped early',
         description: 'The experiment was terminated before reaching a conclusive result.',
         color: 'bg-muted-alt',
     },

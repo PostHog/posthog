@@ -579,6 +579,8 @@ describe('HogWatcher', () => {
 
             const state = await watcherWithFailingReader.getPersistedState(hogFunctionId)
 
+            // observeResults uses useClient (mget), getPersistedState uses usePipeline
+            expect(failingReader.useClient).toHaveBeenCalledTimes(1)
             expect(failingReader.usePipeline).toHaveBeenCalledTimes(1)
             expect(state.tokens).toBeLessThan(watcherConfig.bucketSize)
             expect(loggerWarnSpy).toHaveBeenCalledWith(

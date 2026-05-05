@@ -1057,9 +1057,34 @@
                 "column": {
                     "description": "Name of a column returned by the SQL query to map onto this axis.",
                     "type": "string"
+                },
+                "settings": {
+                    "$ref": "#/definitions/AssistantDataVisualizationAxisSettings",
+                    "description": "Optional series settings. Only applies to Y-axis series."
                 }
             },
             "required": ["column"],
+            "type": "object"
+        },
+        "AssistantDataVisualizationAxisDisplaySettings": {
+            "additionalProperties": false,
+            "properties": {
+                "yAxisPosition": {
+                    "description": "Which Y axis this numeric series should use. Use `right` for a secondary Y axis.",
+                    "enum": ["left", "right"],
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        },
+        "AssistantDataVisualizationAxisSettings": {
+            "additionalProperties": false,
+            "properties": {
+                "display": {
+                    "$ref": "#/definitions/AssistantDataVisualizationAxisDisplaySettings",
+                    "description": "Display settings for a plotted Y series."
+                }
+            },
             "type": "object"
         },
         "AssistantDataVisualizationChartSettings": {
@@ -1071,6 +1096,14 @@
                         "$ref": "#/definitions/AssistantDataVisualizationGoalLine"
                     },
                     "type": "array"
+                },
+                "leftYAxisSettings": {
+                    "$ref": "#/definitions/AssistantDataVisualizationYAxisSettings",
+                    "description": "Settings for the left Y axis."
+                },
+                "rightYAxisSettings": {
+                    "$ref": "#/definitions/AssistantDataVisualizationYAxisSettings",
+                    "description": "Settings for the right Y axis. Only applies when a Y series uses `settings.display.yAxisPosition: \"right\"`."
                 },
                 "seriesBreakdownColumn": {
                     "description": "Column that splits a single Y series into multiple colored series — e.g. breaking down a line chart by `country`. Set to `null` or omit to disable.",
@@ -1091,6 +1124,10 @@
                 "xAxis": {
                     "$ref": "#/definitions/AssistantDataVisualizationAxis",
                     "description": "Column used as the X axis. Typically a time bucket or categorical column."
+                },
+                "xAxisLabel": {
+                    "description": "Label rendered under the X axis.",
+                    "type": "string"
                 },
                 "yAxis": {
                     "description": "One or more numeric columns plotted as Y series.",
@@ -1181,6 +1218,33 @@
                 },
                 "transpose": {
                     "description": "Transpose rows and columns.",
+                    "type": "boolean"
+                }
+            },
+            "type": "object"
+        },
+        "AssistantDataVisualizationYAxisSettings": {
+            "additionalProperties": false,
+            "properties": {
+                "label": {
+                    "description": "Label rendered beside this Y axis.",
+                    "type": "string"
+                },
+                "scale": {
+                    "description": "Scale used for this Y axis.",
+                    "enum": ["linear", "logarithmic"],
+                    "type": "string"
+                },
+                "showGridLines": {
+                    "description": "Show grid lines for this Y axis.",
+                    "type": "boolean"
+                },
+                "showTicks": {
+                    "description": "Show tick labels on this Y axis.",
+                    "type": "boolean"
+                },
+                "startAtZero": {
+                    "description": "Whether this Y axis should start at zero.",
                     "type": "boolean"
                 }
             },
@@ -10162,6 +10226,9 @@
                 },
                 "xAxis": {
                     "$ref": "#/definitions/ChartAxis"
+                },
+                "xAxisLabel": {
+                    "type": "string"
                 },
                 "yAxis": {
                     "items": {
@@ -40054,6 +40121,9 @@
         "YAxisSettings": {
             "additionalProperties": false,
             "properties": {
+                "label": {
+                    "type": "string"
+                },
                 "scale": {
                     "enum": ["linear", "logarithmic"],
                     "type": "string"
