@@ -40,13 +40,12 @@ class TestPointInTimePropertiesClickhouse(ClickhouseTestMixin, BaseTest):
         )
         flush_persons_and_events()
 
-        properties, existed = build_person_properties_at_time(
+        properties = build_person_properties_at_time(
             self.team.pk,
             upper_bound,
             [distinct_id],
         )
 
-        self.assertTrue(existed)
         self.assertEqual(properties, {"name": "Final", "email": "user@example.com"})
 
     def test_set_once_first_write_wins(self):
@@ -69,14 +68,13 @@ class TestPointInTimePropertiesClickhouse(ClickhouseTestMixin, BaseTest):
         )
         flush_persons_and_events()
 
-        properties, existed = build_person_properties_at_time(
+        properties = build_person_properties_at_time(
             self.team.pk,
             upper_bound,
             [distinct_id],
             include_set_once=True,
         )
 
-        self.assertTrue(existed)
         self.assertEqual(properties, {"first_seen": "2024-05-01"})
 
     def test_set_then_set_once_interleaving(self):
@@ -127,14 +125,13 @@ class TestPointInTimePropertiesClickhouse(ClickhouseTestMixin, BaseTest):
         )
         flush_persons_and_events()
 
-        properties, existed = build_person_properties_at_time(
+        properties = build_person_properties_at_time(
             self.team.pk,
             upper_bound,
             [distinct_id],
             include_set_once=True,
         )
 
-        self.assertTrue(existed)
         self.assertEqual(
             properties,
             {
@@ -162,25 +159,23 @@ class TestPointInTimePropertiesClickhouse(ClickhouseTestMixin, BaseTest):
         )
         flush_persons_and_events()
 
-        properties, existed = build_person_properties_at_time(
+        properties = build_person_properties_at_time(
             self.team.pk,
             upper_bound,
             [distinct_id],
         )
 
-        self.assertFalse(existed)
         self.assertEqual(properties, {})
 
-    def test_no_events_returns_not_existed(self):
+    def test_no_events_returns_empty_properties(self):
         upper_bound = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
 
-        properties, existed = build_person_properties_at_time(
+        properties = build_person_properties_at_time(
             self.team.pk,
             upper_bound,
             ["user-clickhouse-nonexistent"],
         )
 
-        self.assertFalse(existed)
         self.assertEqual(properties, {})
 
     def test_row_limit_truncates_oldest_first(self):
@@ -210,7 +205,7 @@ class TestPointInTimePropertiesClickhouse(ClickhouseTestMixin, BaseTest):
         )
         flush_persons_and_events()
 
-        properties, _ = build_person_properties_at_time(
+        properties = build_person_properties_at_time(
             self.team.pk,
             upper_bound,
             [distinct_id],
@@ -235,11 +230,10 @@ class TestPointInTimePropertiesClickhouse(ClickhouseTestMixin, BaseTest):
         )
         flush_persons_and_events()
 
-        properties, existed = build_person_properties_at_time(
+        properties = build_person_properties_at_time(
             self.team.pk,
             upper_bound,
             [distinct_id],
         )
 
-        self.assertTrue(existed)
         self.assertEqual(properties, {"hello": "world"})

@@ -97,10 +97,10 @@ def build_person_properties_at_time(
     include_set_once: bool = False,
     timeout: Optional[int] = 30,
     row_limit: int = DEFAULT_PROPERTY_ROW_LIMIT,
-) -> tuple[dict[str, Any], bool]:
+    lower_bound: Optional[datetime] = None,
+) -> dict[str, Any]:
     """
-    Build person properties at a specific point in time and check whether the
-    person had any events at or before that time, in a single ClickHouse round trip.
+    Build person properties at a specific point in time from ClickHouse events.
 
     Args:
         team_id: The team ID to filter events by
@@ -109,10 +109,10 @@ def build_person_properties_at_time(
         include_set_once: If True, also handles $set_once operations (default: False)
         timeout: Query timeout in seconds (default: 30)
         row_limit: Maximum property update rows to ship back from ClickHouse (default 100_000).
+        lower_bound: Optional lower bound for the time range scan. If not provided, defaults to timestamp - 2 years.
 
     Returns:
-        Tuple of ``(person_properties, person_existed)``. ``person_existed`` is True
-        when any event exists for the distinct_ids at or before ``timestamp``.
+        Dict containing person properties as they existed at the specified timestamp.
 
     Raises:
         ValueError: If parameters are invalid
@@ -160,10 +160,13 @@ def build_person_properties_at_time(
     LIMIT {int(row_limit)}
     """
 
+    # Use provided lower_bound or default to timestamp - 2 years
+    effective_lower_bound = lower_bound if lower_bound is not None else timestamp - _HISTORY_SCAN_FLOOR
+
     params = {
         "team_id": team_id,
         "distinct_ids": distinct_ids,
-        "lower_bound": (timestamp - _HISTORY_SCAN_FLOOR).astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S"),
+        "lower_bound": effective_lower_bound.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S"),
         "upper_bound": timestamp.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S"),
     }
 
@@ -198,4 +201,4 @@ def build_person_properties_at_time(
                     if key not in person_properties:
                         person_properties[key] = value
 
-    return person_properties, bool(rows)
+    return person_properties

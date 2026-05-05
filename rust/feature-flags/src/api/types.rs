@@ -1132,4 +1132,95 @@ mod tests {
         assert!(evaluated_at >= before);
         assert!(evaluated_at <= after);
     }
+
+    #[test]
+    fn test_condition_analysis_properties_matched_can_diverge_from_matched() {
+        use crate::flags::flag_models::FeatureFlag;
+        use std::collections::HashMap;
+
+        // Create a flag with two conditions using JSON parsing (same pattern as other tests):
+        // Condition 0: properties match but rollout_percentage = 0 (no match)
+        // Condition 1: properties match and rollout_percentage = 100 (match)
+        let flag: FeatureFlag = serde_json::from_value(json!(
+            {
+                "id": 1,
+                "team_id": 1,
+                "name": "test-flag",
+                "key": "test-flag",
+                "active": true,
+                "filters": {
+                    "groups": [
+                        {
+                            "properties": [
+                                {
+                                    "key": "email",
+                                    "value": "test@example.com",
+                                    "type": "person"
+                                }
+                            ],
+                            "rollout_percentage": 0
+                        },
+                        {
+                            "properties": [
+                                {
+                                    "key": "email",
+                                    "value": "test@example.com",
+                                    "type": "person"
+                                }
+                            ],
+                            "rollout_percentage": 100
+                        }
+                    ]
+                }
+            }
+        ))
+        .unwrap();
+
+        // Create a flag match where condition 1 matched (index 1)
+        let flag_match = FeatureFlagMatch {
+            matches: true,
+            variant: None,
+            reason: FeatureFlagMatchReason::ConditionMatch,
+            condition_index: Some(1),
+            payload: None,
+        };
+
+        // Create property values that would match both conditions
+        let mut property_values = HashMap::new();
+        property_values.insert("email".to_string(), serde_json::json!("test@example.com"));
+
+        // Build condition analysis
+        let analysis =
+            FlagDetails::build_condition_analysis(&flag, &flag_match, Some(&property_values));
+
+        // Verify we have analysis for both conditions
+        assert_eq!(analysis.len(), 2);
+
+        // Condition 0: properties matched but overall condition did not match (rollout = 0%)
+        assert!(
+            analysis[0].properties_matched,
+            "Condition 0 should have properties_matched=true"
+        );
+        assert!(
+            !analysis[0].matched,
+            "Condition 0 should have matched=false due to 0% rollout"
+        );
+        assert_eq!(analysis[0].index, 0);
+        assert!(
+            analysis[0].rollout_excluded,
+            "Condition 0 should be rollout_excluded"
+        );
+
+        // Condition 1: properties matched and overall condition matched
+        assert!(
+            analysis[1].properties_matched,
+            "Condition 1 should have properties_matched=true"
+        );
+        assert!(analysis[1].matched, "Condition 1 should have matched=true");
+        assert_eq!(analysis[1].index, 1);
+        assert!(
+            !analysis[1].rollout_excluded,
+            "Condition 1 should not be rollout_excluded"
+        );
+    }
 }

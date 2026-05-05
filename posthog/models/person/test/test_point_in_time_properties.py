@@ -78,10 +78,9 @@ class TestPointInTimeProperties(SimpleTestCase):
         mock_sync_execute.return_value = []
 
         timestamp = datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC)
-        properties, existed = build_person_properties_at_time(1, timestamp, ["user123"])
+        properties = build_person_properties_at_time(1, timestamp, ["user123"])
 
         self.assertEqual(properties, {})
-        self.assertFalse(existed)
         mock_sync_execute.assert_called_once()
 
     @patch("posthog.models.person.point_in_time_properties.sync_execute")
@@ -91,10 +90,9 @@ class TestPointInTimeProperties(SimpleTestCase):
         ]
 
         timestamp = datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC)
-        properties, existed = build_person_properties_at_time(1, timestamp, ["user123"])
+        properties = build_person_properties_at_time(1, timestamp, ["user123"])
 
         self.assertEqual(properties, {"name": "John Doe", "email": "john@example.com"})
-        self.assertTrue(existed)
 
     @patch("posthog.models.person.point_in_time_properties.sync_execute")
     def test_build_person_properties_at_time_multiple_sets(self, mock_sync_execute):
@@ -105,7 +103,7 @@ class TestPointInTimeProperties(SimpleTestCase):
         ]
 
         timestamp = datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC)
-        properties, _ = build_person_properties_at_time(1, timestamp, ["user123"])
+        properties = build_person_properties_at_time(1, timestamp, ["user123"])
 
         self.assertEqual(properties, {"name": "John Doe", "age": 26, "location": "SF"})
 
@@ -118,7 +116,7 @@ class TestPointInTimeProperties(SimpleTestCase):
         ]
 
         timestamp = datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC)
-        properties, _ = build_person_properties_at_time(1, timestamp, ["user123"])
+        properties = build_person_properties_at_time(1, timestamp, ["user123"])
 
         self.assertEqual(properties, {"name": "John"})
 
@@ -159,7 +157,7 @@ class TestPointInTimePropertiesWithSetOnce(SimpleTestCase):
         ]
 
         timestamp = datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC)
-        properties, _ = build_person_properties_at_time(1, timestamp, ["user123"], include_set_once=True)
+        properties = build_person_properties_at_time(1, timestamp, ["user123"], include_set_once=True)
 
         # name stays as "John" (not overwritten by $set_once); email is set by $set_once since it didn't exist
         self.assertEqual(properties, {"name": "John", "email": "jane@example.com"})
@@ -172,7 +170,7 @@ class TestPointInTimePropertiesWithSetOnce(SimpleTestCase):
         ]
 
         timestamp = datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC)
-        properties, _ = build_person_properties_at_time(1, timestamp, ["user123"], include_set_once=True)
+        properties = build_person_properties_at_time(1, timestamp, ["user123"], include_set_once=True)
 
         # $set_once sets name first, then $set overwrites it
         self.assertEqual(properties, {"name": "John", "email": "jane@example.com"})
@@ -185,7 +183,7 @@ class TestPointInTimePropertiesWithSetOnce(SimpleTestCase):
         ]
 
         timestamp = datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC)
-        properties, _ = build_person_properties_at_time(1, timestamp, ["user123"], include_set_once=True)
+        properties = build_person_properties_at_time(1, timestamp, ["user123"], include_set_once=True)
 
         self.assertEqual(
             properties,
@@ -199,7 +197,7 @@ class TestPointInTimePropertiesWithSetOnce(SimpleTestCase):
         ]
 
         timestamp = datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC)
-        properties, _ = build_person_properties_at_time(1, timestamp, distinct_ids=["user123", "user456", "user789"])
+        properties = build_person_properties_at_time(1, timestamp, distinct_ids=["user123", "user456", "user789"])
 
         self.assertEqual(properties, {"name": "Jane Doe", "email": "jane@example.com"})
 

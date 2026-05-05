@@ -12625,6 +12625,9 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
             team=self.team,
             key="test-flag",
             filters={"groups": [{"properties": [{"key": "email", "type": "person", "value": "x"}]}]},
+            bucketing_identifier="device_id",
+            evaluation_runtime="server",
+            ensure_experience_continuity=True,
         )
 
         Person.objects.create(team=self.team, distinct_ids=["test-user"])
@@ -12642,7 +12645,7 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
         }
 
         with patch("posthog.api.feature_flag.build_person_properties_at_time") as mock_build_props:
-            mock_build_props.return_value = ({"email": "historical@example.com"}, True)
+            mock_build_props.return_value = {"email": "historical@example.com"}
 
             # Use a recent timestamp that's after flag creation
             from datetime import datetime
@@ -12675,6 +12678,13 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(get_flags_kwargs["override_flags_definitions"]["test-flag"]["id"], flag.id)
         self.assertEqual(get_flags_kwargs["override_flags_definitions"]["test-flag"]["team_id"], self.team.pk)
         self.assertEqual(get_flags_kwargs["override_flags_definitions"]["test-flag"]["key"], "test-flag")
+        self.assertEqual(
+            get_flags_kwargs["override_flags_definitions"]["test-flag"]["bucketing_identifier"], "device_id"
+        )
+        self.assertEqual(get_flags_kwargs["override_flags_definitions"]["test-flag"]["evaluation_runtime"], "server")
+        self.assertEqual(
+            get_flags_kwargs["override_flags_definitions"]["test-flag"]["ensure_experience_continuity"], True
+        )
 
         # Filtered person_properties in the response only carry keys referenced
         # by the (reconstructed) flag's conditions.
@@ -12706,20 +12716,10 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         self.assertEqual(response.json()["detail"], "Person not found for distinct_id: nonexistent-user")
 
-    @patch("posthog.api.feature_flag.build_person_properties_at_time", return_value=({}, False))
-    def test_test_evaluation_person_didnt_exist_at_timestamp(self, mock_build_props):
-        """Test 400 when person didn't exist at specified timestamp."""
-        flag = FeatureFlag.objects.create(team=self.team, key="test-flag")
-        Person.objects.create(team=self.team, distinct_ids=["test-user"])
-
-        response = self.client.post(
-            f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation/",
-            {"distinct_id": "test-user", "timestamp": "2020-01-01T00:00:00Z"},
-            format="json",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["error"], "Person did not exist at the specified timestamp")
+    # NOTE: This test is replaced by the working timestamp evaluation.
+    # The original test was testing for a 400 when person didn't exist at timestamp,
+    # but now that we removed the boolean return from build_person_properties_at_time,
+    # person existence is determined by the earlier Postgres lookup.
 
     @patch("posthog.api.feature_flag.get_flags_from_service")
     def test_test_evaluation_missing_internal_token_error(self, mock_get_flags):
@@ -12736,6 +12736,73 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
 
         self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
         self.assertEqual(response.json()["error"], "Internal request token not configured")
+
+    @patch("posthog.api.feature_flag.get_flags_from_service")
+    @patch.dict(os.environ, {"INTERNAL_REQUEST_TOKEN": "test-token"})
+    def test_test_evaluation_historical_missing_conditions_502(self, mock_get_flags):
+        """Test 502 when historical evaluation returns no conditions (misconfigured token)."""
+        flag = FeatureFlag.objects.create(team=self.team, key="test-flag")
+        Person.objects.create(team=self.team, distinct_ids=["test-user"])
+
+        # Mock service to return flag dict without 'conditions' key - indicates token issue
+        mock_get_flags.return_value = {
+            "flags": {
+                "test-flag": {
+                    "enabled": False,
+                    "variant": None,
+                    "reason": {"code": "no_condition_match"},
+                    "metadata": {},
+                    # Missing 'conditions' key indicates token misconfiguration
+                }
+            }
+        }
+
+        with patch("posthog.api.feature_flag.build_person_properties_at_time", return_value={}):
+            # Use a recent timestamp that's after flag creation
+            from datetime import datetime
+
+            recent_timestamp = datetime.now(UTC).isoformat()
+
+            response = self.client.post(
+                f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation/",
+                {"distinct_id": "test-user", "timestamp": recent_timestamp},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
+        self.assertEqual(response.json()["error"], "Historical evaluation unavailable. Check service configuration.")
+
+    @patch("posthog.api.feature_flag.get_flags_from_service")
+    @patch.dict(os.environ, {"INTERNAL_REQUEST_TOKEN": "test-token"})
+    def test_test_evaluation_current_missing_conditions_200(self, mock_get_flags):
+        """Test 200 when current evaluation returns no conditions (no 502 for current evaluation)."""
+        flag = FeatureFlag.objects.create(team=self.team, key="test-flag")
+        Person.objects.create(team=self.team, distinct_ids=["test-user"])
+
+        # Mock service to return flag dict without 'conditions' key
+        mock_get_flags.return_value = {
+            "flags": {
+                "test-flag": {
+                    "enabled": False,
+                    "variant": None,
+                    "reason": {"code": "no_condition_match"},
+                    "metadata": {},
+                    # Missing 'conditions' key - should not cause 502 for current evaluation
+                }
+            }
+        }
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation/",
+            {"distinct_id": "test-user"},
+            # No timestamp = current evaluation
+            format="json",
+        )
+
+        # The key test: current evaluation should not return 502 even with missing conditions
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # Verify the response is still valid
+        self.assertIn("result", response.json())
 
     @patch("posthog.api.feature_flag.build_person_properties_at_time")
     def test_test_evaluation_build_properties_failure(self, mock_build_props):
@@ -12855,3 +12922,108 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
         )
 
         self.assertEqual(response.status_code, 400)
+
+    @patch("posthog.api.feature_flag.get_flags_from_service")
+    @patch.dict(os.environ, {"INTERNAL_REQUEST_TOKEN": "test-token"})
+    def test_test_evaluation_build_properties_value_error_no_leak(self, mock_get_flags):
+        """Test that ValueError from build_person_properties_at_time doesn't leak sensitive information."""
+        mock_get_flags.return_value = {
+            "flags": {
+                "test-flag": {
+                    "enabled": False,
+                    "variant": None,
+                    "reason": {"code": "no_condition_match"},
+                    "metadata": {},
+                    "conditions": [],
+                }
+            }
+        }
+
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            filters={"groups": [{"properties": [{"key": "email", "type": "person", "value": "x"}]}]},
+            bucketing_identifier="device_id",
+            evaluation_runtime="server",
+            ensure_experience_continuity=True,
+        )
+
+        Person.objects.create(team=self.team, distinct_ids=["test-user"])
+
+        with patch("posthog.api.feature_flag.build_person_properties_at_time") as mock_build_props:
+            # Mock build_person_properties_at_time to raise ValueError with sensitive information
+            mock_build_props.side_effect = ValueError("naive datetime: /secret/path/user123")
+
+            # Use a recent timestamp that's after flag creation
+            recent_timestamp = datetime.now(UTC).isoformat()
+
+            response = self.client.post(
+                f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation/",
+                {"distinct_id": "test-user", "timestamp": recent_timestamp},
+                format="json",
+            )
+
+        # Should return 400 with generic message
+        self.assertEqual(response.status_code, 400)
+        response_data = response.json()
+        self.assertEqual(response_data["error"], "Invalid timestamp format.")
+
+        # Ensure the sensitive information doesn't leak into the response
+        response_content = response.content.decode()
+        self.assertNotIn("secret", response_content.lower())
+        self.assertNotIn("/secret/path/user123", response_content)
+        self.assertNotIn("naive datetime", response_content)
+
+        # Verify the mock was called
+        mock_build_props.assert_called_once()
+
+    @patch("posthog.api.feature_flag.get_flags_from_service")
+    @patch.dict(os.environ, {"INTERNAL_REQUEST_TOKEN": "test-token"})
+    def test_test_evaluation_reconstruct_flag_value_error_no_leak(self, mock_get_flags):
+        """Test that ValueError from reconstruct_flag_at_timestamp doesn't leak sensitive information."""
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            name="Test Flag",
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        Person.objects.create(team=self.team, distinct_ids=["test-user"])
+        mock_get_flags.return_value = {
+            "flags": {
+                "test-flag": {
+                    "enabled": False,
+                    "variant": None,
+                    "reason": {"code": "no_condition_match"},
+                    "metadata": {},
+                    "conditions": [],
+                }
+            }
+        }
+
+        with patch("posthog.api.feature_flag.reconstruct_flag_at_timestamp") as mock_reconstruct:
+            # Mock reconstruct_flag_at_timestamp to raise ValueError with sensitive information
+            mock_reconstruct.side_effect = ValueError("timestamp must be timezone-aware: /secret/config/token")
+
+            # Use a recent timestamp that's after flag creation
+            recent_timestamp = datetime.now(UTC).isoformat()
+
+            response = self.client.post(
+                f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation/",
+                {"distinct_id": "test-user", "timestamp": recent_timestamp},
+                format="json",
+            )
+
+        # Should return 400 with generic message
+        self.assertEqual(response.status_code, 400)
+        response_data = response.json()
+        self.assertEqual(response_data["error"], "Invalid timestamp.")
+
+        # Ensure the sensitive information doesn't leak into the response
+        response_content = response.content.decode()
+        self.assertNotIn("secret", response_content.lower())
+        self.assertNotIn("/secret/config/token", response_content)
+        self.assertNotIn("timezone-aware", response_content)
+
+        # Verify the mock was called
+        mock_reconstruct.assert_called_once()

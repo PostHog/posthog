@@ -7,7 +7,7 @@ import math
 import time
 import logging
 import functools
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Optional, cast
 
 from django.conf import settings
@@ -35,7 +35,7 @@ from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.services.flags_service import get_flags_from_service
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
-from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action
+from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, ErrorResponseSerializer, action
 from posthog.approvals.decorators import approval_gate
 from posthog.approvals.mixins import ApprovalHandlingMixin
 from posthog.auth import (
@@ -103,7 +103,6 @@ from products.dashboards.backend.api.dashboard import Dashboard
 from products.experiments.backend.models.experiment import Experiment
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
-from products.tasks.backend.serializers import ErrorResponseSerializer
 
 logger = logging.getLogger(__name__)
 
@@ -111,6 +110,19 @@ BEHAVIOURAL_COHORT_FOUND_ERROR_CODE = "behavioral_cohort_found"
 
 REALTIME_COHORT_FLAG_TARGETING_FLAG = "realtime-cohort-flag-targeting"
 MIXED_TARGETING_FLAG = "feature-flag-mixed-targeting"
+
+# Fields that Rust's FeatureFlag struct expects for historical evaluation
+RUST_FLAG_FIELDS = (
+    "name",
+    "active",
+    "deleted",
+    "version",
+    "filters",
+    "bucketing_identifier",
+    "evaluation_runtime",
+    "ensure_experience_continuity",
+    "evaluation_tags",
+)
 
 
 def _is_realtime_cohort_flag_targeting_enabled(request) -> bool:
@@ -1887,7 +1899,7 @@ class GroupsJSONField(serializers.CharField):
 
     def __init__(self, **kwargs):
         kwargs.setdefault("required", False)
-        kwargs.setdefault("default", {})
+        kwargs.setdefault("default", "{}")
         kwargs.setdefault("allow_blank", True)
         kwargs.setdefault("help_text", "Groups for feature flag evaluation (JSON object string)")
         super().__init__(**kwargs)
@@ -1993,7 +2005,11 @@ class FeatureFlagTestEvaluationRequestSerializer(serializers.Serializer):
             "Naive timestamps (no timezone) are interpreted as UTC."
         ),
     )
-    groups = GroupsJSONField(required=False)
+    groups = serializers.JSONField(
+        required=False,
+        default=dict,
+        help_text="Groups for feature flag evaluation (JSON object, defaults to empty dict)",
+    )
 
     def validate(self, attrs):
         distinct_id = attrs.get("distinct_id")
@@ -3520,18 +3536,16 @@ class FeatureFlagViewSet(
             try:
                 # Tag the ClickHouse call so query_log attribution stays correct.
                 tag_queries(product=Product.FEATURE_FLAGS, feature=Feature.QUERY, team_id=self.team_id)
-                person_properties, person_existed = build_person_properties_at_time(
+                lower_bound = timestamp - timedelta(days=730)
+                if feature_flag.created_at:
+                    lower_bound = min(max(lower_bound, feature_flag.created_at), timestamp)
+                person_properties = build_person_properties_at_time(
                     team_id=self.team_id,
                     timestamp=timestamp,
                     distinct_ids=distinct_ids,
                     include_set_once=True,
+                    lower_bound=lower_bound,
                 )
-
-                if not person_existed:
-                    return Response(
-                        {"error": "Person did not exist at the specified timestamp"},
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
             except ValueError as e:
                 # Our own validation (invalid timestamp shape, naive datetime, etc.) —
                 # Validation failures should be logged server-side, but return a generic
@@ -3606,34 +3620,25 @@ class FeatureFlagViewSet(
             override_definitions = None
             if timestamp and reconstructed_flag_data is not None:
                 try:
+                    # Use allowlist of fields that Rust expects, avoiding the need to track
+                    # what _build_response might inject in the future
                     flag_dict: dict[str, Any] = {
-                        **reconstructed_flag_data,
-                        "id": feature_flag.id,
-                        "key": feature_flag.key,
-                        "team_id": feature_flag.team_id,
+                        k: reconstructed_flag_data[k] for k in RUST_FLAG_FIELDS if k in reconstructed_flag_data
                     }
+                    flag_dict.update({"id": feature_flag.id, "key": feature_flag.key, "team_id": feature_flag.team_id})
+
                     # Stringify datetime fields for JSON serialization.
                     if flag_dict.get("created_at") and hasattr(flag_dict["created_at"], "isoformat"):
                         flag_dict["created_at"] = flag_dict["created_at"].isoformat()
-                    if flag_dict.get("version_timestamp") and hasattr(flag_dict["version_timestamp"], "isoformat"):
-                        flag_dict["version_timestamp"] = flag_dict["version_timestamp"].isoformat()
-                    # Drop reconstruction metadata Rust doesn't read.
-                    for k in ("is_historical", "version_timestamp", "modified_by"):
-                        flag_dict.pop(k, None)
 
                     override_definitions = {feature_flag.key: flag_dict}
                 except Exception as e:
-                    # For historical evaluation, serialization failure is critical
-                    if timestamp:
-                        logger.exception("Failed to serialize flag for override")
-                        capture_exception(e)
-                        return Response(
-                            {"error": "Failed to prepare historical flag definition for evaluation."},
-                            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                        )
-                    # For current evaluation, can continue without override
                     logger.exception("Failed to serialize flag for override")
-                    override_definitions = None
+                    capture_exception(e)
+                    return Response(
+                        {"error": "Failed to prepare historical flag definition for evaluation."},
+                        status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    )
 
             internal_token = os.getenv("INTERNAL_REQUEST_TOKEN")
             if not internal_token:
