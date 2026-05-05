@@ -62,7 +62,7 @@ export function SettingsTab(): JSX.Element {
                         <LemonButton type="secondary" size="xsmall" icon={<IconPencil />} onClick={openCupedModal} />
                     </div>
                     <p className="text-muted text-xs mt-1">
-                        Reduce variance using pre-experiment data as a covariate. Currently supported for mean and
+                        Use pre-experiment data to detect significant effects faster. Currently supported for mean and
                         funnel metrics.
                     </p>
                     <CupedModal />

@@ -56,9 +56,8 @@ export function CupedModal(): JSX.Element {
         >
             <div className="flex flex-col gap-4">
                 <p className="text-secondary m-0">
-                    CUPED (Controlled-experiment Using Pre-Experiment Data) reduces variance by adjusting metrics with
-                    pre-experiment data, which can shorten the time required to detect a significant effect. Currently
-                    supported for mean and funnel metrics.
+                    CUPED (Controlled-experiment Using Pre-Experiment Data) uses pre-experiment data to detect
+                    significant effects faster. Currently supported for mean and funnel metrics.
                 </p>
                 <LemonSwitch
                     label="Enable CUPED"
