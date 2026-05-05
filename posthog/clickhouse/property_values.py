@@ -17,8 +17,7 @@ CREATE TABLE IF NOT EXISTS {table_name}
     `team_id` Int64,
     `property_type` LowCardinality(String),
     `property_key` String,
-    `property_value` String,
-    `_timestamp` DateTime
+    `property_value` String
 ) ENGINE = {engine}
 """
 
@@ -83,7 +82,7 @@ AS SELECT
     property_key,
     property_value,
     toUInt64(1) as property_count,
-    _timestamp as last_seen
+    coalesce(_timestamp, now()) as last_seen
 FROM {database}.{kafka_table}
 WHERE lengthUTF8(property_key) > 0
   AND lengthUTF8(property_key) <= 400  -- matches Django PropertyDefinition.name max_length
