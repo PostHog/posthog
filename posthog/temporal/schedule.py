@@ -507,7 +507,9 @@ async def create_run_usage_reports_schedule(client: Client):
     run_usage_reports_schedule = Schedule(
         action=ScheduleActionStartWorkflow(
             "run-usage-reports",
-            asdict(RunUsageReportsInputs()),
+            # `RunUsageReportsInputs` is a pydantic model, not a dataclass —
+            # `dataclasses.asdict` would TypeError on registration.
+            RunUsageReportsInputs().model_dump(mode="json"),
             id="run-usage-reports-schedule",
             task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
             retry_policy=common.RetryPolicy(maximum_attempts=1),
