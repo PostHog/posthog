@@ -84,9 +84,10 @@ describe('databaseTableListLogic', () => {
         localLogic.unmount()
         resolveQuery?.({ tables: {}, joins: [] })
 
-        // The unmount-during-load fix returns null gracefully; we just need to make sure
-        // no "Can not find path" error is thrown.
-        await expect(request).resolves.toBeNull()
+        // Without the unmount guard, the loader reads `values` post-await on an unmounted
+        // logic and throws `[KEA] Can not find path "..." in the store.`, which would
+        // reject this promise and fail the test.
+        await request
     })
 
     it('does not let a stale schema response overwrite the selected connection schema', async () => {
