@@ -624,6 +624,7 @@ mod tests {
     mod emit_timing_metrics_tests {
         use super::*;
         use metrics_util::debugging::{DebugValue, DebuggingRecorder};
+        use rstest::rstest;
 
         struct MetricSample {
             name: String,
@@ -654,47 +655,44 @@ mod tests {
                 .collect()
         }
 
-        #[test]
-        fn test_emits_queue_time_with_team_id_label() {
-            let recorder = DebuggingRecorder::new();
-            metrics::with_local_recorder(&recorder, || {
-                let mut log = FlagsCanonicalLogLine::new(Uuid::new_v4(), "10.0.0.1".to_string());
-                log.team_id = Some(42);
-                log.queue_time_ms = Some(150);
-                log.emit_timing_metrics();
-            });
-
-            let metrics = snapshot_metrics(&recorder);
-            let queue = metrics
-                .iter()
-                .find(|s| s.name == "flags_queue_time_ms")
-                .expect("flags_queue_time_ms not emitted");
-            assert!(
-                queue
-                    .labels
-                    .iter()
-                    .any(|(k, v)| k == "team_id" && v == "42"),
-                "expected team_id=42 label, got {:?}",
-                queue.labels
-            );
+        fn set_queue_time(log: &mut FlagsCanonicalLogLine) {
+            log.queue_time_ms = Some(150);
         }
 
-        #[test]
-        fn test_emits_pre_handler_with_team_id_label() {
+        fn set_pre_handler(log: &mut FlagsCanonicalLogLine) {
+            log.pre_handler_duration_ms = Some(3);
+        }
+
+        #[rstest]
+        #[case::queue_time(set_queue_time, "flags_queue_time_ms", 42)]
+        #[case::pre_handler(set_pre_handler, "flags_pre_handler_time_ms", 7)]
+        fn test_emits_timing_metric_with_team_id_label(
+            #[case] set_field: fn(&mut FlagsCanonicalLogLine),
+            #[case] metric_name: &str,
+            #[case] team_id: i32,
+        ) {
             let recorder = DebuggingRecorder::new();
             metrics::with_local_recorder(&recorder, || {
                 let mut log = FlagsCanonicalLogLine::new(Uuid::new_v4(), "10.0.0.1".to_string());
-                log.team_id = Some(7);
-                log.pre_handler_duration_ms = Some(3);
+                log.team_id = Some(team_id);
+                set_field(&mut log);
                 log.emit_timing_metrics();
             });
 
             let metrics = snapshot_metrics(&recorder);
-            let pre = metrics
+            let sample = metrics
                 .iter()
-                .find(|s| s.name == "flags_pre_handler_time_ms")
-                .expect("flags_pre_handler_time_ms not emitted");
-            assert!(pre.labels.iter().any(|(k, v)| k == "team_id" && v == "7"));
+                .find(|s| s.name == metric_name)
+                .unwrap_or_else(|| panic!("{metric_name} not emitted"));
+            let expected = team_id.to_string();
+            assert!(
+                sample
+                    .labels
+                    .iter()
+                    .any(|(k, v)| k == "team_id" && v == &expected),
+                "expected team_id={expected} label on {metric_name}, got {:?}",
+                sample.labels
+            );
         }
 
         #[test]
