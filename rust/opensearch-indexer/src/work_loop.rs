@@ -1,6 +1,8 @@
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use common_kafka::kafka_consumer::{Offset, RecvErr, SingleTopicConsumer};
+use common_redis::{Client, CustomRedisError};
 use rand::Rng;
 use tokio::sync::mpsc;
 use tracing::{error, info, warn};
@@ -8,8 +10,26 @@ use tracing::{error, info, warn};
 use crate::{
     bulk::{BulkBatch, BulkWriter, FlushError, FlushStats},
     parser::parse,
-    types::SinkMsg,
+    sampling::{decide, Decision, SamplingConfig},
+    types::{IndexDoc, SinkMsg},
 };
+
+/// Pure policy mapping from a decide() result to the sink message. Pulled out
+/// of the consumer loop so the fail-open behavior is unit-testable without
+/// constructing a Kafka consumer.
+///
+/// Anything other than `Ok(Decision::Drop)` indexes — including any `Err(_)`,
+/// which is the fail-open commit. Reversing this arm to `SinkMsg::Skip` would
+/// silently drop events during a Redis outage.
+fn classify_for_sink(
+    decide_result: Result<Decision, CustomRedisError>,
+    doc: Box<IndexDoc>,
+) -> SinkMsg {
+    match decide_result {
+        Ok(Decision::Drop) => SinkMsg::Skip,
+        Ok(_) | Err(_) => SinkMsg::Index(doc),
+    }
+}
 
 // Cap idle wait inside the recv select! so `report_healthy()` runs on a steady cadence
 // regardless of topic traffic. Must stay well below `with_liveness_deadline` set on the
@@ -42,6 +62,8 @@ pub async fn run_consumer(
     consumer: SingleTopicConsumer,
     tx: mpsc::Sender<(SinkMsg, Offset)>,
     handle: lifecycle::Handle,
+    redis: Arc<dyn Client + Send + Sync>,
+    sampling_config: Arc<SamplingConfig>,
 ) {
     let _guard = handle.process_scope();
     loop {
@@ -76,7 +98,18 @@ pub async fn run_consumer(
         };
 
         let msg = match parse(&event) {
-            Ok(Some(doc)) => SinkMsg::Index(Box::new(doc)),
+            Ok(Some(doc)) => {
+                let decide_result = decide(redis.as_ref(), &sampling_config, &doc).await;
+                if let Err(ref e) = decide_result {
+                    // Fail-open: sampling is cost-control, not correctness.
+                    // Indexing without it during a Redis blip beats pausing
+                    // ingestion. The counter exposes the degraded mode to
+                    // operators without coupling pod uptime to Redis.
+                    warn!(error = %e, team_id = doc.team_id, "decide() Redis error; defaulting to IndexFloor");
+                    metrics::counter!("decide_redis_errors_total").increment(1);
+                }
+                classify_for_sink(decide_result, Box::new(doc))
+            }
             Ok(None) => SinkMsg::Skip,
             Err(e) => {
                 // Log and forward as Skip so the sink commits the offset and
@@ -275,5 +308,69 @@ mod tests {
         let mut gate = RetryGate::new();
         gate.next_flush_at = Some(Instant::now() - Duration::from_secs(1));
         assert!(gate.ready());
+    }
+
+    // ---- classify_for_sink: regression guards on the policy mapping ----
+
+    fn fixture_doc() -> Box<IndexDoc> {
+        Box::new(IndexDoc {
+            timestamp: "2024-01-01T12:00:00.000Z".to_string(),
+            trace_id: Some("t-1".to_string()),
+            team_id: 42,
+            model: None,
+            provider: None,
+            tool_names: Vec::new(),
+            is_error: false,
+            cost: None,
+            latency_ms: None,
+            input: None,
+            output: None,
+            error: None,
+            event_uuid: uuid::Uuid::nil(),
+            parsed_at: Instant::now(),
+        })
+    }
+
+    #[test]
+    fn classify_for_sink_drops_only_on_decision_drop() {
+        let msg = classify_for_sink(Ok(Decision::Drop), fixture_doc());
+        assert!(matches!(msg, SinkMsg::Skip));
+    }
+
+    #[test]
+    fn classify_for_sink_indexes_on_decision_floor() {
+        let msg = classify_for_sink(Ok(Decision::IndexFloor), fixture_doc());
+        assert!(matches!(msg, SinkMsg::Index(_)));
+    }
+
+    #[test]
+    fn classify_for_sink_indexes_on_decision_sample() {
+        let msg = classify_for_sink(Ok(Decision::IndexSample), fixture_doc());
+        assert!(matches!(msg, SinkMsg::Index(_)));
+    }
+
+    #[test]
+    fn classify_for_sink_indexes_on_decision_error() {
+        let msg = classify_for_sink(Ok(Decision::IndexError), fixture_doc());
+        assert!(matches!(msg, SinkMsg::Index(_)));
+    }
+
+    #[test]
+    fn classify_for_sink_fail_open_indexes_on_redis_timeout() {
+        // Regression guard for the fail-open commit. Reversing this to Skip
+        // would silently drop events during a Redis outage.
+        let msg = classify_for_sink(Err(CustomRedisError::Timeout), fixture_doc());
+        assert!(matches!(msg, SinkMsg::Index(_)));
+    }
+
+    #[test]
+    fn classify_for_sink_fail_open_indexes_on_redis_parse_error() {
+        // Even unrecoverable Redis errors fail-open; sampling correctness is
+        // not worth pausing the consumer over.
+        let msg = classify_for_sink(
+            Err(CustomRedisError::ParseError("synthetic".to_string())),
+            fixture_doc(),
+        );
+        assert!(matches!(msg, SinkMsg::Index(_)));
     }
 }

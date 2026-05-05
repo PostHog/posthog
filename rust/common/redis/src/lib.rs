@@ -259,6 +259,15 @@ pub trait Client: Send + Sync {
         ttl_seconds: usize,
     ) -> Result<(), CustomRedisError>;
 
+    /// INCR a single key and EXPIRE it in one round-trip, returning the
+    /// post-INCR count. Use over `batch_incr_by_expire` when the caller
+    /// needs to act on the counter value (e.g. a quota check).
+    async fn incr_with_expire(
+        &self,
+        key: String,
+        ttl_seconds: u64,
+    ) -> Result<i64, CustomRedisError>;
+
     async fn del(&self, k: String) -> Result<(), CustomRedisError>;
     async fn hget(&self, k: String, field: String) -> Result<String, CustomRedisError>;
     async fn scard(&self, k: String) -> Result<u64, CustomRedisError>;

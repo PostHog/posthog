@@ -1,12 +1,15 @@
+use std::sync::Arc;
 use std::time::Duration;
 
 use common_kafka::kafka_consumer::SingleTopicConsumer;
+use common_redis::{Client, CompressionConfig, RedisClient, RedisValueFormat};
 use lifecycle::{ComponentOptions, Manager};
 use opensearch_indexer::{
     api::root_router,
     bulk::BulkWriter,
     config::Config,
     readiness::wait_for_alias,
+    sampling::SamplingConfig,
     work_loop::{run_consumer, run_sink, SinkConfig},
 };
 use serve_metrics::setup_metrics_routes;
@@ -114,6 +117,27 @@ async fn main() -> anyhow::Result<()> {
         config.consumer.kafka_consumer_topic
     );
 
+    // Tight timeouts: healthy Redis ops are sub-ms. 50ms caps per-event latency
+    // during an outage so fail-open in decide() degrades gracefully instead of
+    // hanging the consumer. Compression off + Utf8 because counters are integers
+    // and pickle/zstd would be wasted cycles per INCR.
+    //
+    // Capacity note: every $ai_* event triggers one Redis INCR before flowing to
+    // the sink, so Redis ops/sec equals event ops/sec. Provision Redis (and the
+    // multiplexed connection's parallelism) for peak event QPS, not for the
+    // average; the per-event round-trip is the throughput ceiling.
+    let redis: Arc<dyn Client + Send + Sync> = Arc::new(
+        RedisClient::with_config(
+            config.redis_url.clone(),
+            CompressionConfig::disabled(),
+            RedisValueFormat::Utf8,
+            Some(Duration::from_millis(50)),
+            Some(Duration::from_millis(50)),
+        )
+        .await?,
+    );
+    let sampling_config = Arc::new(SamplingConfig::from_config(&config));
+
     let writer = BulkWriter::new(&config.opensearch_url, &config.opensearch_index_alias)?;
     let sink_config = SinkConfig {
         max_batch_bytes: config.bulk_max_batch_bytes,
@@ -124,7 +148,13 @@ async fn main() -> anyhow::Result<()> {
 
     let guard = manager.monitor_background();
 
-    tokio::spawn(run_consumer(consumer, tx, consumer_handle));
+    tokio::spawn(run_consumer(
+        consumer,
+        tx,
+        consumer_handle,
+        redis,
+        sampling_config,
+    ));
     tokio::spawn(run_sink(rx, sink_handle, writer, sink_config));
 
     let app = root_router(readiness, liveness);

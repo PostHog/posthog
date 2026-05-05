@@ -15,6 +15,7 @@ pub struct MockRedisClient {
     set_nx_ex_ret: HashMap<String, Result<bool, CustomRedisError>>,
     batch_incr_by_expire_nx_ret: Option<Result<(), CustomRedisError>>,
     batch_incr_by_expire_ret: Option<Result<(), CustomRedisError>>,
+    incr_with_expire_ret: HashMap<String, Result<i64, CustomRedisError>>,
     del_ret: HashMap<String, Result<(), CustomRedisError>>,
     hget_ret: HashMap<String, Result<String, CustomRedisError>>,
     scard_ret: HashMap<String, Result<u64, CustomRedisError>>,
@@ -36,6 +37,7 @@ impl Default for MockRedisClient {
             set_nx_ex_ret: HashMap::new(),
             batch_incr_by_expire_nx_ret: None,
             batch_incr_by_expire_ret: None,
+            incr_with_expire_ret: HashMap::new(),
             del_ret: HashMap::new(),
             hget_ret: HashMap::new(),
             scard_ret: HashMap::new(),
@@ -155,6 +157,11 @@ impl MockRedisClient {
 
     pub fn batch_incr_by_expire_ret(&mut self, ret: Result<(), CustomRedisError>) -> Self {
         self.batch_incr_by_expire_ret = Some(ret);
+        self.clone()
+    }
+
+    pub fn incr_with_expire_ret(&mut self, key: &str, ret: Result<i64, CustomRedisError>) -> Self {
+        self.incr_with_expire_ret.insert(key.to_owned(), ret);
         self.clone()
     }
 
@@ -442,6 +449,26 @@ impl Client for MockRedisClient {
             Some(ret) => ret.clone(),
             None => Ok(()),
         }
+    }
+
+    async fn incr_with_expire(
+        &self,
+        key: String,
+        _ttl_seconds: u64,
+    ) -> Result<i64, CustomRedisError> {
+        self.lock_calls().push(MockRedisCall {
+            op: "incr_with_expire".to_string(),
+            key: key.clone(),
+            value: MockRedisValue::None,
+        });
+
+        // Default to Ok(0) for unconfigured keys: counters start at zero, and
+        // a 0 return naturally lands in the below-floor branch of any caller.
+        // Explicit configurations via `incr_with_expire_ret` override this.
+        self.incr_with_expire_ret
+            .get(&key)
+            .cloned()
+            .unwrap_or(Ok(0))
     }
 
     async fn del(&self, key: String) -> Result<(), CustomRedisError> {
