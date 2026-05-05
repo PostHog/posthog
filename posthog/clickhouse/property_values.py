@@ -57,8 +57,20 @@ SETTINGS
 def KAFKA_PROPERTY_VALUES_TABLE_SQL_FN() -> str:
     return KAFKA_PROPERTY_VALUES_TABLE_SQL.format(
         table_name=KAFKA_TABLE_NAME,
-        engine=kafka_engine(topic=KAFKA_CLICKHOUSE_PROPERTY_VALUES, group=CONSUMER_GROUP_PROPERTY_VALUES),
+        engine=kafka_engine(
+            topic=KAFKA_CLICKHOUSE_PROPERTY_VALUES,
+            group=CONSUMER_GROUP_PROPERTY_VALUES,
+            named_collection=settings.CLICKHOUSE_KAFKA_WARPSTREAM_INGESTION_NAMED_COLLECTION,
+        ),
     )
+
+
+def DROP_KAFKA_PROPERTY_VALUES_TABLE_SQL() -> str:
+    return f"DROP TABLE IF EXISTS {KAFKA_TABLE_NAME}"
+
+
+def DROP_PROPERTY_VALUES_MV_SQL() -> str:
+    return f"DROP TABLE IF EXISTS {MV_NAME}"
 
 
 def PROPERTY_VALUES_MV_SQL() -> str:
