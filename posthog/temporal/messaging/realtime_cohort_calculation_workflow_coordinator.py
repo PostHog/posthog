@@ -198,16 +198,16 @@ async def calculate_percentile_thresholds(
 
             if quantiles is None:
                 LOGGER.warning("Failed to get or calculate quantiles")
-                # Emit metric for monitoring quantiles unavailability
+                # Emit metric for monitoring quantiles unavailability.
+                # This runs inside an activity, so use the activity meter rather than the
+                # workflow meter (which would raise outside a workflow event loop).
                 try:
-                    import temporalio.workflow
-
-                    quantiles_unavailable_counter = temporalio.workflow.metric_meter().create_counter(
+                    quantiles_unavailable_counter = temporalio.activity.metric_meter().create_counter(
                         "quantiles_unavailable", "Count of times quantiles were unavailable for percentile calculations"
                     )
                     quantiles_unavailable_counter.add(1)
-                except ImportError:
-                    # Not in a workflow context, skip metric
+                except RuntimeError:
+                    # Not in activity context (e.g., during tests), skip metric
                     pass
                 return None
 

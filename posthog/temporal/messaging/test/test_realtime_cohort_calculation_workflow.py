@@ -991,7 +991,14 @@ class TestQueryPercentileThresholdsActivity:
             mock_queryset.values_list.return_value = [1000]
             mock_cohort.objects.filter.return_value = mock_queryset
 
-            result = await get_query_percentile_thresholds_activity(inputs)
+            # Patch the imported reference (not the source module) and force a cache miss
+            # so the activity falls through to the insufficient-data check inside
+            # get_cached_quantiles_or_calculate.
+            with patch(
+                "posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.get_cached_quantiles_or_calculate",
+                return_value=None,
+            ):
+                result = await get_query_percentile_thresholds_activity(inputs)
 
         assert result is None
 
@@ -1009,7 +1016,8 @@ class TestQueryPercentileThresholdsActivity:
 
             # Mock the quantiles cache to return None (indicating calculation failure)
             with patch(
-                "posthog.temporal.messaging.quantiles_storage.get_cached_quantiles_or_calculate", return_value=None
+                "posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.get_cached_quantiles_or_calculate",
+                return_value=None,
             ):
                 result = await get_query_percentile_thresholds_activity(inputs)
 
@@ -1029,7 +1037,8 @@ class TestQueryPercentileThresholdsActivity:
 
             # Mock the quantiles cache to return None (indicating calculation failure due to invalid data)
             with patch(
-                "posthog.temporal.messaging.quantiles_storage.get_cached_quantiles_or_calculate", return_value=None
+                "posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.get_cached_quantiles_or_calculate",
+                return_value=None,
             ):
                 result = await get_query_percentile_thresholds_activity(inputs)
 
@@ -1082,7 +1091,8 @@ class TestQueryPercentileThresholdsActivity:
 
             # Mock the quantiles cache to return None (indicating calculation failure due to type errors)
             with patch(
-                "posthog.temporal.messaging.quantiles_storage.get_cached_quantiles_or_calculate", return_value=None
+                "posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.get_cached_quantiles_or_calculate",
+                return_value=None,
             ):
                 result = await get_query_percentile_thresholds_activity(inputs)
 
