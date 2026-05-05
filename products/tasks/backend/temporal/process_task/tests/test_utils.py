@@ -24,7 +24,7 @@ class TestGetSandboxMcpConfigs(TestCase):
             {"name": "Authorization", "value": f"Bearer {self.TOKEN}"},
             {"name": "x-posthog-project-id", "value": str(self.PROJECT_ID)},
             {"name": "x-posthog-mcp-version", "value": "2"},
-            {"name": "x-posthog-read-only", "value": str(read_only).lower()},
+            {"name": "x-posthog-readonly", "value": str(read_only).lower()},
             {"name": "x-posthog-mcp-consumer", "value": consumer},
         ]
 
@@ -143,6 +143,17 @@ class TestGetSandboxMcpConfigs(TestCase):
             mock_settings.SANDBOX_MCP_URL = None
             mock_settings.SITE_URL = ""
             assert get_sandbox_ph_mcp_configs(self.TOKEN, self.PROJECT_ID) == []
+
+    def test_uses_canonical_readonly_header_name(self) -> None:
+        with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
+            mock_settings.SANDBOX_MCP_URL = None
+            mock_settings.SITE_URL = "https://app.posthog.com"
+
+            [config] = get_sandbox_ph_mcp_configs(self.TOKEN, self.PROJECT_ID)
+            header_names = {header["name"] for header in config.headers}
+
+            assert "x-posthog-readonly" in header_names
+            assert "x-posthog-read-only" not in header_names
 
     @parameterized.expand(
         [
