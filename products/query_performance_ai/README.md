@@ -6,8 +6,9 @@ The agent is [pi-coding-agent](https://pi.dev) running the [pi-autoresearch](htt
 
 ## Prereqs
 
+- macOS — the coordinator hard-fails on other platforms.
+- A Docker daemon (Docker Desktop, OrbStack, colima, etc.) — the sandboxed agent runs in a Docker container regardless of `--target`.
 - `ANTHROPIC_API_KEY` exported in your shell or set in the repo `.env` (Claude Code's gateway token is intentionally NOT used).
-- Docker Desktop running (macOS only — the coordinator hard-fails on other platforms).
 
 ## What happens when you run it
 
