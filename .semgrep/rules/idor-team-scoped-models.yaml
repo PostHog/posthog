@@ -141,6 +141,7 @@ rules:
                               |KnowledgeChunk
                               |KnowledgeDocument
                               |KnowledgeSource
+                              |IntegrationRepositoryCacheEntry
                               |Link
                               |LiveDebuggerBreakpoint
                               |LogsAlertConfiguration
@@ -348,6 +349,7 @@ rules:
                         |KnowledgeChunk
                         |KnowledgeDocument
                         |KnowledgeSource
+                        |IntegrationRepositoryCacheEntry
                         |Link
                         |LiveDebuggerBreakpoint
                         |LLMModelConfiguration

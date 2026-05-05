@@ -72,6 +72,7 @@ PRODUCTS_APPS = [
     "products.business_knowledge.backend.apps.BusinessKnowledgeConfig",
     "products.query_performance_ai.backend.apps.QueryPerformanceAiConfig",
     "products.access_control.backend.apps.AccessControlConfig",
+    "products.warehouse_sources_queue.backend.apps.WarehouseSourcesQueueConfig",
 ]
 
 INSTALLED_APPS = [
@@ -728,6 +729,7 @@ TOOLBAR_OAUTH_SCOPES = [
     "element:read",
     "uploaded_media:write",
     "survey:read",
+    "survey:write",
 ]
 
 ELEMENT_STATS_DEFAULT_LIMIT = get_from_env("ELEMENT_STATS_DEFAULT_LIMIT", 50_000, type_cast=int)

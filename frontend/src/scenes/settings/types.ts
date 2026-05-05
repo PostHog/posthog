@@ -169,6 +169,7 @@ export type SettingId =
     | 'personal-integrations'
     | 'personal-api-keys'
     | 'notifications'
+    | 'realtime-notifications'
     | 'feature-previews'
     | 'feature-previews-coming-soon'
     | 'optout'

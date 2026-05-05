@@ -65,7 +65,19 @@ class GitHubCommitAuthor:
 
 
 class GitHubIntegrationError(Exception):
-    pass
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int | None = None,
+        is_rate_limit: bool = False,
+        retry_after_seconds: float | None = None,
+    ) -> None:
+        super().__init__(message)
+        # Needed, so retry wrappers can make decisions without reparsing the response.
+        self.status_code = status_code
+        self.is_rate_limit = is_rate_limit
+        self.retry_after_seconds = retry_after_seconds
 
 
 class GitHubIntegrationBase:

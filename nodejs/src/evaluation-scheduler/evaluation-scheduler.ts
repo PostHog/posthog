@@ -13,8 +13,9 @@ import { execHog } from '../cdp/utils/hog-exec'
 import { KAFKA_EVENTS_JSON, prefix as KAFKA_PREFIX } from '../config/kafka-topics'
 import { KafkaConsumer } from '../kafka/consumer'
 import { EvaluationManagerService } from '../llm-analytics/services/evaluation-manager.service'
+import { TaggerManagerService } from '../llm-analytics/services/tagger-manager.service'
 import { TemporalService, TemporalServiceConfig } from '../llm-analytics/services/temporal.service'
-import { Evaluation, EvaluationConditionSet } from '../llm-analytics/types'
+import { Evaluation, EvaluationConditionSet, Matchable, Tagger } from '../llm-analytics/types'
 import { PluginServerService, RawKafkaEvent } from '../types'
 import { PostgresRouter } from '../utils/db/postgres'
 import { parseJSON } from '../utils/json-parse'
@@ -31,13 +32,13 @@ export interface EvaluationSchedulerDeps {
 const evaluationSchedulerEventsProcessed = new Counter({
     name: 'evaluation_scheduler_events_processed',
     help: 'Number of AI events processed by evaluation scheduler',
-    labelNames: ['status'],
+    labelNames: ['status', 'type'], // type: 'evaluation' | 'tagger' — keep existing eval alerts working while exposing tagger traffic
 })
 
 const evaluationMatchesCounter = new Counter({
     name: 'evaluation_matches',
     help: 'Number of evaluation matches by outcome',
-    labelNames: ['outcome'], // matched, filtered, sampling_excluded, error
+    labelNames: ['outcome', 'type'], // matched, filtered, sampling_excluded, error × evaluation/tagger
 })
 
 const evaluationSchedulerMessagesReceived = new Counter({
@@ -58,6 +59,24 @@ const evaluationSchedulerHeaderValues = new Counter({
 })
 
 // Pure functions for testability
+
+/**
+ * Pull the value out of an awaited Promise.allSettled entry, falling back to an
+ * empty object map and logging the rejection reason. Used to keep the scheduler
+ * loop alive when one fetch fails without losing the other one's results.
+ */
+export function unwrapOrLog<T extends Record<string, unknown>>(
+    result: PromiseSettledResult<T>,
+    errorMessage: string
+): T {
+    if (result.status === 'fulfilled') {
+        return result.value
+    }
+    logger.error(errorMessage, {
+        error: result.reason instanceof Error ? result.reason.message : String(result.reason),
+    })
+    return {} as T
+}
 
 export function filterAndParseMessages(messages: Message[]): RawKafkaEvent[] {
     return messages
@@ -175,12 +194,12 @@ export type EvaluationMatchResult =
     | { matched: false; reason: 'no_conditions' | 'disabled' | 'filtered' | 'sampling_excluded' }
 
 export class EvaluationMatcher {
-    async shouldTriggerEvaluation(event: RawKafkaEvent, evaluation: Evaluation): Promise<EvaluationMatchResult> {
+    async shouldTriggerEvaluation(event: RawKafkaEvent, evaluation: Matchable): Promise<EvaluationMatchResult> {
         if (!evaluation.enabled) {
             return { matched: false, reason: 'disabled' }
         }
 
-        const conditions = evaluation.conditions as EvaluationConditionSet[]
+        const conditions = evaluation.conditions
         if (conditions.length === 0) {
             return { matched: false, reason: 'no_conditions' }
         }
@@ -213,6 +232,7 @@ export const startEvaluationScheduler = async (
 
     const temporalService = new TemporalService(config)
     const evaluationManager = new EvaluationManagerService(deps.postgres, deps.pubSub)
+    const taggerManager = new TaggerManagerService(deps.postgres, deps.pubSub)
 
     const kafkaConsumer = new KafkaConsumer({
         groupId: `${KAFKA_PREFIX}evaluation-scheduler`,
@@ -220,7 +240,7 @@ export const startEvaluationScheduler = async (
     })
 
     await kafkaConsumer.connect((messages) =>
-        eachBatchEvaluationScheduler(messages, evaluationManager, temporalService)
+        eachBatchEvaluationScheduler(messages, evaluationManager, taggerManager, temporalService)
     )
 
     const onShutdown = async () => {
@@ -238,6 +258,7 @@ export const startEvaluationScheduler = async (
 async function eachBatchEvaluationScheduler(
     messages: Message[],
     evaluationManager: EvaluationManagerService,
+    taggerManager: TaggerManagerService,
     temporalService: TemporalService
 ): Promise<void> {
     logger.debug('Processing batch', { messageCount: messages.length })
@@ -264,14 +285,24 @@ async function eachBatchEvaluationScheduler(
     const eventsByTeam = groupEventsByTeam(aiGenerationEvents)
     const teamIds = Array.from(eventsByTeam.keys())
 
-    const evaluationsByTeam = await evaluationManager.getEvaluationsForTeams(teamIds)
+    // Fetch evaluations and taggers independently — a transient DB failure on one
+    // side must not take down dispatch for the other. If either side fails we log
+    // and fall back to an empty map so the matched workflows just don't trigger
+    // this batch, instead of failing the whole Kafka consumer loop.
+    const [evaluationsResult, taggersResult] = await Promise.allSettled([
+        evaluationManager.getEvaluationsForTeams(teamIds),
+        taggerManager.getTaggersForTeams(teamIds),
+    ])
+    const evaluationsByTeam = unwrapOrLog(evaluationsResult, 'Failed to fetch evaluations for teams')
+    const taggersByTeam = unwrapOrLog(taggersResult, 'Failed to fetch taggers for teams')
     const matcher = new EvaluationMatcher()
     const tasks: Promise<void>[] = []
 
     for (const [teamId, events] of eventsByTeam.entries()) {
         const evaluationDefinitions = evaluationsByTeam[teamId] || []
+        const taggerDefinitions = taggersByTeam[teamId] || []
 
-        if (evaluationDefinitions.length === 0) {
+        if (evaluationDefinitions.length === 0 && taggerDefinitions.length === 0) {
             continue
         }
 
@@ -284,7 +315,22 @@ async function eachBatchEvaluationScheduler(
                             eventUuid: event.uuid,
                             error: error instanceof Error ? error.message : String(error),
                         })
-                        evaluationMatchesCounter.labels({ outcome: 'error' }).inc()
+                        evaluationMatchesCounter.labels({ outcome: 'error', type: 'evaluation' }).inc()
+                    }
+                )
+
+                tasks.push(task)
+            }
+
+            for (const taggerDefinition of taggerDefinitions) {
+                const task = processEventTaggerMatch(event, taggerDefinition, matcher, temporalService).catch(
+                    (error: unknown) => {
+                        logger.error('Error processing tagger', {
+                            taggerId: taggerDefinition.id,
+                            eventUuid: event.uuid,
+                            error: error instanceof Error ? error.message : String(error),
+                        })
+                        evaluationMatchesCounter.labels({ outcome: 'error', type: 'tagger' }).inc()
                     }
                 )
 
@@ -297,7 +343,7 @@ async function eachBatchEvaluationScheduler(
 
     logger.debug('Batch processing complete', {
         teamsProcessed: eventsByTeam.size,
-        totalEvaluationChecks: tasks.length,
+        totalChecks: tasks.length,
     })
 }
 
@@ -307,12 +353,12 @@ async function processEventEvaluationMatch(
     matcher: EvaluationMatcher,
     temporalService: TemporalService
 ): Promise<void> {
-    evaluationSchedulerEventsProcessed.labels({ status: 'received' }).inc()
+    evaluationSchedulerEventsProcessed.labels({ status: 'received', type: 'evaluation' }).inc()
 
     const result = await matcher.shouldTriggerEvaluation(event, evaluationDefinition)
 
     if (!result.matched) {
-        evaluationMatchesCounter.labels({ outcome: result.reason }).inc()
+        evaluationMatchesCounter.labels({ outcome: result.reason, type: 'evaluation' }).inc()
         return
     }
 
@@ -322,12 +368,40 @@ async function processEventEvaluationMatch(
         conditionId: result.conditionId,
     })
 
-    evaluationMatchesCounter.labels({ outcome: 'matched' }).inc()
+    evaluationMatchesCounter.labels({ outcome: 'matched', type: 'evaluation' }).inc()
 
     await temporalService.startEvaluationRunWorkflow(
         evaluationDefinition.id,
         event,
         evaluationDefinition.evaluation_type as string
     )
-    evaluationSchedulerEventsProcessed.labels({ status: 'success' }).inc()
+    evaluationSchedulerEventsProcessed.labels({ status: 'success', type: 'evaluation' }).inc()
+}
+
+async function processEventTaggerMatch(
+    event: RawKafkaEvent,
+    taggerDefinition: Tagger,
+    matcher: EvaluationMatcher,
+    temporalService: TemporalService
+): Promise<void> {
+    evaluationSchedulerEventsProcessed.labels({ status: 'received', type: 'tagger' }).inc()
+
+    // Taggers use the same conditions structure as evaluations
+    const result = await matcher.shouldTriggerEvaluation(event, taggerDefinition)
+
+    if (!result.matched) {
+        evaluationMatchesCounter.labels({ outcome: result.reason, type: 'tagger' }).inc()
+        return
+    }
+
+    logger.debug('Tagger matched, enqueueing tagger run', {
+        taggerId: taggerDefinition.id,
+        eventUuid: event.uuid,
+        conditionId: result.conditionId,
+    })
+
+    evaluationMatchesCounter.labels({ outcome: 'matched', type: 'tagger' }).inc()
+
+    await temporalService.startTaggerRunWorkflow(taggerDefinition.id, event)
+    evaluationSchedulerEventsProcessed.labels({ status: 'success', type: 'tagger' }).inc()
 }

@@ -145,6 +145,7 @@ import { OptOutCapture } from './user/OptOutCapture'
 import { PasskeySettings } from './user/PasskeySettings'
 import { PersonalAPIKeys } from './user/PersonalAPIKeys'
 import { PersonalIntegrations } from './user/PersonalIntegrations'
+import { RealtimeNotificationPreferences } from './user/RealtimeNotificationPreferences'
 import { SidebarAutoSuggestSetting } from './user/SidebarProductSettings'
 import { ThemeSwitcher } from './user/ThemeSwitcher'
 import { TwoFactorSettings } from './user/TwoFactorSettings'
@@ -1680,6 +1681,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description: 'Choose which email notifications you receive from PostHog.',
                 component: <UpdateEmailPreferences />,
                 keywords: ['email', 'notification', 'digest', 'unsubscribe'],
+            },
+            {
+                id: 'realtime-notifications',
+                title: 'In-app notifications',
+                description: 'Choose which real-time notifications you receive in the PostHog app, per project.',
+                component: <RealtimeNotificationPreferences />,
+                flag: 'REAL_TIME_NOTIFICATIONS',
+                keywords: ['notification', 'in-app', 'realtime', 'popover', 'mention'],
             },
         ],
     },

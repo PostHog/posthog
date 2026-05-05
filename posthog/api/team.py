@@ -44,7 +44,10 @@ from posthog.models.evaluation_context import EvaluationContext, TeamDefaultEval
 from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig
 from posthog.models.group_type_mapping import cached_group_types_for_team
 from posthog.models.organization import OrganizationMembership
-from posthog.models.product_intent.product_intent import ProductIntentSerializer, calculate_product_activation
+from posthog.models.product_intent.product_intent import (
+    ProductIntentSerializer,
+    enqueue_product_activation_calc_debounced,
+)
 from posthog.models.project import Project
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.setup_tasks import SetupTaskId
@@ -552,7 +555,11 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     @extend_schema_field(serializers.ListField(child=serializers.DictField()))
     @tracer.start_as_current_span("team_serializer.product_intents")
     def get_product_intents(self, obj):
-        calculate_product_activation.delay(obj.id, only_calc_if_days_since_last_checked=1)
+        # Debounce-then-enqueue rather than .delay() on every render. The helper
+        # checks a cache key first and skips the broker round-trip entirely if
+        # we've already enqueued for this team in the last 24h. 99% of renders
+        # become a cache hit; the remaining ones still enqueue exactly as before.
+        enqueue_product_activation_calc_debounced(obj.id)
         return ProductIntent.objects.filter(team=obj).values(
             "product_type", "created_at", "onboarding_completed_at", "updated_at"
         )

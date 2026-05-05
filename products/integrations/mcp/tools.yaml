@@ -130,8 +130,8 @@ tools:
         description: >
             List all third-party integrations configured in the current project. Returns each integration's type (kind),
             display name, non-sensitive configuration, error status, and creation metadata. Common kinds include slack,
-            github, hubspot, salesforce, and various ad platforms. When authenticated via personal API key or OAuth,
-            only GitHub and Slack integrations are returned (other kinds remain session-only).
+            github, hubspot, salesforce, and various ad platforms. Sensitive credentials (access tokens, secrets) are
+            never serialized.
     integrations-twilio-phone-numbers-retrieve:
         operation: integrations_twilio_phone_numbers_retrieve
         enabled: false
