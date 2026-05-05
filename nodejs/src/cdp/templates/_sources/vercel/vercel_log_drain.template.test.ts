@@ -232,7 +232,7 @@ describe('vercel log drain template', () => {
         expect(response.capturedPostHogEvents).toMatchSnapshot()
     })
 
-    it('should flatten proxy properties', async () => {
+    it('should flatten non-PII proxy properties by default', async () => {
         const response = await tester.invoke(
             {},
             {
@@ -245,8 +245,10 @@ describe('vercel log drain template', () => {
         expect(props.proxy_method).toBe('GET')
         expect(props.proxy_host).toBe('my-app.vercel.app')
         expect(props.proxy_path).toBe('/api/users?page=1')
-        expect(props.proxy_client_ip).toBe('120.75.16.101')
         expect(props.proxy_vercel_cache).toBe('MISS')
+        // proxy_client_ip and proxy_user_agent are gated on forward_ip_and_user_agent.
+        expect(props.proxy_client_ip).toBeUndefined()
+        expect(props.proxy_user_agent).toBeUndefined()
     })
 
     it('should not emit $ip or $raw_user_agent by default and should set $current_url from proxy data', async () => {
@@ -264,7 +266,7 @@ describe('vercel log drain template', () => {
         expect(props.$current_url).toBe('https://my-app.vercel.app/api/users?page=1')
     })
 
-    it('should emit $ip and $raw_user_agent when forward_ip_and_user_agent is enabled', async () => {
+    it('should emit $ip, $raw_user_agent, and proxy_* PII when forward_ip_and_user_agent is enabled', async () => {
         const response = await tester.invoke(
             { forward_ip_and_user_agent: true },
             { request: createVercelRequest(vercelLogDrain) }
@@ -274,6 +276,8 @@ describe('vercel log drain template', () => {
         const props = response.capturedPostHogEvents[0].properties
         expect(props.$ip).toBe('120.75.16.101')
         expect(props.$raw_user_agent).toBe('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36')
+        expect(props.proxy_client_ip).toBe('120.75.16.101')
+        expect(props.proxy_user_agent).toEqual(['Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'])
     })
 
     it('should handle logs with null message without crashing', async () => {
@@ -628,6 +632,42 @@ describe('vercel log drain template', () => {
                 'http_log_tenant_my-app.vercel.app_120.75.16.101'
             )
             expect(response.capturedPostHogEvents[0].properties.$distinct_id_strategy).toBe('custom')
+        })
+
+        it('custom: substituted-to-empty template falls back to rotating_salt', async () => {
+            const logWithoutUa = {
+                ...vercelLogDrain,
+                proxy: { ...vercelLogDrain.proxy, userAgent: [] },
+            }
+            const response = await tester.invoke(
+                {
+                    salt_secret: 'test-salt',
+                    distinct_id_strategy: 'custom',
+                    custom_template: '{ua}',
+                },
+                { request: createVercelRequest(logWithoutUa) }
+            )
+
+            expect(response.error).toBeUndefined()
+            expect(response.capturedPostHogEvents[0].distinct_id).toMatch(/^http_log_[A-Za-z0-9+/]{22}$/)
+            expect(response.capturedPostHogEvents[0].properties.$distinct_id_strategy).toBe('rotating_salt_fallback')
+            expect(response.logs.map((l) => l.message)).toContainEqual(expect.stringContaining('substituted to empty'))
+        })
+
+        it('custom: {salt} placeholder is not interpreted (secret never reaches distinct_id)', async () => {
+            const response = await tester.invoke(
+                {
+                    salt_secret: 'super-secret-salt',
+                    distinct_id_strategy: 'custom',
+                    custom_template: 'leak_{salt}_check',
+                },
+                { request: createVercelRequest(vercelLogDrain) }
+            )
+
+            expect(response.error).toBeUndefined()
+            const distinctId = response.capturedPostHogEvents[0].distinct_id
+            expect(distinctId).toBe('http_log_leak_{salt}_check')
+            expect(distinctId).not.toContain('super-secret-salt')
         })
 
         it('custom: empty template falls back to rotating_salt and warns', async () => {

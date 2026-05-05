@@ -191,14 +191,23 @@ if (strategy == 'rotating_salt') {
         activeStrategy := 'rotating_salt_fallback'
     } else {
         let result := customTemplate
-        result := replaceAll(result, '{salt}', salt)
+        // Note: {salt} is intentionally NOT a placeholder — exposing the secret
+        // in distinct_ids would defeat its purpose (events are stored in plain text).
         result := replaceAll(result, '{day}', day)
         result := replaceAll(result, '{ip}', clientIp)
         result := replaceAll(result, '{host}', host)
         result := replaceAll(result, '{ua}', userAgent)
         result := replaceAll(result, '{path}', path)
         result := replaceAll(result, '{project_id}', toString(log.projectId))
-        distinctId := f'http_log_{result}'
+        // Guard: if every placeholder resolved to empty, fall back to rotating_salt
+        // so we don't collapse all such requests onto a single 'http_log_' id.
+        if (empty(result)) {
+            print('vercel log drain: custom_template substituted to empty, falling back to rotating_salt')
+            distinctId := f'http_log_{shortHash(f'{salt}:{day}:{clientIp}:{host}:{userAgent}')}'
+            activeStrategy := 'rotating_salt_fallback'
+        } else {
+            distinctId := f'http_log_{result}'
+        }
     }
 } else {
     // Unknown strategy value — treat as rotating_salt
@@ -271,11 +280,10 @@ let props := {
     'proxy_method': proxy.method,
     'proxy_host': proxy.host,
     'proxy_path': proxy.path,
-    'proxy_user_agent': proxy.userAgent,
+    // proxy_user_agent and proxy_client_ip are gated on forward_ip_and_user_agent below.
     'proxy_region': proxy.region,
     'proxy_referer': proxy.referer,
     'proxy_status_code': proxy.statusCode,
-    'proxy_client_ip': proxy.clientIp,
     'proxy_scheme': proxy.scheme,
     'proxy_response_byte_size': proxy.responseByteSize,
     'proxy_cache_id': proxy.cacheId,
@@ -291,6 +299,8 @@ let props := {
 if (inputs.forward_ip_and_user_agent) {
     props['$ip'] := clientIp
     props['$raw_user_agent'] := userAgent
+    props['proxy_client_ip'] := proxy.clientIp
+    props['proxy_user_agent'] := proxy.userAgent
 }
 
 postHogCapture({
@@ -340,9 +350,9 @@ return {
             type: 'string',
             label: 'Distinct ID salt',
             description:
-                'High-entropy random secret (e.g. base64) mixed into hashed distinct IDs. Rotate to invalidate prior IDs. Required by all strategies except "ip".',
+                'High-entropy random secret (e.g. base64) mixed into hashed distinct IDs. Rotate to invalidate prior IDs. Used by rotating_salt, fixed_salt, and the rotating_salt_fallback path of custom; ignored by the ip strategy. If left blank, hashed strategies still produce stable IDs but lose the unguessability the salt provides — set one in production.',
             secret: true,
-            required: true,
+            required: false,
         },
         {
             key: 'distinct_id_strategy',
@@ -377,7 +387,7 @@ return {
             type: 'boolean',
             label: 'Forward client IP and user agent',
             description:
-                'When enabled, $ip and $raw_user_agent are emitted on every event (PostHog uses $ip for GeoIP enrichment). Off by default so raw PII does not land on events alongside hashed distinct IDs. Safe to enable when distinct_id_strategy is "ip", or whenever you do not need the strategy hashing to obscure the client.',
+                'When enabled, $ip, $raw_user_agent, proxy_client_ip, and proxy_user_agent are emitted on each event (PostHog uses $ip for GeoIP enrichment). Off by default so raw client identifiers do not land on events alongside hashed distinct IDs. Safe to enable when distinct_id_strategy is "ip", or whenever you do not need the strategy hashing to obscure the client.',
             secret: false,
             required: false,
             default: false,
@@ -387,7 +397,7 @@ return {
             type: 'string',
             label: 'Custom distinct ID template',
             description:
-                'Used only when strategy is "custom". Supports placeholders {salt}, {day}, {ip}, {host}, {ua}, {path}, {project_id} (literal string substitution, not Hog evaluation; unknown placeholders are left as-is). The result is prefixed with "http_log_". Empty value falls back to rotating_salt.',
+                'Used only when strategy is "custom". Supports placeholders {day}, {ip}, {host}, {ua}, {path}, {project_id} (literal string substitution, not Hog evaluation; unknown placeholders are left as-is). The salt secret is intentionally not exposed as a placeholder. The result is prefixed with "http_log_". Empty value or all-empty substitutions fall back to rotating_salt.',
             secret: false,
             required: false,
             // Templating disabled so {placeholder} braces are not interpreted as Hog
