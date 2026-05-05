@@ -1,8 +1,16 @@
-import { IconPulse, IconWarning } from '@posthog/icons'
+import { IconWarning } from '@posthog/icons'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import type { ClusterSummaryApi } from '../generated/api.schemas'
+
+// IconPulse is intentionally NOT used here. The "pulse" icon reads as
+// "average drift / activity over time" and only makes sense in the
+// snapshots overview where we surface aggregated drift. On a single
+// snapshot's diff result it overstates a one-off measurement and the
+// filmstrip got crowded with two icon-bearing chips per card. See
+// SnapshotCard / VisualReviewSnapshotOverviewScene for the avg-drift
+// usage we kept.
 
 // Display floor mirrors `DRIFT_DISPLAY_FLOOR_PCT` on the overview card —
 // values below this would round to "0.0%" via the formatter and look like
@@ -53,8 +61,12 @@ type ChangeBadgeProps = {
 export function SnapshotChangeBadge({ snapshot, size = 'default' }: ChangeBadgeProps): JSX.Element | null {
     const kind = snapshot.change_kind || ''
     const pct = snapshot.diff_percentage ?? null
-    const sizeClass = size === 'small' ? 'text-[10px] px-1.5 py-0.5' : 'text-[11px] px-2 py-0.5'
-    const iconClass = size === 'small' ? 'w-3 h-3' : 'w-3.5 h-3.5'
+    const isCompact = size === 'small'
+    // Smaller padding + non-pill corners on the filmstrip; the rounded-full
+    // pill plus icon pair was too visually heavy stacked next to a thumbnail.
+    const sizeClass = isCompact ? 'text-[10px] px-1 py-0' : 'text-[11px] px-2 py-0.5'
+    const iconClass = isCompact ? 'w-2.5 h-2.5' : 'w-3.5 h-3.5'
+    const radiusClass = isCompact ? 'rounded' : 'rounded-full'
 
     let kindChip: JSX.Element | null = null
 
@@ -68,10 +80,9 @@ export function SnapshotChangeBadge({ snapshot, size = 'default' }: ChangeBadgeP
                 title={`Layout shift. ${ssimText} Pixel-diff percentage isn't shown because it's below the classifier threshold and would mislead.`}
             >
                 <span
-                    className={`shrink-0 inline-flex items-center gap-1 bg-primary-highlight rounded-full font-medium text-primary leading-none ${sizeClass}`}
+                    className={`shrink-0 inline-flex items-center bg-primary-highlight font-medium text-primary leading-none ${radiusClass} ${sizeClass}`}
                 >
-                    <IconPulse className={iconClass} />
-                    Layout shift
+                    {isCompact ? 'Shift' : 'Layout shift'}
                 </span>
             </Tooltip>
         )
@@ -91,26 +102,32 @@ export function SnapshotChangeBadge({ snapshot, size = 'default' }: ChangeBadgeP
         const tooltip = tooltipBits.length ? `${pct.toFixed(2)}% pixel diff. ${tooltipBits.join(' · ')}.` : null
         const chip = (
             <span
-                className={`shrink-0 inline-flex items-center gap-1 rounded-full font-mono tabular-nums leading-none ${sizeClass} ${
+                className={`shrink-0 inline-flex items-center font-mono tabular-nums leading-none ${radiusClass} ${sizeClass} ${
                     isHigh
                         ? 'bg-warning-highlight text-warning-dark font-semibold'
-                        : 'bg-warning-highlight text-warning-dark'
+                        : 'bg-warning-highlight/60 text-warning-dark'
                 }`}
             >
-                <IconPulse className={iconClass} />
                 {formatPct(pct)}
             </span>
         )
         kindChip = tooltip ? <Tooltip title={tooltip}>{chip}</Tooltip> : chip
     }
 
+    // Size mismatch is secondary info — render the full chip on the
+    // verbose surface (sidebar) and an icon-only badge in the filmstrip
+    // so two side-by-side chips don't crowd the thumbnail.
+    const sizeChipTooltip =
+        'Baseline and current screenshots had different dimensions. Pixelhog padded to the larger size before computing the diff, so metrics are still meaningful — they just include the new content area as part of the change.'
     const sizeChip = snapshot.size_mismatch ? (
-        <Tooltip title="Baseline and current screenshots had different dimensions. Pixelhog padded to the larger size before computing the diff, so metrics are still meaningful — they just include the new content area as part of the change.">
+        <Tooltip title={sizeChipTooltip}>
             <span
-                className={`shrink-0 inline-flex items-center gap-1 bg-warning-highlight rounded-full font-medium text-warning-dark leading-none ${sizeClass}`}
+                className={`shrink-0 inline-flex items-center bg-warning-highlight font-medium text-warning-dark leading-none ${radiusClass} ${
+                    isCompact ? 'p-0.5' : `gap-1 ${sizeClass}`
+                }`}
             >
                 <IconWarning className={iconClass} />
-                Size changed
+                {!isCompact && 'Size changed'}
             </span>
         </Tooltip>
     ) : null
