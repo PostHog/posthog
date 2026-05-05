@@ -10,10 +10,13 @@ aggregate, and write back as in production.
 
 import gzip
 import json
+import uuid
 from typing import Any
 
 import pytest
 from unittest.mock import patch
+
+from asgiref.sync import sync_to_async
 
 from posthog.models import Organization, Team
 from posthog.storage import object_storage
@@ -23,6 +26,21 @@ from posthog.temporal.usage_report.activities import aggregate_and_chunk_org_rep
 from posthog.temporal.usage_report.queries import QUERIES
 from posthog.temporal.usage_report.storage import queries_key, write_json
 from posthog.temporal.usage_report.types import AggregateInputs, RunQueryToS3Result, WorkflowContext
+
+
+@sync_to_async
+def _make_org(name: str) -> Organization:
+    """Use the sync ORM (so pre_save signals run) wrapped for the async
+    test body. `acreate` skips Django signals, which means auto-slug and
+    auto-project-creation don't fire — both produce IntegrityErrors for
+    Org and Team respectively.
+    """
+    return Organization.objects.create(name=name, slug=f"test-{uuid.uuid4().hex[:12]}")
+
+
+@sync_to_async
+def _make_team(organization: Organization, name: str) -> Team:
+    return Team.objects.create(organization=organization, name=name)
 
 
 def _canned_query_payload(query_name: str, team_a_id: int, team_b_id: int) -> Any:
@@ -140,12 +158,15 @@ def _read_json(key: str) -> Any:
 @pytest.mark.django_db
 @pytest.mark.asyncio
 async def test_aggregate_writes_chunks_and_manifest(minio_workflow_ctx: WorkflowContext, activity_environment) -> None:
-    org_a = await Organization.objects.acreate(name="Org A")
-    org_b = await Organization.objects.acreate(name="Org B")
-    team_a = await Team.objects.acreate(organization=org_a, name="Team A")
-    team_b = await Team.objects.acreate(organization=org_b, name="Team B")
+    org_a = await _make_org("Org A")
+    org_b = await _make_org("Org B")
+    team_a = await _make_team(org_a, "Team A")
+    team_b = await _make_team(org_b, "Team B")
 
-    query_results = _seed_query_results(minio_workflow_ctx, team_a.id, team_b.id)
+    # Scope the run to just the orgs we created — the shared test DB has
+    # pre-seeded orgs that would otherwise inflate the manifest counts.
+    ctx = minio_workflow_ctx.model_copy(update={"organization_ids": [str(org_a.id), str(org_b.id)]})
+    query_results = _seed_query_results(ctx, team_a.id, team_b.id)
 
     with patch(
         "posthog.temporal.usage_report.activities.get_instance_metadata",
@@ -153,7 +174,7 @@ async def test_aggregate_writes_chunks_and_manifest(minio_workflow_ctx: Workflow
     ):
         result = await activity_environment.run(
             aggregate_and_chunk_org_reports,
-            AggregateInputs(ctx=minio_workflow_ctx, query_results=query_results),
+            AggregateInputs(ctx=ctx, query_results=query_results),
         )
 
     assert result.total_orgs == 2
@@ -207,15 +228,21 @@ async def test_aggregate_chunks_into_batches_of_ten_thousand(
     """Exercise chunking — set CHUNK_SIZE_ORGS low and verify multiple chunks."""
     from posthog.temporal.usage_report import activities as module
 
-    org = await Organization.objects.acreate(name="Org X")
-    team = await Team.objects.acreate(organization=org, name="T0")
+    org = await _make_org("Org X")
+    team = await _make_team(org, "T0")
 
-    extra_org_a = await Organization.objects.acreate(name="Extra A")
-    extra_org_b = await Organization.objects.acreate(name="Extra B")
-    extra_team_a = await Team.objects.acreate(organization=extra_org_a, name="EA")
-    await Team.objects.acreate(organization=extra_org_b, name="EB")
+    extra_org_a = await _make_org("Extra A")
+    extra_org_b = await _make_org("Extra B")
+    extra_team_a = await _make_team(extra_org_a, "EA")
+    await _make_team(extra_org_b, "EB")
 
-    query_results = _seed_query_results(minio_workflow_ctx, team.id, extra_team_a.id)
+    # Scope the activity to just the three orgs we created — the shared
+    # test DB has pre-seeded internal orgs that would otherwise inflate
+    # the chunk counts.
+    ctx = minio_workflow_ctx.model_copy(
+        update={"organization_ids": [str(org.id), str(extra_org_a.id), str(extra_org_b.id)]}
+    )
+    query_results = _seed_query_results(ctx, team.id, extra_team_a.id)
 
     with (
         patch.object(module, "CHUNK_SIZE_ORGS", 2),
@@ -226,7 +253,7 @@ async def test_aggregate_chunks_into_batches_of_ten_thousand(
     ):
         result = await activity_environment.run(
             aggregate_and_chunk_org_reports,
-            AggregateInputs(ctx=minio_workflow_ctx, query_results=query_results),
+            AggregateInputs(ctx=ctx, query_results=query_results),
         )
 
     # 3 orgs / 2 per chunk = 2 chunks (2 + 1)
@@ -248,10 +275,10 @@ async def test_aggregate_chunks_into_batches_of_ten_thousand(
 @pytest.mark.django_db
 @pytest.mark.asyncio
 async def test_aggregate_filters_by_organization_ids(minio_workflow_ctx: WorkflowContext, activity_environment) -> None:
-    org_a = await Organization.objects.acreate(name="A")
-    org_b = await Organization.objects.acreate(name="B")
-    team_a = await Team.objects.acreate(organization=org_a, name="A")
-    team_b = await Team.objects.acreate(organization=org_b, name="B")
+    org_a = await _make_org("A")
+    org_b = await _make_org("B")
+    team_a = await _make_team(org_a, "A")
+    team_b = await _make_team(org_b, "B")
 
     ctx = minio_workflow_ctx.model_copy(update={"organization_ids": [str(org_a.id)]})
     query_results = _seed_query_results(ctx, team_a.id, team_b.id)

@@ -31,6 +31,20 @@ from posthog.tasks.usage_report import (
     serialize_full_org_report,
 )
 from posthog.temporal.usage_report.aggregator import iter_chunk_lines
+from posthog.temporal.usage_report.queries import QUERIES
+
+
+def _all_destination_keys() -> list[str]:
+    """Every key `_get_team_report` reads, derived from the registry so we
+    don't have to keep the test in sync with the spec list by hand.
+    """
+    keys: list[str] = []
+    for spec in QUERIES:
+        if spec.output == "multi":
+            keys.extend(spec.multi_keys_mapping.values())
+        else:
+            keys.append(spec.name)
+    return keys
 
 
 def _instance_metadata() -> InstanceMetadata:
@@ -61,9 +75,11 @@ def _seed_all_data(team_a_id: int, team_b_id: int, team_c_id: int) -> dict[str, 
 
     Realistic enough to prove the team→org rollup math is identical:
     different team distributions per metric, some teams missing from
-    some metrics, and at least one org with multiple teams summed.
+    some metrics, and at least one org with multiple teams summed. All
+    other destination keys (derived from the registry) get an empty
+    dict so `_get_team_report`'s lookups don't KeyError.
     """
-    return {
+    interesting: dict[str, dict[int, int]] = {
         "teams_with_event_count_in_period": {team_a_id: 100, team_b_id: 50, team_c_id: 25},
         "teams_with_enhanced_persons_event_count_in_period": {team_a_id: 80, team_b_id: 40},
         "teams_with_recording_count_in_period": {team_a_id: 8, team_c_id: 3},
@@ -80,6 +96,7 @@ def _seed_all_data(team_a_id: int, team_b_id: int, team_c_id: int) -> dict[str, 
         "teams_with_api_queries_count": {team_a_id: 10},
         "teams_with_api_queries_read_bytes": {team_a_id: 1_500_000},
     }
+    return {key: interesting.get(key, {}) for key in _all_destination_keys()}
 
 
 def _celery_serialize(team_a_id: int, team_b_id: int, team_c_id: int, period_start: datetime) -> dict[str, Any]:
@@ -153,31 +170,38 @@ def test_iter_chunk_lines_matches_celery_serialization() -> None:
     """The aggregation activity ends up writing JSONL lines via
     `iter_chunk_lines`. That function should yield the same per-org
     `usage_report` dict the Celery `_queue_report` would have built.
+
+    The shared test DB may have pre-seeded orgs; we don't care how many
+    rows come out, only that the row for *our* org matches between the
+    two paths.
     """
     org = Organization.objects.create(name="Parity Iter Org")
     team = Team.objects.create(organization=org, name="Solo")
 
     period_start = datetime(2026, 5, 4, 0, 0, 0, tzinfo=UTC)
-    all_data = _seed_all_data(team.id, team.id, team.id)  # all metrics on the one team
+    all_data = _seed_all_data(team.id, team.id, team.id)
     instance_metadata = _instance_metadata()
 
     celery_dicts = _celery_serialize(team.id, team.id, team.id, period_start)
 
     org_reports = build_org_reports(all_data, period_start)
-    assert set(org_reports.keys()) == {str(org.id)}
+    assert str(org.id) in org_reports
 
-    lines = list(iter_chunk_lines(org_reports.values(), instance_metadata))
-    assert len(lines) == 1
-    line, has_usage = lines[0]
+    lines_by_org = {
+        line["organization_id"]: (line, has_usage)
+        for line, has_usage in iter_chunk_lines(org_reports.values(), instance_metadata)
+    }
+    assert str(org.id) in lines_by_org
+    line, has_usage = lines_by_org[str(org.id)]
     assert has_usage is True
-    assert line["organization_id"] == str(org.id)
     assert line["usage_report"] == celery_dicts[str(org.id)]
 
 
 @pytest.mark.django_db
 def test_build_org_reports_matches_legacy_loop() -> None:
     """Spot-check that the public `build_org_reports` facade returns
-    the same `OrgReport` dataclasses the legacy in-line loop produced.
+    the same `OrgReport` dataclass the legacy in-line loop produced for
+    a given org. Other orgs in the shared test DB are ignored.
     """
     org = Organization.objects.create(name="Facade Parity Org")
     team_1 = Team.objects.create(organization=org, name="One")
@@ -193,6 +217,6 @@ def test_build_org_reports_matches_legacy_loop() -> None:
 
     facade = build_org_reports(all_data, period_start)
 
-    assert set(legacy.keys()) == set(facade.keys()) == {str(org.id)}
-    for org_id in legacy:
-        assert dataclasses.asdict(legacy[org_id]) == dataclasses.asdict(facade[org_id])
+    assert str(org.id) in legacy
+    assert str(org.id) in facade
+    assert dataclasses.asdict(legacy[str(org.id)]) == dataclasses.asdict(facade[str(org.id)])
