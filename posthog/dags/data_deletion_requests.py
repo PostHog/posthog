@@ -74,6 +74,27 @@ class PersonRemovalContext:
 # ---------------------------------------------------------------------------
 
 
+def _record_execution_attempt(request: DataDeletionRequest) -> None:
+    """Mark the request IN_PROGRESS and update execution-tracking fields.
+
+    Called from inside the ``select_for_update`` block of each ``load_*`` op so
+    the counter and timestamps are bumped exactly once per APPROVED → IN_PROGRESS
+    transition. ``first_executed_at`` is preserved across retries; ``attempt_count``
+    counts every actual execution attempt (not Retry button clicks).
+    """
+    from django.utils import timezone
+
+    now = timezone.now()
+    request.status = RequestStatus.IN_PROGRESS
+    request.attempt_count = (request.attempt_count or 0) + 1
+    request.last_executed_at = now
+    update_fields = ["status", "updated_at", "attempt_count", "last_executed_at"]
+    if request.first_executed_at is None:
+        request.first_executed_at = now
+        update_fields.append("first_executed_at")
+    request.save(update_fields=update_fields)
+
+
 def _temp_table_name(team_id: int, request_id: str) -> str:
     return f"tmp_dag_team_{team_id}_prop_rm_{request_id[:8]}"
 
@@ -208,8 +229,7 @@ def load_deletion_request(
                 f"Request {config.request_id} is not an approved event_removal request.",
             )
 
-        request.status = RequestStatus.IN_PROGRESS
-        request.save(update_fields=["status", "updated_at"])
+        _record_execution_attempt(request)
 
     events_desc = "<all events>" if request.delete_all_events else f"{request.events}"
     context.log.info(
@@ -368,8 +388,7 @@ def load_property_removal_request(
                 f"Request {config.request_id} has no properties specified.",
             )
 
-        request.status = RequestStatus.IN_PROGRESS
-        request.save(update_fields=["status", "updated_at"])
+        _record_execution_attempt(request)
 
     context.log.info(
         f"Processing property removal {request.pk}: "
@@ -585,8 +604,7 @@ def load_person_removal_request(
                 "they are mutually exclusive."
             )
 
-        request.status = RequestStatus.IN_PROGRESS
-        request.save(update_fields=["status", "updated_at"])
+        _record_execution_attempt(request)
 
     # The fields are nullable on the model (NULL for non-person_removal rows), but
     # PersonRemovalContext and the downstream `if not drop_x` consumers want plain bools.

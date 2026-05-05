@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { SQLEditor } from 'scenes/data-warehouse/editor/SQLEditor'
@@ -8,7 +8,9 @@ import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
-import { logsSceneLogic } from 'products/logs/frontend/logsSceneLogic'
+import { getLogsSqlEditorTabId, logsSceneLogic } from 'products/logs/frontend/logsSceneLogic'
+
+import { logsSqlEditorTrackingLogic } from './logsSqlEditorTrackingLogic'
 
 const DEFAULT_LOGS_QUERY = 'SELECT * FROM logs LIMIT 10'
 
@@ -17,11 +19,12 @@ export interface LogsSqlEditorProps {
 }
 
 export const LogsSqlEditor = ({ id }: LogsSqlEditorProps): JSX.Element => {
-    const sqlEditorTabId = `logs-sql-editor-${id}`
+    const sqlEditorTabId = getLogsSqlEditorTabId(id)
     const { keepSqlEditorMounted } = useActions(logsSceneLogic)
     const logic = sqlEditorLogic({ tabId: sqlEditorTabId, mode: SQLEditorMode.Embedded })
     const { queryInput } = useValues(logic)
     const { setQueryInput, setSourceQuery, runQuery } = useActions(logic)
+    useMountedLogic(logsSqlEditorTrackingLogic({ sqlEditorTabId }))
 
     useEffect(() => {
         keepSqlEditorMounted(sqlEditorTabId)

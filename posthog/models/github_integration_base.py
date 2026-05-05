@@ -288,11 +288,17 @@ class GitHubIntegrationBase:
             data = response.json()
         except ValueError:
             self._on_token_refresh_failed(response)
-            raise Exception(f"Non-JSON response when refreshing installation token: {response.text[:500]}") from None
+            raise GitHubIntegrationError(
+                f"Non-JSON response when refreshing installation token: {response.text[:500]}",
+                status_code=response.status_code,
+            ) from None
 
         if response.status_code != 201 or not data.get("token"):
             self._on_token_refresh_failed(response)
-            raise Exception(f"Failed to refresh installation token: {response.text}")
+            raise GitHubIntegrationError(
+                f"Failed to refresh installation token: {response.text}",
+                status_code=response.status_code,
+            )
 
         if "expires_at" not in data:
             raise Exception("GitHub API response missing expires_at field")
@@ -366,8 +372,12 @@ class GitHubIntegrationBase:
             if response.status_code == 401:
                 try:
                     self.refresh_access_token()
-                except Exception:
-                    logger.warning("GitHubIntegration: token refresh after 401 failed", exc_info=True)
+                except Exception as exc:
+                    logger.exception(
+                        "GitHubIntegration: token refresh after 401 failed",
+                        integration_id=self.integration.id,
+                        status_code=getattr(exc, "status_code", None),
+                    )
                     return None
                 response = fetch()
             return response
@@ -585,8 +595,17 @@ class GitHubIntegrationBase:
             if response.status_code == 401:
                 try:
                     self.refresh_access_token()
-                except Exception:
-                    raise_repository_error("GitHubIntegration: token refresh after 401 failed", exc_info=True)
+                except Exception as exc:
+                    refresh_status = getattr(exc, "status_code", None)
+                    logger.exception(
+                        "GitHubIntegration: token refresh after 401 failed",
+                        integration_id=self.integration.id,
+                        status_code=refresh_status,
+                    )
+                    raise GitHubIntegrationError(
+                        "GitHubIntegration: token refresh after 401 failed",
+                        status_code=refresh_status,
+                    ) from exc
                 try:
                     response = fetch()
                 except requests.RequestException:
@@ -695,8 +714,12 @@ class GitHubIntegrationBase:
         if response.status_code == 401:
             try:
                 self.refresh_access_token()
-            except Exception:
-                logger.warning("GitHubIntegration: token refresh after 401 failed", exc_info=True)
+            except Exception as exc:
+                logger.exception(
+                    "GitHubIntegration: token refresh after 401 failed",
+                    integration_id=self.integration.id,
+                    status_code=getattr(exc, "status_code", None),
+                )
                 return [], False
             try:
                 response = fetch(current_page)

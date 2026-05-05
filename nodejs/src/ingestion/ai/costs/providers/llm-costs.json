@@ -366,13 +366,6 @@
                 "cache_write_token": 0.00000375,
                 "web_search": 0.01
             },
-            "amazon-bedrock": {
-                "prompt_token": 0.000003,
-                "completion_token": 0.000015,
-                "cache_read_token": 3e-7,
-                "cache_write_token": 0.00000375,
-                "web_search": 0.01
-            },
             "google-vertex-global": {
                 "prompt_token": 0.000003,
                 "completion_token": 0.000015,
@@ -2232,8 +2225,8 @@
                 "completion_token": 1.3e-7
             },
             "sambanova": {
-                "prompt_token": 2.2e-7,
-                "completion_token": 5.9e-7
+                "prompt_token": 2e-7,
+                "completion_token": 3.5e-7
             }
         }
     },
@@ -3219,8 +3212,8 @@
                 "completion_token": 0.00000138
             },
             "sambanova": {
-                "prompt_token": 2.2e-7,
-                "completion_token": 5.9e-7
+                "prompt_token": 3e-7,
+                "completion_token": 0.0000012
             },
             "siliconflow-fp8": {
                 "prompt_token": 3e-7,
@@ -3274,6 +3267,10 @@
                 "prompt_token": 6e-7,
                 "completion_token": 0.0000024,
                 "cache_read_token": 6e-8
+            },
+            "sambanova": {
+                "prompt_token": 6e-7,
+                "completion_token": 0.0000024
             },
             "together-fp4": {
                 "prompt_token": 3e-7,
@@ -3908,6 +3905,11 @@
                 "prompt_token": 8.5e-7,
                 "completion_token": 0.000004655,
                 "cache_read_token": 2.2e-7
+            },
+            "wandb-bf16": {
+                "prompt_token": 9.5e-7,
+                "completion_token": 0.000004,
+                "cache_read_token": 1.6e-7
             }
         }
     },

@@ -24,6 +24,10 @@ export interface TrendLineConfig {
     seriesKey: string
     kind: 'linear' | 'exponential'
     label?: string
+    /** Restrict the regression fit to indices `[0, fitUpTo)`; trend is still extrapolated
+     *  across the full range. Use to exclude an in-progress tail so the partial bucket
+     *  doesn't drag the slope. */
+    fitUpTo?: number
 }
 
 export interface DerivedSeriesOptions {
@@ -91,13 +95,30 @@ export function useDerivedSeries<Meta>(source: Series<Meta>[], options: DerivedS
             maSeries.push(buildMovingAverageSeries<Meta>({ sourceSeries: found, window: ma.window, label: ma.label }))
         }
 
+        // Trend lines may reference moving-average series too (e.g. trends renders both a
+        // raw trendline and a trendline of the MA), so fold MA keys into the lookup —
+        // but only clone the source map when there are MA entries to add.
+        let trendLineSourceByKey = sourceByKey
+        if (maSeries.length > 0) {
+            trendLineSourceByKey = new Map(sourceByKey)
+            for (const ma of maSeries) {
+                trendLineSourceByKey.set(ma.key, ma)
+            }
+        }
         const tlSeries: Series<Meta>[] = []
         for (const tl of trendLines ?? []) {
-            const found = sourceByKey.get(tl.seriesKey)
+            const found = trendLineSourceByKey.get(tl.seriesKey)
             if (!found) {
                 continue
             }
-            tlSeries.push(buildTrendLineSeries<Meta>({ sourceSeries: found, kind: tl.kind, label: tl.label }))
+            tlSeries.push(
+                buildTrendLineSeries<Meta>({
+                    sourceSeries: found,
+                    kind: tl.kind,
+                    label: tl.label,
+                    fitUpTo: tl.fitUpTo,
+                })
+            )
         }
 
         return applyComparisonDimming([...ciSeries, ...source, ...maSeries, ...tlSeries], comparisonOf)
@@ -128,7 +149,7 @@ function tlSig(tl: TrendLineConfig[] | undefined): string {
     if (!tl?.length) {
         return ''
     }
-    return tl.map((t) => `${t.seriesKey}|${t.kind}|${t.label ?? ''}`).join(';')
+    return tl.map((t) => `${t.seriesKey}|${t.kind}|${t.label ?? ''}|${t.fitUpTo ?? ''}`).join(';')
 }
 
 function cmpSig(cmp: Record<string, string> | undefined): string {

@@ -1,6 +1,13 @@
 import React, { useMemo } from 'react'
 
-import type { ChartTheme, LineChartConfig, PointClickData, Series, TooltipContext } from '../../core/types'
+import type {
+    ChartTheme,
+    LineChartConfig,
+    PointClickData,
+    Series,
+    TooltipConfig,
+    TooltipContext,
+} from '../../core/types'
 import { ReferenceLines } from '../../overlays/ReferenceLine'
 import { ValueLabels } from '../../overlays/ValueLabels'
 import { LineChart } from '../LineChart'
@@ -31,11 +38,16 @@ export interface TimeSeriesLineChartConfig {
     confidenceIntervals?: ConfidenceIntervalConfig[]
     movingAverage?: MovingAverageConfig[]
     trendLines?: TrendLineConfig[]
-    /** Map of comparison series key → its primary series key. Comparison series render
-     *  at reduced opacity so they read as subordinate to their primary. */
+    /** Comparison series keys mapped to their primary. Comparison series render dimmed. */
     comparisonOf?: Record<string, string>
     /** Anomaly markers rendered as filled circles on top of the chart. */
     anomalies?: AnomalyMarker[]
+    /** Render area-fill series as a 100% stacked view; y-axis becomes 0–100%. */
+    percentStackView?: boolean
+    /** Show a vertical crosshair line that follows the cursor. */
+    showCrosshair?: boolean
+    /** Tooltip behaviour (pinning, placement). Tooltip *content* is the `tooltip` render prop. */
+    tooltip?: TooltipConfig
 }
 
 export interface TimeSeriesLineChartProps<Meta = unknown> {
@@ -48,6 +60,7 @@ export interface TimeSeriesLineChartProps<Meta = unknown> {
     dataAttr?: string
     className?: string
     children?: React.ReactNode
+    onError?: (error: Error, info: React.ErrorInfo) => void
 }
 
 function resolveValueLabelsConfig(valueLabels: TimeSeriesLineChartConfig['valueLabels']): ValueLabelsConfig | null {
@@ -70,6 +83,7 @@ export function TimeSeriesLineChart<Meta = unknown>({
     dataAttr,
     className,
     children,
+    onError,
 }: TimeSeriesLineChartProps<Meta>): React.ReactElement {
     const {
         xAxis,
@@ -82,6 +96,9 @@ export function TimeSeriesLineChart<Meta = unknown>({
         trendLines,
         comparisonOf,
         anomalies,
+        percentStackView,
+        showCrosshair,
+        tooltip: tooltipConfig,
     } = config ?? {}
     const xTickFormatter = useXTickFormatter(xAxis, labels)
     const yTickFormatter = useYTickFormatter(yAxis)
@@ -129,6 +146,9 @@ export function TimeSeriesLineChart<Meta = unknown>({
         hideXAxis: xAxis?.hide,
         hideYAxis: yAxis?.hide,
         showGrid: yAxis?.showGrid,
+        percentStackView,
+        showCrosshair,
+        tooltip: tooltipConfig,
     }
 
     return (
@@ -141,6 +161,7 @@ export function TimeSeriesLineChart<Meta = unknown>({
             onPointClick={onPointClick}
             className={className}
             dataAttr={dataAttr}
+            onError={onError}
         >
             {referenceLines.length > 0 && <ReferenceLines lines={referenceLines} />}
             {valueLabelsConfig && <ValueLabels valueFormatter={valueLabelFormatter} />}

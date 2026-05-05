@@ -37,10 +37,11 @@ import {
     notebooksModel,
     openNotebook,
 } from '~/models/notebooksModel'
-import { NodeKind } from '~/queries/schema/schema-general'
+import { AnyResponseType, NodeKind } from '~/queries/schema/schema-general'
 import { isHogQLQuery, isSavedInsightNode } from '~/queries/utils'
 import {
     AccessControlLevel,
+    InsightModel,
     AccessControlResourceType,
     ActivityScope,
     AnyPropertyFilter,
@@ -84,6 +85,23 @@ export type NotebookLogicProps = {
     mode?: NotebookLogicMode
     target?: NotebookTarget
     canvasFiltersOverride?: AnyPropertyFilter[]
+    /**
+     * Pre-loaded notebook payload for shared/exported views. When set, `loadNotebook`
+     * short-circuits and uses this value instead of calling the API — anonymous shared
+     * viewers can't reach `/api/projects/.../notebooks/<short_id>/`.
+     */
+    cachedNotebook?: NotebookType
+    /**
+     * Pre-serialized saved insights referenced by a shared notebook, keyed by `short_id`.
+     * Each entry has computed results inlined so `NotebookNodeQuery` can seed `cachedInsight`
+     * and skip the `/query/` POST that sharing tokens cannot reach.
+     */
+    cachedInsightsByShortId?: Record<string, InsightModel>
+    /**
+     * Pre-computed results for inline (non-saved-insight) ph-query nodes in a shared notebook,
+     * keyed by `nodeId`. Lets `NotebookNodeQuery` seed `cachedResults` for ad-hoc queries too.
+     */
+    cachedInlineQueryResultsByNodeId?: Record<string, AnyResponseType>
 }
 
 async function runWhenEditorIsReady(waitForEditor: () => boolean, fn: () => any): Promise<any | null> {
@@ -329,7 +347,9 @@ export const notebookLogic = kea<notebookLogicType>([
                         return null
                     }
 
-                    if (props.shortId === SCRATCHPAD_NOTEBOOK.short_id) {
+                    if (props.cachedNotebook) {
+                        response = props.cachedNotebook
+                    } else if (props.shortId === SCRATCHPAD_NOTEBOOK.short_id) {
                         response = {
                             ...values.scratchpadNotebook,
                             content: null,
@@ -361,7 +381,7 @@ export const notebookLogic = kea<notebookLogicType>([
                         }
                     }
 
-                    const notebook = await migrate(response)
+                    const notebook = await migrate(response, { skipApiUpgrade: !!values.isShared })
 
                     if (notebook.content && (!values.notebook || values.notebook.version !== notebook.version)) {
                         // If this is the first load we need to override the content fully
@@ -594,9 +614,16 @@ export const notebookLogic = kea<notebookLogicType>([
             },
         ],
         editingNodeLogics: [
-            (s) => [s.editingNodeIds, s.nodeLogics],
-            (editingNodeIds, nodeLogics) =>
-                Object.values(nodeLogics).filter((nodeLogic) => editingNodeIds[nodeLogic.values.nodeId]),
+            (s) => [s.editingNodeIds, s.nodeLogics, s.isShared],
+            (editingNodeIds, nodeLogics, isShared) => {
+                // Editing UI is meaningless for anonymous shared viewers and `editingNodeIds` can
+                // arrive pre-populated from persisted local state — zero it out at the source so
+                // the Settings panel never renders for them.
+                if (isShared) {
+                    return []
+                }
+                return Object.values(nodeLogics).filter((nodeLogic) => editingNodeIds[nodeLogic.values.nodeId])
+            },
         ],
         editingNodeLogicsForLeft: [
             (s) => [s.editingNodeLogics, s.containerSize],
@@ -698,6 +725,40 @@ export const notebookLogic = kea<notebookLogicType>([
                             notebook.user_access_level,
                             AccessControlLevel.Editor
                         ))),
+        ],
+
+        isShared: [() => [(_, props) => props.cachedNotebook], (cachedNotebook): boolean => !!cachedNotebook],
+
+        cachedInsightsByShortId: [
+            () => [(_, props) => props.cachedInsightsByShortId],
+            (cachedInsightsByShortId): Record<string, InsightModel> => cachedInsightsByShortId ?? {},
+        ],
+
+        cachedInlineQueryResultsByNodeId: [
+            () => [(_, props) => props.cachedInlineQueryResultsByNodeId],
+            (cachedInlineQueryResultsByNodeId): Record<string, AnyResponseType> =>
+                cachedInlineQueryResultsByNodeId ?? {},
+        ],
+
+        getSharedCachedInsight: [
+            (s) => [s.isShared, s.cachedInsightsByShortId],
+            (isShared, cachedInsightsByShortId) =>
+                (shortId: string | null | undefined): InsightModel | null => {
+                    if (!isShared || !shortId) {
+                        return null
+                    }
+                    return cachedInsightsByShortId[shortId] ?? null
+                },
+        ],
+        getSharedCachedInlineQueryResults: [
+            (s) => [s.isShared, s.cachedInlineQueryResultsByNodeId],
+            (isShared, cachedInlineQueryResultsByNodeId) =>
+                (nodeId: string | null | undefined): AnyResponseType | null => {
+                    if (!isShared || !nodeId) {
+                        return null
+                    }
+                    return cachedInlineQueryResultsByNodeId[nodeId] ?? null
+                },
         ],
 
         insightShortIdsInNotebook: [
