@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { LemonBanner, LemonButton, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
@@ -195,46 +195,46 @@ function QuarantineSection({
 }): JSX.Element {
     if (isQuarantined && quarantineEntry) {
         const expires = quarantineEntry.expires_at ? new Date(quarantineEntry.expires_at) : null
+        const openConfirmation = (): void => {
+            LemonDialog.open({
+                title: 'Unquarantine this identifier?',
+                description:
+                    'This identifier will be gated on again in future runs. ' +
+                    'Branches that haven’t merged the fix may get blocked.',
+                primaryButton: {
+                    children: 'Unquarantine',
+                    status: 'danger',
+                    onClick: onUnquarantine,
+                },
+                secondaryButton: { children: 'Cancel' },
+            })
+        }
         return (
-            <LemonBanner type="warning" className="flex flex-wrap items-center gap-2">
-                <span className="flex-1 min-w-0 text-sm flex items-center gap-1.5 flex-wrap">
+            <LemonBanner
+                type="warning"
+                action={{
+                    children: 'Unquarantine',
+                    status: 'danger',
+                    'data-attr': 'visual-review-history-unquarantine',
+                    onClick: openConfirmation,
+                }}
+            >
+                <div className="text-sm flex flex-wrap items-center gap-x-2 gap-y-1">
                     <span className="font-semibold">Quarantined</span>
                     <span>— {quarantineEntry.reason || 'no reason given'}</span>
                     {expires && (
                         <>
-                            <span>·</span>
+                            <span aria-hidden>·</span>
                             <span>until {expires.toLocaleDateString()}</span>
                         </>
                     )}
                     {quarantineEntry.created_by && (
                         <>
-                            <span>·</span>
+                            <span aria-hidden>·</span>
                             <ProfilePicture user={quarantineEntry.created_by} size="xs" showName />
                         </>
                     )}
-                </span>
-                <LemonButton
-                    type="secondary"
-                    status="danger"
-                    size="small"
-                    data-attr="visual-review-history-unquarantine"
-                    onClick={() => {
-                        LemonDialog.open({
-                            title: 'Unquarantine this identifier?',
-                            description:
-                                'This identifier will be gated on again in future runs. ' +
-                                'Branches that haven’t merged the fix may get blocked.',
-                            primaryButton: {
-                                children: 'Unquarantine',
-                                status: 'danger',
-                                onClick: onUnquarantine,
-                            },
-                            secondaryButton: { children: 'Cancel' },
-                        })
-                    }}
-                >
-                    Unquarantine
-                </LemonButton>
+                </div>
             </LemonBanner>
         )
     }
