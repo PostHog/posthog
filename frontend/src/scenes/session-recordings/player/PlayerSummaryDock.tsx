@@ -199,7 +199,7 @@ export function PlayerSummaryDock(): JSX.Element | null {
                                 })
                             }}
                         >
-                            Copy for LLM
+                            Copy
                         </LemonButton>
                     )}
                     {(hasContentToExpand || isOpen) && (
