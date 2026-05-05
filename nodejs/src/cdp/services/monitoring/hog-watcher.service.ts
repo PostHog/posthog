@@ -176,6 +176,21 @@ export class HogWatcherService {
         ] as const
     }
 
+    private rateLimitWithStateArgs(id: HogFunctionType['id'], cost: number) {
+        const nowSeconds = Math.round(Date.now() / 1000)
+
+        return [
+            `${REDIS_KEY_TOKENS}/${id}`,
+            `${REDIS_KEY_STATE}/${id}`,
+            `${REDIS_KEY_STATE_LOCK}/${id}`,
+            nowSeconds,
+            cost,
+            this.config.bucketSize,
+            this.config.refillRate,
+            this.config.ttl,
+        ] as const
+    }
+
     public calculateNewState(tokens: number): HogWatcherState {
         const rating = tokens / this.config.bucketSize
 
@@ -423,12 +438,12 @@ export class HogWatcherService {
             functionCosts[result.invocation.functionId] = functionCost
         })
 
-        // We apply the costs and return the existing states so we can calculate those that need a state change
+        // Single pipeline command per function: reads state + lock + updates token bucket atomically
         const res = await this.redis.usePipeline({ name: 'updateRateLimits' }, (pipeline) => {
             for (const functionCost of Object.values(functionCosts)) {
-                pipeline.get(`${REDIS_KEY_STATE}/${functionCost.functionId}`)
-                pipeline.get(`${REDIS_KEY_STATE_LOCK}/${functionCost.functionId}`)
-                pipeline.checkRateLimitV2(...this.rateLimitArgs(functionCost.functionId, functionCost.cost))
+                pipeline.checkRateLimitWithState(
+                    ...this.rateLimitWithStateArgs(functionCost.functionId, functionCost.cost)
+                )
             }
         })
 
@@ -440,15 +455,21 @@ export class HogWatcherService {
 
         // Calculate all those that have changed state
         Object.values(functionCosts).map((functionCost, index) => {
-            const [stateResult, lockResult, tokenResult] = getRedisPipelineResults(res, index, 3)
+            // checkRateLimitWithState returns [state, lock, tokensBefore, tokensAfter]
+            const result = res[index]
+            const [state, lock, , tokensAfter] = (result?.[1] as [string, string, number, number]) ?? [
+                '',
+                '',
+                0,
+                this.config.bucketSize,
+            ]
 
-            const currentState: HogWatcherState = Number(stateResult[1] ?? HogWatcherState.healthy)
-            // V2 returns [tokensBefore, tokensAfter], we use tokensAfter
-            const tokens = Number(tokenResult[1]?.[1] ?? this.config.bucketSize)
+            const currentState: HogWatcherState = state ? Number(state) : HogWatcherState.healthy
+            const tokens = Number(tokensAfter ?? this.config.bucketSize)
             const newState = this.calculateNewState(tokens)
 
             if (currentState !== newState) {
-                if (lockResult[1]) {
+                if (lock) {
                     // We don't want to change the state of a function that is being locked (i.e. recently changed state)
                     return
                 }

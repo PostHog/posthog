@@ -7,15 +7,26 @@ import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
 import { defineLuaTokenBucket } from './redis-token-bucket.lua'
 
-type WithCheckRateLimit<T, TV2> = {
+type WithCheckRateLimit<T, TV2, TWithState> = {
     checkRateLimit: (key: string, now: number, cost: number, poolMax: number, fillRate: number, expiry: number) => T
     checkRateLimitV2: (key: string, now: number, cost: number, poolMax: number, fillRate: number, expiry: number) => TV2
+    checkRateLimitWithState: (
+        tokenKey: string,
+        stateKey: string,
+        lockKey: string,
+        now: number,
+        cost: number,
+        poolMax: number,
+        fillRate: number,
+        expiry: number
+    ) => TWithState
 }
 
-export type RedisClientPipeline = Pipeline & WithCheckRateLimit<number, [number, number]>
+export type RedisClientPipeline = Pipeline &
+    WithCheckRateLimit<number, [number, number], [string, string, number, number]>
 
 export type RedisClient = Omit<Redis, 'pipeline'> &
-    WithCheckRateLimit<Promise<number>, Promise<[number, number]>> & {
+    WithCheckRateLimit<Promise<number>, Promise<[number, number]>, Promise<[string, string, number, number]>> & {
         pipeline: () => RedisClientPipeline
     }
 
