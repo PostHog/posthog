@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPencil } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -32,7 +32,6 @@ export function SettingsTab(): JSX.Element {
 
     const cupedEnabled = experiment.stats_config?.cuped?.enabled ?? false
     const cupedLookbackDays = experiment.stats_config?.cuped?.lookback_days ?? DEFAULT_LOOKBACK_DAYS
-    const cupedDisplay = cupedEnabled ? `Enabled / ${cupedLookbackDays}-day lookback` : 'Disabled'
 
     const returnTo = urls.experiment(experiment.id)
 
@@ -56,7 +55,10 @@ export function SettingsTab(): JSX.Element {
                 <div>
                     <h2 className="font-semibold text-lg">CUPED</h2>
                     <div className="flex items-center gap-2">
-                        <span>{cupedDisplay}</span>
+                        <LemonTag type={cupedEnabled ? 'success' : 'default'}>
+                            {cupedEnabled ? 'Enabled' : 'Disabled'}
+                        </LemonTag>
+                        {cupedEnabled && <span>{cupedLookbackDays}-day lookback</span>}
                         <LemonButton type="secondary" size="xsmall" icon={<IconPencil />} onClick={openCupedModal} />
                     </div>
                     <p className="text-muted text-xs mt-1">
