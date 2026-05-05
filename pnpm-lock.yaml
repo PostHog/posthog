@@ -2108,8 +2108,8 @@ importers:
         specifier: 'catalog:'
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
-        specifier: '*'
-        version: 1.372.6
+        specifier: 'catalog:'
+        version: 1.372.8
       react:
         specifier: 18.3.1
         version: 18.3.1
