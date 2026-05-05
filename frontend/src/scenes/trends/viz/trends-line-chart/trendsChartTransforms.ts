@@ -1,12 +1,16 @@
 import { DEFAULT_Y_AXIS_ID } from 'lib/hog-charts'
 import type { LineChartConfig, Series } from 'lib/hog-charts'
-import { ciRanges, movingAverage, trendLine } from 'lib/statistics'
+import {
+    buildConfidenceIntervalSeries,
+    buildMovingAverageSeries,
+    buildTrendLineSeries,
+} from 'lib/hog-charts/charts/TimeSeriesLineChart/utils/derived-series'
+import { ciRanges } from 'lib/statistics'
 import { hexToRGBA } from 'lib/utils'
 
 import { ChartDisplayType } from '~/types'
 
-const COMPARE_PREVIOUS_DIM_OPACITY = 0.5
-const TRENDLINE_DIM_OPACITY = 0.5
+import { COMPARE_PREVIOUS_DIM_OPACITY } from '../trendsAdapterConstants'
 
 // Shape both IndexedTrendResult (kea) and TrendsResultItem (MCP) satisfy.
 export interface TrendsResultLike {
@@ -82,67 +86,66 @@ function buildDerivedTrendsSeries<R extends TrendsResultLike, M = unknown>(
     opts: BuildTrendsSeriesOpts<R, M>
 ): Series<M>[] {
     const { main, baseColor, dashedFromIndex, excluded } = built
+    const label = r.label ?? ''
     const out: Series<M>[] = []
 
     if (opts.showConfidenceIntervals) {
         const ci = (opts.confidenceLevel ?? 95) / 100
         const [lower, upper] = ciRanges(r.data, ci)
-        out.push({
-            key: `${r.id}__ci`,
-            label: `${r.label ?? ''} (CI)`,
-            data: upper,
-            color: main.color,
-            yAxisId: main.yAxisId,
-            meta: main.meta,
-            fill: { opacity: 0.2, lowerData: lower },
-            visibility: { excluded, fromTooltip: true, fromValueLabels: true },
-        })
+        out.push(
+            buildConfidenceIntervalSeries<M>({
+                seriesKey: main.key,
+                label,
+                baseColor: main.color,
+                lower,
+                upper,
+                yAxisId: main.yAxisId,
+                meta: main.meta,
+                excluded,
+            })
+        )
     }
 
+    let maSeries: Series<M> | undefined
     if (
         opts.showMovingAverage &&
         opts.movingAverageIntervals !== undefined &&
         r.data.length >= opts.movingAverageIntervals
     ) {
-        const maData = movingAverage(r.data, opts.movingAverageIntervals)
-        out.push({
-            key: `${r.id}-ma`,
-            label: `${r.label ?? ''} (Moving avg)`,
-            data: maData,
-            color: main.color,
-            yAxisId: main.yAxisId,
-            meta: main.meta,
-            stroke: { pattern: [10, 3] },
-            visibility: { fromTooltip: true, fromStack: true },
+        maSeries = buildMovingAverageSeries<M>({
+            sourceSeries: main,
+            window: opts.movingAverageIntervals,
+            label: `${label} (Moving avg)`,
         })
-
-        if (opts.showTrendLines && !excluded) {
-            out.push({
-                key: `${r.id}-ma__trendline`,
-                label: `${r.label ?? ''} (Moving avg)`,
-                data: trendLine(maData),
-                color: hexToRGBA(baseColor, TRENDLINE_DIM_OPACITY),
-                yAxisId: main.yAxisId,
-                stroke: { pattern: [1, 3] },
-                visibility: { fromTooltip: true, fromValueLabels: true, fromStack: true },
-            })
-        }
+        out.push(maSeries)
     }
 
-    // Fit excludes the in-progress tail (dashedFromIndex..end) so the flat
-    // partial bucket doesn't drag the slope down. Dimmed so the dashed
-    // overlay reads as subordinate to the series line — at full intensity
-    // the two colors visually compete, especially on a dark background.
+    if (maSeries && opts.showTrendLines && !excluded) {
+        // The MA-derived trendline must use the un-dimmed baseColor so compare-prev
+        // dimming doesn't compound with the trendline's own dimming. Pass a
+        // synthetic source whose colour is the un-dimmed base.
+        out.push(
+            buildTrendLineSeries<M>({
+                sourceSeries: { ...maSeries, color: baseColor },
+                kind: 'linear',
+                label: `${label} (Moving avg)`,
+            })
+        )
+    }
+
     if (opts.showTrendLines && !excluded) {
-        out.push({
-            key: `${r.id}__trendline`,
-            label: r.label ?? '',
-            data: trendLine(r.data, dashedFromIndex),
-            color: hexToRGBA(baseColor, TRENDLINE_DIM_OPACITY),
-            yAxisId: main.yAxisId,
-            stroke: { pattern: [1, 3] },
-            visibility: { fromTooltip: true, fromValueLabels: true, fromStack: true },
-        })
+        // Fit excludes the in-progress tail (dashedFromIndex..end) so the flat
+        // partial bucket doesn't drag the slope down. Dimmed so the dashed
+        // overlay reads as subordinate to the series line — at full intensity
+        // the two colors visually compete, especially on a dark background.
+        out.push(
+            buildTrendLineSeries<M>({
+                sourceSeries: { ...main, color: baseColor },
+                kind: 'linear',
+                label,
+                fitUpTo: dashedFromIndex,
+            })
+        )
     }
 
     return out

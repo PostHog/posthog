@@ -96,7 +96,6 @@ from posthog.rate_limit import (
     UserAuthenticationThrottle,
     UserEmailVerificationThrottle,
 )
-from posthog.tasks import user_identify
 from posthog.tasks.email import (
     send_email_change_emails,
     send_password_changed_email,
@@ -107,6 +106,9 @@ from posthog.user_permissions import UserPermissions
 from posthog.utils import render_template
 
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.notifications.backend.facade.api import NotificationType
+
+_VALID_NOTIFICATION_TYPE_VALUES: frozenset[str] = frozenset(t.value for t in NotificationType)
 
 REDIRECT_TO_SITE_COUNTER = Counter("posthog_redirect_to_site", "Redirect to site")
 REDIRECT_TO_SITE_FAILED_COUNTER = Counter("posthog_redirect_to_site_failed", "Redirect to site failed")
@@ -208,6 +210,12 @@ class UserSerializer(serializers.ModelSerializer):
         "to scope the 'waiting for teammate' UI to the org where delegation was initiated.",
     )
     is_organization_first_user = serializers.SerializerMethodField()
+    active_realtime_notification_types = serializers.SerializerMethodField(
+        help_text=(
+            "Real-time notification types that currently have a live dispatch site. "
+            "Drives the in-app notifications settings UI. Read-only."
+        ),
+    )
 
     class Meta:
         model = User
@@ -257,6 +265,7 @@ class UserSerializer(serializers.ModelSerializer):
             "onboarding_delegated_to_organization_id",
             "onboarding_delegation_accepted_at",
             "is_organization_first_user",
+            "active_realtime_notification_types",
             "pending_invites",
         ]
 
@@ -284,6 +293,7 @@ class UserSerializer(serializers.ModelSerializer):
             "onboarding_delegated_to_organization_id",
             "onboarding_delegation_accepted_at",
             "is_organization_first_user",
+            "active_realtime_notification_types",
             "pending_invites",
         ]
 
@@ -355,13 +365,19 @@ class UserSerializer(serializers.ModelSerializer):
             OrganizationDomain.objects.get_sso_enforcement_for_email_address(instance.email, organization=organization)
         )
 
+    def _is_self_request(self, instance: User) -> bool:
+        # True when the requesting user is the same as the user being serialized.
+        # Several SerializerMethodFields short-circuit when this is False so we don't
+        # pay extra queries on staff retrievals or leak per-user data across users.
+        request = self.context.get("request")
+        return bool(request and request.user.id == instance.id)
+
     @tracer.start_as_current_span("user_serializer.is_organization_first_user")
     def get_is_organization_first_user(self, instance: User) -> bool | None:
         # Only compute when the serialized user is the requesting user. Avoids paying an
         # extra membership query on every /api/users/@me/ hit for admin/staff flows that
         # don't need this field, and ensures invitee attribution can't leak across users.
-        request = self.context.get("request")
-        if not request or request.user.id != instance.id:
+        if not self._is_self_request(instance):
             return None
 
         organization = instance.current_organization
@@ -380,6 +396,10 @@ class UserSerializer(serializers.ModelSerializer):
             return None
         return membership.invited_by_id is None
 
+    @extend_schema_field({"type": "array", "items": {"type": "string"}})
+    def get_active_realtime_notification_types(self, _: User) -> list[str]:
+        return [t.value for t in NotificationType]
+
     @extend_schema_field(PendingInviteSerializer(many=True))
     @tracer.start_as_current_span("user_serializer.pending_invites")
     def get_pending_invites(self, instance: User) -> list[dict]:
@@ -388,8 +408,7 @@ class UserSerializer(serializers.ModelSerializer):
         Only returned when the serialized user is the requesting user — staff retrieving
         another account should not see that user's private invites.
         """
-        request = self.context.get("request")
-        if not request or request.user.id != instance.id or not instance.email:
+        if not self._is_self_request(instance) or not instance.email:
             return []
 
         normalized_email = EmailNormalizer.normalize(instance.email)
@@ -479,6 +498,34 @@ class UserSerializer(serializers.ModelSerializer):
                             code="invalid_input",
                         )
                 current_settings[key] = {**current_settings.get(key, {}), **value}
+            elif key == "realtime_notifications_disabled":
+                if not isinstance(value, dict):
+                    raise serializers.ValidationError(
+                        "realtime_notifications_disabled must be a dict",
+                        code="invalid_input",
+                    )
+                for type_key, team_map in value.items():
+                    if type_key not in _VALID_NOTIFICATION_TYPE_VALUES:
+                        raise serializers.ValidationError(
+                            f"Unknown notification type {type_key}",
+                            code="invalid_input",
+                        )
+                    if not isinstance(team_map, dict):
+                        raise serializers.ValidationError(
+                            f"Per-type value for {type_key} must be a dict of team_id to bool",
+                            code="invalid_input",
+                        )
+                    for _team_id, disabled in team_map.items():
+                        if not isinstance(disabled, bool):
+                            raise serializers.ValidationError(
+                                f"Disabled flag for {type_key} must be boolean, got {type(disabled)}",
+                                code="invalid_input",
+                            )
+                existing = current_settings.get("realtime_notifications_disabled", {}) or {}
+                merged: dict[str, dict[str, bool]] = {**existing}
+                for type_key, team_map in value.items():
+                    merged[type_key] = {**(existing.get(type_key, {}) or {}), **team_map}
+                current_settings["realtime_notifications_disabled"] = merged
             elif key == "data_pipeline_error_threshold":
                 if not isinstance(value, (int, float)):
                     raise serializers.ValidationError(
@@ -613,8 +660,21 @@ class UserSerializer(serializers.ModelSerializer):
         return instance
 
     def to_representation(self, instance: Any) -> Any:
-        with tracer.start_as_current_span("user_serializer.identify_task_delay"):
-            user_identify.identify_task.delay(user_id=instance.id)
+        # Refresh PostHog person properties so the dogfood instance keeps the user's
+        # org/project/role properties current. posthoganalytics.capture is non-blocking
+        # (the SDK ships events on a background thread) so this call doesn't add request
+        # latency. Inline rather than via celery — the previous celery .delay() was a
+        # synchronous broker round-trip that spiked to ~500ms+ in slow traces, which
+        # was the whole reason for moving away from it. Server-side capture also keeps
+        # working for clients running ad blockers, which a frontend-side identify would
+        # silently miss.
+        with tracer.start_as_current_span("user_serializer.identify"):
+            posthoganalytics.capture(
+                distinct_id=instance.distinct_id,
+                event="update user properties",
+                properties={"$set": instance.get_analytics_metadata()},
+            )
+
         with tracer.start_as_current_span("user_serializer.default_fields"):
             data = super().to_representation(instance)
 

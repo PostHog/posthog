@@ -78,6 +78,12 @@ export const MembersListQueryParams = /* @__PURE__ */ zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     order: zod.string().optional().describe('Sort order. Defaults to `-joined_at`.'),
+    search: zod
+        .string()
+        .optional()
+        .describe(
+            'Fuzzy match against member `first_name`, `last_name`, and `email` using Postgres trigram word similarity. Supports typos and prefix-as-you-type. Capped at 200 characters.'
+        ),
 })
 
 export const RolesListParams = /* @__PURE__ */ zod.object({

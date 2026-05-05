@@ -95,6 +95,7 @@ depends_on = [
     "products.tracing",
     "products.user_interviews",
     "products.visual_review",
+    "products.warehouse_sources_queue",
     "products.web_analytics",
     "products.workflows",
 ]
@@ -454,6 +455,13 @@ layer = "modules"
 
 [[modules]]
 path = "products.visual_review"
+depends_on = [
+    "posthog",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.warehouse_sources_queue"
 depends_on = [
     "posthog",
 ]

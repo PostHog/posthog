@@ -459,6 +459,74 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
+            ("first name match", "Marketing", "marketing@example.com"),
+            ("typo / transposition still matches", "marekting", "marketing@example.com"),
+            ("prefix-as-you-type on first name", "Marke", "marketing@example.com"),
+            ("case-insensitive", "MARKETING", "marketing@example.com"),
+            ("email match", "engineering", "engineering@example.com"),
+            ("last name match", "Smith", "smith@example.com"),
+        ]
+    )
+    def test_list_organization_members_filter_by_search(self, _name, search, expected_email):
+        User.objects.create_and_join(
+            self.organization, "marketing@example.com", None, first_name="Marketing", last_name="Director"
+        )
+        User.objects.create_and_join(
+            self.organization, "engineering@example.com", None, first_name="Engineering", last_name="Manager"
+        )
+        User.objects.create_and_join(self.organization, "smith@example.com", None, first_name="Bob", last_name="Smith")
+
+        response = self.client.get(f"/api/organizations/@current/members/?search={search}")
+        assert response.status_code == status.HTTP_200_OK
+        emails = [r["user"]["email"] for r in response.json()["results"]]
+
+        assert emails, f"expected at least one match for {search!r}, got nothing"
+        assert expected_email in emails, f"expected {expected_email!r} in results, got {emails}"
+
+    @parameterized.expand(
+        [
+            ("whitespace-only", "   "),
+            ("empty", ""),
+        ]
+    )
+    def test_list_organization_members_blank_search_returns_all(self, _name, search):
+        User.objects.create_and_join(self.organization, "extra@posthog.com", None)
+
+        response = self.client.get(f"/api/organizations/@current/members/?search={search}")
+        assert response.status_code == status.HTTP_200_OK
+        emails = {r["user"]["email"] for r in response.json()["results"]}
+        # Self-user + the one we just added should both be present
+        assert "extra@posthog.com" in emails
+
+    @parameterized.expand(
+        [
+            ("plain symbols", "&|!"),
+            ("sql-injection-shaped", "'; DROP TABLE--"),
+            ("nul bytes", "\x00\x00\x00"),
+        ]
+    )
+    def test_list_organization_members_pathological_search_does_not_500(self, _name, search):
+        response = self.client.get("/api/organizations/@current/members/", {"search": search})
+        assert response.status_code == status.HTTP_200_OK
+
+    @parameterized.expand(
+        [
+            ("at cap (200)", 200, status.HTTP_200_OK),
+            ("just over cap (201)", 201, status.HTTP_400_BAD_REQUEST),
+            ("very long (10k)", 10_000, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_list_organization_members_search_enforces_length_cap(self, _name, length, expected_status):
+        response = self.client.get("/api/organizations/@current/members/", {"search": "a" * length})
+        assert response.status_code == expected_status
+
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            body = response.json()
+            assert body["attr"] == "search", f"expected error scoped to 'search', got {body}"
+            assert "200 characters" in body["detail"], f"expected error detail to mention the cap, got {body['detail']}"
+
+    @parameterized.expand(
+        [
             # (name, has_totp, passkeys_enabled_for_2fa, passkey_verified, expected)
             ("totp_only", True, False, False, True),
             ("passkeys_enabled_and_verified", False, True, True, True),

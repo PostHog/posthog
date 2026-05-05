@@ -3,7 +3,7 @@ import { mockProducer, mockProducerObserver } from '~/tests/helpers/mocks/produc
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
-import { KafkaConsumer } from '~/kafka/consumer'
+import { KafkaConsumer } from '~/kafka/consumer/consumer-v1'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { Hub, PipelineEvent, Team } from '~/types'
 import { closeHub, createHub } from '~/utils/db/hub'
