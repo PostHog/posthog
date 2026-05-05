@@ -1,5 +1,6 @@
 # serializer version: 1
 # name: TestAPIDocsSchema.test_api_docs_generation_warnings_snapshot
   list([
+    '',
   ])
 # ---
