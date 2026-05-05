@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState } from 'react'
 import Stripe from 'stripe'
 
 import { DevTokenEntry } from '../components/PostHogConnect'
-import { BRAND_COLOR, BrandIcon, getConstants } from '../constants'
+import { appendSandboxParam, BRAND_COLOR, BrandIcon, getConstants } from '../constants'
 import EventsTab from '../fullPage/EventsTab'
 import ExperimentsTab from '../fullPage/ExperimentsTab'
 import FeatureFlagsTab from '../fullPage/FeatureFlagsTab'
@@ -25,7 +25,7 @@ const DISCONNECTED_DESCRIPTION =
     'PostHog gives you product analytics, session replays, experiments, and feature flags for your Stripe customers. ' +
     'To get started, connect this Stripe account from your PostHog dashboard.'
 
-const FullPage = ({ environment }: ExtensionContextValue): JSX.Element => {
+const FullPage = ({ environment, userContext }: ExtensionContextValue): JSX.Element => {
     const [state, setState] = useState<ConnectionState>({ status: 'loading' })
 
     // The runtime passes a fresh `environment` prop on every render, so anything derived
@@ -33,6 +33,7 @@ const FullPage = ({ environment }: ExtensionContextValue): JSX.Element => {
     // and we end up in a render → fetch → setState loop.
     const [constants] = useState(() => getConstants(environment))
     const [mode] = useState<'live' | 'test'>(() => environment?.mode ?? 'live')
+    const [isSandbox] = useState<boolean>(() => userContext?.account?.isSandbox ?? false)
 
     const loadConnection = useCallback(async (): Promise<void> => {
         try {
@@ -82,7 +83,7 @@ const FullPage = ({ environment }: ExtensionContextValue): JSX.Element => {
                     descriptionActionLabel="Learn more"
                     primaryAction={{
                         label: 'Connect in PostHog',
-                        href: constants.POSTHOG_NEW_SOURCE_URL,
+                        href: appendSandboxParam(constants.POSTHOG_NEW_SOURCE_URL, isSandbox),
                         target: '_blank',
                     }}
                     secondaryAction={{

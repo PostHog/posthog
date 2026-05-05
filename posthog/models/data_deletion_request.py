@@ -25,6 +25,13 @@ def compile_hogql_predicate(obj) -> tuple[str, dict]:
     decide how to splice it (typically ``AND (<fragment>)``). Raises
     :class:`~django.core.exceptions.ValidationError` on parse, resolution or
     subquery errors — suitable for use inside ``Model.clean()``.
+
+    The fragment uses unqualified column references (no ``events.``/``sharded_events.``
+    prefix), so it can be spliced into queries against either the Distributed
+    ``events`` proxy or the local ``sharded_events`` MergeTree. This matters for
+    lightweight DELETE: ClickHouse rewrites it into a mutation whose expression
+    analyzer rejects table-qualified references like ``sharded_events.mat_$current_url``
+    even when the column exists on every replica.
     """
     predicate = (getattr(obj, "hogql_predicate", "") or "").strip()
     if not predicate:
@@ -55,7 +62,9 @@ def compile_hogql_predicate(obj) -> tuple[str, dict]:
     if obj.team_id is None:
         raise ValidationError({"hogql_predicate": "team_id must be set before validating the predicate."})
 
-    context = HogQLContext(team_id=obj.team_id, within_non_hogql_query=True, enable_select_queries=True)
+    # ``within_non_hogql_query=True`` instructs the printer to emit unqualified column
+    # references — both for regular fields and for materialized-column shortcuts.
+    context = HogQLContext(team_id=obj.team_id, within_non_hogql_query=True, enable_select_queries=False)
     try:
         sql = translate_hogql(predicate, context, dialect="clickhouse")
     except Exception as exc:
@@ -114,12 +123,12 @@ class DataDeletionRequest(UUIDModel):
     team_id = models.IntegerField()
     request_type = models.CharField(
         max_length=40,
-        choices=RequestType,
+        choices=RequestType.choices,
         help_text="property_removal: remove specific properties from matching events. "
         "event_removal: delete entire events matching the criteria.",
     )
-    start_time = models.DateTimeField()
-    end_time = models.DateTimeField()
+    start_time = models.DateTimeField(null=True, blank=True)
+    end_time = models.DateTimeField(null=True, blank=True)
 
     events = ArrayField(
         models.CharField(max_length=1024),
@@ -146,11 +155,38 @@ class DataDeletionRequest(UUIDModel):
         default=list,
         help_text="Property names to remove. Required for property_removal requests.",
     )
-    person_drop_profiles = models.BooleanField(null=True, blank=True, help_text="Drop person profiles.")
-    person_drop_events = models.BooleanField(null=True, blank=True, help_text="Drop event records related to persons.")
-    person_drop_recordings = models.BooleanField(null=True, blank=True, help_text="Drop person recordings.")
+    person_uuids = ArrayField(
+        models.UUIDField(),
+        blank=True,
+        default=list,
+        help_text="Person UUIDs to target. Mutually exclusive with person_distinct_ids; max 1000.",
+    )
+    person_distinct_ids = ArrayField(
+        models.CharField(max_length=400),
+        blank=True,
+        default=list,
+        help_text="Person distinct IDs to target. Mutually exclusive with person_uuids; max 1000.",
+    )
+    person_drop_profiles = models.BooleanField(
+        null=True,
+        blank=True,
+        default=None,
+        help_text="Drop person profiles (Postgres + ClickHouse tombstone). NULL when not a person_removal request.",
+    )
+    person_drop_events = models.BooleanField(
+        null=True,
+        blank=True,
+        default=None,
+        help_text="Drop event records linked to these persons. NULL when not a person_removal request.",
+    )
+    person_drop_recordings = models.BooleanField(
+        null=True,
+        blank=True,
+        default=None,
+        help_text="Drop session recordings linked to these persons. NULL when not a person_removal request.",
+    )
 
-    status = models.CharField(max_length=40, choices=RequestStatus, default=RequestStatus.DRAFT)
+    status = models.CharField(max_length=40, choices=RequestStatus.choices, default=RequestStatus.DRAFT)
 
     # Stats (populated by ClickHouse query)
     count = models.BigIntegerField(null=True, blank=True, help_text="Number of events matching criteria")
@@ -212,6 +248,23 @@ class DataDeletionRequest(UUIDModel):
         "scheduled deletes_job drains them. Only honored for event_removal.",
     )
 
+    # Execution tracking
+    attempt_count = models.PositiveIntegerField(
+        default=0,
+        help_text="Number of times execution has been attempted. "
+        "Incremented when a load_* op transitions the request to IN_PROGRESS.",
+    )
+    first_executed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When execution was first attempted (set on the first APPROVED → IN_PROGRESS transition).",
+    )
+    last_executed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When execution was most recently attempted (updated on every APPROVED → IN_PROGRESS transition).",
+    )
+
     class Meta:
         ordering = ["-created_at"]
 
@@ -221,19 +274,65 @@ class DataDeletionRequest(UUIDModel):
     def clean(self) -> None:
         super().clean()
         if self.request_type == RequestType.EVENT_REMOVAL:
-            if self.delete_all_events and self.events:
-                raise ValidationError(
-                    {"events": "Events must be empty when delete_all_events is set."},
-                )
-            if not self.delete_all_events and not self.events:
-                raise ValidationError(
-                    {"events": "Provide at least one event, or set delete_all_events to delete every event."},
-                )
-        elif self.delete_all_events:
+            self._clean_event_removal()
+        elif self.request_type == RequestType.PROPERTY_REMOVAL:
+            self._clean_property_removal()
+        elif self.request_type == RequestType.PERSON_REMOVAL:
+            self._clean_person_removal()
+            return  # PERSON_REMOVAL never has hogql_predicate / events / properties
+        else:
+            raise ValidationError({"request_type": f"Unknown request_type: {self.request_type}"})
+
+        if self.delete_all_events and self.request_type != RequestType.EVENT_REMOVAL:
             raise ValidationError(
                 {"delete_all_events": "delete_all_events is only valid for event_removal requests."},
             )
-
         if self.hogql_predicate:
-            # Raises ValidationError on parse/resolve/subquery errors.
             compile_hogql_predicate(self)
+
+    def _clean_event_removal(self) -> None:
+        self._require_time_range()
+        if self.delete_all_events and self.events:
+            raise ValidationError({"events": "Events must be empty when delete_all_events is set."})
+        if not self.delete_all_events and not self.events:
+            raise ValidationError(
+                {"events": "Provide at least one event, or set delete_all_events to delete every event."}
+            )
+        self._reject_person_fields()
+
+    def _clean_property_removal(self) -> None:
+        self._require_time_range()
+        self._reject_person_fields()
+
+    def _require_time_range(self) -> None:
+        if self.start_time is None or self.end_time is None:
+            raise ValidationError({"start_time": "start_time and end_time are required for event/property removal."})
+        if self.start_time >= self.end_time:
+            raise ValidationError({"start_time": "start_time must be before end_time."})
+
+    def _clean_person_removal(self) -> None:
+        if self.person_uuids and self.person_distinct_ids:
+            raise ValidationError({"person_uuids": "Provide either person_uuids or person_distinct_ids, not both."})
+        total = len(self.person_uuids) + len(self.person_distinct_ids)
+        if total == 0:
+            raise ValidationError({"person_uuids": "Provide at least one person_uuid or person_distinct_id."})
+        if total > 1000:
+            raise ValidationError({"person_uuids": "person_uuids or person_distinct_ids must be ≤ 1000."})
+        if not (self.person_drop_profiles or self.person_drop_events or self.person_drop_recordings):
+            raise ValidationError(
+                {"person_drop_profiles": "At least one of person_drop_profiles / events / recordings must be true."}
+            )
+        if self.events or self.delete_all_events:
+            raise ValidationError({"events": "events / delete_all_events are not valid for person_removal."})
+        if self.properties:
+            raise ValidationError({"properties": "properties are not valid for person_removal."})
+        if self.hogql_predicate:
+            raise ValidationError({"hogql_predicate": "hogql_predicate is not valid for person_removal."})
+
+    def _reject_person_fields(self) -> None:
+        if self.person_uuids or self.person_distinct_ids:
+            raise ValidationError(
+                {"person_uuids": "person_uuids / person_distinct_ids are only valid for person_removal."}
+            )
+        if self.person_drop_profiles or self.person_drop_events or self.person_drop_recordings:
+            raise ValidationError({"person_drop_profiles": "person_drop_* flags are only valid for person_removal."})

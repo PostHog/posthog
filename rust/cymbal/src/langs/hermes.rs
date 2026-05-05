@@ -7,7 +7,7 @@ use sourcemap::Token;
 
 use crate::{
     error::{FrameError, HermesError, ResolveError, UnhandledError},
-    frames::Frame,
+    frames::{record_frame_resolution_failure, Frame},
     langs::{
         utils::{add_raw_to_junk, get_token_context},
         CommonFrameMetadata,
@@ -123,6 +123,10 @@ impl Display for HermesRef {
 
 impl From<(&RawHermesFrame, HermesError)> for Frame {
     fn from((frame, err): (&RawHermesFrame, HermesError)) -> Self {
+        record_frame_resolution_failure("hermes", err.metric_reason(), &err);
+
+        let resolve_failure = Some(err.to_string());
+
         let mut res = Self {
             frame_id: FrameId::placeholder(),
             mangled_name: frame.fn_name.clone(),
@@ -133,7 +137,7 @@ impl From<(&RawHermesFrame, HermesError)> for Frame {
             resolved_name: None,
             lang: "javascript".to_string(),
             resolved: false,
-            resolve_failure: Some(FrameError::from(err)),
+            resolve_failure,
             synthetic: frame.meta.synthetic,
             junk_drawer: None,
             code_variables: None,

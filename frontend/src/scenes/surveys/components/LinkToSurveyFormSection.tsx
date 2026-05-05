@@ -18,7 +18,6 @@ const defaultLabels: Record<SurveyEditSection, string> = {
     [SurveyEditSection.DisplayConditions]: 'display conditions section',
     [SurveyEditSection.Scheduling]: 'scheduling section',
     [SurveyEditSection.CompletionConditions]: 'completion conditions section',
-    [SurveyEditSection.Translations]: 'translations section',
 }
 
 export function LinkToSurveyFormSection({ section, label }: Props): JSX.Element {

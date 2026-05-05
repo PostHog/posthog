@@ -13,9 +13,6 @@ export type PrefilteredEventsOutput = typeof PREFILTERED_EVENTS_OUTPUT
 export const PRECALCULATED_PERSON_PROPERTIES_OUTPUT = 'precalculated_person_properties' as const
 export type PrecalculatedPersonPropertiesOutput = typeof PRECALCULATED_PERSON_PROPERTIES_OUTPUT
 
-export const LEGACY_PLUGIN_APP_METRICS_OUTPUT = 'legacy_plugin_app_metrics' as const
-export type LegacyPluginAppMetricsOutput = typeof LEGACY_PLUGIN_APP_METRICS_OUTPUT
-
 export const BATCH_HOGFLOW_REQUESTS_OUTPUT = 'batch_hogflow_requests' as const
 export type BatchHogflowRequestsOutput = typeof BATCH_HOGFLOW_REQUESTS_OUTPUT
 

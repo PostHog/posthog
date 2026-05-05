@@ -3,11 +3,14 @@ import { Redis } from 'ioredis'
 import { Message } from 'node-rdkafka'
 import { Counter, Gauge } from 'prom-client'
 
+import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
+import { AppMetricsAggregator } from '~/common/services/app-metrics-aggregator'
+import { KeyedRateLimiterService } from '~/common/services/keyed-rate-limiter.service'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { PluginEvent } from '~/plugin-scaffold'
 
 import { TransformationResult } from '../../cdp/hog-transformations/hog-transformer.service'
-import { KafkaConsumer } from '../../kafka/consumer'
+import { KafkaConsumerInterface, createKafkaConsumer } from '../../kafka/consumer'
 import { HealthCheckResult, IngestionLane, PluginServerService } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
 import { logger } from '../../utils/logger'
@@ -27,9 +30,11 @@ import { CymbalClient } from './cymbal'
 import {
     ErrorTrackingOutputs,
     ErrorTrackingPipelineOutput,
+    PreCymbalRateLimiterInput,
     createErrorTrackingPipeline,
     runErrorTrackingPipeline,
 } from './error-tracking-pipeline'
+import { KeyedRateLimiterStepOptions } from './keyed-rate-limiter-step'
 
 /**
  * Configuration values for ErrorTrackingConsumer.
@@ -49,6 +54,19 @@ export interface ErrorTrackingConsumerOptions {
     statefulOverflowRedisTTLSeconds: number
     statefulOverflowLocalCacheTTLSeconds: number
     pipeline: string
+    rateLimiterEnabled: boolean
+    rateLimiterReportingMode: boolean
+    rateLimiterRedisHost: string
+    rateLimiterRedisPort: number
+    rateLimiterRedisTls: boolean
+    rateLimiterBucketSize: number
+    rateLimiterRefillRate: number
+    rateLimiterTtlSeconds: number
+    /** Fallback Redis URL when no dedicated host is configured. Required when rateLimiterEnabled. */
+    fallbackRedisUrl?: string
+    /** Pool sizing for the dedicated rate limiter Redis pool. */
+    rateLimiterRedisPoolMinSize?: number
+    rateLimiterRedisPoolMaxSize?: number
 }
 
 /**
@@ -93,7 +111,7 @@ const latestOffsetTimestampGauge = new Gauge({
 
 export class ErrorTrackingConsumer {
     protected name = 'error-tracking-consumer'
-    protected kafkaConsumer: KafkaConsumer
+    protected kafkaConsumer: KafkaConsumerInterface
     protected pipeline!: BatchPipelineUnwrapper<
         { message: Message },
         ErrorTrackingPipelineOutput,
@@ -106,12 +124,15 @@ export class ErrorTrackingConsumer {
     protected overflowRedirectService?: OverflowRedirectService
     protected overflowLaneTTLRefreshService?: OverflowRedirectService
     protected topHog?: TopHog
+    protected rateLimiter?: KeyedRateLimiterService
+    protected rateLimiterAppMetricsAggregator?: AppMetricsAggregator
+    protected rateLimiterRedis?: RedisV2
 
     constructor(
         private config: ErrorTrackingConsumerOptions,
         private deps: ErrorTrackingConsumerDeps
     ) {
-        this.kafkaConsumer = new KafkaConsumer({
+        this.kafkaConsumer = createKafkaConsumer({
             groupId: config.groupId,
             topic: config.topic,
         })
@@ -150,6 +171,39 @@ export class ErrorTrackingConsumer {
             this.overflowLaneTTLRefreshService = new OverflowLaneOverflowRedirect({
                 redisRepository: overflowRedisRepository,
             })
+        }
+
+        // Optional keyed rate limiter — dedicated Redis pool, only built when explicitly enabled.
+        // When the master switch is off, no pool/service exists at all (the pipeline step is a no-op).
+        if (config.rateLimiterEnabled) {
+            const dedicatedHost = config.rateLimiterRedisHost
+            this.rateLimiterRedis = createRedisV2PoolFromConfig({
+                connection: dedicatedHost
+                    ? {
+                          url: dedicatedHost,
+                          options: {
+                              port: config.rateLimiterRedisPort,
+                              tls: config.rateLimiterRedisTls ? {} : undefined,
+                          },
+                          name: 'error-tracking-rate-limiter-redis',
+                      }
+                    : {
+                          url: config.fallbackRedisUrl ?? '',
+                          name: 'error-tracking-rate-limiter-redis-fallback',
+                      },
+                poolMinSize: config.rateLimiterRedisPoolMinSize ?? 1,
+                poolMaxSize: config.rateLimiterRedisPoolMaxSize ?? 3,
+            })
+            this.rateLimiter = new KeyedRateLimiterService(
+                {
+                    name: 'error-tracking-rate-limiter',
+                    bucketSize: config.rateLimiterBucketSize,
+                    refillRate: config.rateLimiterRefillRate,
+                    ttlSeconds: config.rateLimiterTtlSeconds,
+                },
+                this.rateLimiterRedis
+            )
+            this.rateLimiterAppMetricsAggregator = new AppMetricsAggregator(deps.outputs)
         }
     }
 
@@ -209,10 +263,71 @@ export class ErrorTrackingConsumer {
             overflowEnabled: this.config.overflowEnabled,
             overflowRedirectService: this.overflowRedirectService,
             overflowLaneTTLRefreshService: this.overflowLaneTTLRefreshService,
+            preCymbalRateLimiters: this.buildPreCymbalRateLimiterSpecs(),
             topHog: this.topHog,
         })
 
         logger.info('✅', `${this.name} - pipeline initialized`)
+    }
+
+    /**
+     * Construct the pre-Cymbal rate limiter spec list. Add new specs here as
+     * we extend rate limiting beyond the team-global limit (per-hash, per-event-name etc).
+     */
+    private buildPreCymbalRateLimiterSpecs(): KeyedRateLimiterStepOptions<PreCymbalRateLimiterInput>[] {
+        if (!this.rateLimiter) {
+            return []
+        }
+
+        const specs: KeyedRateLimiterStepOptions<PreCymbalRateLimiterInput>[] = [
+            // Team-global cap: every $exception event for a team consumes one token
+            // from a per-team bucket.
+            {
+                rateLimiter: this.rateLimiter,
+                appMetricsAggregator: this.rateLimiterAppMetricsAggregator,
+                appSource: 'exceptions',
+                getKey: (input) => `${input.team.id}:exceptions:global`,
+                getTeamId: (input) => input.team.id,
+                reportingMode: this.config.rateLimiterReportingMode,
+                dropReason: 'rate_limited:team_global',
+                // TODO: Read per-team bucket overrides from a Team Extension model
+                // (e.g. ErrorTrackingTeamSettings.rate_limit_bucket_size /
+                // .rate_limit_refill_rate). When those columns are nullable and unset,
+                // fall back to the env-configured defaults baked into `this.rateLimiter`.
+                // Wiring would look like:
+                //   getBucketConfig: (input) => {
+                //       const settings = (input as { team: TeamWithErrorTrackingSettings }).team
+                //           .error_tracking_settings
+                //       return {
+                //           bucketSize: settings?.rate_limit_bucket_size ?? undefined,
+                //           refillRate: settings?.rate_limit_refill_rate ?? undefined,
+                //       }
+                //   },
+            },
+            // TODO: Per-exception-hash limit using a coarse pre-Cymbal fingerprint
+            // (Cymbal's proper fingerprint is post-symbolication, so we accept a
+            // weaker-but-cheaper bucket here). Wiring would look like:
+            // {
+            //     rateLimiter: this.rateLimiter,
+            //     appMetricsAggregator: this.rateLimiterAppMetricsAggregator,
+            //     appSource: 'exceptions',
+            //     getKey: (input) => {
+            //         const first = input.event.properties?.$exception_list?.[0]
+            //         if (!first?.type && !first?.value) return null
+            //         const hash = createHash('sha1')
+            //             .update(`${first?.type ?? ''}|${first?.value ?? ''}`)
+            //             .digest('hex')
+            //             .slice(0, 16)
+            //         return `${input.team.id}:exceptions:hash:${hash}`
+            //     },
+            //     getTeamId: (input) => input.team.id,
+            //     reportingMode: this.config.rateLimiterReportingMode,
+            //     dropReason: 'rate_limited:per_hash',
+            //     // getBucketConfig: ... (see TODO above)
+            // },
+        ]
+
+        return specs
     }
 
     public async stop(): Promise<void> {
@@ -220,6 +335,17 @@ export class ErrorTrackingConsumer {
 
         // Wait for any pending side effects
         await this.promiseScheduler.waitForAll()
+
+        // Drain any pending rate-limiter outcome metrics before output producers go away.
+        if (this.rateLimiterAppMetricsAggregator) {
+            try {
+                await this.rateLimiterAppMetricsAggregator.flush()
+            } catch (error) {
+                logger.error('⚠️', `${this.name} - failed to flush rate limiter app metrics on stop`, {
+                    error: error instanceof Error ? error.message : String(error),
+                })
+            }
+        }
 
         // Shutdown overflow services
         await this.overflowRedirectService?.shutdown()
@@ -262,7 +388,16 @@ export class ErrorTrackingConsumer {
             throw error
         } finally {
             // Flush scheduled work and invocation results to prevent memory accumulation
-            await Promise.all([this.promiseScheduler.waitForAll(), this.deps.hogTransformer.processInvocationResults()])
+            await Promise.all([
+                this.promiseScheduler.waitForAll(),
+                this.deps.hogTransformer.processInvocationResults(),
+                // Best-effort: failures here must not break ingestion.
+                this.rateLimiterAppMetricsAggregator?.flush().catch((error) => {
+                    logger.error('⚠️', `${this.name} - failed to flush rate limiter app metrics`, {
+                        error: error instanceof Error ? error.message : String(error),
+                    })
+                }),
+            ])
         }
     }
 }

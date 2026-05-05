@@ -23,6 +23,8 @@ export interface MCPServerInstallationApi {
     /** @nullable */
     readonly template_id: string | null
     readonly name: string
+    /** Lowercase key from the linked template for brand icons. Empty if custom install (no template). */
+    readonly icon_key: string
     /** @maxLength 200 */
     display_name?: string
     /** @maxLength 2048 */

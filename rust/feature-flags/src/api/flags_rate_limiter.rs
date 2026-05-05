@@ -13,15 +13,27 @@
 /// The rate limiter is designed to match the behavior of Python's DecideRateThrottle class,
 /// which uses the token-bucket library for the /decide endpoint.
 use crate::api::rate_parser::parse_rate_string;
-use governor::{clock, state::keyed::DefaultKeyedStateStore, Quota, RateLimiter};
+use governor::{
+    clock, middleware::NoOpMiddleware, state::keyed::DefaultKeyedStateStore, Quota, RateLimiter,
+};
 use metrics::counter;
 use std::collections::HashMap;
 use std::num::NonZeroU32;
 use std::sync::Arc;
 
 /// Type alias for the governor keyed rate limiter.
-type GovernorLimiter =
-    Arc<RateLimiter<String, DefaultKeyedStateStore<String>, clock::DefaultClock>>;
+///
+/// The middleware is parameterized over the clock's `Instant` so the alias works
+/// for any clock (real or fake) without falling back to the global default
+/// `NoOpMiddleware<QuantaInstant>`.
+type GovernorLimiter<C = clock::DefaultClock> = Arc<
+    RateLimiter<
+        String,
+        DefaultKeyedStateStore<String>,
+        C,
+        NoOpMiddleware<<C as clock::Clock>::Instant>,
+    >,
+>;
 
 /// Result of a rate limit check.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,11 +59,15 @@ struct RateLimiterConfig {
 }
 
 /// Creates a governor limiter from a replenish rate and burst capacity.
-fn build_limiter(
+fn build_limiter<C>(
     replenish_rate: f64,
     burst_capacity: u32,
     error_prefix: &str,
-) -> anyhow::Result<GovernorLimiter> {
+    clock: &C,
+) -> anyhow::Result<GovernorLimiter<C>>
+where
+    C: clock::Clock,
+{
     let burst = NonZeroU32::new(burst_capacity)
         .ok_or_else(|| anyhow::anyhow!("{error_prefix} burst size must be greater than 0"))?;
 
@@ -71,7 +87,7 @@ fn build_limiter(
         ));
     };
 
-    Ok(Arc::new(RateLimiter::dashmap(quota)))
+    Ok(Arc::new(RateLimiter::dashmap_with_clock(quota, clock)))
 }
 
 /// Generic keyed rate limiter using token bucket algorithm with two-tier
@@ -85,13 +101,16 @@ fn build_limiter(
 /// different capacities (warn < enforce) give clean semantics: the warn bucket
 /// drains first.
 #[derive(Clone, Debug)]
-struct KeyedRateLimiter {
+struct KeyedRateLimiter<C = clock::DefaultClock>
+where
+    C: clock::Clock,
+{
     /// Whether rate limiting is enabled
     enabled: bool,
     /// The enforce-tier limiter (always present when enabled)
-    enforce_limiter: GovernorLimiter,
+    enforce_limiter: GovernorLimiter<C>,
     /// The warn-tier limiter (present only when warn capacity is configured)
-    warn_limiter: Option<GovernorLimiter>,
+    warn_limiter: Option<GovernorLimiter<C>>,
     /// When true, enforce rejections become warnings (never returns Blocked).
     /// Used for legacy log-only backwards compatibility.
     warn_only: bool,
@@ -99,7 +118,10 @@ struct KeyedRateLimiter {
     config: RateLimiterConfig,
 }
 
-impl KeyedRateLimiter {
+impl<C> KeyedRateLimiter<C>
+where
+    C: clock::Clock + Clone,
+{
     /// Creates a new KeyedRateLimiter with the specified configuration.
     ///
     /// - `warn_capacity`: If `Some`, a second limiter is created at this (lower) capacity.
@@ -113,8 +135,14 @@ impl KeyedRateLimiter {
         enforce_capacity: u32,
         warn_only: bool,
         config: RateLimiterConfig,
+        clock: C,
     ) -> anyhow::Result<Self> {
-        let enforce_limiter = build_limiter(replenish_rate, enforce_capacity, config.error_prefix)?;
+        let enforce_limiter = build_limiter(
+            replenish_rate,
+            enforce_capacity,
+            config.error_prefix,
+            &clock,
+        )?;
 
         let warn_limiter = match warn_capacity {
             Some(0) => {
@@ -124,7 +152,12 @@ impl KeyedRateLimiter {
                 );
                 None
             }
-            Some(cap) => Some(build_limiter(replenish_rate, cap, config.error_prefix)?),
+            Some(cap) => Some(build_limiter(
+                replenish_rate,
+                cap,
+                config.error_prefix,
+                &clock,
+            )?),
             None => None,
         };
 
@@ -248,11 +281,14 @@ fn redact_token(token: &str) -> String {
 ///
 /// Supports optional per-token custom rate overrides via `custom_limiters`.
 #[derive(Clone, Debug)]
-pub struct FlagsRateLimiter {
-    inner: KeyedRateLimiter,
+pub(crate) struct FlagsRateLimiter<C = clock::DefaultClock>
+where
+    C: clock::Clock,
+{
+    inner: KeyedRateLimiter<C>,
     /// Per-token custom rate limiters (enforce-only, no warn tier).
     /// Wrapped in Arc for O(1) clone since the map is immutable after construction.
-    custom_limiters: Arc<HashMap<String, GovernorLimiter>>,
+    custom_limiters: Arc<HashMap<String, GovernorLimiter<C>>>,
 }
 
 impl FlagsRateLimiter {
@@ -269,7 +305,7 @@ impl FlagsRateLimiter {
     ///
     /// # Example
     ///
-    /// ```
+    /// ```ignore
     /// use feature_flags::api::flags_rate_limiter::{FlagsRateLimiter, RateLimitResult};
     /// use std::collections::HashMap;
     ///
@@ -283,6 +319,32 @@ impl FlagsRateLimiter {
         enforce_capacity: u32,
         warn_only: bool,
         custom_rates: HashMap<String, String>,
+    ) -> anyhow::Result<Self> {
+        Self::new_with_clock(
+            enabled,
+            replenish_rate,
+            warn_capacity,
+            enforce_capacity,
+            warn_only,
+            custom_rates,
+            clock::DefaultClock::default(),
+        )
+    }
+}
+
+impl<C> FlagsRateLimiter<C>
+where
+    C: clock::Clock + Clone,
+{
+    /// Same as [`Self::new`], but with an injected `Clock` for deterministic testing.
+    pub fn new_with_clock(
+        enabled: bool,
+        replenish_rate: f64,
+        warn_capacity: Option<u32>,
+        enforce_capacity: u32,
+        warn_only: bool,
+        custom_rates: HashMap<String, String>,
+        clock: C,
     ) -> anyhow::Result<Self> {
         if custom_rates.len() > MAX_CUSTOM_RATE_OVERRIDES {
             return Err(anyhow::anyhow!(
@@ -305,6 +367,7 @@ impl FlagsRateLimiter {
             enforce_capacity,
             warn_only,
             config,
+            clock.clone(),
         )?;
 
         // Parse and create custom per-token limiters (enforce-only).
@@ -312,7 +375,7 @@ impl FlagsRateLimiter {
         for (token, rate_string) in &custom_rates {
             match parse_rate_string(rate_string) {
                 Ok(quota) => {
-                    let limiter = Arc::new(RateLimiter::dashmap(quota));
+                    let limiter = Arc::new(RateLimiter::dashmap_with_clock(quota, &clock));
                     custom_map.insert(token.clone(), limiter);
                     tracing::info!(
                         token = %redact_token(token),
@@ -391,9 +454,28 @@ impl FlagsRateLimiter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use governor::clock::FakeRelativeClock;
     use std::collections::HashMap;
-    use std::thread;
     use std::time::Duration;
+
+    fn default_limiter_with_clock(
+        enabled: bool,
+        replenish_rate: f64,
+        warn_capacity: Option<u32>,
+        enforce_capacity: u32,
+        clock: FakeRelativeClock,
+    ) -> FlagsRateLimiter<FakeRelativeClock> {
+        FlagsRateLimiter::new_with_clock(
+            enabled,
+            replenish_rate,
+            warn_capacity,
+            enforce_capacity,
+            false,
+            HashMap::new(),
+            clock,
+        )
+        .unwrap()
+    }
 
     fn default_limiter(
         enabled: bool,
@@ -437,13 +519,14 @@ mod tests {
 
     #[test]
     fn test_rate_limiter_replenishes_over_time() {
-        let limiter = default_limiter(true, 1.0, None, 1);
+        let clock = FakeRelativeClock::default();
+        let limiter = default_limiter_with_clock(true, 1.0, None, 1, clock.clone());
         let token = "test_token";
 
         assert_eq!(limiter.allow_request(token), RateLimitResult::Allowed);
         assert_eq!(limiter.allow_request(token), RateLimitResult::Blocked);
 
-        thread::sleep(Duration::from_millis(1100));
+        clock.advance(Duration::from_millis(1100));
 
         assert_eq!(limiter.allow_request(token), RateLimitResult::Allowed);
         assert_eq!(limiter.allow_request(token), RateLimitResult::Blocked);
@@ -656,8 +739,11 @@ mod tests {
 /// Similar to FlagsRateLimiter but rate limits by IP address instead of token.
 /// This provides defense-in-depth against DDoS attacks with rotating fake tokens.
 #[derive(Clone, Debug)]
-pub struct IpRateLimiter {
-    inner: KeyedRateLimiter,
+pub(crate) struct IpRateLimiter<C = clock::DefaultClock>
+where
+    C: clock::Clock,
+{
+    inner: KeyedRateLimiter<C>,
 }
 
 impl IpRateLimiter {
@@ -673,7 +759,7 @@ impl IpRateLimiter {
     ///
     /// # Example
     ///
-    /// ```
+    /// ```ignore
     /// use feature_flags::api::flags_rate_limiter::{IpRateLimiter, RateLimitResult};
     ///
     /// let limiter = IpRateLimiter::new(true, 20.0, None, 100, false).unwrap();
@@ -685,6 +771,30 @@ impl IpRateLimiter {
         warn_capacity: Option<u32>,
         enforce_capacity: u32,
         warn_only: bool,
+    ) -> anyhow::Result<Self> {
+        Self::new_with_clock(
+            enabled,
+            replenish_rate,
+            warn_capacity,
+            enforce_capacity,
+            warn_only,
+            clock::DefaultClock::default(),
+        )
+    }
+}
+
+impl<C> IpRateLimiter<C>
+where
+    C: clock::Clock + Clone,
+{
+    /// Same as [`Self::new`], but with an injected `Clock` for deterministic testing.
+    pub fn new_with_clock(
+        enabled: bool,
+        replenish_rate: f64,
+        warn_capacity: Option<u32>,
+        enforce_capacity: u32,
+        warn_only: bool,
+        clock: C,
     ) -> anyhow::Result<Self> {
         let config = RateLimiterConfig {
             metric_name: "flags_ip_rate_limit_exceeded_total",
@@ -699,6 +809,7 @@ impl IpRateLimiter {
             enforce_capacity,
             warn_only,
             config,
+            clock,
         )?;
 
         Ok(Self { inner })
@@ -725,7 +836,7 @@ impl IpRateLimiter {
 #[cfg(test)]
 mod ip_rate_limiter_tests {
     use super::*;
-    use std::thread;
+    use governor::clock::FakeRelativeClock;
     use std::time::Duration;
 
     #[test]
@@ -776,15 +887,18 @@ mod ip_rate_limiter_tests {
 
     #[test]
     fn test_ip_rate_limiter_replenishes() {
-        let limiter = IpRateLimiter::new(true, 1.0, None, 1, false).unwrap();
+        let clock = FakeRelativeClock::default();
+        let limiter =
+            IpRateLimiter::new_with_clock(true, 1.0, None, 1, false, clock.clone()).unwrap();
         let ip = "192.168.1.1";
 
         assert_eq!(limiter.allow_request(ip), RateLimitResult::Allowed);
         assert_eq!(limiter.allow_request(ip), RateLimitResult::Blocked);
 
-        thread::sleep(Duration::from_millis(1100));
+        clock.advance(Duration::from_millis(1100));
 
         assert_eq!(limiter.allow_request(ip), RateLimitResult::Allowed);
+        assert_eq!(limiter.allow_request(ip), RateLimitResult::Blocked);
     }
 
     #[test]

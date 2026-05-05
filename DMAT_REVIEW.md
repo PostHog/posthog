@@ -37,8 +37,8 @@ I added two new files:
 **RFC says:** "string-only" but lists numeric/bool/datetime as future work.
 **Implementation:** _strictly_ string-only. The legacy typed columns
 (`dmat_numeric_*`, `dmat_bool_*`, `dmat_datetime_*`) are dropped in
-`0244_add_dmat_string_columns_10_99.py`. The slot model's `property_type` field
-is removed in migration `1126_*`. HogQL uses the same `Nullable(String)` →
+`0249_add_dmat_string_columns_10_99.py`. The slot model's `property_type` field
+is removed in migration `1144_*`. HogQL uses the same `Nullable(String)` →
 `toFloat`/`toBool`/`toDateTime` wrapper that normal `mat_*` columns use.
 
 **Verdict:** ✅ Strict improvement. Reuses the existing read path (the user's

@@ -1,8 +1,8 @@
 from posthog.temporal.session_replay.enforce_max_replay_retention.activities import enforce_max_replay_retention
-from posthog.temporal.session_replay.enforce_max_replay_retention.workflows import EnforceMaxReplayRetentionWorkflow
+from posthog.temporal.session_replay.enforce_max_replay_retention.workflow import EnforceMaxReplayRetentionWorkflow
 
-WORKFLOWS = [
+ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS = [
     EnforceMaxReplayRetentionWorkflow,
 ]
 
-ACTIVITIES = [enforce_max_replay_retention]
+ENFORCE_MAX_REPLAY_RETENTION_ACTIVITIES = [enforce_max_replay_retention]

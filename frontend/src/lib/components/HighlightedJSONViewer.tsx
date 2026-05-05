@@ -1,11 +1,12 @@
-import { ReactJsonViewProps } from '@microlink/react-json-view'
+import type { ReactJsonViewProps } from '@microlink/react-json-view'
+import { Suspense } from 'react'
 
 import {
     ExpandSelector,
     HighlightedContentWrapper,
 } from 'products/llm_analytics/frontend/ConversationDisplay/HighlightedContentWrapper'
 
-import { JSONViewer } from './JSONViewer'
+import { JSONViewerInner } from './JSONViewer'
 
 interface HighlightedJSONViewerProps extends ReactJsonViewProps {
     searchQuery?: string
@@ -62,8 +63,10 @@ export function HighlightedJSONViewer({ searchQuery, ...props }: HighlightedJSON
         : props.collapsed
 
     return (
-        <HighlightedContentWrapper searchQuery={searchQuery} expandSelectors={jsonExpandSelectors} delay={50}>
-            <JSONViewer {...props} collapsed={effectiveCollapsed} />
-        </HighlightedContentWrapper>
+        <Suspense fallback={null}>
+            <HighlightedContentWrapper searchQuery={searchQuery} expandSelectors={jsonExpandSelectors} delay={50}>
+                <JSONViewerInner {...props} collapsed={effectiveCollapsed} />
+            </HighlightedContentWrapper>
+        </Suspense>
     )
 }

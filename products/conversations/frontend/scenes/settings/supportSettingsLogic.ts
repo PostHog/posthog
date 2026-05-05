@@ -88,6 +88,11 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         }),
         sendTestEmail: (configId: string) => ({ configId }),
         sendTestEmailDone: (configId: string) => ({ configId }),
+        // GitHub Issues channel settings
+        connectGithub: (integrationId: number) => ({ integrationId }),
+        disconnectGithub: true,
+        setGithubRepos: (repos: string[]) => ({ repos }),
+        loadGithubRepos: true,
     }),
     reducers({
         conversationsEnabledLoading: [
@@ -253,6 +258,38 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         ],
     }),
     loaders(({ values }) => ({
+        githubIntegrations: [
+            [] as { id: number; name: string }[],
+            {
+                loadGithubIntegrations: async () => {
+                    try {
+                        const response = await api.integrations.list()
+                        return (response.results || [])
+                            .filter((i: any) => i.kind === 'github')
+                            .map((i: any) => ({
+                                id: i.id,
+                                name: i.config?.account?.name || `Installation #${i.id}`,
+                            }))
+                    } catch {
+                        return values.githubIntegrations
+                    }
+                },
+            },
+        ],
+        githubRepos: [
+            [] as { full_name: string; name: string }[],
+            {
+                loadGithubRepos: async () => {
+                    try {
+                        const response = await api.create('api/conversations/v1/github/repos', {})
+                        return response.repos || []
+                    } catch {
+                        lemonToast.error('Failed to load GitHub repositories')
+                        return values.githubRepos
+                    }
+                },
+            },
+        ],
         slackChannels: [
             [] as SlackChannelType[],
             {
@@ -357,6 +394,14 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         teamsChannelName: [
             (s) => [s.currentTeam],
             (currentTeam): string | null => currentTeam?.conversations_settings?.teams_channel_name ?? null,
+        ],
+        githubConnected: [
+            (s) => [s.currentTeam],
+            (currentTeam): boolean => !!currentTeam?.conversations_settings?.github_enabled,
+        ],
+        githubSelectedRepos: [
+            (s) => [s.currentTeam],
+            (currentTeam): string[] => currentTeam?.conversations_settings?.github_repos || [],
         ],
     }),
     listeners(({ values, actions }) => ({
@@ -691,6 +736,33 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             }
             actions.loadCurrentTeam()
         },
+        connectGithub: async ({ integrationId }) => {
+            try {
+                await api.create('api/conversations/v1/github/connect', { integration_id: integrationId })
+                actions.loadCurrentTeam()
+                actions.loadGithubRepos()
+                lemonToast.success('GitHub connected')
+            } catch {
+                lemonToast.error('Failed to connect GitHub')
+            }
+        },
+        disconnectGithub: async () => {
+            try {
+                await api.create('api/conversations/v1/github/disconnect', {})
+                actions.loadCurrentTeam()
+                lemonToast.success('GitHub disconnected')
+            } catch {
+                lemonToast.error('Failed to disconnect GitHub')
+            }
+        },
+        setGithubRepos: async ({ repos }) => {
+            try {
+                await api.create('api/conversations/v1/github/select-repos', { repos })
+                actions.loadCurrentTeam()
+            } catch {
+                lemonToast.error('Failed to save repository selection')
+            }
+        },
         updateCurrentTeamSuccess: () => {
             actions.setGreetingInputValue(null)
             actions.setIdentificationFormTitleValue(null)
@@ -718,5 +790,10 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         }
         // Always load email configs to populate the list
         actions.loadEmailConfigs()
+        // Load GitHub integrations for the connect picker
+        actions.loadGithubIntegrations()
+        if (values.githubConnected) {
+            actions.loadGithubRepos()
+        }
     }),
 ])

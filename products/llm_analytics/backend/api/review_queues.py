@@ -159,7 +159,7 @@ class ReviewQueueItemSerializer(serializers.ModelSerializer):
     )
     trace_id = serializers.CharField(
         read_only=True,
-        help_text="Trace ID currently pending human review.",
+        help_text="Trace ID currently pending review.",
     )
     created_by = UserBasicSerializer(read_only=True, help_text="User who queued this trace.")
 

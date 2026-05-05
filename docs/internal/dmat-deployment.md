@@ -36,7 +36,7 @@ The order matters because the kafka tables / MVs are recreated mid-migration.
 ### 1. Apply Django migrations
 
 ```sh
-hogli django migrate posthog 1126_materializedcolumnslot_pending_and_expand_index
+hogli django migrate posthog 1144_materializedcolumnslot_pending_and_expand_index
 ```
 
 This applies the single in-flight migration that brings the slot table fully in line with
@@ -56,11 +56,11 @@ is normally a multi-phase operation per
 ### 2. Apply the ClickHouse migration
 
 ```sh
-hogli django migrate_clickhouse --plan         # confirm 0244 will run
+hogli django migrate_clickhouse --plan         # confirm 0249 will run
 hogli django migrate_clickhouse                 # apply
 ```
 
-Migration `0244_add_dmat_string_columns_10_99` does this in order:
+Migration `0249_add_dmat_string_columns_10_99` does this in order:
 
 1. **Drop** `events_json_mv` (MSK) and `events_json_ws_mv` (cloud-only WS).
 2. **Drop** `kafka_events_json` and `kafka_events_json_ws`.

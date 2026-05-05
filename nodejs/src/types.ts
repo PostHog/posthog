@@ -8,7 +8,6 @@ import { Element, PluginEvent, Properties } from '~/plugin-scaffold'
 
 import type { CdpConfig } from './cdp/config'
 import type {
-    KafkaMskProducerEnvConfig,
     KafkaWarehouseProducerEnvConfig,
     KafkaWarpstreamCalculatedEventsProducerEnvConfig,
     KafkaWarpstreamCyclotronProducerEnvConfig,
@@ -20,7 +19,6 @@ import type { CommonConfig } from './common/config'
 import type { IngestionConsumerConfig } from './ingestion/config'
 import type { CookielessManager } from './ingestion/cookieless/cookieless-manager'
 import type { ErrorTrackingConsumerConfig } from './ingestion/error-tracking/config'
-import { KafkaProducerWrapper } from './kafka/producer'
 import type { LlmAnalyticsConfig } from './llm-analytics/config'
 import type { LogsIngestionConsumerConfig, TracesIngestionConsumerConfig } from './logs-ingestion/config'
 import type { SessionRecordingApiConfig, SessionRecordingConfig } from './session-recording/config'
@@ -123,7 +121,6 @@ export interface PluginsServerConfig
         SessionRecordingConfig,
         SessionRecordingApiConfig,
         // Producer envs needed by the CDP producer registry the legacy big server builds.
-        KafkaMskProducerEnvConfig,
         KafkaWarpstreamIngestionProducerEnvConfig,
         KafkaWarpstreamCalculatedEventsProducerEnvConfig,
         KafkaWarpstreamCyclotronProducerEnvConfig,
@@ -134,7 +131,6 @@ export interface HubServices {
     redisPool: GenericPool<Redis>
     posthogRedisPool: GenericPool<Redis>
     cookielessRedisPool: GenericPool<Redis>
-    kafkaProducer: KafkaProducerWrapper
     teamManager: TeamManager
     materializedColumnSlotManager: MaterializedColumnSlotManager
     groupTypeManager: GroupTypeManager

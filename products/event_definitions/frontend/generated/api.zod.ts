@@ -11,6 +11,8 @@ import * as zod from 'zod'
 
 export const eventDefinitionsCreateBodyNameMax = 400
 
+export const eventDefinitionsCreateBodyPrimaryPropertyMax = 400
+
 export const eventDefinitionsCreateBodyPostToSlackDefault = false
 
 export const EventDefinitionsCreateBody = /* @__PURE__ */ zod
@@ -22,12 +24,21 @@ export const EventDefinitionsCreateBody = /* @__PURE__ */ zod
         verified: zod.boolean().optional(),
         hidden: zod.boolean().nullish(),
         enforcement_mode: zod.enum(['allow', 'reject']).optional().describe('* `allow` - Allow\n* `reject` - Reject'),
+        primary_property: zod
+            .string()
+            .max(eventDefinitionsCreateBodyPrimaryPropertyMax)
+            .nullish()
+            .describe(
+                "Name of a single property on this event that PostHog UIs should display alongside the event (for example `$pathname` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event."
+            ),
         post_to_slack: zod.boolean().default(eventDefinitionsCreateBodyPostToSlackDefault),
         default_columns: zod.array(zod.string()).optional(),
     })
     .describe('Serializer mixin that handles tags for objects.')
 
 export const eventDefinitionsUpdateBodyNameMax = 400
+
+export const eventDefinitionsUpdateBodyPrimaryPropertyMax = 400
 
 export const eventDefinitionsUpdateBodyPostToSlackDefault = false
 
@@ -40,12 +51,21 @@ export const EventDefinitionsUpdateBody = /* @__PURE__ */ zod
         verified: zod.boolean().optional(),
         hidden: zod.boolean().nullish(),
         enforcement_mode: zod.enum(['allow', 'reject']).optional().describe('* `allow` - Allow\n* `reject` - Reject'),
+        primary_property: zod
+            .string()
+            .max(eventDefinitionsUpdateBodyPrimaryPropertyMax)
+            .nullish()
+            .describe(
+                "Name of a single property on this event that PostHog UIs should display alongside the event (for example `$pathname` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event."
+            ),
         post_to_slack: zod.boolean().default(eventDefinitionsUpdateBodyPostToSlackDefault),
         default_columns: zod.array(zod.string()).optional(),
     })
     .describe('Serializer mixin that handles tags for objects.')
 
 export const eventDefinitionsPartialUpdateBodyNameMax = 400
+
+export const eventDefinitionsPartialUpdateBodyPrimaryPropertyMax = 400
 
 export const eventDefinitionsPartialUpdateBodyPostToSlackDefault = false
 
@@ -58,6 +78,13 @@ export const EventDefinitionsPartialUpdateBody = /* @__PURE__ */ zod
         verified: zod.boolean().optional(),
         hidden: zod.boolean().nullish(),
         enforcement_mode: zod.enum(['allow', 'reject']).optional().describe('* `allow` - Allow\n* `reject` - Reject'),
+        primary_property: zod
+            .string()
+            .max(eventDefinitionsPartialUpdateBodyPrimaryPropertyMax)
+            .nullish()
+            .describe(
+                "Name of a single property on this event that PostHog UIs should display alongside the event (for example `$pathname` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event."
+            ),
         post_to_slack: zod.boolean().default(eventDefinitionsPartialUpdateBodyPostToSlackDefault),
         default_columns: zod.array(zod.string()).optional(),
     })

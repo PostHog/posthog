@@ -73,7 +73,7 @@ jobs:
 
             - name: report failure
               if: failure()
-              uses: PostHog/posthog-github-action@eea1405eeb2d1d2259f0ee0b44d7b152869e6840 # v1.1.1
+              uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
               with:
                   posthog-token: ${{secrets.POSTHOG_API_TOKEN}}
                   event: 'posthog-image-build'
@@ -81,7 +81,7 @@ jobs:
             - name: report failure to DevEx PostHog
               if: failure()
               continue-on-error: true
-              uses: PostHog/posthog-github-action@eea1405eeb2d1d2259f0ee0b44d7b152869e6840 # v1.1.1
+              uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
               with:
                   posthog-token: ${{secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN}}
                   event: 'posthog-image-build'

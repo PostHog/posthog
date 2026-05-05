@@ -23,6 +23,11 @@ PostHog's canvas-based charting library built on D3.
   not props from Chart.** Prefer the granular hooks: `useChartLayout()` doesn't
   re-render on hover, while `useChartHover()` does. Use `useChart()` only when an
   overlay needs both — it re-renders on every mousemove.
+- **Tests go through the accessor.** Chart-level tests use `renderHogChart` plus
+  the `HogChart` accessor from `testing/`. The `data-attr` selectors are a
+  stable contract. Drive interactions with `hoverAtIndex` / `clickAtIndex` /
+  `waitForHogChartTooltip`. Don't mock `canvas-renderer` from chart tests —
+  pure logic is tested at the `core/` layer. See [docs/TESTING.md](./docs/TESTING.md).
 
 ## Adding a new chart type
 
@@ -73,9 +78,15 @@ For custom tooltip content, pass a component to the `tooltip` prop. It receives
 
 ### Series visibility flags
 
-- `hidden`: fully excludes the series — no rendering, no scale contribution, no
-  tooltip row, no hit-testing.
-- `hideFromTooltip`: the series still renders and participates in scales and
+All flags live under `series.visibility` and default to `false`.
+
+- `excluded`: fully excludes the series — no rendering, no scale contribution,
+  no tooltip row, no hit-testing.
+- `fromTooltip`: the series still renders and participates in scales and
   hit-testing, but is omitted from `TooltipContext.seriesData` so it doesn't
   appear as a tooltip row. Useful for background/reference series that
   shouldn't clutter the tooltip.
+- `fromValueLabels`: the `ValueLabels` overlay skips this series.
+- `fromStack`: the series is excluded from d3 stack computation. Use for
+  auxiliary overlays (trend lines, moving averages) that should not affect
+  cumulative area heights.

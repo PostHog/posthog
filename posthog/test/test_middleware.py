@@ -13,6 +13,7 @@ from django.http import HttpResponseRedirect
 from django.test import Client as DjangoClient
 from django.urls import reverse
 
+from loginas import settings as la_settings
 from parameterized import parameterized
 from rest_framework import status
 from social_core.backends.base import BaseAuth
@@ -192,7 +193,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        cls.base_app_num_queries = 53
+        cls.base_app_num_queries = 52
         # Create another team that the user does have access to
         cls.second_team = create_team(organization=cls.organization, name="Second Life")
 
@@ -879,6 +880,250 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
 
         assert response.status_code == 403
         assert response.json()["code"] == "impersonation_read_only"
+
+
+@override_settings(IMPERSONATION_TIMEOUT_SECONDS=100)
+@override_settings(IMPERSONATION_IDLE_TIMEOUT_SECONDS=20)
+@override_settings(ADMIN_PORTAL_ENABLED=True)
+@override_settings(ADMIN_AUTH_GOOGLE_OAUTH2_KEY=None)
+@override_settings(ADMIN_AUTH_GOOGLE_OAUTH2_SECRET=None)
+# Bypass ManifestStaticFilesStorage so admin templates render in tests without a manifest.
+@override_settings(STORAGES={"staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}})
+class TestAdminImpersonationMiddleware(APIBaseTest):
+    """Tests AdminImpersonationMiddleware: admin panel must remain accessible to the
+    original staff user during impersonation, even though `request.user` would
+    normally be the (non-staff) impersonated customer."""
+
+    other_user: User
+
+    def setUp(self):
+        super().setUp()
+        self.other_user = User.objects.create_and_join(
+            self.organization, email="other-user@posthog.com", password="123456"
+        )
+        self.user.is_staff = True
+        self.user.save()
+
+        # Use Django's standard Client because the loginas admin view expects
+        # form-encoded POST data (APIClient defaults to JSON).
+        self.client = cast(Any, DjangoClient())
+        self.client.force_login(self.user)
+
+    def login_as_other_user(self):
+        # Don't `follow=True` — the post-loginas redirect lands on `/` which renders
+        # the frontend's index.html (not present in tests).
+        return self.client.post(
+            reverse("loginas-user-login", kwargs={"user_id": self.other_user.id}),
+            data={"read_only": "false", "reason": "Test impersonation"},
+        )
+
+    def test_admin_index_accessible_during_impersonation(self):
+        """The admin index must respond 200, not redirect to /admin/login/, during impersonation."""
+        self.login_as_other_user()
+
+        # API confirms we're impersonating
+        assert self.client.get("/api/users/@me").json()["email"] == "other-user@posthog.com"
+
+        response = self.client.get("/admin/")
+        assert response.status_code == 200
+        # Banner should be rendered with the impersonated user
+        assert b"other-user@posthog.com" in response.content
+
+    def test_admin_index_redirects_when_no_impersonation_and_not_staff(self):
+        """Sanity check: a non-staff user without impersonation still cannot access /admin/."""
+        self.user.is_staff = False
+        self.user.save()
+
+        response = self.client.get("/admin/")
+        # Django redirects to /admin/login/ for unauthorized requests
+        assert response.status_code == 302
+        assert "/admin/login" in response.headers.get("Location", "")
+
+    def test_non_admin_paths_still_use_impersonated_user(self):
+        """Outside of /admin/, the impersonated user must remain in effect."""
+        self.login_as_other_user()
+
+        response = self.client.get("/api/users/@me/")
+        assert response.status_code == 200
+        assert response.json()["email"] == "other-user@posthog.com"
+
+    def test_admin_logout_still_sees_impersonated_user(self):
+        """/admin/logout/ must keep the impersonated user as request.user so it can
+        redirect back to that user's admin change page."""
+        self.login_as_other_user()
+
+        response = self.client.get("/admin/logout/")
+        assert response.status_code == 302
+        assert response.headers["Location"] == f"/admin/posthog/user/{self.other_user.id}/change/"
+
+    def test_admin_unaffected_when_not_impersonating(self):
+        """Regular staff users without an impersonation session still access admin normally."""
+        response = self.client.get("/admin/")
+        assert response.status_code == 200
+
+    def login_as_other_user_read_only(self):
+        return self.client.post(
+            reverse("loginas-user-login", kwargs={"user_id": self.other_user.id}),
+            data={"read_only": "true", "reason": "Test read-only impersonation"},
+        )
+
+    @patch("posthog.views.get_client")
+    def test_admin_writes_allowed_during_read_only_impersonation(self, mock_get_client: MagicMock):
+        """Admin POST/PATCH/DELETE actions must not be blocked by the read-only
+        impersonation middleware — admin runs as the original staff user."""
+        mock_redis = MagicMock()
+        mock_redis.ttl.return_value = -1
+        mock_get_client.return_value = mock_redis
+
+        self.login_as_other_user_read_only()
+
+        # POST to /admin/redis/edit-ttl — a function-based admin view registered directly
+        # in the URLconf (not lazy-loaded), so it's reachable in tests. A successful POST
+        # redirects (302) to the redis values list.
+        response = self.client.post(
+            "/admin/redis/edit-ttl",
+            data={"key": "test:key", "ttl_seconds": "60"},
+        )
+
+        # Endpoint must be reached (would-be 404 means the test isn't proving anything).
+        assert response.status_code != 404, "admin URL not registered in test environment"
+        # Middleware must not return its read-only 403.
+        assert response.status_code != 403, f"unexpected 403: {response.content!r}"
+        # Sanity check the write actually happened.
+        mock_redis.expire.assert_called_once_with("test:key", 60)
+
+    def test_api_writes_still_blocked_during_read_only_impersonation(self):
+        """Non-admin write requests must still be blocked under read-only impersonation."""
+        from products.dashboards.backend.models.dashboard import Dashboard
+
+        dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard")
+        self.login_as_other_user_read_only()
+
+        response = self.client.delete(f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/")
+        assert response.status_code == 403
+        assert response.json()["code"] == "impersonation_read_only"
+
+    @parameterized.expand(
+        [
+            ("loses_staff", {"is_staff": False}),
+            ("deactivated", {"is_active": False}),
+        ]
+    )
+    def test_admin_blocked_when_original_user_cannot_swap(self, _name, user_attrs):
+        """The swap requires `original_user.is_active and original_user.is_staff`.
+        Falsifying either attribute on the original user must block admin access on
+        the next request — proves both halves of the gate are load-bearing."""
+        self.login_as_other_user()
+        for attr, val in user_attrs.items():
+            setattr(self.user, attr, val)
+        self.user.save()
+
+        response = self.client.get("/admin/")
+        assert response.status_code == 302
+        assert "/admin/login" in response.headers.get("Location", "")
+
+    @patch("posthog.views.get_client")
+    @patch("posthog.views.log_activity")
+    def test_admin_action_attributes_activity_to_staff_user_during_impersonation(
+        self, mock_log_activity: MagicMock, mock_get_client: MagicMock
+    ):
+        """Load-bearing security claim: admin actions performed during impersonation
+        must pass the original staff user (not the impersonated customer) to downstream
+        activity logging. The PR's middleware-ordering comment in `posthog/settings/web.py`
+        says the swap must run before activity-logging code — this asserts that.
+
+        A future middleware reorder that breaks attribution would silently leak
+        `customer-as-actor` into audit logs without breaking any existing test.
+
+        Mechanism: `redis_edit_ttl_view` calls `log_activity(user=request.user, ...)`.
+        Patch `log_activity` and assert the captured `user` kwarg is the staff user.
+        """
+        mock_redis = MagicMock()
+        mock_redis.ttl.return_value = -1
+        mock_get_client.return_value = mock_redis
+
+        self.login_as_other_user()
+
+        response = self.client.post(
+            "/admin/redis/edit-ttl",
+            data={"key": "test:key", "ttl_seconds": "60"},
+        )
+
+        assert response.status_code in (200, 302), f"unexpected status: {response.status_code}"
+        assert mock_log_activity.called, "log_activity was not called — admin view did not reach attribution code"
+        for call in mock_log_activity.call_args_list:
+            logged_user = call.kwargs.get("user")
+            assert logged_user is not None, "log_activity called with user=None"
+            assert logged_user.id == self.user.id, (
+                f"log_activity called with user={logged_user.id} ({logged_user.email}), "
+                f"expected staff user {self.user.id} ({self.user.email}), "
+                f"NOT impersonated customer {self.other_user.id} ({self.other_user.email})"
+            )
+
+    def test_admin_index_banner_shows_both_staff_and_customer_email(self):
+        """The banner must surface both identities. The existing test only asserts the
+        customer email — a regression dropping the staff portion would pass it. This test
+        pins both halves; it also proves request.user is swapped at template render time."""
+        self.login_as_other_user()
+        response = self.client.get("/admin/")
+        assert response.status_code == 200
+        assert self.other_user.email.encode() in response.content, "impersonated customer email missing from banner"
+        assert self.user.email.encode() in response.content, (
+            "staff user email missing from banner — request.user not swapped at template render"
+        )
+
+    def test_swap_rejects_tampered_session_flag(self):
+        """`get_original_user_from_session` unsigns `la_settings.USER_SESSION_FLAG` via
+        `TimestampSigner`. A session value lacking a valid signature must not produce a
+        swap, even when `is_impersonated_session(request)` returns True. Pins the
+        cryptographic boundary."""
+        self.login_as_other_user()
+
+        # Inject the STAFF user's PK as an unsigned value. If signature verification
+        # were bypassed, `get_original_user_from_session` would return the staff user,
+        # both `is_active` and `is_staff` would be True, the swap would succeed, and
+        # `/admin/` would return 200 (not 302). The 302 assertion therefore directly
+        # pins the TimestampSigner gate — a bypass would change the response.
+        session = self.client.session
+        session[la_settings.USER_SESSION_FLAG] = str(self.user.pk)
+        session.save()
+
+        response = self.client.get("/admin/")
+        assert response.status_code == 302
+        assert "/admin/login" in response.headers.get("Location", "")
+
+    def test_swap_no_ops_when_original_user_deleted(self):
+        """If the original user has been deleted between session start and the current
+        request, `User.objects.get(pk=...)` raises DoesNotExist; the helper catches it
+        and returns None. Middleware must leave request.user untouched."""
+        self.login_as_other_user()
+        impersonated_pk = self.other_user.pk
+
+        self.user.delete()
+
+        response = self.client.get("/admin/")
+        assert response.status_code == 302
+        assert "/admin/login" in response.headers.get("Location", "")
+        assert User.objects.filter(pk=impersonated_pk).exists()
+
+    def test_read_only_bypass_does_not_fire_for_path_without_trailing_slash(self):
+        """`request.path.startswith('/admin/')` requires the trailing slash. A bare
+        `/admin` POST must NOT bypass the read-only middleware. Asserts the prefix
+        check correctly excludes the trailing-slash-less form — boundary test against
+        future tweaks to the prefix check."""
+        self.login_as_other_user_read_only()
+
+        response = self.client.post("/admin", data={})
+        # The read-only middleware must block this POST since `/admin` does NOT
+        # match the `/admin/` prefix. The bypass branch is gated on the same
+        # `startswith('/admin/')` check that the AdminImpersonationMiddleware uses,
+        # so blocking here proves both checks correctly exclude this path.
+        assert response.status_code == 403, (
+            f"expected 403 (read-only block), got {response.status_code}: {response.content[:200]!r}"
+        )
+        assert response.json().get("code") == "impersonation_read_only", (
+            f"expected impersonation_read_only response, got: {response.content!r}"
+        )
 
 
 @override_settings(IMPERSONATION_TIMEOUT_SECONDS=100)
@@ -1604,3 +1849,80 @@ def test_oauth_coop_middleware(path, query_string, expected_coop):
     middleware = OAuthCoopMiddleware(get_response)
     response = middleware(request)
     assert response["Cross-Origin-Opener-Policy"] == expected_coop
+
+
+@parameterized.expand(
+    [
+        ("posthog/mcp-server v1", "mcp"),
+        ("Mozilla/5.0", "web"),
+        ("posthog/code", "posthog_code"),
+    ]
+)
+def test_chqueries_middleware_tags_source(user_agent, expected_source):
+    # Middleware only tags `source`. Product/feature are filled later by `add_fallback_query_tags`
+    # in `sync_execute` based on scene/query_type — or surfaced via UntaggedQueryError if neither
+    # is available. Tagging product=mcp here would mask genuinely untagged queries.
+    from django.http import HttpResponse
+    from django.test import RequestFactory
+
+    from posthog.clickhouse.query_tagging import get_query_tags
+    from posthog.middleware import CHQueries
+
+    captured: dict = {}
+
+    def get_response(req):
+        tags = get_query_tags()
+        captured["source"] = tags.source
+        captured["product"] = tags.product
+        captured["feature"] = tags.feature
+        return HttpResponse("ok")
+
+    factory = RequestFactory()
+    request = factory.get("/api/projects/@current/query/", HTTP_USER_AGENT=user_agent)
+    request.user = MagicMock(pk=1, is_authenticated=False)
+    request.session = MagicMock(session_key="abc123")
+
+    CHQueries(get_response)(request)
+
+    assert captured["source"] == expected_source
+    assert captured["product"] is None
+    assert captured["feature"] is None
+
+
+def test_query_time_counting_middleware_emits_durations_in_milliseconds() -> None:
+    from posthog.middleware import QueryTimeCountingMiddleware
+
+    middleware = QueryTimeCountingMiddleware(get_response=lambda r: None)
+    header = middleware._construct_header(
+        durations_ms={"django": 2050.4, "pg": 1490.6, "pg_max": 1200.0, "ch": 0.0, "ch_max": 0.0},
+        counts={"pg_count": 17, "pg_slow": 2, "ch_count": 0, "ch_slow": 0},
+    )
+
+    assert "django;dur=2050" in header
+    assert "pg;dur=1491" in header
+    assert "pg_max;dur=1200" in header
+    assert 'pg_count;desc="17"' in header
+    assert 'pg_slow;desc="2"' in header
+
+
+@parameterized.expand(
+    [
+        ("/api/projects/@current/insights/", True),
+        ("/api/projects/@current/dashboards/", True),
+        ("/api/projects/@current/property_definitions/", True),
+        ("/", True),
+        ("/insights/abc123", True),
+        ("/dashboard/42", True),
+        ("/project/2/insights", True),
+        ("/api/projects/@current/feature_flags/", False),
+    ]
+)
+def test_query_time_counting_middleware_should_instrument(path, expected) -> None:
+    from django.test import RequestFactory
+
+    from posthog.middleware import QueryTimeCountingMiddleware
+
+    middleware = QueryTimeCountingMiddleware(get_response=lambda r: None)
+    request = RequestFactory().get(path)
+
+    assert middleware._should_instrument(request) is expected

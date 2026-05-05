@@ -1,3 +1,4 @@
+import { stringify as stringifyYaml } from 'yaml'
 import { z } from 'zod'
 
 import { markExecPayload, buildToolResultPayload } from '@/lib/build-tool-result'
@@ -33,9 +34,38 @@ function parseCommand(input: string): { verb: string; rest: string } {
     return { verb: trimmed.slice(0, idx), rest: trimmed.slice(idx + 1).trim() }
 }
 
+// Tools removed from v2 (single-exec) MCP. When the model attempts to call one,
+// surface a targeted redirect to the v2 replacement instead of dumping the full
+// tool catalog. Sourced from tools marked `new_mcp: false` in
+// schema/tool-definitions.json. Keep the redirect text editorial — schemas
+// don't carry "use X instead" guidance.
+const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[]) => string> = {
+    'entity-search': () =>
+        'Tool "entity-search" was removed in MCP v2. Use "execute-sql" to search PostHog data via HogQL. Consult the `querying-posthog-data` skill for system-table patterns (system.insights, system.dashboards, system.cohorts, ...).',
+    'event-definitions-list': () =>
+        'Tool "event-definitions-list" was removed in MCP v2. Use "read-data-schema" with input { "query": { "kind": "events" } } to list event definitions.',
+    'properties-list': () =>
+        'Tool "properties-list" was removed in MCP v2. Use "read-data-schema": { "query": { "kind": "event_properties", "event_name": "..." } } for event properties, or { "kind": "entity_properties", "entity": "person" | "session" | "group/<n>" } for entity properties.',
+    'property-definitions': () =>
+        'Tool "property-definitions" was removed in MCP v2. Use "read-data-schema" with the appropriate kind: "event_properties", "entity_properties", or "action_properties" — see its info schema for required fields.',
+    'query-generate-hogql-from-question': () =>
+        'Tool "query-generate-hogql-from-question" was removed in MCP v2. Write the HogQL yourself and run it via "execute-sql". Consult the `querying-posthog-data` skill for HogQL patterns.',
+    'query-run': (allTools) => {
+        const queryTools = allTools
+            .filter((t) => t.name.startsWith('query-'))
+            .map((t) => `- ${t.name}: ${t.description.split('\n')[0]}`)
+            .join('\n')
+        return `Tool "query-run" was removed in MCP v2. Pick the typed query tool that matches your intent, or use "execute-sql" for arbitrary HogQL. Available query-* tools:\n${queryTools}`
+    },
+}
+
 function findTool(tools: Tool<ZodObjectAny>[], name: string): Tool<ZodObjectAny> {
     const tool = tools.find((t) => t.name === name)
     if (!tool) {
+        const redirect = DEPRECATED_TOOL_REDIRECTS[name]
+        if (redirect) {
+            throw new Error(redirect(tools))
+        }
         const available = tools.map((t) => t.name).join(', ')
         throw new Error(`Unknown tool: "${name}". Available tools: ${available}`)
     }
@@ -96,30 +126,39 @@ export function createExecTool(
 
                 case 'info': {
                     if (!rest) {
-                        throw new Error('Usage: info <tool_name>')
+                        throw new Error('Usage: info [--json] <tool_name>')
                     }
-                    const tool = findTool(allTools, rest)
+                    const forceJson = rest.startsWith('--json ') || rest === '--json'
+                    const infoArgs = forceJson ? rest.slice('--json'.length).trim() : rest
+                    if (!infoArgs) {
+                        throw new Error('Usage: info [--json] <tool_name>')
+                    }
+                    const tool = findTool(allTools, infoArgs)
                     const fullSchema = z.toJSONSchema(tool.schema)
-                    const fullOutput = JSON.stringify({
+                    // YAML for the top shape, but inputSchema stays as a JSON
+                    // string dumped inside the YAML — JSON Schema is conventionally
+                    // JSON and converting it to YAML obscures `$ref`, `oneOf`, etc.
+                    const serialize = (payload: Record<string, unknown>, schema: unknown): string => {
+                        if (forceJson) {
+                            return JSON.stringify({ ...payload, inputSchema: schema })
+                        }
+                        return stringifyYaml({ ...payload, inputSchema: JSON.stringify(schema) }, { lineWidth: 0 })
+                    }
+
+                    const topShape = {
                         name: tool.name,
                         title: tool.title,
                         description: tool.description,
                         annotations: tool.annotations,
-                        inputSchema: fullSchema,
-                    })
+                    }
+                    const fullOutput = serialize(topShape, fullSchema)
 
                     if (fullOutput.length <= TOKEN_CHAR_LIMIT) {
                         return fullOutput
                     }
 
                     // Schema too large — return summary with drill-down hints
-                    return JSON.stringify({
-                        name: tool.name,
-                        title: tool.title,
-                        description: tool.description,
-                        annotations: tool.annotations,
-                        inputSchema: summarizeSchema(fullSchema as Record<string, unknown>, tool.name),
-                    })
+                    return serialize(topShape, summarizeSchema(fullSchema as Record<string, unknown>, tool.name))
                 }
 
                 case 'schema': {

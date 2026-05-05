@@ -17,7 +17,7 @@ import { hashImageWithDimensions } from './hasher.js'
 import { scanDirectory } from './scanner.js'
 import { readBaselineHashes, readSnapshotsFile } from './snapshots.js'
 
-const RETRY_STATUS_CODES = new Set([500, 502, 503, 504])
+const RETRY_STATUS_CODES = new Set([429, 500, 502, 503, 504])
 const SUBMIT_API_RETRIES = 3
 const SUBMIT_API_RETRY_BASE_DELAY_MS = 1_000
 
@@ -521,7 +521,10 @@ async function retrySubmitApiCall<T>(label: string, operation: () => Promise<T>)
                 throw error
             }
 
-            const delayMs = SUBMIT_API_RETRY_BASE_DELAY_MS * 2 ** attempt
+            const delayMs =
+                error.status === 429 && error.retryAfter
+                    ? error.retryAfter * 1000
+                    : SUBMIT_API_RETRY_BASE_DELAY_MS * 2 ** attempt
             log(
                 `${label} returned ${error.status}, retrying in ${delayMs}ms (attempt ${attempt + 1}/${SUBMIT_API_RETRIES})`
             )

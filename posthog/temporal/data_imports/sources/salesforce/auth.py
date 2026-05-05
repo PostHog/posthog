@@ -3,8 +3,10 @@ from typing import Any, Optional
 
 from django.conf import settings
 
-import requests
+from requests import Response
+from requests.exceptions import JSONDecodeError
 
+from posthog.temporal.data_imports.sources.common.http import make_tracked_session
 from posthog.temporal.data_imports.sources.common.rest_source.auth import BearerTokenAuth
 
 
@@ -42,12 +44,12 @@ class SalesforceAuth(BearerTokenAuth):
 class SalesforceAuthRequestError(Exception):
     """Exception to capture errors when an auth request fails."""
 
-    def __init__(self, error_message: str, response: requests.Response):
+    def __init__(self, error_message: str, response: Response):
         self.response = response
         super().__init__(error_message)
 
     @classmethod
-    def raise_from_response(cls, response: requests.Response) -> None:
+    def raise_from_response(cls, response: Response) -> None:
         """Raise a `SalesforceAuthRequestError` from a failed response.
 
         If the response did not fail, nothing is raised or returned.
@@ -62,7 +64,7 @@ class SalesforceAuthRequestError(Exception):
 
         try:
             error_description = response.json()["error_description"]
-        except requests.exceptions.JSONDecodeError:
+        except JSONDecodeError:
             if response.text:
                 error_message += response.text
             else:
@@ -74,7 +76,7 @@ class SalesforceAuthRequestError(Exception):
 
 
 def salesforce_refresh_access_token(refresh_token: str, instance_url: str) -> str:
-    res = requests.post(
+    res = make_tracked_session().post(
         f"{instance_url}/services/oauth2/token",
         data={
             "grant_type": "refresh_token",
@@ -90,7 +92,7 @@ def salesforce_refresh_access_token(refresh_token: str, instance_url: str) -> st
 
 
 def get_salesforce_access_token_from_code(code: str, redirect_uri: str, instance_url: str) -> tuple[str, str]:
-    res = requests.post(
+    res = make_tracked_session().post(
         f"{instance_url}/services/oauth2/token",
         data={
             "grant_type": "authorization_code",

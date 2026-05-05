@@ -93,6 +93,16 @@ function EmptyImageState({ title }: { title: string }): JSX.Element {
 /** Images smaller than this threshold render at 2x with pixelated scaling */
 const SMALL_IMAGE_THRESHOLD = 600
 
+function effectiveMode(requested: ComparisonMode, supportsComparison: boolean, hasDiffImage: boolean): ComparisonMode {
+    if (!supportsComparison) {
+        return 'blend'
+    }
+    if (!hasDiffImage && requested === 'diff') {
+        return 'blend'
+    }
+    return requested
+}
+
 export function VisualImageDiffViewer({
     baselineUrl,
     currentUrl,
@@ -118,7 +128,8 @@ export function VisualImageDiffViewer({
     const pixelatedClass = isSmallImage ? '' : 'max-w-full'
 
     const [internalMode, setInternalMode] = useState<ComparisonMode>('sideBySide')
-    const mode = controlledMode ?? internalMode
+    const requestedMode = controlledMode ?? internalMode
+    const mode: ComparisonMode = effectiveMode(requestedMode, supportsComparison, hasDiffImage)
     const setMode = (newMode: ComparisonMode): void => {
         setInternalMode(newMode)
         onModeChange?.(newMode)
@@ -135,26 +146,16 @@ export function VisualImageDiffViewer({
     const diffLabel = formatDiffPercentage(diffPercentage)
 
     const comparisonModes = useMemo(() => {
-        const modes: { value: ComparisonMode; label: string }[] = [
-            { value: 'sideBySide', label: 'Side by side' },
-            { value: 'blend', label: 'Blend' },
-            { value: 'split', label: 'Split' },
+        const modes: { value: ComparisonMode; label: string; 'data-attr': string }[] = [
+            { value: 'sideBySide', label: 'Side by side', 'data-attr': 'image-diff-mode-side-by-side' },
+            { value: 'blend', label: 'Blend', 'data-attr': 'image-diff-mode-blend' },
+            { value: 'split', label: 'Split', 'data-attr': 'image-diff-mode-split' },
         ]
         if (hasDiffImage) {
-            modes.push({ value: 'diff', label: 'Diff' })
+            modes.push({ value: 'diff', label: 'Diff', 'data-attr': 'image-diff-mode-diff' })
         }
         return modes
     }, [hasDiffImage])
-
-    useEffect(() => {
-        if (!supportsComparison) {
-            setMode('blend')
-            return
-        }
-        if (!hasDiffImage && mode === 'diff') {
-            setMode('blend')
-        }
-    }, [supportsComparison, hasDiffImage, mode])
 
     useEffect(() => {
         if (!(flicker && mode === 'split' && result === 'changed' && hasBothImages)) {
