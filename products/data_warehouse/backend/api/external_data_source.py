@@ -1435,6 +1435,19 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             if instance.is_direct_postgres and connection_metadata != instance.connection_metadata:
                 instance.connection_metadata = connection_metadata
                 instance.save(update_fields=["connection_metadata", "updated_at"])
+            # Rename any pre-existing rows whose source-side `(schema, table)` matches a newly
+            # discovered qualified name. Without this, transitioning a warehouse Postgres source
+            # from single-schema (`config.schema=public`) to multi-schema (blank) would soft-delete
+            # the old `foo` row and create a new `public.foo` row, orphaning the DataWarehouseTable
+            # already attached to the old row. Direct mode has always done this on update; we now
+            # also do it on refresh, for both modes.
+            if instance.source_type == ExternalDataSourceType.POSTGRES:
+                rename_direct_postgres_schemas_to_match_source_schemas(
+                    source=instance,
+                    source_schemas=schemas,
+                    team_id=self.team_id,
+                )
+
             schemas_created, schemas_deleted = sync_old_schemas_with_new_schemas(
                 schema_names,
                 source_id=str(instance.id),
