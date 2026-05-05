@@ -658,8 +658,7 @@ rules:
                       metavariable: $MODEL
                       regex: |
                           (?x)(
-                              CIMDBlocklistEntry
-                              |DashboardPrivilege
+                              DashboardPrivilege
                               |PersonalAPIKey
                               |ScoreDefinitionVersion
                               |SignalUserAutonomyConfig
@@ -710,8 +709,7 @@ rules:
                 metavariable: $MODEL
                 regex: |
                     (?x)(
-                        CIMDBlocklistEntry
-                        |DashboardPrivilege
+                        DashboardPrivilege
                         |PersonalAPIKey
                         |ScoreDefinitionVersion
                         |SignalUserAutonomyConfig

@@ -660,7 +660,7 @@ class TestCIMDVerificationToken(APIBaseTest):
     @patch("posthog.api.oauth.cimd.requests.get")
     def test_non_string_verification_token_is_ignored(self, mock_get, _url_mock):
         metadata = _make_metadata()
-        metadata["posthog_verification_token"] = {"not": "a string"}  # type: ignore[assignment]
+        metadata["posthog_verification_token"] = {"not": "a string"}
         mock_get.return_value = _mock_response(metadata, headers={})
 
         app = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
