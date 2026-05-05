@@ -40,24 +40,29 @@ BATCH_MAX_GENERATION_IDS = 5  # keep small to avoid upstream request timeouts
 # Uses a window function to cap rows per trace at the ClickHouse level,
 # and a size filter to skip accumulated conversation histories — the same
 # user messages appear in earlier, smaller generations so we lose nothing.
+#
+# Reads from `posthog.ai_events` so post-strip rows still expose the heavy
+# `input` column (it's stripped from `events.properties.$ai_input` after
+# the cutover). `execute_with_ai_events_fallback` rewrites this back to
+# `events.properties.$ai_*` for the shared-table fallback.
 GENERATIONS_QUERY = """
     SELECT uuid, ai_input, trace_id
     FROM (
         SELECT
             uuid,
-            properties.$ai_input AS ai_input,
-            properties.$ai_trace_id AS trace_id,
+            input AS ai_input,
+            trace_id,
             row_number() OVER (
-                PARTITION BY properties.$ai_trace_id
+                PARTITION BY trace_id
                 ORDER BY timestamp DESC
             ) AS rn
-        FROM events
+        FROM posthog.ai_events AS ai_events
         WHERE event = '$ai_generation'
           AND timestamp >= toDateTime({date_from}, 'UTC')
           AND timestamp <= toDateTime({date_to}, 'UTC')
-          AND properties.$ai_trace_id IN {trace_ids}
+          AND trace_id IN {trace_ids}
           -- skip huge accumulated conversation histories
-          AND length(properties.$ai_input) <= {max_input_chars}
+          AND length(input) <= {max_input_chars}
     )
     -- last N qualified generations per trace
     WHERE rn <= {max_gens_per_trace}
@@ -65,15 +70,17 @@ GENERATIONS_QUERY = """
 """
 
 # Fetch specific generation events by UUID — no window function needed.
-# No length() filter here: it translates to JSONExtractRaw on every scanned
-# row which is expensive on high-volume teams (benchmarked 2.4x slower).
-# The size check is applied post-fetch in Python instead.
+# No length() filter here: on the events fallback it translates to
+# JSONExtractRaw on every scanned row which is expensive on high-volume
+# teams (benchmarked 2.4x slower). The size check is applied post-fetch
+# in Python instead.
 GENERATIONS_BY_UUID_QUERY = """
     SELECT
         uuid,
-        properties.$ai_input AS ai_input
-    FROM events
+        input AS ai_input
+    FROM posthog.ai_events AS ai_events
     WHERE event = '$ai_generation'
+      AND trace_id IN {trace_ids}
       AND timestamp >= toDateTime({date_from}, 'UTC')
       AND timestamp <= toDateTime({date_to}, 'UTC')
       AND uuid IN {uuids}

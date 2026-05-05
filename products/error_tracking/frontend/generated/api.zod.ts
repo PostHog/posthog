@@ -402,58 +402,52 @@ export const ErrorTrackingReleasesPartialUpdateBody = /* @__PURE__ */ zod.object
     project: zod.string().optional(),
 })
 
-export const ErrorTrackingSymbolSetsCreateBody = /* @__PURE__ */ zod.object({
-    ref: zod.string(),
-    last_used: zod.iso.datetime({}).nullish(),
-    storage_ptr: zod.string().nullish(),
-    failure_reason: zod.string().nullish(),
-})
+export const ErrorTrackingSymbolSetsCreateBody = /* @__PURE__ */ zod.object({})
 
-export const ErrorTrackingSymbolSetsUpdateBody = /* @__PURE__ */ zod.object({
-    ref: zod.string(),
-    last_used: zod.iso.datetime({}).nullish(),
-    storage_ptr: zod.string().nullish(),
-    failure_reason: zod.string().nullish(),
-})
+export const ErrorTrackingSymbolSetsUpdateBody = /* @__PURE__ */ zod.object({})
 
-export const ErrorTrackingSymbolSetsPartialUpdateBody = /* @__PURE__ */ zod.object({
-    ref: zod.string().optional(),
-    last_used: zod.iso.datetime({}).nullish(),
-    storage_ptr: zod.string().nullish(),
-    failure_reason: zod.string().nullish(),
-})
+export const ErrorTrackingSymbolSetsPartialUpdateBody = /* @__PURE__ */ zod.object({})
 
 export const ErrorTrackingSymbolSetsFinishUploadUpdateBody = /* @__PURE__ */ zod.object({
-    ref: zod.string(),
-    last_used: zod.iso.datetime({}).nullish(),
-    storage_ptr: zod.string().nullish(),
-    failure_reason: zod.string().nullish(),
+    content_hash: zod.string().describe('Hash of the uploaded symbol set content.'),
 })
 
 export const ErrorTrackingSymbolSetsBulkDeleteCreateBody = /* @__PURE__ */ zod.object({
-    ref: zod.string(),
-    last_used: zod.iso.datetime({}).nullish(),
-    storage_ptr: zod.string().nullish(),
-    failure_reason: zod.string().nullish(),
+    ids: zod.array(zod.uuid()).describe('Symbol set IDs to delete.'),
 })
 
 export const ErrorTrackingSymbolSetsBulkFinishUploadCreateBody = /* @__PURE__ */ zod.object({
-    ref: zod.string(),
-    last_used: zod.iso.datetime({}).nullish(),
-    storage_ptr: zod.string().nullish(),
-    failure_reason: zod.string().nullish(),
+    content_hashes: zod.record(zod.string(), zod.string()).describe('Map of symbol set ID to uploaded content hash.'),
 })
+
+export const errorTrackingSymbolSetsBulkStartUploadCreateBodyForceDefault = false
 
 export const ErrorTrackingSymbolSetsBulkStartUploadCreateBody = /* @__PURE__ */ zod.object({
-    ref: zod.string(),
-    last_used: zod.iso.datetime({}).nullish(),
-    storage_ptr: zod.string().nullish(),
-    failure_reason: zod.string().nullish(),
+    chunk_ids: zod
+        .array(zod.string())
+        .optional()
+        .describe('Legacy list of symbol set references to upload, all associated with `release_id`.'),
+    release_id: zod.string().nullish().describe('Optional error tracking release ID used with `chunk_ids`.'),
+    symbol_sets: zod
+        .array(
+            zod.object({
+                chunk_id: zod.string().describe('Symbol set reference to upload.'),
+                release_id: zod
+                    .string()
+                    .nullish()
+                    .describe('Optional error tracking release ID associated with this symbol set.'),
+                content_hash: zod
+                    .string()
+                    .nullish()
+                    .describe('Optional hash of the symbol set content, used to skip unchanged uploads.'),
+            })
+        )
+        .optional()
+        .describe('Symbol sets to upload with per-symbol release IDs and content hashes.'),
+    force: zod
+        .boolean()
+        .default(errorTrackingSymbolSetsBulkStartUploadCreateBodyForceDefault)
+        .describe('Whether to overwrite uploaded symbol sets whose content hash changed.'),
 })
 
-export const ErrorTrackingSymbolSetsStartUploadCreateBody = /* @__PURE__ */ zod.object({
-    ref: zod.string(),
-    last_used: zod.iso.datetime({}).nullish(),
-    storage_ptr: zod.string().nullish(),
-    failure_reason: zod.string().nullish(),
-})
+export const ErrorTrackingSymbolSetsStartUploadCreateBody = /* @__PURE__ */ zod.object({})

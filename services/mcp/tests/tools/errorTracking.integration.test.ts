@@ -22,6 +22,11 @@ type ErrorTrackingFingerprintListResult = {
     results?: Array<{ fingerprint?: string | null }>
 }
 
+type ErrorTrackingSymbolSetListResult = {
+    count?: number
+    results?: Array<{ id?: string | null; ref?: string | null; has_uploaded_file?: boolean | null }>
+}
+
 describe('Error Tracking', { concurrent: false }, () => {
     let context: Context
     let currentUserId: number
@@ -342,6 +347,73 @@ describe('Error Tracking', { concurrent: false }, () => {
             expect(typeof result.id).toBe('string')
             expect(result.filters).toBeTruthy()
             expect(result.sampling_rate).toBe(0.25)
+        })
+    })
+
+    describe('symbol-sets list tool', () => {
+        const symbolSetsListTool = GENERATED_TOOLS['error-tracking-symbol-sets-list']!()
+
+        it('should list symbol sets', async () => {
+            const result = (await symbolSetsListTool.handler(context, { limit: 5 })) as ErrorTrackingSymbolSetListResult
+
+            expect(result).toBeTruthy()
+            expect(typeof result.count).toBe('number')
+            expect(Array.isArray(result.results)).toBe(true)
+        })
+    })
+
+    describe('symbol-sets retrieve tool', () => {
+        const symbolSetsListTool = GENERATED_TOOLS['error-tracking-symbol-sets-list']!()
+        const symbolSetRetrieveTool = GENERATED_TOOLS['error-tracking-symbol-sets-retrieve']!()
+
+        it('should retrieve a symbol set by ID when one exists', async () => {
+            const listResult = (await symbolSetsListTool.handler(context, {
+                limit: 1,
+            })) as ErrorTrackingSymbolSetListResult
+            const symbolSet = listResult.results?.find(
+                (item): item is { id: string; ref?: string | null } => typeof item.id === 'string'
+            )
+            if (!symbolSet) {
+                return
+            }
+
+            if (symbolSet.ref) {
+                const filteredResult = (await symbolSetsListTool.handler(context, {
+                    ref: symbolSet.ref,
+                    limit: 1,
+                })) as ErrorTrackingSymbolSetListResult
+                expect(filteredResult.results?.some((item) => item.id === symbolSet.id)).toBe(true)
+            }
+
+            const result = (await symbolSetRetrieveTool.handler(context, { id: symbolSet.id })) as {
+                id?: string
+                ref?: string
+            }
+
+            expect(result).toBeTruthy()
+            expect(result.id).toBe(symbolSet.id)
+        })
+    })
+
+    describe('symbol-sets download tool', () => {
+        const symbolSetsListTool = GENERATED_TOOLS['error-tracking-symbol-sets-list']!()
+        const symbolSetDownloadTool = GENERATED_TOOLS['error-tracking-symbol-sets-download-retrieve']!()
+
+        it('should get a download URL by ID when an uploaded symbol set exists', async () => {
+            const listResult = (await symbolSetsListTool.handler(context, {
+                status: 'valid',
+                limit: 1,
+            })) as ErrorTrackingSymbolSetListResult
+            const symbolSet = listResult.results?.find((item): item is { id: string } => typeof item.id === 'string')
+            if (!symbolSet) {
+                return
+            }
+
+            const result = (await symbolSetDownloadTool.handler(context, { id: symbolSet.id })) as { url?: string }
+
+            expect(result).toBeTruthy()
+            expect(typeof result.url).toBe('string')
+            expect(result.url?.length).toBeGreaterThan(0)
         })
     })
 
