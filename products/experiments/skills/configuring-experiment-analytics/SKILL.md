@@ -1,6 +1,6 @@
 ---
 name: configuring-experiment-analytics
-description: "Guides experiment analytics configuration: exposure criteria, metric types, metric setup, and interpreting results. Covers who is included in the analysis, how to measure impact, and how to read experiment results.\nTRIGGER when: user asks about experiment metrics, exposure criteria, multivariate handling, interpreting experiment results, or asks 'who is included in the analysis?' or 'how to measure impact?'\nDO NOT TRIGGER when: user is asking about variant splits, rollout percentages, or lifecycle actions."
+description: Configures the analytics side of a PostHog experiment — exposure criteria (default `$feature_flag_called` vs custom exposure events), primary and secondary metrics, the supported metric types (count, sum, ratio with `math` and `math_property`, retention with `retention_window_start` and `start_handling`), multivariate user handling ("Exclude" vs "First seen variant"), and how to read results once the experiment is live. Use when the user adds or edits a primary or secondary metric (e.g. "add a secondary metric tracking 'downloaded_file' per user"), sets up a ratio metric (e.g. "revenue from purchase_completed / pageviews"), sets up a retention metric (e.g. "$pageview → uploaded_file, 7-day window"), configures custom exposure (e.g. "only count users who hit /checkout"), changes multivariate handling, or asks "who is in the analysis?", "how do I measure impact?", "is this winning?", "what's the confidence level?", or "should I ship?".
 ---
 
 # Configuring experiment analytics

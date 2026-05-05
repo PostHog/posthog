@@ -25,6 +25,13 @@ def compile_hogql_predicate(obj) -> tuple[str, dict]:
     decide how to splice it (typically ``AND (<fragment>)``). Raises
     :class:`~django.core.exceptions.ValidationError` on parse, resolution or
     subquery errors — suitable for use inside ``Model.clean()``.
+
+    The fragment uses unqualified column references (no ``events.``/``sharded_events.``
+    prefix), so it can be spliced into queries against either the Distributed
+    ``events`` proxy or the local ``sharded_events`` MergeTree. This matters for
+    lightweight DELETE: ClickHouse rewrites it into a mutation whose expression
+    analyzer rejects table-qualified references like ``sharded_events.mat_$current_url``
+    even when the column exists on every replica.
     """
     predicate = (getattr(obj, "hogql_predicate", "") or "").strip()
     if not predicate:
@@ -55,7 +62,9 @@ def compile_hogql_predicate(obj) -> tuple[str, dict]:
     if obj.team_id is None:
         raise ValidationError({"hogql_predicate": "team_id must be set before validating the predicate."})
 
-    context = HogQLContext(team_id=obj.team_id, within_non_hogql_query=True, enable_select_queries=True)
+    # ``within_non_hogql_query=True`` instructs the printer to emit unqualified column
+    # references — both for regular fields and for materialized-column shortcuts.
+    context = HogQLContext(team_id=obj.team_id, within_non_hogql_query=True, enable_select_queries=False)
     try:
         sql = translate_hogql(predicate, context, dialect="clickhouse")
     except Exception as exc:

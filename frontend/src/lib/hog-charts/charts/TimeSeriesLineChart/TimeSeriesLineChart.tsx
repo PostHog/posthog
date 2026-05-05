@@ -4,14 +4,23 @@ import type { ChartTheme, LineChartConfig, PointClickData, Series, TooltipContex
 import { ReferenceLines } from '../../overlays/ReferenceLine'
 import { ValueLabels } from '../../overlays/ValueLabels'
 import { LineChart } from '../LineChart'
+import { AnomalyPointsLayer, type AnomalyMarker } from './overlays/AnomalyPointsLayer'
 import { buildGoalLineReferenceLines, type GoalLineConfig } from './utils/goal-lines'
 import { applyInProgressToSeries, type InProgressConfig } from './utils/in-progress'
 import { useXTickFormatter, useYTickFormatter, type XAxisConfig, type YAxisConfig } from './utils/use-axis-formatters'
+import {
+    useDerivedSeries,
+    type ConfidenceIntervalConfig,
+    type MovingAverageConfig,
+    type TrendLineConfig,
+} from './utils/use-derived-series'
 
 export interface ValueLabelsConfig {
     seriesKeys?: string[]
     formatter?: (value: number) => string
 }
+
+export type { ConfidenceIntervalConfig, MovingAverageConfig, TrendLineConfig }
 
 export interface TimeSeriesLineChartConfig {
     xAxis?: XAxisConfig
@@ -19,6 +28,14 @@ export interface TimeSeriesLineChartConfig {
     inProgress?: InProgressConfig
     valueLabels?: boolean | ValueLabelsConfig
     goalLines?: GoalLineConfig[]
+    confidenceIntervals?: ConfidenceIntervalConfig[]
+    movingAverage?: MovingAverageConfig[]
+    trendLines?: TrendLineConfig[]
+    /** Map of comparison series key → its primary series key. Comparison series render
+     *  at reduced opacity so they read as subordinate to their primary. */
+    comparisonOf?: Record<string, string>
+    /** Anomaly markers rendered as filled circles on top of the chart. */
+    anomalies?: AnomalyMarker[]
 }
 
 export interface TimeSeriesLineChartProps<Meta = unknown> {
@@ -54,7 +71,18 @@ export function TimeSeriesLineChart<Meta = unknown>({
     className,
     children,
 }: TimeSeriesLineChartProps<Meta>): React.ReactElement {
-    const { xAxis, yAxis, inProgress, valueLabels, goalLines } = config ?? {}
+    const {
+        xAxis,
+        yAxis,
+        inProgress,
+        valueLabels,
+        goalLines,
+        confidenceIntervals,
+        movingAverage,
+        trendLines,
+        comparisonOf,
+        anomalies,
+    } = config ?? {}
     const xTickFormatter = useXTickFormatter(xAxis, labels)
     const yTickFormatter = useYTickFormatter(yAxis)
 
@@ -62,13 +90,16 @@ export function TimeSeriesLineChart<Meta = unknown>({
 
     const seriesWithInProgress = useMemo(
         () => applyInProgressToSeries(series, inProgress),
+        // inProgress.fromIndex is the only field applyInProgressToSeries reads; depending
+        // on `inProgress` itself would invalidate on every inline-config render.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
         [series, inProgress?.fromIndex]
     )
 
     // Stable primitive key so callers can pass `valueLabels: { seriesKeys: ['a'] }` inline
     // without re-running the transform on every render.
     const seriesKeysSignature = valueLabelsConfig?.seriesKeys?.join(' ')
-    const transformedSeries = useMemo(() => {
+    const seriesAfterValueLabels = useMemo(() => {
         const seriesKeys = valueLabelsConfig?.seriesKeys
         if (!seriesKeys) {
             return seriesWithInProgress
@@ -80,12 +111,16 @@ export function TimeSeriesLineChart<Meta = unknown>({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [seriesWithInProgress, seriesKeysSignature])
 
+    const finalSeries = useDerivedSeries(seriesAfterValueLabels, {
+        confidenceIntervals,
+        movingAverage,
+        trendLines,
+        comparisonOf,
+    })
+
     const valueLabelFormatter = valueLabelsConfig ? (valueLabelsConfig.formatter ?? yTickFormatter) : undefined
 
-    const referenceLines = useMemo(
-        () => buildGoalLineReferenceLines(goalLines, transformedSeries),
-        [goalLines, transformedSeries]
-    )
+    const referenceLines = useMemo(() => buildGoalLineReferenceLines(goalLines, finalSeries), [goalLines, finalSeries])
 
     const lineChartConfig: LineChartConfig = {
         yScaleType: yAxis?.scale,
@@ -98,7 +133,7 @@ export function TimeSeriesLineChart<Meta = unknown>({
 
     return (
         <LineChart
-            series={transformedSeries}
+            series={finalSeries}
             labels={labels}
             config={lineChartConfig}
             theme={theme}
@@ -109,6 +144,7 @@ export function TimeSeriesLineChart<Meta = unknown>({
         >
             {referenceLines.length > 0 && <ReferenceLines lines={referenceLines} />}
             {valueLabelsConfig && <ValueLabels valueFormatter={valueLabelFormatter} />}
+            {anomalies && anomalies.length > 0 && <AnomalyPointsLayer markers={anomalies} />}
             {children}
         </LineChart>
     )

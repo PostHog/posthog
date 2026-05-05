@@ -1,4 +1,5 @@
-import { dayjs, Dayjs } from 'lib/dayjs'
+import { Dayjs } from 'lib/dayjs'
+import { parseDateInTimezone } from 'lib/utils/dateTimeUtils'
 
 /** Bucket size for a date-based X axis. Mirrors `IntervalType` from product code without
  * coupling hog-charts to it. */
@@ -53,25 +54,7 @@ export function createXAxisTickCallback({
     }
 }
 
-/** Parse a date string as a wall-clock time in the given timezone.
- *
- * All strings from ClickHouse — both datetime ("2026-03-08 14:00:00") and
- * date-only ("2026-03-08") — already have wall-clock digits in the project
- * timezone because ClickHouse applies toTimeZone before truncation. */
-export function parseDateForAxis(dateStr: string, timezone: string): Dayjs {
-    const hasTime = dateStr.includes(' ') || dateStr.includes('T')
-    try {
-        // Parse as UTC so the result is browser-timezone-independent.
-        // (dayjs.tz(string, tz) goes through new Date() which uses the
-        // browser's local timezone and can shift dates during DST.)
-        const utc = hasTime ? dayjs.utc(dateStr) : dayjs.utc(dateStr + ' 00:00:00')
-        // keepLocalTime: true preserves the wall-clock digits while
-        // attaching the project timezone — no conversion arithmetic.
-        return utc.isValid() ? utc.tz(timezone, true) : dayjs(null)
-    } catch {
-        return dayjs(null)
-    }
-}
+export const parseDateForAxis = parseDateInTimezone
 
 function pickMode(interval: TimeInterval, parsedDates: Dayjs[], first: Dayjs, last: Dayjs): TickMode {
     const spanMonths = (last.year() - first.year()) * 12 + last.month() - first.month()
