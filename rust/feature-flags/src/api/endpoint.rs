@@ -10,7 +10,7 @@ use crate::{
         decoding, process_request, run_with_canonical_log, with_canonical_log,
         FlagsCanonicalLogLine, RequestContext,
     },
-    metrics::consts::FLAG_QUEUE_TIME_MS,
+    metrics::consts::{FLAG_RATE_LIMIT_CHECK_TIME_MS, FLAG_TOKEN_EXTRACT_TIME_MS},
     router,
     utils::user_agent::UserAgentInfo,
 };
@@ -264,6 +264,12 @@ pub async fn flags(
 
     let now_ms = chrono::Utc::now().timestamp_millis();
 
+    // Anchor for `flags_pre_handler_time_ms` — captures synchronous work
+    // between the handler entering business logic and `process_request`
+    // being awaited. The actual emission happens inside the canonical-log
+    // scope so the metric carries a `team_id` label once it's resolved.
+    let pre_handler_start = std::time::Instant::now();
+
     // Contour sets X-Request-Start, so the timestamp is from trusted infrastructure.
     // We only filter out negative deltas (minor clock skew).
     let queue_time_ms: Option<i64> = headers
@@ -344,8 +350,18 @@ pub async fn flags(
 
         let mut rate_limit_warned = false;
 
-        // Check IP-based rate limit first
-        match state.ip_rate_limiter.allow_request(&ip_string) {
+        // Check IP-based rate limit first.
+        // Time the governor `allow_request` call (sharded DashMap + sync
+        // mutex) — Mutex contention on a hot token is a known source of
+        // pre-handler latency spikes. Guard records on drop, before the
+        // match arm runs.
+        let ip_rl_result = {
+            let _t =
+                common_metrics::timing_guard_high_precision(FLAG_RATE_LIMIT_CHECK_TIME_MS, &[])
+                    .label("kind", "ip");
+            state.ip_rate_limiter.allow_request(&ip_string)
+        };
+        match ip_rl_result {
             RateLimitResult::Blocked => {
                 return Err(rate_limit_error(FlagError::ClientFacing(
                     ClientFacingError::IpRateLimited,
@@ -356,10 +372,24 @@ pub async fn flags(
         }
 
         // Check token-based rate limit
-        // Extract token from body, use IP as fallback if extraction fails
-        let rate_limit_key =
-            decoding::extract_token(&context.body).unwrap_or_else(|| ip_string.clone());
-        match state.flags_rate_limiter.allow_request(&rate_limit_key) {
+        // Extract token from body, use IP as fallback if extraction fails.
+        // Time the JSON DOM scan separately — pathological large bodies
+        // are the suspected outlier driver here.
+        let rate_limit_key = {
+            let _t = common_metrics::timing_guard_high_precision(
+                FLAG_TOKEN_EXTRACT_TIME_MS,
+                &[],
+            );
+            decoding::extract_token(&context.body)
+        }
+        .unwrap_or_else(|| ip_string.clone());
+        let token_rl_result = {
+            let _t =
+                common_metrics::timing_guard_high_precision(FLAG_RATE_LIMIT_CHECK_TIME_MS, &[])
+                    .label("kind", "token");
+            state.flags_rate_limiter.allow_request(&rate_limit_key)
+        };
+        match token_rl_result {
             RateLimitResult::Blocked => {
                 return Err(rate_limit_error(FlagError::ClientFacing(
                     ClientFacingError::TokenRateLimited,
@@ -373,6 +403,13 @@ pub async fn flags(
             with_canonical_log(|l| l.rate_limit_warned = true);
         }
 
+        // Stamp pre-handler duration into the canonical log just before we
+        // hand off to async processing. `Instant::now()` is monotonic, so
+        // this is robust to wall-clock jumps. Emission of the histogram is
+        // deferred to `emit_timing_metrics` once `team_id` is resolved.
+        let pre_handler_duration_ms = pre_handler_start.elapsed().as_millis() as u64;
+        with_canonical_log(|l| l.pre_handler_duration_ms = Some(pre_handler_duration_ms));
+
         process_request(context).await
     })
     .instrument(_span)
@@ -380,11 +417,9 @@ pub async fn flags(
 
     // Emit DB operations metrics before the canonical log
     log.emit_db_operations_metrics();
-
-    // Emit queue time histogram for proxy-to-app latency dashboards
-    if let Some(delta) = log.queue_time_ms {
-        common_metrics::histogram(FLAG_QUEUE_TIME_MS, &[], delta as f64);
-    }
+    // Emit queue/pre-handler/concurrency-wait histograms with team_id labels.
+    // Must run after `process_request` returns so `log.team_id` is populated.
+    log.emit_timing_metrics();
 
     match result {
         Ok(response) => {
