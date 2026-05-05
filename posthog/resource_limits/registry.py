@@ -45,12 +45,12 @@ REGISTRY: dict[str, LimitDefinition] = {
     LimitKey.MAX_DASHBOARDS_PER_TEAM: LimitDefinition(
         key=LimitKey.MAX_DASHBOARDS_PER_TEAM,
         description="Saved dashboards in a project",
-        default=500,
+        default=5000,
     ),
     LimitKey.MAX_INSIGHTS_PER_DASHBOARD: LimitDefinition(
         key=LimitKey.MAX_INSIGHTS_PER_DASHBOARD,
         description="Insight tiles attached to a single dashboard",
-        default=5000,
+        default=100,
     ),
     LimitKey.MAX_ALERTS_PER_TEAM: LimitDefinition(
         key=LimitKey.MAX_ALERTS_PER_TEAM,
