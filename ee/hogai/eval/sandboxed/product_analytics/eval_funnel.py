@@ -47,7 +47,7 @@ def _funnel_case(
     )
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True, databases="__all__")
 async def eval_funnel(sandboxed_demo_data, pytestconfig, posthog_client):
     this_year = datetime.now().year
 
