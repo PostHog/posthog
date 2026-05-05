@@ -1,93 +1,76 @@
 # Team Scoping Context
 #
 # Provides automatic team scoping for Django models using Python's ContextVar.
-# When a request comes in, middleware sets the current team_id in a ContextVar.
-# Models using TeamScopedManager will automatically filter by this team_id.
+# Models using TeamScopedManager / ProductTeamModel will read this context
+# and auto-filter their queries.
+#
+# Contract: the team_id stored in context is the **canonical** team_id where
+# data lives — i.e. the parent team's id when the team is a child environment,
+# or the team's own id when it's a root team. Callers (the DRF mixin, Celery
+# task helpers, manual `team_scope()` callers) are responsible for resolving
+# to the canonical id before setting context. ProductTeamModel.save() also
+# rewrites to the canonical id, so writes and reads stay symmetric.
 #
 # Usage:
-#   # In request context (automatic via middleware):
-#   FeatureFlag.objects.all()  # Auto-filtered to current team
+#   # In DRF nested views — set automatically by TeamAndOrgViewSetMixin:
+#   FeatureFlag.objects.all()  # Auto-filtered to canonical team
 #
 #   # Explicit cross-team query (escape hatch):
 #   FeatureFlag.objects.unscoped().all()  # No team filtering
 #
-#   # In background jobs (no request context):
-#   with team_scope(team_id):
-#       FeatureFlag.objects.all()  # Filtered to specified team
+#   # In background jobs / management commands (caller passes canonical id):
+#   with team_scope(canonical_team_id):
+#       FeatureFlag.objects.all()
 
 import inspect
 import functools
 from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from contextvars import ContextVar, Token
-from dataclasses import dataclass
 from typing import ParamSpec, TypeVar
 
 P = ParamSpec("P")
 R = TypeVar("R")
 
 
-@dataclass(frozen=True, slots=True)
-class TeamContext:
-    """Holds team context including cached parent team information."""
-
-    team_id: int
-    parent_team_id: int | None = None
-
-    @property
-    def effective_team_id(self) -> int:
-        """Returns parent_team_id if set, otherwise team_id."""
-        return self.parent_team_id if self.parent_team_id is not None else self.team_id
-
-
-# The current team context, set by middleware or explicitly via team_scope()
-_current_team_context: ContextVar[TeamContext | None] = ContextVar("current_team_context", default=None)
+# The current canonical team_id, or None if no scope is set.
+_current_team_id: ContextVar[int | None] = ContextVar("current_team_id", default=None)
 
 
 def get_current_team_id() -> int | None:
-    """Get the current team_id from context, or None if not set."""
-    ctx = _current_team_context.get()
-    return ctx.team_id if ctx is not None else None
+    """Get the current canonical team_id, or None if no scope is set."""
+    return _current_team_id.get()
 
 
-def get_current_team_context() -> TeamContext | None:
-    """Get the current team context, or None if not set."""
-    return _current_team_context.get()
+def set_current_team_id(team_id: int | None) -> Token[int | None]:
+    """Set the current canonical team_id. Returns a token to reset it later.
+
+    Pass `None` to clear context (used by `unscoped()`).
+    """
+    return _current_team_id.set(team_id)
 
 
-def set_current_team_id(team_id: int | None, parent_team_id: int | None = None) -> Token[TeamContext | None]:
-    """Set the current team_id in context. Returns a token to reset it later."""
-    if team_id is None:
-        return _current_team_context.set(None)
-    return _current_team_context.set(TeamContext(team_id=team_id, parent_team_id=parent_team_id))
-
-
-def reset_current_team_id(token: Token[TeamContext | None]) -> None:
+def reset_current_team_id(token: Token[int | None]) -> None:
     """Reset the current team_id to its previous value."""
-    _current_team_context.reset(token)
+    _current_team_id.reset(token)
 
 
 @contextmanager
-def team_scope(team_id: int, parent_team_id: int | None = None) -> Generator[None, None, None]:
+def team_scope(team_id: int) -> Generator[None, None, None]:
     """
     Context manager to set the current team_id for a block of code.
 
-    Useful for background jobs or tests where there's no request context.
-
-    Args:
-        team_id: The team ID to scope queries to.
-        parent_team_id: Optional parent team ID for cross-database models.
-            If provided, queries to PERSONS_DB_MODELS will use this ID instead.
+    Caller is responsible for passing the **canonical** team_id (parent if
+    the team is a child environment, the team's own id otherwise). If you
+    have a raw team_id and aren't sure, use
+    `posthog.models.scoping.manager.resolve_effective_team_id` to convert
+    it once before calling this.
 
     Example:
-        with team_scope(123):
-            flags = FeatureFlag.objects.all()  # Auto-filtered to team 123
-
-        # With parent team for persons DB models:
-        with team_scope(123, parent_team_id=100):
-            persons = Person.objects.all()  # Filtered to team 100
+        with team_scope(canonical_team_id):
+            flags = FeatureFlag.objects.all()  # Auto-filtered
     """
-    token = set_current_team_id(team_id, parent_team_id)
+    token = set_current_team_id(team_id)
     try:
         yield
     finally:
@@ -120,6 +103,11 @@ def with_team_scope(
 
     Extracts the team_id from the function's arguments and sets it as the
     current team context for the duration of the function call.
+
+    The team_id passed in must be the **canonical** team_id (see team_scope
+    docstring). Tasks should be designed to receive canonical team_ids in
+    their messages — if a task accepts a raw team_id and needs to resolve
+    it, do that explicitly inside the task body before scoped queries.
 
     Args:
         team_id_param: Name of the parameter containing the team_id.
@@ -174,9 +162,7 @@ def with_team_scope(
 
 
 __all__ = [
-    "TeamContext",
     "get_current_team_id",
-    "get_current_team_context",
     "set_current_team_id",
     "reset_current_team_id",
     "team_scope",

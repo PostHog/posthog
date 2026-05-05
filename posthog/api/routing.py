@@ -90,14 +90,18 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
 
     def initial(self, request, *args, **kwargs):
         """
-        Set team scope context from the URL-derived team_id (the team being
-        acted on). This is the single source of truth for team scoping in DRF
-        request flows — any code path that reads through TeamScopedManager /
-        ProductTeamManager during this request gets the URL's team_id, not
-        the user's "current" team (which can drift from the URL — see #50899
-        for the equivalent org-level bug).
+        Set team scope context to the canonical team_id (parent if the URL
+        team is a child environment, the URL team itself otherwise). This is
+        the single source of truth for team scoping in DRF request flows —
+        any code path that reads through TeamScopedManager / ProductTeamManager
+        during this request filters by this id.
 
-        Runs after super().initial() so authentication has completed.
+        Sourcing from the URL (not user.current_team_id) avoids the org-level
+        bug from #50899: user.current_team_id is a UI preference that can
+        drift from the team being acted on.
+
+        Runs after super().initial() so authentication has completed and
+        permission checks have already loaded self.team for free.
         """
         super().initial(request, *args, **kwargs)
         self._team_scope_token = None
@@ -109,15 +113,18 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
                 # touches a scoped model will get TeamScopeError, which is the
                 # correct fail-closed behavior.
                 return
-            # Reuse parent_team_id from already-loaded team (likely cached by
-            # permission checks above). Lets the manager skip its parent-team
-            # resolution roundtrip. Reading via __dict__ rather than attribute
-            # access avoids triggering the cached_property's lookup if it
-            # hasn't fired yet — and keeps the optimization opt-in. If `team`
-            # ever stops being a @cached_property this still degrades safely:
-            # parent_team_id stays None and the manager resolves via DB.
-            parent_team_id = self.team.parent_team_id if "team" in self.__dict__ else None
-            self._team_scope_token = set_current_team_id(team_id, parent_team_id=parent_team_id)
+            # Compute canonical team_id. self.team is a @cached_property
+            # (line ~297) usually loaded by the permission checks above, so
+            # this is free. Reading via __dict__ rather than attribute access
+            # avoids triggering the lookup if it hasn't fired yet; if it
+            # hasn't, fall back to the raw URL team_id (correct for root
+            # teams, which are the common case). If self.team ever stops
+            # being a @cached_property this still degrades safely.
+            if "team" in self.__dict__:
+                canonical_team_id = self.team.parent_team_id or team_id
+            else:
+                canonical_team_id = team_id
+            self._team_scope_token = set_current_team_id(canonical_team_id)
 
     def finalize_response(self, request, response, *args, **kwargs):
         try:
