@@ -325,29 +325,34 @@ class FileDownloadBatchExportWorkflow(PostHogWorkflow):
 
         interval_delta = data_interval_end_dt - data_interval_start_dt
 
-        start_batch_export_run_inputs = StartBatchExportRunInputs(
-            team_id=inputs.team_id,
-            batch_export_id=inputs.batch_export_id,
-            data_interval_start=data_interval_start_dt.isoformat(),
-            data_interval_end=data_interval_end_dt.isoformat(),
-            exclude_events=inputs.exclude_events,
-            include_events=inputs.include_events,
-            backfill_id=inputs.backfill_details.backfill_id if inputs.backfill_details else None,
-        )
-        try:
-            run_id = await workflow.execute_activity(
-                start_batch_export_run,
-                start_batch_export_run_inputs,
-                start_to_close_timeout=dt.timedelta(minutes=5),
-                retry_policy=RetryPolicy(
-                    initial_interval=dt.timedelta(seconds=10),
-                    maximum_interval=dt.timedelta(seconds=60),
-                    maximum_attempts=0,
-                    non_retryable_error_types=["NotNullViolation", "IntegrityError", "OverBillingLimitError"],
-                ),
+        if inputs.batch_export_run_id is not None:
+            run_id = str(inputs.batch_export_run_id)
+        else:
+            start_batch_export_run_inputs = StartBatchExportRunInputs(
+                team_id=inputs.team_id,
+                batch_export_id=inputs.batch_export_id,
+                data_interval_start=data_interval_start_dt.isoformat(),
+                data_interval_end=data_interval_end_dt.isoformat(),
+                exclude_events=inputs.exclude_events,
+                include_events=inputs.include_events,
+                backfill_id=inputs.backfill_details.backfill_id if inputs.backfill_details else None,
             )
-        except OverBillingLimitError:
-            return FileDownloadBatchExportResult(records_completed=0, bytes_exported=0)
+            try:
+                run_id = await workflow.execute_activity(
+                    start_batch_export_run,
+                    start_batch_export_run_inputs,
+                    start_to_close_timeout=dt.timedelta(minutes=5),
+                    retry_policy=RetryPolicy(
+                        initial_interval=dt.timedelta(seconds=10),
+                        maximum_interval=dt.timedelta(seconds=60),
+                        maximum_attempts=0,
+                        non_retryable_error_types=["NotNullViolation", "IntegrityError", "OverBillingLimitError"],
+                    ),
+                )
+            except OverBillingLimitError:
+                return FileDownloadBatchExportResult(records_completed=0, bytes_exported=0)
+
+        self._run_id = run_id
 
         export_inputs = ExportInputs(
             batch_export=BatchExportInsertInputs(

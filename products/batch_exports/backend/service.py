@@ -279,6 +279,7 @@ class FileDownloadBatchExportInputs(BaseBatchExportInputs):
     """
 
     data_interval_start: str | None = None
+    batch_export_run_id: UUID | None = None
     file_format: str = "Parquet"
     max_file_size_mb: int | None = None
     compression: str | None = None
