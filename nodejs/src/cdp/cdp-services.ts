@@ -1,4 +1,5 @@
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
+import { getRedisHost } from '~/utils/db/redis'
 
 import type { CommonConfig } from '../common/config'
 import { InternalCaptureService } from '../common/services/internal-capture'
@@ -52,7 +53,6 @@ export type CdpOutputs = IngestionOutputs<CdpOutput>
 
 export interface CdpCoreServices {
     redis: RedisV2
-    redisReader: RedisV2
     hogFunctionManager: HogFunctionManagerService
     hogFlowManager: HogFlowManagerService
     hogWatcher: HogWatcherService
@@ -131,6 +131,46 @@ export interface CdpCoreServicesDeps {
     internalCaptureService: InternalCaptureService
 }
 
+/**
+ * Creates a Redis reader pool, using a dedicated reader host if configured,
+ * otherwise falling back to the writer pool.
+ */
+export function createCdpReaderRedisPool(
+    config: Pick<
+        CdpCoreServicesConfig,
+        | 'CDP_REDIS_HOST'
+        | 'CDP_REDIS_PORT'
+        | 'CDP_REDIS_PASSWORD'
+        | 'CDP_REDIS_READER_HOST'
+        | 'CDP_REDIS_READER_PORT'
+        | 'REDIS_URL'
+        | 'REDIS_POOL_MIN_SIZE'
+        | 'REDIS_POOL_MAX_SIZE'
+    >,
+    writerPool: RedisV2,
+    name: string
+): RedisV2 {
+    if (config.CDP_REDIS_READER_HOST) {
+        logger.info(
+            '🔌',
+            `[${name}] writer=${config.CDP_REDIS_HOST}:${config.CDP_REDIS_PORT} reader=${config.CDP_REDIS_READER_HOST}:${config.CDP_REDIS_READER_PORT}`
+        )
+        return createRedisV2PoolFromConfig({
+            connection: {
+                url: config.CDP_REDIS_READER_HOST,
+                options: { port: config.CDP_REDIS_READER_PORT, password: config.CDP_REDIS_PASSWORD },
+                name: `${name}-reader`,
+            },
+            poolMinSize: config.REDIS_POOL_MIN_SIZE,
+            poolMaxSize: config.REDIS_POOL_MAX_SIZE,
+        })
+    }
+
+    const sanitizedWriter = config.CDP_REDIS_HOST || getRedisHost(config.REDIS_URL)
+    logger.info('🔌', `[${name}] writer=${sanitizedWriter}:${config.CDP_REDIS_PORT} reader=<falling back to writer>`)
+    return writerPool
+}
+
 export function createCdpCoreServices(
     config: CdpCoreServicesConfig,
     deps: CdpCoreServicesDeps,
@@ -148,28 +188,7 @@ export function createCdpCoreServices(
         poolMaxSize: config.REDIS_POOL_MAX_SIZE,
     })
 
-    let redisReader: RedisV2
-    if (config.CDP_REDIS_READER_HOST) {
-        logger.info(
-            '🔌',
-            `[CDP Redis] writer=${config.CDP_REDIS_HOST}:${config.CDP_REDIS_PORT} reader=${config.CDP_REDIS_READER_HOST}:${config.CDP_REDIS_READER_PORT}`
-        )
-        redisReader = createRedisV2PoolFromConfig({
-            connection: {
-                url: config.CDP_REDIS_READER_HOST,
-                options: { port: config.CDP_REDIS_READER_PORT, password: config.CDP_REDIS_PASSWORD },
-                name: `${redisName}-reader`,
-            },
-            poolMinSize: config.REDIS_POOL_MIN_SIZE,
-            poolMaxSize: config.REDIS_POOL_MAX_SIZE,
-        })
-    } else {
-        logger.info(
-            '🔌',
-            `[CDP Redis] writer=${config.CDP_REDIS_HOST || config.REDIS_URL}:${config.CDP_REDIS_PORT} reader=<falling back to writer>`
-        )
-        redisReader = redis
-    }
+    const redisReader = createCdpReaderRedisPool(config, redis, redisName)
 
     const hogFunctionManager = new HogFunctionManagerService(deps.postgres, deps.pubSub, deps.encryptedFields)
     const hogFlowManager = new HogFlowManagerService(deps.postgres, deps.pubSub)
@@ -252,7 +271,6 @@ export function createCdpCoreServices(
 
     return {
         redis,
-        redisReader,
         hogFunctionManager,
         hogFlowManager,
         hogWatcher,
