@@ -65,9 +65,9 @@ class TestCheckCountLimit(BaseTest):
 class TestGetOrganizationLimit(BaseTest):
     @parameterized.expand(
         [
-            ("free_no_features", [], 10),
-            ("paid_with_subscriptions", [{"key": AvailableFeature.SUBSCRIPTIONS}], 20),
-            ("enterprise_with_saml", [{"key": AvailableFeature.SAML}], 100),
+            ("free_no_features", [], 20),
+            ("paid_with_subscriptions", [{"key": AvailableFeature.SUBSCRIPTIONS}], 40),
+            ("enterprise_with_saml", [{"key": AvailableFeature.SAML}], 200),
         ]
     )
     def test_resolves_tiered_limit(

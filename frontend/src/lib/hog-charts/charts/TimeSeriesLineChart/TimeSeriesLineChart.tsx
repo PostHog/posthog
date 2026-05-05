@@ -8,14 +8,19 @@ import { AnomalyPointsLayer, type AnomalyMarker } from './overlays/AnomalyPoints
 import { buildGoalLineReferenceLines, type GoalLineConfig } from './utils/goal-lines'
 import { applyInProgressToSeries, type InProgressConfig } from './utils/in-progress'
 import { useXTickFormatter, useYTickFormatter, type XAxisConfig, type YAxisConfig } from './utils/use-axis-formatters'
-import { useDerivedSeries, type ConfidenceIntervalConfig, type MovingAverageConfig } from './utils/use-derived-series'
+import {
+    useDerivedSeries,
+    type ConfidenceIntervalConfig,
+    type MovingAverageConfig,
+    type TrendLineConfig,
+} from './utils/use-derived-series'
 
 export interface ValueLabelsConfig {
     seriesKeys?: string[]
     formatter?: (value: number) => string
 }
 
-export type { ConfidenceIntervalConfig, MovingAverageConfig }
+export type { ConfidenceIntervalConfig, MovingAverageConfig, TrendLineConfig }
 
 export interface TimeSeriesLineChartConfig {
     xAxis?: XAxisConfig
@@ -25,6 +30,10 @@ export interface TimeSeriesLineChartConfig {
     goalLines?: GoalLineConfig[]
     confidenceIntervals?: ConfidenceIntervalConfig[]
     movingAverage?: MovingAverageConfig[]
+    trendLines?: TrendLineConfig[]
+    /** Map of comparison series key → its primary series key. Comparison series render
+     *  at reduced opacity so they read as subordinate to their primary. */
+    comparisonOf?: Record<string, string>
     /** Anomaly markers rendered as filled circles on top of the chart. */
     anomalies?: AnomalyMarker[]
 }
@@ -62,8 +71,18 @@ export function TimeSeriesLineChart<Meta = unknown>({
     className,
     children,
 }: TimeSeriesLineChartProps<Meta>): React.ReactElement {
-    const { xAxis, yAxis, inProgress, valueLabels, goalLines, confidenceIntervals, movingAverage, anomalies } =
-        config ?? {}
+    const {
+        xAxis,
+        yAxis,
+        inProgress,
+        valueLabels,
+        goalLines,
+        confidenceIntervals,
+        movingAverage,
+        trendLines,
+        comparisonOf,
+        anomalies,
+    } = config ?? {}
     const xTickFormatter = useXTickFormatter(xAxis, labels)
     const yTickFormatter = useYTickFormatter(yAxis)
 
@@ -95,6 +114,8 @@ export function TimeSeriesLineChart<Meta = unknown>({
     const finalSeries = useDerivedSeries(seriesAfterValueLabels, {
         confidenceIntervals,
         movingAverage,
+        trendLines,
+        comparisonOf,
     })
 
     const valueLabelFormatter = valueLabelsConfig ? (valueLabelsConfig.formatter ?? yTickFormatter) : undefined

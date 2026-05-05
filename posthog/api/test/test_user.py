@@ -304,9 +304,8 @@ class TestUserAPI(APIBaseTest):
 
     # UPDATING USER
 
-    @patch("posthog.tasks.user_identify.identify_task")
     @patch("posthoganalytics.capture")
-    def test_update_current_user(self, mock_capture, mock_identify_task):
+    def test_update_current_user(self, mock_capture):
         another_org = Organization.objects.create(name="Another Org")
         another_team = Team.objects.create(name="Another Team", organization=another_org)
         user = self._create_user("old@posthog.com", password="12345678")
@@ -348,7 +347,10 @@ class TestUserAPI(APIBaseTest):
         self.assertEqual(user.has_seen_product_intro_for, {"feature_flags": True})
         self.assertEqual(user.role_at_organization, "engineering")
 
-        mock_capture.assert_called_once_with(
+        # UserSerializer.to_representation also fires posthoganalytics.capture
+        # for the "update user properties" identify, so use assert_any_call to
+        # find the "user updated" event we actually care about here.
+        mock_capture.assert_any_call(
             event="user updated",
             distinct_id=user.distinct_id,
             properties={
@@ -369,9 +371,8 @@ class TestUserAPI(APIBaseTest):
             },
         )
 
-    @patch("posthog.tasks.user_identify.identify_task")
     @patch("posthoganalytics.capture")
-    def test_user_can_cancel_own_email_change_request(self, _mock_capture, _mock_identify_task):
+    def test_user_can_cancel_own_email_change_request(self, _mock_capture):
         self.user.pending_email = "another@email.com"
         self.user.save()
 
@@ -381,20 +382,16 @@ class TestUserAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response_data["pending_email"] is None
 
-    @patch("posthog.tasks.user_identify.identify_task")
     @patch("posthoganalytics.capture")
-    def test_user_cannot_cancel_email_change_request_if_it_doesnt_exist(self, _mock_capture, _mock_identify_task):
+    def test_user_cannot_cancel_email_change_request_if_it_doesnt_exist(self, _mock_capture):
         # Fire a call to the endpoint without priming the User with a pending_email field
 
         response = self.client.patch("/api/users/cancel_email_change_request")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    @patch("posthog.tasks.user_identify.identify_task")
     @patch("posthoganalytics.capture")
-    def test_set_scene_personalisation_for_user_dashboard_must_be_in_current_team(
-        self, _mock_capture, _mock_identify_task
-    ):
+    def test_set_scene_personalisation_for_user_dashboard_must_be_in_current_team(self, _mock_capture):
         a_third_team = Team.objects.create(name="A Third Team", organization=self.organization)
 
         dashboard_one = Dashboard.objects.create(team=a_third_team, name="Dashboard 1")
@@ -411,9 +408,8 @@ class TestUserAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    @patch("posthog.tasks.user_identify.identify_task")
     @patch("posthoganalytics.capture")
-    def test_set_scene_personalisation_for_user_dashboard_must_exist(self, _mock_capture, _mock_identify_task):
+    def test_set_scene_personalisation_for_user_dashboard_must_exist(self, _mock_capture):
         response = self.client.post(
             "/api/users/@me/scene_personalisation",
             # even if someone tries to send a different user or team they are ignored
@@ -421,9 +417,8 @@ class TestUserAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    @patch("posthog.tasks.user_identify.identify_task")
     @patch("posthoganalytics.capture")
-    def test_set_scene_personalisation_for_user_must_send_dashboard(self, _mock_capture, _mock_identify_task):
+    def test_set_scene_personalisation_for_user_must_send_dashboard(self, _mock_capture):
         response = self.client.post(
             "/api/users/@me/scene_personalisation",
             # even if someone tries to send a different user or team they are ignored
@@ -431,9 +426,8 @@ class TestUserAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    @patch("posthog.tasks.user_identify.identify_task")
     @patch("posthoganalytics.capture")
-    def test_set_scene_personalisation_for_user_must_send_scene(self, _mock_capture, _mock_identify_task):
+    def test_set_scene_personalisation_for_user_must_send_scene(self, _mock_capture):
         dashboard_one = Dashboard.objects.create(team=self.team, name="Dashboard 1")
 
         response = self.client.post(
@@ -447,9 +441,8 @@ class TestUserAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    @patch("posthog.tasks.user_identify.identify_task")
     @patch("posthoganalytics.capture")
-    def test_set_scene_personalisation_for_user(self, _mock_capture, _mock_identify_task):
+    def test_set_scene_personalisation_for_user(self, _mock_capture):
         another_org = Organization.objects.create(name="Another Org")
         another_team = Team.objects.create(name="Another Team", organization=another_org)
         user = self._create_user("the-user@posthog.com", password="12345678")
@@ -743,9 +736,8 @@ class TestUserAPI(APIBaseTest):
         self.user.refresh_from_db()
         self.assertEqual(self.user.is_staff, False)
 
-    @patch("posthog.tasks.user_identify.identify_task")
     @patch("posthoganalytics.capture")
-    def test_can_update_current_organization(self, mock_capture, mock_identify):
+    def test_can_update_current_organization(self, mock_capture):
         response = self.client.patch("/api/users/@me/", {"set_current_organization": str(self.new_org.id)})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
@@ -760,7 +752,7 @@ class TestUserAPI(APIBaseTest):
         self.assertEqual(self.user.current_organization, self.new_org)
         self.assertEqual(self.user.current_team, self.new_project)
 
-        mock_capture.assert_called_once_with(
+        mock_capture.assert_any_call(
             event="user updated",
             distinct_id=self.user.distinct_id,
             properties={"updated_attrs": ["current_organization", "current_team"], "$set": mock.ANY},
@@ -771,9 +763,8 @@ class TestUserAPI(APIBaseTest):
             },
         )
 
-    @patch("posthog.tasks.user_identify.identify_task")
     @patch("posthoganalytics.capture")
-    def test_can_update_current_project(self, mock_capture, mock_identify):
+    def test_can_update_current_project(self, mock_capture):
         team = Team.objects.create(name="Local Team", organization=self.new_org)
         response = self.client.patch("/api/users/@me/", {"set_current_team": team.id})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -788,7 +779,7 @@ class TestUserAPI(APIBaseTest):
         self.assertEqual(self.user.current_organization, self.new_org)
         self.assertEqual(self.user.current_team, team)
 
-        mock_capture.assert_called_once_with(
+        mock_capture.assert_any_call(
             event="user updated",
             distinct_id=self.user.distinct_id,
             properties={"updated_attrs": ["current_organization", "current_team"], "$set": mock.ANY},
@@ -1005,10 +996,9 @@ class TestUserAPI(APIBaseTest):
             self.assertIn(result_organization, [self.organization, new_org])
             self.assertEqual(self.user.current_organization, result_organization)
 
-    @patch("posthog.tasks.user_identify.identify_task")
     @patch("posthoganalytics.capture")
     @patch("posthog.tasks.email.send_password_changed_email.delay")
-    def test_user_can_update_password(self, mock_send_password_changed_email, mock_capture, mock_identify):
+    def test_user_can_update_password(self, mock_send_password_changed_email, mock_capture):
         user = self._create_user("bob@posthog.com", password="A12345678")
         self.client.force_login(user)
 
@@ -1030,7 +1020,7 @@ class TestUserAPI(APIBaseTest):
         user.refresh_from_db()
         self.assertTrue(user.check_password("a_new_password"))
 
-        mock_capture.assert_called_once_with(
+        mock_capture.assert_any_call(
             event="user updated",
             distinct_id=user.distinct_id,
             properties={"updated_attrs": ["password"], "$set": mock.ANY},
@@ -1048,12 +1038,9 @@ class TestUserAPI(APIBaseTest):
         # Assert password changed email was sent
         mock_send_password_changed_email.assert_called_once_with(user.id)
 
-    @patch("posthog.tasks.user_identify.identify_task")
     @patch("posthoganalytics.capture")
     @patch("posthog.tasks.email.send_password_changed_email.delay")
-    def test_user_with_no_password_set_can_set_password(
-        self, mock_send_password_changed_email, mock_capture, mock_identify
-    ):
+    def test_user_with_no_password_set_can_set_password(self, mock_send_password_changed_email, mock_capture):
         user = self._create_user("no_password@posthog.com", password=None)
         self.client.force_login(user)
 
@@ -1075,7 +1062,7 @@ class TestUserAPI(APIBaseTest):
         user.refresh_from_db()
         self.assertTrue(user.check_password("a_new_password"))
 
-        mock_capture.assert_called_once_with(
+        mock_capture.assert_any_call(
             event="user updated",
             distinct_id=user.distinct_id,
             properties={"updated_attrs": ["password"], "$set": mock.ANY},
@@ -1114,9 +1101,8 @@ class TestUserAPI(APIBaseTest):
         user.refresh_from_db()
         self.assertTrue(user.check_password("a_new_password"))
 
-    @patch("posthog.tasks.user_identify.identify_task")
     @patch("posthoganalytics.capture")
-    def test_cannot_update_to_insecure_password(self, mock_capture, mock_identify):
+    def test_cannot_update_to_insecure_password(self, mock_capture):
         response = self.client.patch(
             "/api/users/@me/",
             {"current_password": self.CONFIG_PASSWORD, "password": "123"},
@@ -1139,7 +1125,11 @@ class TestUserAPI(APIBaseTest):
         # Password was not changed
         self.user.refresh_from_db()
         self.assertTrue(self.user.check_password(self.CONFIG_PASSWORD))
-        mock_capture.assert_not_called()
+        # The GET on /api/users/@me/ fires the inline identify ("update user properties")
+        # via UserSerializer.to_representation. The 4xx PATCH must NOT fire "user updated"
+        # because the update was rejected.
+        update_calls = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "user updated"]
+        assert update_calls == []
 
     def test_user_cannot_update_password_without_current_password(self):
         response = self.client.patch("/api/users/@me/", {"password": "12345678"})
