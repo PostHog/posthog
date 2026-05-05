@@ -152,6 +152,7 @@ def _property_removal_where(
     ctx: DeletionRequestContext,
     mat_cols: list[tuple[str, bool]] | None = None,
     inserted_at_max: str | None = None,
+    hogql_compiled: tuple[str, dict] | None = None,
 ) -> tuple[str, dict]:
     """Full WHERE predicate + params for property-removal queries.
 
@@ -159,6 +160,17 @@ def _property_removal_where(
     originals afterward. The presence check (JSON ``properties`` plus DEFAULT
     materialized columns) MUST match between the two passes — drift causes
     either data loss (delete > copy) or duplication (copy > delete).
+
+    Honors the optional ``hogql_predicate`` on the request the same way
+    ``_event_removal_where`` does, so an operator can scope a property removal
+    to (e.g.) a specific ``$current_url`` or person property. The compiled
+    HogQL fragment uses unqualified column references and is safe to splice
+    into queries against either ``events`` or ``sharded_events``. The caller
+    must precompile the predicate via ``compile_hogql_predicate`` in the main
+    thread (it touches the Django ORM) and pass the result via
+    ``hogql_compiled`` — calling it from a per-shard worker thread can fail
+    when the worker holds a different DB connection from the test/request
+    transaction.
 
     The delete pass additionally passes ``inserted_at_max``: cleaned re-inserts
     are stamped with that exact value, so ``inserted_at < marker`` skips them.
@@ -178,6 +190,11 @@ def _property_removal_where(
         f"AND {presence}",
     ]
     params = _base_params(ctx)
+    if hogql_compiled is not None:
+        hogql_sql, hogql_values = hogql_compiled
+        if hogql_sql:
+            parts.append(f"AND ({hogql_sql})")
+            params.update(hogql_values)
     if inserted_at_max is not None:
         # Cast explicitly to DateTime64(6) — without it the parameter is parsed as DateTime
         # (second precision), which truncates microseconds and causes the comparison to skip
@@ -465,6 +482,7 @@ def load_property_removal_request(
             "properties": dagster.MetadataValue.text(", ".join(request.properties)),
             "start_time": dagster.MetadataValue.text(str(request.start_time)),
             "end_time": dagster.MetadataValue.text(str(request.end_time)),
+            "hogql_predicate": dagster.MetadataValue.text(request.hogql_predicate or ""),
         }
     )
 
@@ -476,6 +494,7 @@ def load_property_removal_request(
         end_time=request.end_time,
         events=request.events,
         properties=request.properties,
+        hogql_predicate=request.hogql_predicate or "",
     )
 
 
@@ -520,6 +539,10 @@ def process_property_removal_per_shard(
     # with a truncated inserted_at and the originals-delete predicate to mismatch by sub-second
     # offsets. Passing as ISO string and casting in SQL preserves the full precision.
     marker_str = marker.strftime("%Y-%m-%d %H:%M:%S.%f")
+    # HogQL compilation reaches into the Django ORM (Team lookup); compile once on the main
+    # thread before dispatching per-shard work, otherwise the worker thread's DB connection
+    # may not see the request/test transaction.
+    hogql_compiled = compile_hogql_predicate(deletion_request)
 
     def _flatten_sql(sql: str) -> str:
         return " ".join(sql.split())
@@ -537,7 +560,11 @@ def process_property_removal_per_shard(
 
         _create_local_staging_table(client, source_table=source, staging_table=temp, log=log_query)
 
-        copy_predicate, copy_params = _property_removal_where(deletion_request, mat_cols=affected_mat_cols)
+        copy_predicate, copy_params = _property_removal_where(
+            deletion_request,
+            mat_cols=affected_mat_cols,
+            hogql_compiled=hogql_compiled,
+        )
         execute("truncate-temp", f"TRUNCATE TABLE IF EXISTS {db}.{temp}")
         execute(
             "copy-into-temp",
@@ -591,6 +618,7 @@ def process_property_removal_per_shard(
             deletion_request,
             mat_cols=affected_mat_cols,
             inserted_at_max=marker_str,
+            hogql_compiled=hogql_compiled,
         )
         delete_runner = LightweightDeleteMutationRunner(
             table=source,
