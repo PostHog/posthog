@@ -232,7 +232,7 @@ describe('vercel log drain template', () => {
         expect(response.capturedPostHogEvents).toMatchSnapshot()
     })
 
-    it('should flatten non-PII proxy properties by default', async () => {
+    it('should flatten all proxy properties (including PII) by default', async () => {
         const response = await tester.invoke(
             {},
             {
@@ -245,13 +245,11 @@ describe('vercel log drain template', () => {
         expect(props.proxy_method).toBe('GET')
         expect(props.proxy_host).toBe('my-app.vercel.app')
         expect(props.proxy_path).toBe('/api/users?page=1')
+        expect(props.proxy_client_ip).toBe('120.75.16.101')
         expect(props.proxy_vercel_cache).toBe('MISS')
-        // proxy_client_ip and proxy_user_agent are gated on forward_ip_and_user_agent.
-        expect(props.proxy_client_ip).toBeUndefined()
-        expect(props.proxy_user_agent).toBeUndefined()
     })
 
-    it('should not emit $ip or $raw_user_agent by default and should set $current_url from proxy data', async () => {
+    it('should emit $ip, $raw_user_agent, and proxy_* PII by default and set $current_url from proxy data', async () => {
         const response = await tester.invoke(
             {},
             {
@@ -261,23 +259,25 @@ describe('vercel log drain template', () => {
 
         expect(response.error).toBeUndefined()
         const props = response.capturedPostHogEvents[0].properties
-        expect(props.$ip).toBeUndefined()
-        expect(props.$raw_user_agent).toBeUndefined()
+        expect(props.$ip).toBe('120.75.16.101')
+        expect(props.$raw_user_agent).toBe('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36')
+        expect(props.proxy_client_ip).toBe('120.75.16.101')
+        expect(props.proxy_user_agent).toEqual(['Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'])
         expect(props.$current_url).toBe('https://my-app.vercel.app/api/users?page=1')
     })
 
-    it('should emit $ip, $raw_user_agent, and proxy_* PII when forward_ip_and_user_agent is enabled', async () => {
+    it('should drop $ip, $raw_user_agent, and proxy_* PII when forward_ip_and_user_agent is disabled', async () => {
         const response = await tester.invoke(
-            { forward_ip_and_user_agent: true },
+            { forward_ip_and_user_agent: false },
             { request: createVercelRequest(vercelLogDrain) }
         )
 
         expect(response.error).toBeUndefined()
         const props = response.capturedPostHogEvents[0].properties
-        expect(props.$ip).toBe('120.75.16.101')
-        expect(props.$raw_user_agent).toBe('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36')
-        expect(props.proxy_client_ip).toBe('120.75.16.101')
-        expect(props.proxy_user_agent).toEqual(['Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'])
+        expect(props.$ip).toBeUndefined()
+        expect(props.$raw_user_agent).toBeUndefined()
+        expect(props.proxy_client_ip).toBeUndefined()
+        expect(props.proxy_user_agent).toBeUndefined()
     })
 
     it('should handle logs with null message without crashing', async () => {
@@ -689,13 +689,14 @@ describe('vercel log drain template', () => {
         })
 
         it.each(['rotating_salt', 'fixed_salt', 'ip', 'custom'])(
-            'strategy %s: omits $ip and $raw_user_agent when forward toggle is off (default)',
+            'strategy %s: omits $ip and $raw_user_agent when forward toggle is explicitly false',
             async (strategy) => {
                 const response = await tester.invoke(
                     {
                         salt_secret: 'test-salt',
                         distinct_id_strategy: strategy,
                         custom_template: strategy === 'custom' ? 'k_{ip}' : undefined,
+                        forward_ip_and_user_agent: false,
                     },
                     { request: createVercelRequest(vercelLogDrain) }
                 )

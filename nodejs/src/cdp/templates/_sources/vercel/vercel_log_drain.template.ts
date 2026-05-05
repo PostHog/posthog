@@ -220,9 +220,10 @@ let queryParams := parseQueryParams(path)
 let pathname := extractPathname(path)
 
 let props := {
-    // PostHog standard properties. $ip and $raw_user_agent are added below
-    // when forward_ip_and_user_agent is enabled — defaults to off so the
-    // strategy hashing isn't undermined by raw PII landing on every event.
+    // PostHog standard properties. $ip and $raw_user_agent are appended
+    // below when forward_ip_and_user_agent is enabled (default on, since
+    // PostHog's GeoIP and UA enrichment depend on them); flip the toggle
+    // off to keep raw client identifiers off the emitted event.
     '$distinct_id_strategy': activeStrategy,
     '$current_url': f'{scheme}://{host}{path}',
     '$host': host,
@@ -387,10 +388,10 @@ return {
             type: 'boolean',
             label: 'Forward client IP and user agent',
             description:
-                'When enabled, $ip, $raw_user_agent, proxy_client_ip, and proxy_user_agent are emitted on each event (PostHog uses $ip for GeoIP enrichment). Off by default so raw client identifiers do not land on events alongside hashed distinct IDs. Safe to enable when distinct_id_strategy is "ip", or whenever you do not need the strategy hashing to obscure the client.',
+                'When enabled (default), $ip, $raw_user_agent, proxy_client_ip, and proxy_user_agent are emitted on each event so PostHog can run GeoIP and user-agent enrichment. Disable if you want raw client identifiers stripped — distinct_id derivation still uses them as inputs, but they will not appear on the emitted event.',
             secret: false,
             required: false,
-            default: false,
+            default: true,
         },
         {
             key: 'custom_template',
