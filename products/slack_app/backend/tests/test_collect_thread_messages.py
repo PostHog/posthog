@@ -82,56 +82,83 @@ class TestFlattenBlockText:
 
 
 class TestExtractMessageText:
-    def test_prefers_top_level_text(self):
-        msg = {"text": "explicit text", "blocks": [{"type": "header", "text": {"text": "ignored"}}]}
-        assert _extract_message_text(msg) == "explicit text"
-
-    def test_falls_back_to_blocks_when_text_empty(self):
-        msg = {
-            "text": "",
-            "blocks": [
-                {"type": "header", "text": {"type": "plain_text", "text": "🔴 Alert firing"}},
+    @parameterized.expand(
+        [
+            (
+                "text_only_no_blocks",
+                {"text": "hello world"},
+                "hello world",
+            ),
+            (
+                "text_and_block_with_extra_detail_combines",
                 {
-                    "type": "section",
-                    "text": {"type": "mrkdwn", "text": "value 42 exceeded threshold 10"},
+                    "text": "🔴 Alert firing",
+                    "blocks": [
+                        {"type": "header", "text": {"type": "plain_text", "text": "🔴 Alert firing"}},
+                        {
+                            "type": "section",
+                            "text": {"type": "mrkdwn", "text": "value 42 exceeded threshold 10"},
+                        },
+                    ],
                 },
-            ],
-        }
-        result = _extract_message_text(msg)
-        assert "🔴 Alert firing" in result
-        assert "value 42 exceeded threshold 10" in result
-
-    def test_falls_back_to_attachments(self):
-        msg = {
-            "text": "",
-            "blocks": [],
-            "attachments": [
-                {"fallback": "PostHog alert: signups dropped 30% week over week"},
-            ],
-        }
-        assert _extract_message_text(msg) == "PostHog alert: signups dropped 30% week over week"
-
-    def test_text_only_whitespace_falls_back(self):
-        msg = {
-            "text": "   ",
-            "blocks": [{"type": "section", "text": {"type": "mrkdwn", "text": "real content"}}],
-        }
-        assert _extract_message_text(msg) == "real content"
-
-    def test_dedupes_adjacent_duplicates(self):
-        msg = {
-            "text": "",
-            "blocks": [
-                {"type": "section", "text": {"type": "mrkdwn", "text": "duplicated"}},
-                {"type": "section", "text": {"type": "mrkdwn", "text": "duplicated"}},
-                {"type": "section", "text": {"type": "mrkdwn", "text": "different"}},
-            ],
-        }
-        assert _extract_message_text(msg) == "duplicated\ndifferent"
-
-    def test_no_content_returns_empty_string(self):
-        assert _extract_message_text({"text": "", "blocks": [], "attachments": []}) == ""
-        assert _extract_message_text({}) == ""
+                "🔴 Alert firing\nvalue 42 exceeded threshold 10",
+            ),
+            (
+                "blocks_only_falls_back",
+                {
+                    "text": "",
+                    "blocks": [
+                        {"type": "section", "text": {"type": "mrkdwn", "text": "real content"}},
+                    ],
+                },
+                "real content",
+            ),
+            (
+                "attachments_fallback",
+                {
+                    "text": "",
+                    "blocks": [],
+                    "attachments": [
+                        {"fallback": "PostHog alert: signups dropped 30% week over week"},
+                    ],
+                },
+                "PostHog alert: signups dropped 30% week over week",
+            ),
+            (
+                "whitespace_text_treated_as_empty",
+                {
+                    "text": "   ",
+                    "blocks": [
+                        {"type": "section", "text": {"type": "mrkdwn", "text": "real content"}},
+                    ],
+                },
+                "real content",
+            ),
+            (
+                "dedupes_repeats_across_text_and_blocks",
+                {
+                    "text": "duplicated",
+                    "blocks": [
+                        {"type": "section", "text": {"type": "mrkdwn", "text": "duplicated"}},
+                        {"type": "section", "text": {"type": "mrkdwn", "text": "different"}},
+                    ],
+                },
+                "duplicated\ndifferent",
+            ),
+            (
+                "no_content_returns_empty",
+                {"text": "", "blocks": [], "attachments": []},
+                "",
+            ),
+            (
+                "missing_keys_returns_empty",
+                {},
+                "",
+            ),
+        ]
+    )
+    def test_extract_cases(self, _name: str, msg: dict, expected: str) -> None:
+        assert _extract_message_text(msg) == expected
 
 
 @patch("products.slack_app.backend.api._get_slack_user_info")

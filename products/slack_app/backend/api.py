@@ -600,11 +600,11 @@ def _flatten_block_text(node: Any) -> list[str]:
             out.extend(_flatten_block_text(item))
         return out
     if isinstance(node, dict):
-        # Skip interactive/decorative blocks that don't carry information for the agent.
-        if node.get("type") in ("actions", "divider", "image", "context"):
-            # `context` can carry useful labels — recurse but only into `elements`.
-            if node.get("type") == "context":
-                return _flatten_block_text(node.get("elements"))
+        # `context` blocks can carry useful labels — recurse into `elements` only.
+        if node.get("type") == "context":
+            return _flatten_block_text(node.get("elements"))
+        # Skip interactive/decorative blocks that carry no information for the agent.
+        if node.get("type") in ("actions", "divider", "image"):
             return []
         out = []
         for key in ("text", "fields", "elements", "title", "pretext", "fallback"):
@@ -615,13 +615,16 @@ def _flatten_block_text(node: Any) -> list[str]:
 
 
 def _extract_message_text(msg: dict) -> str:
+    # Always include `text` and `blocks`/`attachments`: PostHog's own alert templates put
+    # the headline in `text` and the values/details in blocks. Dedup so a string repeated
+    # across both (e.g. text == header block) shows up once.
+    pieces: list[str] = []
     text = (msg.get("text") or "").strip()
     if text:
-        return text
+        pieces.append(text)
 
     blocks = msg.get("blocks") or []
     attachments = msg.get("attachments") or []
-    pieces: list[str] = []
     try:
         pieces.extend(_flatten_block_text(blocks))
     except Exception:
@@ -631,11 +634,11 @@ def _extract_message_text(msg: dict) -> str:
     except Exception:
         logger.warning("slack_thread_attachment_flatten_failed", exc_info=True)
 
-    # Deduplicate adjacent identical lines (Slack often repeats the same string in
-    # `text.text` and a parent wrapper) while preserving order.
+    seen: set[str] = set()
     deduped: list[str] = []
     for piece in pieces:
-        if not deduped or deduped[-1] != piece:
+        if piece and piece not in seen:
+            seen.add(piece)
             deduped.append(piece)
     return "\n".join(deduped)
 
@@ -684,13 +687,7 @@ def _collect_thread_messages(
         else:
             username = "Unknown"
 
-        try:
-            raw_text = _extract_message_text(msg)
-        except Exception:
-            logger.warning("slack_thread_message_text_extraction_failed", exc_info=True)
-            raw_text = msg.get("text", "") or ""
-
-        text = replace_user_mentions(raw_text)
+        text = replace_user_mentions(_extract_message_text(msg))
         messages.append({"user": username, "text": text})
 
     return messages
