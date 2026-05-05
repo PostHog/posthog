@@ -17,10 +17,8 @@ import CLI_SCHEMA_DRILLDOWN from '@/templates/sections/cli-schema-drilldown.md'
 import CLI_SYNTAX from '@/templates/sections/cli-syntax.md'
 import COMPACT_INSTRUCTIONS from '@/templates/sections/compact-instructions.md'
 import ENV_CONTEXT from '@/templates/sections/env-context.md'
-import EXAMPLES_CLI from '@/templates/sections/examples-cli.md'
-import EXAMPLES_TOOLS from '@/templates/sections/examples-tools.md'
+import EXAMPLES from '@/templates/sections/examples.md'
 import EXEC_TOOL_BLURB from '@/templates/sections/exec-tool-blurb.md'
-import GUIDELINES from '@/templates/sections/guidelines.md'
 import LEGACY from '@/templates/sections/legacy.md'
 import RETRIEVING_DATA from '@/templates/sections/retrieving-data.md'
 import SCHEMA_WORKFLOW from '@/templates/sections/schema-workflow.md'
@@ -55,16 +53,7 @@ export class InstructionsFormatter {
     /** Build the system prompt for tools-mode clients (each tool registered separately). */
     buildV2Instructions(ctx: InstructionsContext): string {
         return this.compose(
-            [
-                BASIC_FUNCTIONALITY,
-                TOOL_SEARCH,
-                GUIDELINES,
-                RETRIEVING_DATA,
-                SCHEMA_WORKFLOW,
-                ENV_CONTEXT,
-                URL_PATTERNS,
-                EXAMPLES_TOOLS,
-            ],
+            [BASIC_FUNCTIONALITY, TOOL_SEARCH, RETRIEVING_DATA, SCHEMA_WORKFLOW, ENV_CONTEXT, URL_PATTERNS, EXAMPLES],
             ctx,
             { compact: false }
         )
@@ -99,7 +88,7 @@ export class InstructionsFormatter {
             SCHEMA_WORKFLOW,
             ENV_CONTEXT,
             URL_PATTERNS,
-            EXAMPLES_CLI,
+            EXAMPLES,
         ]
         const renderCtx: InstructionsContext = opts.stripEnvContext ? { guidelines: ctx.guidelines } : ctx
         return this.compose(sections, renderCtx, { compact: false })

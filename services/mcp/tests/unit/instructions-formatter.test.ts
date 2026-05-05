@@ -61,7 +61,6 @@ describe('InstructionsFormatter', () => {
         it('resolves every placeholder when fully populated', () => {
             const formatter = new InstructionsFormatter()
             const result = formatter.buildV2Instructions(fullCtx)
-            expect(result).toContain('some guidelines')
             expect(result).toContain('Defined group types: organization')
             expect(result).toContain("The user's name is Jane Doe")
             expect(result).toContain('Project timezone: America/New_York.')
@@ -89,13 +88,6 @@ describe('InstructionsFormatter', () => {
             expect(result).not.toContain('SCHEMA DRILL-DOWN RULE')
             expect(result).not.toContain('Using the `posthog` tool')
             expect(result).not.toContain('CLI-style command string')
-        })
-
-        it('trims guidelines whitespace', () => {
-            const formatter = new InstructionsFormatter()
-            const result = formatter.buildV2Instructions({ ...fullCtx, guidelines: '  padded  ' })
-            expect(result).toContain('padded')
-            expect(result).not.toContain('  padded  ')
         })
 
         it('omits placeholders cleanly when context fields are undefined', () => {
