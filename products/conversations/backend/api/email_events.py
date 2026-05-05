@@ -350,7 +350,7 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
 
     # 7. Get content (stripped by Mailgun to remove quotes/signatures)
     content = (request.POST.get("stripped-text", "") or request.POST.get("body-plain", ""))[:MAX_EMAIL_BODY_LENGTH]
-    subject = request.POST.get("subject", "")
+    subject = request.POST.get("subject", "")[:500]
 
     # 7b. Detect team member sender — only trust From when DKIM passes
     # AND the envelope-sender domain aligns with the From domain.
