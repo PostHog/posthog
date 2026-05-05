@@ -769,15 +769,6 @@ export const LlmAnalyticsEvaluationSummaryCreateBody = /* @__PURE__ */ zod
     })
     .describe('Request serializer for evaluation summary - accepts IDs only, fetches data server-side.')
 
-/**
- * Fetch experiment items for a given experiment_id, with heavy input/output.
- */
-export const LlmAnalyticsOfflineEvaluationsExperimentItemsCreateBody = /* @__PURE__ */ zod.object({
-    experiment_id: zod.string(),
-    date_from: zod.string().nullish(),
-    date_to: zod.string().nullish(),
-})
-
 export const llmAnalyticsProviderKeysCreateBodyNameMax = 255
 
 export const llmAnalyticsProviderKeysCreateBodyApiVersionMax = 20

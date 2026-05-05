@@ -82,7 +82,6 @@ from products.llm_analytics.backend.api import (
     EvaluationRunViewSet,
     EvaluationViewSet,
     LLMAnalyticsClusteringRunViewSet,
-    LLMAnalyticsOfflineEvaluationsViewSet,
     LLMAnalyticsSentimentViewSet,
     LLMAnalyticsSummarizationViewSet,
     LLMAnalyticsTextReprViewSet,
@@ -1450,13 +1449,6 @@ environments_router.register(
     r"llm_analytics/sentiment",
     LLMAnalyticsSentimentViewSet,
     "environment_llm_analytics_sentiment",
-    ["team_id"],
-)
-
-environments_router.register(
-    r"llm_analytics/offline_evaluations",
-    LLMAnalyticsOfflineEvaluationsViewSet,
-    "environment_llm_analytics_offline_evaluations",
     ["team_id"],
 )
 

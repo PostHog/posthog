@@ -22350,18 +22350,6 @@ export namespace Schemas {
       event_definition_id?: string | null;
     }
 
-    export interface OfflineExperimentItemsRequest {
-      experiment_id: string;
-      /** @nullable */
-      date_from?: string | null;
-      /** @nullable */
-      date_to?: string | null;
-    }
-
-    export interface OfflineExperimentItemsResponse {
-      results: unknown[][];
-    }
-
     /**
      * * `latest` - latest
     * `earliest` - earliest
@@ -40566,10 +40554,6 @@ export namespace Schemas {
       Openrouter: 'openrouter',
       TogetherAi: 'together_ai',
     } as const;
-
-    export type LlmAnalyticsOfflineEvaluationsExperimentItemsCreate400 = { [key: string]: unknown };
-
-    export type LlmAnalyticsOfflineEvaluationsExperimentItemsCreate500 = { [key: string]: unknown };
 
     export type LlmAnalyticsProviderKeyValidationsCreate200 = { [key: string]: unknown };
 

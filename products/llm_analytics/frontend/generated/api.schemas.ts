@@ -868,18 +868,6 @@ export interface LLMModelsListResponseApi {
     models: LLMModelInfoApi[]
 }
 
-export interface OfflineExperimentItemsRequestApi {
-    experiment_id: string
-    /** @nullable */
-    date_from?: string | null
-    /** @nullable */
-    date_to?: string | null
-}
-
-export interface OfflineExperimentItemsResponseApi {
-    results: unknown[][]
-}
-
 export interface PaginatedLLMProviderKeyListApi {
     count: number
     /** @nullable */
@@ -2278,10 +2266,6 @@ export const LlmAnalyticsModelsRetrieveProvider = {
     Openrouter: 'openrouter',
     TogetherAi: 'together_ai',
 } as const
-
-export type LlmAnalyticsOfflineEvaluationsExperimentItemsCreate400 = { [key: string]: unknown }
-
-export type LlmAnalyticsOfflineEvaluationsExperimentItemsCreate500 = { [key: string]: unknown }
 
 export type LlmAnalyticsProviderKeyValidationsCreate200 = { [key: string]: unknown }
 
