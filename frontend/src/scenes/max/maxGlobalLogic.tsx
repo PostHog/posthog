@@ -146,11 +146,19 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
             {
                 registerTool: (state, { tool }) => ({
                     ...state,
-                    [tool.identifier]: tool,
+                    [tool.registrationKey ?? tool.identifier]: tool,
                 }),
                 deregisterTool: (state, { key }) => {
                     const newState = { ...state }
-                    delete newState[key]
+                    if (newState[key]) {
+                        delete newState[key]
+                    } else {
+                        for (const [registrationKey, tool] of Object.entries(newState)) {
+                            if (tool.identifier === key) {
+                                delete newState[registrationKey]
+                            }
+                        }
+                    }
                     return newState
                 },
             },
@@ -246,13 +254,14 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
             (s) => [s.registeredToolMap, s.availableStaticTools],
             (registeredToolMap, availableStaticTools) => ({
                 ...Object.fromEntries(availableStaticTools.map((tool) => [tool.identifier, tool])),
-                ...registeredToolMap,
+                ...Object.fromEntries(Object.values(registeredToolMap).map((tool) => [tool.identifier, tool])),
             }),
         ],
         tools: [(s) => [s.toolMap], (toolMap): ToolRegistration[] => Object.values(toolMap)],
         editInsightToolRegistered: [
             (s) => [s.registeredToolMap],
-            (registeredToolMap) => !!registeredToolMap.create_insight,
+            (registeredToolMap) =>
+                Object.values(registeredToolMap).some((tool) => tool.identifier === 'create_insight'),
         ],
         toolSuggestions: [
             (s) => [s.tools],

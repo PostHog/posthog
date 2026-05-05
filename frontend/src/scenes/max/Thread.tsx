@@ -397,7 +397,7 @@ function Message({
     isFinal,
     isSlashCommandResponse,
 }: MessageProps): JSX.Element | null {
-    const { editInsightToolRegistered, registeredToolMap } = useValues(maxGlobalLogic)
+    const { editInsightToolRegistered, toolMap } = useValues(maxGlobalLogic)
     const { activeTabId, activeSceneId } = useValues(sceneLogic)
     const { threadLoading, isSharedThread, pendingApprovalsData, resolvedApprovalStatuses } = useValues(maxThreadLogic)
     const { conversationId } = useValues(maxLogic)
@@ -537,7 +537,7 @@ function Message({
                                                     : [],
                                             },
                                         ]}
-                                        registeredToolMap={registeredToolMap}
+                                        registeredToolMap={toolMap}
                                     />
                                 ) : (
                                     <ReasoningAnswer
@@ -557,7 +557,7 @@ function Message({
                                 <ToolCallsAnswer
                                     key={`${key}-tools`}
                                     toolCalls={message.tool_calls as EnhancedToolCall[]}
-                                    registeredToolMap={registeredToolMap}
+                                    registeredToolMap={toolMap}
                                 />
                             ) : null
 

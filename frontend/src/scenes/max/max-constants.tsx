@@ -72,6 +72,8 @@ export interface ToolDefinition<N extends string = string> {
 export interface ToolRegistration extends Pick<ToolDefinition, 'name' | 'description'> {
     /** A unique identifier for the tool */
     identifier: keyof typeof TOOL_DEFINITIONS
+    /** A unique key for a mounted registration of this tool. Multiple mounted instances can share an identifier. */
+    registrationKey?: string
     /**
      * Optional specific @posthog/icons icon
      * @default <IconWrench />

@@ -630,6 +630,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             try {
                 cache.generationController = new AbortController()
                 actions.resetSandboxEntries()
+                const streamToolMap = { ...values.toolMap }
 
                 // Ensure we have valid data for the API call
                 const apiData: any = { ...streamData }
@@ -667,6 +668,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                                 props,
                                 agentMode,
                                 cache,
+                                toolMap: streamToolMap,
                             })
                         )
                     },
@@ -1978,10 +1980,14 @@ export async function onEventImplementation(
         props,
         agentMode,
         cache,
+        toolMap: streamToolMap,
     }: Pick<BuiltLogic<maxThreadLogicType>, 'actions' | 'values' | 'props' | 'cache'> & {
         agentMode: AgentMode | null
+        toolMap?: Record<string, ToolRegistration>
     }
 ): Promise<void> {
+    const toolMap = streamToolMap ?? values.toolMap
+
     // On 409 reconnect, the stream replays all events from the beginning.
     // Clear the thread on the first real event so the replay rebuilds it
     // from scratch — this avoids duplicates and ordering conflicts.
@@ -2009,7 +2015,7 @@ export async function onEventImplementation(
         if (!parsedResponse) {
             return
         }
-        actions.setToolCallUpdate(parsedResponse, values.toolMap)
+        actions.setToolCallUpdate(parsedResponse, toolMap)
         return
     } else if (event === AssistantEventType.Message) {
         const parsedResponse = parseResponse<RootAssistantMessage>(data)
@@ -2052,7 +2058,7 @@ export async function onEventImplementation(
                     if (toolResult?.status === PENDING_APPROVAL_STATUS && proposalId) {
                         actions.setPendingApproval(proposalId)
                     }
-                    await values.toolMap[toolName]?.callback?.(toolResult, props.conversationId)
+                    await toolMap[toolName]?.callback?.(toolResult, props.conversationId)
                 }
             }
             actions.addMessage({
@@ -2065,7 +2071,7 @@ export async function onEventImplementation(
                     if (!values.availableStaticTools.some((tool) => tool.identifier === toolName)) {
                         continue // Non-static tools (contextual) operate via ui_payload instead
                     }
-                    await values.toolMap[toolName]?.callback?.(toolResult, props.conversationId)
+                    await toolMap[toolName]?.callback?.(toolResult, props.conversationId)
                 }
             }
             // Check if a message with the same ID already exists

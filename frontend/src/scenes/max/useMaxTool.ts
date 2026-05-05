@@ -3,6 +3,8 @@ import React, { useEffect } from 'react'
 
 import { IconWrench } from '@posthog/icons'
 
+import { sceneLogic } from 'scenes/sceneLogic'
+
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import { SidePanelTab } from '~/types'
 
@@ -31,6 +33,8 @@ export interface UseMaxToolReturn {
     openMax: (() => void) | null
 }
 
+let nextRegistrationInstance = 0
+
 /** Hook for registering a MaxTool and handling Max interactions programmatically, without the full MaxTool wrapper. */
 export function useMaxTool({
     identifier,
@@ -47,15 +51,32 @@ export function useMaxTool({
     const { openSidePanel } = useActions(sidePanelLogic)
     const { sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
     const { setActiveGroup, startNewConversation } = useActions(maxLogic({ tabId: 'sidepanel' }))
+    const { activeTabId } = useValues(sceneLogic)
 
     const definition = getToolDefinition(identifier)
     const isMaxOpen = sidePanelOpen && selectedTab === SidePanelTab.Max
+    const registrationKeyRef = React.useRef<string | null>(null)
+    const registrationTabIdRef = React.useRef<string | null>(null)
+
+    if (registrationKeyRef.current === null) {
+        nextRegistrationInstance += 1
+        registrationKeyRef.current = `${identifier}-${nextRegistrationInstance}`
+    }
+
+    if (registrationTabIdRef.current === null && activeTabId) {
+        registrationTabIdRef.current = activeTabId
+    }
+
+    const registrationKey = registrationKeyRef.current
+    const registrationTabId = registrationTabIdRef.current
+    const activeForCurrentTab = !registrationTabId || registrationTabId === activeTabId
 
     useEffect(() => {
         // Register/deregister tool
-        if (active && definition) {
+        if (active && definition && activeForCurrentTab) {
             registerTool({
                 identifier,
+                registrationKey,
                 name: definition.name,
                 description: definition.description,
                 context,
@@ -64,12 +85,14 @@ export function useMaxTool({
                 suggestions,
                 callback,
             })
-            return (): void => deregisterTool(identifier)
+            return (): void => deregisterTool(registrationKey)
         }
     }, [
         active,
+        activeForCurrentTab,
         identifier,
         definition,
+        registrationKey,
         JSON.stringify(context), // oxlint-disable-line react-hooks/exhaustive-deps
         contextDescription,
         introOverride,

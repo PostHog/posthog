@@ -61,4 +61,54 @@ describe('maxGlobalLogic', () => {
             })
         })
     })
+
+    describe('tool registration instances', () => {
+        it('keeps newer registrations when an older instance deregisters', async () => {
+            logic.actions.registerTool({
+                ...TOOL_DEFINITIONS.execute_sql,
+                identifier: 'execute_sql' as const,
+                registrationKey: 'sql-tab-one',
+                context: { current_query: 'SELECT 1' },
+            })
+            logic.actions.registerTool({
+                ...TOOL_DEFINITIONS.execute_sql,
+                identifier: 'execute_sql' as const,
+                registrationKey: 'sql-tab-two',
+                context: { current_query: '' },
+            })
+
+            await expectLogic(logic).toMatchValues({
+                toolMap: expect.objectContaining({
+                    execute_sql: expect.objectContaining({
+                        registrationKey: 'sql-tab-two',
+                        context: { current_query: '' },
+                    }),
+                }),
+            })
+
+            logic.actions.deregisterTool('sql-tab-one')
+
+            await expectLogic(logic).toMatchValues({
+                toolMap: expect.objectContaining({
+                    execute_sql: expect.objectContaining({
+                        registrationKey: 'sql-tab-two',
+                        context: { current_query: '' },
+                    }),
+                }),
+            })
+        })
+
+        it('can still deregister legacy identifier-keyed tools', async () => {
+            logic.actions.registerTool({
+                ...TOOL_DEFINITIONS.execute_sql,
+                identifier: 'execute_sql' as const,
+            })
+
+            logic.actions.deregisterTool('execute_sql')
+
+            await expectLogic(logic).toMatchValues({
+                registeredToolMap: {},
+            })
+        })
+    })
 })

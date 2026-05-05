@@ -27,6 +27,7 @@ import {
 import { initKeaTests } from '~/test/init'
 import { Conversation, ConversationDetail, ConversationStatus, ConversationType } from '~/types'
 
+import { TOOL_DEFINITIONS } from './max-constants'
 import { maxContextLogic } from './maxContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
@@ -2048,6 +2049,53 @@ describe('maxThreadLogic', () => {
                 agent_mode: null,
                 title: 'New chat', // Default title
             })
+        })
+
+        it('uses the stream tool map snapshot for contextual tool callbacks', async () => {
+            const { onEventImplementation } = await import('./maxThreadLogic')
+            const snapshotCallback = jest.fn()
+            const currentCallback = jest.fn()
+            const values = {
+                ...logic.values,
+                availableStaticTools: [],
+                toolMap: {
+                    execute_sql: {
+                        ...TOOL_DEFINITIONS.execute_sql,
+                        identifier: 'execute_sql' as const,
+                        callback: currentCallback,
+                    },
+                },
+            }
+
+            await onEventImplementation(
+                AssistantEventType.Message,
+                JSON.stringify({
+                    id: 'tool-result-1',
+                    type: AssistantMessageType.ToolCall,
+                    content: 'done',
+                    tool_call_id: 'tool-call-1',
+                    ui_payload: {
+                        execute_sql: 'SELECT 1',
+                    },
+                }),
+                {
+                    actions: logic.actions,
+                    values,
+                    props: logic.props,
+                    agentMode: null,
+                    cache: {},
+                    toolMap: {
+                        execute_sql: {
+                            ...TOOL_DEFINITIONS.execute_sql,
+                            identifier: 'execute_sql' as const,
+                            callback: snapshotCallback,
+                        },
+                    },
+                }
+            )
+
+            expect(snapshotCallback).toHaveBeenCalledWith('SELECT 1', MOCK_CONVERSATION_ID)
+            expect(currentCallback).not.toHaveBeenCalled()
         })
 
         it('handles status event with generation error', async () => {

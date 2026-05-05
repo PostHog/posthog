@@ -1009,19 +1009,21 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             editInsight: ({ query, insight }) => {
                 actions.createTab(query, undefined, insight)
             },
-            createTab: async ({ query = '', view, insight, draft }) => {
+            createTab: async ({ query, view, insight, draft }) => {
                 // Use tabId to ensure each browser tab has its own unique Monaco model
                 const tabName = draft?.name || view?.name || insight?.name || NEW_QUERY
                 const rawInsightVisualizationQuery = toDataVisualizationNode(insight?.query)
                 const insightVisualizationQuery = rawInsightVisualizationQuery
                     ? sanitizeSourceQuery(rawInsightVisualizationQuery)
                     : undefined
+                const nextQueryInput =
+                    query ?? draft?.query.query ?? view?.query?.query ?? insightVisualizationQuery?.source.query ?? ''
 
                 if (props.monaco) {
                     const uri = props.monaco.Uri.parse(`tab-${props.tabId}`)
                     let model = props.monaco.editor.getModel(uri)
                     if (!model) {
-                        model = props.monaco.editor.createModel(query, 'hogQL', uri)
+                        model = props.monaco.editor.createModel(nextQueryInput, 'hogQL', uri)
                         cache.createdModels = cache.createdModels || []
                         cache.createdModels.push(model)
                         props.editor?.setModel(model)
@@ -1047,15 +1049,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 if (insightVisualizationQuery) {
                     actions.setLastRunQuery(insightVisualizationQuery)
                 }
-                if (query) {
-                    actions.setQueryInput(query)
-                } else if (draft) {
-                    actions.setQueryInput(draft.query.query)
-                } else if (view) {
-                    actions.setQueryInput(view.query?.query ?? '')
-                } else if (insightVisualizationQuery) {
-                    actions.setQueryInput(insightVisualizationQuery.source.query || '')
-                }
+                actions.setQueryInput(nextQueryInput)
 
                 // Focus the editor after creating a new tab
                 props.editor?.focus()

@@ -353,7 +353,7 @@ describe('sqlEditorLogic', () => {
         logic.actions.createTab()
         await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
 
-        expect(logic.values.queryInput).toBeNull()
+        expect(logic.values.queryInput).toBe('')
 
         logic.actions.setSourceQuery({
             ...logic.values.sourceQuery,
@@ -365,6 +365,24 @@ describe('sqlEditorLogic', () => {
         await new Promise((resolve) => setTimeout(resolve, 0))
 
         expect(router.values.hashParams.filters).toEqual(filters)
+    })
+
+    it('clears stale query input when creating an empty tab', async () => {
+        logic = sqlEditorLogic({
+            tabId: TAB_ID,
+            monaco: createMockMonaco(),
+            editor: createMockEditor(),
+        })
+        logic.mount()
+
+        logic.actions.createTab('SELECT 1')
+        await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+        expect(logic.values.queryInput).toBe('SELECT 1')
+
+        logic.actions.createTab()
+        await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+
+        expect(logic.values.queryInput).toBe('')
     })
 
     describe('title section', () => {
