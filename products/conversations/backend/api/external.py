@@ -131,11 +131,15 @@ class ExternalTicketUpdateSerializer(serializers.Serializer):
         return attrs
 
 
-def _validate_ticket_id(ticket_id: str) -> Response | None:
+def _validate_ticket_id(ticket_id: str | uuid.UUID) -> Response | None:
     """Return an error Response if ticket_id is not a valid UUID, else None."""
+    # Django's <uuid:ticket_id> converter passes uuid.UUID; uuid.UUID(uuid_obj)
+    # wrongly treats it as ``hex`` and raises AttributeError.
+    if isinstance(ticket_id, uuid.UUID):
+        return None
     try:
-        uuid.UUID(ticket_id)
-    except (ValueError, AttributeError):
+        uuid.UUID(str(ticket_id))
+    except (ValueError, AttributeError, TypeError):
         return Response({"error": "Invalid ticket_id format"}, status=status.HTTP_400_BAD_REQUEST)
     return None
 
