@@ -77,7 +77,7 @@ class TestLogsSamplingRulesAPI(APIBaseTest):
             format="json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert "scope_service" in response.json()
+        assert response.json()["attr"] == "scope_service"
 
     def test_create_rate_limit_success(self):
         response = self.client.post(
