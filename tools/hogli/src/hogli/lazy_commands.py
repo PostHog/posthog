@@ -10,6 +10,20 @@ from typing import Any
 import click
 
 
+def add_repo_root_to_path(repo_root: Path) -> None:
+    """Make top-level repo packages importable via their dotted name.
+
+    Lets command modules write ``from common.migration_utils import ...`` (or
+    any other repo-rooted package) without each consumer mutating ``sys.path``
+    in its own ``__init__.py``. Bootstrap belongs at the entry point.
+
+    Appended, not prepended, so installed packages of the same name win.
+    """
+    repo_root_str = str(repo_root)
+    if repo_root_str not in sys.path:
+        sys.path.append(repo_root_str)
+
+
 def add_commands_dir_to_path(commands_dir: Path | None) -> None:
     """Make a configured local commands package importable.
 

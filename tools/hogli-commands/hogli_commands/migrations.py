@@ -34,7 +34,8 @@ from urllib.parse import quote
 
 import click
 from hogli.manifest import REPO_ROOT
-from migration_utils import (
+
+from common.migration_utils import (
     MIGRATION_CACHE_DIR,
     get_cache_path as _get_cache_path,
     get_cached_migration as _get_cached_migration,
@@ -82,7 +83,7 @@ class MigrationDiff:
 
 def _cache_migration(app: str, name: str, source_path: Path) -> bool:
     """Cache a migration file for later rollback with CLI feedback."""
-    from migration_utils import cache_migration_file
+    from common.migration_utils import cache_migration_file
 
     try:
         if not cache_migration_file(app, name, source_path):
@@ -208,11 +209,11 @@ def _get_subprocess_env() -> dict[str, str]:
     """Get environment for subprocess calls that need hogli module access."""
     env = dict(os.environ)
     env["DJANGO_SETTINGS_MODULE"] = "posthog.settings"
-    # Ensure common/ is in PYTHONPATH so hogli module is importable
-    common_path = str(REPO_ROOT / "common")
+    # Put repo root on the child's PYTHONPATH so `from common.migration_utils import ...`
+    # resolves the same way as in-process imports.
+    repo_root = str(REPO_ROOT)
     existing_path = env.get("PYTHONPATH", "")
-    # Use os.pathsep for cross-platform compatibility (: on Unix, ; on Windows)
-    env["PYTHONPATH"] = f"{common_path}{os.pathsep}{existing_path}" if existing_path else common_path
+    env["PYTHONPATH"] = f"{repo_root}{os.pathsep}{existing_path}" if existing_path else repo_root
     return env
 
 

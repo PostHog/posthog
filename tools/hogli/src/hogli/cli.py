@@ -20,8 +20,8 @@ import click
 from hogli import telemetry
 from hogli.command_types import BinScriptCommand, CompositeCommand, DirectCommand, HogliCommand
 from hogli.hooks import post_command_hooks, telemetry_property_hooks
-from hogli.lazy_commands import add_commands_dir_to_path, resolve_click_command
-from hogli.manifest import get_category_for_command, get_manifest, get_services_for_command, load_manifest
+from hogli.lazy_commands import add_commands_dir_to_path, add_repo_root_to_path, resolve_click_command
+from hogli.manifest import REPO_ROOT, get_category_for_command, get_manifest, get_services_for_command, load_manifest
 from hogli.validate import auto_update_manifest, find_missing_manifest_entries
 
 _DEFAULT_HELP = "Developer CLI framework with YAML-based command definitions."
@@ -307,6 +307,7 @@ def _load_boot_modules() -> None:
     test that invokes the CLI.
     """
     manifest = get_manifest()
+    add_repo_root_to_path(REPO_ROOT)
     add_commands_dir_to_path(manifest.commands_dir)
 
     for module_path in manifest.config.get("boot_modules", []):
