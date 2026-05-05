@@ -282,6 +282,35 @@ class TestSessionSummariesAPI(APIBaseTest):
             self.assertIn("segment_outcomes", data[session_id])
             self.assertIn("session_outcome", data[session_id])
 
+    @patch("ee.api.session_summaries.capture_session_summary_generated")
+    @patch("ee.api.session_summaries.capture_session_summary_started")
+    @patch("ee.api.session_summaries.find_sessions_timestamps")
+    @patch("ee.api.session_summaries.execute_summarize_session_group")
+    def test_create_summaries_marks_mcp_source_for_mcp_requests(
+        self,
+        mock_execute: Mock,
+        mock_find_sessions: Mock,
+        mock_capture_started: Mock,
+        mock_capture_generated: Mock,
+    ) -> None:
+        mock_find_sessions.return_value = (
+            datetime(2024, 1, 1, 10, 0, 0),
+            datetime(2024, 1, 1, 11, 0, 0),
+        )
+        mock_result = self.create_mock_result()
+        mock_execute.return_value = self._create_async_generator((mock_result, "session-group-summary-id"))
+
+        response = self.client.post(
+            self.url,
+            {"session_ids": ["session1"]},
+            format="json",
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(mock_capture_started.call_args[1]["summary_source"], "mcp")
+        self.assertEqual(mock_capture_generated.call_args[1]["summary_source"], "mcp")
+
     @patch("ee.api.session_summaries.partition_sessions_by_recording_existence")
     @patch("ee.api.session_summaries.execute_summarize_session")
     def test_create_summaries_individually_partial_failure(
