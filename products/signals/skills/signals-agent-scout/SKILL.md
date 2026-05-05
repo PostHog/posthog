@@ -86,6 +86,11 @@ Currently covered:
   cost spikes, eval pass-rate drops, runaway loops, cluster-level patterns.
 - [`web-analytics.md`](references/products/web-analytics.md) — `$pageview`
   bursts and drops, conversion-funnel regressions, autocapture surface changes.
+- [`revenue-analytics.md`](references/products/revenue-analytics.md) — Stripe
+  sync stalls (silent dashboard staleness), revenue event capture regressions,
+  MRR / ARR / churn anomalies, currency mix surprises, person-join breakage.
+  Derived product — most findings are upstream watchdog over warehouse +
+  configured revenue events.
 - [`product-analytics.md`](references/products/product-analytics.md) — custom
   events, conversion funnels, retention / lifecycle / stickiness, cohort
   movements, behavioral path changes. Distinct from `web-analytics`: focuses
