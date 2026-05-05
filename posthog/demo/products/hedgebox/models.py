@@ -1,4 +1,5 @@
 import math
+import random
 import datetime as dt
 from dataclasses import dataclass, field
 from enum import StrEnum, auto
@@ -245,9 +246,14 @@ class HedgeboxPerson(SimPerson):
         self.team_collab_variant = self._pick_variant("control", "test")
 
         # Bias warning demo experiment: 90/10 split, with a small share of users
-        # flipping variants mid-experiment so they end up exposed to both
-        self.bias_warning_initial_variant = "control" if self.cluster.random.random() < 0.9 else "test"
-        self.bias_warning_flips = self.cluster.random.random() < BIAS_WARNING_FLIP_PROBABILITY
+        # flipping variants mid-experiment so they end up exposed to both.
+        # Uses a separate per-person RNG seeded from the (deterministic) email so we
+        # don't perturb the cluster's shared RNG sequence — drawing from cluster.random
+        # here would shift every downstream session/pageview decision and break tests
+        # that depend on the seeded data shape (e.g. the SQL playwright test).
+        person_rng = random.Random(self.email)
+        self.bias_warning_initial_variant = "control" if person_rng.random() < 0.9 else "test"
+        self.bias_warning_flips = person_rng.random() < BIAS_WARNING_FLIP_PROBABILITY
 
     def __str__(self) -> str:
         return f"{self.name} <{self.email}>"
