@@ -2282,7 +2282,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
     // start the loaders after mounting the logic
     afterMount(({ actions }) => {
         actions.loadShouldShowGeoIPQueries()
-        posthog.setPersonProperties({ last_used_web_analytics_at: new Date().toISOString() })
     }),
 
     tabAwareActionToUrl(({ values }) => {

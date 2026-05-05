@@ -1,3 +1,6 @@
+import posthog from 'posthog-js'
+import { useEffect } from 'react'
+
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { WebAnalyticsDashboard } from 'scenes/web-analytics/WebAnalyticsDashboard'
@@ -9,6 +12,16 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 export function WebAnalyticsScene(): JSX.Element {
+    useEffect(() => {
+        const stampKey = `ph_last_web_analytics_stamp_${posthog.get_distinct_id()}`
+        const oneDayMs = 24 * 60 * 60 * 1000
+        const lastStamp = Number(localStorage.getItem(stampKey) || 0)
+        if (Date.now() - lastStamp > oneDayMs) {
+            posthog.setPersonProperties({ last_used_web_analytics_at: new Date().toISOString() })
+            localStorage.setItem(stampKey, Date.now().toString())
+        }
+    }, [])
+
     return (
         <>
             <SceneContent>
