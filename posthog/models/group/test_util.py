@@ -7,7 +7,14 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.models.group.util import get_group_by_key, get_groups_by_identifiers, get_groups_by_type_indices
+from posthog.models.filters.utils import GroupTypeIndex
+from posthog.models.group.util import (
+    create_group,
+    get_group_by_key,
+    get_groups_by_identifiers,
+    get_groups_by_type_indices,
+    save_group,
+)
 
 # Patched at source because util.py uses lazy `from X import Y` inside each function body —
 # there is no module-level binding on util to patch. If these move to top-level imports, patch at call site instead.
@@ -611,3 +618,200 @@ class TestOrmDatabaseErrorHandling(SimpleTestCase):
             result = get_groups_by_type_indices(10, {0, 1}, {"k1", "k2"})
 
             assert result == []
+
+
+class TestCreateGroup(SimpleTestCase):
+    def setUp(self):
+        self.team_id = 10
+        self.group_type_index: GroupTypeIndex = 0
+        self.group_key = "org:123"
+        self.properties = {"name": "Acme"}
+
+    @patch("posthog.models.group.util.raw_create_group_ch")
+    @patch(_ROUTING_TOTAL_PATCH)
+    @patch(_CONVERTER_PATCH)
+    @patch(_CLIENT_PATCH)
+    def test_personhog_success_returns_converted_model(
+        self, mock_get_client, mock_convert, mock_routing_counter, mock_ch
+    ):
+        proto_group = _make_proto_group(id=42, team_id=self.team_id, group_key=self.group_key)
+        mock_response = MagicMock()
+        mock_response.group = proto_group
+        mock_client = MagicMock()
+        mock_client.create_group.return_value = mock_response
+        mock_get_client.return_value = mock_client
+
+        fake_model = MagicMock()
+        mock_convert.return_value = fake_model
+
+        result = create_group(
+            team_id=self.team_id,
+            group_type_index=self.group_type_index,
+            group_key=self.group_key,
+            properties=self.properties,
+        )
+
+        assert result is fake_model
+        mock_client.create_group.assert_called_once()
+        req = mock_client.create_group.call_args[0][0]
+        assert req.team_id == self.team_id
+        assert req.group_type_index == self.group_type_index
+        assert req.group_key == self.group_key
+        assert b'"name": "Acme"' in req.group_properties
+        mock_routing_counter.labels.assert_called_with(
+            operation="create_group", source="personhog", client_name="posthog-django"
+        )
+        mock_ch.assert_called_once()
+
+    @patch("posthog.models.group.util.raw_create_group_ch")
+    @patch(_ROUTING_TOTAL_PATCH)
+    @patch(_CLIENT_PATCH)
+    def test_personhog_client_none_falls_back_to_orm(self, mock_get_client, mock_routing_counter, mock_ch):
+        mock_get_client.return_value = None
+
+        from posthog.models.group.group import Group
+
+        with patch.object(Group, "objects") as mock_objects:
+            mock_group = MagicMock(spec=Group)
+            mock_objects.create.return_value = mock_group
+
+            result = create_group(
+                team_id=self.team_id,
+                group_type_index=self.group_type_index,
+                group_key=self.group_key,
+                properties=self.properties,
+            )
+
+            assert result is mock_group
+            mock_objects.create.assert_called_once()
+            mock_routing_counter.labels.assert_called_with(
+                operation="create_group", source="django_orm", client_name="posthog-django"
+            )
+
+    @parameterized.expand(
+        [
+            ("grpc_timeout", RuntimeError("grpc timeout")),
+            ("connection_error", ConnectionError("connection refused")),
+        ]
+    )
+    @patch("posthog.models.group.util.raw_create_group_ch")
+    @patch(_ROUTING_ERRORS_PATCH)
+    @patch(_ROUTING_TOTAL_PATCH)
+    @patch(_CLIENT_PATCH)
+    def test_personhog_exception_falls_back_to_orm(
+        self, _name, exception, mock_get_client, mock_routing_counter, mock_errors_counter, mock_ch
+    ):
+        mock_client = MagicMock()
+        mock_client.create_group.side_effect = exception
+        mock_get_client.return_value = mock_client
+
+        from posthog.models.group.group import Group
+
+        with patch.object(Group, "objects") as mock_objects:
+            mock_group = MagicMock(spec=Group)
+            mock_objects.create.return_value = mock_group
+
+            result = create_group(
+                team_id=self.team_id,
+                group_type_index=self.group_type_index,
+                group_key=self.group_key,
+                properties=self.properties,
+            )
+
+            assert result is mock_group
+            mock_errors_counter.labels.assert_called_once_with(
+                operation="create_group",
+                source="personhog",
+                error_type="grpc_error",
+                client_name="posthog-django",
+            )
+
+    @patch("posthog.models.group.util.raw_create_group_ch")
+    @patch(_ROUTING_TOTAL_PATCH)
+    @patch(_CLIENT_PATCH)
+    def test_clickhouse_write_always_happens(self, mock_get_client, mock_routing_counter, mock_ch):
+        mock_get_client.return_value = None
+
+        from posthog.models.group.group import Group
+
+        with patch.object(Group, "objects") as mock_objects:
+            mock_objects.create.return_value = MagicMock(spec=Group)
+            create_group(
+                team_id=self.team_id,
+                group_type_index=self.group_type_index,
+                group_key=self.group_key,
+                properties=self.properties,
+            )
+            mock_ch.assert_called_once()
+
+
+class TestSaveGroup(SimpleTestCase):
+    def _make_group_instance(self):
+        mock_group = MagicMock()
+        mock_group.team_id = 10
+        mock_group.group_type_index = 0
+        mock_group.group_key = "org:123"
+        mock_group.group_properties = {"name": "Acme"}
+        return mock_group
+
+    @patch(_ROUTING_TOTAL_PATCH)
+    @patch(_CLIENT_PATCH)
+    def test_personhog_success_does_not_call_orm_save(self, mock_get_client, mock_routing_counter):
+        mock_client = MagicMock()
+        mock_client.update_group.return_value = MagicMock()
+        mock_get_client.return_value = mock_client
+
+        group = self._make_group_instance()
+        save_group(group)
+
+        mock_client.update_group.assert_called_once()
+        req = mock_client.update_group.call_args[0][0]
+        assert req.team_id == 10
+        assert req.group_type_index == 0
+        assert req.group_key == "org:123"
+        assert req.update_mask == ["group_properties"]
+        assert b'"name": "Acme"' in req.group_properties
+        group.save.assert_not_called()
+        mock_routing_counter.labels.assert_called_with(
+            operation="group_save", source="personhog", client_name="posthog-django"
+        )
+
+    @patch(_ROUTING_TOTAL_PATCH)
+    @patch(_CLIENT_PATCH)
+    def test_client_none_falls_back_to_orm_save(self, mock_get_client, mock_routing_counter):
+        mock_get_client.return_value = None
+
+        group = self._make_group_instance()
+        save_group(group)
+
+        group.save.assert_called_once()
+        mock_routing_counter.labels.assert_called_with(
+            operation="group_save", source="django_orm", client_name="posthog-django"
+        )
+
+    @parameterized.expand(
+        [
+            ("grpc_timeout", RuntimeError("grpc timeout")),
+            ("connection_error", ConnectionError("connection refused")),
+        ]
+    )
+    @patch(_ROUTING_ERRORS_PATCH)
+    @patch(_ROUTING_TOTAL_PATCH)
+    @patch(_CLIENT_PATCH)
+    def test_personhog_exception_falls_back_to_orm_save(
+        self, _name, exception, mock_get_client, mock_routing_counter, mock_errors_counter
+    ):
+        mock_client = MagicMock()
+        mock_client.update_group.side_effect = exception
+        mock_get_client.return_value = mock_client
+
+        group = self._make_group_instance()
+        save_group(group)
+
+        group.save.assert_called_once()
+        mock_errors_counter.labels.assert_called_once_with(
+            operation="group_save",
+            source="personhog",
+            error_type="grpc_error",
+            client_name="posthog-django",
+        )
