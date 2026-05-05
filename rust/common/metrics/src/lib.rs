@@ -4,8 +4,8 @@ use axum::{
     body::Body, extract::MatchedPath, http::Request, middleware::Next, response::IntoResponse,
     routing::get, Router,
 };
-use metrics_exporter_prometheus::PrometheusBuilder;
 pub use metrics_exporter_prometheus::Matcher;
+use metrics_exporter_prometheus::PrometheusBuilder;
 use std::sync::OnceLock;
 
 type LabelFilterFn =

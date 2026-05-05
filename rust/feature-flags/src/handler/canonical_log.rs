@@ -656,8 +656,7 @@ mod tests {
         fn test_emits_queue_time_with_team_id_label() {
             let recorder = DebuggingRecorder::new();
             metrics::with_local_recorder(&recorder, || {
-                let mut log =
-                    FlagsCanonicalLogLine::new(Uuid::new_v4(), "10.0.0.1".to_string());
+                let mut log = FlagsCanonicalLogLine::new(Uuid::new_v4(), "10.0.0.1".to_string());
                 log.team_id = Some(42);
                 log.queue_time_ms = Some(150);
                 log.emit_timing_metrics();
@@ -682,8 +681,7 @@ mod tests {
         fn test_emits_pre_handler_with_team_id_label() {
             let recorder = DebuggingRecorder::new();
             metrics::with_local_recorder(&recorder, || {
-                let mut log =
-                    FlagsCanonicalLogLine::new(Uuid::new_v4(), "10.0.0.1".to_string());
+                let mut log = FlagsCanonicalLogLine::new(Uuid::new_v4(), "10.0.0.1".to_string());
                 log.team_id = Some(7);
                 log.pre_handler_duration_ms = Some(3);
                 log.emit_timing_metrics();
@@ -694,18 +692,14 @@ mod tests {
                 .iter()
                 .find(|s| s.name == "flags_pre_handler_time_ms")
                 .expect("flags_pre_handler_time_ms not emitted");
-            assert!(pre
-                .labels
-                .iter()
-                .any(|(k, v)| k == "team_id" && v == "7"));
+            assert!(pre.labels.iter().any(|(k, v)| k == "team_id" && v == "7"));
         }
 
         #[test]
         fn test_concurrency_wait_emitted_without_team_id_label() {
             let recorder = DebuggingRecorder::new();
             metrics::with_local_recorder(&recorder, || {
-                let mut log =
-                    FlagsCanonicalLogLine::new(Uuid::new_v4(), "10.0.0.1".to_string());
+                let mut log = FlagsCanonicalLogLine::new(Uuid::new_v4(), "10.0.0.1".to_string());
                 log.team_id = Some(99);
                 log.concurrency_limit_wait_ms = Some(12);
                 log.emit_timing_metrics();
@@ -728,8 +722,7 @@ mod tests {
         fn test_unknown_team_id_when_team_unresolved() {
             let recorder = DebuggingRecorder::new();
             metrics::with_local_recorder(&recorder, || {
-                let mut log =
-                    FlagsCanonicalLogLine::new(Uuid::new_v4(), "10.0.0.1".to_string());
+                let mut log = FlagsCanonicalLogLine::new(Uuid::new_v4(), "10.0.0.1".to_string());
                 // team_id stays None — e.g. token extraction failed before auth.
                 log.queue_time_ms = Some(20);
                 log.emit_timing_metrics();
@@ -774,8 +767,7 @@ mod tests {
             // belt-and-suspenders since `queue_time_ms` is i64.
             let recorder = DebuggingRecorder::new();
             metrics::with_local_recorder(&recorder, || {
-                let mut log =
-                    FlagsCanonicalLogLine::new(Uuid::new_v4(), "10.0.0.1".to_string());
+                let mut log = FlagsCanonicalLogLine::new(Uuid::new_v4(), "10.0.0.1".to_string());
                 log.queue_time_ms = Some(-5);
                 log.emit_timing_metrics();
             });

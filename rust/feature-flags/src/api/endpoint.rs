@@ -376,10 +376,7 @@ pub async fn flags(
         // Time the JSON DOM scan separately — pathological large bodies
         // are the suspected outlier driver here.
         let rate_limit_key = {
-            let _t = common_metrics::timing_guard_high_precision(
-                FLAG_TOKEN_EXTRACT_TIME_MS,
-                &[],
-            );
+            let _t = common_metrics::timing_guard_high_precision(FLAG_TOKEN_EXTRACT_TIME_MS, &[]);
             decoding::extract_token(&context.body)
         }
         .unwrap_or_else(|| ip_string.clone());
