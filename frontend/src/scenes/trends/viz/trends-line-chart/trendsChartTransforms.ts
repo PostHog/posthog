@@ -28,11 +28,8 @@ export interface BuildTrendsSeriesOpts<R extends TrendsResultLike, M = unknown> 
     buildMeta?: (r: R, index: number) => M
 }
 
-/** Compute the in-progress dashed-tail boundary for a single result. Returns the index
- *  the partial styling should start at, or `undefined` if the series gets no partial.
- *  Compare-previous series are historical and always return `undefined`. Shared between
- *  the main-series builder (for `stroke.partial.fromIndex`) and the trend-line config
- *  builder (for `fitUpTo`) — they must agree on the boundary. */
+// Shared between buildMainTrendsSeries (stroke.partial.fromIndex) and buildDerivedConfigs
+// (trendline fitUpTo) — they must agree on the in-progress boundary.
 export function computeDashedFromIndex(
     r: TrendsResultLike,
     opts: { isStickiness?: boolean; incompletenessOffsetFromEnd?: number }
@@ -90,16 +87,9 @@ export interface DerivedConfigs {
     confidenceIntervals?: ConfidenceIntervalConfig[]
     movingAverage?: MovingAverageConfig[]
     trendLines?: TrendLineConfig[]
-    /** Map of comparison series key → its primary series key. See
-     *  `TimeSeriesLineChartConfig.comparisonOf`. Only the presence of the key drives
-     *  dimming today; the mapped value is reserved. */
     comparisonOf?: Record<string, string>
 }
 
-/** Translate a list of trends results + chart flags into the declarative derived-series
- *  config that `<TimeSeriesLineChart>` expects. Mirrors what the deleted
- *  `buildDerivedTrendsSeries` used to compute, but emits configs (not series) so the
- *  library owns the actual series construction. */
 export function buildDerivedConfigs<R extends TrendsResultLike>(
     results: readonly R[],
     opts: BuildDerivedConfigsOpts<R>
@@ -150,15 +140,9 @@ export function buildDerivedConfigs<R extends TrendsResultLike>(
     for (const r of results) {
         if (r.compare && r.compare_label === 'previous') {
             const key = String(r.id)
-            // The library contract for `comparisonOf` is "comparison key → primary key",
-            // but the paired primary's `id` isn't carried on `TrendsResultLike` (the
-            // pairing lives on `IndexedTrendResult.colorIndex` upstream in trendsDataLogic).
-            // Self-mapping is functionally correct because `applyComparisonDimming` only
-            // checks key presence today; if/when the library starts reading the value,
-            // wire the real pairing through.
+            // Self-map: applyComparisonDimming only checks key presence; the paired primary
+            // id isn't carried on TrendsResultLike.
             comparisonOf[key] = key
-            // Derived MA series of the comparison should also render dimmed; same for
-            // any future derived keys built from the comparison source.
             if (includeMa) {
                 comparisonOf[movingAverageKey(key)] = key
             }

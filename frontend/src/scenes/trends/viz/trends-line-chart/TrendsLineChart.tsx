@@ -123,9 +123,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
         ]
     )
 
-    // Built here (not via `config.xAxis.{timezone,interval,allDays}`) so the same instance
-    // can be threaded into <AnnotationsLayer> below — its visible-tick computation has to
-    // match what the chart actually draws.
+    // Built here so the same instance can be threaded into <AnnotationsLayer> below.
     const xTickFormatter = useMemo(
         () =>
             createXAxisTickCallback({
@@ -199,8 +197,6 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
         ]
     )
 
-    // O(1) result→index lookup for the alert overlay's getYAxisId callback. indexOf-per-call
-    // would be O(n²) over indexedResults.
     const indexByResult = useMemo(() => {
         const m = new Map<IndexedTrendResult, number>()
         ;(indexedResults ?? []).forEach((r, i) => m.set(r, i))
