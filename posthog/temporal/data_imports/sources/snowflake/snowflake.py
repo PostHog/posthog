@@ -20,6 +20,14 @@ from posthog.temporal.data_imports.sources.generated_configs import SnowflakeSou
 from products.data_warehouse.backend.types import IncrementalFieldType
 
 
+def _clean_str(value: Optional[str]) -> Optional[str]:
+    # Account ids, warehouses, databases, schemas, roles, and users are pasted by users
+    # and stray whitespace ends up URL-encoded into the hostname (e.g. "%20account%20"),
+    # which the Snowflake proxy rejects with `400 Bad Request`. Secrets (password,
+    # private key, passphrase) are intentionally left untrimmed.
+    return value.strip() if value is not None else None
+
+
 def filter_snowflake_incremental_fields(
     columns: list[tuple[str, str, bool]],
 ) -> list[tuple[str, IncrementalFieldType, bool]]:
@@ -50,7 +58,7 @@ def get_schemas(
             file_name = tf.name
 
         auth_connect_args = {
-            "user": config.auth_type.user,
+            "user": _clean_str(config.auth_type.user),
             "private_key_file": file_name,
             "private_key_file_pwd": config.auth_type.passphrase
             if config.auth_type.passphrase and len(config.auth_type.passphrase) > 0
@@ -59,15 +67,15 @@ def get_schemas(
     else:
         auth_connect_args = {
             "password": config.auth_type.password,
-            "user": config.auth_type.user,
+            "user": _clean_str(config.auth_type.user),
         }
 
     with snowflake.connector.connect(
-        account=config.account_id,
-        warehouse=config.warehouse,
-        database=config.database,
+        account=_clean_str(config.account_id),
+        warehouse=_clean_str(config.warehouse),
+        database=_clean_str(config.database),
         schema="information_schema",
-        role=config.role,
+        role=_clean_str(config.role),
         **auth_connect_args,
     ) as connection:
         with connection.cursor() as cursor:
@@ -76,7 +84,7 @@ def get_schemas(
 
             cursor.execute(
                 "SELECT table_name, column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema = %(schema)s ORDER BY table_name ASC",
-                {"schema": config.schema},
+                {"schema": _clean_str(config.schema)},
             )
             result = cursor.fetchall()
 
@@ -106,6 +114,13 @@ def _get_connection(
     schema: str,
     role: Optional[str] = None,
 ) -> snowflake.connector.SnowflakeConnection:
+    account_id = _clean_str(account_id) or ""
+    user = _clean_str(user)
+    database = _clean_str(database) or ""
+    warehouse = _clean_str(warehouse) or ""
+    schema = _clean_str(schema) or ""
+    role = _clean_str(role)
+
     if auth_type == "password" and user is not None and password is not None:
         return snowflake.connector.connect(
             account=account_id,
@@ -251,7 +266,7 @@ def get_leading_clustering_columns_for_schemas(
                 file_name = tf.name
 
             auth_connect_args = {
-                "user": config.auth_type.user,
+                "user": _clean_str(config.auth_type.user),
                 "private_key_file": file_name,
                 "private_key_file_pwd": config.auth_type.passphrase
                 if config.auth_type.passphrase and len(config.auth_type.passphrase) > 0
@@ -260,15 +275,15 @@ def get_leading_clustering_columns_for_schemas(
         else:
             auth_connect_args = {
                 "password": config.auth_type.password,
-                "user": config.auth_type.user,
+                "user": _clean_str(config.auth_type.user),
             }
 
         with snowflake.connector.connect(
-            account=config.account_id,
-            warehouse=config.warehouse,
-            database=config.database,
-            schema=config.schema,
-            role=config.role,
+            account=_clean_str(config.account_id),
+            warehouse=_clean_str(config.warehouse),
+            database=_clean_str(config.database),
+            schema=_clean_str(config.schema),
+            role=_clean_str(config.role),
             **auth_connect_args,
         ) as connection:
             with connection.cursor() as cursor:
@@ -284,7 +299,7 @@ def get_leading_clustering_columns_for_schemas(
                       AND TABLE_SCHEMA = %s
                       AND TABLE_NAME IN ({placeholders})
                     """,
-                    (config.database, config.schema, *table_names),
+                    (_clean_str(config.database), _clean_str(config.schema), *table_names),
                 )
 
                 for table_name, clustering_key in cursor:
@@ -318,7 +333,7 @@ def get_primary_keys_for_schemas(
                 file_name = tf.name
 
             auth_connect_args = {
-                "user": config.auth_type.user,
+                "user": _clean_str(config.auth_type.user),
                 "private_key_file": file_name,
                 "private_key_file_pwd": config.auth_type.passphrase
                 if config.auth_type.passphrase and len(config.auth_type.passphrase) > 0
@@ -327,15 +342,18 @@ def get_primary_keys_for_schemas(
         else:
             auth_connect_args = {
                 "password": config.auth_type.password,
-                "user": config.auth_type.user,
+                "user": _clean_str(config.auth_type.user),
             }
 
+        cleaned_database = _clean_str(config.database) or ""
+        cleaned_schema = _clean_str(config.schema) or ""
+
         with snowflake.connector.connect(
-            account=config.account_id,
-            warehouse=config.warehouse,
-            database=config.database,
-            schema=config.schema,
-            role=config.role,
+            account=_clean_str(config.account_id),
+            warehouse=_clean_str(config.warehouse),
+            database=cleaned_database,
+            schema=cleaned_schema,
+            role=_clean_str(config.role),
             **auth_connect_args,
         ) as connection:
             with connection.cursor() as cursor:
@@ -346,7 +364,7 @@ def get_primary_keys_for_schemas(
                     try:
                         cursor.execute(
                             "SHOW PRIMARY KEYS IN IDENTIFIER(%s)",
-                            (f"{config.database}.{config.schema}.{tbl}",),
+                            (f"{cleaned_database}.{cleaned_schema}.{tbl}",),
                         )
 
                         column_index = next(

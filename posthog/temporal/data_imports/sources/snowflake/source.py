@@ -1,7 +1,7 @@
 from typing import Optional, cast
 
 import structlog
-from snowflake.connector.errors import DatabaseError, ForbiddenError, ProgrammingError
+from snowflake.connector.errors import DatabaseError, ForbiddenError, OperationalError, ProgrammingError
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
@@ -35,6 +35,10 @@ SnowflakeErrors = {
     "This session does not have a current database": "Database specified not found",
     "Verify the account name is correct": "Can't find an account with the specified account ID",
 }
+
+_CONNECTIVITY_ERROR_MESSAGE = (
+    "Could not reach Snowflake. Please verify the account id has no extra characters or whitespace."
+)
 
 
 @SourceRegistry.register
@@ -249,8 +253,17 @@ class SnowflakeSource(SimpleSource[SnowflakeSourceConfig]):
                 if key in error_msg:
                     return False, value
 
+            # OperationalError without a recognized message is almost always a transient
+            # network/proxy failure or a malformed account id (e.g. stray whitespace gets
+            # URL-encoded into the hostname and the proxy returns 400). Surface a
+            # user-actionable message without routing every miss through error tracking.
+            if isinstance(e, OperationalError):
+                return False, _CONNECTIVITY_ERROR_MESSAGE
+
             capture_exception(e)
             return False, "Could not connect to Snowflake. Please check all connection details are valid."
+        except OSError:
+            return False, _CONNECTIVITY_ERROR_MESSAGE
         except Exception as e:
             capture_exception(e)
             return False, "Could not connect to Snowflake. Please check all connection details are valid."
