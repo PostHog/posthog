@@ -16,6 +16,7 @@ from django.utils.crypto import get_random_string
 import stripe
 import requests
 import structlog
+from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, extend_schema_serializer
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.exceptions import ValidationError
@@ -581,6 +582,8 @@ class IntegrationViewSet(
     permission_classes = [TeamMemberStrictManagementPermission]
     queryset = defer_repository_cache_fields(Integration.objects.all())
     serializer_class = IntegrationSerializer
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ["kind"]
 
     def dangerously_get_permissions(self):
         if self.action == "refresh_github_repos":

@@ -26,7 +26,8 @@ import {
     toCloudRegion,
 } from '@/lib/constants'
 import { handleToolError, wrapError } from '@/lib/errors'
-import { buildInstructionsV1, buildInstructionsV2, type QueryToolInfo } from '@/lib/instructions'
+import { type QueryToolInfo } from '@/lib/instructions'
+import { InstructionsFormatter } from '@/lib/instructions-formatter'
 import { initMcpCatObservability } from '@/lib/mcpcat'
 import { SessionManager } from '@/lib/SessionManager'
 import { StateManager } from '@/lib/StateManager'
@@ -34,15 +35,12 @@ import { formatPrompt, type McpMode, sanitizeHeaderValue } from '@/lib/utils'
 import { registerPrompts } from '@/prompts'
 import { registerResources } from '@/resources'
 import { registerUiAppResources } from '@/resources/ui-apps'
-import CLI_PROXY_COMMAND from '@/templates/cli-proxy-command.md'
-import CLI_PROXY_TOOL from '@/templates/cli-proxy-tool.md'
 import EXECUTE_SQL_PROMPT from '@/templates/execute-sql-prompt.md'
-import INSTRUCTIONS_TEMPLATE_V1 from '@/templates/instructions-v1.md'
-import INSTRUCTIONS_TEMPLATE_V2 from '@/templates/instructions-v2.md'
-import SINGLE_EXEC_INSTRUCTIONS from '@/templates/single-exec-instructions.md'
 import { createExecTool, type ExecInnerCallTracker } from '@/tools/exec'
 import { getToolDefinition } from '@/tools/toolDefinitions'
 import { type CloudRegion, type Context, type State, type Tool } from '@/tools/types'
+
+const instructionsFormatter = new InstructionsFormatter()
 
 export type RequestProperties = {
     userHash: string
@@ -67,7 +65,10 @@ export type RequestProperties = {
 }
 
 export class MCP extends McpAgent<Env> {
-    server = new McpServer({ name: 'PostHog', version: '1.0.0' }, { instructions: INSTRUCTIONS_TEMPLATE_V1 })
+    server = new McpServer(
+        { name: 'PostHog', version: '1.0.0' },
+        { instructions: instructionsFormatter.buildV1Instructions() }
+    )
 
     initialState: State = {
         projectId: undefined,
@@ -334,7 +335,9 @@ export class MCP extends McpAgent<Env> {
         }
     }
 
-    private async getAnalyticsContextSafe(context: Context): Promise<MCPAnalyticsContext | undefined> {
+    private async getAnalyticsContextSafe(
+        context: Pick<Context, 'stateManager'>
+    ): Promise<MCPAnalyticsContext | undefined> {
         try {
             return await context.stateManager.getAnalyticsContext()
         } catch {
@@ -455,14 +458,20 @@ export class MCP extends McpAgent<Env> {
 
     async getContext(): Promise<Context> {
         const api = await this.api()
-        return {
+        const stateManager = new StateManager(this.cache, api)
+        const partialContext: Omit<Context, 'trackEvent'> = {
             api,
             cache: this.cache,
             env: this.env,
-            stateManager: new StateManager(this.cache, api),
+            stateManager,
             sessionManager: this.sessionManager,
             getDistinctId: () => this.getDistinctId(),
         }
+        const trackEvent: Context['trackEvent'] = async (event, properties = {}) => {
+            const analyticsContext = await this.getAnalyticsContextSafe(partialContext)
+            await this.trackEvent(event, properties, analyticsContext ? { context: analyticsContext } : undefined)
+        }
+        return { ...partialContext, trackEvent }
     }
 
     async init(): Promise<void> {
@@ -610,6 +619,15 @@ export class MCP extends McpAgent<Env> {
 
         const supportsInstructions = clientProfile.capabilities.supportsInstructions
 
+        const instructionsContext = {
+            guidelines,
+            groupTypes,
+            metadata,
+            tools: toolInfos,
+            queryTools: queryToolInfos,
+            featureFlags: toolFeatureFlags,
+        }
+
         // In single-exec mode, when the client honors the MCP `instructions` field we
         // lift the exec-tool blurb, tool-domain list, query-tool catalog, defined-group
         // types and the active-environment `{metadata}` (user name, project, timezone)
@@ -619,27 +637,11 @@ export class MCP extends McpAgent<Env> {
         let instructions = ''
         if (supportsInstructions) {
             if (useSingleExec) {
-                instructions = buildInstructionsV2(
-                    SINGLE_EXEC_INSTRUCTIONS,
-                    guidelines,
-                    groupTypes,
-                    metadata,
-                    toolInfos,
-                    queryToolInfos,
-                    { compact: true }
-                )
+                instructions = instructionsFormatter.buildExecInstructions(instructionsContext)
+            } else if (version === 2) {
+                instructions = instructionsFormatter.buildV2Instructions(instructionsContext)
             } else {
-                instructions =
-                    version === 2
-                        ? buildInstructionsV2(
-                              INSTRUCTIONS_TEMPLATE_V2,
-                              guidelines,
-                              groupTypes,
-                              metadata,
-                              toolInfos,
-                              queryToolInfos
-                          )
-                        : buildInstructionsV1(INSTRUCTIONS_TEMPLATE_V1, metadata)
+                instructions = instructionsFormatter.buildV1Instructions(metadata)
             }
         }
 
@@ -668,17 +670,11 @@ export class MCP extends McpAgent<Env> {
         // In single-exec mode, register one "posthog" tool that wraps all tools
         // behind a CLI-like interface. Otherwise, register each tool individually.
         if (useSingleExec) {
-            // Strip `{tool_domains}`, `{query_tools}`, `{defined_groups}`, `{metadata}`
-            // from the command-parameter description when they're already in `instructions`
-            // (their placeholders resolve to empty strings via `buildInstructionsV2`).
-            const commandReference = buildInstructionsV2(
-                CLI_PROXY_COMMAND,
-                guidelines,
-                supportsInstructions ? undefined : groupTypes,
-                supportsInstructions ? undefined : metadata,
-                supportsInstructions ? undefined : toolInfos,
-                supportsInstructions ? undefined : queryToolInfos
-            )
+            // When the client honors the `instructions` field, env-context is already
+            // delivered there — strip it from the command-parameter description.
+            const commandReference = instructionsFormatter.buildExecCommandReference(instructionsContext, {
+                stripEnvContext: supportsInstructions,
+            })
 
             const trackInnerCall: ExecInnerCallTracker = (toolName, properties) => {
                 this.ctx.waitUntil(
@@ -696,7 +692,7 @@ export class MCP extends McpAgent<Env> {
             const execTool = createExecTool(
                 allTools,
                 context,
-                CLI_PROXY_TOOL,
+                instructionsFormatter.buildExecToolDescription(),
                 commandReference,
                 this.requestProperties.mcpConsumer,
                 trackInnerCall

@@ -255,11 +255,28 @@ describe('TimeSeriesLineChart', () => {
         it.each([
             ['confidenceIntervals', { confidenceIntervals: [{ seriesKey: 'a', lower: [0, 1, 2], upper: [2, 3, 4] }] }],
             ['movingAverage', { movingAverage: [{ seriesKey: 'a', window: 2 }] }],
+            ['trendLines', { trendLines: [{ seriesKey: 'a', kind: 'linear' as const }] }],
         ])('plumbs config.%s through to the rendered series count', (_, derivedConfig) => {
             const { chart } = renderHogChart(
                 <TimeSeriesLineChart series={SERIES} labels={LABELS} theme={THEME} config={derivedConfig} />
             )
             // SERIES has 1 entry; each derived block adds one more series.
+            expect(chart.seriesCount).toBe(2)
+        })
+
+        it('skips comparison-period series count change while still rendering them', () => {
+            const series: Series[] = [
+                { key: 'a', label: 'A', data: [1, 2, 3], color: '#112233' },
+                { key: 'a-prev', label: 'A (prev)', data: [1, 2, 3], color: '#112233' },
+            ]
+            const { chart } = renderHogChart(
+                <TimeSeriesLineChart
+                    series={series}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={{ comparisonOf: { 'a-prev': 'a' } }}
+                />
+            )
             expect(chart.seriesCount).toBe(2)
         })
     })

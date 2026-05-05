@@ -162,5 +162,63 @@ describe('TemporalService', () => {
                 'Temporal unavailable'
             )
         })
+
+        it('starts tagger run workflow with correct parameters', async () => {
+            const mockEvent = createMockEvent({ properties: { $ai_input: 'test', $ai_output: 'response' } as any })
+
+            await service.startTaggerRunWorkflow('tagger-123', mockEvent)
+
+            expect(mockClient.workflow.start).toHaveBeenCalledWith('run-tagger', {
+                taskQueue: 'llm-analytics-evals-task-queue',
+                workflowId: 'llma-tagger-tagger-123-event-456-ingestion',
+                workflowIdConflictPolicy: 'USE_EXISTING',
+                workflowTaskTimeout: '2 minutes',
+                args: [
+                    {
+                        tagger_id: 'tagger-123',
+                        event_data: mockEvent,
+                    },
+                ],
+            })
+        })
+
+        it('generates deterministic tagger workflow IDs', async () => {
+            const mockEvent = createMockEvent()
+
+            await service.startTaggerRunWorkflow('tagger-123', mockEvent)
+            await service.startTaggerRunWorkflow('tagger-123', mockEvent)
+
+            const calls = (mockClient.workflow.start as jest.Mock).mock.calls
+            expect(calls[0][1].workflowId).toEqual(calls[1][1].workflowId)
+            expect(calls[0][1].workflowId).toBe('llma-tagger-tagger-123-event-456-ingestion')
+        })
+
+        it('generates different tagger workflow IDs for different events', async () => {
+            const mockEvent1 = createMockEvent({ uuid: 'event-1' })
+            const mockEvent2 = createMockEvent({ uuid: 'event-2' })
+
+            await service.startTaggerRunWorkflow('tagger-123', mockEvent1)
+            await service.startTaggerRunWorkflow('tagger-123', mockEvent2)
+
+            const calls = (mockClient.workflow.start as jest.Mock).mock.calls
+            expect(calls[0][1].workflowId).toBe('llma-tagger-tagger-123-event-1-ingestion')
+            expect(calls[1][1].workflowId).toBe('llma-tagger-tagger-123-event-2-ingestion')
+        })
+
+        it('tagger and evaluation share the same task queue', async () => {
+            await service.startEvaluationRunWorkflow('eval-1', createMockEvent({ uuid: 'e1' }))
+            await service.startTaggerRunWorkflow('tagger-1', createMockEvent({ uuid: 'e2' }))
+
+            const calls = (mockClient.workflow.start as jest.Mock).mock.calls
+            expect(calls[0][1].taskQueue).toEqual(calls[1][1].taskQueue)
+        })
+
+        it('throws on tagger workflow start failure', async () => {
+            ;(mockClient.workflow.start as jest.Mock).mockRejectedValue(new Error('Temporal unavailable'))
+
+            await expect(service.startTaggerRunWorkflow('tagger-123', createMockEvent())).rejects.toThrow(
+                'Temporal unavailable'
+            )
+        })
     })
 })

@@ -3,12 +3,11 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { format } from 'oxfmt'
 import { describe, expect, it } from 'vitest'
+import { parse as parseYaml } from 'yaml'
 import { z } from 'zod'
 
-import { buildInstructionsV2 } from '@/lib/instructions'
+import { InstructionsFormatter } from '@/lib/instructions-formatter'
 import { SessionManager } from '@/lib/SessionManager'
-import CLI_PROXY_COMMAND from '@/templates/cli-proxy-command.md'
-import CLI_PROXY_TOOL from '@/templates/cli-proxy-tool.md'
 import { getToolsFromContext } from '@/tools'
 import { createExecTool, type ExecInnerCallProperties } from '@/tools/exec'
 import { getToolDefinition } from '@/tools/toolDefinitions'
@@ -231,7 +230,7 @@ describe('exec tool', () => {
             expect(JSON.parse(toolsResult as string)).toEqual(['mock-tool'])
 
             const infoResult = await exec.handler(mockContext, {
-                command: 'info mock-tool',
+                command: 'info --json mock-tool',
                 input: { ignored: true },
             })
             expect(JSON.parse(infoResult as string).name).toBe('mock-tool')
@@ -260,6 +259,52 @@ describe('exec tool', () => {
             expect(calls[0]!.properties.success).toBe(false)
             expect(calls[0]!.properties.error_message).toBe('boom')
             expect(calls[0]!.properties.output_format).toBe('text')
+        })
+    })
+
+    describe('info command', () => {
+        it('returns YAML for the top shape with the input schema embedded as JSON', async () => {
+            const tool = makeMockTool({ schema: z.object({ name: z.string().describe('Person name') }) })
+            const exec = createExec([tool])
+            const result = (await exec.handler(mockContext, { command: 'info mock-tool' })) as string
+            expect(typeof result).toBe('string')
+            // YAML lines for the top shape
+            expect(result).toContain('name: mock-tool')
+            expect(result).toContain('title: Mock tool')
+            // The whole envelope is not JSON
+            expect(() => JSON.parse(result)).toThrow()
+            // inputSchema is dumped as a JSON string within the YAML — parse the
+            // envelope as YAML, then JSON.parse the inputSchema value.
+            const envelope = parseYaml(result) as { inputSchema: string }
+            expect(typeof envelope.inputSchema).toBe('string')
+            const parsedSchema = JSON.parse(envelope.inputSchema)
+            expect(parsedSchema.type).toBe('object')
+            expect(parsedSchema.properties.name.description).toBe('Person name')
+        })
+
+        it('returns JSON with --json flag', async () => {
+            const exec = createExec()
+            const result = (await exec.handler(mockContext, { command: 'info --json mock-tool' })) as string
+            const parsed = JSON.parse(result)
+            expect(parsed.name).toBe('mock-tool')
+            expect(parsed.title).toBe('Mock tool')
+            expect(parsed.description).toBe('A mock tool for testing')
+            // In --json mode, inputSchema is a real object, not a JSON string
+            expect(typeof parsed.inputSchema).toBe('object')
+        })
+
+        it('throws usage error for bare info', async () => {
+            const exec = createExec()
+            await expect(exec.handler(mockContext, { command: 'info' })).rejects.toThrow(
+                'Usage: info [--json] <tool_name>'
+            )
+        })
+
+        it('throws usage error for info --json with no tool name', async () => {
+            const exec = createExec()
+            await expect(exec.handler(mockContext, { command: 'info --json' })).rejects.toThrow(
+                'Usage: info [--json] <tool_name>'
+            )
         })
     })
 
@@ -304,6 +349,7 @@ describe('exec tool', () => {
                 } as any,
                 sessionManager: new SessionManager({} as any),
                 getDistinctId: async () => 'test-distinct-id',
+                trackEvent: async () => {},
             }
         }
 
@@ -327,23 +373,26 @@ describe('exec tool', () => {
                         ...(def.system_prompt_hint ? { systemPromptHint: def.system_prompt_hint } : {}),
                     }
                 })
-            const commandReference = buildInstructionsV2(
-                CLI_PROXY_COMMAND,
-                guidelines,
-                undefined,
-                undefined,
-                toolInfos,
-                queryToolInfos
+            const formatter = new InstructionsFormatter()
+            const commandReference = formatter.buildExecCommandReference(
+                { guidelines, tools: toolInfos, queryTools: queryToolInfos },
+                { stripEnvContext: false }
             )
-            const execTool = createExecTool(v2Tools, context, CLI_PROXY_TOOL, commandReference, undefined)
+            const execTool = createExecTool(
+                v2Tools,
+                context,
+                formatter.buildExecToolDescription(),
+                commandReference,
+                undefined
+            )
 
             expect(execTool.description.length).toBeLessThanOrEqual(2048)
         })
 
         // Snapshots the full exec tool definition built from the real v2 tool set:
-        // description (CLI_PROXY_TOOL), annotations, and input schema including the
-        // `command` field description — which embeds the generated `tool_domains`
-        // block. Because `buildToolDomainsBlock` relies on tool-name conventions
+        // description (the `exec-tool-blurb` subprompt), annotations, and input schema
+        // including the `command` field description — which embeds the generated
+        // `tool_domains` block. Because `buildToolDomainsBlock` relies on tool-name conventions
         // (CRUD suffixes, prefix actions, plural collapsing), this snapshot is the
         // canary for any drift in naming or in the domain-extraction logic.
         //
@@ -370,15 +419,18 @@ describe('exec tool', () => {
                         ...(def.system_prompt_hint ? { systemPromptHint: def.system_prompt_hint } : {}),
                     }
                 })
-            const commandReference = buildInstructionsV2(
-                CLI_PROXY_COMMAND,
-                guidelines,
-                undefined,
-                undefined,
-                toolInfos,
-                queryToolInfos
+            const formatter = new InstructionsFormatter()
+            const commandReference = formatter.buildExecCommandReference(
+                { guidelines, tools: toolInfos, queryTools: queryToolInfos },
+                { stripEnvContext: false }
             )
-            const execTool = createExecTool(v2Tools, context, CLI_PROXY_TOOL, commandReference, undefined)
+            const execTool = createExecTool(
+                v2Tools,
+                context,
+                formatter.buildExecToolDescription(),
+                commandReference,
+                undefined
+            )
 
             const snapshot = {
                 name: execTool.name,

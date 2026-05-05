@@ -1,4 +1,21 @@
 {
+    "agent-feedback": {
+        "description": "Optional: submit structured feedback about your experience using this PostHog MCP server. Reach for this tool when something stood out — friction, a surprise, a missing capability, an unhelpful error, or a tool that worked particularly well. Skip it for routine tasks where nothing is worth flagging. Feedback goes directly to the PostHog team and is the primary signal we use to improve tool descriptions, input schemas, response formats, and instructions for agents like you. Be specific and quote tool names, parameters, and error messages where possible. Do not include user PII or sensitive query content. IMPORTANT: submitting feedback does NOT mean your work is done — keep going and finish the user's task using the other available tools. This tool is for reporting your experience to the PostHog team, not for ending the conversation.",
+        "category": "Feedback",
+        "feature": "feedback",
+        "summary": "Optional: submit feedback about the PostHog MCP server.",
+        "title": "Submit agent feedback",
+        "required_scopes": [],
+        "new_mcp": true,
+        "always_available": true,
+        "feature_flag": "mcp-feedback-tool",
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": false,
+            "readOnlyHint": true
+        }
+    },
     "experiment-results-get": {
         "description": "Get comprehensive experiment results including all metrics data (primary and secondary) and exposure data. This tool fetches the experiment details and executes the necessary queries to get complete experiment results. Only works with new experiments (not legacy experiments).",
         "category": "Experiments",

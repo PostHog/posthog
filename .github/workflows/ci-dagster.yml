@@ -66,9 +66,14 @@ jobs:
             schema_cache_key: ${{ steps.schema-key.outputs.key }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
-            # also want this to run on master so we need to checkout
+            # also want this to run on master so we need to checkout.
+            # fetch-depth=1000 + blob:none mirrors ci-backend's turbo-discover so
+            # HEAD^2 (PR branch tip) is reachable for the merge-base step below
+            # without the cost of fetching blobs.
             - uses: actions/checkout@v6
               with:
+                  fetch-depth: 1000
+                  filter: blob:none
                   clean: false
 
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
@@ -185,12 +190,10 @@ jobs:
               if: github.event_name == 'pull_request'
               env:
                   BASE_REF: ${{ github.event.pull_request.base.ref }}
-              run: |
-                  # Deepen the shallow checkout so HEAD^2 (PR branch tip) becomes
-                  # reachable, then fetch enough of the base branch to find where
-                  # the PR diverged from it.
-                  git fetch --deepen=200
-                  git fetch --no-tags --depth=200 origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
+              # Scoped, blob-less, no-tags — matches ci-backend's pattern.
+              # Without an explicit refspec, `git fetch --deepen` would fall back
+              # to remote.origin.fetch and pull every branch.
+              run: git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
 
             - name: Compute schema cache key from merge-base
               id: schema-key
