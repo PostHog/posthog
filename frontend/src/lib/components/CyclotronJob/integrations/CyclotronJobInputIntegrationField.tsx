@@ -2,11 +2,9 @@ import { useValues } from 'kea'
 
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
-import {
-    AnthropicManagedAgentEnvironmentPicker,
-    AnthropicManagedAgentPicker,
-    AnthropicManagedAgentVaultPicker,
-} from 'lib/integrations/AnthropicManagedAgentsHelpers'
+import { AnthropicManagedAgentEnvironmentPicker } from 'lib/integrations/anthropic/AnthropicManagedAgentEnvironmentPicker/AnthropicManagedAgentEnvironmentPicker'
+import { AnthropicManagedAgentPicker } from 'lib/integrations/anthropic/AnthropicManagedAgentPicker/AnthropicManagedAgentPicker'
+import { AnthropicManagedAgentVaultPicker } from 'lib/integrations/anthropic/AnthropicManagedAgentVaultPicker/AnthropicManagedAgentVaultPicker'
 import {
     ClickUpListPicker,
     ClickUpSpacePicker,
