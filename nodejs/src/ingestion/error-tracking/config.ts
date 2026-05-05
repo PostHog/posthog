@@ -35,6 +35,23 @@ export type ErrorTrackingConsumerConfig = {
      *  split large batches before they hit Cymbal's body limit. */
     ERROR_TRACKING_CYMBAL_MAX_BODY_BYTES: number
 
+    /** Master kill-switch for the keyed rate limiter. When false, no Redis pool
+     *  is created and the pipeline step is a no-op. */
+    ERROR_TRACKING_RATE_LIMITER_ENABLED: boolean
+    /** When true, decisions are computed and tracked but never enforced. Lets
+     *  us validate thresholds + Redis path before flipping to enforce. */
+    ERROR_TRACKING_RATE_LIMITER_REPORTING_MODE: boolean
+    /** Dedicated Redis host. If empty, falls back to REDIS_URL. */
+    ERROR_TRACKING_RATE_LIMITER_REDIS_HOST: string
+    ERROR_TRACKING_RATE_LIMITER_REDIS_PORT: number
+    ERROR_TRACKING_RATE_LIMITER_REDIS_TLS: boolean
+    /** Token bucket capacity (events per key burst). */
+    ERROR_TRACKING_RATE_LIMITER_BUCKET_SIZE: number
+    /** Token bucket replenish rate (events per second). */
+    ERROR_TRACKING_RATE_LIMITER_REFILL_RATE: number
+    /** TTL in seconds for the Redis bucket key. */
+    ERROR_TRACKING_RATE_LIMITER_TTL_SECONDS: number
+
     /** Pipeline name for metrics labeling */
     INGESTION_PIPELINE: string | null
     /** Lane identifier (main, overflow) for metrics labeling */
@@ -56,6 +73,14 @@ export function getDefaultErrorTrackingConsumerConfig(): ErrorTrackingConsumerCo
         ERROR_TRACKING_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS: 300, // 5 minutes
         ERROR_TRACKING_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS: 60, // 1 minute
         ERROR_TRACKING_CYMBAL_MAX_BODY_BYTES: 1_800_000,
+        ERROR_TRACKING_RATE_LIMITER_ENABLED: false,
+        ERROR_TRACKING_RATE_LIMITER_REPORTING_MODE: true,
+        ERROR_TRACKING_RATE_LIMITER_REDIS_HOST: '',
+        ERROR_TRACKING_RATE_LIMITER_REDIS_PORT: 6379,
+        ERROR_TRACKING_RATE_LIMITER_REDIS_TLS: false,
+        ERROR_TRACKING_RATE_LIMITER_BUCKET_SIZE: 100_000,
+        ERROR_TRACKING_RATE_LIMITER_REFILL_RATE: 1_000,
+        ERROR_TRACKING_RATE_LIMITER_TTL_SECONDS: 86_400,
         INGESTION_PIPELINE: null,
         INGESTION_LANE: null,
     }
