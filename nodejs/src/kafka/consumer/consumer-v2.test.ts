@@ -440,10 +440,11 @@ describe('KafkaConsumerV2', () => {
         expect(mockRdKafka.incrementalUnassign).not.toHaveBeenCalled()
     })
 
-    it('Partial REVOKE then ASSIGN remainder: cooperative drop-some-keep-others', async () => {
-        // Cooperative-sticky often revokes a subset of partitions while keeping others. The
-        // loop must drain in-flight before unassigning, but should not interfere with the
-        // partitions it keeps.
+    it('Partial REVOKE: state stays CONSUMING when partitions remain assigned', async () => {
+        // Cooperative-sticky often revokes a subset of partitions while keeping others, with
+        // no follow-up ASSIGN. We MUST stay in CONSUMING (not flip to IDLE) — otherwise the
+        // keepalive runs in IDLE and silently discards messages from the still-owned
+        // partitions. Real bug observed in prod: state=IDLE with 7 partitions still assigned.
         ;(consumer as any).maxBackgroundTasks = 5
         const eachBatch = jest.fn(() => Promise.resolve({}))
         await startConsuming(eachBatch, [
@@ -454,6 +455,9 @@ describe('KafkaConsumerV2', () => {
         // In-flight task on the (still-owned) consumer.
         const p1 = triggerablePromise()
         await dispatchBatch(eachBatch, [createMessage({ offset: 1, partition: 0 })], p1.promise)
+
+        // After incrementalUnassign(p1), librdkafka still reports partition 0 as assigned.
+        ;(mockRdKafka.assignments as jest.Mock).mockReturnValue([{ topic: 'test-topic', partition: 0 }])
 
         // Revoke ONLY partition 1.
         fireRevoke([{ topic: 'test-topic', partition: 1 }])
@@ -466,6 +470,22 @@ describe('KafkaConsumerV2', () => {
 
         // Only the revoked partition is unassigned.
         expect(mockRdKafka.incrementalUnassign).toHaveBeenCalledWith([{ topic: 'test-topic', partition: 1 }])
+        // CRITICAL: state must NOT have flipped to IDLE — partition 0 is still ours.
+        expect((consumer as any).state).toBe('CONSUMING')
+    })
+
+    it('Full REVOKE: state goes to IDLE when no partitions remain', async () => {
+        const eachBatch = jest.fn(() => Promise.resolve({}))
+        await startConsuming(eachBatch, [{ topic: 'test-topic', partition: 0 }])
+
+        // After unassign, librdkafka reports no remaining assignments.
+        ;(mockRdKafka.assignments as jest.Mock).mockReturnValue([])
+
+        fireRevoke([{ topic: 'test-topic', partition: 0 }])
+        await delay(20)
+
+        expect(mockRdKafka.incrementalUnassign).toHaveBeenCalled()
+        expect((consumer as any).state).toBe('IDLE')
     })
 
     it('Disconnect drains in-flight tasks before tearing down', async () => {

@@ -12,7 +12,6 @@ import {
 import { hostname } from 'os'
 
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, LogLevel } from '~/types'
-import { isTestEnv } from '~/utils/env-utils'
 import { parseJSON } from '~/utils/json-parse'
 
 import { defaultConfig } from '../../config/config'
@@ -154,8 +153,11 @@ export class KafkaConsumerV2 {
             ['auto.offset.reset' as keyof ConsumerGlobalConfig]: 'earliest' as never,
             ...getKafkaConfigFromEnv('CONSUMER'),
             ...rdKafkaOverrides,
-            // Below are settings we DO NOT allow callers to override
-            'partition.assignment.strategy': isTestEnv() ? 'roundrobin' : 'cooperative-sticky',
+            // Below are settings we DO NOT allow callers to override.
+            // (v1 used `roundrobin` under jest as a workaround for librdkafka 2.2.0 flakiness;
+            // we're on 2.12.0 now and that note is stale. Using cooperative-sticky everywhere
+            // gives the integration tests prod parity — partial-revoke paths are eager-invisible.)
+            'partition.assignment.strategy': 'cooperative-sticky',
             'enable.auto.offset.store': false,
             'enable.auto.commit': this.config.autoCommit,
             rebalance_cb: this.rebalanceCallback.bind(this),
@@ -445,10 +447,17 @@ export class KafkaConsumerV2 {
                     })
                     .set(0)
             }
-            logger.info('🔁', 'kafka_consumer_v2_revoke_complete', { generation: this.generation })
-
-            // Stay in IDLE until librdkafka delivers the next ASSIGN (or never, if we're shutting down).
-            this.state = 'IDLE'
+            // Cooperative-sticky often revokes a subset of partitions while the consumer keeps
+            // the rest, with no follow-up ASSIGN. We must only go IDLE when nothing is assigned;
+            // otherwise the keepalive runs in IDLE and silently discards messages from the still-
+            // owned partitions (broke the keepalive-no-messages invariant in prod).
+            const remaining = this.rdKafkaConsumer.isConnected() ? this.rdKafkaConsumer.assignments() : []
+            this.state = remaining.length > 0 ? 'CONSUMING' : 'IDLE'
+            logger.info('🔁', 'kafka_consumer_v2_revoke_complete', {
+                generation: this.generation,
+                remainingAssignments: remaining.length,
+                nextState: this.state,
+            })
             return
         }
 
