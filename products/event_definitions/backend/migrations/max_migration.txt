@@ -1,1 +1,1 @@
-0005_eventdefinition_rename_promoted_to_primary
+0006_drop_eventproperty_proj_property_coalesce_idx

@@ -27,7 +27,6 @@ class EventProperty(models.Model):
             models.Index(fields=["team", "event"]),
             models.Index(Coalesce(F("project_id"), F("team_id")), F("event"), name="posthog_eve_proj_id_22de03_idx"),
             models.Index(fields=["team", "property"]),
-            models.Index(Coalesce(F("project_id"), F("team_id")), F("property"), name="posthog_eve_proj_id_26dbfb_idx"),
         ]
 
     __repr__ = sane_repr("event", "property", "team_id")
