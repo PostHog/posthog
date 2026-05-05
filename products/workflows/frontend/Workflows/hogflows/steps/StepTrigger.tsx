@@ -554,6 +554,7 @@ function StepTriggerConfigurationBatch({
                     sendAllKeyUpdates
                     allowRelativeDateOptions
                     excludedOperators={{ [TaxonomicFilterGroupType.Cohorts]: [PropertyOperator.NotIn] }}
+                    selectingKeyOnly={{ [TaxonomicFilterGroupType.Cohorts]: true }}
                     hideBehavioralCohorts
                     logicalRowDivider
                     onChange={(properties) =>

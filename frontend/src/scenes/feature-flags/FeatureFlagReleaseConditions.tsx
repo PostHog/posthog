@@ -391,6 +391,7 @@ export function FeatureFlagReleaseConditions({
                                         : null
                                 }
                                 excludedOperators={{ [TaxonomicFilterGroupType.Cohorts]: [PropertyOperator.NotIn] }}
+                                selectingKeyOnly={{ [TaxonomicFilterGroupType.Cohorts]: true }}
                                 hideBehavioralCohorts={!realtimeCohortFlagTargeting}
                             />
                         </div>

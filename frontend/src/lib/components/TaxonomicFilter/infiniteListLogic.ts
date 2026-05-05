@@ -449,7 +449,9 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     }
                     const excludedForGroup = excludedOperators?.[item._recentContext.sourceGroupType]
                     if (excludedForGroup?.length) {
-                        const operator = item._recentContext.propertyFilter?.operator
+                        const propertyFilter = item._recentContext.propertyFilter
+                        const operator =
+                            propertyFilter && 'operator' in propertyFilter ? propertyFilter.operator : undefined
                         if (operator && excludedForGroup.includes(operator)) {
                             return false
                         }

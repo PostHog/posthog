@@ -3,6 +3,7 @@ import {
     AllowedProperties,
     ExcludedOperators,
     ExcludedProperties,
+    SelectingKeyOnly,
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
     TaxonomicFilterProps,
@@ -62,6 +63,7 @@ export interface PropertyFilterInternalProps {
     excludedProperties?: ExcludedProperties
     allowRelativeDateOptions?: boolean
     excludedOperators?: ExcludedOperators
+    selectingKeyOnly?: SelectingKeyOnly
     hideBehavioralCohorts?: boolean
     addFilterDocLink?: string
     endpointFilters?: Record<string, any>

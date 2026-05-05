@@ -8,6 +8,7 @@ import {
     AllowedProperties,
     ExcludedOperators,
     ExcludedProperties,
+    SelectingKeyOnly,
     TaxonomicFilterGroupType,
     TaxonomicFilterProps,
 } from 'lib/components/TaxonomicFilter/types'
@@ -53,6 +54,7 @@ export interface PropertyFiltersProps {
     allowRelativeDateOptions?: boolean
     disabledReason?: string
     excludedOperators?: ExcludedOperators
+    selectingKeyOnly?: SelectingKeyOnly
     hideBehavioralCohorts?: boolean
     addFilterDocLink?: string
     operatorAllowlist?: OperatorValueSelectProps['operatorAllowlist']
@@ -90,6 +92,7 @@ export function PropertyFilters({
     allowRelativeDateOptions,
     disabledReason = undefined,
     excludedOperators,
+    selectingKeyOnly,
     hideBehavioralCohorts,
     addFilterDocLink,
     operatorAllowlist,
@@ -161,6 +164,7 @@ export function PropertyFilters({
                                             taxonomicFilterOptionsFromProp={taxonomicFilterOptionsFromProp}
                                             allowRelativeDateOptions={allowRelativeDateOptions}
                                             excludedOperators={excludedOperators}
+                                            selectingKeyOnly={selectingKeyOnly}
                                             hideBehavioralCohorts={hideBehavioralCohorts}
                                             size={buttonSize}
                                             addFilterDocLink={addFilterDocLink}

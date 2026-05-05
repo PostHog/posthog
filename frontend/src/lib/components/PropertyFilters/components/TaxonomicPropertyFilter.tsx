@@ -22,6 +22,7 @@ import {
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
     TaxonomicFilterValue,
+    isKeyOnlyForGroup,
 } from 'lib/components/TaxonomicFilter/types'
 import { isOperatorMulti, isOperatorRegex, toParams } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
@@ -73,6 +74,7 @@ export function TaxonomicPropertyFilter({
     taxonomicFilterOptionsFromProp,
     allowRelativeDateOptions,
     excludedOperators,
+    selectingKeyOnly,
     hideBehavioralCohorts,
     addFilterDocLink,
     editable = true,
@@ -118,14 +120,9 @@ export function TaxonomicPropertyFilter({
         !disablePopover &&
         ((!filter?.type && (!filter || !(filter as any)?.key)) || filter?.type === PropertyFilterType.HogQL)
     const filterTaxonomicGroupType = filter ? propertyFilterTypeToTaxonomicFilterType(filter) : undefined
-    const operatorsExcludedForFilterType = filterTaxonomicGroupType
-        ? excludedOperators?.[filterTaxonomicGroupType]
-        : undefined
+    const isKeyOnlyRow = isKeyOnlyForGroup(selectingKeyOnly, filterTaxonomicGroupType)
     const showOperatorValueSelect =
-        filter?.type &&
-        filter?.key &&
-        !(filter?.type === PropertyFilterType.HogQL) &&
-        !operatorsExcludedForFilterType?.length
+        filter?.type && filter?.key && !(filter?.type === PropertyFilterType.HogQL) && !isKeyOnlyRow
     const placeOperatorValueSelectOnLeft = filter?.type && filter?.key && filter?.type === PropertyFilterType.Cohort
 
     const { propertyDefinitionsByType } = useValues(propertyDefinitionsModel)
@@ -178,6 +175,7 @@ export function TaxonomicPropertyFilter({
             endpointFilters={endpointFilters}
             hogQLGlobals={hogQLGlobals}
             excludedOperators={excludedOperators}
+            selectingKeyOnly={selectingKeyOnly}
             enableKeywordShortcuts
         />
     )
