@@ -114,3 +114,38 @@ export function formatLocalizedDate(): string {
 
     return usDateLocales.some((usLocale) => localLang.startsWith(usLocale)) ? 'MMM DD' : 'DD MMM'
 }
+
+/** Parse a date string into a Dayjs in the given timezone, browser-tz-independent.
+ *
+ * - Strings without explicit timezone info ("2026-03-08", "2026-03-08 14:00:00")
+ *   are treated as wall-clock time in the given timezone. Strings from ClickHouse
+ *   already have wall-clock digits in the project timezone because ClickHouse applies
+ *   toTimeZone before truncation, and date-only buckets from the trends backend
+ *   have no time component to convert.
+ * - Strings with explicit timezone info (trailing "Z" or "±HH:MM") are real instants;
+ *   parse them as such and convert into the requested timezone.
+ *
+ * Avoids the dayjs.tz(string, tz) footgun, which goes through new Date() and uses
+ * the browser's local timezone — that can shift the calendar day during DST or
+ * whenever the browser tz disagrees with the project tz. */
+export function parseDateInTimezone(dateStr: string, timezone: string): dayjs.Dayjs {
+    const hasExplicitTz = /([Zz]|[+-]\d{2}:?\d{2})$/.test(dateStr)
+    if (hasExplicitTz) {
+        try {
+            const instant = dayjs(dateStr)
+            return instant.isValid() ? instant.tz(timezone) : dayjs(null)
+        } catch {
+            return dayjs(null)
+        }
+    }
+
+    const hasTime = dateStr.includes(' ') || dateStr.includes('T')
+    try {
+        const utc = hasTime ? dayjs.utc(dateStr) : dayjs.utc(dateStr + ' 00:00:00')
+        // keepLocalTime: true preserves the wall-clock digits while attaching
+        // the project timezone — no conversion arithmetic.
+        return utc.isValid() ? utc.tz(timezone, true) : dayjs(null)
+    } catch {
+        return dayjs(null)
+    }
+}
