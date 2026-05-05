@@ -68,9 +68,6 @@ export { computeVisibleXLabels } from './overlays/AxisLabels'
 export { AnomalyPointsLayer } from './charts/TimeSeriesLineChart/overlays/AnomalyPointsLayer'
 export type { AnomalyMarker } from './charts/TimeSeriesLineChart/overlays/AnomalyPointsLayer'
 
-// Helpers for building derived-series configs that reference MA / CI / trendline keys.
-export { movingAverageKey } from './charts/TimeSeriesLineChart/utils/derived-series'
-
 // Timeseries utils
 export { createXAxisTickCallback, parseDateForAxis } from './charts/TimeSeriesLineChart/utils/dates'
 export type { TimeInterval } from './charts/TimeSeriesLineChart/utils/dates'

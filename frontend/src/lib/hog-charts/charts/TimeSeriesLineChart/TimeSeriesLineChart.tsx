@@ -38,10 +38,7 @@ export interface TimeSeriesLineChartConfig {
     confidenceIntervals?: ConfidenceIntervalConfig[]
     movingAverage?: MovingAverageConfig[]
     trendLines?: TrendLineConfig[]
-    /** Map of comparison series key → its primary series key. Comparison series render
-     *  at reduced opacity so they read as subordinate to their primary. The mapped
-     *  primary key is reserved for future tooltip-linking ("compared against …") and is
-     *  currently unread by the dimming pass — only the presence of the key matters today. */
+    /** Comparison series keys mapped to their primary. Comparison series render dimmed. */
     comparisonOf?: Record<string, string>
     /** Anomaly markers rendered as filled circles on top of the chart. */
     anomalies?: AnomalyMarker[]

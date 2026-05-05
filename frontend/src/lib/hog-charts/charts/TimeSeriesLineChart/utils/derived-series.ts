@@ -41,17 +41,10 @@ export interface BuildMovingAverageSeriesInput<Meta = unknown> {
     label?: string
 }
 
-/** Series-key convention for the moving-average derivation. Trends and any other adapter
- *  that wants to reference the MA series by key (e.g. for `trendLines.seriesKey`,
- *  `comparisonOf`) must use this helper rather than re-string-templating the suffix. */
-export function movingAverageKey(sourceKey: string): string {
-    return `${sourceKey}-ma`
-}
-
 export function buildMovingAverageSeries<Meta = unknown>(input: BuildMovingAverageSeriesInput<Meta>): Series<Meta> {
     const { sourceSeries, window: windowSize } = input
     return {
-        key: movingAverageKey(sourceSeries.key),
+        key: `${sourceSeries.key}-ma`,
         label: input.label ?? `${sourceSeries.label} (Moving avg)`,
         data: movingAverage(sourceSeries.data, windowSize),
         color: sourceSeries.color,

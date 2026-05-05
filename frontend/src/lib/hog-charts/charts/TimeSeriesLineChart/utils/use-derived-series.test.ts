@@ -54,11 +54,8 @@ describe('useDerivedSeries', () => {
     })
 
     it('threads fitUpTo from the trendLines config into the regression fit', () => {
-        // Linear regression over [10, 10, 10, 10, 100, 100] would slope upward; restricting
-        // the fit to the first 4 indices (all 10s) produces a flat ~10 trendline across the
-        // full range. The two configs must therefore yield different first values.
+        // Constrained fit over [0, 4) stays flat near 10; unconstrained fit slopes up.
         const data = [10, 10, 10, 10, 100, 100]
-        const labels = ['mo', 'tu', 'we', 'th', 'fr', 'sa']
         const source: Series[] = [{ key: 'a', label: 'A', data, color: '#112233' }]
         const { result: fitted } = renderHook(() =>
             useDerivedSeries(source, { trendLines: [{ seriesKey: 'a', kind: 'linear', fitUpTo: 4 }] })
@@ -68,10 +65,11 @@ describe('useDerivedSeries', () => {
         )
         const fittedTrend = fitted.current.find((s) => s.key === 'a__trendline')!.data
         const fullTrend = full.current.find((s) => s.key === 'a__trendline')!.data
-        expect(labels.length).toBe(data.length) // sanity
-        // Constrained fit stays flat near 10; unconstrained fit slopes up.
-        expect(fittedTrend.every((v) => Math.abs(v - 10) < 1e-6)).toBe(true)
-        expect(fullTrend[fullTrend.length - 1]).toBeGreaterThan(fittedTrend[fittedTrend.length - 1])
+        const fittedDeviationFromTen = fittedTrend.map((v) => Math.abs(v - 10))
+        const fittedLast = fittedTrend[fittedTrend.length - 1]
+        const fullLast = fullTrend[fullTrend.length - 1]
+        expect(Math.max(...fittedDeviationFromTen)).toBeLessThan(1e-6)
+        expect(fullLast).toBeGreaterThan(fittedLast)
     })
 
     it('busts the memo cache when fitUpTo changes between renders', () => {
