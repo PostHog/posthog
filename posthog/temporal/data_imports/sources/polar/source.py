@@ -19,10 +19,7 @@ from posthog.temporal.data_imports.sources.polar.polar import (
     polar_source,
     validate_credentials as validate_polar_credentials,
 )
-from posthog.temporal.data_imports.sources.polar.settings import (
-    ENDPOINTS as POLAR_ENDPOINTS,
-    INCREMENTAL_FIELDS as POLAR_INCREMENTAL_FIELDS,
-)
+from posthog.temporal.data_imports.sources.polar.settings import ENDPOINTS as POLAR_ENDPOINTS
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
@@ -90,12 +87,15 @@ class PolarSource(ResumableSource[PolarSourceConfig, PolarResumeConfig]):
     def get_schemas(
         self, config: PolarSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
     ) -> list[SourceSchema]:
+        # Full refresh only — Polar's list endpoints accept no server-side timestamp filter,
+        # so an "incremental" sync would still fetch every page. We surface that honestly by
+        # not offering the incremental option in the wizard.
         schemas = [
             SourceSchema(
                 name=endpoint,
-                supports_incremental=bool(POLAR_INCREMENTAL_FIELDS.get(endpoint)),
-                supports_append=bool(POLAR_INCREMENTAL_FIELDS.get(endpoint)),
-                incremental_fields=POLAR_INCREMENTAL_FIELDS.get(endpoint, []),
+                supports_incremental=False,
+                supports_append=False,
+                incremental_fields=[],
             )
             for endpoint in POLAR_ENDPOINTS
         ]
@@ -118,9 +118,6 @@ class PolarSource(ResumableSource[PolarSourceConfig, PolarResumeConfig]):
         return polar_source(
             api_key=config.polar_api_key,
             endpoint=inputs.schema_name,
-            incremental_field=inputs.incremental_field,
-            should_use_incremental_field=inputs.should_use_incremental_field,
-            db_incremental_field_last_value=inputs.db_incremental_field_last_value,
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
         )
