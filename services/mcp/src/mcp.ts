@@ -678,7 +678,7 @@ export class MCP extends McpAgent<Env> {
                     (async () => {
                         const freshContext = await this.getAnalyticsContextSafe(await this.getContext())
                         await this.trackEvent(
-                            AnalyticsEvent.MCP_TOOL_CALLED,
+                            AnalyticsEvent.MCP_TOOL_CALL,
                             { tool_name: toolName, ...properties },
                             freshContext ? { context: freshContext } : undefined
                         )
