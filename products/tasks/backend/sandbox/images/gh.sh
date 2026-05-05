@@ -21,6 +21,10 @@ AGENT_PORT="${POSTHOG_AGENT_SERVER_PORT:-8080}"
 # (quotes, newlines, multibyte) without shell-quoting hazards.
 body=$(jq -n --arg cwd "$PWD" --args '{cwd: $cwd, args: $ARGS.positional}' -- "$@")
 
+# nosemgrep: trailofbits.generic.curl-unencrypted-url.curl-unencrypted-url
+# HTTP (not HTTPS) is correct here: the /gh endpoint is loopback-only by
+# agent-server design, so traffic never leaves the sandbox. TLS would add
+# certificate plumbing for a 127.0.0.1 socket with no security benefit.
 response=$(curl -sS --fail-with-body \
   -X POST \
   -H "Content-Type: application/json" \

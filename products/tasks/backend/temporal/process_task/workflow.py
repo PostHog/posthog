@@ -857,6 +857,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         Skipped entirely when the run has no GitHub credentials (e.g. Slack
         repo-less tasks without a user GitHub link). Each iteration is
         best-effort — failures are logged and the loop continues.
+
+        Lifecycle is driven by ``_cancel_refresh_github_token`` cancelling
+        this task, which raises ``CancelledError`` out of ``workflow.sleep``.
+        The ``while not self._task_completed`` guard is a safety net for the
+        unusual case where the task is left to drain without cancellation.
         """
         if not self.context.has_github_credentials:
             return
@@ -864,8 +869,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         try:
             while not self._task_completed:
                 await workflow.sleep(GITHUB_TOKEN_REFRESH_INTERVAL.total_seconds())
-                if self._task_completed:
-                    return
                 try:
                     await workflow.execute_activity(
                         refresh_github_token,
