@@ -23,6 +23,7 @@ from posthog.temporal.data_imports.sources.stripe.stripe import (
     StripeResumeConfig,
     StripeValidationError,
     _build_resources,
+    _clean_stripe_error_message,
     validate_credentials,
 )
 from posthog.temporal.tests.data_imports.conftest import run_external_data_job_workflow
@@ -448,6 +449,34 @@ def test_validate_credentials_nested_resource_surfaces_parent_permission_error(n
         validate_credentials("api_key", nested_table_name)
 
     assert list(e.value.missing_permissions.keys()) == [f"{nested_table_name} (Customer)"]
+
+
+def test_clean_stripe_error_message_collapses_redacted_key():
+    """Stripe's permission errors quote the restricted key with ~80 redacted middle chars
+    (`rk_live_***********...***********gbeftZ`). The unedited message is too long for a
+    toast — collapse the asterisk run while keeping the visible prefix/suffix that lets
+    users identify which key was used."""
+    raw = (
+        "Request req_DzMMiyPa4cynLi: The provided key 'rk_live_"
+        + ("*" * 80)
+        + "gbeftZ' does not have the required permissions for this endpoint on account "
+        + "'acct_1HIMDDEuIatRXSdz'. Having the 'rak_payment_method_read' permission would "
+        + "allow this request to continue."
+    )
+
+    cleaned = _clean_stripe_error_message(raw)
+
+    assert "*" * 80 not in cleaned
+    assert "***" in cleaned  # we keep a short marker
+    assert "rk_live_***gbeftZ" in cleaned
+    # Critically, the actionable detail must survive the cleanup.
+    assert "rak_payment_method_read" in cleaned
+
+
+def test_clean_stripe_error_message_passthrough_when_no_redaction():
+    """No redacted run in the message → return unchanged."""
+    msg = "Request req_xxx: Some non-permission error without redaction."
+    assert _clean_stripe_error_message(msg) == msg
 
 
 def test_validate_credentials_nested_resources_have_registered_parents():

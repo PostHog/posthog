@@ -1,4 +1,5 @@
 import os
+import re
 import dataclasses
 from collections.abc import Callable
 from typing import Any, Optional, Union, get_args, get_type_hints
@@ -57,6 +58,29 @@ def _tracked_stripe_http_client() -> RequestsClient:
     return RequestsClient(session=make_tracked_session())
 
 
+def _clean_stripe_error_message(msg: str) -> str:
+    """Collapse the long redacted middle of a restricted API key ('rk_live_********...****gbeftZ')
+    so the error message stays short enough to render in a frontend toast. The prefix and
+    suffix Stripe leaves visible are enough to identify the key in support escalations."""
+    # Stripe redacts ~80 chars with `*`. Anything 5+ in a row is the redaction, never legitimate.
+    return re.sub(r"\*{5,}", "***", msg)
+
+
+def _call_stripe(method: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+    """Invoke a Stripe SDK list method and rewrite any StripeError it raises with a cleaned
+    message — primarily collapsing the long asterisk run from redacted restricted keys.
+
+    Re-raises the same exception class (so framework-level non-retryable error matching on
+    `"PermissionError"` etc. continues to work) but with a shorter, frontend-friendly message
+    that still preserves the actionable detail Stripe surfaces (which scope is missing).
+    """
+    try:
+        return method(*args, **kwargs)
+    except stripe_lib.StripeError as e:
+        cleaned = _clean_stripe_error_message(str(e))
+        raise type(e)(message=cleaned) from e
+
+
 def _stripe_base_addresses() -> BaseAddresses:
     # Redirect Stripe API calls to a local mock (e.g. STRIPE_API_BASE=http://localhost:12111)
     # when running the stripe-mock dev service. No-op in production where the var is unset.
@@ -76,11 +100,6 @@ class StripeNestedResource:
     nested_parent_param: str
     parent_id: str
     parent: StripeResource
-    # Top-level resource name the parent maps to (e.g. "Customer"). Carried explicitly because
-    # we cannot reverse-lookup `parent.method` by identity — Stripe's SDK exposes endpoints via
-    # property descriptors that return a fresh bound method on each attribute access, so
-    # `id(client.customers.list) == id(client.customers.list)` is False at runtime even though
-    # MagicMock caches attribute access in tests and makes it look True.
     parent_name: str = ""
     params: dict[str, Any] = dataclasses.field(default_factory=dict)
 
@@ -186,11 +205,13 @@ def get_rows(
             logger.debug(f"Stripe: resuming from object id: {resume_config.starting_after}")
 
         if isinstance(resource, StripeNestedResource):
-            stripe_parent_objects = resource.parent.method(
-                params={**default_params, **resource.parent.params, **resume_params}
+            stripe_parent_objects = _call_stripe(
+                resource.parent.method,
+                params={**default_params, **resource.parent.params, **resume_params},
             )
             for obj in stripe_parent_objects.auto_paging_iter():
-                stripe_nested_objects = resource.method(
+                stripe_nested_objects = _call_stripe(
+                    resource.method,
                     **{resource.nested_parent_param: obj[resource.parent_id]},
                     params={**default_params, **resource.params},
                 )
@@ -209,7 +230,9 @@ def get_rows(
                         last_cur = py_table.column(resource.nested_parent_param)[-1].as_py()
                         resumable_source_manager.save_state(StripeResumeConfig(starting_after=last_cur))
         else:
-            stripe_objects = resource.method(params={**default_params, **resource.params, **resume_params})
+            stripe_objects = _call_stripe(
+                resource.method, params={**default_params, **resource.params, **resume_params}
+            )
             for obj in stripe_objects.auto_paging_iter():
                 batcher.batch(obj)
 
@@ -239,12 +262,13 @@ def get_rows(
             f"Stripe: iterating earliest objects from resource: created[lt] = {db_incremental_field_earliest_value}"
         )
 
-        stripe_objects = resource.method(
+        stripe_objects = _call_stripe(
+            resource.method,
             params={
                 **default_params,
                 **resource.params,
                 f"created[lt]": db_incremental_field_earliest_value,
-            }
+            },
         )
         yield from stripe_objects.auto_paging_iter()
 
@@ -252,12 +276,13 @@ def get_rows(
     if db_incremental_field_last_value is not None:
         logger.debug(f"Stripe: iterating latest objects from resource: created[gt] = {db_incremental_field_last_value}")
 
-        stripe_objects = resource.method(
+        stripe_objects = _call_stripe(
+            resource.method,
             params={
                 **default_params,
                 **resource.params,
                 f"created[gt]": db_incremental_field_last_value,
-            }
+            },
         )
         for obj in stripe_objects.auto_paging_iter():
             if obj[incremental_field_name] <= db_incremental_field_last_value:
@@ -431,18 +456,19 @@ def validate_credentials(api_key: str, table_name: Optional[str] = None) -> bool
             resource.method(params={"limit": 1})
         except stripe_lib.AuthenticationError as e:
             # 401 — key itself is bad; no point checking other resources, every call will 401 the same way.
-            raise StripeAuthenticationError(str(e)) from e
+            raise StripeAuthenticationError(_clean_stripe_error_message(str(e))) from e
         except stripe_lib.PermissionError as e:
             # 403 — this specific resource is not authorized for the key. The user_message is the
             # concise Stripe explanation; str(e) on a stripe error includes request id, status code,
             # and headers — way too noisy when the cause ("missing X read scope") is already obvious
             # from the resource name.
-            missing_permissions[display_name] = getattr(e, "user_message", None) or str(e)
+            raw = getattr(e, "user_message", None) or str(e)
+            missing_permissions[display_name] = _clean_stripe_error_message(raw)
         except Exception as e:
             # Anything else (network, schema, rate limit, unexpected Stripe API change) is not a
             # permission problem — track separately so callers can render the verbose underlying
             # message instead of pretending it's a missing scope.
-            errors[display_name] = str(e)
+            errors[display_name] = _clean_stripe_error_message(str(e))
 
     # Errors take precedence over permission gaps because they indicate something went genuinely
     # wrong rather than a configuration issue the customer can self-serve. We still pass any
