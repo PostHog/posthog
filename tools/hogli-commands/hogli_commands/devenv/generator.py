@@ -208,8 +208,8 @@ class MprocsGenerator(ConfigGenerator):
     def _build_info_process(self, proc_config: dict[str, Any], resolved: ResolvedEnvironment) -> dict[str, Any]:
         """Update the info process config with a generated shell command.
 
-        News is read at runtime from devenv/news.txt so developers always see the
-        latest items without re-running hogli dev:generate.
+        News is fetched live from master so developers on older branches still
+        see current announcements. Falls back to the local copy when offline.
         """
         process_count = len(resolved.units)
         products = sorted(resolved.intents) if resolved.intents else ["(none)"]
@@ -221,22 +221,22 @@ class MprocsGenerator(ConfigGenerator):
         bold = r"\033[1m"
         reset = r"\033[0m"
 
-        # news.txt sits next to intent-map.yaml in the devenv/ directory, which
-        # is at the repo root — the same cwd mprocs launches from.
-        news_path = "devenv/news.txt"
+        news_url = "https://raw.githubusercontent.com/posthog/posthog/master/devenv/news.txt"
+        news_local = "devenv/news.txt"
 
         shell = f"""\
 echo ''
 printf '{orange}{bold}  PostHog Dev Environment{reset}\\n'
 printf '{gray}  ─────────────────────────────────────{reset}\\n'
 echo ''
-if [ -f {news_path} ]; then
+_news=$(curl -sf --max-time 2 '{news_url}' 2>/dev/null || cat {news_local} 2>/dev/null || true)
+if [ -n "$_news" ]; then
     printf '  {orange}{bold}News:{reset}\\n'
-    git blame --date=short {news_path} 2>/dev/null | \\
-      awk '{{match($0,/[0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}}/); d=substr($0,RSTART,RLENGTH); sub(/.*\\) /,""); if($0!="") print d"|"$0}}' | \\
-      sort -r | \\
-      while IFS='|' read -r date content; do
-        printf '    {gray}%s{reset}  %s\\n' "$date" "$content"
+    echo "$_news" | grep -E '^[0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}}' | sort -r | head -8 | \\
+      while IFS= read -r _line; do
+        _d=$(printf '%s' "$_line" | cut -c1-10)
+        _c=$(printf '%s' "$_line" | sed 's/^[^ ]* *//')
+        printf '    {gray}%s{reset}  %s\\n' "$_d" "$_c"
       done
     echo ''
 fi
