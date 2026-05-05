@@ -3,7 +3,7 @@ from typing import Any, Optional
 
 from django.core.cache import cache
 from django.db import models, transaction
-from django.db.models.signals import post_delete, post_save
+from django.db.models.signals import post_delete, post_save, pre_save
 from django.dispatch import receiver
 
 import structlog
@@ -416,9 +416,27 @@ def _invalidate_product_intents_cache(team_id: int) -> None:
     transaction.on_commit(lambda: safe_cache_delete(_team_product_intents_cache_key(team_id)))
 
 
+@receiver(pre_save, sender=ProductIntent)
+def _capture_original_team_id(sender: type[ProductIntent], instance: ProductIntent, **kwargs: Any) -> None:
+    # Stash the persisted team_id before save so post_save can invalidate the previous
+    # team's cache when an intent is reassigned (instance.team_id != original).
+    if instance.pk is None:
+        instance._original_team_id = None  # type: ignore[attr-defined]
+        return
+    try:
+        instance._original_team_id = (  # type: ignore[attr-defined]
+            ProductIntent.objects.filter(pk=instance.pk).values_list("team_id", flat=True).first()
+        )
+    except Exception:
+        instance._original_team_id = None  # type: ignore[attr-defined]
+
+
 @receiver(post_save, sender=ProductIntent)
 def _invalidate_product_intents_on_save(sender: type[ProductIntent], instance: ProductIntent, **kwargs: Any) -> None:
     _invalidate_product_intents_cache(instance.team_id)
+    original_team_id = getattr(instance, "_original_team_id", None)
+    if original_team_id is not None and original_team_id != instance.team_id:
+        _invalidate_product_intents_cache(original_team_id)
 
 
 @receiver(post_delete, sender=ProductIntent)
