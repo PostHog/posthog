@@ -543,7 +543,7 @@ class CDCExtractActivity:
         for schema in self.cdc_schemas:
             synced = schema.synced_columns
             if isinstance(synced, list) and synced:
-                retained: set[str] = set(synced)
+                retained: set[str] = {str(c) for c in synced}
                 # PK columns are always retained — merges break without them.
                 for pk in self.pk_columns_by_table.get(schema.name, []):
                     retained.add(pk)
