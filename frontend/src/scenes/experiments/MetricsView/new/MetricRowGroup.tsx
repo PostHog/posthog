@@ -534,16 +534,6 @@ export function MetricRowGroup({
         }
     }
 
-    const closeTooltipNow = (): void => {
-        clearTooltipCloseTimer()
-        setTooltipState((prev) => ({
-            ...prev,
-            isVisible: false,
-            variantResult: null,
-            isPositioned: false,
-        }))
-    }
-
     useEffect(() => {
         return () => {
             clearTooltipCloseTimer()
@@ -625,7 +615,15 @@ export function MetricRowGroup({
     // Defer closing so the user can move onto the portaled tooltip without it disappearing.
     const handleTooltipMouseLeave = (): void => {
         clearTooltipCloseTimer()
-        tooltipCloseTimerRef.current = setTimeout(closeTooltipNow, 150)
+        tooltipCloseTimerRef.current = setTimeout(() => {
+            tooltipCloseTimerRef.current = null
+            setTooltipState((prev) => ({
+                ...prev,
+                isVisible: false,
+                variantResult: null,
+                isPositioned: false,
+            }))
+        }, 150)
     }
 
     const handleTooltipMouseMove = (e: React.MouseEvent, variantResult: ExperimentVariantResult): void => {
@@ -757,7 +755,7 @@ export function MetricRowGroup({
                             visibility: tooltipState.isPositioned ? 'visible' : 'hidden',
                         }}
                         onMouseEnter={clearTooltipCloseTimer}
-                        onMouseLeave={closeTooltipNow}
+                        onMouseLeave={handleTooltipMouseLeave}
                         onClick={
                             timeseriesEnabled && tooltipState.variantResult
                                 ? () => handleTimeseriesClick(tooltipState.variantResult!)
