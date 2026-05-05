@@ -257,8 +257,8 @@ tools:
     event-definitions-partial-update:
         operation: event_definitions_partial_update
         enabled: false
-    event-definitions-promoted-properties-retrieve:
-        operation: event_definitions_promoted_properties_retrieve
+    event-definitions-primary-properties-retrieve:
+        operation: event_definitions_primary_properties_retrieve
         enabled: false
     event-definitions-python-retrieve:
         operation: event_definitions_python_retrieve
@@ -374,6 +374,9 @@ tools:
     invites-create:
         operation: invites_create
         enabled: false
+    invites-delegate-create:
+        operation: invites_delegate_create
+        enabled: false
     invites-destroy:
         operation: invites_destroy
         enabled: false
@@ -409,6 +412,18 @@ tools:
         enabled: false
     members-update:
         operation: members_update
+        enabled: false
+    notebooks-sharing-list:
+        operation: notebooks_sharing_list
+        enabled: false
+    notebooks-sharing-passwords-create:
+        operation: notebooks_sharing_passwords_create
+        enabled: false
+    notebooks-sharing-passwords-destroy:
+        operation: notebooks_sharing_passwords_destroy
+        enabled: false
+    notebooks-sharing-refresh-create:
+        operation: notebooks_sharing_refresh_create
         enabled: false
     oauth-applications-list:
         operation: oauth_applications_list
@@ -675,6 +690,9 @@ tools:
         description: >
             Get a specific subscription by ID. Returns the full subscription configuration including target type and
             value, schedule details, next delivery date, and associated insight or dashboard.
+    subscriptions-summary-quota-retrieve:
+        operation: subscriptions_summary_quota_retrieve
+        enabled: false
     subscriptions-test-delivery-create:
         operation: subscriptions_test_delivery_create
         enabled: true
@@ -791,6 +809,9 @@ tools:
         enabled: false
     users-list:
         operation: users_list
+        enabled: false
+    users-onboarding-skip-create:
+        operation: users_onboarding_skip_create
         enabled: false
     users-request-email-verification-create:
         operation: users_request_email_verification_create

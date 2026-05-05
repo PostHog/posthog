@@ -41,6 +41,12 @@ const AssistantMultipleBreakdownFilter = z.union([
 
 const AssistantTrendsBreakdownFilter = z.object({
     breakdown_limit: integer.describe('How many distinct values to show.').default(25).optional(),
+    breakdown_path_cleaning: z.coerce
+        .boolean()
+        .describe(
+            "When `true`, applies the project's configured path cleaning rules to URL or path breakdown values (e.g. `$pathname`, `$current_url`). Use this whenever the user asks for a breakdown by a URL or path property and there is no specific reason to keep the raw values. The user does not need to provide a regex — path cleaning rules come from the project's settings."
+        )
+        .optional(),
     breakdowns: z.array(AssistantMultipleBreakdownFilter).describe('Use this field to define breakdowns.'),
 })
 
@@ -705,7 +711,23 @@ const AssistantFunnelsActionsNode = z.object({
     version: z.coerce.number().describe('version of the node, used for schema migrations').optional(),
 })
 
-const AssistantFunnelsNode = z.union([AssistantFunnelsEventsNode, AssistantFunnelsActionsNode])
+const AssistantFunnelsGroupNode = z.object({
+    custom_name: z.string().optional(),
+    kind: z.literal('GroupNode').default('GroupNode'),
+    name: z.string().describe('Display name for the combined step.').optional(),
+    nodes: z
+        .array(z.union([AssistantFunnelsEventsNode, AssistantFunnelsActionsNode]))
+        .describe(
+            'Events and actions combined into the step. Use per-node `properties` to filter each event; there is no step-wide filter on a grouped step.'
+        ),
+    operator: z.literal('OR').describe('Only `OR` is supported.').default('OR'),
+})
+
+const AssistantFunnelsNode = z.union([
+    AssistantFunnelsEventsNode,
+    AssistantFunnelsActionsNode,
+    AssistantFunnelsGroupNode,
+])
 
 const AssistantFunnelsQuery = z.object({
     aggregation_group_type_index: integer

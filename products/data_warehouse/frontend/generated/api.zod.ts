@@ -546,6 +546,7 @@ export const externalDataSourcesCreateBodyPrefixMax = 100
 export const externalDataSourcesCreateBodyDescriptionMax = 400
 
 export const externalDataSourcesCreateBodyAccessMethodDefault = `warehouse`
+export const externalDataSourcesCreateBodyCreatedViaDefault = `api`
 
 export const ExternalDataSourcesCreateBody = /* @__PURE__ */ zod.object({
     source_type: zod
@@ -717,6 +718,11 @@ export const ExternalDataSourcesCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             "Connection mode: 'warehouse' (import) or 'direct' (live query).\n\n* `warehouse` - warehouse\n* `direct` - direct"
         ),
+    created_via: zod
+        .enum(['web', 'api', 'mcp'])
+        .describe('* `web` - web\n* `api` - api\n* `mcp` - mcp')
+        .default(externalDataSourcesCreateBodyCreatedViaDefault)
+        .describe('Where the request came from\n\n* `web` - web\n* `api` - api\n* `mcp` - mcp'),
 })
 
 /**
@@ -733,7 +739,7 @@ export const ExternalDataSourcesUpdateBody = /* @__PURE__ */ zod
             .describe('* `web` - web\n* `api` - api\n* `mcp` - mcp')
             .optional()
             .describe(
-                'How this source was created. Required on create. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. Ignored on update.\n\n* `web` - web\n* `api` - api\n* `mcp` - mcp'
+                'How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. Ignored on update.\n\n* `web` - web\n* `api` - api\n* `mcp` - mcp'
             ),
         client_secret: zod.string(),
         account_id: zod.string(),
@@ -757,7 +763,7 @@ export const ExternalDataSourcesPartialUpdateBody = /* @__PURE__ */ zod
             .describe('* `web` - web\n* `api` - api\n* `mcp` - mcp')
             .optional()
             .describe(
-                'How this source was created. Required on create. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. Ignored on update.\n\n* `web` - web\n* `api` - api\n* `mcp` - mcp'
+                'How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. Ignored on update.\n\n* `web` - web\n* `api` - api\n* `mcp` - mcp'
             ),
         client_secret: zod.string().optional(),
         account_id: zod.string().optional(),
@@ -827,7 +833,7 @@ export const ExternalDataSourcesCreateWebhookCreateBody = /* @__PURE__ */ zod
             .describe('* `web` - web\n* `api` - api\n* `mcp` - mcp')
             .optional()
             .describe(
-                'How this source was created. Required on create. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. Ignored on update.\n\n* `web` - web\n* `api` - api\n* `mcp` - mcp'
+                'How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. Ignored on update.\n\n* `web` - web\n* `api` - api\n* `mcp` - mcp'
             ),
         client_secret: zod.string(),
         account_id: zod.string(),
@@ -851,7 +857,7 @@ export const ExternalDataSourcesDeleteWebhookCreateBody = /* @__PURE__ */ zod
             .describe('* `web` - web\n* `api` - api\n* `mcp` - mcp')
             .optional()
             .describe(
-                'How this source was created. Required on create. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. Ignored on update.\n\n* `web` - web\n* `api` - api\n* `mcp` - mcp'
+                'How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. Ignored on update.\n\n* `web` - web\n* `api` - api\n* `mcp` - mcp'
             ),
         client_secret: zod.string(),
         account_id: zod.string(),
@@ -875,7 +881,7 @@ export const ExternalDataSourcesRefreshSchemasCreateBody = /* @__PURE__ */ zod
             .describe('* `web` - web\n* `api` - api\n* `mcp` - mcp')
             .optional()
             .describe(
-                'How this source was created. Required on create. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. Ignored on update.\n\n* `web` - web\n* `api` - api\n* `mcp` - mcp'
+                'How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. Ignored on update.\n\n* `web` - web\n* `api` - api\n* `mcp` - mcp'
             ),
         client_secret: zod.string(),
         account_id: zod.string(),
@@ -899,7 +905,7 @@ export const ExternalDataSourcesReloadCreateBody = /* @__PURE__ */ zod
             .describe('* `web` - web\n* `api` - api\n* `mcp` - mcp')
             .optional()
             .describe(
-                'How this source was created. Required on create. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. Ignored on update.\n\n* `web` - web\n* `api` - api\n* `mcp` - mcp'
+                'How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. Ignored on update.\n\n* `web` - web\n* `api` - api\n* `mcp` - mcp'
             ),
         client_secret: zod.string(),
         account_id: zod.string(),
@@ -923,7 +929,7 @@ export const ExternalDataSourcesRevenueAnalyticsConfigPartialUpdateBody = /* @__
             .describe('* `web` - web\n* `api` - api\n* `mcp` - mcp')
             .optional()
             .describe(
-                'How this source was created. Required on create. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. Ignored on update.\n\n* `web` - web\n* `api` - api\n* `mcp` - mcp'
+                'How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. Ignored on update.\n\n* `web` - web\n* `api` - api\n* `mcp` - mcp'
             ),
         client_secret: zod.string().optional(),
         account_id: zod.string().optional(),
@@ -950,7 +956,7 @@ export const ExternalDataSourcesUpdateWebhookInputsCreateBody = /* @__PURE__ */ 
             .describe('* `web` - web\n* `api` - api\n* `mcp` - mcp')
             .optional()
             .describe(
-                'How this source was created. Required on create. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. Ignored on update.\n\n* `web` - web\n* `api` - api\n* `mcp` - mcp'
+                'How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. Ignored on update.\n\n* `web` - web\n* `api` - api\n* `mcp` - mcp'
             ),
         client_secret: zod.string(),
         account_id: zod.string(),
@@ -1137,7 +1143,7 @@ export const ExternalDataSourcesSourcePrefixCreateBody = /* @__PURE__ */ zod
             .describe('* `web` - web\n* `api` - api\n* `mcp` - mcp')
             .optional()
             .describe(
-                'How this source was created. Required on create. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. Ignored on update.\n\n* `web` - web\n* `api` - api\n* `mcp` - mcp'
+                'How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. Ignored on update.\n\n* `web` - web\n* `api` - api\n* `mcp` - mcp'
             ),
         client_secret: zod.string(),
         account_id: zod.string(),

@@ -12,6 +12,7 @@ import {
     CONFIGURE_SOURCES,
     POSTHOG_WAREHOUSE,
     connectionSelectorLogic,
+    getConnectionSelectorValue,
 } from './connectionSelectorLogic'
 import { sqlEditorLogic } from './sqlEditorLogic'
 
@@ -19,12 +20,21 @@ const sourceIcon = (src: string): JSX.Element => (
     <img src={src} alt="" width={16} height={16} className="object-contain rounded" />
 )
 
-export function ConnectionSelector(): JSX.Element | null {
-    const { sourceQuery, selectedConnectionId } = useValues(sqlEditorLogic)
-    const { connectionSelectOptions, connectionSelectorValue } = useValues(
-        connectionSelectorLogic({ selectedConnectionId })
+interface ConnectionSelectorProps {
+    tabId: string
+}
+
+export function ConnectionSelector({ tabId }: ConnectionSelectorProps): JSX.Element | null {
+    const logic = sqlEditorLogic({ tabId })
+    const { sourceQuery, selectedConnectionId } = useValues(logic)
+    const { connectionOptions, connectionOptionsLoading, connectionSelectOptions } =
+        useValues(connectionSelectorLogic())
+    const { setSourceQuery, syncUrlWithQuery } = useActions(logic)
+    const connectionSelectorValue = getConnectionSelectorValue(
+        connectionOptions,
+        connectionOptionsLoading,
+        selectedConnectionId
     )
-    const { setSourceQuery, syncUrlWithQuery } = useActions(sqlEditorLogic)
     // Strip the legacy top-level connectionId so source.connectionId stays canonical.
     const { connectionId: _legacyConnectionId, ...sourceQueryWithoutLegacyConnectionId } =
         sourceQuery as typeof sourceQuery & {

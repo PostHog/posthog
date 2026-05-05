@@ -1,6 +1,6 @@
 {
     "name": "@posthog/quill-blocks",
-    "version": "0.1.0-alpha.0",
+    "version": "0.3.0-beta.1",
     "private": true,
     "description": "Internal workspace package (private, not published). The highest layer of the quill design system — product-level patterns made of components + primitives (e.g. a PageHeader with title + breadcrumb + action slot, an EmptyState with icon + copy + CTA, a CommandPalette, a user-menu dropdown). Opinionated and shape-stable across products so they feel consistent. Bundled into @posthog/quill at build time; consumers should import from @posthog/quill instead.",
     "license": "MIT",

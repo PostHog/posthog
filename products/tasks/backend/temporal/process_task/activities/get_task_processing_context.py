@@ -2,13 +2,12 @@ from dataclasses import dataclass
 
 from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
-from django.db import close_old_connections
 
 import posthoganalytics
 from temporalio import activity
 
 from posthog.models import Team
-from posthog.temporal.common.utils import asyncify
+from posthog.temporal.common.utils import asyncify, close_db_connections
 
 from products.tasks.backend.models import SandboxEnvironment, Task, TaskRun
 from products.tasks.backend.temporal.exceptions import TaskInvalidStateError, TaskNotFoundError
@@ -18,11 +17,6 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_pr_authorship_mode,
     resolve_user_github_integration_for_task,
 )
-
-
-def close_old_database_connections() -> None:
-    if not settings.TEST:
-        close_old_connections()
 
 
 @dataclass
@@ -145,11 +139,11 @@ class TaskProcessingContext:
 
 @activity.defn
 @asyncify
+@close_db_connections
 def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskProcessingContext:
     """Fetch task details and create the processing context for the workflow."""
     run_id = input.run_id
     log_with_activity_context("Fetching task processing context", run_id=run_id)
-    close_old_database_connections()
 
     try:
         task_run = TaskRun.objects.select_related(
