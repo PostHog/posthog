@@ -17,6 +17,7 @@ TRIGGERS: dict[str, tuple[str, ...]] = {
     ),
     "build:openapi": (
         "posthog/api/*",
+        "posthog/scopes.py",
         "ee/api/*",
         "products/*/backend/api/*",
         "products/*/backend/presentation/*",

@@ -37,11 +37,6 @@ export type State = {
 
 export type Env = {
     /**
-     * Inkeep API key for the PostHog Agent Toolkit.
-     * Setting this enables the 'docs-search' tool.
-     */
-    INKEEP_API_KEY: string | undefined
-    /**
      * Custom API base URL for self-hosted PostHog instances.
      *
      * WARNING: In PostHog Production, this should NOT be set.

@@ -124,6 +124,7 @@ rules:
                               |TeamFeatureFlagDefaultsConfig
                               |TeamSessionSummariesConfig
                               |FileSystem
+                              |GithubCommentMapping
                               |GitHubSyncConfig
                               |GitHubSyncPlan
                               |GitHubSyncedModel
@@ -137,9 +138,11 @@ rules:
                               |Insight
                               |InsightVariable
                               |Integration
+                              |IntegrationRepositoryCacheEntry
                               |Link
                               |LiveDebuggerBreakpoint
                               |LogsAlertConfiguration
+                              |LogsExclusionRule
                               |LogsView
                               |LLMModelConfiguration
                               |LLMPrompt
@@ -159,6 +162,7 @@ rules:
                               |PluginConfig
                               |ProductTour
                               |ProjectSecretAPIKey
+                              |PropertyAccessControl
                               |QueryTabState
                               |QuickFilter
                               |QuickFilterContext
@@ -325,6 +329,7 @@ rules:
                         |TeamFeatureFlagDefaultsConfig
                         |TeamSessionSummariesConfig
                         |FileSystem
+                        |GithubCommentMapping
                         |GitHubSyncConfig
                         |GitHubSyncPlan
                         |GitHubSyncedModel
@@ -338,6 +343,7 @@ rules:
                         |Insight
                         |InsightVariable
                         |Integration
+                        |IntegrationRepositoryCacheEntry
                         |Link
                         |LiveDebuggerBreakpoint
                         |LLMModelConfiguration
@@ -357,6 +363,7 @@ rules:
                         |PluginConfig
                         |ProductTour
                         |ProjectSecretAPIKey
+                        |PropertyAccessControl
                         |QueryTabState
                         |QuickFilter
                         |QuickFilterContext
