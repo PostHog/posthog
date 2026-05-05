@@ -340,7 +340,7 @@ If the API distinguishes 401 (bad token) from 403 (valid token, missing scope), 
 
 If the API issues OAuth scopes or per-resource access tokens, declare every scope the source actually calls so the user knows what to grant. Don't make them guess and grant the full set defensively.
 
-**OAuth sources (preferred):** set `requiredScopes` on the `SourceFieldOauthConfig`. The frontend checks the connected integration's actual granted scopes against this list and blocks creation with a clear message when scopes are missing — strictly better than text in the caption, which doesn't validate anything. Pass a single space-separated string (matches the OAuth `scope` parameter format):
+**OAuth sources (preferred):** set `requiredScopes` on the `SourceFieldOauthConfig`. The frontend checks the connected integration's actual granted scopes against this list and warns the user (with a Reconnect action) when any are missing — strictly better than text in the caption, which doesn't validate anything. Pass a single space-separated string (matches the OAuth `scope` parameter format):
 
 ```python
 SourceFieldOauthConfig(
