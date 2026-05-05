@@ -23,7 +23,7 @@ const INPUT_FIELD_DESCRIPTION =
     'Arguments for `call <tool>` as a native JSON object. This is the only supported way to pass arguments — inline JSON in `command` is rejected. Omit for tools that take no arguments. Only used for `call`.'
 
 const OUTPUT_FORMAT_DESCRIPTION =
-    "Output format for `call <tool>`. `optimized` (default) returns a token-efficient view; `json` returns the inner tool's raw JSON result. Some tools force `json` regardless via their own metadata. Only used for `call`."
+    "Output format for `call <tool>` and `info <tool>`. `optimized` (default) returns a token-efficient view (TOON-formatted result for `call`, YAML envelope with the input schema embedded as a JSON string for `info`). `json` returns the inner tool's raw JSON result for `call`, and the full info envelope as JSON (with `inputSchema` as a real object) for `info`. Some tools force `json` for `call` regardless via their own metadata. Ignored for `tools`, `search`, `schema`."
 
 function makeExecSchema(commandReference: string): z.ZodObject<{
     command: z.ZodString
@@ -138,20 +138,23 @@ export function createExecTool(
 
                 case 'info': {
                     if (!rest) {
-                        throw new Error('Usage: info [--json] <tool_name>')
+                        throw new Error(
+                            'Usage: info <tool_name>  (pass `output_format: "json"` as a sibling parameter for raw JSON)'
+                        )
                     }
-                    const forceJson = rest.startsWith('--json ') || rest === '--json'
-                    const infoArgs = forceJson ? rest.slice('--json'.length).trim() : rest
-                    if (!infoArgs) {
-                        throw new Error('Usage: info [--json] <tool_name>')
+                    if (rest.startsWith('--json ') || rest === '--json') {
+                        throw new Error(
+                            'The `--json` flag in `command` is no longer supported. Pass `output_format: "json"` as a sibling parameter instead.'
+                        )
                     }
-                    const tool = findTool(allTools, infoArgs)
+                    const tool = findTool(allTools, rest)
+                    const useJson = params.output_format === 'json'
                     const fullSchema = z.toJSONSchema(tool.schema)
                     // YAML for the top shape, but inputSchema stays as a JSON
                     // string dumped inside the YAML — JSON Schema is conventionally
                     // JSON and converting it to YAML obscures `$ref`, `oneOf`, etc.
                     const serialize = (payload: Record<string, unknown>, schema: unknown): string => {
-                        if (forceJson) {
+                        if (useJson) {
                             return JSON.stringify({ ...payload, inputSchema: schema })
                         }
                         return stringifyYaml({ ...payload, inputSchema: JSON.stringify(schema) }, { lineWidth: 0 })

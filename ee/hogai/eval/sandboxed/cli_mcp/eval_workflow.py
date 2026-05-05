@@ -157,6 +157,14 @@ async def eval_info_before_call(sandboxed_demo_data, pytestconfig, posthog_clien
                 "called_target_tool": {"tool": "dashboard-create"},
             },
         ),
+        SandboxedEvalCase(
+            name="info_before_read_data_schema",
+            prompt="What event names contain the word 'feedback' in this project?",
+            expected={
+                "info_before_call": {"tool": "read-data-schema"},
+                "called_target_tool": {"tool": "read-data-schema"},
+            },
+        ),
     ]
 
     await SandboxedPublicEval(
