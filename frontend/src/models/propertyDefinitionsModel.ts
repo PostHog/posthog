@@ -189,7 +189,7 @@ const constructValuesEndpoint = (
         path +
         (newInput ? '&value=' + encodeURIComponent(newInput) : '') +
         (refresh ? '&refresh=' + refresh : '') +
-        (scene ? '&scene=' + encodeURIComponent(scene) : '') +
+        (scene && type === PropertyDefinitionType.Session ? '&scene=' + encodeURIComponent(scene) : '') +
         eventParams
     )
 }
