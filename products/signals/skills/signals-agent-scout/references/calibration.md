@@ -145,3 +145,69 @@ Quiet baseline. Tags: domain:feature_flags, pattern, tag:exploration.
 Next run reads memory, sees `feature_flags` was just touched (now `domain:feature_flags`
 isn't the stalest), picks `warehouse` for the next wildcard, and so on. Coverage
 rotates without the harness scheduling anything.
+
+## Wildcard rule (mandatory exploration override)
+
+Computed at orient time, before lens pick. If ANY trigger fires, this run MUST
+do a wildcard move regardless of what other posture cells suggest.
+
+### Triggers
+
+- **W1 (lens repetition):** `signals-agent-runs-list` shows the same primary
+  lens in 3 of the last 4 completed runs. Extract primary lens from each run's
+  summary — the summary always names where the bulk of investigation went.
+- **W2 (memory mass imbalance):** `signals-agent-memory-list` grouped by
+  `domain:<X>` tag shows ≥5× ratio between the most-touched and least-touched
+  domain over the last 7d (ignore expired entries). Most-touched is exploited;
+  least-touched is the wildcard target.
+- **W3 (dice):** Random fire at fixed rate (see "Rate schedule" below). Use the
+  current `run_id` as seed source — hash the UUID's first 4 bytes as an int and
+  take it modulo N. If 0, fire. Reproducible per run, not per-call.
+
+### Rate schedule (W3)
+
+| Maturity                                                   | W3 rate                                          |
+| ---------------------------------------------------------- | ------------------------------------------------ |
+| cold-start (`run_count < 5` OR `days_since_first_run < 7`) | every run wildcards (overrides W3 — always fire) |
+| steady-state (else)                                        | 1-in-7                                           |
+
+The 7-day cold-start window matches the existing cold-start posture row ("touch
+every product, write memory liberally"). After that, the dice take over.
+
+### Action when triggered
+
+1. Pick the wildcard lens deterministically:
+   - For W1 / W2: the trigger names the lens (the repeated one for W1 → you
+     pivot AWAY from it; the under-touched one for W2 → you pivot TOWARD it).
+   - For W3 / cold-start: take the lens whose most-recent `domain:<lens>`
+     memory entry is OLDEST (ties → hash run_id mod len(ties)). This is "the
+     lens you've ignored longest".
+2. Budget: 2-3 reads MAX from that lens (one quick-scan + at most one drill-in).
+3. Outcomes — any of:
+   - 0 findings + 1 memory entry tagged `tag:exploration ttl_days=2 domain:<lens>`
+     summarizing what you saw.
+   - 1 finding if a real anomaly surfaces (clears `finding-schema.md`'s
+     confidence bar).
+   - "Nothing surfaced" memory tagged `tag:exploration tag:noise ttl_days=2`.
+4. Continue with standard investigation if budget allows.
+
+The `ttl_days=2` is the bias-counter: a wildcard's note that "LLM analytics
+looked quiet" expires in 2 days, so the lens becomes unexplored again. Without
+short TTL the wildcard becomes the new exploit anchor.
+
+## End-of-run telemetry (mandatory, every run)
+
+At end-of-run, write ONE memory entry capturing what this run did. This is the
+instrument for measuring explore-vs-exploit ratio over time without harness
+changes.
+
+- **key**: `run-{run_id}-pick`
+- **tags**: `run_metadata`, `lens:{primary_lens}`, `wildcard:{fired|none}`,
+  `trigger:{W1|W2|W3|cold_start|none}`
+- **ttl_days**: 7 (long enough for HogQL aggregation; short enough not to
+  pollute durable memory)
+- **body**: one sentence — what lens was picked, whether wildcard fired, why.
+
+Future analysis can `SELECT count() FROM signals_signalmemory WHERE
+'wildcard:fired' = ANY(tags)` (or similar) to compute the ratio over time.
+Skip these entries when reading memory for context — see `dedupe-rules.md`.

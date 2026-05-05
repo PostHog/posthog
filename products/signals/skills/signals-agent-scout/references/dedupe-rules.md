@@ -116,3 +116,17 @@ These are noise across all PostHog projects. Skip them unless you see a real esc
 
 These are starting heuristics — the team's `SignalMemory` extends this list per-project
 as the agent learns.
+
+## Exploration tags (added 2026-05-05)
+
+The wildcard rule in `calibration.md` introduces two tag conventions for
+exploration-driven memory entries:
+
+- **`tag:exploration`** — observations from a wildcard pass. Default
+  `ttl_days=2` so a "looked quiet" note expires fast and the lens becomes
+  unexplored again. If a wildcard surfaced something genuinely durable,
+  promote it: write a separate non-exploration memory with normal TTL.
+- **`tag:run_metadata`** — per-run telemetry written at end-of-run (lens
+  picked, wildcard fired, trigger reason). `ttl_days=7`. Not for agent
+  reasoning; for analysis only. **Skip these entries when reading memory for
+  context** — they're noise to the agent reasoning loop.

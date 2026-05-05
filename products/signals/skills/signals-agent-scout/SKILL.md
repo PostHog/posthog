@@ -58,6 +58,11 @@ steady-state exploit, stale-coverage wildcard), and the wildcard move that keeps
 mature projects from going coverage-stale. Memory compounds — calibration is how
 you avoid it compounding into blind spots.
 
+Before picking your first lens, **check the wildcard triggers** in
+[`references/calibration.md`](references/calibration.md#wildcard-rule-mandatory-exploration-override).
+If any of W1 (lens repetition), W2 (memory imbalance), or W3 (dice) fires, the
+rule decides your first move — you don't get to rationalize past it.
+
 ### Explore
 
 Pick what looks interesting and follow it. There is no required starting point —
@@ -81,6 +86,23 @@ Currently covered:
   cost spikes, eval pass-rate drops, runaway loops, cluster-level patterns.
 - [`web-analytics.md`](references/products/web-analytics.md) — `$pageview`
   bursts and drops, conversion-funnel regressions, autocapture surface changes.
+- [`product-analytics.md`](references/products/product-analytics.md) — custom
+  events, conversion funnels, retention / lifecycle / stickiness, cohort
+  movements, behavioral path changes. Distinct from `web-analytics`: focuses
+  on team-instrumented domain events and human-watched behavioral metrics.
+- [`session-replay.md`](references/products/session-replay.md) —
+  pattern-cluster spikes (existing push source), rage-click / dead-click
+  concentrations, error-during-recording correlation, capture-rate drops,
+  cross-experiment behavior contrast. Captures UX signal that pure event
+  analysis structurally misses.
+- [`surveys.md`](references/products/surveys.md) — NPS / rating shifts,
+  open-text theme shifts, response-rate drops, survey targeting drift,
+  survey-error correlation. Unique value: captures **what users say**, not
+  just what they do — high signal-per-event ratio.
+- [`cdp.md`](references/products/cdp.md) — destination failure-rate spikes,
+  retry-exhaustion data loss, shared-template cascades, throughput shifts on
+  hog functions. The team's outbound pipeline — silent breakage is the worst
+  case (data simply doesn't arrive, no user-facing symptom).
 - [`feature-flags.md`](references/products/feature-flags.md) — evaluation
   loops, stale rollouts, dependency staleness, blast-radius drift.
 - [`logs.md`](references/products/logs.md) — volume bursts, severity
@@ -136,9 +158,16 @@ fresh-emit-citing-prior, skip, or remember.
 
 ### Close out
 
-End your turn with a one-paragraph summary of what you looked at, what you
-emitted, what you remembered, what you ruled out and why. The harness writes
-that summary to the run row as searchable prose.
+Two things every run, in this order:
+
+1. **Write run-metadata memory** — one entry tagged `run_metadata`,
+   `lens:{primary_lens}`, `wildcard:{fired|none}`, `trigger:{W1|W2|W3|cold_start|none}`,
+   `ttl_days=7`. Body is one sentence on what you picked and why. See
+   [`references/calibration.md`](references/calibration.md#end-of-run-telemetry-mandatory-every-run).
+   This is the instrument for measuring explore-vs-exploit over time.
+2. **Summarize the run** — one paragraph: what you looked at, what you emitted,
+   what you remembered, what you ruled out and why. The harness writes that
+   summary to the run row as searchable prose.
 
 An empty findings list is a real outcome — the run still generated memory entries
 about what's normal, what's quiet, what you ruled out. The scout's value
