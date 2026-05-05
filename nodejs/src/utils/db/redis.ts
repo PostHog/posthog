@@ -1,5 +1,5 @@
 import { createPool } from 'generic-pool'
-import Redis, { RedisOptions } from 'ioredis'
+import Redis, { Cluster, RedisOptions } from 'ioredis'
 
 import { RedisPool } from '../../types'
 import { logger } from '../../utils/logger'
@@ -18,6 +18,12 @@ export interface RedisConnectionConfig {
     url: string
     options?: RedisOptions
     name?: string
+    /**
+     * When true, construct an ioredis Cluster client (uses CLUSTER NODES discovery from the
+     * seed endpoint) instead of a standalone Redis client. Required for ElastiCache cluster mode.
+     * The returned client is API-compatible with the standalone Redis type for the methods we use.
+     */
+    clusterMode?: boolean
 }
 
 /**
@@ -30,7 +36,7 @@ export interface RedisPoolConfig {
 }
 
 export async function createRedisFromConfig(config: RedisConnectionConfig): Promise<Redis.Redis> {
-    return createRedisClient(config.url, config.options, config.name)
+    return createRedisClient(config.url, config.options, config.name, config.clusterMode)
 }
 
 export function createRedisPoolFromConfig(config: RedisPoolConfig): RedisPool {
@@ -67,15 +73,43 @@ export function getRedisHost(url: string, options?: RedisOptions): string {
     }
 }
 
+/**
+ * Convert a URL or bare hostname into an ioredis Cluster seed-node descriptor. ElastiCache
+ * cluster endpoints discover the rest of the topology via CLUSTER NODES, so a single seed is
+ * enough.
+ */
+function parseClusterSeedNode(url: string, options?: RedisOptions): { host: string; port: number } {
+    const fallbackPort = options?.port ?? 6379
+    try {
+        const parsed = new URL(url)
+        return {
+            host: parsed.hostname || url,
+            port: parsed.port ? parseInt(parsed.port, 10) : fallbackPort,
+        }
+    } catch {
+        const [host, portStr] = url.split(':')
+        return { host, port: portStr ? parseInt(portStr, 10) : fallbackPort }
+    }
+}
+
 export async function createRedisClient(
     url: string,
     options?: RedisOptions,
-    connectionName?: string
+    connectionName?: string,
+    clusterMode?: boolean
 ): Promise<Redis.Redis> {
-    const redis = new Redis(url, {
-        ...options,
-        maxRetriesPerRequest: -1,
-    })
+    // Cast Cluster as Redis.Redis: the Cluster client implements the same command surface for
+    // single-key ops, EVALSHA, defineCommand, scan/info/quit. Multi-key commands (MGET/MSET) and
+    // SCAN must be handled cluster-aware at the call site (split per slot or per master node).
+    const redis = clusterMode
+        ? (new Cluster([parseClusterSeedNode(url, options)], {
+              redisOptions: { ...options, maxRetriesPerRequest: -1 },
+              enableReadyCheck: true,
+          }) as unknown as Redis.Redis)
+        : new Redis(url, {
+              ...options,
+              maxRetriesPerRequest: -1,
+          })
     let errorCounter = 0
     const redisHost = getRedisHost(url, options)
     const connectionId = connectionName ? `[${connectionName}] ` : ''
@@ -101,7 +135,7 @@ export async function createRedisClient(
         })
         .on('ready', () => {
             if (process.env.NODE_ENV !== 'test') {
-                logger.info('✅', `${connectionId}Connected to Redis!`, redisHost)
+                logger.info('✅', `${connectionId}Connected to Redis${clusterMode ? ' cluster' : ''}!`, redisHost)
             }
         })
     await redis.info()

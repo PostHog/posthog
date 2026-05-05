@@ -365,8 +365,8 @@ describe('HogWatcher', () => {
                 await watcher.observeResults(Array(1000).fill(createResult({ duration: 1000, kind: 'hog' })))
                 expect((await watcher.getPersistedState(hogFunctionId)).state).toEqual(HogWatcherState.healthy)
                 const res = await redis.usePipeline({ name: 'getLock' }, (pipeline) => {
-                    pipeline.get(`@posthog-test/hog-watcher-2/state-lock/${hogFunctionId}`)
-                    pipeline.ttl(`@posthog-test/hog-watcher-2/state-lock/${hogFunctionId}`)
+                    pipeline.get(`@posthog-test/hog-watcher-2/state-lock/{${hogFunctionId}}`)
+                    pipeline.ttl(`@posthog-test/hog-watcher-2/state-lock/{${hogFunctionId}}`)
                 })
                 expect(res?.[0]?.[1]).toEqual('1') // The value
                 expect(res?.[1]?.[1]).toBeGreaterThan(hub.CDP_WATCHER_STATE_LOCK_TTL - 5) // The ttl
@@ -410,7 +410,7 @@ describe('HogWatcher', () => {
 
             // Verify no key was created — reads should be side-effect-free
             const exists = await redis.useClient({ name: 'test-check' }, async (client) => {
-                return await client.exists(`${BASE_REDIS_KEY}/tokens/${unknownId}`)
+                return await client.exists(`${BASE_REDIS_KEY}/tokens/{${unknownId}}`)
             })
             expect(exists).toEqual(0)
         })
@@ -428,7 +428,7 @@ describe('HogWatcher', () => {
         it('should handle pool existing without ts in Redis', async () => {
             // Write pool directly without ts to simulate corrupted state
             await redis.useClient({ name: 'test-setup' }, async (client) => {
-                await client.hset(`${BASE_REDIS_KEY}/tokens/${hogFunctionId}`, 'pool', '5000')
+                await client.hset(`${BASE_REDIS_KEY}/tokens/{${hogFunctionId}}`, 'pool', '5000')
             })
 
             const state = await watcher.getPersistedState(hogFunctionId)
@@ -439,7 +439,7 @@ describe('HogWatcher', () => {
         it('should handle ts existing without pool in Redis', async () => {
             // Write ts directly without pool to simulate corrupted state
             await redis.useClient({ name: 'test-setup' }, async (client) => {
-                await client.hset(`${BASE_REDIS_KEY}/tokens/${hogFunctionId}`, 'ts', Math.round(now / 1000))
+                await client.hset(`${BASE_REDIS_KEY}/tokens/{${hogFunctionId}}`, 'ts', Math.round(now / 1000))
             })
 
             const state = await watcher.getPersistedState(hogFunctionId)

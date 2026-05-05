@@ -64,6 +64,10 @@ export type CdpConfig = {
     // Reuses CDP_REDIS_PASSWORD; falls back to the writer when host is unset.
     CDP_REDIS_READER_HOST: string
     CDP_REDIS_READER_PORT: number
+    // When true, both writer and reader pools use ioredis Cluster (CLUSTER NODES discovery
+    // from the seed endpoint). Required for ElastiCache cluster mode. Single-shard ElastiCache
+    // setups must leave this false.
+    CDP_REDIS_CLUSTER_MODE: boolean
 
     CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: boolean
     CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: string
@@ -159,6 +163,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_REDIS_PASSWORD: '',
         CDP_REDIS_READER_HOST: '',
         CDP_REDIS_READER_PORT: 6379,
+        CDP_REDIS_CLUSTER_MODE: false,
 
         CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: true,
         CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: '',

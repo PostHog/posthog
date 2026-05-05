@@ -23,6 +23,7 @@ const baseConfig = {
     CDP_REDIS_PASSWORD: 'secret',
     CDP_REDIS_READER_HOST: '',
     CDP_REDIS_READER_PORT: 6379,
+    CDP_REDIS_CLUSTER_MODE: false,
     REDIS_URL: 'rediss://:password@fallback-host:6379',
     REDIS_POOL_MIN_SIZE: 1,
     REDIS_POOL_MAX_SIZE: 4,

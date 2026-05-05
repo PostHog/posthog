@@ -1,6 +1,6 @@
 import { Counter } from 'prom-client'
 
-import { RedisClientPipeline, RedisV2, getRedisPipelineResults } from '~/common/redis/redis-v2'
+import { RedisClient, RedisClientPipeline, RedisV2, getRedisPipelineResults } from '~/common/redis/redis-v2'
 import { LazyLoader } from '~/utils/lazy-loader'
 import { logger } from '~/utils/logger'
 import { captureTeamEvent } from '~/utils/posthog'
@@ -33,9 +33,18 @@ export interface HogWatcherConfig {
 }
 
 export const BASE_REDIS_KEY = process.env.NODE_ENV == 'test' ? '@posthog-test/hog-watcher-2' : '@posthog/hog-watcher-2'
-const REDIS_KEY_TOKENS = `${BASE_REDIS_KEY}/tokens`
-const REDIS_KEY_STATE = `${BASE_REDIS_KEY}/state`
-const REDIS_KEY_STATE_LOCK = `${BASE_REDIS_KEY}/state-lock`
+
+// Wrap the function id in `{}` so all keys for the same function (tokens, state, state-lock)
+// hash to the same Redis cluster slot — required for the multi-key Lua scripts and pipelined
+// reads used by observeResults / doStageChanges. Harmless in non-cluster Redis (the braces are
+// just part of the key name).
+const tokensKey = (id: string): string => `${BASE_REDIS_KEY}/tokens/{${id}}`
+const stateKey = (id: string): string => `${BASE_REDIS_KEY}/state/{${id}}`
+const stateLockKey = (id: string): string => `${BASE_REDIS_KEY}/state-lock/{${id}}`
+// Used only by the SCAN in getAllFunctionStates - matches all `state` keys regardless of id.
+const STATE_SCAN_PATTERN = `${BASE_REDIS_KEY}/state/*`
+// Prefix used to recover the id from a SCANned key.
+const STATE_KEY_PREFIX = `${BASE_REDIS_KEY}/state/`
 
 export enum HogWatcherState {
     healthy = 1,
@@ -167,7 +176,7 @@ export class HogWatcherService {
         const nowSeconds = Math.round(Date.now() / 1000)
 
         return [
-            `${REDIS_KEY_TOKENS}/${id}`,
+            tokensKey(id),
             nowSeconds,
             cost,
             this.config.bucketSize,
@@ -207,8 +216,8 @@ export class HogWatcherService {
 
         const buildGetStatesPipeline = (pipeline: RedisClientPipeline) => {
             for (const id of idsSet) {
-                pipeline.hmget(`${REDIS_KEY_TOKENS}/${id}`, 'pool', 'ts')
-                pipeline.get(`${REDIS_KEY_STATE}/${id}`)
+                pipeline.hmget(tokensKey(id), 'pool', 'ts')
+                pipeline.get(stateKey(id))
             }
         }
 
@@ -294,16 +303,25 @@ export class HogWatcherService {
     public async getAllFunctionStates(): Promise<Record<HogFunctionType['id'], HogWatcherFunctionState>> {
         const scan = (pool: RedisV2): Promise<string[] | null> =>
             pool.useClient({ name: 'scanStates' }, async (client) => {
-                const keys: string[] = []
-                let cursor = '0'
+                // In cluster mode, `client` is an ioredis Cluster cast to Redis. SCAN on a cluster
+                // only iterates a single master — to cover the whole keyspace we need to SCAN each
+                // master node individually and concatenate the results.
+                const clusterClient = client as unknown as { nodes?: (role?: 'master') => RedisClient[] }
+                const nodes = typeof clusterClient.nodes === 'function' ? clusterClient.nodes('master') : [client]
 
-                do {
-                    const [newCursor, batch] = await client.scan(cursor, 'MATCH', `${REDIS_KEY_STATE}/*`, 'COUNT', 500)
-                    cursor = newCursor
-                    keys.push(...batch)
-                } while (cursor !== '0')
+                const scanNode = async (node: RedisClient): Promise<string[]> => {
+                    const keys: string[] = []
+                    let cursor = '0'
+                    do {
+                        const [newCursor, batch] = await node.scan(cursor, 'MATCH', STATE_SCAN_PATTERN, 'COUNT', 500)
+                        cursor = newCursor
+                        keys.push(...batch)
+                    } while (cursor !== '0')
+                    return keys
+                }
 
-                return keys
+                const perNode = await Promise.all(nodes.map(scanNode))
+                return perNode.flat()
             })
 
         let stateKeys: string[] | null
@@ -318,16 +336,17 @@ export class HogWatcherService {
             return {}
         }
 
-        // Extract function IDs from the keys
-        const functionIds = stateKeys.map((key: string) => key.replace(`${REDIS_KEY_STATE}/`, ''))
+        // Extract function IDs from the keys; new keys are wrapped in `{}` for cluster hash tags.
+        const functionIds = stateKeys.map((key: string) =>
+            key.replace(STATE_KEY_PREFIX, '').replace(/^\{/, '').replace(/\}$/, '')
+        )
 
-        // Get states for all found function IDs
         return await this.getPersistedStates(functionIds)
     }
 
     public async clearLock(id: HogFunctionType['id']): Promise<void> {
         await this.redis.usePipeline({ name: 'clearLock' }, (pipeline) => {
-            pipeline.del(`${REDIS_KEY_STATE_LOCK}/${id}`)
+            pipeline.del(stateLockKey(id))
         })
     }
 
@@ -352,11 +371,11 @@ export class HogWatcherService {
 
                 const nowSeconds = Math.round(Date.now() / 1000)
 
-                pipeline.getset(`${REDIS_KEY_STATE}/${id}`, state) // Set the state
-                pipeline.setex(`${REDIS_KEY_STATE_LOCK}/${id}`, this.config.stateLockTtl, '1') // Set the lock
+                pipeline.getset(stateKey(id), state) // Set the state
+                pipeline.setex(stateLockKey(id), this.config.stateLockTtl, '1') // Set the lock
                 if (forceReset) {
-                    pipeline.hset(`${REDIS_KEY_TOKENS}/${id}`, 'pool', newScore)
-                    pipeline.hset(`${REDIS_KEY_TOKENS}/${id}`, 'ts', nowSeconds)
+                    pipeline.hset(tokensKey(id), 'pool', newScore)
+                    pipeline.hset(tokensKey(id), 'ts', nowSeconds)
                 }
             }
         })
@@ -426,8 +445,8 @@ export class HogWatcherService {
         // We apply the costs and return the existing states so we can calculate those that need a state change
         const res = await this.redis.usePipeline({ name: 'updateRateLimits' }, (pipeline) => {
             for (const functionCost of Object.values(functionCosts)) {
-                pipeline.get(`${REDIS_KEY_STATE}/${functionCost.functionId}`)
-                pipeline.get(`${REDIS_KEY_STATE_LOCK}/${functionCost.functionId}`)
+                pipeline.get(stateKey(functionCost.functionId))
+                pipeline.get(stateLockKey(functionCost.functionId))
                 pipeline.checkRateLimitV2(...this.rateLimitArgs(functionCost.functionId, functionCost.cost))
             }
         })

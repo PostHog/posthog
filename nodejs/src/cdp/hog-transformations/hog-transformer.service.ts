@@ -450,6 +450,7 @@ export function createHogTransformerService(
                   url: config.CDP_REDIS_HOST,
                   options: { port: config.CDP_REDIS_PORT, password: config.CDP_REDIS_PASSWORD },
                   name: 'hog-transformer-redis',
+                  clusterMode: config.CDP_REDIS_CLUSTER_MODE,
               }
             : { url: config.REDIS_URL, name: 'hog-transformer-redis-fallback' },
         poolMinSize: config.REDIS_POOL_MIN_SIZE,

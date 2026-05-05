@@ -83,6 +83,7 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_REDIS_PASSWORD'
         | 'CDP_REDIS_READER_HOST'
         | 'CDP_REDIS_READER_PORT'
+        | 'CDP_REDIS_CLUSTER_MODE'
         | 'CDP_WATCHER_HOG_COST_TIMING_LOWER_MS'
         | 'CDP_WATCHER_HOG_COST_TIMING_UPPER_MS'
         | 'CDP_WATCHER_HOG_COST_TIMING'
@@ -143,6 +144,7 @@ export function createCdpReaderRedisPool(
         | 'CDP_REDIS_PASSWORD'
         | 'CDP_REDIS_READER_HOST'
         | 'CDP_REDIS_READER_PORT'
+        | 'CDP_REDIS_CLUSTER_MODE'
         | 'REDIS_URL'
         | 'REDIS_POOL_MIN_SIZE'
         | 'REDIS_POOL_MAX_SIZE'
@@ -160,6 +162,7 @@ export function createCdpReaderRedisPool(
                 url: config.CDP_REDIS_READER_HOST,
                 options: { port: config.CDP_REDIS_READER_PORT, password: config.CDP_REDIS_PASSWORD },
                 name: `${name}-reader`,
+                clusterMode: config.CDP_REDIS_CLUSTER_MODE,
             },
             poolMinSize: config.REDIS_POOL_MIN_SIZE,
             poolMaxSize: config.REDIS_POOL_MAX_SIZE,
@@ -195,6 +198,7 @@ export function createCdpCoreServices(
                   url: config.CDP_REDIS_HOST,
                   options: { port: config.CDP_REDIS_PORT, password: config.CDP_REDIS_PASSWORD },
                   name: redisName,
+                  clusterMode: config.CDP_REDIS_CLUSTER_MODE,
               }
             : { url: config.REDIS_URL, name: `${redisName}-fallback` },
         poolMinSize: config.REDIS_POOL_MIN_SIZE,
