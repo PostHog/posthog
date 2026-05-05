@@ -22,6 +22,14 @@ export type CyclotronV2JobInit = {
     actionId?: string | null
 }
 
+export type CyclotronV2RescheduleOptions = {
+    scheduledAt?: Date
+    state?: Buffer | null
+    distinctId?: string | null
+    personId?: string | null
+    actionId?: string | null
+}
+
 export interface CyclotronV2DequeuedJob {
     readonly id: string
     readonly teamId: number
@@ -36,13 +44,7 @@ export interface CyclotronV2DequeuedJob {
 
     ack(): Promise<void>
     fail(): Promise<void>
-    reschedule(options?: {
-        scheduledAt?: Date
-        state?: Buffer | null
-        distinctId?: string | null
-        personId?: string | null
-        actionId?: string | null
-    }): Promise<void>
+    reschedule(options?: CyclotronV2RescheduleOptions): Promise<void>
     cancel(): Promise<void>
     heartbeat(): Promise<void>
 }

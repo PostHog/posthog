@@ -3,7 +3,7 @@ import { Pool } from 'pg'
 import { v7 as uuidv7 } from 'uuid'
 
 import { logger } from '../../../utils/logger'
-import { CyclotronV2DequeuedJob, CyclotronV2WorkerConfig } from './types'
+import { CyclotronV2DequeuedJob, CyclotronV2RescheduleOptions, CyclotronV2WorkerConfig } from './types'
 
 interface RawJobRow {
     id: string
@@ -166,13 +166,7 @@ export class CyclotronV2Worker {
                 )
             },
 
-            async reschedule(options?: {
-                scheduledAt?: Date
-                state?: Buffer | null
-                distinctId?: string | null
-                personId?: string | null
-                actionId?: string | null
-            }): Promise<void> {
+            async reschedule(options?: CyclotronV2RescheduleOptions): Promise<void> {
                 releaseGuard('reschedule')
                 const scheduled = options?.scheduledAt ?? new Date()
 
