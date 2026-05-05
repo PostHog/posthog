@@ -29,7 +29,9 @@ const inlineDataImage =
     '<text x="100" y="150" text-anchor="middle" font-family="sans-serif" font-size="16" fill="white">preview</text>' +
     '</svg>'
 const imagePath = '/preview.png'
-const imageOrigin = 'https://example.com'
+// `.invalid` is RFC 6761 reserved -> guaranteed NXDOMAIN, no network round-trip
+// for the relative-URL stories that derive an absolute URL from this origin.
+const imageOrigin = 'https://example.invalid'
 const imageWidth = '200'
 const imageHeight = '300'
 
