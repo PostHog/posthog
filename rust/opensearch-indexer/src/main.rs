@@ -9,7 +9,10 @@ use opensearch_indexer::{
     bulk::BulkWriter,
     config::Config,
     readiness::wait_for_alias,
-    sampling::SamplingConfig,
+    sampling::{
+        drain_decision_writes, new_decision_write_joinset, SamplingConfig,
+        DECISION_WRITE_DRAIN_DEADLINE,
+    },
     work_loop::{run_consumer, run_sink, SinkConfig},
 };
 use serve_metrics::setup_metrics_routes;
@@ -136,9 +139,17 @@ async fn main() -> anyhow::Result<()> {
         )
         .await?,
     );
-    let sampling_config = Arc::new(SamplingConfig::from_config(&config));
+    // Tracked joinset for the per-decision HINCRBY spawns in `decide()`.
+    // Without it the writes are fire-and-forget and runtime-cancelled at exit;
+    // with it, shutdown can drain pending observability writes within a 5s
+    // deadline.
+    let decision_writes = new_decision_write_joinset();
+    let sampling_config = Arc::new(
+        SamplingConfig::from_config(&config).with_decision_writes(decision_writes.clone()),
+    );
 
-    let writer = BulkWriter::new(&config.opensearch_url, &config.opensearch_index_alias)?;
+    let writer = BulkWriter::new(&config.opensearch_url, &config.opensearch_index_alias)?
+        .with_shutdown_token(sink_handle.shutdown_token());
     let sink_config = SinkConfig {
         max_batch_bytes: config.bulk_max_batch_bytes,
         max_batch_age: Duration::from_millis(config.bulk_max_age_ms),
@@ -168,6 +179,13 @@ async fn main() -> anyhow::Result<()> {
     http_handle.work_completed();
 
     guard.wait().await?;
+
+    // After the lifecycle Manager has drained registered components, give any
+    // still-running per-decision Redis writes a brief window to complete so
+    // we don't lose observability data on shutdown. Tasks not done by the
+    // deadline are aborted and counted on
+    // `opensearch_indexer_team_decisions_shutdown_aborted_total`.
+    drain_decision_writes(decision_writes, DECISION_WRITE_DRAIN_DEADLINE).await;
 
     info!("opensearch-indexer stopped");
     Ok(())

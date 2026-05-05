@@ -3,18 +3,77 @@ use std::{
     collections::{HashMap, HashSet},
     hash::{DefaultHasher, Hash, Hasher},
     sync::Arc,
+    time::Duration,
 };
 
 use chrono::{DateTime, Utc};
 use common_redis::{Client, CustomRedisError};
 use serde::Deserialize;
-use tracing::warn;
+use tokio::sync::Mutex;
+use tokio::task::JoinSet;
+use tracing::{info, warn};
 
 use crate::{config::Config, types::IndexDoc};
+
+/// Shared registry of in-flight per-decision HINCRBY tasks. Wired into
+/// `SamplingConfig` so `spawn_per_decision_write` can register each spawn for
+/// graceful drain on shutdown. Without it, spawned tasks are fire-and-forget
+/// and the runtime cancels them at process exit; the registry bounds the
+/// drain time and surfaces an aborted-on-shutdown counter.
+pub type DecisionWriteJoinSet = Arc<Mutex<JoinSet<()>>>;
+
+/// Construct an empty join set wrapped for sharing across the consumer (which
+/// spawns into it) and the shutdown drain (which awaits it).
+pub fn new_decision_write_joinset() -> DecisionWriteJoinSet {
+    Arc::new(Mutex::new(JoinSet::new()))
+}
+
+/// Wait up to `deadline` for all spawned per-decision HINCRBY tasks to
+/// complete; abort whatever is still running. Increments
+/// `opensearch_indexer_team_decisions_shutdown_aborted_total` per aborted
+/// task so operators can see whether shutdown is leaving observability
+/// writes on the table.
+pub async fn drain_decision_writes(
+    decision_writes: DecisionWriteJoinSet,
+    deadline: Duration,
+) {
+    let mut set = decision_writes.lock().await;
+    let total_at_start = set.len();
+    if total_at_start == 0 {
+        return;
+    }
+    let drain = async {
+        while set.join_next().await.is_some() {}
+    };
+    match tokio::time::timeout(deadline, drain).await {
+        Ok(()) => info!(
+            total = total_at_start,
+            "decision writes drained cleanly on shutdown"
+        ),
+        Err(_) => {
+            let remaining = set.len();
+            set.shutdown().await;
+            warn!(
+                remaining,
+                deadline_ms = deadline.as_millis() as u64,
+                "decision writes drain exceeded deadline; aborted remaining"
+            );
+            metrics::counter!("opensearch_indexer_team_decisions_shutdown_aborted_total")
+                .increment(remaining as u64);
+        }
+    }
+}
 
 /// TTL for the daily counter key. 24h + 1h overhang absorbs clock skew so the
 /// previous day's key is gone before any indexer restart could re-touch it.
 const COUNTER_TTL_SECONDS: u64 = 25 * 3600;
+
+/// Wall-clock budget for graceful drain of in-flight per-decision Redis writes
+/// during shutdown. Composed with the bulk writer's retry-and-cancel budget
+/// against the lifecycle Manager's `with_global_shutdown_timeout` (60s) — keep
+/// the sum well under that ceiling so the lifecycle backstop stays a backstop,
+/// not the primary exit mechanism.
+pub const DECISION_WRITE_DRAIN_DEADLINE: Duration = Duration::from_secs(5);
 
 /// Per-team sampling override (floor count + above-floor rate). Loaded from the
 /// `OPENSEARCH_INDEXER_TEAM_OVERRIDES` envvar (JSON map) at startup.
@@ -66,6 +125,12 @@ pub struct SamplingConfig {
     pub(crate) deny_teams: HashSet<i32>,
     pub(crate) overrides: HashMap<i32, TeamOverride>,
     pub(crate) now_utc: fn() -> DateTime<Utc>,
+    /// Optional registry for spawned per-decision HINCRBY tasks. When set,
+    /// each spawn is added to the joinset so shutdown can drain it. When
+    /// `None` (tests, or any caller that doesn't care about graceful drain),
+    /// the writer falls back to plain `tokio::spawn` and the runtime cancels
+    /// any in-flight task at exit.
+    pub(crate) decision_writes: Option<DecisionWriteJoinSet>,
 }
 
 impl std::fmt::Debug for SamplingConfig {
@@ -75,6 +140,10 @@ impl std::fmt::Debug for SamplingConfig {
             .field("default_above_floor_rate", &self.default_above_floor_rate)
             .field("deny_teams", &self.deny_teams)
             .field("overrides", &self.overrides)
+            .field(
+                "decision_writes_attached",
+                &self.decision_writes.is_some(),
+            )
             .finish()
     }
 }
@@ -87,7 +156,15 @@ impl SamplingConfig {
             deny_teams: c.deny_teams.teams.clone(),
             overrides: c.team_overrides.overrides.clone(),
             now_utc: Utc::now,
+            decision_writes: None,
         }
+    }
+
+    /// Attach a shared joinset so per-decision HINCRBY spawns are tracked.
+    /// Only main.rs wires this; tests leave it None (default behavior).
+    pub fn with_decision_writes(mut self, decision_writes: DecisionWriteJoinSet) -> Self {
+        self.decision_writes = Some(decision_writes);
+        self
     }
 
     fn resolve(&self, team_id: i32) -> (u64, f64) {
@@ -122,12 +199,26 @@ pub(crate) async fn decide(
         // suppressing per team. The decision write is the only Redis op for
         // a denied event — we skip the floor INCR because no further logic
         // depends on the count.
-        spawn_per_decision_write(Arc::clone(&redis), doc.team_id, &date, Decision::Deny);
+        spawn_per_decision_write(
+            config.decision_writes.as_ref(),
+            Arc::clone(&redis),
+            doc.team_id,
+            &date,
+            Decision::Deny,
+        )
+        .await;
         return Ok(Decision::Deny);
     }
 
     let decision = compute_active_decision(redis.as_ref(), config, doc, &date).await?;
-    spawn_per_decision_write(redis, doc.team_id, &date, decision);
+    spawn_per_decision_write(
+        config.decision_writes.as_ref(),
+        redis,
+        doc.team_id,
+        &date,
+        decision,
+    )
+    .await;
     Ok(decision)
 }
 
@@ -135,7 +226,25 @@ pub(crate) async fn decide(
 /// path. The consumer must not wait on this Redis op — its failure is an
 /// observability degradation, not a correctness signal, and a slow Redis would
 /// otherwise halve consumer throughput.
-fn spawn_per_decision_write(
+///
+/// **Joinset cost:** with `decision_writes` attached, every event acquires the
+/// shared tokio Mutex briefly to register the spawn. Uncontended (only the
+/// consumer task spawns; the drain only runs after consumer exits) so the
+/// per-event cost is sub-microsecond. Revisit this design if sustained QPS
+/// approaches ~10k/sec — at that point a bounded mpsc channel + dedicated
+/// consumer task is cheaper than the lock.
+///
+/// **Unbounded growth:** the joinset has no upper bound. Under a Redis
+/// brownout where each HINCRBY waits its 50ms timeout, in-flight tasks scale
+/// linearly with QPS (10k QPS → ~500 in flight). At current LLM event volumes
+/// this is not a concern; revisit if we see memory pressure here.
+///
+/// **`decision_writes = None`:** test-only fallback. Tests that don't need to
+/// observe the joinset pass `None`; the spawn runs via plain `tokio::spawn`
+/// and is cancelled on runtime drop. Production always wires a joinset via
+/// `SamplingConfig::with_decision_writes`.
+async fn spawn_per_decision_write(
+    decision_writes: Option<&DecisionWriteJoinSet>,
     redis: Arc<dyn Client + Send + Sync>,
     team_id: i32,
     date: &str,
@@ -143,7 +252,7 @@ fn spawn_per_decision_write(
 ) {
     let key = format!("opensearch_indexer:team_decisions:{team_id}:{date}");
     let field = decision.label().to_string();
-    tokio::spawn(async move {
+    let task = async move {
         if let Err(e) = redis
             .hincrby_with_expire(key, field, 1, COUNTER_TTL_SECONDS)
             .await
@@ -151,7 +260,17 @@ fn spawn_per_decision_write(
             warn!(error = %e, team_id, "team_decisions HINCRBY failed");
             metrics::counter!("opensearch_indexer_team_decisions_write_errors_total").increment(1);
         }
-    });
+    };
+
+    match decision_writes {
+        Some(set) => {
+            let mut guard = set.lock().await;
+            guard.spawn(task);
+        }
+        None => {
+            tokio::spawn(task);
+        }
+    }
 }
 
 async fn compute_active_decision(
@@ -237,6 +356,7 @@ mod tests {
             deny_teams: HashSet::new(),
             overrides,
             now_utc: Utc::now,
+            decision_writes: None,
         }
     }
 
@@ -742,5 +862,116 @@ mod tests {
         assert_eq!(Decision::IndexSample.label(), "sample");
         assert_eq!(Decision::IndexError.label(), "error");
         assert_eq!(Decision::Deny.label(), "deny");
+    }
+
+    // ---- Decision-write joinset / shutdown drain ----
+
+    #[tokio::test]
+    async fn decide_registers_per_decision_spawn_in_joinset() {
+        let team_id = 42;
+        let redis = MockRedisClient::new().incr_with_expire_ret(&key_for(team_id), Ok(1));
+        let joinset = new_decision_write_joinset();
+        let config = config_with(10, 0.5, HashMap::new()).with_decision_writes(joinset.clone());
+
+        let doc = fixture_doc(team_id, Some("t-1"), false);
+        decide(arc_client(&redis), &config, &doc).await.unwrap();
+
+        // Joinset captured the spawn. The task may or may not have completed
+        // yet (depends on runtime polling), but it must be tracked.
+        let len_after_spawn = joinset.lock().await.len();
+        assert_eq!(
+            len_after_spawn, 1,
+            "expected 1 tracked task in joinset, saw {len_after_spawn}"
+        );
+
+        // Drain to clean up before the test exits, so the next test starts
+        // with a fresh global metric.
+        drain_decision_writes(joinset, Duration::from_secs(1)).await;
+    }
+
+    #[tokio::test]
+    async fn drain_decision_writes_returns_immediately_on_empty_set() {
+        let joinset = new_decision_write_joinset();
+        let start = std::time::Instant::now();
+        drain_decision_writes(joinset, Duration::from_secs(5)).await;
+        // Empty set must not consume any of the deadline.
+        assert!(
+            start.elapsed() < Duration::from_millis(50),
+            "empty drain took {:?}, expected immediate return",
+            start.elapsed()
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn drain_decision_writes_aborts_remaining_after_deadline() {
+        use metrics_util::debugging::{DebugValue, DebuggingRecorder};
+
+        // Thread-local DebuggingRecorder so the abort counter increment is
+        // observable. current_thread flavor keeps the thread-local guard
+        // visible across awaits inside this test.
+        let recorder = DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        let _guard = metrics::set_default_local_recorder(&recorder);
+
+        let joinset = new_decision_write_joinset();
+        // Spawn 5 tasks that outlast the 10ms drain deadline.
+        {
+            let mut guard = joinset.lock().await;
+            for _ in 0..5 {
+                guard.spawn(async {
+                    tokio::time::sleep(Duration::from_secs(60)).await;
+                });
+            }
+        }
+        drain_decision_writes(joinset.clone(), Duration::from_millis(10)).await;
+
+        // After timeout + shutdown the joinset must be empty (all aborted).
+        let len_after_drain = joinset.lock().await.len();
+        assert_eq!(
+            len_after_drain, 0,
+            "expected joinset empty after shutdown, saw {len_after_drain}"
+        );
+
+        let aborted = snapshotter
+            .snapshot()
+            .into_vec()
+            .into_iter()
+            .find_map(|(key, _, _, value)| {
+                if key.key().name()
+                    == "opensearch_indexer_team_decisions_shutdown_aborted_total"
+                {
+                    if let DebugValue::Counter(v) = value {
+                        return Some(v);
+                    }
+                }
+                None
+            })
+            .expect("shutdown_aborted_total counter must be recorded");
+        assert_eq!(
+            aborted, 5,
+            "expected 5 aborted tasks counted, saw {aborted}"
+        );
+    }
+
+    #[tokio::test]
+    async fn drain_decision_writes_completes_when_tasks_finish_in_time() {
+        let joinset = new_decision_write_joinset();
+        {
+            let mut guard = joinset.lock().await;
+            for _ in 0..3 {
+                guard.spawn(async {
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                });
+            }
+        }
+        let start = std::time::Instant::now();
+        drain_decision_writes(joinset.clone(), Duration::from_secs(2)).await;
+        // Should complete via the success path, well under the 2s deadline.
+        assert!(
+            start.elapsed() < Duration::from_secs(1),
+            "drain unexpectedly slow: {:?}",
+            start.elapsed()
+        );
+        assert_eq!(joinset.lock().await.len(), 0);
     }
 }

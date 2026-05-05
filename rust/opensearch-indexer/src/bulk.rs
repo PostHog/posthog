@@ -6,6 +6,7 @@ use bytes::Bytes;
 use common_kafka::kafka_consumer::Offset;
 use serde::Deserialize;
 use thiserror::Error;
+use tokio_util::sync::CancellationToken;
 use tracing::{error, warn};
 
 use crate::types::IndexDoc;
@@ -322,27 +323,52 @@ fn write_action_line(buf: &mut Vec<u8>, doc: &IndexDoc) {
 
 /// Retries 5xx and transport errors with `1s → 60s` exponential backoff
 /// (uncapped attempt count — channel back-pressure pauses the consumer).
+/// When `shutdown_token` is wired and fires, both the retry sleeps and any
+/// in-flight POST are cancelled, returning `FlushError::ShutdownAborted` so
+/// the final flush can't outlive the lifecycle Manager's graceful-shutdown
+/// deadline.
 pub struct BulkWriter {
     client: reqwest::Client,
     url: String,
     retry_initial: Duration,
     retry_max: Duration,
+    shutdown_token: Option<CancellationToken>,
 }
 
 impl BulkWriter {
     pub fn new(opensearch_url: &str, alias: &str) -> reqwest::Result<Self> {
         let client = reqwest::Client::builder().timeout(REQUEST_TIMEOUT).build()?;
-        let url = format!(
-            "{}/{}/_bulk",
-            opensearch_url.trim_end_matches('/'),
-            alias
-        );
+        let url = format!("{}/{}/_bulk", opensearch_url.trim_end_matches('/'), alias);
         Ok(Self {
             client,
             url,
             retry_initial: RETRY_INITIAL,
             retry_max: RETRY_MAX,
+            shutdown_token: None,
         })
+    }
+
+    /// Wire the shutdown token so the retry loop bails with
+    /// `FlushError::ShutdownAborted` after a small attempt cap once shutdown
+    /// has fired. Without a token the writer retries forever (steady-state
+    /// behavior).
+    pub fn with_shutdown_token(mut self, token: CancellationToken) -> Self {
+        self.shutdown_token = Some(token);
+        self
+    }
+
+    /// Sleep for `dur` but wake immediately if the shutdown token fires.
+    /// Without this, a long backoff between attempts blocks shutdown until
+    /// the sleep elapses naturally.
+    async fn sleep_with_cancel(&self, dur: Duration) {
+        if let Some(token) = &self.shutdown_token {
+            tokio::select! {
+                _ = tokio::time::sleep(dur) => {}
+                _ = token.cancelled() => {}
+            }
+        } else {
+            tokio::time::sleep(dur).await;
+        }
     }
 
     pub async fn flush<O: StoreOffset>(
@@ -411,19 +437,36 @@ impl BulkWriter {
     async fn post_with_retry(&self, body: Bytes) -> Result<BulkResponse, FlushError> {
         let mut backoff = self.retry_initial;
         loop {
-            match self.try_post(body.clone()).await {
+            match self.try_post_with_cancel(body.clone()).await {
                 Ok(resp) => return Ok(resp),
+                Err(FlushError::ShutdownAborted) => return Err(FlushError::ShutdownAborted),
                 Err(e) if e.is_retryable() => {
                     warn!(
                         error = %e,
                         backoff_ms = backoff.as_millis() as u64,
                         "bulk POST failed; retrying"
                     );
-                    tokio::time::sleep(backoff).await;
+                    self.sleep_with_cancel(backoff).await;
                     backoff = (backoff * 2).min(self.retry_max);
                 }
                 Err(e) => return Err(e),
             }
+        }
+    }
+
+    /// `try_post` wrapped so cancellation aborts an in-flight call rather than
+    /// waiting out the reqwest 120s transport timeout. Without this, a network
+    /// partition during shutdown could blow past the lifecycle Manager's
+    /// graceful-shutdown deadline.
+    async fn try_post_with_cancel(&self, body: Bytes) -> Result<BulkResponse, FlushError> {
+        match &self.shutdown_token {
+            Some(token) => {
+                tokio::select! {
+                    _ = token.cancelled() => Err(FlushError::ShutdownAborted),
+                    r = self.try_post(body) => r,
+                }
+            }
+            None => self.try_post(body).await,
         }
     }
 
@@ -491,6 +534,11 @@ pub enum FlushError {
     /// rather than risk mis-aligned classification.
     #[error("bulk response item count mismatch: sent {sent}, received {received}")]
     ItemCountMismatch { sent: usize, received: usize },
+    /// Retry loop or in-flight POST was preempted by the shutdown token. The
+    /// final flush is abandoned; offsets are not committed; on restart the
+    /// consumer re-reads from the last committed offset.
+    #[error("flush aborted by shutdown")]
+    ShutdownAborted,
 }
 
 impl FlushError {
@@ -498,7 +546,9 @@ impl FlushError {
         match self {
             FlushError::Transport(_) => true,
             FlushError::HttpStatus(s) => s.is_server_error(),
-            FlushError::Parse(_) | FlushError::ItemCountMismatch { .. } => false,
+            FlushError::Parse(_)
+            | FlushError::ItemCountMismatch { .. }
+            | FlushError::ShutdownAborted => false,
         }
     }
 }
@@ -1124,6 +1174,7 @@ mod tests {
             url,
             retry_initial: Duration::from_millis(10),
             retry_max: Duration::from_millis(50),
+            shutdown_token: None,
         }
     }
 
@@ -1209,6 +1260,144 @@ mod tests {
         assert!(!FlushError::HttpStatus(reqwest::StatusCode::NOT_FOUND).is_retryable());
         assert!(!FlushError::Parse(serde_json::from_str::<u8>("xx").unwrap_err()).is_retryable());
         assert!(!FlushError::ItemCountMismatch { sent: 1, received: 0 }.is_retryable());
+        assert!(!FlushError::ShutdownAborted.is_retryable());
+    }
+
+    #[tokio::test]
+    async fn post_with_retry_aborts_immediately_when_already_cancelled() {
+        // With the shutdown token already cancelled, the wrapper preempts the
+        // very first try_post: the request never reaches the mock. Without
+        // this, a network partition during shutdown could blow past the
+        // lifecycle deadline.
+        let server = MockServer::start_async().await;
+        let mock = server
+            .mock_async(|when, then| {
+                when.method(POST).path("/llm-traces/_bulk");
+                then.status(503).body("");
+            })
+            .await;
+
+        let token = CancellationToken::new();
+        token.cancel();
+        let writer = writer_for(format!("{}/llm-traces/_bulk", server.base_url()))
+            .with_shutdown_token(token);
+
+        let result = writer.post_with_retry(Bytes::from_static(b"")).await;
+        assert!(
+            matches!(result, Err(FlushError::ShutdownAborted)),
+            "expected ShutdownAborted, got {result:?}"
+        );
+        let hits = mock.hits_async().await;
+        assert_eq!(
+            hits, 0,
+            "wrapper must preempt try_post when token is already cancelled"
+        );
+    }
+
+    #[tokio::test]
+    async fn post_with_retry_aborts_during_in_flight_call_on_cancel() {
+        // Token wired but not yet cancelled. Mock holds the response 5s.
+        // Cancel the token after 50ms — `try_post_with_cancel` must preempt
+        // the in-flight call within ~500ms, well under the held delay.
+        // Without the wrapper, the call would wait the reqwest 120s timeout.
+        let server = MockServer::start_async().await;
+        server
+            .mock_async(|when, then| {
+                when.method(POST).path("/llm-traces/_bulk");
+                then.status(200)
+                    .header("content-type", "application/json")
+                    .delay(Duration::from_secs(5))
+                    .body(r#"{"took":1,"errors":false,"items":[{"index":{"status":201}}]}"#);
+            })
+            .await;
+
+        let token = CancellationToken::new();
+        let writer = writer_for(format!("{}/llm-traces/_bulk", server.base_url()))
+            .with_shutdown_token(token.clone());
+
+        let post_handle =
+            tokio::spawn(async move { writer.post_with_retry(Bytes::from_static(b"")).await });
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        token.cancel();
+
+        let result = tokio::time::timeout(Duration::from_millis(500), post_handle)
+            .await
+            .expect("post_with_retry must return within 500ms after cancel")
+            .expect("task joined");
+        assert!(
+            matches!(result, Err(FlushError::ShutdownAborted)),
+            "expected ShutdownAborted, got {result:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn post_with_retry_unbounded_when_no_shutdown_token() {
+        // Without a shutdown token the writer keeps retrying. Verify by
+        // letting many attempts hit the mock before swapping to a success
+        // mock and confirming recovery.
+        let server = MockServer::start_async().await;
+        let fail = server
+            .mock_async(|when, then| {
+                when.method(POST).path("/llm-traces/_bulk");
+                then.status(503).body("");
+            })
+            .await;
+
+        let writer = writer_for(format!("{}/llm-traces/_bulk", server.base_url()));
+        assert!(writer.shutdown_token.is_none());
+        let post_handle =
+            tokio::spawn(async move { writer.post_with_retry(Bytes::from_static(b"")).await });
+
+        // 5 attempts is well past anything a hypothetical cap might enforce;
+        // proves the no-token branch is genuinely uncapped.
+        for _ in 0..200 {
+            if fail.hits_async().await >= 5 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        assert!(
+            fail.hits_async().await >= 5,
+            "no-token writer must retry indefinitely"
+        );
+        fail.delete_async().await;
+        let _ok = server
+            .mock_async(|when, then| {
+                when.method(POST).path("/llm-traces/_bulk");
+                then.status(200)
+                    .header("content-type", "application/json")
+                    .body(r#"{"took":1,"errors":false,"items":[{"index":{"status":201}}]}"#);
+            })
+            .await;
+        let resp = post_handle
+            .await
+            .expect("task joined")
+            .expect("Ok after retry");
+        assert_eq!(resp.items.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn post_with_retry_succeeds_pre_shutdown_even_when_token_present() {
+        // Token wired but not cancelled — first attempt succeeds normally.
+        let server = MockServer::start_async().await;
+        let mock = server
+            .mock_async(|when, then| {
+                when.method(POST).path("/llm-traces/_bulk");
+                then.status(200)
+                    .header("content-type", "application/json")
+                    .body(r#"{"took":1,"errors":false,"items":[{"index":{"status":201}}]}"#);
+            })
+            .await;
+
+        let token = CancellationToken::new(); // not cancelled
+        let writer = writer_for(format!("{}/llm-traces/_bulk", server.base_url()))
+            .with_shutdown_token(token);
+        let resp = writer
+            .post_with_retry(Bytes::from_static(b""))
+            .await
+            .expect("Ok");
+        assert_eq!(resp.items.len(), 1);
+        mock.assert_async().await;
     }
 
     // ---------- BulkWriter::flush end-to-end with TestOffset ----------

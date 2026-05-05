@@ -1,3 +1,4 @@
+use std::ops::ControlFlow;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -5,6 +6,7 @@ use common_kafka::kafka_consumer::{Offset, RecvErr, SingleTopicConsumer};
 use common_redis::{Client, CustomRedisError};
 use rand::Rng;
 use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
 use crate::{
@@ -62,6 +64,32 @@ const RETRY_AFTER_INITIAL: Duration = Duration::from_secs(1);
 const RETRY_AFTER_MAX: Duration = Duration::from_secs(30);
 const RETRY_AFTER_JITTER_MAX: Duration = Duration::from_millis(500);
 
+/// Send `item` on `tx`, but bail with `ControlFlow::Break` if the shutdown
+/// token cancels first. `biased` ensures cancellation deterministically wins
+/// over a blocked send (channel full, sink slow) — without it, dropping the
+/// `biased` keyword or reordering the arms would silently re-introduce the
+/// "SIGTERM during blocked send drops in-flight item" race.
+async fn send_or_shutdown<T>(
+    shutdown: &CancellationToken,
+    tx: &mpsc::Sender<T>,
+    item: T,
+) -> ControlFlow<()> {
+    tokio::select! {
+        biased;
+        _ = shutdown.cancelled() => {
+            info!("Consumer received shutdown during send; closing channel");
+            ControlFlow::Break(())
+        }
+        res = tx.send(item) => match res {
+            Ok(()) => ControlFlow::Continue(()),
+            Err(_) => {
+                info!("Bulk channel closed; consumer loop exiting");
+                ControlFlow::Break(())
+            }
+        }
+    }
+}
+
 /// Drain `clickhouse_events_json`, classify each event, and forward the result
 /// (with its Kafka offset) to the sink so offsets commit in receive order.
 ///
@@ -78,6 +106,7 @@ pub async fn run_consumer(
     sampling_config: Arc<SamplingConfig>,
 ) {
     let _guard = handle.process_scope();
+    let shutdown_token = handle.shutdown_token();
     loop {
         handle.report_healthy();
 
@@ -134,8 +163,10 @@ pub async fn run_consumer(
             }
         };
 
-        if tx.send((msg, offset)).await.is_err() {
-            info!("Bulk channel closed; consumer loop exiting");
+        if send_or_shutdown(&shutdown_token, &tx, (msg, offset))
+            .await
+            .is_break()
+        {
             return;
         }
     }
@@ -438,5 +469,61 @@ mod tests {
             decision_label(&Err(CustomRedisError::NotFound)),
             "redis_error"
         );
+    }
+
+    // ---- send_or_shutdown ----
+
+    #[tokio::test]
+    async fn send_or_shutdown_returns_continue_on_successful_send() {
+        let token = CancellationToken::new();
+        let (tx, mut rx) = mpsc::channel::<i32>(1);
+        let result = send_or_shutdown(&token, &tx, 42).await;
+        assert!(matches!(result, ControlFlow::Continue(())));
+        assert_eq!(rx.recv().await, Some(42));
+    }
+
+    #[tokio::test]
+    async fn send_or_shutdown_returns_break_when_channel_closed() {
+        let token = CancellationToken::new();
+        let (tx, rx) = mpsc::channel::<i32>(1);
+        drop(rx); // close the receiver
+        let result = send_or_shutdown(&token, &tx, 42).await;
+        assert!(matches!(result, ControlFlow::Break(())));
+    }
+
+    #[tokio::test]
+    async fn send_or_shutdown_returns_break_when_already_cancelled() {
+        // Pre-cancelled token + open channel: shutdown wins via biased select.
+        let token = CancellationToken::new();
+        token.cancel();
+        let (tx, _rx) = mpsc::channel::<i32>(1);
+        let result = send_or_shutdown(&token, &tx, 42).await;
+        assert!(matches!(result, ControlFlow::Break(())));
+    }
+
+    #[tokio::test]
+    async fn send_or_shutdown_breaks_on_cancel_during_blocked_send() {
+        // Channel full → tx.send blocks. Cancel must win promptly. This is
+        // the regression guard against removing `biased` or reordering the
+        // arms in `send_or_shutdown` (both subtle changes that pass the
+        // type-checker but silently break shutdown semantics).
+        let token = CancellationToken::new();
+        let (tx, _rx) = mpsc::channel::<i32>(1);
+        tx.send(99).await.expect("first send fills the channel");
+
+        let token_clone = token.clone();
+        let send_task = tokio::spawn(async move {
+            send_or_shutdown(&token_clone, &tx, 100).await
+        });
+
+        // Give the send a beat to enter the blocked state.
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        token.cancel();
+
+        let result = tokio::time::timeout(Duration::from_millis(200), send_task)
+            .await
+            .expect("send_or_shutdown must return within 200ms after cancel")
+            .expect("task joined");
+        assert!(matches!(result, ControlFlow::Break(())));
     }
 }
