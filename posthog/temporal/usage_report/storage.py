@@ -81,26 +81,46 @@ def read_json(key: str) -> Any:
     return json.loads(raw)
 
 
+# Encoded JSONL bytes are buffered up to this size before being handed
+# to `gzip.GzipFile.write`. The per-call overhead of gzip.write is small
+# but non-zero, so batching ~256KB at a time noticeably trims the cost
+# of writing 10k lines per chunk without growing memory pressure.
+_GZIP_FLUSH_THRESHOLD_BYTES = 256 * 1024
+
+
 class JsonlGzipWriter:
-    """Buffer used by `streamed_jsonl_gzip_writer`. Holds the in-memory
-    gzip stream that gets flushed to S3 on context-manager exit.
+    """Buffer used by `streamed_jsonl_gzip_writer`. Encodes JSONL lines
+    into an in-memory `bytearray`, flushes to the gzip stream in
+    `_GZIP_FLUSH_THRESHOLD_BYTES`-sized batches, and the gzip stream
+    then flushes to S3 on context-manager exit.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, flush_threshold_bytes: int = _GZIP_FLUSH_THRESHOLD_BYTES) -> None:
         self._buffer = io.BytesIO()
         self._gz = gzip.GzipFile(fileobj=self._buffer, mode="wb")
+        self._pending = bytearray()
+        self._flush_threshold = flush_threshold_bytes
         self.line_count = 0
 
     def write(self, line: dict[str, Any]) -> None:
-        self._gz.write(json.dumps(line, separators=(",", ":"), default=str).encode("utf-8"))
-        self._gz.write(b"\n")
+        self._pending += json.dumps(line, separators=(",", ":"), default=str).encode("utf-8")
+        self._pending += b"\n"
         self.line_count += 1
+        if len(self._pending) >= self._flush_threshold:
+            self._flush_pending()
 
     def write_lines(self, lines: Iterable[dict[str, Any]]) -> None:
         for line in lines:
             self.write(line)
 
+    def _flush_pending(self) -> None:
+        if not self._pending:
+            return
+        self._gz.write(bytes(self._pending))
+        self._pending.clear()
+
     def _finalize(self) -> bytes:
+        self._flush_pending()
         self._gz.close()
         return self._buffer.getvalue()
 

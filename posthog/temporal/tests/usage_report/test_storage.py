@@ -173,6 +173,39 @@ async def test_streamed_jsonl_gzip_writer_skips_upload_on_exception_via_minio(
 # trigger it against real S3 short of taking the bucket offline.
 
 
+def test_jsonl_gzip_writer_batches_writes_to_gzip_stream() -> None:
+    """Lines should accumulate into the local pending buffer until the
+    flush threshold is crossed, *then* be handed to the gzip stream in
+    one larger chunk — that's what trims the per-line overhead.
+    """
+    from posthog.temporal.usage_report.storage import JsonlGzipWriter
+
+    # 100-byte threshold so a small test still exercises multiple flushes.
+    writer = JsonlGzipWriter(flush_threshold_bytes=100)
+    gz_write_sizes: list[int] = []
+
+    def record_write(payload: bytes) -> int:
+        gz_write_sizes.append(len(payload))
+        return len(payload)
+
+    with patch.object(writer._gz, "write", side_effect=record_write):
+        # 8 lines of ~38 bytes ≈ 300 bytes → expect at least 2 threshold-driven flushes.
+        for i in range(8):
+            writer.write({"line": i, "padding": "x" * 20})
+        flushes_during_writes = len(gz_write_sizes)
+        assert flushes_during_writes >= 2, "should flush when the pending buffer crosses the threshold"
+        assert all(size >= 100 for size in gz_write_sizes), "every threshold-driven flush must clear the threshold"
+
+        # Final flush should drain whatever's still pending, then a second
+        # flush is a no-op.
+        writer._flush_pending()
+        after_first_finalize = len(gz_write_sizes)
+        writer._flush_pending()
+        assert len(gz_write_sizes) == after_first_finalize, "no extra gzip.write when nothing is pending"
+
+    assert writer.line_count == 8
+
+
 def test_delete_keys_continues_on_failure() -> None:
     calls: list[str] = []
 
