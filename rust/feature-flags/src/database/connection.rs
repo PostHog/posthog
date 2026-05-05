@@ -104,9 +104,14 @@ pub async fn get_connection_with_metrics(
         gauge(FLAG_POOL_UTILIZATION_GAUGE, &labels[..1], utilization);
     }
 
-    // Time connection acquisition (guard records on drop)
+    // Time connection acquisition (guard records on drop). Use the
+    // sub-ms-precision variant: warm pool acquires complete in tens of
+    // microseconds; the integer-ms variant rounds them all to the 1ms
+    // bucket and hides tail behavior. Bucket overrides for this metric
+    // (`flags_db_connection_time`) start at 0.05ms — see metrics::buckets.
     let result = {
-        let _conn_timer = common_metrics::timing_guard(FLAG_DB_CONNECTION_TIME, &labels);
+        let _conn_timer =
+            common_metrics::timing_guard_high_precision(FLAG_DB_CONNECTION_TIME, &labels);
         client.get_connection().await
     };
 

@@ -18,7 +18,7 @@ use common_cookieless::CookielessManager;
 use common_geoip::GeoIpClient;
 use common_hypercache::HyperCacheReader;
 use common_metrics::inc;
-use common_metrics::setup_metrics_routes_for_product;
+use common_metrics::setup_metrics_routes_for_product_with_overrides;
 use common_redis::Client as RedisClient;
 use lifecycle::{LivenessHandler, ReadinessHandler};
 use metrics::gauge;
@@ -44,6 +44,7 @@ use crate::{
         flag_group_type_mapping::GroupTypeCacheManager,
     },
     metrics::{
+        buckets::bucket_overrides,
         consts::{
             FLAG_DEFINITIONS_RATE_LIMITED_COUNTER, FLAG_DEFINITIONS_RATE_LIMIT_BYPASSED_COUNTER,
             FLAG_DEFINITIONS_REQUESTS_COUNTER, FLAG_REQUEST_TIMEOUT_COUNTER,
@@ -325,7 +326,11 @@ pub fn router(
     // In other words, only turn these on in production
     if config.enable_metrics {
         common_metrics::set_label_filter(team_id_label_filter(config.team_ids_to_track.clone()));
-        setup_metrics_routes_for_product(router, "feature_flags")
+        setup_metrics_routes_for_product_with_overrides(
+            router,
+            "feature_flags",
+            &bucket_overrides(),
+        )
     } else {
         router
     }

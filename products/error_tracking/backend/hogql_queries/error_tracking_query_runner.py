@@ -49,7 +49,7 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
     @cached_property
     def _builder(self) -> ErrorTrackingQueryV1Builder | ErrorTrackingQueryV2Builder | ErrorTrackingQueryV3Builder:
         if self.query.useQueryV3:
-            return ErrorTrackingQueryV3Builder(self.query, self.date_from, self.date_to)
+            return ErrorTrackingQueryV3Builder(self.query, self.team, self.date_from, self.date_to)
         if self.query.useQueryV2:
             return ErrorTrackingQueryV2Builder(self.query, self.date_from, self.date_to)
         return ErrorTrackingQueryV1Builder(self.query, self.team, self.date_from, self.date_to)

@@ -353,7 +353,9 @@ export function LLMAnalyticsSentiment(): JSX.Element {
                     {(generationsLoading || stillAnalyzing) && (
                         <div className="flex items-center justify-center py-8 gap-2 text-muted">
                             <Spinner className="text-lg" />
-                            <span className="text-sm">Analyzing sentiment…</span>
+                            <span className="text-sm">
+                                Analyzing sentiment on the fly, this can take a minute or two…
+                            </span>
                         </div>
                     )}
 

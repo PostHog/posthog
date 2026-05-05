@@ -113,6 +113,24 @@ describe('getFormattedDate', () => {
             expect(getFormattedDate(timestamp, { timezone: 'Asia/Tokyo' })).toEqual('29 Apr 2024')
         })
 
+        // Regression: date-only strings from the trends backend (e.g. "2024-05-01") must
+        // format to the same day regardless of the project timezone. The previous
+        // implementation used dayjs.tz(string, tz) which goes through new Date() and could
+        // shift the date by a day, leaving the tooltip header out of sync with the x-axis.
+        it.each(['UTC', 'America/Los_Angeles', 'Asia/Tokyo'])(
+            'preserves wall-clock date for date-only daily input in timezone %s',
+            (timezone) => {
+                expect(getFormattedDate('2024-05-01', { interval: 'day', timezone })).toEqual('1\u00A0May\u00A02024')
+            }
+        )
+
+        it('preserves wall-clock date across a US DST boundary', () => {
+            // Spring-forward day in the US — make sure date-only input still maps cleanly.
+            expect(getFormattedDate('2024-03-10', { interval: 'day', timezone: 'America/Los_Angeles' })).toEqual(
+                '10\u00A0Mar\u00A02024'
+            )
+        })
+
         it('returns the correct week range with provided timezone', () => {
             // Test that the week range is correct in a specific timezone
             const timestamp = '2025-06-15T23:59:59-07:00' // PDT
@@ -130,8 +148,8 @@ describe('getFormattedDate', () => {
     })
 
     describe('with invalid inputs', () => {
-        it('throws an error for invalid date string', () => {
-            expect(() => getFormattedDate('invalid-date')).toThrow()
+        it('returns the raw input for an unparseable date string', () => {
+            expect(getFormattedDate('invalid-date')).toEqual('invalid-date')
         })
 
         it('expects undefined string if no inputs', () => {

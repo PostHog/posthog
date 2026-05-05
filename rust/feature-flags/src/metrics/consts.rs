@@ -52,6 +52,29 @@ pub const FLAG_REQUESTS_LATENCY: &str = "flags_requests_duration_ms";
 pub const FLAG_QUEUE_TIME_MS: &str = "flags_queue_time_ms";
 pub const FLAG_REQUEST_FAULTS_COUNTER: &str = "flags_request_faults_total";
 
+// Pre-handler timing decomposition for `flags_queue_time_ms`.
+// Together these subdivide the "Envoy stamp → handler entry" wall time into
+// known synchronous pre-handler work + (residual) proxy/tower wait, so we
+// can attribute spikes to the right tier instead of guessing.
+
+// Total time spent in synchronous pre-handler work inside `endpoint::flags`
+// (UA parse, IP rate-limit, token extract, token rate-limit). Labeled by
+// `team_id` so noisy customers are attributable.
+pub const FLAG_PRE_HANDLER_TIME_MS: &str = "flags_pre_handler_time_ms";
+
+// Per-step rate-limit check timing. Labeled by `kind="ip"|"token"` to
+// distinguish the two rate-limiter calls inside the endpoint.
+pub const FLAG_RATE_LIMIT_CHECK_TIME_MS: &str = "flags_rate_limit_check_ms";
+
+// Time spent inside `decoding::extract_token` (sync JSON DOM scan over the
+// raw body). Pathological large bodies are the suspected outlier driver.
+pub const FLAG_TOKEN_EXTRACT_TIME_MS: &str = "flags_token_extract_ms";
+
+// Permit-acquisition wait time on the tower `ConcurrencyLimitLayer`.
+// Populated by Phase F; emitted only when populated. No `team_id` label
+// because permit wait is a property of pod-level load, not of any one team.
+pub const FLAG_CONCURRENCY_LIMIT_WAIT_TIME_MS: &str = "flags_concurrency_limit_wait_ms";
+
 // Performance monitoring
 pub const DB_CONNECTION_POOL_ACTIVE_COUNTER: &str = "flags_db_connection_pool_active_total";
 pub const DB_CONNECTION_POOL_IDLE_COUNTER: &str = "flags_db_connection_pool_idle_total";
