@@ -5108,6 +5108,32 @@ export const INTEGRATION_KINDS = [
 
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]
 
+// Mirror of `OauthIntegration.supported_kinds` in `posthog/models/integration.py`. Kinds in this set
+// can be reconnected via `/api/integrations/authorize`; kinds outside it (api-key / service-account
+// based: anthropic, databricks, gitlab, azure-blob, twilio, etc.) must be disconnected and re-added.
+export const OAUTH_INTEGRATION_KINDS: ReadonlySet<IntegrationKind> = new Set([
+    'slack',
+    'slack-posthog-code',
+    'salesforce',
+    'hubspot',
+    'google-ads',
+    'google-sheets',
+    'snapchat',
+    'linkedin-ads',
+    'reddit-ads',
+    'tiktok-ads',
+    'bing-ads',
+    'meta-ads',
+    'intercom',
+    'linear',
+    'clickup',
+    'jira',
+    'pinterest-ads',
+    'stripe',
+])
+
+export const isOAuthIntegration = (kind: IntegrationKind): boolean => OAUTH_INTEGRATION_KINDS.has(kind)
+
 export interface IntegrationType {
     id: number
     kind: IntegrationKind

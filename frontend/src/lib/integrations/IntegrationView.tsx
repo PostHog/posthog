@@ -13,7 +13,7 @@ import { dayjs } from 'lib/dayjs'
 import { GitHubRepoSummary } from 'lib/integrations/GitHubRepoSummary'
 import { IntegrationScopesWarning } from 'lib/integrations/IntegrationScopesWarning'
 
-import { IntegrationType } from '~/types'
+import { IntegrationType, isOAuthIntegration } from '~/types'
 
 import { integrationsLogic } from './integrationsLogic'
 
@@ -37,10 +37,9 @@ export function IntegrationView({
     const { loadGitHubRepositories } = useActions(integrationsLogic)
 
     const isGitHub = integration.kind === 'github'
-    // Non-OAuth kinds (e.g. anthropic with a static API key) can't recover via the OAuth `authorize`
-    // flow — that endpoint only knows about OAuth integrations. Suppress the "Reconnect" link so the
-    // user is steered toward Disconnect + re-add via the integrations menu.
-    const supportsOAuthReconnect = integration.kind !== 'anthropic'
+    // Only OAuth-based integrations can recover via the `/integrations/authorize` flow. Key-based
+    // integrations (anthropic, databricks, gitlab, twilio, …) must be disconnected and re-added.
+    const supportsOAuthReconnect = isOAuthIntegration(integration.kind)
     const repositories = isGitHub ? getGitHubRepositories(integration.id) : []
     const refreshedAtTimestamp = integration.config?.refreshed_at || null
 
@@ -138,7 +137,7 @@ export function IntegrationView({
                         {errors[0] === 'TOKEN_REFRESH_FAILED'
                             ? supportsOAuthReconnect
                                 ? 'Authentication token could not be refreshed. You can reconnect this account or disconnect it and connect a different one.'
-                                : 'Authentication failed. Disconnect this integration and connect again with a fresh API key.'
+                                : 'Authentication failed. Disconnect this integration and connect again with fresh credentials.'
                             : `There was an error with this integration: ${errors[0]}`}
                     </LemonBanner>
                 </div>

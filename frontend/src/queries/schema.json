@@ -21799,6 +21799,7 @@
         },
         "IntegrationKind": {
             "enum": [
+                "anthropic",
                 "slack",
                 "slack-posthog-code",
                 "salesforce",
