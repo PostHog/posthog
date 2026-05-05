@@ -37,13 +37,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from .backends.base import ExecutionBackend
-
-if TYPE_CHECKING:
-    from products.tasks.backend.services.sandbox import SandboxBase
 from .backends.local import LocalClickhouseBackend
 from .backends.metabase import MetabaseBackend
 from .server import ServerInfo, generate_token, make_server, serve_forever_in_thread
 from .slow_queries import SlowQuery, fetch_available_columns, fetch_available_dictionaries, fetch_slow_queries
+
+if TYPE_CHECKING:
+    from products.tasks.backend.services.sandbox import SandboxBase
 
 PRODUCT_DIR = Path(__file__).resolve().parent.parent
 RUNS_DIR = PRODUCT_DIR / "data" / "runs"
