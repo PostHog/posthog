@@ -338,7 +338,7 @@ If the API distinguishes 401 (bad token) from 403 (valid token, missing scope), 
 
 ## Document required token scopes
 
-Declare every scope the source actually calls so users know what to grant — don't make them grant the full set defensively.
+If the API issues OAuth scopes or per-resource access tokens, declare every scope the source actually calls so users know what to grant — don't make them grant the full set defensively.
 
 - **OAuth sources:** set `requiredScopes` on `SourceFieldOauthConfig` (space-separated string, matches the OAuth `scope` parameter format). The frontend diffs it against the integration's granted scopes and warns the user with a Reconnect action when any are missing.
 - **Non-OAuth sources (PAT, API key):** there's no integration object to inspect, so list scopes in the `caption` instead. Captions render through `LemonMarkdown`, so backticks, bold, and links work.
