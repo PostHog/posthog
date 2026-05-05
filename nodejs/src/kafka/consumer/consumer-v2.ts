@@ -587,9 +587,14 @@ export class KafkaConsumerV2 {
         const consumer = new RdKafkaConsumer(this.rdKafkaConfig, { 'auto.offset.reset': 'earliest' })
 
         consumer.on('event.log', (log) => logger.info('📝', 'kafka_consumer_v2_librdkafka_log', { log }))
-        consumer.on('event.error', (error: LibrdKafkaError) =>
-            logger.error('📝', 'kafka_consumer_v2_librdkafka_error', { error })
-        )
+        consumer.on('event.error', (error: LibrdKafkaError) => {
+            // librdkafka emits transient errors (local timeouts during pod churn, broker
+            // disconnects, metadata refresh failures) on the same channel as fatal errors.
+            // Only escalate when it's actually fatal — otherwise this is informational noise
+            // that floods on every deployment restart.
+            const level = error.isFatal ? 'error' : 'warn'
+            logger[level]('📝', 'kafka_consumer_v2_librdkafka_error', { error })
+        })
         consumer.on('event.stats', (stats: { message: string }) => {
             try {
                 const parsed = parseJSON(stats.message) as Record<string, any>
