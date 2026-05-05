@@ -5675,9 +5675,9 @@ snapshots:
     scenes-other-onboarding-post-onboarding-modal--llm-analytics--light:
         hash: v1.k794b7964.712c453e23887ba67256d238dd81efd93e679a850cf21260fea010eed0b77722.rUXbUP-denqKN65goF1ubUfWnfVibk0H8SAbO8YvruM
     scenes-other-onboarding-post-onboarding-modal--logs--dark:
-        hash: v1.k794b7964.9f9d3f5d5ddba99fb9546c2708031bcb0225344f6d73195689ee911f001a1ad3.lvIy1bYsSZEbNGIjOSCXsSslzmZPPc2v6LT9D-42AGY
+        hash: v1.k794b7964.f9a6892e642aebe076aaeef5075dcef1d09cb7f820985443c66db143f60f11d2.fYzgtRRPAV6qgVvUpdwMQEw6Llm7nQRigyaOYSfaK8c
     scenes-other-onboarding-post-onboarding-modal--logs--light:
-        hash: v1.k794b7964.9c8d2e9260e23a10012fe6afed5c042a66d0a146ce4c3af7e9993d4b01af6305.Wb-jOQmQJljS9aO-eh4pmOHG4pZc0U-5EIupI1Fp0Zo
+        hash: v1.k794b7964.7509d403d60f30d7c2572b30c1671f7312bc1a84f53287ddc412dec4542c5926.T_oJoHiZpaUM-pzyc_xTicoGoALna-sbDVpop0dB_Rk
     scenes-other-onboarding-post-onboarding-modal--product-analytics--dark:
         hash: v1.k794b7964.908a010434b289ed7cf876883429ef9534e1a63b82e4671f15f2174a19cd4678.RMcJStFpCU4fg-QMJW1rPOScHX9hYNtWrPNERZAYZK8
     scenes-other-onboarding-post-onboarding-modal--product-analytics--light:
@@ -5703,9 +5703,9 @@ snapshots:
     scenes-other-onboarding-post-onboarding-modal--workflows--light:
         hash: v1.k794b7964.fe0bbdd94043036fa8a1133e6b99950d76a8f175a41ac3fe35989445c04d561a.VjP9Cyy5ilxplkCzZG8cHytn1yFwT6t2AqPWDXFO7TI
     scenes-other-onboarding-product-selection--base--dark:
-        hash: v1.k794b7964.2d1da384ec9d6f8958d90c6fdef830bdeff3552ce055b8ad6fdb141b28e72f7b.cxGaH_YXfVuLLcFC4MqEyFdHNnXcV2wTr8u0ar5jvFw
+        hash: v1.k794b7964.5c094da11f501dd20ed0755a60c9b7b1bd55a70e469734201b8f9f220d6c06a6.e4fy-aJB70b-ULhvXkz_aFF8AaZx-0hHi1HfwK6qpmo
     scenes-other-onboarding-product-selection--base--light:
-        hash: v1.k794b7964.bea82502c0a95a569ef73194f914368ae78a83713bc95a766e69b349dc4a000f.-Co8sHXwpFtz86_VfOSMRREFI6rMpQvJMP-ComUyKsg
+        hash: v1.k794b7964.ddca88d75ad2c3d020f72dd8cd470610851d84663542514a8930e43e1b9ca413.I9J8-blKK96ivpXDeJoyIM-kcUhbMHofr0qr6z2z8UM
     scenes-other-org-member-invites--current-user-is-admin--dark:
         hash: v1.k794b7964.241706aee199cb1495ed6b1c5055902f0d89e64095c444d9687041d5e5b44b6a.swMzsS85w-CrYfkS0f51lDm4-4fFOMeL1K01RJnNLHQ
     scenes-other-org-member-invites--current-user-is-admin--light:
