@@ -2029,9 +2029,9 @@ export interface RetentionQueryResponseApi {
     timings?: QueryTimingApi[] | null
 }
 
-export type AggregationPropertyType1Api = (typeof AggregationPropertyType1Api)[keyof typeof AggregationPropertyType1Api]
+export type AggregationPropertyTypeApi = (typeof AggregationPropertyTypeApi)[keyof typeof AggregationPropertyTypeApi]
 
-export const AggregationPropertyType1Api = {
+export const AggregationPropertyTypeApi = {
     Event: 'event',
     Person: 'person',
     DataWarehouse: 'data_warehouse',
@@ -2155,7 +2155,7 @@ export interface RetentionFilterApi {
     /** The property to aggregate when aggregationType is sum or avg */
     aggregationProperty?: string | null
     /** The type of property to aggregate on (event, person or data_warehouse). Defaults to event. */
-    aggregationPropertyType?: AggregationPropertyType1Api | null
+    aggregationPropertyType?: AggregationPropertyTypeApi | null
     /** The aggregation type to use for retention */
     aggregationType?: AggregationTypeApi | null
     cumulative?: boolean | null
