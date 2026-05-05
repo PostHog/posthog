@@ -12,13 +12,15 @@ from django.conf import settings
 from django.core.cache import cache
 from django.db import models, transaction
 from django.db.models import F, OuterRef, Q, Subquery
+from django.db.models.functions import JSONObject
 from django.http import HttpResponse, JsonResponse, StreamingHttpResponse
 from django.utils import timezone
 
 import requests as http_requests
 import jsonschema
 import posthoganalytics
-from drf_spectacular.utils import OpenApiResponse, extend_schema
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
@@ -85,6 +87,8 @@ from .serializers import (
     TaskStagedArtifactsFinalizeUploadResponseSerializer,
     TaskStagedArtifactsPrepareUploadRequestSerializer,
     TaskStagedArtifactsPrepareUploadResponseSerializer,
+    TaskSummariesRequestSerializer,
+    TaskSummarySerializer,
     build_task_run_artifact_size_error,
     get_task_run_artifact_max_size_bytes,
 )
@@ -272,6 +276,62 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             .order_by("repository")
         )
         serializer = TaskRepositoriesResponseSerializer({"repositories": list(repositories)})
+        return Response(serializer.data)
+
+    @validated_request(
+        request_serializer=TaskSummariesRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=TaskSummarySerializer(many=True),
+                description="Summary fields for the requested tasks",
+            ),
+        },
+        summary="Fetch task summaries by ID",
+        description=(
+            "Returns summary for the requested tasks: `id`, `title`, `repository`, `created_at`, "
+            "`updated_at`, and the latest run's `status` and `environment`."
+        ),
+        parameters=[
+            OpenApiParameter(
+                name="limit",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Page size for the paginated response.",
+            ),
+            OpenApiParameter(
+                name="offset",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Offset into the result set for pagination.",
+            ),
+        ],
+    )
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="summaries",
+        required_scopes=["task:read"],
+        filter_backends=[],
+    )
+    def summaries(self, request, **kwargs):
+        ids = request.validated_data["ids"]
+        latest_run = (
+            TaskRun.objects.filter(task=OuterRef("pk"))
+            .order_by("-created_at", "-id")
+            .annotate(_data=JSONObject(status="status", environment="environment"))
+        )
+        tasks = (
+            Task.objects.filter(team=self.team, deleted=False, id__in=ids)
+            .annotate(_latest_run=Subquery(latest_run.values("_data")[:1]))
+            .order_by("-created_at", "id")
+        )
+        page = self.paginate_queryset(tasks)
+        if page is not None:
+            serializer = TaskSummarySerializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+        serializer = TaskSummarySerializer(tasks, many=True)
         return Response(serializer.data)
 
     @validated_request(
