@@ -13,6 +13,7 @@ rules:
                       def $FUNC(...):
                           ...
           - pattern-either:
+                # Read-shaped
                 - pattern: $MODEL.objects.all()
                 - pattern: $MODEL.objects.filter(...)
                 - pattern: $MODEL.objects.get(...)
@@ -21,6 +22,27 @@ rules:
                 - pattern: $MODEL.objects.last()
                 - pattern: $MODEL.objects.count()
                 - pattern: $MODEL.objects.exists()
+                - pattern: $MODEL.objects.values(...)
+                - pattern: $MODEL.objects.values_list(...)
+                - pattern: $MODEL.objects.aggregate(...)
+                - pattern: $MODEL.objects.in_bulk(...)
+                - pattern: $MODEL.objects.iterator(...)
+                # Mutating — top-level (.filter().delete() is incidentally caught by the filter pattern)
+                - pattern: $MODEL.objects.create(...)
+                - pattern: $MODEL.objects.update(...)
+                - pattern: $MODEL.objects.delete()
+                - pattern: $MODEL.objects.bulk_create(...)
+                - pattern: $MODEL.objects.bulk_update(...)
+                - pattern: $MODEL.objects.update_or_create(...)
+                - pattern: $MODEL.objects.get_or_create(...)
+                # Async variants
+                - pattern: $MODEL.objects.aget(...)
+                - pattern: $MODEL.objects.aupdate(...)
+                - pattern: $MODEL.objects.acount()
+                - pattern: $MODEL.objects.aexists()
+                - pattern: $MODEL.objects.aiterator(...)
+                # Raw SQL via the manager
+                - pattern: $MODEL.objects.raw(...)
           - pattern-not-inside: |
                 @with_team_scope(...)
                 def $FUNC(...):

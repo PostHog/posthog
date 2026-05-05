@@ -31,7 +31,9 @@ class TestProductTeamManagerScoping(SimpleTestCase):
             self._make_manager().get_queryset()
 
     def test_with_context_filters_by_team(self) -> None:
-        with team_scope(42):
+        # Pass parent_team_id explicitly so the manager hits the cached fast path
+        # and doesn't need to query the Team table (this is a SimpleTestCase).
+        with team_scope(42, parent_team_id=42):
             qs = self._make_manager().get_queryset()
             self.assertTrue(qs.query.has_filters())
 
@@ -42,8 +44,8 @@ class TestProductTeamManagerScoping(SimpleTestCase):
                     self._make_manager().get_queryset()
 
     def test_for_team_explicit_scoping(self) -> None:
-        with team_scope(99):
-            qs = self._make_manager().for_team(99)
+        with team_scope(99, parent_team_id=99):
+            qs = self._make_manager().for_team(99, parent_team_id=99)
             self.assertTrue(qs.query.has_filters())
 
     def test_unscoped_manager_returns_unfiltered(self) -> None:

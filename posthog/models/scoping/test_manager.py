@@ -129,3 +129,60 @@ class TestTeamFilterMixinWithCachedContext(BaseTest):
             assert ctx.team_id == self.team.id
             assert ctx.parent_team_id is None
             assert ctx.effective_team_id == self.team.id
+
+
+class TestApplyTeamFilterAgainstRows(BaseTest):
+    """Behavioral coverage for _apply_team_filter against real rows.
+
+    The cached-parent fast path, the cold resolve-from-DB path, and the
+    root-team fallback all need to be exercised to catch regressions
+    that would otherwise ship green.
+
+    Note: FeatureFlag.save() (via RootTeamMixin) rewrites team→parent
+    when saving from a child team — so to test that the filter would
+    *correctly exclude* a stray child-team row (legacy/manual data),
+    we bypass save() with .update() to force the team_id we want.
+    """
+
+    def _make_manager(self) -> TeamScopedManager[FeatureFlag]:
+        manager: TeamScopedManager[FeatureFlag] = TeamScopedManager()
+        manager.model = FeatureFlag
+        manager._db = "default"
+        return manager
+
+    def _create_flags_under(self, parent: Team, child: Team) -> None:
+        parent_flag = FeatureFlag.objects.create(team=parent, key="parent-flag", created_by=self.user)
+        child_flag = FeatureFlag.objects.create(team=child, key="child-flag", created_by=self.user)
+        # Force the child row to actually live under child.id (save() would rewrite to parent).
+        FeatureFlag.objects.filter(pk=child_flag.pk).update(team_id=child.id)
+        FeatureFlag.objects.filter(pk=parent_flag.pk).update(team_id=parent.id)
+
+    def test_cached_parent_team_id_filters_to_parent_rows(self):
+        parent = Team.objects.create(organization=self.organization, name="Parent")
+        child = Team.objects.create(organization=self.organization, name="Child", parent_team=parent)
+        self._create_flags_under(parent, child)
+
+        with team_scope(child.id, parent_team_id=parent.id):
+            keys = set(self._make_manager().get_queryset().values_list("key", flat=True))
+
+        assert keys == {"parent-flag"}
+
+    def test_uncached_parent_resolves_via_db(self):
+        parent = Team.objects.create(organization=self.organization, name="Parent")
+        child = Team.objects.create(organization=self.organization, name="Child", parent_team=parent)
+        self._create_flags_under(parent, child)
+
+        # No parent_team_id in context — forces resolve_effective_team_id to query Team.
+        with team_scope(child.id):
+            keys = set(self._make_manager().get_queryset().values_list("key", flat=True))
+
+        assert keys == {"parent-flag"}
+
+    def test_root_team_filters_to_own_rows(self):
+        # Root team: parent_team_id is NULL on Team. Effective scope is own id.
+        FeatureFlag.objects.create(team=self.team, key="root-flag", created_by=self.user)
+
+        with team_scope(self.team.id):
+            keys = set(self._make_manager().get_queryset().values_list("key", flat=True))
+
+        assert keys == {"root-flag"}

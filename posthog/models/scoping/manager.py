@@ -14,7 +14,6 @@ explicit team checks at the API layer.
 from typing import TypeVar, cast
 
 from django.db import models
-from django.db.models import Q, Subquery
 
 from posthog.models.scoping import get_current_team_context, get_current_team_id
 from posthog.person_db_router import PERSONS_DB_MODELS
@@ -34,13 +33,18 @@ class TeamScopeError(Exception):
     pass
 
 
-def _get_effective_team_id_for_persons_db(team_id: int) -> int:
-    """Get the effective team ID for PERSONS_DB_MODELS.
+def resolve_effective_team_id(team_id: int) -> int:
+    """Resolve effective team_id (parent if child, else team_id).
 
-    Uses cached parent_team_id from context if available, otherwise fetches from DB.
+    Single source of truth for parent-team resolution. Used by both
+    TeamScopedManager (main DB models) and ProductTeamModel (separate-DB
+    models) — extracting one helper prevents the two code paths from
+    drifting on cache invariants.
+
+    Raises TeamScopeError if the team doesn't exist on the main DB —
+    matches the rest of the fail-closed posture (silent fallback would
+    let `team_scope(typo)` quietly scope queries to a non-existent team).
     """
-    from posthog.models.team import Team
-
     # Only trust cached value when parent_team_id was explicitly resolved.
     # `None` could mean "this is a root team" or "we just don't know yet" —
     # falling back to team_id in the latter case would silently scope queries
@@ -49,11 +53,13 @@ def _get_effective_team_id_for_persons_db(team_id: int) -> int:
     if ctx is not None and ctx.team_id == team_id and ctx.parent_team_id is not None:
         return ctx.parent_team_id
 
+    from posthog.models.team import Team
+
     try:
-        team = Team.objects.using("default").get(id=team_id)
-        return team.parent_team_id if team.parent_team_id else team_id
+        team = Team.objects.using("default").only("parent_team_id").get(id=team_id)
     except Team.DoesNotExist:
-        return team_id
+        raise TeamScopeError(f"Team {team_id} not found on default DB")
+    return team.parent_team_id or team_id
 
 
 class TeamScopedQuerySet(models.QuerySet[T]):
@@ -66,23 +72,20 @@ class TeamScopedQuerySet(models.QuerySet[T]):
 
     def _apply_team_filter(self, team_id: int) -> "TeamScopedQuerySet[T]":
         """Apply team filtering with parent team logic (from RootTeamQuerySet)."""
-        from posthog.models.team import Team
-
         if self.model._meta.model_name in PERSONS_DB_MODELS:
-            effective_team_id = _get_effective_team_id_for_persons_db(team_id)
+            effective_team_id = resolve_effective_team_id(team_id)
             return self.filter(team_id=effective_team_id)
 
-        # If context already cached parent_team_id for this team, skip the subquery+join
-        # and use a plain `team_id = X` filter. Saves a correlated subquery and a JOIN
-        # on every read through the manager. Only safe when parent_team_id is explicitly
-        # set — None could mean "this is a root team" or "we don't know yet".
+        # Fast path: if context already cached parent_team_id for this team, skip
+        # the resolution roundtrip and use a plain `team_id = X` filter.
         ctx = get_current_team_context()
         if ctx is not None and ctx.team_id == team_id and ctx.parent_team_id is not None:
             return self.filter(team_id=ctx.parent_team_id)
 
-        parent_team_subquery = Team.objects.filter(id=team_id).values("parent_team_id")[:1]
-        team_filter = Q(team_id=Subquery(parent_team_subquery)) | Q(team_id=team_id, team__parent_team_id__isnull=True)
-        return self.filter(team_filter)
+        # Cold path: resolve parent_team_id once, then plain integer filter.
+        # Previously used `Q(Subquery) | Q(JOIN)` — same result, much worse plan.
+        effective_team_id = resolve_effective_team_id(team_id)
+        return self.filter(team_id=effective_team_id)
 
     def unscoped(self) -> "TeamScopedQuerySet[T]":
         """
@@ -124,8 +127,17 @@ class TeamScopedManager(models.Manager[T]):
         """Return an unscoped queryset that bypasses automatic team filtering."""
         return self._queryset_class(self.model, using=self._db)
 
-    def for_team(self, team_id: int) -> TeamScopedQuerySet[T]:
-        """Explicitly scope to a team. Useful outside request context."""
+    def for_team(self, team_id: int, parent_team_id: int | None = None) -> TeamScopedQuerySet[T]:
+        """Explicitly scope to a team. Useful outside request context.
+
+        Pass `parent_team_id` if you already know it (e.g. inside a loop over
+        teams) to avoid a Team lookup per call.
+        """
+        if parent_team_id is not None:
+            return cast(
+                "TeamScopedQuerySet[T]",
+                self._queryset_class(self.model, using=self._db).filter(team_id=parent_team_id),
+            )
         return self._queryset_class(self.model, using=self._db)._apply_team_filter(team_id)
 
 

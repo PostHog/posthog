@@ -161,7 +161,8 @@ def with_team_scope(
                     f"specify a different parameter name."
                 )
 
-            if not isinstance(team_id, int):
+            # `bool` is a subclass of `int` — slips past `isinstance(_, int)`
+            if isinstance(team_id, bool) or not isinstance(team_id, int):
                 raise TypeError(f"with_team_scope: '{team_id_param}' must be an int, got {type(team_id).__name__}")
 
             with team_scope(team_id):

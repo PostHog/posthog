@@ -107,7 +107,12 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
                 # Resolution failed — leave middleware-set context in place
                 return
             # Reuse parent_team_id from already-loaded team (likely cached by
-            # permission checks above). Lets the manager skip its subquery+join.
+            # permission checks above). Lets the manager skip its parent-team
+            # resolution roundtrip. Reading via __dict__ rather than attribute
+            # access avoids triggering the cached_property's lookup if it
+            # hasn't fired yet — and keeps the optimization opt-in. If `team`
+            # ever stops being a @cached_property this still degrades safely:
+            # parent_team_id stays None and the manager resolves via DB.
             parent_team_id = self.team.parent_team_id if "team" in self.__dict__ else None
             self._team_scope_token = set_current_team_id(team_id, parent_team_id=parent_team_id)
 
