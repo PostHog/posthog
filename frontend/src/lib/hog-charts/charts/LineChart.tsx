@@ -239,6 +239,7 @@ function LineChartInner<Meta = unknown>({
             className={className}
             dataAttr={dataAttr}
             resolveValue={resolveValue}
+            isPercent={percentStackView}
         >
             {children}
         </Chart>

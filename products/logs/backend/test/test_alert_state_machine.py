@@ -103,8 +103,10 @@ class TestFiringTransitions(TestCase):
             ("still_breaching_1_of_1", 1, 1, (), True, FIRING, NotificationAction.NONE),
             ("still_breaching_2_of_3", 2, 3, (True, True), True, FIRING, NotificationAction.NONE),
             ("clears_1_of_1", 1, 1, (), False, NOT_FIRING, NotificationAction.RESOLVE),
-            # N-of-M only governs firing — resolution is always immediate on first OK check
-            ("clears_immediately_2_of_3", 2, 3, (True, True), False, NOT_FIRING, NotificationAction.RESOLVE),
+            # (F, T, T) → 2 breaches ≥ N=2 → stays firing
+            ("stays_firing_count_still_meets_n", 2, 3, (True, True), False, FIRING, NotificationAction.NONE),
+            # (F, F, T) → 1 breach < N=2 → resolves
+            ("resolves_when_count_drops_below_n", 2, 3, (False, True), False, NOT_FIRING, NotificationAction.RESOLVE),
         ]
     )
     def test_firing_transitions(
@@ -131,12 +133,12 @@ class TestFiringTransitions(TestCase):
 class TestPendingResolveTransitions(TestCase):
     @parameterized.expand(
         [
-            # Any non-breaching check from PENDING_RESOLVE resolves immediately
+            # (F, F, T) → 1 breach < N=2 → resolves
             ("clears_fully", 2, 3, (False, True), False, NOT_FIRING, NotificationAction.RESOLVE),
-            # Re-breach goes back to FIRING
+            # (T, F, T) → 2 breaches ≥ N=2 → re-fires
             ("re_breaches", 2, 3, (False, True), True, FIRING, NotificationAction.NONE),
-            # Non-breaching resolves immediately regardless of recent history
-            ("mixed_resolves_immediately", 2, 3, (True, True), False, NOT_FIRING, NotificationAction.RESOLVE),
+            # (F, T, T) → 2 breaches ≥ N=2 → stays firing
+            ("stays_firing_when_recent_still_breaches", 2, 3, (True, True), False, FIRING, NotificationAction.NONE),
         ]
     )
     def test_pending_resolve_transitions(

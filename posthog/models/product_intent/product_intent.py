@@ -1,8 +1,10 @@
 from datetime import UTC, datetime
 from typing import Optional
 
+from django.core.cache import cache
 from django.db import models
 
+import structlog
 from celery import shared_task
 from rest_framework import serializers
 
@@ -24,6 +26,8 @@ from products.event_definitions.backend.models.event_definition import EventDefi
 from products.experiments.backend.models.experiment import Experiment
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
+
+logger = structlog.get_logger(__name__)
 
 """
 How to use this model:
@@ -328,3 +332,46 @@ def calculate_product_activation(team_id: int, only_calc_if_days_since_last_chec
         ):
             continue
         product_intent.check_and_update_activation()
+
+
+# Intentionally matches the default of `only_calc_if_days_since_last_checked=1`
+# in `calculate_product_activation` above. The two together define the
+# activation re-check cadence — tune them together.
+PRODUCT_ACTIVATION_DEBOUNCE_TTL_SECONDS = 24 * 60 * 60
+
+
+def enqueue_product_activation_calc_debounced(team_id: int) -> bool:
+    """Enqueue `calculate_product_activation` for this team at most once per 24h.
+
+    The Celery task itself already short-circuits each not-yet-activated intent with
+    `only_calc_if_days_since_last_checked=1`, so enqueueing on every page render was
+    wasted broker traffic that the worker would no-op. This guard skips the enqueue
+    when we've already done it for this team within the debounce window.
+
+    Failure mode: if the cache backend errors (e.g. Redis blip), fail open and
+    enqueue anyway — better to take the broker round-trip than to 500 the team
+    list endpoint. The inner task's per-intent short-circuit limits the cost.
+
+    Best-effort: the debounce key is set unconditionally before enqueueing, so a
+    Celery enqueue or worker failure leaves the team debounced for up to 24h. The
+    primary activation path is `ProductIntent.register()` which calls
+    `check_and_update_activation()` synchronously; this helper exists only for the
+    periodic re-check of criteria that became met after registration.
+
+    Returns True when the task was enqueued, False when the call was debounced.
+    """
+    debounce_key = f"product_activation_enqueued:{team_id}"
+    try:
+        was_added = cache.add(debounce_key, "1", timeout=PRODUCT_ACTIVATION_DEBOUNCE_TTL_SECONDS)
+    except Exception as e:
+        # Cache error must not block the enqueue path; fall through to .delay().
+        # Log + capture so a chronic Redis problem still surfaces in monitoring
+        # rather than silently degrading to "every render enqueues" (which would
+        # otherwise look identical to working code).
+        logger.warning("product_activation_debounce_cache_failure", team_id=team_id, exc_info=True)
+        capture_exception(e)
+        was_added = True
+    if was_added:
+        calculate_product_activation.delay(team_id, only_calc_if_days_since_last_checked=1)
+        return True
+    return False

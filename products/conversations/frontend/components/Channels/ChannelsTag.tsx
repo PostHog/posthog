@@ -1,4 +1,4 @@
-import { IconComment, IconLetter } from '@posthog/icons'
+import { IconComment, IconGithub, IconLetter } from '@posthog/icons'
 import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { IconMicrosoftTeams, IconSlack } from 'lib/lemon-ui/icons'
@@ -10,6 +10,7 @@ const channelIcon: Record<TicketChannel, JSX.Element> = {
     slack: <IconSlack />,
     teams: <IconMicrosoftTeams />,
     email: <IconLetter />,
+    github: <IconGithub />,
 }
 
 const channelDetailLabel: Record<TicketChannelDetail, string> = {
@@ -20,6 +21,7 @@ const channelDetailLabel: Record<TicketChannelDetail, string> = {
     teams_bot_mention: 'Teams bot mention',
     widget_embedded: 'Widget',
     widget_api: 'API',
+    github_issue: 'GitHub issue',
 }
 
 interface ChannelsTagProps {

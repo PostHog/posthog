@@ -162,6 +162,9 @@ export type CommonConfig = BaseServerConfig & {
 
     // Shared between ingestion and CDP (used by hog transformer in both)
     CDP_HOG_WATCHER_SAMPLE_RATE: number
+
+    // Event loop yield helper (yieldEventLoopIfNeeded)
+    EVENT_LOOP_YIELD_THRESHOLD_MS: number
 }
 
 export type ExternalRequestConfig = Pick<
@@ -325,6 +328,9 @@ export function getDefaultCommonConfig(): CommonConfig {
 
         // Shared between ingestion and CDP
         CDP_HOG_WATCHER_SAMPLE_RATE: 0,
+
+        // Event loop yield helper
+        EVENT_LOOP_YIELD_THRESHOLD_MS: 200,
 
         // Pod termination
         POD_TERMINATION_ENABLED: false,

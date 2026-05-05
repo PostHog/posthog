@@ -29,9 +29,9 @@ from posthog.models.activity_logging.activity_log import Change, Detail, log_act
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.utils import UUID
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
-from posthog.temporal.session_replay.session_summary.summarize_session import execute_summarize_session
-from posthog.temporal.session_replay.session_summary.summarize_session_group import execute_summarize_session_group
-from posthog.temporal.session_replay.session_summary.types.group import SessionSummaryStreamUpdate
+from posthog.temporal.session_replay.session_summary.workflow import execute_summarize_session
+from posthog.temporal.session_replay.session_summary_group.types import SessionSummaryStreamUpdate
+from posthog.temporal.session_replay.session_summary_group.workflow import execute_summarize_session_group
 from posthog.utils import relative_date_parse
 
 from ee.hogai.session_summaries.session.output_data import SessionSummarySerializer

@@ -1,20 +1,8 @@
 import * as d3 from 'd3'
 
+import { dimensions, makeSeries } from '../testing'
 import { composeDrawHoverWithCrosshair, drawArea, drawGrid, drawLine, type DrawContext } from './canvas-renderer'
-import type { ChartDimensions, ChartDrawArgs, ChartScales, ChartTheme, ResolvedSeries, Series } from './types'
-
-const dimensions: ChartDimensions = {
-    width: 800,
-    height: 400,
-    plotLeft: 48,
-    plotTop: 16,
-    plotWidth: 736,
-    plotHeight: 352,
-}
-
-function makeSeries(overrides: Partial<Series> & { key: string; data: number[] }): ResolvedSeries {
-    return { label: overrides.key, color: '#f00', ...overrides }
-}
+import type { ChartDrawArgs, ChartScales, ChartTheme } from './types'
 
 function mockCanvasContext(): jest.Mocked<CanvasRenderingContext2D> {
     return {

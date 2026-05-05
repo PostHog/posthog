@@ -1,59 +1,77 @@
+import { buildYTickFormatter } from 'lib/hog-charts'
+import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
+
 import { CurrencyCode, TrendsFilter } from '~/queries/schema/schema-general'
 
-import { buildTrendsYTickFormatter } from './trendsAxisFormat'
+import { trendsFilterToYFormatterConfig } from './trendsAxisFormat'
 
 const NBSP = ' '
 
-describe('buildTrendsYTickFormatter', () => {
-    it.each([
-        ['numeric format passes through', { aggregationAxisFormat: 'numeric' as const }, 1234, '1,234'],
-        ['percentage format', { aggregationAxisFormat: 'percentage' as const }, 50, '50%'],
-        ['percentage_scaled format', { aggregationAxisFormat: 'percentage_scaled' as const }, 0.5, '50%'],
-        ['duration format', { aggregationAxisFormat: 'duration' as const }, 90, `1m${NBSP}30s`],
-        ['duration_ms format', { aggregationAxisFormat: 'duration_ms' as const }, 1500, '1.5s'],
-        ['short format', { aggregationAxisFormat: 'short' as const }, 1500, `1.5${NBSP}K`],
+describe('trendsFilterToYFormatterConfig', () => {
+    it.each<AggregationAxisFormat>([
+        'numeric',
+        'duration',
+        'duration_ms',
+        'percentage',
+        'percentage_scaled',
+        'currency',
+        'short',
+    ])('passes aggregationAxisFormat=%s through to format', (aggregationAxisFormat) => {
+        expect(trendsFilterToYFormatterConfig({ aggregationAxisFormat }, false).format).toBe(aggregationAxisFormat)
+    })
+
+    it('maps aggregationAxis* fields onto the generic config', () => {
+        const trendsFilter: TrendsFilter = {
+            aggregationAxisFormat: 'duration',
+            aggregationAxisPrefix: '~',
+            aggregationAxisPostfix: '!',
+            decimalPlaces: 2,
+            minDecimalPlaces: 1,
+        }
+        expect(trendsFilterToYFormatterConfig(trendsFilter, false, 'USD' as CurrencyCode)).toEqual({
+            format: 'duration',
+            prefix: '~',
+            suffix: '!',
+            decimalPlaces: 2,
+            minDecimalPlaces: 1,
+            currency: 'USD',
+        })
+    })
+
+    it.each<[string, TrendsFilter | null]>([
+        ['empty filter', {}],
+        ['null filter', null],
+    ])('defaults format to numeric for %s', (_, trendsFilter) => {
+        expect(trendsFilterToYFormatterConfig(trendsFilter, false)).toEqual({ format: 'numeric' })
+    })
+
+    it('returns a percentage config when isPercentStackView is true, ignoring the trends filter', () => {
+        const trendsFilter: TrendsFilter = { aggregationAxisFormat: 'currency', aggregationAxisPrefix: '$' }
+        expect(trendsFilterToYFormatterConfig(trendsFilter, true, 'USD' as CurrencyCode)).toEqual({
+            format: 'percentage',
+        })
+    })
+})
+
+describe('trends y-tick formatter end-to-end', () => {
+    it.each<[string, TrendsFilter, number, string]>([
+        ['numeric', { aggregationAxisFormat: 'numeric' }, 1234, '1,234'],
+        ['percentage', { aggregationAxisFormat: 'percentage' }, 50, '50%'],
+        ['duration', { aggregationAxisFormat: 'duration' }, 90, `1m${NBSP}30s`],
         [
-            'aggregationAxisPrefix is honored',
-            { aggregationAxisFormat: 'numeric' as const, aggregationAxisPrefix: '$' },
-            42,
-            '$42',
-        ],
-        [
-            'aggregationAxisPostfix is honored',
-            { aggregationAxisFormat: 'numeric' as const, aggregationAxisPostfix: ' req' },
-            42,
-            '42 req',
-        ],
-        [
-            'prefix and postfix combine',
-            {
-                aggregationAxisFormat: 'numeric' as const,
-                aggregationAxisPrefix: '~',
-                aggregationAxisPostfix: '!',
-            },
+            'prefix + suffix',
+            { aggregationAxisFormat: 'numeric', aggregationAxisPrefix: '~', aggregationAxisPostfix: '!' },
             7,
             '~7!',
         ],
-    ])('%s', (_, trendsFilter, value, expected) => {
-        const formatter = buildTrendsYTickFormatter(trendsFilter as TrendsFilter, false)
-        expect(formatter(value)).toBe(expected)
+    ])('formats %s through the trends → hog-charts pipeline', (_, trendsFilter, value, expected) => {
+        const fmt = buildYTickFormatter(trendsFilterToYFormatterConfig(trendsFilter, false))
+        expect(fmt(value)).toBe(expected)
     })
 
-    it('formats currency with the supplied currency code', () => {
+    it('formats percent-stack values regardless of the underlying trends filter', () => {
         const trendsFilter: TrendsFilter = { aggregationAxisFormat: 'currency' }
-        const formatter = buildTrendsYTickFormatter(trendsFilter, false, 'USD' as CurrencyCode)
-        expect(formatter(1234)).toMatch(/\$/)
-        expect(formatter(1234)).toMatch(/1,?234/)
-    })
-
-    it('returns percent values when isPercentStackView=true regardless of axis format', () => {
-        const trendsFilter: TrendsFilter = { aggregationAxisFormat: 'currency' }
-        const formatter = buildTrendsYTickFormatter(trendsFilter, true, 'USD' as CurrencyCode)
-        expect(formatter(50)).toBe('50%')
-    })
-
-    it('handles a null trendsFilter without throwing', () => {
-        const formatter = buildTrendsYTickFormatter(null, false)
-        expect(formatter(123)).toBe('123')
+        const fmt = buildYTickFormatter(trendsFilterToYFormatterConfig(trendsFilter, true, 'USD' as CurrencyCode))
+        expect(fmt(50)).toBe('50%')
     })
 })
