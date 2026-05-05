@@ -33,7 +33,6 @@ import { SourceEditorAction } from 'products/data_warehouse/frontend/shared/comp
 import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/logics/sourceManagementLogic'
 import { StatusTagSetting, SyncFrequencyLabelMap, SyncTypeLabelMap } from 'products/data_warehouse/frontend/utils'
 
-import { ColumnSelectionModal } from './ColumnSelectionModal'
 import { DirectQuerySchemasTab } from './DirectQuerySchemasTab'
 import { sourceSettingsLogic } from './sourceSettingsLogic'
 
@@ -65,8 +64,6 @@ function SchemasTabInner({ id }: { id: string }): JSX.Element {
     return <ManagedSchemasTab id={id} />
 }
 
-const POSTGRES_LIKE_SOURCES: ExternalDataSourceType[] = ['Postgres']
-
 function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
     const {
         source,
@@ -94,9 +91,6 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
     const showMetrics = !!featureFlags[FEATURE_FLAGS.DWH_SOURCE_METRICS]
     // `id` is the cleaned source id; URLs use the `managed-` prefix
     const prefixedSourceId = `managed-${id}`
-
-    const [columnModalSchema, setColumnModalSchema] = useState<ExternalDataSourceSchema | null>(null)
-    const supportsColumnSelection = !!source && POSTGRES_LIKE_SOURCES.includes(source.source_type)
 
     return (
         <>
@@ -175,18 +169,6 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
                 cancelSchema={cancelSchema}
                 deleteTable={deleteTable}
                 showMetrics={showMetrics}
-                onConfigureColumns={supportsColumnSelection ? setColumnModalSchema : undefined}
-            />
-            <ColumnSelectionModal
-                isOpen={columnModalSchema !== null}
-                schema={columnModalSchema}
-                onClose={() => setColumnModalSchema(null)}
-                onSave={(syncedColumns) => {
-                    if (columnModalSchema) {
-                        updateSchema({ ...columnModalSchema, synced_columns: syncedColumns })
-                    }
-                    setColumnModalSchema(null)
-                }}
             />
             {source?.source_type &&
                 REVENUE_ENABLED_SOURCES.includes(source.source_type) &&
@@ -228,7 +210,6 @@ interface ManagedSchemaTableProps {
     cancelSchema: (schema: ExternalDataSourceSchema) => void
     deleteTable: (schema: ExternalDataSourceSchema) => void
     showMetrics: boolean
-    onConfigureColumns?: (schema: ExternalDataSourceSchema) => void
 }
 
 function ManagedSchemaTable({
@@ -243,7 +224,6 @@ function ManagedSchemaTable({
     cancelSchema,
     deleteTable,
     showMetrics,
-    onConfigureColumns,
 }: ManagedSchemaTableProps): JSX.Element {
     const { schemaReloadingById } = useValues(sourceManagementLogic)
     const [initialLoad, setInitialLoad] = useState(true)
@@ -462,7 +442,6 @@ function ManagedSchemaTable({
                                     resyncSchema={resyncSchema}
                                     cancelSchema={cancelSchema}
                                     deleteTable={deleteTable}
-                                    onConfigureColumns={onConfigureColumns}
                                 />
                             </div>
                         )
@@ -480,7 +459,6 @@ function SchemaRowMore({
     resyncSchema,
     cancelSchema,
     deleteTable,
-    onConfigureColumns,
 }: {
     source: ExternalDataSource | null
     schema: ExternalDataSourceSchema
@@ -488,7 +466,6 @@ function SchemaRowMore({
     resyncSchema: (schema: ExternalDataSourceSchema) => void
     cancelSchema: (schema: ExternalDataSourceSchema) => void
     deleteTable: (schema: ExternalDataSourceSchema) => void
-    onConfigureColumns?: (schema: ExternalDataSourceSchema) => void
 }): JSX.Element {
     return (
         <SourceEditorAction source={source}>
@@ -526,18 +503,6 @@ function SchemaRowMore({
                                 >
                                     Cancel sync
                                 </LemonButton>
-                            )}
-                            {onConfigureColumns && (
-                                <Tooltip title="Choose which columns from this table get synced. Primary keys and the active incremental field are always synced.">
-                                    <LemonButton
-                                        type="tertiary"
-                                        size="xsmall"
-                                        fullWidth
-                                        onClick={() => onConfigureColumns(schema)}
-                                    >
-                                        Configure columns
-                                    </LemonButton>
-                                </Tooltip>
                             )}
                             {schema.sync_type === 'cdc' && (
                                 <Tooltip title="Re-snapshot the full table and replay all CDC changes on top. Use this to recover from a corrupted or out-of-sync table.">

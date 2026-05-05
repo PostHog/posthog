@@ -116,7 +116,12 @@ function useColumnSelection(schema: ExternalDataSourceSchema | null): UseColumnS
     }
 }
 
-export function ColumnSelectionPicker({ schema, onSave, onCancel, hideActions }: ColumnSelectionPickerProps): JSX.Element {
+export function ColumnSelectionPicker({
+    schema,
+    onSave,
+    onCancel,
+    hideActions,
+}: ColumnSelectionPickerProps): JSX.Element {
     const {
         filter,
         setFilter,
@@ -132,13 +137,7 @@ export function ColumnSelectionPicker({ schema, onSave, onCancel, hideActions }:
 
     return (
         <div className="flex flex-col gap-2">
-            <LemonInput
-                type="search"
-                placeholder="Filter columns"
-                size="small"
-                value={filter}
-                onChange={setFilter}
-            />
+            <LemonInput type="search" placeholder="Filter columns" size="small" value={filter} onChange={setFilter} />
             <div className="max-h-96 overflow-y-auto border rounded">
                 {available.length === 0 && (
                     <div className="text-center text-muted-alt py-6 text-sm">
@@ -155,7 +154,9 @@ export function ColumnSelectionPicker({ schema, onSave, onCancel, hideActions }:
                             label={
                                 <div className="flex items-center gap-2">
                                     <code>{column.name}</code>
-                                    {column.data_type && <span className="text-xs text-muted-alt">{column.data_type}</span>}
+                                    {column.data_type && (
+                                        <span className="text-xs text-muted-alt">{column.data_type}</span>
+                                    )}
                                     {retained && (
                                         <span className="text-xs text-muted">
                                             {primaryKeys.has(column.name) ? 'primary key' : 'incremental field'}
