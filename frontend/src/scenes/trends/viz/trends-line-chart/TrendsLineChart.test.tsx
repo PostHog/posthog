@@ -3,12 +3,19 @@ import '@testing-library/jest-dom'
 import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { setupJsdom } from 'lib/hog-charts/test-helpers'
+import { setupJsdom } from 'lib/hog-charts/testing'
 
 import { NodeKind } from '~/queries/schema/schema-general'
-import { buildTrendsQuery, chart, getHogChart, legend, personsModal, renderInsight } from '~/test/insight-testing'
+import {
+    buildTrendsQuery,
+    chart,
+    createInsightTooltipAccessor,
+    getHogChart,
+    legend,
+    personsModal,
+    renderInsight,
+} from '~/test/insight-testing'
 import { buildAnnotation } from '~/test/insight-testing/test-data'
-import { createTooltipAccessor } from '~/test/insight-testing/tooltip-helpers'
 import { AnnotationScope, ChartDisplayType } from '~/types'
 
 let cleanupJsdom: () => void
@@ -69,7 +76,7 @@ describe('TrendsLineChart', () => {
             // click to pin the tooltip (hover alone won't render it).
             await chart.clickAtIndex(2)
 
-            const tooltip = createTooltipAccessor(chart.getTooltip()!)
+            const tooltip = createInsightTooltipAccessor(chart.getTooltip()!)
             expect(tooltip.row('Spike')).toContain('3')
         })
 

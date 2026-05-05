@@ -73,6 +73,43 @@ const costsByModel: Record<string, MockModelRow> = {
         model: 'model-with-request-only',
         cost: { prompt_token: 0.0000015, completion_token: 0.000006, request: 0.002 },
     },
+    'openai/gpt-4o-audio-preview': {
+        model: 'openai/gpt-4o-audio-preview',
+        cost: {
+            prompt_token: 0.0000025,
+            completion_token: 0.00001,
+            audio: 0.00004,
+            audio_output: 0.00008,
+        },
+    },
+    'openai/gpt-audio-mini': {
+        model: 'openai/gpt-audio-mini',
+        cost: {
+            prompt_token: 0.00000015,
+            completion_token: 0.0000006,
+            cache_read_token: 0.000000075,
+            audio: 0.000001,
+            input_audio_cache: 0.0000001,
+        },
+    },
+    'google/gemini-2.5-flash-image': {
+        model: 'google/gemini-2.5-flash-image',
+        cost: {
+            prompt_token: 3e-7,
+            completion_token: 0.0000025,
+            image: 3e-7,
+            image_output: 0.00003,
+        },
+    },
+    'google/gemini-3-flash-preview': {
+        model: 'google/gemini-3-flash-preview',
+        cost: {
+            prompt_token: 5e-7,
+            completion_token: 3e-6,
+            audio: 0.0000015,
+            input_audio_cache: 1.5e-7,
+        },
+    },
 }
 
 jest.mock('./costs/providers', () => {
@@ -94,6 +131,10 @@ jest.mock('./costs/providers', () => {
         'mistralai/mistral-7b-instruct-v0.1': 'mistralai',
         'perplexity/sonar-pro': 'perplexity',
         'model-with-request-only': 'custom',
+        'openai/gpt-4o-audio-preview': 'openai',
+        'openai/gpt-audio-mini': 'openai',
+        'google/gemini-2.5-flash-image': 'google-ai-studio',
+        'google/gemini-3-flash-preview': 'google-ai-studio',
     }
 
     let cachedMocks:
@@ -225,6 +266,103 @@ describe('processAiEvent()', () => {
             expect(result.properties!.$ai_total_cost_usd).toBeUndefined()
             expect(result.properties!.$ai_input_cost_usd).toBeUndefined()
             expect(result.properties!.$ai_output_cost_usd).toBeUndefined()
+        })
+    })
+
+    describe('modality cost calculation', () => {
+        it('rolls audio token costs into input/output for audio-capable models', () => {
+            event.properties!.$ai_model = 'gpt-4o-audio-preview'
+            event.properties!.$ai_input_tokens = 1000 // 800 text + 200 audio
+            event.properties!.$ai_output_tokens = 1000 // 200 text + 800 audio
+            event.properties!.$ai_audio_input_tokens = 200
+            event.properties!.$ai_audio_output_tokens = 800
+
+            const result = processAiEvent(event)
+
+            // Input: text (800 × 0.0000025) + audio (200 × 0.00004) = 0.002 + 0.008 = 0.01
+            // Output: text (200 × 0.00001) + audio (800 × 0.00008) = 0.002 + 0.064 = 0.066
+            // Total: input + output = 0.076 (request and web search are 0)
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(0.01, 5)
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.066, 5)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.076, 5)
+            // We do not expose a separate modality breakdown property
+            expect(result.properties!.$ai_audio_cost_usd).toBeUndefined()
+        })
+
+        it('rolls image token costs into input/output for image-capable models', () => {
+            event.properties!.$ai_model = 'gemini-2.5-flash-image'
+            event.properties!.$ai_provider = 'google'
+            event.properties!.$ai_input_tokens = 600 // 200 text + 400 image
+            event.properties!.$ai_output_tokens = 1300 // 10 text + 1290 image
+            event.properties!.$ai_image_input_tokens = 400
+            event.properties!.$ai_image_output_tokens = 1290
+
+            const result = processAiEvent(event)
+
+            // Input: text (200 × 3e-7) + image (400 × 3e-7) = 6e-5 + 0.00012 = 0.00018
+            // Output: text (10 × 0.0000025) + image (1290 × 0.00003) = 0.000025 + 0.0387 = 0.038725
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(0.00018, 6)
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.038725, 6)
+            expect(result.properties!.$ai_image_cost_usd).toBeUndefined()
+        })
+
+        it('bills cached audio at the audio-cache rate end-to-end', () => {
+            event.properties!.$ai_model = 'gpt-audio-mini'
+            event.properties!.$ai_input_tokens = 1000 // 500 text uncached + 250 text cached + 50 audio cached + 150 audio uncached
+            event.properties!.$ai_output_tokens = 100
+            event.properties!.$ai_cache_read_input_tokens = 300 // 250 text + 50 audio
+            event.properties!.$ai_audio_input_tokens = 200 // 150 uncached + 50 cached
+            event.properties!.$ai_cache_read_audio_tokens = 50
+
+            const result = processAiEvent(event)
+
+            // Cached text: 250 × 0.000000075 = 0.00001875
+            // Uncached text: 550 × 0.00000015 = 0.0000825
+            // Uncached audio: 150 × 0.000001 = 0.00015
+            // Cached audio: 50 × 0.0000001 = 0.000005
+            // Input total: 0.00025625
+            // Output: 100 × 0.0000006 = 0.00006
+            // Grand total: 0.00031625
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(0.00025625, 8)
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.00006, 8)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.00031625, 8)
+        })
+
+        it('extracts Gemini audio input tokens from snake_case $ai_usage and bills at audio rate', () => {
+            // Simulates a Gemini transcription event coming from posthog-python:
+            // the SDK forwards usage_metadata via to_dict() / vars() which
+            // produces snake_case keys (prompt_tokens_details with token_count
+            // entries) rather than the camelCase form Vercel uses. Ingestion
+            // must extract from this shape and bill the audio portion at the
+            // audio rate even though $ai_audio_input_tokens is not pre-set.
+            event.properties!.$ai_model = 'gemini-3-flash-preview'
+            event.properties!.$ai_provider = 'gemini'
+            event.properties!.$ai_input_tokens = 1000 // 750 audio + 250 text
+            event.properties!.$ai_output_tokens = 100
+            event.properties!.$ai_usage = {
+                prompt_token_count: 1000,
+                candidates_token_count: 100,
+                prompt_tokens_details: [
+                    { modality: 'AUDIO', token_count: 750 },
+                    { modality: 'TEXT', token_count: 250 },
+                ],
+            }
+
+            const result = processAiEvent(event)
+
+            // After extraction, the audio token property should be populated.
+            expect(result.properties!.$ai_audio_input_tokens).toBe(750)
+            expect(result.properties!.$ai_text_input_tokens).toBe(250)
+            // $ai_usage is always stripped after extraction.
+            expect(result.properties!.$ai_usage).toBeUndefined()
+
+            // Input billing: text (250 × 5e-7) + audio (750 × 0.0000015)
+            //              = 0.000125 + 0.001125 = 0.00125
+            // Output: 100 × 3e-6 = 0.0003
+            // Total: 0.00155
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(0.00125, 7)
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.0003, 7)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.00155, 7)
         })
     })
 

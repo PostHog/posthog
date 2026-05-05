@@ -2659,6 +2659,7 @@ class IntegrationKind(StrEnum):
     GOOGLE_SHEETS = "google-sheets"
     LINKEDIN_ADS = "linkedin-ads"
     SNAPCHAT = "snapchat"
+    STRIPE = "stripe"
     INTERCOM = "intercom"
     EMAIL = "email"
     TWILIO = "twilio"
@@ -3649,6 +3650,7 @@ class ProductIntentContext(StrEnum):
     ERROR_TRACKING_DOCS_VIEWED = "error_tracking_docs_viewed"
     ERROR_TRACKING_ISSUE_EXPLAINED = "error_tracking_issue_explained"
     LLM_ANALYTICS_VIEWED = "llm_analytics_viewed"
+    LLM_ANALYTICS_TRACE_VIEWED = "llm_analytics_trace_viewed"
     LLM_ANALYTICS_DOCS_VIEWED = "llm_analytics_docs_viewed"
     LLM_CLUSTER_EXPLORED = "llm_cluster_explored"
     LLM_DATASET_CREATED = "llm_dataset_created"
@@ -4899,6 +4901,7 @@ class UserProductListReason(StrEnum):
     USED_ON_SEPARATE_TEAM = "used_on_separate_team"
     NEW_PRODUCT = "new_product"
     SALES_LED = "sales_led"
+    ONBOARDING_DELEGATED = "onboarding_delegated"
 
 
 class VectorSearchResponseItem(BaseModel):
@@ -7122,6 +7125,16 @@ class HogQLQueryModifiers(BaseModel):
             "Push a `session_id_v7 IN (SELECT … FROM events WHERE …)` predicate into"
             " the raw_sessions subquery to limit aggregation to sessions that"
             " participate in the outer events filter."
+        ),
+    )
+    sessionPropertyPreAggregation: bool | None = Field(
+        default=None,
+        description=(
+            "Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap"
+            " pre-aggregation that only materializes the columns referenced by the"
+            " outer-WHERE session predicate)`. Useful when the breakdown/SELECT pulls"
+            " in many session columns (e.g. `$channel_type`) but the filter only"
+            " references one (e.g. `$entry_current_url`)."
         ),
     )
     sessionTableVersion: SessionTableVersion | None = None

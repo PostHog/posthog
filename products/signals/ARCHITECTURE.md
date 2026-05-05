@@ -172,6 +172,22 @@ Keeping repository selection in its own activity gives it independent retry / ti
 - **N repos connected:** runs a sandbox repo-discovery agent using `PostHog/.github` as a lightweight dummy clone; the agent uses `gh` CLI to inspect candidate repositories and choose the best match
 - The activity runs in a sandbox environment restricted to GitHub-related domains
 
+##### Repository heavy cache
+
+`IntegrationRepositoryCacheEntry` (Postgres, defined in `posthog/models/integration_repository_cache.py`) stores per-repo README + recursive blob paths + descriptive metadata, populated lazily by `GitHubRepositoryFullCache.sync_full_cache_entry()`. It's exposed to the selection agent as the HogQL system table `system.integration_repository_cache` so the agent can grep paths server-side via `ARRAY JOIN splitByString('\n', tree_paths)` instead of hitting GitHub's `/search/code` endpoint (30 req/min hard ceiling). The lightweight (id, name, full_name) list stays on `Integration.repository_cache` (JSONField) so the IDE repo-dropdown read path is unchanged.
+
+`sync_full_cache_entry()` uses a two-tier freshness check, both keyed off `default_branch_sha` as the hydration sentinel (so repos legitimately without a README still hit the fast paths):
+
+1. **TTL gate** — fresh row → return immediately, zero API calls.
+2. **SHA gate** — past TTL, two cheap calls to compare the live default-branch SHA against the cached one. Match → refresh only mutable metadata, skip README and tree refetch.
+3. **Heavy refetch** — SHA changed → fetch README and the recursive file tree pinned to the same commit, then upsert.
+
+Bulk sync (`sync_full_cache`) fans the per-repo sync out via `run_parallel_with_backoff` (concurrency 10) over the JSONField list as source of truth — orphan rows are evicted, per-repo errors are returned in-place rather than raised. Secondary rate limits propagate with retry hints so the helper backs off cooperatively. The bulk sync is **single-flighted per integration** via a Redis lock: concurrent reports for the same team queue behind the leader (poll every 1s, hard cap 20m wait) and then read the warm cache; the leader heartbeats every 60s to extend its 15m lease, and a lost lease cancels the in-flight body to prevent duplicate syncs.
+
+**Eligibility filter:** Before invoking the agent, `select_repository_for_report` drops candidates that are archived or missing from the heavy cache (e.g., a row whose sync errored during a cold start). The prompt treats SQL hits as primary evidence, so a missing row would read as a false negative. If filtering leaves zero or one candidates, the activity short-circuits without running the agent.
+
+**Truncation caveat:** GitHub's recursive tree endpoint truncates at ~50k entries / 7MB. The `tree_truncated` flag marks affected rows; `tree_paths` is incomplete on those rows and will silently miss files in HogQL grep. Consumers must filter on `tree_truncated=False` and explicitly degrade for truncated repos. Affects <2% of repos; paginated subtree fetch is future work.
+
 #### Re-promotion
 
 Reports are re-promoted when new evidence arrives, but not on every single signal forever. `signals_at_run` is advanced when a run starts, and the grouping logic only re-promotes when `signal_count >= signals_at_run`.

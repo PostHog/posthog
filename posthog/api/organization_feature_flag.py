@@ -120,7 +120,7 @@ class OrganizationFeatureFlagView(
         request=CopyFlagsRequestSerializer,
         responses={200: CopyFlagsResponseSerializer},
     )
-    @action(detail=False, methods=["post"], url_path="copy_flags")
+    @action(detail=False, methods=["post"], url_path="copy_flags", required_scopes=["feature_flag:write"])
     def copy_flags(self, request, *args, **kwargs):
         body = request.data
         feature_flag_key = body.get("feature_flag_key")

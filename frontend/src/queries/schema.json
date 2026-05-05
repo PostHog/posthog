@@ -20592,6 +20592,10 @@
                     "description": "Push a `session_id_v7 IN (SELECT … FROM events WHERE …)` predicate into the raw_sessions subquery to limit aggregation to sessions that participate in the outer events filter.",
                     "type": "boolean"
                 },
+                "sessionPropertyPreAggregation": {
+                    "description": "Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap pre-aggregation that only materializes the columns referenced by the outer-WHERE session predicate)`. Useful when the breakdown/SELECT pulls in many session columns (e.g. `$channel_type`) but the filter only references one (e.g. `$entry_current_url`).",
+                    "type": "boolean"
+                },
                 "sessionTableVersion": {
                     "enum": ["auto", "v1", "v2", "v3"],
                     "type": "string"
@@ -21690,6 +21694,7 @@
                 "google-sheets",
                 "linkedin-ads",
                 "snapchat",
+                "stripe",
                 "intercom",
                 "email",
                 "twilio",
@@ -26639,6 +26644,7 @@
                 "error_tracking_docs_viewed",
                 "error_tracking_issue_explained",
                 "llm_analytics_viewed",
+                "llm_analytics_trace_viewed",
                 "llm_analytics_docs_viewed",
                 "llm_cluster_explored",
                 "llm_dataset_created",
@@ -37884,7 +37890,8 @@
                 "used_similar_products",
                 "used_on_separate_team",
                 "new_product",
-                "sales_led"
+                "sales_led",
+                "onboarding_delegated"
             ],
             "type": "string"
         },

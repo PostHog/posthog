@@ -1292,41 +1292,34 @@ class TestCalendarHeatmapQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         assert response.results.allAggregations == 1, f"Expected 1 total event, got {response.results.allAggregations}"
 
-    def test_unique_users_buckets_per_event_not_per_session(self):
-        # Regression test: with `dau` math, every (day-of-week, hour) bucket the user touched
-        # must report the user — not just the bucket containing the session's first event.
-        # All events below share one session_id, so the previous templateUniqueUsers
-        # implementation would only count the user in the 23:00 bucket of Saturday.
-        shared_session_id = str(uuid7())
-        timestamps = [
-            "2023-12-02 23:50:00",  # Saturday 23:00
-            "2023-12-03 00:10:00",  # Sunday 00:00 — same session, next day/hour
-            "2023-12-03 01:30:00",  # Sunday 01:00
-        ]
-        with freeze_time(timestamps[0]):
-            _create_person(team_id=self.team.pk, distinct_ids=["userA"], properties={"name": "userA"})
-        for timestamp in timestamps:
-            _create_event(
-                team=self.team,
-                event="$pageview",
-                distinct_id="userA",
-                timestamp=timestamp,
-                uuid=str(uuid7()),
-                properties={"$session_id": shared_session_id, "$start_timestamp": timestamps[0]},
-            )
-
-        query = CalendarHeatmapQuery(
-            dateRange=DateRange(date_from="2023-12-01", date_to="2023-12-04"),
+    @freeze_time("2026-05-01 14:32:11")
+    def test_explicit_date_keeps_relative_window_exact(self):
+        # Without explicitDate, "-7d" truncates the lower bound to start-of-day and rounds the
+        # upper bound to end-of-day, so the window spans 8 calendar days.
+        query_default = CalendarHeatmapQuery(
+            dateRange=DateRange(date_from="-7d"),
             properties=[],
             filterTestAccounts=False,
             series=[EventsNode(kind="EventsNode", math="dau")],
         )
-        response = CalendarHeatmapQueryRunner(team=self.team, query=query).calculate()
-        results_dict = {(r.row, r.column): r.value for r in response.results.data}
 
-        assert results_dict.get((6, 23)) == 1, f"Expected 1 unique user at Sat 23:00, got {results_dict.get((6, 23))}"
-        assert results_dict.get((7, 0)) == 1, f"Expected 1 unique user at Sun 00:00, got {results_dict.get((7, 0))}"
-        assert results_dict.get((7, 1)) == 1, f"Expected 1 unique user at Sun 01:00, got {results_dict.get((7, 1))}"
-        assert response.results.allAggregations == 1, (
-            f"Expected 1 unique user total, got {response.results.allAggregations}"
+
+        runner_default = CalendarHeatmapQueryRunner(team=self.team, query=query_default)
+        date_from_default = runner_default.query_date_range.date_from()
+        date_to_default = runner_default.query_date_range.date_to()
+        assert (date_from_default.hour, date_from_default.minute, date_from_default.second) == (0, 0, 0)
+        assert (date_to_default.hour, date_to_default.minute, date_to_default.second) == (23, 59, 59)
+
+        # With explicitDate, both bounds are precise so the window is a true rolling 7 days.
+        query_explicit = CalendarHeatmapQuery(
+            dateRange=DateRange(date_from="-7d", explicitDate=True),
+            properties=[],
+            filterTestAccounts=False,
+            series=[EventsNode(kind="EventsNode", math="dau")],
         )
+        runner_explicit = CalendarHeatmapQueryRunner(team=self.team, query=query_explicit)
+        date_from_explicit = runner_explicit.query_date_range.date_from()
+        date_to_explicit = runner_explicit.query_date_range.date_to()
+        assert (date_from_explicit.hour, date_from_explicit.minute, date_from_explicit.second) == (14, 32, 11)
+        assert (date_to_explicit.hour, date_to_explicit.minute, date_to_explicit.second) == (14, 32, 11)
+        assert (date_to_explicit - date_from_explicit).total_seconds() == 7 * 24 * 60 * 60
