@@ -44,15 +44,17 @@ def classname_to_filepath(classname: str) -> str:
     return "/".join(file_parts) + ".py"
 
 
-def parse_junit_failures(junit_dir: Path) -> tuple[list[str], int]:
-    """Parse all JUnit XML files and return (failed_test_files, total_tests_run)."""
+def parse_junit_failures(junit_dir: Path) -> tuple[list[str], int, int]:
+    """Parse all JUnit XML files and return (failed_test_files, total_tests_run, xml_files_seen)."""
     failed_files: set[str] = set()
     total_tests = 0
+    xml_files_seen = 0
 
     if not junit_dir.exists():
-        return [], 0
+        return [], 0, 0
 
     for xml_file in sorted(junit_dir.rglob("*.xml")):
+        xml_files_seen += 1
         try:
             tree = ElementTree.parse(xml_file)
         except ElementTree.ParseError:
@@ -68,8 +70,10 @@ def parse_junit_failures(junit_dir: Path) -> tuple[list[str], int]:
         else:
             continue
 
+        # Use ".//testcase" so nested <testsuite> elements (e.g. pytest-xdist,
+        # Gradle) are not silently skipped.
         for suite in suites:
-            for testcase in suite.findall("testcase"):
+            for testcase in suite.findall(".//testcase"):
                 total_tests += 1
                 has_failure = testcase.find("failure") is not None
                 has_error = testcase.find("error") is not None
@@ -78,11 +82,7 @@ def parse_junit_failures(junit_dir: Path) -> tuple[list[str], int]:
                     if classname:
                         failed_files.add(classname_to_filepath(classname))
 
-    return sorted(failed_files), total_tests
-
-
-def determine_conclusion(failed_test_files: list[str]) -> str:
-    return "failure" if failed_test_files else "success"
+    return sorted(failed_files), total_tests, xml_files_seen
 
 
 def compute_verdict(
@@ -93,8 +93,7 @@ def compute_verdict(
     with open(selection_path) as f:
         selection = json.load(f)
 
-    failed_test_files, total_tests_run = parse_junit_failures(junit_dir)
-    conclusion = determine_conclusion(failed_test_files)
+    failed_test_files, total_tests_run, xml_files_seen = parse_junit_failures(junit_dir)
 
     combined = selection.get("combined", {})
     selected_tests: list[str] = combined.get("tests", [])
@@ -104,13 +103,33 @@ def compute_verdict(
     full_run_reasons: list[str] = ast_data.get("full_run_reasons", [])
     full_run_triggered = len(full_run_reasons) > 0
 
-    caught = sorted(f for f in failed_test_files if f in selected_set)
-    missed = sorted(f for f in failed_test_files if f not in selected_set)
-
-    if failed_test_files:
-        recall = len(caught) / len(failed_test_files)
-    else:
+    # No JUnit XMLs means we don't actually know what happened — the upstream
+    # artifact upload may have failed or the job may have run before tests
+    # finished. Emit "unknown" rather than the misleading "success" we'd
+    # otherwise infer from "0 failures observed".
+    if xml_files_seen == 0:
+        conclusion = "unknown"
+        recall: float | None = None
+        caught: list[str] = []
+        missed: list[str] = []
+    elif not failed_test_files:
+        conclusion = "success"
         recall = None
+        caught = []
+        missed = []
+    elif full_run_triggered:
+        # Selector explicitly opted into running the whole suite, so every
+        # failure would have been executed. Recording these as "missed"
+        # against `combined.tests` would skew the recall metric.
+        conclusion = "failure"
+        caught = list(failed_test_files)
+        missed = []
+        recall = 1.0
+    else:
+        conclusion = "failure"
+        caught = sorted(f for f in failed_test_files if f in selected_set)
+        missed = sorted(f for f in failed_test_files if f not in selected_set)
+        recall = len(caught) / len(failed_test_files)
 
     pr = os.environ.get("PR_NUMBER", "")
     sha = os.environ.get("PR_SHA", "")
@@ -121,6 +140,7 @@ def compute_verdict(
         "sha": sha,
         "branch": branch,
         "backend_conclusion": conclusion,
+        "junit_xml_files_seen": xml_files_seen,
         "total_tests_run": total_tests_run,
         "failure_count": len(failed_test_files),
         "failed_test_files": failed_test_files,
@@ -143,14 +163,22 @@ def format_summary(verdict: dict[str, object]) -> str:
     failure_count = verdict["failure_count"]
     recall = verdict["recall"]
     selected = verdict["selected_test_count"]
+    full_run_triggered = verdict.get("full_run_triggered", False)
 
-    if conclusion == "success":
+    if conclusion == "unknown":
+        lines.append("Backend conclusion unknown — no JUnit XML artifacts were found.")
+        lines.append("")
+        lines.append(f"{selected} tests would have been selected by the shadow selector.")
+    elif conclusion == "success":
         lines.append(f"Backend passed. {selected} tests were selected by the shadow selector.")
         lines.append("")
         lines.append("No failures to evaluate recall against.")
     else:
         recall_str = f"{recall:.0%}" if recall is not None else "n/a"
         lines.append(f"**Recall: {recall_str}** ({failure_count} failed test files, {selected} selected)")
+        if full_run_triggered:
+            lines.append("")
+            lines.append("Full-run mode was active, so every failure counts as caught.")
         lines.append("")
 
         caught = verdict.get("caught", [])
