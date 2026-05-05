@@ -61,59 +61,21 @@ describe('cohortActivityDescriber', () => {
         expect(result.description).toBeNull()
     })
 
-    it('describes creation', () => {
+    it.each([
+        ['created', 'High value users', 'Max Hog created the cohort: High value users'],
+        ['deleted', 'High value users', 'Max Hog deleted the cohort: High value users'],
+        ['restored', 'High value users', 'Max Hog restored the cohort: High value users'],
+        ['persons_added_manually', 'Beta testers', 'Max Hog added users to the cohort: Beta testers'],
+        ['person_removed_manually', 'Beta testers', 'Max Hog removed a user from the cohort: Beta testers'],
+    ])('describes %s activity', (activity, name, expected) => {
         expect(
             describeText(
                 makeLogItem({
-                    activity: 'created',
-                    detail: { name: 'High value users', merge: null, trigger: null, changes: [] },
+                    activity,
+                    detail: { name, merge: null, trigger: null, changes: [] },
                 })
             )
-        ).toBe('Max Hog created the cohort: High value users')
-    })
-
-    it('describes deletion', () => {
-        expect(
-            describeText(
-                makeLogItem({
-                    activity: 'deleted',
-                    detail: { name: 'High value users', merge: null, trigger: null, changes: [] },
-                })
-            )
-        ).toBe('Max Hog deleted the cohort: High value users')
-    })
-
-    it('describes restoration', () => {
-        expect(
-            describeText(
-                makeLogItem({
-                    activity: 'restored',
-                    detail: { name: 'High value users', merge: null, trigger: null, changes: [] },
-                })
-            )
-        ).toBe('Max Hog restored the cohort: High value users')
-    })
-
-    it('describes manual person additions', () => {
-        expect(
-            describeText(
-                makeLogItem({
-                    activity: 'persons_added_manually',
-                    detail: { name: 'Beta testers', merge: null, trigger: null, changes: [] },
-                })
-            )
-        ).toBe('Max Hog added users to the cohort: Beta testers')
-    })
-
-    it('describes manual person removals', () => {
-        expect(
-            describeText(
-                makeLogItem({
-                    activity: 'person_removed_manually',
-                    detail: { name: 'Beta testers', merge: null, trigger: null, changes: [] },
-                })
-            )
-        ).toBe('Max Hog removed a user from the cohort: Beta testers')
+        ).toBe(expected)
     })
 
     describe('updated activity', () => {
@@ -132,7 +94,11 @@ describe('cohortActivityDescriber', () => {
             expect(text).toContain('on New name')
         })
 
-        it('describes adding a description', () => {
+        it.each([
+            ['adding', null, 'Some description', 'added a description'],
+            ['clearing', 'Some description', '', 'cleared the description'],
+            ['editing', 'Old text', 'New text', 'updated the description'],
+        ])('describes %s a description', (_label, before, after, expected) => {
             expect(
                 describeText(
                     makeLogItem({
@@ -140,41 +106,11 @@ describe('cohortActivityDescriber', () => {
                             name: 'My cohort',
                             merge: null,
                             trigger: null,
-                            changes: [change('description', null, 'Some description')],
+                            changes: [change('description', before, after)],
                         },
                     })
                 )
-            ).toContain('added a description')
-        })
-
-        it('describes clearing a description', () => {
-            expect(
-                describeText(
-                    makeLogItem({
-                        detail: {
-                            name: 'My cohort',
-                            merge: null,
-                            trigger: null,
-                            changes: [change('description', 'Some description', '')],
-                        },
-                    })
-                )
-            ).toContain('cleared the description')
-        })
-
-        it('describes editing an existing description', () => {
-            expect(
-                describeText(
-                    makeLogItem({
-                        detail: {
-                            name: 'My cohort',
-                            merge: null,
-                            trigger: null,
-                            changes: [change('description', 'Old text', 'New text')],
-                        },
-                    })
-                )
-            ).toContain('updated the description')
+            ).toContain(expected)
         })
 
         it('describes a criteria count change', () => {
