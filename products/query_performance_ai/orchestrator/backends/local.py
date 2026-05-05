@@ -14,9 +14,14 @@ from __future__ import annotations
 
 import json
 import time
-from typing import Any
+import uuid
+from typing import TYPE_CHECKING, Any
 
+from . import _query_log
 from .base import BackendError, ExecutionBackend, ExecutionResult
+
+if TYPE_CHECKING:
+    from clickhouse_driver import Client
 
 _LOCAL_DEV_DB_PROMPT = (
     "## Coordinator routing — LOCAL CLICKHOUSE MODE\n"
@@ -77,11 +82,13 @@ class LocalClickhouseBackend(ExecutionBackend):
             send_receive_timeout=timeout_s + 30,
         )
 
-        # `log_comment` is the standard way prod queries are tagged for
-        # `system.query_log`. We mirror the shape `tag_queries(...)` would
-        # have written so the agent's replays show up under
-        # `feature=autoresearch` if anyone ever inspects the dev cluster's
-        # query_log.
+        # Tag the candidate with an `autoresearch_run_id` so we can find the
+        # row in `system.query_log` afterwards and pull authoritative CH-side
+        # metrics (query_duration_ms / read_rows / read_bytes / query_id).
+        # `client.execute` doesn't return any of those directly — and the
+        # round-trip wall-clock here would bake in TLS handshake + driver
+        # serialisation, so it's worth the extra lookup.
+        run_id = uuid.uuid4().hex[:16]
         log_comment = json.dumps(
             {
                 "product": "internal",
@@ -89,6 +96,7 @@ class LocalClickhouseBackend(ExecutionBackend):
                 "team_id": self._team_id,
                 "kind": "autoresearch_local_replay",
                 "query_type": "autoresearch_candidate",
+                "autoresearch_run_id": run_id,
             }
         )
 
@@ -114,10 +122,22 @@ class LocalClickhouseBackend(ExecutionBackend):
         try:
             rows = client.execute(sql, settings=ch_settings, with_column_types=False)
         except ClickHouseError as e:
+            client.disconnect()
             raise BackendError(f"clickhouse exec failed: {type(e).__name__}: {str(e)[:1000]}") from e
+        round_trip_ms = (time.monotonic() - start) * 1000.0
+
+        # Reuse the same connection for SYSTEM FLUSH LOGS + the query_log
+        # lookup so we don't pay another TLS handshake. Failures here are
+        # non-fatal — we fall back to round_trip_ms.
+        try:
+            log_metrics = self._fetch_query_log_metrics(client, run_id)
         finally:
             client.disconnect()
-        elapsed_ms = (time.monotonic() - start) * 1000.0
+
+        if log_metrics is not None:
+            elapsed_ms, rows_read, bytes_read, query_id = log_metrics
+        else:
+            elapsed_ms, rows_read, bytes_read, query_id = round_trip_ms, None, None, None
 
         # `Client.execute` returns `list[tuple[Any, ...]]`; normalize so the
         # JSON shape matches what MetabaseBackend produces.
@@ -125,7 +145,35 @@ class LocalClickhouseBackend(ExecutionBackend):
         return ExecutionResult(
             rows=normalized,
             elapsed_ms=elapsed_ms,
-            rows_read=None,
-            bytes_read=None,
-            query_id=None,
+            rows_read=rows_read,
+            bytes_read=bytes_read,
+            query_id=query_id,
         )
+
+    def _fetch_query_log_metrics(self, client: Client, run_id: str) -> tuple[float, int, int, str] | None:
+        """Look up the candidate's row in `system.query_log` after a synchronous flush.
+
+        ``SYSTEM FLUSH LOGS`` makes the row visible immediately on a single-node
+        dev CH (the alternative — waiting for CH's ~7.5s automatic flush — is
+        the metabase path because the test cluster's metabase user can't
+        issue SYSTEM commands). If FLUSH LOGS fails (permissions / readonly /
+        anything else) we still try the SELECT — if the row happens to be
+        flushed already we'll find it; if not we return None and let the
+        caller fall back to round-trip wall-clock.
+        """
+        from clickhouse_driver.errors import Error as ClickHouseError  # noqa: PLC0415
+
+        sql = _query_log.build_lookup_sql(run_id, table_expr="system.query_log")
+        if sql is None:
+            return None
+        try:
+            client.execute("SYSTEM FLUSH LOGS")
+        except ClickHouseError:
+            pass
+        try:
+            rows = client.execute(sql, with_column_types=False)
+        except ClickHouseError:
+            return None
+        if not rows:
+            return None
+        return _query_log.parse_lookup_row(list(rows[0]))

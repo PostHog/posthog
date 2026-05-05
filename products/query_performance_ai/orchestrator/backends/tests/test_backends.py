@@ -7,7 +7,9 @@ from typing import Any
 import pytest
 from unittest import mock
 
+from products.query_performance_ai.orchestrator.backends import _query_log
 from products.query_performance_ai.orchestrator.backends.base import BackendError
+from products.query_performance_ai.orchestrator.backends.local import LocalClickhouseBackend
 from products.query_performance_ai.orchestrator.backends.metabase import MetabaseBackend, _tag_with_log_comment
 
 
@@ -210,3 +212,106 @@ def test_tag_with_log_comment_merges_into_last_settings_only() -> None:
     # log_comment is inserted right after the existing SETTINGS keyword.
     assert "SETTINGS log_comment = " in tagged
     assert "max_threads = 2" in tagged
+
+
+# ----------------------------------------------------------------------
+# Shared `_query_log` helper tests (covers both backends).
+# ----------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "run_id,expected_valid",
+    [
+        ("0123456789abcdef", True),
+        ("ffffffffffffffff", True),
+        ("short", False),
+        ("g" * 16, False),  # non-hex
+        ("' OR 1=1 --     ", False),  # injection attempt
+        ("0123456789ABCDEF", False),  # uppercase
+        ("", False),
+    ],
+)
+def test_query_log_is_valid_run_id(run_id: str, expected_valid: bool) -> None:
+    assert _query_log.is_valid_run_id(run_id) is expected_valid
+
+
+def test_query_log_build_lookup_sql_returns_none_for_invalid_run_id() -> None:
+    assert _query_log.build_lookup_sql("nope", table_expr="system.query_log") is None
+
+
+def test_query_log_build_lookup_sql_interpolates_table_and_run_id() -> None:
+    sql = _query_log.build_lookup_sql("0123456789abcdef", table_expr="clusterAllReplicas(posthog, system, query_log)")
+    assert sql is not None
+    assert "clusterAllReplicas(posthog, system, query_log)" in sql
+    assert "'0123456789abcdef'" in sql
+    assert "type = 'QueryFinish'" in sql
+
+
+def test_query_log_parse_lookup_row_happy_path() -> None:
+    parsed = _query_log.parse_lookup_row([1234.5, 1000, 50000, "abc-query-id"])
+    assert parsed == (1234.5, 1000, 50000, "abc-query-id")
+
+
+@pytest.mark.parametrize(
+    "row",
+    [
+        [],
+        [1, 2, 3],  # too short
+        [1, 2, 3, 4, 5],  # too long
+        ["not-a-number", 1, 1, "id"],  # non-numeric duration
+    ],
+)
+def test_query_log_parse_lookup_row_rejects_malformed(row: list[Any]) -> None:
+    assert _query_log.parse_lookup_row(row) is None
+
+
+# ----------------------------------------------------------------------
+# LocalClickhouseBackend `_fetch_query_log_metrics` tests.
+#
+# We don't end-to-end test `LocalClickhouseBackend.run()` because it pulls in
+# Django settings + a live `clickhouse_driver.Client` connection. The
+# query_log lookup helper is the load-bearing part to verify in isolation.
+# ----------------------------------------------------------------------
+
+
+def test_local_fetch_query_log_metrics_returns_tuple_when_row_present() -> None:
+    backend = LocalClickhouseBackend(team_id=1)
+    fake_client = mock.MagicMock()
+    # First execute is `SYSTEM FLUSH LOGS` (returns []), second is the lookup.
+    fake_client.execute.side_effect = [
+        [],  # FLUSH LOGS
+        [(456.0, 999, 8888, "ch-query-id")],  # lookup result
+    ]
+    out = backend._fetch_query_log_metrics(fake_client, "0123456789abcdef")
+    assert out == (456.0, 999, 8888, "ch-query-id")
+
+
+def test_local_fetch_query_log_metrics_swallows_flush_logs_failure() -> None:
+    """If FLUSH LOGS errors (e.g. permission), we should still try the lookup —
+    it'll either find the row that flushed automatically or return None."""
+    from clickhouse_driver.errors import Error as ClickHouseError  # noqa: PLC0415
+
+    backend = LocalClickhouseBackend(team_id=1)
+    fake_client = mock.MagicMock()
+    fake_client.execute.side_effect = [
+        ClickHouseError("not permitted"),  # FLUSH LOGS
+        [(789.0, 1, 2, "id")],  # lookup result
+    ]
+    out = backend._fetch_query_log_metrics(fake_client, "0123456789abcdef")
+    assert out == (789.0, 1, 2, "id")
+
+
+def test_local_fetch_query_log_metrics_returns_none_for_invalid_run_id() -> None:
+    backend = LocalClickhouseBackend(team_id=1)
+    fake_client = mock.MagicMock()
+    out = backend._fetch_query_log_metrics(fake_client, "not-hex")
+    assert out is None
+    fake_client.execute.assert_not_called()
+
+
+def test_local_fetch_query_log_metrics_returns_none_when_no_row() -> None:
+    backend = LocalClickhouseBackend(team_id=1)
+    fake_client = mock.MagicMock()
+    fake_client.execute.side_effect = [[], []]  # FLUSH ok, lookup empty
+    out = backend._fetch_query_log_metrics(fake_client, "0123456789abcdef")
+    assert out is None

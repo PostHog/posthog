@@ -14,6 +14,7 @@ import uuid
 import shlex
 import subprocess
 
+from . import _query_log
 from .base import BackendError, ExecutionBackend, ExecutionResult
 
 # How long to wait for a candidate's row to appear in `system.query_log`.
@@ -196,20 +197,12 @@ class MetabaseBackend(ExecutionBackend):
 
         Returns ``(query_duration_ms, read_rows, read_bytes, query_id)`` once
         the row has flushed, or ``None`` if the poll budget elapses without a
-        match. ``run_id`` is hex-only (``uuid.hex[:16]``) so it's safe to
-        interpolate into the SQL string-literal directly.
+        match. The test cluster's metabase user can't `SYSTEM FLUSH LOGS`,
+        so we just wait for CH's automatic flush (default ~7.5s).
         """
-        # Defence-in-depth: refuse anything that isn't 16 hex chars.
-        if not re.fullmatch(r"[0-9a-f]{16}", run_id):
+        sql = _query_log.build_lookup_sql(run_id, table_expr="clusterAllReplicas(posthog, system, query_log)")
+        if sql is None:
             return None
-        sql = (
-            "SELECT query_duration_ms, read_rows, read_bytes, query_id "
-            "FROM clusterAllReplicas(posthog, system, query_log) "
-            "WHERE event_date >= today() - 1 "
-            "AND type = 'QueryFinish' "
-            f"AND JSONExtractString(log_comment, 'autoresearch_run_id') = '{run_id}' "
-            "ORDER BY event_time DESC LIMIT 1"
-        )
         for attempt in range(_QUERY_LOG_POLL_ATTEMPTS):
             if attempt > 0:
                 time.sleep(_QUERY_LOG_POLL_INTERVAL_S)
@@ -221,6 +214,7 @@ class MetabaseBackend(ExecutionBackend):
                 return None
             rows = body.get("data", {}).get("rows") or []
             if rows:
-                duration_ms, rows_read, bytes_read, query_id = rows[0]
-                return float(duration_ms), int(rows_read), int(bytes_read), str(query_id)
+                parsed = _query_log.parse_lookup_row(rows[0])
+                if parsed is not None:
+                    return parsed
         return None
