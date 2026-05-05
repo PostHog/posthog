@@ -90,11 +90,12 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
 
     def initial(self, request, *args, **kwargs):
         """
-        Set team scope context from the URL-derived team_id, overriding any
-        value that TeamScopingMiddleware may have set from the user's "current"
-        team. The URL team_id is the team being acted on — using current_team_id
-        here would silently mismatch when a user makes a request to a project
-        they're not currently focused on (see #50899 for the equivalent org bug).
+        Set team scope context from the URL-derived team_id (the team being
+        acted on). This is the single source of truth for team scoping in DRF
+        request flows — any code path that reads through TeamScopedManager /
+        ProductTeamManager during this request gets the URL's team_id, not
+        the user's "current" team (which can drift from the URL — see #50899
+        for the equivalent org-level bug).
 
         Runs after super().initial() so authentication has completed.
         """
@@ -104,7 +105,9 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
             try:
                 team_id = self.team_id
             except (KeyError, ValidationError, AuthenticationFailed):
-                # Resolution failed — leave middleware-set context in place
+                # Resolution failed — leave context unset; downstream code that
+                # touches a scoped model will get TeamScopeError, which is the
+                # correct fail-closed behavior.
                 return
             # Reuse parent_team_id from already-loaded team (likely cached by
             # permission checks above). Lets the manager skip its parent-team

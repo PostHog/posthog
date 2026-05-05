@@ -25,8 +25,9 @@ class TeamScopeError(Exception):
     """Raised when a team-scoped model is queried without team context.
 
     To fix, either:
-    - Set team context: use TeamScopingMiddleware (requests) or
-      team_scope()/with_team_scope() (background jobs)
+    - Set team context: TeamAndOrgViewSetMixin sets it for nested DRF views
+      from the URL team_id; use team_scope()/with_team_scope() elsewhere
+      (Celery tasks, management commands, admin actions).
     - Opt out explicitly: Model.objects.unscoped().all()
     """
 

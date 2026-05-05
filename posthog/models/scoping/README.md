@@ -8,11 +8,16 @@ Related: [#47073](https://github.com/PostHog/posthog/pull/47073)
 
 ## How it works
 
-Middleware sets team_id in a ContextVar on every request. Managers read it and auto-filter. No context = exception.
+A ContextVar holds the current team_id. The scoped manager reads it and auto-filters. No context = exception. Context is set by:
+
+- **DRF nested views** — `TeamAndOrgViewSetMixin.initial()` sets it from the URL team_id (the team being acted on, not the user's "current" team — see #50899 for the equivalent org bug).
+- **Celery tasks / management commands / anything else** — explicitly via `team_scope()` or `@with_team_scope()`.
+
+There is intentionally no middleware fallback that defaults to `user.current_team_id`. That value is a UI preference and can drift from the team being acted on; using it as a silent default is exactly the bug class this framework is meant to prevent.
 
 ```python
-# request context — automatic via middleware
-Repo.objects.all()                    # filtered to current team
+# DRF view — context set automatically by TeamAndOrgViewSetMixin from URL
+Repo.objects.all()                    # filtered to URL team_id
 
 # no context — raises TeamScopeError
 Repo.objects.all()                    # ← boom
