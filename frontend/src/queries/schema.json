@@ -468,6 +468,9 @@
         "AnyAssistantGeneratedQuery": {
             "anyOf": [
                 {
+                    "$ref": "#/definitions/DataVisualizationNode"
+                },
+                {
                     "$ref": "#/definitions/AssistantTrendsQuery"
                 },
                 {
