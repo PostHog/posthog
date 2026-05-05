@@ -1302,7 +1302,6 @@ class TestCalendarHeatmapQueryRunner(ClickhouseTestMixin, APIBaseTest):
             filterTestAccounts=False,
             series=[EventsNode(kind="EventsNode", math="dau")],
         )
-
         runner_default = CalendarHeatmapQueryRunner(team=self.team, query=query_default)
         date_from_default = runner_default.query_date_range.date_from()
         date_to_default = runner_default.query_date_range.date_to()
