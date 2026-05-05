@@ -131,8 +131,27 @@ fi
 
 
 
-# Write .env file
-cat > .env <<EOF
+# Write .env file — only on first install.
+# On a re-run (e.g. after a partial failure), preserve the existing file so that
+# POSTHOG_SECRET and ENCRYPTION_SALT_KEYS are not regenerated, which would break
+# an already-running instance and invalidate existing sessions.
+if [ -f ".env" ]; then
+    echo "Existing .env found – preserving configuration"
+    # Update version tag in place; append if the key is absent.
+    if grep -q "^POSTHOG_APP_TAG=" .env; then
+        sed -i "s|^POSTHOG_APP_TAG=.*|POSTHOG_APP_TAG=$POSTHOG_APP_TAG|" .env
+    else
+        echo "POSTHOG_APP_TAG=$POSTHOG_APP_TAG" >> .env
+    fi
+    # Add keys that were introduced after the initial release, if missing.
+    if ! grep -q "^ENCRYPTION_SALT_KEYS=" .env; then
+        echo "ENCRYPTION_SALT_KEYS=$ENCRYPTION_SALT_KEYS" >> .env
+    fi
+    if ! grep -q "^SESSION_RECORDING_V2_METADATA_SWITCHOVER=" .env; then
+        echo "SESSION_RECORDING_V2_METADATA_SWITCHOVER=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> .env
+    fi
+else
+    cat > .env <<EOF
 POSTHOG_SECRET=$POSTHOG_SECRET
 ENCRYPTION_SALT_KEYS=$ENCRYPTION_SALT_KEYS
 DOMAIN=$DOMAIN
@@ -141,7 +160,9 @@ REGISTRY_URL=$REGISTRY_URL
 CADDY_TLS_BLOCK=$TLS_BLOCK
 CADDY_HOST="$DOMAIN, http://, https://"
 POSTHOG_APP_TAG=$POSTHOG_APP_TAG
+SESSION_RECORDING_V2_METADATA_SWITCHOVER=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 EOF
+fi
 
 # Download GeoLite2-City.mmdb if it doesn't exist
 echo "Downloading GeoIP database file"
