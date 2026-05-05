@@ -244,16 +244,17 @@ export const llmTaggerLogic = kea<llmTaggerLogicType>([
                               prompt: !('prompt' in values.tagger_config && values.tagger_config.prompt)
                                   ? 'Prompt is required'
                                   : undefined,
-                              // kea-forms expects per-tag errors as an array matching tags[]. We
-                              // synthesize a single-entry error for the empty-tags case so the
-                              // form is still marked invalid (the UI guardrail blocks reaching
-                              // this state, but a programmatic removeTag could).
+                              // kea-forms expects per-tag errors as an array matching tags[]. The
+                              // array type does not allow `undefined` slots, so use `{}` for
+                              // tags with no error. Synthesize a single-entry error for the
+                              // empty-tags case so the form stays invalid (the UI guardrail
+                              // blocks reaching this state, but a programmatic removeTag could).
                               tags:
                                   values.tagger_config.tags.length === 0
                                       ? [{ name: 'At least one tag is required' }]
                                       : values.tagger_config.tags.some((t) => !t.name.trim())
                                         ? values.tagger_config.tags.map((t) =>
-                                              !t.name.trim() ? { name: 'All tags must have a name' } : undefined
+                                              !t.name.trim() ? { name: 'All tags must have a name' } : {}
                                           )
                                         : undefined,
                           },
