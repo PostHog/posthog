@@ -373,11 +373,11 @@ def maybe_configure_dotfiles(configure_dotfiles: bool | None) -> None:
 @click.command(name="devbox", help="Show available devbox commands")
 def devbox_help() -> None:
     """Show the available `hogli devbox:*` commands."""
-    devbox_section = get_manifest().data.get("devbox", {})
+    manifest_obj = get_manifest()
     commands = sorted(
-        (name, cfg.get("description", ""))
-        for name, cfg in devbox_section.items()
-        if isinstance(cfg, dict) and name != "devbox" and not cfg.get("hidden", False)
+        (name, (manifest_obj.get_command_config(name) or {}).get("description", ""))
+        for name in manifest_obj.get_all_commands()
+        if name.startswith("devbox:") and not manifest_obj.is_command_hidden(name)
     )
     click.echo("Available devbox commands:")
     click.echo()

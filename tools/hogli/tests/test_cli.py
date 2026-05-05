@@ -24,6 +24,17 @@ def _manifest_click_commands() -> list[str]:
     ]
 
 
+def _manifest_click_modules() -> list[str]:
+    manifest = get_manifest()
+    modules: set[str] = set()
+    for cmd_name in _manifest_click_commands():
+        click_target = (manifest.get_command_config(cmd_name) or {}).get("click", "")
+        module_name = click_target.split(":", 1)[0]
+        if module_name:
+            modules.add(module_name)
+    return sorted(modules)
+
+
 class TestMainCommand:
     """Test main command functionality."""
 
@@ -127,13 +138,8 @@ class TestLazyClickCommands:
         assert "Usage:" in result.output
 
     def test_top_level_help_does_not_import_lazy_command_modules(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        lazy_modules = [
-            "hogli_commands.devenv.cli",
-            "hogli_commands.devbox.cli",
-            "hogli_commands.metabase",
-            "hogli_commands.migrations",
-            "hogli_commands.test_runner",
-        ]
+        lazy_modules = _manifest_click_modules()
+        assert lazy_modules, "expected at least one lazy click module in the manifest"
         for module_name in lazy_modules:
             monkeypatch.delitem(sys.modules, module_name, raising=False)
 
@@ -141,7 +147,7 @@ class TestLazyClickCommands:
 
         assert result.exit_code == 0
         for module_name in lazy_modules:
-            assert module_name not in sys.modules
+            assert module_name not in sys.modules, f"{module_name} was imported during top-level --help"
 
     def test_hidden_lazy_commands_are_hidden_from_help_and_listing(self) -> None:
         hidden_command = "dev:list-units"
