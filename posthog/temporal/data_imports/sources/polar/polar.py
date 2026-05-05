@@ -10,7 +10,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.common.http import make_tracked_session
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from posthog.temporal.data_imports.sources.polar.settings import ENDPOINTS
+from posthog.temporal.data_imports.sources.polar.settings import ENDPOINT_SORT_FIELDS, ENDPOINTS
 
 POLAR_BASE_URL = "https://api.polar.sh"
 PAGE_SIZE = 100
@@ -37,8 +37,11 @@ def polar_request(session: requests.Session, method: str, url: str, **kwargs) ->
 
 
 def _build_url(endpoint: str, page: int) -> str:
-    qs = urlencode({"limit": PAGE_SIZE, "page": page})
-    return f"{POLAR_BASE_URL}/v1/{endpoint}/?{qs}"
+    params: dict[str, str | int] = {"limit": PAGE_SIZE, "page": page}
+    sort_field = ENDPOINT_SORT_FIELDS.get(endpoint)
+    if sort_field is not None:
+        params["sorting"] = sort_field
+    return f"{POLAR_BASE_URL}/v1/{endpoint}/?{urlencode(params)}"
 
 
 def _page_from_url(url: str) -> int:
