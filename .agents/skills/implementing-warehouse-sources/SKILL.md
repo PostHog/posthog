@@ -338,30 +338,10 @@ If the API distinguishes 401 (bad token) from 403 (valid token, missing scope), 
 
 ## Document required token scopes
 
-If the API issues OAuth scopes or per-resource access tokens, declare every scope the source actually calls so the user knows what to grant. Don't make them guess and grant the full set defensively.
+Declare every scope the source actually calls so users know what to grant — don't make them grant the full set defensively.
 
-**OAuth sources (preferred):** set `requiredScopes` on the `SourceFieldOauthConfig`. The frontend checks the connected integration's actual granted scopes against this list and warns the user (with a Reconnect action) when any are missing — strictly better than text in the caption, which doesn't validate anything. Pass a single space-separated string (matches the OAuth `scope` parameter format):
-
-```python
-SourceFieldOauthConfig(
-    name="foo_integration_id",
-    label="Foo account",
-    required=True,
-    kind="foo",
-    requiredScopes="customers:read orders:read products:read",
-)
-```
-
-See `posthog/temporal/data_imports/sources/slack/source.py` for a real example.
-
-**Non-OAuth sources (PAT, API key, etc.):** there's no integration object to inspect, so list scopes in the `caption` instead. Captions render through `LemonMarkdown`, so backticks, bold, and links work:
-
-```python
-caption=(
-    "Connect your Foo account using a [Personal Access Token](https://docs.foo.com/tokens). \n\n"
-    "**Required scopes:** `customers:read`, `orders:read`, `products:read`."
-),
-```
+- **OAuth sources:** set `requiredScopes` on `SourceFieldOauthConfig` (space-separated string, matches the OAuth `scope` parameter format). The frontend diffs it against the integration's granted scopes and warns the user with a Reconnect action when any are missing.
+- **Non-OAuth sources (PAT, API key):** there's no integration object to inspect, so list scopes in the `caption` instead. Captions render through `LemonMarkdown`, so backticks, bold, and links work.
 
 ## Mixins
 
