@@ -4,12 +4,11 @@
         max-width: min(24rem, var(--available-width));
         max-height: var(--available-height);
         overflow: hidden;
-        color: var(--popover-foreground);
-        background-color: var(--popover);
+        color: var(--foreground);
+        background-color: var(--card);
+        border: 1px solid var(--border);
         border-radius: var(--radius-md);
-        box-shadow:
-            0 0 0 1px color-mix(in oklab, var(--foreground) 10%, transparent),
-            0 4px 6px -1px rgb(0 0 0 / 10%);
+        box-shadow: var(--shadow-md);
         transition:
             opacity 150ms cubic-bezier(0.215, 0.61, 0.355, 1),
             transform 150ms cubic-bezier(0.215, 0.61, 0.355, 1);
@@ -23,7 +22,7 @@
     }
 
     :is(.dark, [theme='dark']) .quill-combobox__content {
-        background-color: var(--popover);
+        background-color: var(--card);
     }
 
     /* Nested InputGroup inside popup: visually recede */
@@ -34,6 +33,39 @@
         background-color: color-mix(in oklab, var(--input) 20%, transparent);
         border: none;
         box-shadow: none;
+    }
+
+    /*
+     * When the combobox is rendered as a floating-UI popover (any
+     * `[data-quill-portal]` ancestor) — give the search input a divider
+     * and breathing room before the list. Inline comboboxes (no portal
+     * ancestor) keep the flush layout above. Detection is purely CSS so
+     * consumers don't need to pass a prop down.
+     */
+
+    /*
+     * Separator inside the input wrapper is rendered unconditionally by
+     * ComboboxInput. Hide it by default; only show it when the combobox
+     * is rendered as a floating-UI popover (any `[data-quill-portal]`
+     * ancestor). The wrapper padding + separator inset margin also only
+     * apply in that mode — inline comboboxes keep their flush layout.
+     */
+    [data-slot='combobox-popover-separator'] {
+        display: none;
+    }
+
+    [data-quill-portal] .quill-combobox__content > [data-slot='combobox-input-group-wrapper'] {
+        padding: var(--spacing);
+        border-bottom: 1px solid var(--border);
+    }
+
+    [data-quill-portal]
+        .quill-combobox__content
+        > [data-slot='combobox-input-group-wrapper']
+        > [data-slot='combobox-popover-separator'] {
+        display: block;
+        width: calc(100% + var(--spacing));
+        margin: var(--spacing) calc(var(--spacing) * -1) 0;
     }
 
     .quill-combobox__list {
@@ -48,9 +80,35 @@
         scroll-padding-block: 0.25rem;
     }
 
+    /*
+     * When a sticky `combobox-list-footer` is present, items above it
+     * need a `scroll-margin-bottom` so that base-ui's keyboard navigation
+     * (`element.scrollIntoView({ block: 'nearest' })`) parks them ABOVE
+     * the footer + gradient zone instead of underneath.
+     *
+     * Why per-item `scroll-margin-bottom` instead of `scroll-padding-bottom`
+     * on the container OR `padding-bottom`:
+     *  - `scroll-padding-bottom`: only works when scroll is invoked via
+     *    `scrollIntoView` AND the browser honors padding. Some scroll code
+     *    paths bypass it.
+     *  - `padding-bottom`: pushes the footer's natural-flow position up,
+     *    which in non-overflowing lists makes sticky inactive — footer
+     *    floats 3.5rem above the bottom edge instead of pinning. Bad UX.
+     *  - `scroll-margin-bottom` on the item itself: a per-element hint
+     *    that travels with the item into the browser's scroll calculation,
+     *    independent of container layout. Doesn't affect natural flow,
+     *    so sticky still pins correctly.
+     *
+     * Targets `[role='option']` because base-ui's render-prop merging onto
+     * Button drops our `data-slot` on items, but the ARIA role is always
+     * set internally. Total: 3.5rem = ~2.5rem footer + 1rem gradient zone.
+     */
     .quill-combobox__list:has([data-slot='combobox-list-footer']) {
-        scroll-padding-bottom: 2.5rem;
         padding-bottom: 0;
+    }
+
+    .quill-combobox__list:has([data-slot='combobox-list-footer']) [role='option'] {
+        scroll-margin-bottom: 2.5rem;
     }
 
     .quill-combobox__list[data-empty] {
@@ -142,12 +200,85 @@
         bottom: -1px;
         margin-inline: -0.25rem;
         margin-top: 0.25rem;
-        background-color: var(--popover);
+        background-color: var(--card);
+        border-top: 1px solid var(--border);
+    }
+
+    /*
+     * Reusable utility: fakes a `scroll-mask` fade ABOVE a sticky-bottom
+     * element (e.g. the combobox list footer). Items appear to fade into
+     * the footer's background as they scroll past — without applying a
+     * real `mask-image` to the parent (which would also fade the footer
+     * itself, the issue we hit with `scroll-mask-b-4`).
+     *
+     * Visibility is driven by a scroll-driven animation tied to the
+     * nearest ancestor scroller (`scroll(nearest block)`). Keyframe shape:
+     *   0%, 99%  → opacity 1   (top of scroll OR no-overflow, AND mid-scroll)
+     *   100%     → opacity 0   (at scroll end: fade hidden, footer is solid)
+     *
+     * No explicit `0% → opacity 0` for the no-overflow case: the gradient
+     * is `var(--card) → transparent` and the popup background is also
+     * `var(--card)`, so when no item content sits under the pseudo, every
+     * stop of the gradient is `var(--card)` blending with `var(--card)` —
+     * effectively invisible. The fade only renders visibly when there's
+     * actual content behind it, which is exactly when scrolling is
+     * possible. Trade-off: one less keyframe stop, free no-overflow
+     * handling via color math.
+     *
+     * We avoid `container-type: scroll-state` because it establishes
+     * containment that breaks `position: sticky` on the consumer in
+     * current Chromium. Scroll-driven animations don't have that side
+     * effect and reach the right scroller via `scroll(nearest block)`.
+     *
+     * The gradient fades from `var(--card)` at the footer edge to
+     * `transparent` further away — same visual blend as the
+     * `tailwindcss-scroll-mask` plugin in both light and dark modes
+     * (`--card` is the popup background in both themes).
+     */
+
+    /*
+     * No `position: relative` on the utility itself — consumers like
+     * `.quill-combobox__list-footer` already use `position: sticky`, which
+     * establishes a containing block for the absolutely-positioned ::before.
+     * Adding `position: relative` here would override their sticky (same
+     * specificity, declared later) and break the pin.
+     *
+     * For consumers that aren't already positioned, set `position: relative`
+     * on the host element directly.
+     */
+    .quill-scroll-fade-top::before {
+        position: absolute;
+        inset-inline: 0;
+
+        /*
+         * `bottom: 100%` lands the pseudo's bottom at the padding-box top
+         * (inside the border) — the gradient's solid `var(--card)` would
+         * then paint over the consumer's `border-top`. `+ 1px` lifts it
+         * clear of a 1px border so the divider stays visible.
+         */
+        bottom: calc(100% + 1px);
+        height: 1rem;
+        pointer-events: none;
+        content: '';
+        background: linear-gradient(to top, var(--card), transparent);
+        animation: quill-scroll-fade-top__opacity linear both;
+        animation-timeline: scroll(nearest block);
     }
 
     .quill-combobox__trigger svg:not([class*='size-']) {
         width: 0.875rem;
         height: 0.875rem;
+    }
+
+    @keyframes quill-scroll-fade-top__opacity {
+        0%,
+        99% {
+            opacity: 1;
+        }
+
+        100% {
+            opacity: 0;
+        }
     }
 
     @media (prefers-reduced-motion: reduce) {
