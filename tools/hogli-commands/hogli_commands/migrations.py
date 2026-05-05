@@ -37,6 +37,7 @@ from hogli.manifest import REPO_ROOT
 
 from common.migration_utils import (
     MIGRATION_CACHE_DIR,
+    cache_migration_file,
     get_cache_path as _get_cache_path,
     get_cached_migration as _get_cached_migration,
     get_managed_app_paths,
@@ -83,8 +84,6 @@ class MigrationDiff:
 
 def _cache_migration(app: str, name: str, source_path: Path) -> bool:
     """Cache a migration file for later rollback with CLI feedback."""
-    from common.migration_utils import cache_migration_file
-
     try:
         if not cache_migration_file(app, name, source_path):
             click.secho(f"  ⚠ Could not cache {app}.{name}", fg="yellow", err=True)
