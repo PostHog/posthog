@@ -19,6 +19,7 @@ from posthog.schema import (
     SuggestedTable,
 )
 
+from posthog.models.integration import OauthIntegration
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common.base import (
     ExternalWebhookInfo,
@@ -245,6 +246,11 @@ If automatic creation failed due to a permissions error and you're using a restr
             raise ValueError("Missing Stripe integration ID")
 
         integration = self.get_oauth_integration(config.auth_method.stripe_integration_id, team_id)
+
+        oauth_integration = OauthIntegration(integration)
+        if oauth_integration.access_token_expired():
+            oauth_integration.refresh_access_token()
+
         if not integration.access_token:
             raise ValueError("Stripe access token not found")
         return integration.access_token
@@ -273,6 +279,16 @@ If automatic creation failed due to a permissions error and you're using a restr
             schemas = [s for s in schemas if s.name in names_set]
         return schemas
 
+    def _force_refresh_oauth_token(self, config: StripeSourceConfig, team_id: int) -> str | None:
+        """Force-refresh the OAuth token and return the new API key, or None if refresh fails."""
+        if not config.auth_method.stripe_integration_id:
+            return None
+        integration = self.get_oauth_integration(config.auth_method.stripe_integration_id, team_id)
+        oauth_integration = OauthIntegration(integration)
+        oauth_integration.refresh_access_token()
+        integration.refresh_from_db()
+        return integration.access_token
+
     def validate_credentials(
         self,
         config: StripeSourceConfig,
@@ -286,6 +302,18 @@ If automatic creation failed due to a permissions error and you're using a restr
             else:
                 return False, "Invalid Stripe credentials"
         except StripeAuthenticationError as e:
+            if config.auth_method.selection == "oauth":
+                refreshed_key = self._force_refresh_oauth_token(config, team_id)
+                if refreshed_key:
+                    try:
+                        if validate_stripe_credentials(refreshed_key, schema_name):
+                            return True, None
+                    except (StripeAuthenticationError, StripePermissionError, StripeValidationError):
+                        pass
+                return (
+                    False,
+                    "Your Stripe OAuth connection has expired or been revoked. Please reconnect your Stripe account.",
+                )
             return (
                 False,
                 f"Stripe rejected the API key: {e.stripe_message}. Double-check that you pasted a restricted key (rk_live_...) for the same Stripe account, with no extra whitespace, and that it has not been revoked.",
