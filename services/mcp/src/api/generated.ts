@@ -41729,7 +41729,6 @@ export namespace Schemas {
     search?: string;
     };
 
-
     export type TracingSpansAttributesRetrieveAttributeType = typeof TracingSpansAttributesRetrieveAttributeType[keyof typeof TracingSpansAttributesRetrieveAttributeType];
 
 
