@@ -287,7 +287,6 @@ const ListItemTitle = memo(function ListItemTitle({
                 ref={hoverRef}
                 onClick={() => seekToEvent()}
             >
-                {/*TODO this tooltip doesn't trigger whether its inside or outside of this hover container */}
                 {item.windowNumber ? (
                     <Tooltip
                         placement="left"
