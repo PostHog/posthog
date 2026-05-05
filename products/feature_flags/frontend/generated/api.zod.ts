@@ -954,8 +954,6 @@ This endpoint allows testing how a feature flag would evaluate for a specific us
 optionally at a historical timestamp. When a timestamp is provided, both the flag
 conditions and person properties are evaluated as they existed at that time.
  */
-export const featureFlagsTestEvaluationCreateBodyGroupsDefault = `{}`
-
 export const FeatureFlagsTestEvaluationCreateBody = /* @__PURE__ */ zod.object({
     distinct_id: zod
         .string()
@@ -969,9 +967,9 @@ export const FeatureFlagsTestEvaluationCreateBody = /* @__PURE__ */ zod.object({
             'Optional point-in-time to evaluate the flag against — both flag conditions and person properties are reconstructed as they existed at that timestamp. ISO 8601 with timezone, e.g. ``2026-04-29T15:30:00Z`` or ``2026-04-29T15:30:00+00:00``. Naive timestamps (no timezone) are interpreted as UTC.'
         ),
     groups: zod
-        .string()
-        .default(featureFlagsTestEvaluationCreateBodyGroupsDefault)
-        .describe('Groups for feature flag evaluation (JSON object string)'),
+        .unknown()
+        .optional()
+        .describe('Groups for feature flag evaluation (JSON object, defaults to empty dict)'),
 })
 
 /**

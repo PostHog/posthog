@@ -779,8 +779,8 @@ export interface FeatureFlagTestEvaluationRequestApi {
      * @nullable
      */
     timestamp?: string | null
-    /** Groups for feature flag evaluation (JSON object string) */
-    groups?: string
+    /** Groups for feature flag evaluation (JSON object, defaults to empty dict) */
+    groups?: unknown
 }
 
 /**
