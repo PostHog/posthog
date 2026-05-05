@@ -22,7 +22,8 @@ type ParkedCandidate = {
     teamId: number
     functionId: string
     actionId: string | null
-    personId: string
+    distinctId: string | null
+    personId: string | null
 }
 
 type WakeRequest = {
@@ -82,33 +83,40 @@ export class CdpHogflowSubscriptionMatcherConsumer extends CdpConsumerBase {
             return
         }
 
-        const globalsByKey = new Map<string, HogFunctionInvocationGlobals>()
+        // Index incoming events by both their distinct_id and person_id so we can
+        // map a candidate (which has either kind of identifier in its column) back
+        // to the originating event.
+        const globalsByDistinctIdKey = new Map<string, HogFunctionInvocationGlobals>()
+        const globalsByPersonIdKey = new Map<string, HogFunctionInvocationGlobals>()
 
         for (const globals of invocationGlobals) {
+            const distinctId = globals.event.distinct_id
             const personId = globals.person?.id
-            if (!personId) {
-                continue
+            if (distinctId) {
+                const k = `${globals.project.id}:${distinctId}`
+                if (!globalsByDistinctIdKey.has(k)) {
+                    globalsByDistinctIdKey.set(k, globals)
+                }
             }
-            const key = `${globals.project.id}:${personId}`
-            if (!globalsByKey.has(key)) {
-                globalsByKey.set(key, globals)
+            if (personId) {
+                const k = `${globals.project.id}:${personId}`
+                if (!globalsByPersonIdKey.has(k)) {
+                    globalsByPersonIdKey.set(k, globals)
+                }
             }
         }
 
-        if (globalsByKey.size === 0) {
+        if (globalsByDistinctIdKey.size === 0 && globalsByPersonIdKey.size === 0) {
             return
         }
 
-        const teamIds = [...new Set([...globalsByKey.values()].map((g) => g.project.id))]
-        // Each event from clickhouse_events_json already has person_id resolved by
-        // ingestion, available as globals.person.id. Both event-triggered and
-        // batch-triggered parked jobs are looked up by this same person_id column.
-        const personIds = [...new Set([...globalsByKey.values()].map((g) => g.person?.id).filter(Boolean) as string[])]
-        if (personIds.length === 0) {
-            return
-        }
+        const teamIds = [
+            ...new Set(invocationGlobals.map((g) => g.project.id).filter((id): id is number => typeof id === 'number')),
+        ]
+        const distinctIds = [...new Set(invocationGlobals.map((g) => g.event.distinct_id).filter(Boolean) as string[])]
+        const personIds = [...new Set(invocationGlobals.map((g) => g.person?.id).filter(Boolean) as string[])]
 
-        const candidates = await this.findParkedJobs(teamIds, personIds)
+        const candidates = await this.findParkedJobs(teamIds, distinctIds, personIds)
         if (candidates.length === 0) {
             return
         }
@@ -124,7 +132,12 @@ export class CdpHogflowSubscriptionMatcherConsumer extends CdpConsumerBase {
                 continue
             }
 
-            const globals = globalsByKey.get(`${candidate.teamId}:${candidate.personId}`)
+            // Try distinct_id match first (event-triggered jobs), then person_id (batch).
+            const globals =
+                (candidate.distinctId
+                    ? globalsByDistinctIdKey.get(`${candidate.teamId}:${candidate.distinctId}`)
+                    : undefined) ??
+                (candidate.personId ? globalsByPersonIdKey.get(`${candidate.teamId}:${candidate.personId}`) : undefined)
             if (!globals) {
                 continue
             }
@@ -239,24 +252,29 @@ export class CdpHogflowSubscriptionMatcherConsumer extends CdpConsumerBase {
     }
 
     /**
-     * Find parked hogflow jobs for the given team_ids and person_ids. Projects only
-     * the metadata needed for the matching decision; state is loaded later for the
-     * subset we actually wake.
+     * Find parked hogflow jobs matching by either distinct_id or person_id.
+     * Event-triggered jobs typically match on distinct_id (stable across merges);
+     * batch-triggered jobs match on person_id. Both columns come from the event
+     * itself - no personhog roundtrip required.
      */
-    private async findParkedJobs(teamIds: number[], personIds: string[]): Promise<ParkedCandidate[]> {
+    private async findParkedJobs(
+        teamIds: number[],
+        distinctIds: string[],
+        personIds: string[]
+    ): Promise<ParkedCandidate[]> {
         if (!this.cyclotronPool) {
             return []
         }
 
         const result = await this.cyclotronPool.query(
-            `SELECT id, team_id, function_id, action_id, person_id
+            `SELECT id, team_id, function_id, action_id, distinct_id, person_id
              FROM cyclotron_jobs
              WHERE status = 'available'
                AND queue_name = 'hogflow'
                AND scheduled > NOW()
                AND team_id = ANY($1::int[])
-               AND person_id = ANY($2::uuid[])`,
-            [teamIds, personIds]
+               AND (distinct_id = ANY($2::text[]) OR person_id = ANY($3::uuid[]))`,
+            [teamIds, distinctIds, personIds]
         )
 
         return result.rows.map((row) => ({
@@ -264,6 +282,7 @@ export class CdpHogflowSubscriptionMatcherConsumer extends CdpConsumerBase {
             teamId: row.team_id,
             functionId: row.function_id,
             actionId: row.action_id,
+            distinctId: row.distinct_id,
             personId: row.person_id,
         }))
     }

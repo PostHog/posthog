@@ -35,10 +35,10 @@ export class CyclotronV2Manager {
             `INSERT INTO cyclotron_jobs
              (id, team_id, function_id, queue_name, status, priority, scheduled, created,
               lock_id, last_heartbeat, janitor_touch_count, transition_count, last_transition,
-              parent_run_id, state, person_id, action_id)
+              parent_run_id, state, distinct_id, person_id, action_id)
              VALUES ($1, $2, $3, $4, 'available', $5, $6, $7,
                      NULL, NULL, 0, 0, $7,
-                     $8, $9, $10, $11)`,
+                     $8, $9, $10, $11, $12)`,
             [
                 id,
                 job.teamId,
@@ -49,6 +49,7 @@ export class CyclotronV2Manager {
                 now,
                 job.parentRunId ?? null,
                 job.state ?? null,
+                job.distinctId ?? null,
                 job.personId ?? null,
                 job.actionId ?? null,
             ]
@@ -71,6 +72,7 @@ export class CyclotronV2Manager {
         const scheduleds: Date[] = []
         const parentRunIds: (string | null)[] = []
         const states: (Buffer | null)[] = []
+        const distinctIds: (string | null)[] = []
         const personIds: (string | null)[] = []
         const actionIds: (string | null)[] = []
 
@@ -86,6 +88,7 @@ export class CyclotronV2Manager {
             scheduleds.push(job.scheduled ?? now)
             parentRunIds.push(job.parentRunId ?? null)
             states.push(job.state ?? null)
+            distinctIds.push(job.distinctId ?? null)
             personIds.push(job.personId ?? null)
             actionIds.push(job.actionId ?? null)
         }
@@ -94,7 +97,7 @@ export class CyclotronV2Manager {
             `INSERT INTO cyclotron_jobs
              (id, team_id, function_id, queue_name, status, priority, scheduled, created,
               lock_id, last_heartbeat, janitor_touch_count, transition_count, last_transition,
-              parent_run_id, state, person_id, action_id)
+              parent_run_id, state, distinct_id, person_id, action_id)
              SELECT
                 unnest($1::uuid[]),
                 unnest($2::int[]),
@@ -103,16 +106,17 @@ export class CyclotronV2Manager {
                 'available'::CyclotronJobStatus,
                 unnest($5::smallint[]),
                 unnest($6::timestamptz[]),
-                $11::timestamptz,
+                $12::timestamptz,
                 NULL::uuid,
                 NULL::timestamptz,
                 0::smallint,
                 0::smallint,
-                $11::timestamptz,
+                $12::timestamptz,
                 unnest($7::text[]),
                 unnest($8::bytea[]),
-                unnest($9::uuid[]),
-                unnest($10::text[])`,
+                unnest($9::text[]),
+                unnest($10::uuid[]),
+                unnest($11::text[])`,
             [
                 ids,
                 teamIds,
@@ -122,6 +126,7 @@ export class CyclotronV2Manager {
                 scheduleds,
                 parentRunIds,
                 states,
+                distinctIds,
                 personIds,
                 actionIds,
                 now,

@@ -59,6 +59,7 @@ interface RawJobRow {
     last_transition: string | Date
     parent_run_id: string | null
     state: Buffer | null
+    distinct_id: string | null
     person_id: string | null
     action_id: string | null
 }
@@ -191,6 +192,31 @@ describe('Cyclotron V2', () => {
             const ids = await manager.bulkCreateJobs([])
             expect(ids).toHaveLength(0)
             expect(await totalJobCount()).toBe(0)
+        })
+
+        it('createJob persists distinct_id when provided', async () => {
+            const id = await manager.createJob({ teamId: 1, queueName: QUEUE, distinctId: 'user-42' })
+            const row = await queryJob(id)
+            expect(row.distinct_id).toBe('user-42')
+        })
+
+        it('createJob defaults distinct_id to null when omitted', async () => {
+            const id = await manager.createJob({ teamId: 1, queueName: QUEUE })
+            const row = await queryJob(id)
+            expect(row.distinct_id).toBeNull()
+        })
+
+        it('partial index supports lookup by (team_id, distinct_id)', async () => {
+            await manager.createJob({ teamId: 1, queueName: QUEUE, distinctId: 'shared-user' })
+            await manager.createJob({ teamId: 1, queueName: QUEUE, distinctId: 'shared-user' })
+            await manager.createJob({ teamId: 2, queueName: QUEUE, distinctId: 'shared-user' })
+            await manager.createJob({ teamId: 1, queueName: QUEUE })
+
+            const res = await assertPool.query<{ count: string }>(
+                'SELECT COUNT(*) AS count FROM cyclotron_jobs WHERE team_id = $1 AND distinct_id = $2',
+                [1, 'shared-user']
+            )
+            expect(Number(res.rows[0].count)).toBe(2)
         })
 
         it('createJob persists person_id when provided', async () => {
@@ -405,6 +431,34 @@ describe('Cyclotron V2', () => {
 
             const row = await queryJob(id)
             expect(row.action_id).toBe('step-a')
+        })
+
+        it('reschedule({ distinctId }) updates distinct_id column', async () => {
+            const { id, job } = await seedAndDequeue({ distinctId: 'd-old' })
+            await job.reschedule({ distinctId: 'd-new' })
+
+            const row = await queryJob(id)
+            expect(row.distinct_id).toBe('d-new')
+        })
+
+        it('reschedule({ personId }) updates person_id column', async () => {
+            const original = uuidv7()
+            const next = uuidv7()
+            const { id, job } = await seedAndDequeue({ personId: original })
+            await job.reschedule({ personId: next })
+
+            const row = await queryJob(id)
+            expect(row.person_id).toBe(next)
+        })
+
+        it('reschedule() without identifiers leaves them unchanged', async () => {
+            const original = uuidv7()
+            const { id, job } = await seedAndDequeue({ distinctId: 'd-keep', personId: original })
+            await job.reschedule({ state: Buffer.from('new-state') })
+
+            const row = await queryJob(id)
+            expect(row.distinct_id).toBe('d-keep')
+            expect(row.person_id).toBe(original)
         })
 
         it('heartbeat() extends last_heartbeat', async () => {

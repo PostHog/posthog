@@ -169,6 +169,7 @@ export class CyclotronV2Worker {
             async reschedule(options?: {
                 scheduledAt?: Date
                 state?: Buffer | null
+                distinctId?: string | null
                 personId?: string | null
                 actionId?: string | null
             }): Promise<void> {
@@ -188,6 +189,10 @@ export class CyclotronV2Worker {
                 if (options?.state !== undefined) {
                     params.push(options.state ?? null)
                     setClauses.push(`state = $${params.length}`)
+                }
+                if (options?.distinctId !== undefined) {
+                    params.push(options.distinctId ?? null)
+                    setClauses.push(`distinct_id = $${params.length}`)
                 }
                 if (options?.personId !== undefined) {
                     params.push(options.personId ?? null)

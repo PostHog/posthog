@@ -17,6 +17,7 @@ export type CyclotronV2JobInit = {
     scheduled?: Date
     parentRunId?: string | null
     state?: Buffer | null
+    distinctId?: string | null
     personId?: string | null
     actionId?: string | null
 }
@@ -38,6 +39,7 @@ export interface CyclotronV2DequeuedJob {
     reschedule(options?: {
         scheduledAt?: Date
         state?: Buffer | null
+        distinctId?: string | null
         personId?: string | null
         actionId?: string | null
     }): Promise<void>
