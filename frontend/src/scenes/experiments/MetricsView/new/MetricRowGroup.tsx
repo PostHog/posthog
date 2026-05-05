@@ -1,7 +1,7 @@
 import './MetricRowGroup.scss'
 
 import { useActions } from 'kea'
-import React, { useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 
 import { IconTrending } from '@posthog/icons'
@@ -524,7 +524,32 @@ export function MetricRowGroup({
         isPositioned: false,
     })
     const tooltipRef = useRef<HTMLDivElement>(null)
+    const tooltipCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
     const colors = useChartColors()
+
+    const clearTooltipCloseTimer = (): void => {
+        if (tooltipCloseTimerRef.current !== null) {
+            clearTimeout(tooltipCloseTimerRef.current)
+            tooltipCloseTimerRef.current = null
+        }
+    }
+
+    const closeTooltipNow = (): void => {
+        clearTooltipCloseTimer()
+        setTooltipState((prev) => ({
+            ...prev,
+            isVisible: false,
+            variantResult: null,
+            isPositioned: false,
+        }))
+    }
+
+    useEffect(() => {
+        return () => {
+            clearTooltipCloseTimer()
+        }
+    }, [])
+
     const scale = useAxisScale(axisRange, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
 
     const { reportExperimentTimeseriesViewed, retryPrimaryMetric, retrySecondaryMetric } = useActions(experimentLogic)
@@ -587,6 +612,7 @@ export function MetricRowGroup({
             return
         }
 
+        clearTooltipCloseTimer()
         const position = calculateTooltipPosition(chartCell, variantResult)
         setTooltipState({
             isVisible: true,
@@ -596,13 +622,10 @@ export function MetricRowGroup({
         })
     }
 
+    // Defer closing so the user can move onto the portaled tooltip without it disappearing.
     const handleTooltipMouseLeave = (): void => {
-        setTooltipState((prev) => ({
-            ...prev,
-            isVisible: false,
-            variantResult: null,
-            isPositioned: false,
-        }))
+        clearTooltipCloseTimer()
+        tooltipCloseTimerRef.current = setTimeout(closeTooltipNow, 150)
     }
 
     const handleTooltipMouseMove = (e: React.MouseEvent, variantResult: ExperimentVariantResult): void => {
@@ -733,6 +756,8 @@ export function MetricRowGroup({
                             top: tooltipState.position.y,
                             visibility: tooltipState.isPositioned ? 'visible' : 'hidden',
                         }}
+                        onMouseEnter={clearTooltipCloseTimer}
+                        onMouseLeave={closeTooltipNow}
                         onClick={
                             timeseriesEnabled && tooltipState.variantResult
                                 ? () => handleTimeseriesClick(tooltipState.variantResult!)
