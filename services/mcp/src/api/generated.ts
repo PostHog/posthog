@@ -25409,10 +25409,10 @@ export namespace Schemas {
     * `failed` - Failed
     * `cancelled` - Cancelled
      */
-    export type TaskRunDetailStatusEnum = typeof TaskRunDetailStatusEnum[keyof typeof TaskRunDetailStatusEnum];
+    export type TaskRunStatusEnum = typeof TaskRunStatusEnum[keyof typeof TaskRunStatusEnum];
 
 
-    export const TaskRunDetailStatusEnum = {
+    export const TaskRunStatusEnum = {
       NotStarted: 'not_started',
       Queued: 'queued',
       InProgress: 'in_progress',
@@ -25425,10 +25425,10 @@ export namespace Schemas {
      * * `local` - Local
     * `cloud` - Cloud
      */
-    export type TaskRunDetailEnvironmentEnum = typeof TaskRunDetailEnvironmentEnum[keyof typeof TaskRunDetailEnvironmentEnum];
+    export type TaskRunEnvironmentEnum = typeof TaskRunEnvironmentEnum[keyof typeof TaskRunEnvironmentEnum];
 
 
-    export const TaskRunDetailEnvironmentEnum = {
+    export const TaskRunEnvironmentEnum = {
       Local: 'local',
       Cloud: 'cloud',
     } as const;
@@ -25487,12 +25487,12 @@ export namespace Schemas {
        * @nullable
        */
       branch?: string | null;
-      status?: TaskRunDetailStatusEnum;
+      status?: TaskRunStatusEnum;
       /** Execution environment
 
     * `local` - Local
     * `cloud` - Cloud */
-      environment?: TaskRunDetailEnvironmentEnum;
+      environment?: TaskRunEnvironmentEnum;
       /** Configured runtime adapter for this run, such as 'claude' or 'codex'. */
       readonly runtime_adapter: RuntimeAdapterEnum | NullEnum | null;
       /** Configured LLM provider for this run, such as 'anthropic' or 'openai'. */
@@ -25532,6 +25532,30 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: TaskRunDetail[];
+    }
+
+    export interface TaskRunSummary {
+      status: TaskRunStatusEnum | NullEnum | null;
+      environment: TaskRunEnvironmentEnum | NullEnum | null;
+    }
+
+    export interface TaskSummary {
+      readonly id: string;
+      readonly title: string;
+      /** @nullable */
+      readonly repository: string | null;
+      readonly created_at: string;
+      readonly updated_at: string;
+      readonly latest_run: TaskRunSummary | null;
+    }
+
+    export interface PaginatedTaskSummaryList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: TaskSummary[];
     }
 
     /**
@@ -37125,6 +37149,14 @@ export namespace Schemas {
       artifacts: TaskStagedArtifactPrepareUploadResponse[];
     }
 
+    export interface TaskSummariesRequest {
+      /**
+       * Task IDs to fetch summaries for (max 5000). Response is paginated; follow the `next` cursor to retrieve all results.
+       * @maxItems 5000
+       */
+      ids: string[];
+    }
+
     export type TeamDefaultModifiers = { [key: string]: unknown };
 
     export type TeamGroupTypesItem = { [key: string]: unknown };
@@ -45303,6 +45335,17 @@ export namespace Schemas {
      * @maximum 30
      */
     window_days?: number;
+    };
+
+    export type TasksSummariesCreateParams = {
+    /**
+     * Page size for the paginated response.
+     */
+    limit?: number;
+    /**
+     * Offset into the result set for pagination.
+     */
+    offset?: number;
     };
 
     export type UploadedMediaCreate201 = { [key: string]: unknown };
