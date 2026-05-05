@@ -59,6 +59,20 @@ class RepoSelectionRejectedError(Exception):
         )
 
 
+class RepoSelectionUnavailableError(Exception):
+    """Raised when repo selection cannot run for operational reasons — e.g. all candidates
+    are archived, the heavy cache is empty for them, or sync failed.
+
+    Distinct from `repository=None`, which only carries a *semantic* "no plausible candidate"
+    decision from the agent. Callers with a fallback UI (a picker) should catch this exception
+    and route to that fallback rather than silently creating a no-repo task.
+    """
+
+    def __init__(self, reason: str) -> None:
+        self.reason = reason
+        super().__init__(reason)
+
+
 def resolve_team_github_integration(team_id: int, team: Team | None = None) -> GitHubIntegrationBase | None:
     """Resolve the GitHub source the agent should use for this team."""
     integration = (
@@ -333,9 +347,8 @@ async def select_repository(
         logger.info("repo_selection.dropped_candidates", extra={"dropped": dropped, "team_id": team_id})
         candidate_repos = [r for r in candidate_repos if r in eligible]
         if len(candidate_repos) == 0:
-            return RepoSelectionResult(
-                repository=None,
-                reason="No connected GitHub repositories are eligible (archived or missing cache data).",
+            raise RepoSelectionUnavailableError(
+                "No connected GitHub repositories are eligible (archived or missing cache data)."
             )
         if len(candidate_repos) == 1:
             return RepoSelectionResult(

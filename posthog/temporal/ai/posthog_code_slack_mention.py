@@ -18,7 +18,11 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
 from products.tasks.backend.models import Task
-from products.tasks.backend.repo_selection import RepoSelectionRejectedError, select_repository
+from products.tasks.backend.repo_selection import (
+    RepoSelectionRejectedError,
+    RepoSelectionUnavailableError,
+    select_repository,
+)
 from products.tasks.backend.services.agent_command import send_user_message
 from products.tasks.backend.services.connection_token import create_sandbox_connection_token
 from products.tasks.backend.temporal.client import execute_task_processing_workflow
@@ -696,6 +700,17 @@ async def discover_posthog_code_repository_via_agent_activity(
             status="failed",
             repository=None,
             reason=f"Agent returned an invalid repository: {exc.returned_repository}",
+        )
+    except RepoSelectionUnavailableError as exc:
+        logger.warning(
+            "posthog_code_repo_selection_unavailable",
+            channel=channel,
+            reason=exc.reason,
+        )
+        return SlackRepoSelectionOutcome(
+            status="failed",
+            repository=None,
+            reason=f"Repo selection unavailable: {exc.reason}",
         )
     except Exception as exc:
         logger.exception(
