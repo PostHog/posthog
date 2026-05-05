@@ -9,6 +9,7 @@ export type {
     MovingAverageConfig,
     TimeSeriesLineChartConfig,
     TimeSeriesLineChartProps,
+    TrendLineConfig,
     ValueLabelsConfig,
 } from './charts/TimeSeriesLineChart/TimeSeriesLineChart'
 export type { InProgressConfig } from './charts/TimeSeriesLineChart/utils/in-progress'
@@ -37,6 +38,7 @@ export type {
     ResolvedSeries,
     ResolveValueFn,
     Series,
+    TooltipConfig,
     TooltipContext,
     YAxisScale,
 } from './core/types'
@@ -65,6 +67,7 @@ export { computeVisibleXLabels } from './overlays/AxisLabels'
 // Timeseries overlays
 export { AnomalyPointsLayer } from './charts/TimeSeriesLineChart/overlays/AnomalyPointsLayer'
 export type { AnomalyMarker } from './charts/TimeSeriesLineChart/overlays/AnomalyPointsLayer'
+export { movingAverageKey } from './charts/TimeSeriesLineChart/utils/derived-series'
 
 // Timeseries utils
 export { createXAxisTickCallback, parseDateForAxis } from './charts/TimeSeriesLineChart/utils/dates'

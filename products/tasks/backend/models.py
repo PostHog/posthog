@@ -283,6 +283,7 @@ class Task(DeletedMetaFields, models.Model):
         output_schema: type[BaseModel] | dict | None = None,
         interaction_origin: str | None = None,
         model: str | None = None,
+        initial_permission_mode: str | None = None,
     ) -> "Task":
         from products.tasks.backend.temporal.client import execute_task_processing_workflow
 
@@ -369,6 +370,9 @@ class Task(DeletedMetaFields, models.Model):
 
         if model:
             extra_state["model"] = model
+
+        if initial_permission_mode:
+            extra_state["initial_permission_mode"] = initial_permission_mode
 
         task_run = task.create_run(mode=mode, extra_state=extra_state or None, branch=branch)
 

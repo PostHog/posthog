@@ -1695,6 +1695,11 @@ export namespace Schemas {
        * @nullable
        */
       sessionIdPushdown?: boolean | null;
+      /**
+       * Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap pre-aggregation that only materializes the columns referenced by the outer-WHERE session predicate)`. Useful when the breakdown/SELECT pulls in many session columns (e.g. `$channel_type`) but the filter only references one (e.g. `$entry_current_url`).
+       * @nullable
+       */
+      sessionPropertyPreAggregation?: boolean | null;
       sessionTableVersion?: SessionTableVersion | null;
       sessionsV2JoinMode?: SessionsV2JoinMode | null;
       /** @nullable */
@@ -6569,6 +6574,7 @@ export namespace Schemas {
     * `Workflows` - Workflows
     * `HTTP` - Http
     * `NoOp` - Noop
+    * `FileDownload` - File Download
      */
     export type BatchExportDestinationTypeEnum = typeof BatchExportDestinationTypeEnum[keyof typeof BatchExportDestinationTypeEnum];
 
@@ -6584,6 +6590,7 @@ export namespace Schemas {
       Workflows: 'Workflows',
       Http: 'HTTP',
       NoOp: 'NoOp',
+      FileDownload: 'FileDownload',
     } as const;
 
     /**
@@ -6601,7 +6608,8 @@ export namespace Schemas {
     * `AzureBlob` - Azure Blob
     * `Workflows` - Workflows
     * `HTTP` - Http
-    * `NoOp` - Noop */
+    * `NoOp` - Noop
+    * `FileDownload` - File Download */
       type: BatchExportDestinationTypeEnum;
       /** A JSON field to store all configuration parameters required to access a BatchExportDestination. */
       config?: unknown;
@@ -7666,6 +7674,8 @@ export namespace Schemas {
     } as const;
 
     export interface YAxisSettings {
+      /** @nullable */
+      label?: string | null;
       scale?: Scale | null;
       /** @nullable */
       showGridLines?: boolean | null;
@@ -7708,6 +7718,8 @@ export namespace Schemas {
        */
       stackBars100?: boolean | null;
       xAxis?: ChartAxis | null;
+      /** @nullable */
+      xAxisLabel?: string | null;
       /** @nullable */
       yAxis?: ChartAxis[] | null;
       /**
@@ -15548,6 +15560,21 @@ export namespace Schemas {
       project: string;
     }
 
+    export interface ErrorTrackingSettings {
+      /**
+       * Maximum number of exception events ingested per bucket for the entire project. Null removes the limit.
+       * @minimum 1
+       * @nullable
+       */
+      project_rate_limit_value?: number | null;
+      /**
+       * Bucket window over which the project-wide rate limit applies, in minutes.
+       * @minimum 1
+       * @nullable
+       */
+      project_rate_limit_bucket_size_minutes?: number | null;
+    }
+
     export type ErrorTrackingSimilarIssuesQueryKind = typeof ErrorTrackingSimilarIssuesQueryKind[keyof typeof ErrorTrackingSimilarIssuesQueryKind];
 
 
@@ -15693,27 +15720,86 @@ export namespace Schemas {
     }
 
     /**
-     * Release associated with this symbol set
+     * Release associated with this symbol set, if any.
      * @nullable
      */
     export type ErrorTrackingSymbolSetRelease = { [key: string]: unknown } | null | null;
 
     export interface ErrorTrackingSymbolSet {
+      /** Unique symbol set ID. */
       readonly id: string;
-      ref: string;
+      /** Reference used to match stack frames to this symbol set. */
+      readonly ref: string;
+      /** Project/team ID that owns this symbol set. */
       readonly team_id: number;
+      /** When this symbol set row was created. */
       readonly created_at: string;
-      /** @nullable */
-      last_used?: string | null;
-      /** @nullable */
-      storage_ptr?: string | null;
-      /** @nullable */
-      failure_reason?: string | null;
       /**
-       * Release associated with this symbol set
+       * When this symbol set was last used to resolve a stack frame.
+       * @nullable
+       */
+      readonly last_used: string | null;
+      /**
+       * Reason symbol lookup failed, if the source map is missing or invalid.
+       * @nullable
+       */
+      readonly failure_reason: string | null;
+      /** Whether this symbol set has an uploaded source map file available to download. */
+      readonly has_uploaded_file: boolean;
+      /**
+       * Release associated with this symbol set, if any.
        * @nullable
        */
       readonly release: ErrorTrackingSymbolSetRelease;
+    }
+
+    export interface ErrorTrackingSymbolSetBulkDelete {
+      /** Symbol set IDs to delete. */
+      ids: string[];
+    }
+
+    /**
+     * Map of symbol set ID to uploaded content hash.
+     */
+    export type ErrorTrackingSymbolSetBulkFinishUploadContentHashes = {[key: string]: string};
+
+    export interface ErrorTrackingSymbolSetBulkFinishUpload {
+      /** Map of symbol set ID to uploaded content hash. */
+      content_hashes: ErrorTrackingSymbolSetBulkFinishUploadContentHashes;
+    }
+
+    export interface ErrorTrackingSymbolSetUpload {
+      /** Symbol set reference to upload. */
+      chunk_id: string;
+      /**
+       * Optional error tracking release ID associated with this symbol set.
+       * @nullable
+       */
+      release_id?: string | null;
+      /**
+       * Optional hash of the symbol set content, used to skip unchanged uploads.
+       * @nullable
+       */
+      content_hash?: string | null;
+    }
+
+    export interface ErrorTrackingSymbolSetBulkStartUpload {
+      /** Legacy list of symbol set references to upload, all associated with `release_id`. */
+      chunk_ids?: string[];
+      /**
+       * Optional error tracking release ID used with `chunk_ids`.
+       * @nullable
+       */
+      release_id?: string | null;
+      /** Symbol sets to upload with per-symbol release IDs and content hashes. */
+      symbol_sets?: ErrorTrackingSymbolSetUpload[];
+      /** Whether to overwrite uploaded symbol sets whose content hash changed. */
+      force?: boolean;
+    }
+
+    export interface ErrorTrackingSymbolSetFinishUpload {
+      /** Hash of the uploaded symbol set content. */
+      content_hash: string;
     }
 
     /**
@@ -21588,7 +21674,7 @@ export namespace Schemas {
        * @nullable
        */
       priority?: number | null;
-      /** Rule kind: severity_sampling, path_drop, or rate_limit (rate_limit reserved for a future release).
+      /** Rule kind: severity_sampling, path_drop, or rate_limit (caps logs/sec for scope_service at ingestion).
 
     * `severity_sampling` - Severity-based reduction
     * `path_drop` - Path exclusion
@@ -21608,7 +21694,7 @@ export namespace Schemas {
       scope_path_pattern?: string | null;
       /** Optional list of predicates over string attributes, e.g. [{"key":"http.route","op":"eq","value":"/api"}]. */
       scope_attribute_filters?: LogsSamplingRuleScopeAttributeFiltersItem[];
-      /** Type-specific JSON. For path_drop: object with required `patterns` (list of regex strings) and optional `match_attribute_key` (string). When `match_attribute_key` is omitted or empty, patterns match the same virtual path string as ingestion (url.path, http.path, http.route, path). When set, each pattern is tested only against that string attribute on the log record. For severity_sampling: object with `actions` per severity level and optional `always_keep`. rate_limit is reserved. */
+      /** Type-specific JSON. For path_drop: object with required `patterns` (list of regex strings) and optional `match_attribute_key` (string). When `match_attribute_key` is omitted or empty, patterns match the same virtual path string as ingestion (url.path, http.path, http.route, path). When set, each pattern is tested only against that string attribute on the log record. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with required `logs_per_second` (integer 1–1000000) and optional `burst_logs` (integer ≥ logs_per_second, max 60000000); rate_limit rules require non-null `scope_service` matching `service.name` on each log line. */
       config: unknown;
       /** Incremented on each update for worker cache coherency. */
       readonly version: number;
@@ -26028,6 +26114,8 @@ export namespace Schemas {
       readonly onboarding_delegation_accepted_at: string | null;
       /** @nullable */
       readonly is_organization_first_user: boolean | null;
+      /** Real-time notification types that currently have a live dispatch site. Drives the in-app notifications settings UI. Read-only. */
+      readonly active_realtime_notification_types: readonly string[];
       readonly pending_invites: readonly PendingInvite[];
     }
 
@@ -27321,6 +27409,21 @@ export namespace Schemas {
       project?: string;
     }
 
+    export interface PatchedErrorTrackingSettings {
+      /**
+       * Maximum number of exception events ingested per bucket for the entire project. Null removes the limit.
+       * @minimum 1
+       * @nullable
+       */
+      project_rate_limit_value?: number | null;
+      /**
+       * Bucket window over which the project-wide rate limit applies, in minutes.
+       * @minimum 1
+       * @nullable
+       */
+      project_rate_limit_bucket_size_minutes?: number | null;
+    }
+
     export interface PatchedErrorTrackingSpikeDetectionConfig {
       /**
        * Time to wait before alerting again for the same issue after a spike is detected.
@@ -27354,24 +27457,34 @@ export namespace Schemas {
     }
 
     /**
-     * Release associated with this symbol set
+     * Release associated with this symbol set, if any.
      * @nullable
      */
     export type PatchedErrorTrackingSymbolSetRelease = { [key: string]: unknown } | null | null;
 
     export interface PatchedErrorTrackingSymbolSet {
+      /** Unique symbol set ID. */
       readonly id?: string;
-      ref?: string;
+      /** Reference used to match stack frames to this symbol set. */
+      readonly ref?: string;
+      /** Project/team ID that owns this symbol set. */
       readonly team_id?: number;
+      /** When this symbol set row was created. */
       readonly created_at?: string;
-      /** @nullable */
-      last_used?: string | null;
-      /** @nullable */
-      storage_ptr?: string | null;
-      /** @nullable */
-      failure_reason?: string | null;
       /**
-       * Release associated with this symbol set
+       * When this symbol set was last used to resolve a stack frame.
+       * @nullable
+       */
+      readonly last_used?: string | null;
+      /**
+       * Reason symbol lookup failed, if the source map is missing or invalid.
+       * @nullable
+       */
+      readonly failure_reason?: string | null;
+      /** Whether this symbol set has an uploaded source map file available to download. */
+      readonly has_uploaded_file?: boolean;
+      /**
+       * Release associated with this symbol set, if any.
        * @nullable
        */
       readonly release?: PatchedErrorTrackingSymbolSetRelease;
@@ -28482,7 +28595,7 @@ export namespace Schemas {
        * @nullable
        */
       priority?: number | null;
-      /** Rule kind: severity_sampling, path_drop, or rate_limit (rate_limit reserved for a future release).
+      /** Rule kind: severity_sampling, path_drop, or rate_limit (caps logs/sec for scope_service at ingestion).
 
     * `severity_sampling` - Severity-based reduction
     * `path_drop` - Path exclusion
@@ -28502,7 +28615,7 @@ export namespace Schemas {
       scope_path_pattern?: string | null;
       /** Optional list of predicates over string attributes, e.g. [{"key":"http.route","op":"eq","value":"/api"}]. */
       scope_attribute_filters?: PatchedLogsSamplingRuleScopeAttributeFiltersItem[];
-      /** Type-specific JSON. For path_drop: object with required `patterns` (list of regex strings) and optional `match_attribute_key` (string). When `match_attribute_key` is omitted or empty, patterns match the same virtual path string as ingestion (url.path, http.path, http.route, path). When set, each pattern is tested only against that string attribute on the log record. For severity_sampling: object with `actions` per severity level and optional `always_keep`. rate_limit is reserved. */
+      /** Type-specific JSON. For path_drop: object with required `patterns` (list of regex strings) and optional `match_attribute_key` (string). When `match_attribute_key` is omitted or empty, patterns match the same virtual path string as ingestion (url.path, http.path, http.route, path). When set, each pattern is tested only against that string attribute on the log record. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with required `logs_per_second` (integer 1–1000000) and optional `burst_logs` (integer ≥ logs_per_second, max 60000000); rate_limit rules require non-null `scope_service` matching `service.name` on each log line. */
       config?: unknown;
       /** Incremented on each update for worker cache coherency. */
       readonly version?: number;
@@ -31410,6 +31523,8 @@ export namespace Schemas {
       readonly onboarding_delegation_accepted_at?: string | null;
       /** @nullable */
       readonly is_organization_first_user?: boolean | null;
+      /** Real-time notification types that currently have a live dispatch site. Drives the in-app notifications settings UI. Read-only. */
+      readonly active_realtime_notification_types?: readonly string[];
       readonly pending_invites?: readonly PendingInvite[];
     }
 
@@ -35796,6 +35911,21 @@ export namespace Schemas {
     }
 
     /**
+     * Filter shape mirrors the previous frontend `api.query({filters: ...})` payload.
+
+    `filters` accepts the same `HogQLFilters` schema that the legacy frontend HogQL
+    path used (dateRange, filterTestAccounts, properties), so the migration is
+    behaviour-preserving for callers that pass a request unchanged.
+     */
+    export interface SentimentGenerationsRequest {
+      filters?: unknown;
+    }
+
+    export interface SentimentGenerationsResponse {
+      results: unknown[][];
+    }
+
+    /**
      * * `trace` - trace
     * `generation` - generation
      */
@@ -35809,7 +35939,7 @@ export namespace Schemas {
 
     export interface SentimentRequest {
       /**
-       * Trace IDs or generation IDs to classify, depending on analysis_level.
+       * Trace IDs (analysis_level=trace) or generation event UUIDs (analysis_level=generation).
        * @minItems 1
        * @maxItems 5
        */
@@ -37994,7 +38124,7 @@ export namespace Schemas {
     }
 
     export interface _SymbolSetDownloadResponse {
-      /** Presigned URL to download the source map file */
+      /** Presigned URL to download the source map file. Use immediately; expires after one hour. */
       url: string;
     }
 
@@ -38528,7 +38658,42 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Sort order for symbol sets. Prefix with `-` for descending order.
+
+    * `created_at` - created_at
+    * `-created_at` - -created_at
+    * `ref` - ref
+    * `-ref` - -ref
+    * `last_used` - last_used
+    * `-last_used` - -last_used
+     * @minLength 1
+     */
+    order_by?: string;
+    /**
+     * Exact symbol set reference to filter by.
+     * @minLength 1
+     */
+    ref?: string;
+    /**
+     * Upload status filter: `valid` has an uploaded file, `invalid` is missing a file, `all` returns both.
+
+    * `all` - all
+    * `valid` - valid
+    * `invalid` - invalid
+     * @minLength 1
+     */
+    status?: EnvironmentsErrorTrackingSymbolSetsListStatus;
     };
+
+    export type EnvironmentsErrorTrackingSymbolSetsListStatus = typeof EnvironmentsErrorTrackingSymbolSetsListStatus[keyof typeof EnvironmentsErrorTrackingSymbolSetsListStatus];
+
+
+    export const EnvironmentsErrorTrackingSymbolSetsListStatus = {
+      All: 'all',
+      Valid: 'valid',
+      Invalid: 'invalid',
+    } as const;
 
     export type EnvironmentsEventsListParams = {
     /**
@@ -39584,6 +39749,43 @@ export namespace Schemas {
 
     export type EnvironmentsIntegrationsListParams = {
     /**
+     * * `apns` - Apple Push
+    * `azure-blob` - Azure Blob
+    * `bing-ads` - Bing Ads
+    * `clickup` - Clickup
+    * `customerio-app` - Customerio App
+    * `customerio-track` - Customerio Track
+    * `customerio-webhook` - Customerio Webhook
+    * `databricks` - Databricks
+    * `email` - Email
+    * `firebase` - Firebase
+    * `github` - Github
+    * `gitlab` - Gitlab
+    * `google-ads` - Google Ads
+    * `google-cloud-service-account` - Google Cloud Service Account
+    * `google-cloud-storage` - Google Cloud Storage
+    * `google-pubsub` - Google Pubsub
+    * `google-sheets` - Google Sheets
+    * `hubspot` - Hubspot
+    * `intercom` - Intercom
+    * `jira` - Jira
+    * `linear` - Linear
+    * `linkedin-ads` - Linkedin Ads
+    * `meta-ads` - Meta Ads
+    * `pinterest-ads` - Pinterest Ads
+    * `postgresql` - Postgresql
+    * `reddit-ads` - Reddit Ads
+    * `salesforce` - Salesforce
+    * `slack` - Slack
+    * `slack-posthog-code` - Slack Posthog Code
+    * `snapchat` - Snapchat
+    * `stripe` - Stripe
+    * `tiktok-ads` - Tiktok Ads
+    * `twilio` - Twilio
+    * `vercel` - Vercel
+     */
+    kind?: EnvironmentsIntegrationsListKind;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -39592,6 +39794,46 @@ export namespace Schemas {
      */
     offset?: number;
     };
+
+    export type EnvironmentsIntegrationsListKind = typeof EnvironmentsIntegrationsListKind[keyof typeof EnvironmentsIntegrationsListKind];
+
+
+    export const EnvironmentsIntegrationsListKind = {
+      Apns: 'apns',
+      AzureBlob: 'azure-blob',
+      BingAds: 'bing-ads',
+      Clickup: 'clickup',
+      CustomerioApp: 'customerio-app',
+      CustomerioTrack: 'customerio-track',
+      CustomerioWebhook: 'customerio-webhook',
+      Databricks: 'databricks',
+      Email: 'email',
+      Firebase: 'firebase',
+      Github: 'github',
+      Gitlab: 'gitlab',
+      GoogleAds: 'google-ads',
+      GoogleCloudServiceAccount: 'google-cloud-service-account',
+      GoogleCloudStorage: 'google-cloud-storage',
+      GooglePubsub: 'google-pubsub',
+      GoogleSheets: 'google-sheets',
+      Hubspot: 'hubspot',
+      Intercom: 'intercom',
+      Jira: 'jira',
+      Linear: 'linear',
+      LinkedinAds: 'linkedin-ads',
+      MetaAds: 'meta-ads',
+      PinterestAds: 'pinterest-ads',
+      Postgresql: 'postgresql',
+      RedditAds: 'reddit-ads',
+      Salesforce: 'salesforce',
+      Slack: 'slack',
+      SlackPosthogCode: 'slack-posthog-code',
+      Snapchat: 'snapchat',
+      Stripe: 'stripe',
+      TiktokAds: 'tiktok-ads',
+      Twilio: 'twilio',
+      Vercel: 'vercel',
+    } as const;
 
     export type EnvironmentsIntegrationsGithubBranchesRetrieveParams = {
     /**
@@ -40854,6 +41096,10 @@ export namespace Schemas {
 
     export type LlmAnalyticsSentimentCreate500 = { [key: string]: unknown };
 
+    export type LlmAnalyticsSentimentGenerationsCreate400 = { [key: string]: unknown };
+
+    export type LlmAnalyticsSentimentGenerationsCreate500 = { [key: string]: unknown };
+
     export type LlmAnalyticsSummarizationCreate400 = { [key: string]: unknown };
 
     export type LlmAnalyticsSummarizationCreate403 = { [key: string]: unknown };
@@ -41449,6 +41695,10 @@ export namespace Schemas {
      * Sort order. Defaults to `-joined_at`.
      */
     order?: string;
+    /**
+     * Fuzzy match against member `first_name`, `last_name`, and `email` using Postgres trigram word similarity. Supports typos and prefix-as-you-type. Capped at 200 characters.
+     */
+    search?: string;
     };
 
     export type OauthApplicationsListParams = {
@@ -42698,7 +42948,42 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Sort order for symbol sets. Prefix with `-` for descending order.
+
+    * `created_at` - created_at
+    * `-created_at` - -created_at
+    * `ref` - ref
+    * `-ref` - -ref
+    * `last_used` - last_used
+    * `-last_used` - -last_used
+     * @minLength 1
+     */
+    order_by?: string;
+    /**
+     * Exact symbol set reference to filter by.
+     * @minLength 1
+     */
+    ref?: string;
+    /**
+     * Upload status filter: `valid` has an uploaded file, `invalid` is missing a file, `all` returns both.
+
+    * `all` - all
+    * `valid` - valid
+    * `invalid` - invalid
+     * @minLength 1
+     */
+    status?: ErrorTrackingSymbolSetsListStatus;
     };
+
+    export type ErrorTrackingSymbolSetsListStatus = typeof ErrorTrackingSymbolSetsListStatus[keyof typeof ErrorTrackingSymbolSetsListStatus];
+
+
+    export const ErrorTrackingSymbolSetsListStatus = {
+      All: 'all',
+      Valid: 'valid',
+      Invalid: 'invalid',
+    } as const;
 
     export type EventDefinitionsListParams = {
     /**
@@ -44037,6 +44322,43 @@ export namespace Schemas {
 
     export type IntegrationsListParams = {
     /**
+     * * `apns` - Apple Push
+    * `azure-blob` - Azure Blob
+    * `bing-ads` - Bing Ads
+    * `clickup` - Clickup
+    * `customerio-app` - Customerio App
+    * `customerio-track` - Customerio Track
+    * `customerio-webhook` - Customerio Webhook
+    * `databricks` - Databricks
+    * `email` - Email
+    * `firebase` - Firebase
+    * `github` - Github
+    * `gitlab` - Gitlab
+    * `google-ads` - Google Ads
+    * `google-cloud-service-account` - Google Cloud Service Account
+    * `google-cloud-storage` - Google Cloud Storage
+    * `google-pubsub` - Google Pubsub
+    * `google-sheets` - Google Sheets
+    * `hubspot` - Hubspot
+    * `intercom` - Intercom
+    * `jira` - Jira
+    * `linear` - Linear
+    * `linkedin-ads` - Linkedin Ads
+    * `meta-ads` - Meta Ads
+    * `pinterest-ads` - Pinterest Ads
+    * `postgresql` - Postgresql
+    * `reddit-ads` - Reddit Ads
+    * `salesforce` - Salesforce
+    * `slack` - Slack
+    * `slack-posthog-code` - Slack Posthog Code
+    * `snapchat` - Snapchat
+    * `stripe` - Stripe
+    * `tiktok-ads` - Tiktok Ads
+    * `twilio` - Twilio
+    * `vercel` - Vercel
+     */
+    kind?: IntegrationsListKind;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -44045,6 +44367,46 @@ export namespace Schemas {
      */
     offset?: number;
     };
+
+    export type IntegrationsListKind = typeof IntegrationsListKind[keyof typeof IntegrationsListKind];
+
+
+    export const IntegrationsListKind = {
+      Apns: 'apns',
+      AzureBlob: 'azure-blob',
+      BingAds: 'bing-ads',
+      Clickup: 'clickup',
+      CustomerioApp: 'customerio-app',
+      CustomerioTrack: 'customerio-track',
+      CustomerioWebhook: 'customerio-webhook',
+      Databricks: 'databricks',
+      Email: 'email',
+      Firebase: 'firebase',
+      Github: 'github',
+      Gitlab: 'gitlab',
+      GoogleAds: 'google-ads',
+      GoogleCloudServiceAccount: 'google-cloud-service-account',
+      GoogleCloudStorage: 'google-cloud-storage',
+      GooglePubsub: 'google-pubsub',
+      GoogleSheets: 'google-sheets',
+      Hubspot: 'hubspot',
+      Intercom: 'intercom',
+      Jira: 'jira',
+      Linear: 'linear',
+      LinkedinAds: 'linkedin-ads',
+      MetaAds: 'meta-ads',
+      PinterestAds: 'pinterest-ads',
+      Postgresql: 'postgresql',
+      RedditAds: 'reddit-ads',
+      Salesforce: 'salesforce',
+      Slack: 'slack',
+      SlackPosthogCode: 'slack-posthog-code',
+      Snapchat: 'snapchat',
+      Stripe: 'stripe',
+      TiktokAds: 'tiktok-ads',
+      Twilio: 'twilio',
+      Vercel: 'vercel',
+    } as const;
 
     export type IntegrationsGithubBranchesRetrieveParams = {
     /**

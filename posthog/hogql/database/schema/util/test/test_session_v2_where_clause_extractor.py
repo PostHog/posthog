@@ -715,3 +715,115 @@ WHERE events.timestamp >= '2026-03-27 00:00:00'
             assert "or(" in in_subquery, f"Expected OR preserved in IN; got:\n{in_subquery}"
         else:
             assert "or(" not in in_subquery, f"Expected no OR in narrowed IN; got:\n{in_subquery}"
+
+
+class TestSessionPropertyPreAggregationV2(ClickhouseTestMixin, APIBaseTest):
+    # Tests for the sessionPropertyPreAggregation modifier — narrows the raw_sessions GROUP BY
+    # hash table by IN-filtering on a cheap pre-aggregation that only materializes the columns
+    # the outer-WHERE session predicate references. Useful when SELECT pulls in many session
+    # columns (e.g. $channel_type) but the filter only references one (e.g. $entry_current_url).
+
+    def print_query(self, query: str, modifier_on: bool) -> str:
+        team = self.team
+        modifiers = create_default_modifiers_for_team(team)
+        modifiers.sessionTableVersion = SessionTableVersion.V2
+        modifiers.sessionPropertyPreAggregation = modifier_on
+        context = HogQLContext(
+            team_id=team.pk,
+            team=team,
+            enable_select_queries=True,
+            modifiers=modifiers,
+        )
+        prepared_ast = prepare_ast_for_printing(node=parse(query), context=context, dialect="clickhouse")
+        if prepared_ast is None:
+            return ""
+        return print_prepared_ast(prepared_ast, context=context, dialect="clickhouse", pretty=True)
+
+    @parameterized.expand([("on", True), ("off", False)])
+    def test_url_filter_with_channel_type_breakdown(self, _name: str, modifier_on: bool):
+        # The shape that motivated this fix: a single-column session filter ($entry_current_url)
+        # alongside a multi-column session breakdown ($channel_type) — without the modifier the
+        # raw_sessions GROUP BY materializes ~7 channel-source columns for every session in the
+        # date range, which OOMs on large teams.
+        query = """
+SELECT
+    count() AS total,
+    events.session.$channel_type AS chan
+FROM events
+WHERE events.event = '$pageview'
+  AND events.timestamp >= '2026-03-01 00:00:00'
+  AND events.timestamp <= '2026-03-31 23:59:59'
+  AND match(events.session.$entry_current_url, 'http')
+GROUP BY chan
+"""
+        actual = self.print_query(query, modifier_on=modifier_on)
+        normalized = " ".join(actual.split())
+        has_pre_agg = (
+            "in(raw_sessions.session_id_v7" in normalized or "globalIn(raw_sessions.session_id_v7" in normalized
+        )
+        assert has_pre_agg == modifier_on, f"Expected pre-agg={modifier_on}; got:\n{actual}"
+
+        if modifier_on:
+            # Small inner must materialize entry_url (used by predicate) but NOT the channel-source
+            # columns (used only by $channel_type in the outer SELECT). Counts: entry_url goes from
+            # 1 → 2 (outer + small inner); initial_utm_source stays at its outer-only count.
+            off_normalized = " ".join(self.print_query(query, modifier_on=False).split())
+            assert (
+                normalized.count("argMinMerge(raw_sessions.entry_url)")
+                == off_normalized.count("argMinMerge(raw_sessions.entry_url)") + 1
+            ), "Expected entry_url to appear once more (in the small inner) with pre-agg on"
+            assert normalized.count("argMinMerge(raw_sessions.initial_utm_source)") == off_normalized.count(
+                "argMinMerge(raw_sessions.initial_utm_source)"
+            ), "Expected initial_utm_source count unchanged — small inner must not materialize channel columns"
+
+    def test_pre_agg_with_two_session_columns_in_filter(self):
+        # AND of two session predicates: small inner must aggregate both columns, not just one.
+        # The breakdown still drags in the full $channel_type machinery, so the outer is still
+        # heavy — but the small inner stays narrow.
+        query = """
+SELECT
+    count() AS total,
+    events.session.$channel_type AS chan
+FROM events
+WHERE events.event = '$pageview'
+  AND events.timestamp >= '2026-03-01 00:00:00'
+  AND events.timestamp <= '2026-03-31 23:59:59'
+  AND match(events.session.$entry_current_url, 'http')
+  AND events.session.$entry_referring_domain != 'spam.example.com'
+GROUP BY chan
+"""
+        actual = self.print_query(query, modifier_on=True)
+        normalized = " ".join(actual.split())
+        has_pre_agg = (
+            "in(raw_sessions.session_id_v7" in normalized or "globalIn(raw_sessions.session_id_v7" in normalized
+        )
+        assert has_pre_agg, f"Expected pre-agg; got:\n{actual}"
+
+        # Small inner aggregates both filter columns. entry_url: 1 (outer) + 1 (small) = 2.
+        # initial_referring_domain is shared between the channel-source machinery (outer) and the
+        # small inner — counting all occurrences confirms the small inner pulled it in.
+        off_normalized = " ".join(self.print_query(query, modifier_on=False).split())
+        assert (
+            normalized.count("argMinMerge(raw_sessions.entry_url)")
+            == off_normalized.count("argMinMerge(raw_sessions.entry_url)") + 1
+        )
+        assert normalized.count("argMinMerge(raw_sessions.initial_referring_domain)") > off_normalized.count(
+            "argMinMerge(raw_sessions.initial_referring_domain)"
+        ), "Expected initial_referring_domain to appear more often with pre-agg on (small inner adds it)"
+        # Pure channel-only columns (not in the filter) must not leak into the small inner.
+        assert normalized.count("argMinMerge(raw_sessions.initial_utm_source)") == off_normalized.count(
+            "argMinMerge(raw_sessions.initial_utm_source)"
+        ), "Expected initial_utm_source count unchanged — small inner must not materialize unreferenced channel columns"
+
+    def test_no_pre_agg_when_no_session_filter(self):
+        query = """
+SELECT count(), events.session.$channel_type AS chan
+FROM events
+WHERE events.event = '$pageview'
+  AND events.timestamp >= '2026-03-01 00:00:00'
+GROUP BY chan
+"""
+        actual = self.print_query(query, modifier_on=True)
+        normalized = " ".join(actual.split())
+        assert "in(raw_sessions.session_id_v7" not in normalized, f"Expected no pre-agg; got:\n{actual}"
+        assert "globalIn(raw_sessions.session_id_v7" not in normalized, f"Expected no pre-agg; got:\n{actual}"

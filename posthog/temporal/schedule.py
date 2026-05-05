@@ -70,6 +70,9 @@ from posthog.temporal.session_replay.summarization_sweep.reconciler import (
     create_summarization_sweep_reconciler_schedule,
 )
 from posthog.temporal.subscriptions.types import ScheduleAllSubscriptionsWorkflowInputs
+from posthog.temporal.warehouse_sources_queue_partition_management.schedule import (
+    create_warehouse_sources_queue_partition_management_schedule,
+)
 from posthog.temporal.weekly_digest.types import WeeklyDigestInput
 
 from products.web_analytics.backend.temporal.weekly_digest.types import WAWeeklyDigestInput
@@ -553,6 +556,7 @@ schedules = [
     create_experiment_saved_metrics_schedules,
     create_all_realtime_cohort_calculation_schedules,
     create_ingestion_acceptance_test_schedule,
+    create_warehouse_sources_queue_partition_management_schedule,
     create_health_check_schedules,
     create_conversations_signals_coordinator_schedule,
     create_wa_weekly_digest_schedule,

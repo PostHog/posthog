@@ -47,7 +47,7 @@ export function SignupForm(): JSX.Element | null {
     if (passkeySignupEnabled) {
         return !user ? (
             <div className="deprecated-space-y-2">
-                <h2>{panelTitle}</h2>
+                {panelTitle ? <h2>{panelTitle}</h2> : null}
                 {!isSignupPanelOnboardingSubmitting && signupPanelOnboardingManualErrors?.generic && (
                     <LemonBanner type="error">
                         {signupPanelOnboardingManualErrors.generic?.detail ||
@@ -95,7 +95,7 @@ export function SignupForm(): JSX.Element | null {
     // Legacy 2-panel flow (when passkey signup is disabled)
     return !user ? (
         <div className="deprecated-space-y-2">
-            <h2>{panelTitle}</h2>
+            {panelTitle ? <h2>{panelTitle}</h2> : null}
             {!isSignupPanel2Submitting && signupPanel2ManualErrors?.generic && (
                 <LemonBanner type="error">
                     {signupPanel2ManualErrors.generic?.detail || 'Could not complete your signup. Please try again.'}

@@ -186,11 +186,16 @@ class Command(BaseCommand):
         self.stdout.write("  Each engineer needs their own dev GitHub App. Steps:")
         self.stdout.write(f"    1. Open: {GITHUB_APP_NEW_URL}")
         self.stdout.write(f"    2. Set the Setup URL (NOT Callback or Homepage) to: {GITHUB_APP_SETUP_URL}")
-        self.stdout.write("    3. Permissions: Contents R/W, Pull requests R/W, Metadata R")
-        self.stdout.write("    4. Generate a private key, install the app on your test repos")
-        self.stdout.write("    5. Add to your .env (the slug is the URL-friendly name from the App URL):")
+        self.stdout.write(
+            "    3. Set a Callback URL (any localhost URL is fine; "
+            "http://localhost:8010/complete/github-link/ is what Code's user-link flow uses)"
+        )
+        self.stdout.write("    4. Permissions: Contents R/W, Pull requests R/W, Metadata R")
+        self.stdout.write("    5. Generate a client secret and a private key, install the app on your test repos")
+        self.stdout.write("    6. Add to your .env (the slug is the URL-friendly name from the App URL):")
         self.stdout.write("")
-        self.stdout.write('       GITHUB_APP_CLIENT_ID="your_app_id"')
+        self.stdout.write("       # OAuth Client ID (starts with Iv1/Iv23) — NOT the numeric App ID")
+        self.stdout.write('       GITHUB_APP_CLIENT_ID="Iv1xxxxxxxxxxxxxxxx"')
         self.stdout.write('       GITHUB_APP_CLIENT_SECRET="your_client_secret"')
         self.stdout.write('       GITHUB_APP_SLUG="your-app-slug"')
         self.stdout.write(

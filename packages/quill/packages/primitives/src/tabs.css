@@ -10,12 +10,14 @@
     .quill-tabs__list {
         z-index: 0;
         padding: 3px;
+
+        /* padding: 2px 3px 4px 3px; */
         color: var(--muted-foreground);
-        border-radius: var(--radius-lg);
+        border-radius: var(--radius-md);
     }
 
     .quill-tabs__list--variant-default {
-        background-color: var(--accent);
+        background-color: var(--card);
     }
 
     .quill-tabs__list--variant-line {
@@ -44,7 +46,9 @@
     .quill-tabs__indicator--variant-default {
         z-index: -1;
         background-color: var(--background);
+        border: 1px solid var(--border);
         border-radius: var(--radius-sm);
+        box-shadow: var(--shadow-sm);
     }
 
     .quill-tabs__indicator--variant-line {
@@ -53,15 +57,15 @@
     }
 
     .group\/tabs[data-orientation='horizontal'] .quill-tabs__indicator--variant-default {
-        top: 50%;
+        top: calc(50% - 1px);
         left: 0;
         width: var(--active-tab-width);
-        height: 1.75rem;
+        height: calc(var(--active-tab-height) - -2px);
         transform: translateX(var(--active-tab-left)) translateY(-50%);
     }
 
     .group\/tabs[data-orientation='vertical'] .quill-tabs__indicator--variant-default {
-        top: 0;
+        top: -1px;
         left: 50%;
         width: calc(100% - 6px);
         height: var(--active-tab-height);

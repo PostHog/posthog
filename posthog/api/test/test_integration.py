@@ -1057,6 +1057,16 @@ class TestIntegrationAPIKeyAccess:
         assert "github" in kinds
         assert "twilio" in kinds
 
+    def test_list_integrations_filtered_by_kind(self, client: HttpClient):
+        client.force_login(self.user)
+
+        response = client.get(f"/api/environments/{self.team.pk}/integrations/?kind=twilio")
+
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        assert len(results) == 1
+        assert results[0]["kind"] == "twilio"
+
 
 class TestGitHubIntegrationStateValidation:
     @pytest.fixture(autouse=True)
