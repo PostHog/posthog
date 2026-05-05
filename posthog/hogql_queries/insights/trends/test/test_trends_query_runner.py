@@ -2886,12 +2886,37 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     @parameterized.expand(
         [
             ("flag_off_no_breakdown", False, None, False),
-            ("flag_off_session_breakdown_multi", False, "session_multi", False),
+            (
+                "flag_off_session_multi",
+                False,
+                BreakdownFilter(breakdowns=[Breakdown(type=MultipleBreakdownType.SESSION, property="$channel_type")]),
+                False,
+            ),
             ("flag_on_no_breakdown", True, None, False),
-            ("flag_on_event_breakdown_multi", True, "event_multi", False),
-            ("flag_on_session_breakdown_multi", True, "session_multi", True),
-            ("flag_on_session_breakdown_legacy", True, "session_legacy", True),
-            ("flag_on_event_breakdown_legacy", True, "event_legacy", False),
+            (
+                "flag_on_event_multi",
+                True,
+                BreakdownFilter(breakdowns=[Breakdown(type=MultipleBreakdownType.EVENT, property="$browser")]),
+                False,
+            ),
+            (
+                "flag_on_session_multi",
+                True,
+                BreakdownFilter(breakdowns=[Breakdown(type=MultipleBreakdownType.SESSION, property="$channel_type")]),
+                True,
+            ),
+            (
+                "flag_on_session_legacy",
+                True,
+                BreakdownFilter(breakdown_type=BreakdownType.SESSION, breakdown="$channel_type"),
+                True,
+            ),
+            (
+                "flag_on_event_legacy",
+                True,
+                BreakdownFilter(breakdown_type=BreakdownType.EVENT, breakdown="$browser"),
+                False,
+            ),
         ]
     )
     @patch("posthog.hogql_queries.insights.trends.trends_query_runner.posthoganalytics.feature_enabled")
@@ -2899,26 +2924,11 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self,
         _name: str,
         flag_enabled: bool,
-        breakdown_shape: Optional[str],
+        breakdown_filter: Optional[BreakdownFilter],
         expected: bool,
         patch_feature_enabled,
     ):
         patch_feature_enabled.return_value = flag_enabled
-        breakdown_filter: Optional[BreakdownFilter]
-        if breakdown_shape == "session_multi":
-            breakdown_filter = BreakdownFilter(
-                breakdowns=[Breakdown(type=MultipleBreakdownType.SESSION, property="$channel_type")]
-            )
-        elif breakdown_shape == "event_multi":
-            breakdown_filter = BreakdownFilter(
-                breakdowns=[Breakdown(type=MultipleBreakdownType.EVENT, property="$browser")]
-            )
-        elif breakdown_shape == "session_legacy":
-            breakdown_filter = BreakdownFilter(breakdown_type=BreakdownType.SESSION, breakdown="$channel_type")
-        elif breakdown_shape == "event_legacy":
-            breakdown_filter = BreakdownFilter(breakdown_type=BreakdownType.EVENT, breakdown="$browser")
-        else:
-            breakdown_filter = None
         runner = TrendsQueryRunner(
             team=self.team,
             query=TrendsQuery(series=[EventsNode(event="$pageview")], breakdownFilter=breakdown_filter),
