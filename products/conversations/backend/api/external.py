@@ -131,6 +131,15 @@ class ExternalTicketUpdateSerializer(serializers.Serializer):
         return attrs
 
 
+def _validate_ticket_id(ticket_id: str) -> Response | None:
+    """Return an error Response if ticket_id is not a valid UUID, else None."""
+    try:
+        uuid.UUID(ticket_id)
+    except (ValueError, AttributeError):
+        return Response({"error": "Invalid ticket_id format"}, status=status.HTTP_400_BAD_REQUEST)
+    return None
+
+
 class ExternalTicketView(APIView):
     """
     GET /api/conversations/external/ticket/<ticket_id>  — Fetch ticket data
@@ -150,10 +159,8 @@ class ExternalTicketView(APIView):
 
         assert team is not None
 
-        try:
-            uuid.UUID(ticket_id)
-        except (ValueError, AttributeError):
-            return Response({"error": "Invalid ticket_id format"}, status=status.HTTP_400_BAD_REQUEST)
+        if error := _validate_ticket_id(ticket_id):
+            return error
 
         try:
             ticket = Ticket.objects.select_related(
@@ -217,10 +224,8 @@ class ExternalTicketView(APIView):
 
         assert team is not None
 
-        try:
-            uuid.UUID(ticket_id)
-        except (ValueError, AttributeError):
-            return Response({"error": "Invalid ticket_id format"}, status=status.HTTP_400_BAD_REQUEST)
+        if error := _validate_ticket_id(ticket_id):
+            return error
 
         serializer = ExternalTicketUpdateSerializer(data=request.data)
         if not serializer.is_valid():
