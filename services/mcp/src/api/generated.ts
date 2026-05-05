@@ -1695,6 +1695,11 @@ export namespace Schemas {
        * @nullable
        */
       sessionIdPushdown?: boolean | null;
+      /**
+       * Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap pre-aggregation that only materializes the columns referenced by the outer-WHERE session predicate)`. Useful when the breakdown/SELECT pulls in many session columns (e.g. `$channel_type`) but the filter only references one (e.g. `$entry_current_url`).
+       * @nullable
+       */
+      sessionPropertyPreAggregation?: boolean | null;
       sessionTableVersion?: SessionTableVersion | null;
       sessionsV2JoinMode?: SessionsV2JoinMode | null;
       /** @nullable */
@@ -7669,6 +7674,8 @@ export namespace Schemas {
     } as const;
 
     export interface YAxisSettings {
+      /** @nullable */
+      label?: string | null;
       scale?: Scale | null;
       /** @nullable */
       showGridLines?: boolean | null;
@@ -7711,6 +7718,8 @@ export namespace Schemas {
        */
       stackBars100?: boolean | null;
       xAxis?: ChartAxis | null;
+      /** @nullable */
+      xAxisLabel?: string | null;
       /** @nullable */
       yAxis?: ChartAxis[] | null;
       /**
