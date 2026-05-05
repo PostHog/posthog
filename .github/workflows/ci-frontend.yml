@@ -27,6 +27,9 @@ jobs:
         outputs:
             frontend: ${{ steps.filter.outputs.frontend || 'true' }}
             frontend_code: ${{ steps.filter.outputs.frontend_code || 'true' }}
+            products_manifest: ${{ steps.filter.outputs.products_manifest || 'true' }}
+            query_schema: ${{ steps.filter.outputs.query_schema || 'true' }}
+            mobile_replay_schema: ${{ steps.filter.outputs.mobile_replay_schema || 'true' }}
         steps:
             # For pull requests it's not necessary to check out the code, but we
             # also want this to run on master, so we need to check out
@@ -97,6 +100,37 @@ jobs:
                         - tsconfig.*.json
                         - webpack.config.js
                         - stylelint*
+                      # Inputs to `pnpm --filter=@posthog/frontend build:products`
+                      # (build-products.mjs reads products/* and emits products.{tsx,json}).
+                      products_manifest:
+                        - 'products/**'
+                        - 'frontend/build-products.mjs'
+                        - 'frontend/src/products.tsx'
+                        - 'frontend/src/products.json'
+                        - 'frontend/package.json'
+                        - .github/workflows/ci-frontend.yml
+                      # Inputs to `pnpm --filter=@posthog/frontend schema:build:json`
+                      # (ts-json-schema-generator over schema.ts → schema.json + validators.js).
+                      query_schema:
+                        - 'frontend/src/queries/schema.ts'
+                        - 'frontend/src/queries/schema/**'
+                        - 'frontend/src/queries/schema.json'
+                        - 'frontend/src/queries/validators.js'
+                        - 'frontend/bin/build-schema-json.mjs'
+                        - 'frontend/bin/build-validators.mjs'
+                        - 'frontend/tsconfig.json'
+                        - 'tsconfig.json'
+                        - 'pnpm-lock.yaml'
+                        - .github/workflows/ci-frontend.yml
+                      # Inputs to `pnpm --filter=@posthog/frontend mobile-replay:schema:build:json`
+                      # (ts-json-schema-generator over @posthog/rrweb-types and mobile.types.ts).
+                      mobile_replay_schema:
+                        - 'frontend/src/scenes/session-recordings/mobile-replay/mobile.types.ts'
+                        - 'frontend/src/scenes/session-recordings/mobile-replay/schema/**'
+                        - 'frontend/tsconfig.json'
+                        - 'tsconfig.json'
+                        - 'pnpm-lock.yaml'
+                        - .github/workflows/ci-frontend.yml
 
     frontend-format:
         name: Frontend formatting
@@ -277,6 +311,7 @@ jobs:
               run: pnpm --filter=@posthog/frontend build:products
 
             - name: Check if products.tsx and products.json are up to date
+              if: needs.changes.outputs.products_manifest == 'true'
               run: pnpm --filter=@posthog/frontend build:products && git diff --exit-code
 
             - name: Kea typegen
@@ -298,9 +333,11 @@ jobs:
                   NODE_OPTIONS: --max-old-space-size=16384
 
             - name: Check if schema.json and validators.js are up to date
+              if: needs.changes.outputs.query_schema == 'true'
               run: pnpm --filter=@posthog/frontend schema:build:json && git diff --exit-code
 
             - name: Check if mobile replay "schema.json" is up to date
+              if: needs.changes.outputs.mobile_replay_schema == 'true'
               run: pnpm --filter=@posthog/frontend mobile-replay:schema:build:json && git diff --exit-code
               env:
                   NODE_OPTIONS: --max-old-space-size=8192
