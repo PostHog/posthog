@@ -20,7 +20,6 @@ import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { SceneDuplicate } from 'lib/components/Scenes/SceneDuplicate'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -113,14 +112,6 @@ function SurveyViewLegacy({ id }: { id: string }): JSX.Element {
     const hasMultipleProjects = currentOrganization?.teams && currentOrganization.teams.length > 1
 
     const [tabKey, setTabKey] = useState(survey.start_date ? 'results' : 'overview')
-
-    const surveyId = survey?.id && survey.id !== 'new' ? survey.id : null
-
-    useFileSystemLogView({
-        type: 'survey',
-        ref: surveyId,
-        enabled: Boolean(surveyId && !isInitialSurveyLoad),
-    })
 
     useEffect(() => {
         if (survey.start_date) {
