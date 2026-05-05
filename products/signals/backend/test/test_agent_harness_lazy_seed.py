@@ -171,7 +171,18 @@ class TestDiscoverCanonicalSkills:
         # Exercises the production manifest at `products/signals/skills/` — growing the
         # canonical set is a deliberate edit, so this serves as the lock.
         skills = discover_canonical_skills()
-        assert any(s.name == "signals-agent-general" for s in skills)
+        names = {s.name for s in skills}
+        # The fleet at v1: general (cross-product) + 3 focused specialists. Each is
+        # self-contained (no deps between skills); the coordinator samples one per tick.
+        # Adding a new specialist is a deliberate edit — extend this set when shipping.
+        expected = {
+            "signals-agent-general",
+            "signals-agent-llm-analytics",
+            "signals-agent-logs",
+            "signals-agent-error-tracking",
+            "signals-agent-revenue-analytics",
+        }
+        assert expected.issubset(names), f"missing canonical skills: {expected - names}"
 
 
 class TestSeedCanonicalSkills(BaseTest):

@@ -231,10 +231,14 @@ async def test_lazy_seeds_canonical_skills_for_brand_new_team(ateam):
             LLMSkill.objects.filter(team=ateam, name__startswith="signals-agent-").values_list("name", flat=True)
         )
     )()
-    # signals-agent-general is the canonical skill shipped in-repo; assert membership
-    # rather than equality so future canonical additions don't break this test.
+    # signals-agent-general is the canonical baseline skill shipped in-repo; assert
+    # membership rather than equality so future canonical additions don't break this test.
     assert "signals-agent-general" in seeded
-    assert any(p.skill_name == "signals-agent-general" for p in output.planned_runs)
+    # Sampling-of-one means exactly one PlannedRun per team, drawn at random from the
+    # seeded set. Assert the planned run names a real seeded skill rather than asserting
+    # which one — the random pick is deliberate behavior.
+    assert len(output.planned_runs) == 1
+    assert output.planned_runs[0].skill_name in seeded
 
 
 @pytest.mark.asyncio
