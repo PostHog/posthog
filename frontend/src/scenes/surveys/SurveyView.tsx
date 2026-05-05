@@ -113,6 +113,8 @@ function SurveyViewLegacy({ id }: { id: string }): JSX.Element {
 
     const [tabKey, setTabKey] = useState(survey.start_date ? 'results' : 'overview')
 
+    const surveyId = survey?.id && survey.id !== 'new' ? survey.id : null
+
     useEffect(() => {
         if (survey.start_date) {
             setTabKey('results')
