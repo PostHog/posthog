@@ -22,8 +22,14 @@ const meta: Meta = {
     ],
 }
 
-const imagePath = '/id/237/200/300.jpg?hmac=TmmQSbShHz9CdQm0NkEjx1Dyh_Y984R9LpNrpvH2D_U'
-const imageOrigin = 'https://fastly.picsum.photos'
+const inlineDataImage =
+    'data:image/svg+xml;utf8,' +
+    '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="300" viewBox="0 0 200 300">' +
+    '<rect width="200" height="300" fill="%23a3a3a3"/>' +
+    '<text x="100" y="150" text-anchor="middle" font-family="sans-serif" font-size="16" fill="white">preview</text>' +
+    '</svg>'
+const imagePath = '/preview.png'
+const imageOrigin = 'https://example.com'
 const imageWidth = '200'
 const imageHeight = '300'
 
@@ -47,7 +53,7 @@ const mockElementsWithAbsoluteImage: ElementType[] = [
     {
         tag_name: 'img',
         attributes: {
-            attr__src: `${imageOrigin}${imagePath}`,
+            attr__src: inlineDataImage,
             attr__width: imageWidth,
             attr__height: imageHeight,
         },
