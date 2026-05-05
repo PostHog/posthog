@@ -75,7 +75,7 @@ export const logsSamplingSectionLogic = kea<logsSamplingSectionLogicType>([
 
     listeners(({ actions, values }) => ({
         loadRulesSuccess: () => {
-            actions.loadRuleDropImpact()
+            actions.loadRuleDropImpact(undefined)
         },
         saveRulesOrder: async ({ orderedIds }) => {
             const projectId = values.currentTeamId

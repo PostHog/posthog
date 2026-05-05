@@ -85,7 +85,7 @@ export const logsSamplingDetailSceneLogic = kea<logsSamplingDetailSceneLogicType
             if (values.rule) {
                 actions.resetSamplingForm(buildSamplingFormDefaults(values.rule))
             }
-            actions.loadRuleDropImpact24h()
+            actions.loadRuleDropImpact24h(undefined)
         },
         deleteRule: async () => {
             try {
