@@ -2975,6 +2975,8 @@ export const surveyLogic = kea<surveyLogicType>([
                 actions.setActiveTab(tabFromUrl as SurveyTab)
             } else if (searchParams.activity && values.activeTab !== SurveyTab.HISTORY) {
                 actions.setActiveTab(SurveyTab.HISTORY)
+            } else if (!tabFromUrl && !searchParams.activity && values.activeTab !== SurveyTab.SUMMARY) {
+                actions.setActiveTab(SurveyTab.SUMMARY)
             }
 
             // Preserve unsaved edits whenever we re-enter the same survey URL — covers
