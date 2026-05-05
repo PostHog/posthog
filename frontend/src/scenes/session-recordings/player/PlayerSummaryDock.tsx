@@ -1,6 +1,5 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import posthog from 'posthog-js'
 import { useEffect, useRef } from 'react'
 
 import { IconChevronDown, IconCopy, IconMagicWand, IconX } from '@posthog/icons'
@@ -11,10 +10,12 @@ import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerL
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { urls } from 'scenes/urls'
 
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import { playerMetaLogic } from './player-meta/playerMetaLogic'
 import { sessionSummaryProgressLogic } from './player-meta/sessionSummaryProgressLogic'
+import { SessionSummaryContent } from './player-meta/types'
 import { LoadingTimer, SessionSummary, SummarizationProgressView } from './PlayerSummaryViews'
 import { sessionRecordingPlayerLogic } from './sessionRecordingPlayerLogic'
 
@@ -22,6 +23,52 @@ const COLLAPSED_HEIGHT = 44
 const DEFAULT_EXPANDED_HEIGHT = 480
 const MIN_EXPANDED_HEIGHT = 120
 const MAX_EXPANDED_HEIGHT = 800
+
+function formatSessionSummary(summary: SessionSummaryContent, sessionId: string): string {
+    const recordingUrl = window.location.origin + urls.replaySingle(sessionId)
+    const lines: string[] = [`Session ID: ${sessionId}`, `Recording: ${recordingUrl}`, '']
+
+    if (summary.session_outcome?.description) {
+        const outcomeLabel = summary.session_outcome.success === false ? 'Failure' : 'Success'
+        lines.push(`Outcome: ${outcomeLabel}`, summary.session_outcome.description, '')
+    }
+
+    summary.segments?.forEach((segment, i) => {
+        lines.push(`${i + 1}. ${segment.name ?? 'Unnamed segment'}`)
+
+        const segmentOutcome = summary.segment_outcomes?.find((o) => o.segment_index === segment.index)
+        if (segmentOutcome) {
+            const outcomeLabel = segmentOutcome.success === false ? 'Failure' : 'Success'
+            lines.push(`   Outcome: ${outcomeLabel}`)
+            if (segmentOutcome.summary) {
+                lines.push(`   ${segmentOutcome.summary}`)
+            }
+        }
+
+        const events = (summary.key_actions ?? [])
+            .filter((k) => k.segment_index === segment.index)
+            .flatMap((k) => k.events ?? [])
+        if (events.length) {
+            lines.push('   Key actions:')
+            events.forEach((event) => {
+                const parts: string[] = []
+                if (event.description) {
+                    parts.push(event.description)
+                }
+                if (event.event_type) {
+                    parts.push(`[${event.event_type}]`)
+                }
+                if (event.current_url) {
+                    parts.push(`@ ${event.current_url}`)
+                }
+                lines.push(`     - ${parts.join(' ')}`)
+            })
+        }
+        lines.push('')
+    })
+
+    return lines.join('\n').trim()
+}
 
 export function PlayerSummaryDock(): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
@@ -37,7 +84,9 @@ export function PlayerSummaryDock(): JSX.Element | null {
     const { summarizeSession } = useActions(playerMetaLogic(logicProps))
     const { openBySessionId, summaryIdBySessionId } = useValues(sessionSummaryProgressLogic)
     const { setSummaryOpen, cancelSummarization } = useActions(sessionSummaryProgressLogic)
-    const { reportAISessionSummaryViewed } = useActions(sessionRecordingEventUsageLogic)
+    const { reportAISessionSummaryViewed, reportAISessionSummaryCopiedForLLM } = useActions(
+        sessionRecordingEventUsageLogic
+    )
 
     const dockRef = useRef<HTMLDivElement>(null)
     const resizerProps: ResizerLogicProps = {
@@ -126,14 +175,17 @@ export function PlayerSummaryDock(): JSX.Element | null {
                     {hasSummary && sessionSummary && (
                         <LemonButton
                             size="small"
+                            type="secondary"
                             icon={<IconCopy />}
                             tooltip="Copy session summary for LLM"
                             aria-label="Copy session summary for LLM"
                             data-attr="copy-session-summary-for-llm"
                             onClick={() => {
-                                void copyToClipboard(JSON.stringify(sessionSummary, null, 2), 'session summary')
-                                posthog.capture('session_summary_copied_for_llm', {
-                                    session_id: sessionRecordingId,
+                                void copyToClipboard(
+                                    formatSessionSummary(sessionSummary, sessionRecordingId),
+                                    'session summary'
+                                )
+                                reportAISessionSummaryCopiedForLLM(sessionRecordingId, {
                                     segment_count: sessionSummary.segments?.length ?? 0,
                                     key_action_count:
                                         sessionSummary.key_actions?.reduce(
@@ -143,7 +195,9 @@ export function PlayerSummaryDock(): JSX.Element | null {
                                     has_session_outcome: !!sessionSummary.session_outcome,
                                 })
                             }}
-                        />
+                        >
+                            Copy for LLM
+                        </LemonButton>
                     )}
                     {(hasContentToExpand || isOpen) && (
                         <LemonButton
