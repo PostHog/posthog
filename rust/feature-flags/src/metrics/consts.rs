@@ -71,8 +71,8 @@ pub const FLAG_RATE_LIMIT_CHECK_TIME_MS: &str = "flags_rate_limit_check_ms";
 pub const FLAG_TOKEN_EXTRACT_TIME_MS: &str = "flags_token_extract_ms";
 
 // Permit-acquisition wait time on the tower `ConcurrencyLimitLayer`.
-// Phase F populates this; emitted unconditionally without `team_id` because
-// permit wait is a property of pod-level load, not of any one team.
+// Populated by Phase F; emitted only when populated. No `team_id` label
+// because permit wait is a property of pod-level load, not of any one team.
 pub const FLAG_CONCURRENCY_LIMIT_WAIT_TIME_MS: &str = "flags_concurrency_limit_wait_ms";
 
 // Performance monitoring

@@ -39,7 +39,10 @@ const TOKEN_EXTRACT_BUCKETS_MS: &[f64] = &[
 ///
 /// `Matcher::Suffix` is used for `_queue_time_ms` / `_pre_handler_time_ms`
 /// so future per-component variants pick up the same buckets without an
-/// extra entry. The other entries pin a single metric name.
+/// extra entry. Any new metric in the feature-flags binary ending in
+/// these suffixes will inherit these bucket boundaries — switch to
+/// `Matcher::Full` if that is not desired. The other entries pin a
+/// single metric name.
 pub fn bucket_overrides() -> Vec<(Matcher, &'static [f64])> {
     vec![
         (

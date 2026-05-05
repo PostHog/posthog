@@ -258,17 +258,18 @@ pub async fn flags(
     // Convert IP to string once and reuse throughout the request
     let ip_string = ip.to_string();
 
+    // Anchor for `flags_pre_handler_time_ms` — placed before UA parse so
+    // that synchronous pre-handler work (UA parse → token rate-limit) is
+    // included end-to-end, matching the metric's documented scope. The
+    // actual emission happens inside the canonical-log scope so the metric
+    // carries a `team_id` label once it's resolved.
+    let pre_handler_start = std::time::Instant::now();
+
     // Parse User-Agent and extract SDK info for logging
     let user_agent = headers.get("user-agent").and_then(|v| v.to_str().ok());
     let ua_info = UserAgentInfo::parse(user_agent);
 
     let now_ms = chrono::Utc::now().timestamp_millis();
-
-    // Anchor for `flags_pre_handler_time_ms` — captures synchronous work
-    // between the handler entering business logic and `process_request`
-    // being awaited. The actual emission happens inside the canonical-log
-    // scope so the metric carries a `team_id` label once it's resolved.
-    let pre_handler_start = std::time::Instant::now();
 
     // Contour sets X-Request-Start, so the timestamp is from trusted infrastructure.
     // We only filter out negative deltas (minor clock skew).

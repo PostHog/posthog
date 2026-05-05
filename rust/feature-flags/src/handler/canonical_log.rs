@@ -266,7 +266,7 @@ pub struct FlagsCanonicalLogLine {
 
     /// Time spent waiting for a permit on the tower
     /// `ConcurrencyLimitLayer` (Phase F instrumentation). None until that
-    /// phase ships, in which case the metric is not emitted.
+    /// phase ships; while None, `emit_timing_metrics` skips emission.
     pub concurrency_limit_wait_ms: Option<u64>,
 
     /// Duration of the Redis HINCRBY billing increment call in milliseconds.
@@ -573,6 +573,8 @@ mod tests {
         assert_eq!(log.http_status, 200);
         assert!(log.error_code.is_none());
         assert!(log.queue_time_ms.is_none());
+        assert!(log.pre_handler_duration_ms.is_none());
+        assert!(log.concurrency_limit_wait_ms.is_none());
     }
 
     #[test]
