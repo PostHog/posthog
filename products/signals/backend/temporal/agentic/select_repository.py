@@ -6,7 +6,7 @@ import posthoganalytics
 
 from posthog.event_usage import groups
 from posthog.models import Organization
-from posthog.models.integration import Integration
+from posthog.models.integration import GitHubIntegrationError, Integration
 from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
@@ -165,4 +165,11 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
             result="failed",
             failure_reason=failure_reason,
         )
+        # Permanent GitHub App auth failures (installation gone/suspended) won't recover via retry.
+        if isinstance(e, GitHubIntegrationError) and e.status_code in {401, 403, 404, 410}:
+            raise temporalio.exceptions.ApplicationError(
+                str(e),
+                type="GitHubIntegrationError",
+                non_retryable=True,
+            ) from e
         raise
