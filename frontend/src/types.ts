@@ -5864,6 +5864,11 @@ export interface ExternalDataSourceSyncSchema {
     primary_key_columns: string[] | null
     available_columns: AvailableColumn[]
     detected_primary_keys: string[] | null
+    /**
+     * User-selected source columns to sync. `null`/undefined = sync all columns.
+     * PK columns and the active incremental field are always retained server-side.
+     */
+    synced_columns?: string[] | null
 }
 
 export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema {

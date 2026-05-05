@@ -4,8 +4,23 @@ import { LemonButton, LemonCheckbox, LemonInput, LemonModal, Tooltip } from '@po
 
 import { ExternalDataSourceSchema } from '~/types'
 
+/**
+ * Minimal shape needed to render the column picker. Both `ExternalDataSourceSchema` (existing
+ * source) and `ExternalDataSourceSyncSchema` (wizard pre-creation) satisfy this — the picker
+ * only needs identity, the column inventory, and the always-retained columns.
+ */
+export interface ColumnSelectionTarget {
+    /** Stable identity used to reset internal state when the user switches between rows. */
+    id: string
+    name?: string
+    synced_columns?: string[] | null
+    primary_key_columns?: string[] | null
+    incremental_field?: string | null
+    available_columns?: { name: string; data_type?: string; is_nullable?: boolean }[]
+}
+
 interface ColumnSelectionPickerProps {
-    schema: ExternalDataSourceSchema | null
+    schema: ColumnSelectionTarget | null
     /** When provided, "Save" is enabled and clicking it calls this with the user's selection. */
     onSave: (syncedColumns: string[] | null) => void
     /** Optional secondary button shown next to "Save". */
@@ -36,7 +51,7 @@ interface UseColumnSelectionResult {
     filteredColumns: { name: string; data_type?: string; is_nullable?: boolean }[]
 }
 
-function useColumnSelection(schema: ExternalDataSourceSchema | null): UseColumnSelectionResult {
+function useColumnSelection(schema: ColumnSelectionTarget | null): UseColumnSelectionResult {
     const available = schema?.available_columns ?? []
     const primaryKeys = useMemo(() => new Set(schema?.primary_key_columns ?? []), [schema?.primary_key_columns])
     const incrementalField = schema?.incremental_field

@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 
 import { IconInfo, IconWarning } from '@posthog/icons'
 import {
@@ -21,6 +21,7 @@ import { ExternalDataSourceSyncSchema } from '~/types'
 import { SyncTypeLabelMap } from 'products/data_warehouse/frontend/utils'
 
 import { sourceWizardLogic } from '../../../scenes/NewSourceScene/sourceWizardLogic'
+import { ColumnSelectionPicker } from '../../../scenes/SourceScene/tabs/ColumnSelectionModal'
 import { splitDirectQueryTableName } from './directQuerySchemaUtils'
 import { SyncMethodForm } from './SyncMethodForm'
 
@@ -57,7 +58,9 @@ export default function SchemaForm(): JSX.Element {
         toggleDirectQuerySchemaGroup,
         setExpandedDirectQuerySchemaKeys,
         setSchemaNameFilter,
+        setSchemaSyncedColumns,
     } = useActions(sourceWizardLogic)
+    const [columnSelectionSchema, setColumnSelectionSchema] = useState<ExternalDataSourceSyncSchema | null>(null)
     const {
         databaseSchema,
         filteredDatabaseSchema,
@@ -464,12 +467,78 @@ export default function SchemaForm(): JSX.Element {
                                         )
                                     },
                                 },
+                                {
+                                    key: 'columns',
+                                    title: 'Columns',
+                                    align: 'right',
+                                    isHidden: !shouldShowSyncColumns,
+                                    tooltip:
+                                        'Pick a subset of columns to sync. Primary keys and the active incremental field are always retained.',
+                                    render: function RenderColumns(_, schema) {
+                                        if (schema.available_columns.length === 0) {
+                                            return <span className="text-xs text-muted-foreground">—</span>
+                                        }
+                                        const synced = schema.synced_columns
+                                        const summary =
+                                            !synced || synced.length === 0
+                                                ? `All ${schema.available_columns.length}`
+                                                : `${synced.length} of ${schema.available_columns.length}`
+                                        return (
+                                            <div className="justify-end flex">
+                                                <LemonButton
+                                                    className="my-1"
+                                                    size="small"
+                                                    type="secondary"
+                                                    onClick={() => setColumnSelectionSchema(schema)}
+                                                >
+                                                    {summary}
+                                                </LemonButton>
+                                            </div>
+                                        )
+                                    },
+                                },
                             ]}
                         />
                     )}
                 </div>
             </div>
             <SyncMethodModal />
+            <LemonModal
+                title={
+                    columnSelectionSchema ? (
+                        <>
+                            Select columns for <span className="font-mono">{columnSelectionSchema.table}</span>
+                        </>
+                    ) : null
+                }
+                description="Primary-key and incremental columns are always synced and cannot be unchecked."
+                isOpen={columnSelectionSchema !== null}
+                onClose={() => setColumnSelectionSchema(null)}
+            >
+                <div className="min-w-[420px]">
+                    <ColumnSelectionPicker
+                        schema={
+                            columnSelectionSchema
+                                ? {
+                                      id: columnSelectionSchema.table,
+                                      name: columnSelectionSchema.table,
+                                      synced_columns: columnSelectionSchema.synced_columns,
+                                      primary_key_columns: columnSelectionSchema.primary_key_columns,
+                                      incremental_field: columnSelectionSchema.incremental_field,
+                                      available_columns: columnSelectionSchema.available_columns,
+                                  }
+                                : null
+                        }
+                        onSave={(syncedColumns) => {
+                            if (columnSelectionSchema) {
+                                setSchemaSyncedColumns(columnSelectionSchema, syncedColumns)
+                            }
+                            setColumnSelectionSchema(null)
+                        }}
+                        onCancel={() => setColumnSelectionSchema(null)}
+                    />
+                </div>
+            </LemonModal>
         </>
     )
 }

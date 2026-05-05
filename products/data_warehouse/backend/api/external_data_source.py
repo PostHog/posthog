@@ -1013,6 +1013,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             primary_key_columns = schema.get("primary_key_columns")
             sync_time_of_day = schema.get("sync_time_of_day")
             should_sync = schema.get("should_sync", False)
+            payload_synced_columns = schema.get("synced_columns")
+            if isinstance(payload_synced_columns, list) and len(payload_synced_columns) > 0:
+                synced_columns: list[str] | None = [
+                    str(column) for column in payload_synced_columns if isinstance(column, str)
+                ] or None
+            else:
+                synced_columns = None
 
             if should_sync and requires_incremental_fields and incremental_field is None:
                 new_source_model.delete()
@@ -1102,6 +1109,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 description=source_schema.description if source_schema else None,
                 label=schema_label_by_name.get(schema_name),
                 sync_frequency_interval=schema_sync_frequency_interval,
+                synced_columns=synced_columns,
             )
 
             # For CDC schemas with PostHog-managed mode, add table to publication
