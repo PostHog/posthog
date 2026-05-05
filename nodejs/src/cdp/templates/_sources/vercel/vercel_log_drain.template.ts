@@ -155,22 +155,58 @@ fun extractPathname(url) {
     return url
 }
 
-// Distinct ID: user-level grouping based on project, host, client IP, and user agent
+// Distinct ID: configurable strategy. Default is a daily-rotating salted hash
+// of (ip, host, ua). The active strategy is recorded as $distinct_id_strategy
+// on the event for diagnostics — it is not an analytical breakdown dimension.
 let host := proxy.host ?? log.host ?? ''
 let clientIp := proxy.clientIp ?? ''
 let userAgent := proxy.userAgent[1] ?? ''
 let scheme := proxy.scheme ?? 'https'
 let path := proxy.path ?? log.path ?? ''
-let distinctId := f'vercel_{sha256Hex(f'{log.projectId}:{host}:{clientIp}:{userAgent}')}'
+
+let day := formatDateTime(now(), '%Y-%m-%d')
+let salt := inputs.salt_secret ?? ''
+let strategy := inputs.distinct_id_strategy ?? 'rotating_salt'
+let activeStrategy := strategy
+let distinctId := ''
+
+if (strategy == 'rotating_salt') {
+    distinctId := f'http_log_{sha256Hex(f'{salt}:{day}:{clientIp}:{host}:{userAgent}')}'
+} else if (strategy == 'fixed_salt') {
+    distinctId := f'http_log_{sha256Hex(f'{salt}:{clientIp}:{host}:{userAgent}')}'
+} else if (strategy == 'ip') {
+    distinctId := f'http_log_{clientIp}'
+} else if (strategy == 'custom') {
+    let customTemplate := inputs.custom_template ?? ''
+    if (empty(customTemplate)) {
+        print('vercel log drain: custom_template empty, falling back to rotating_salt')
+        distinctId := f'http_log_{sha256Hex(f'{salt}:{day}:{clientIp}:{host}:{userAgent}')}'
+        activeStrategy := 'rotating_salt_fallback'
+    } else {
+        let result := customTemplate
+        result := replaceAll(result, '{salt}', salt)
+        result := replaceAll(result, '{day}', day)
+        result := replaceAll(result, '{ip}', clientIp)
+        result := replaceAll(result, '{host}', host)
+        result := replaceAll(result, '{ua}', userAgent)
+        result := replaceAll(result, '{path}', path)
+        result := replaceAll(result, '{project_id}', toString(log.projectId))
+        distinctId := f'http_log_{result}'
+    }
+} else {
+    // Unknown strategy value — treat as rotating_salt
+    distinctId := f'http_log_{sha256Hex(f'{salt}:{day}:{clientIp}:{host}:{userAgent}')}'
+    activeStrategy := 'rotating_salt'
+}
 
 // Parse URL for pathname and UTM parameters
 let queryParams := parseQueryParams(path)
 let pathname := extractPathname(path)
 
 let props := {
-    // PostHog standard properties
-    '$ip': clientIp,
-    '$raw_user_agent': userAgent,
+    // PostHog standard properties. $ip and $raw_user_agent are intentionally
+    // omitted: PII is consumed only as inputs to distinctId derivation above.
+    '$distinct_id_strategy': activeStrategy,
     '$current_url': f'{scheme}://{host}{path}',
     '$host': host,
     '$pathname': pathname,
@@ -285,6 +321,55 @@ return {
             secret: false,
             required: false,
             default: false,
+        },
+        {
+            key: 'salt_secret',
+            type: 'string',
+            label: 'Distinct ID salt',
+            description:
+                'High-entropy random secret (e.g. base64) mixed into hashed distinct IDs. Rotate to invalidate prior IDs. Required by all strategies except "ip".',
+            secret: true,
+            required: true,
+        },
+        {
+            key: 'distinct_id_strategy',
+            type: 'choice',
+            label: 'Distinct ID strategy',
+            description:
+                'How distinct IDs are derived. Default rotates daily so the same client gets a fresh ID each day. The active strategy is recorded on each event as $distinct_id_strategy for debugging.',
+            choices: [
+                {
+                    value: 'rotating_salt',
+                    label: 'Rotating salt (sha256(salt:day:ip:host:ua)) — daily rotation, default',
+                },
+                {
+                    value: 'fixed_salt',
+                    label: 'Fixed salt (sha256(salt:ip:host:ua)) — stable until salt rotates',
+                },
+                {
+                    value: 'ip',
+                    label: 'Raw IP — stores client IPs unhashed as queryable distinct IDs',
+                },
+                {
+                    value: 'custom',
+                    label: 'Custom template — placeholder substitution (see template field)',
+                },
+            ],
+            default: 'rotating_salt',
+            secret: false,
+            required: true,
+        },
+        {
+            key: 'custom_template',
+            type: 'string',
+            label: 'Custom distinct ID template',
+            description:
+                'Used only when strategy is "custom". Supports placeholders {salt}, {day}, {ip}, {host}, {ua}, {path}, {project_id} (literal string substitution, not Hog evaluation; unknown placeholders are left as-is). The result is prefixed with "http_log_". Empty value falls back to rotating_salt.',
+            secret: false,
+            required: false,
+            // Templating disabled so {placeholder} braces are not interpreted as Hog
+            // expressions at the input layer. Substitution happens inside the Hog code.
+            templating: false,
         },
     ],
 }

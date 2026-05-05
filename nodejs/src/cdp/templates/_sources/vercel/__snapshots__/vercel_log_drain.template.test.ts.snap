@@ -3,15 +3,14 @@
 exports[`vercel log drain template should capture all Vercel log properties with snake_case naming 1`] = `
 [
   {
-    "distinct_id": "vercel_3d16a3830c1eece2670ab5457bd3839a4bedcba3f438cb5e776f791ec047d716",
+    "distinct_id": "http_log_a2c746dc51d4d25aa95cd6a2ebb31af1f46ce475194e213adfcf9e2f7be982d0",
     "event": "$http_log",
     "properties": {
       "$current_url": "https://my-app.vercel.app/api/users?page=1",
+      "$distinct_id_strategy": "rotating_salt",
       "$hog_function_execution_count": 1,
       "$host": "my-app.vercel.app",
-      "$ip": "120.75.16.101",
       "$pathname": "/api/users",
-      "$raw_user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
       "$referrer": "https://my-app.vercel.app",
       "branch": null,
       "build_id": null,
