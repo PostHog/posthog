@@ -201,6 +201,7 @@ def _spawn_one_sandbox(
     repo_root: Path,
     repository: str,
     branch: str,
+    run_id: str,
 ) -> tuple[str, int]:
     """Provision a sandbox, run run_campaign.py inside, harvest, destroy.
 
@@ -252,7 +253,11 @@ def _spawn_one_sandbox(
     with _LIVE_SANDBOXES_LOCK:
         _LIVE_SANDBOXES[sandbox.id] = sandbox
 
-    output_dir = RUNS_DIR / query.query_id
+    # Suffix the artifact directory with the per-coordinator-run id so two
+    # coordinator processes that pick up the same `query_id` (e.g. the same
+    # slow query surfaced twice in close succession) don't clobber each
+    # other's `input.json` / `campaign.log`.
+    output_dir = RUNS_DIR / f"{query.query_id}_{run_id}"
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "input.json").write_text(
         json.dumps(
@@ -699,6 +704,9 @@ def main(argv: list[str] | None = None) -> int:
     _log(f"got {len(queries)} candidate queries; sandboxes will clone {args.repository}@{branch}")
 
     coordinator_url = f"http://host.docker.internal:{actual_port}"
+    # 8-char shared id stamped on every artifact dir for this coordinator run
+    # so concurrent runs don't collide on `RUNS_DIR/<query_id>`.
+    run_id = uuid.uuid4().hex[:8]
 
     failures: list[str] = []
     try:
@@ -716,6 +724,7 @@ def main(argv: list[str] | None = None) -> int:
                     repo_root=repo_root,
                     repository=args.repository,
                     branch=branch,
+                    run_id=run_id,
                 ): q
                 for q in queries
             }

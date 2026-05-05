@@ -175,18 +175,23 @@ def lockdown_network(coordinator_url: str) -> None:
     # via ip6tables makes happy-eyeballs fall through to v4 cleanly. We
     # don't whitelist any v6 destinations because our v4 whitelist is
     # already enough for pi to function.
+    #
+    # Failures here are fatal for the same reason iptables failures are:
+    # if we can't lock v6 down, pi could exfil over v6 outside the v4
+    # allowlist. PI_BASE bakes ``ip6tables`` so neither the missing-binary
+    # nor the missing-NET_ADMIN branch should fire in practice; if either
+    # does, the sandbox is broken and we want to know loudly.
     try:
         subprocess.run(  # noqa: S603
             ["ip6tables", "-P", "OUTPUT", "DROP"], check=True, text=True, capture_output=True, timeout=5
         )
-    except FileNotFoundError:
-        # ip6tables may be absent on stripped-down images; swallow because
-        # IPv4 lockdown is the load-bearing part.
-        pass
+    except FileNotFoundError as e:
+        raise LockdownFailed("ip6tables binary missing in sandbox image") from e
     except subprocess.CalledProcessError as e:
-        # Don't fail the campaign on IPv6 lockdown failure either — same
-        # rationale.
-        log(f"warning: ip6tables OUTPUT DROP failed: {(e.stderr or '').strip()}")
+        stderr = (e.stderr or "").strip()
+        if "Operation not permitted" in stderr or "Permission denied" in stderr:
+            raise LockdownFailed("ip6tables refused (NET_ADMIN not granted to this sandbox)") from e
+        raise LockdownFailed(f"ip6tables OUTPUT DROP failed: {stderr}") from e
 
     anthropic_ip_summary = ",".join(anthropic_ips)
     log(
