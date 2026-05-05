@@ -147,6 +147,28 @@ def _cached_per_user_org(field: CacheField, user_id: int, organization_id: str, 
     return result
 
 
+OrgCacheField = Literal["member_count"]
+
+
+def _fetch_member_count(organization: Organization) -> int:
+    return (
+        OrganizationMembership.objects.exclude(user__email__endswith=INTERNAL_BOT_EMAIL_SUFFIX)
+        .filter(user__is_active=True, organization=organization)
+        .count()
+    )
+
+
+def _cached_per_org(field: OrgCacheField, organization_id: str, fetcher: Callable[[], Any]) -> Any:
+    version = _org_serializer_cache_version(organization_id)
+    cache_key = f"org_serializer:{field}:{organization_id}:v{version}"
+    cached = get_safe_cache(cache_key)
+    if cached is not None:
+        return cached
+    result = fetcher()
+    safe_cache_set(cache_key, result, timeout=ORG_SERIALIZER_CACHE_TTL_SECONDS)
+    return result
+
+
 def _resolve_cached_user_id(serializer_context: dict[str, Any]) -> int | None:
     request = serializer_context.get("request")
     if request is None:
@@ -389,15 +411,11 @@ class OrganizationSerializer(
 
     @extend_schema_field(serializers.IntegerField())
     @tracer.start_as_current_span("organization_serializer.member_count")
-    def get_member_count(self, organization: Organization):
-        return (
-            OrganizationMembership.objects.exclude(user__email__endswith=INTERNAL_BOT_EMAIL_SUFFIX)
-            .filter(
-                user__is_active=True,
-            )
-            .filter(organization=organization)
-            .count()
-        )
+    def get_member_count(self, organization: Organization) -> int:
+        organization_id = str(organization.id) if organization.id is not None else None
+        if organization_id is None:
+            return _fetch_member_count(organization)
+        return _cached_per_org("member_count", organization_id, lambda: _fetch_member_count(organization))
 
     @tracer.start_as_current_span("organization_serializer.to_representation")
     def to_representation(self, instance):

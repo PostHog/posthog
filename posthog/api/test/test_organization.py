@@ -787,6 +787,31 @@ class TestOrganizationSerializer(APIBaseTest):
             serializer.get_teams(self.organization)
         assert spy.call_count == 2
 
+    def test_get_member_count_caches_per_org(self):
+        from posthog.api.organization import _fetch_member_count
+
+        serializer = OrganizationSerializer(self.organization, context=self.context)
+        with patch("posthog.api.organization._fetch_member_count", wraps=_fetch_member_count) as spy:
+            first = serializer.get_member_count(self.organization)
+            second = serializer.get_member_count(self.organization)
+        assert spy.call_count == 1
+        assert first == second == 1
+
+    def test_get_member_count_invalidates_on_membership_change(self):
+        OrganizationSerializer(self.organization, context=self.context).get_member_count(self.organization)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            self._create_user("new-member@posthog.com")
+
+        from posthog.api.organization import _fetch_member_count
+
+        with patch("posthog.api.organization._fetch_member_count", wraps=_fetch_member_count) as spy:
+            after = OrganizationSerializer(
+                self.organization, context=self._fresh_context_for(self.user)
+            ).get_member_count(self.organization)
+        assert spy.call_count == 1
+        assert after == 2
+
 
 class TestOrganizationRbacMigrations(APIBaseTest):
     def setUp(self):
