@@ -177,8 +177,10 @@ mod tests {
                 dlq_timestamp: None,
             }
         }
-        fn write_partition_key(&self, _ctx: &Context, buf: &mut String) {
-            buf.push_str(&format!("key:{}", self.uuid()));
+        fn partition_key<'buf>(&self, _ctx: &Context, buf: &'buf mut String) -> Option<&'buf str> {
+            use std::fmt::Write;
+            let _ = write!(buf, "key:{}", self.uuid());
+            Some(buf.as_str())
         }
         fn serialize_into(&self, _ctx: &Context, buf: &mut String) -> anyhow::Result<()> {
             buf.push_str(r#"{"event":"test"}"#);
@@ -186,25 +188,11 @@ mod tests {
         }
     }
 
-    fn test_kafka_config() -> crate::v1::sinks::kafka::config::Config {
-        let env: HashMap<String, String> = [
-            ("HOSTS", "localhost:9092"),
-            ("TOPIC_MAIN", "events_main"),
-            ("TOPIC_HISTORICAL", "events_hist"),
-            ("TOPIC_OVERFLOW", "events_overflow"),
-            ("TOPIC_DLQ", "events_dlq"),
-        ]
-        .into_iter()
-        .map(|(k, v)| (k.to_string(), v.to_string()))
-        .collect();
-        envconfig::Envconfig::init_from_hashmap(&env).unwrap()
-    }
-
     fn build_sink(name: SinkName, handle: lifecycle::Handle) -> Box<dyn Sink> {
         let producer = Arc::new(MockProducer::new(name, handle.clone()));
         let config = Config {
             produce_timeout: Duration::from_secs(30),
-            kafka: test_kafka_config(),
+            kafka: crate::v1::test_utils::test_kafka_config(),
         };
         Box::new(KafkaSink::new(
             name,
