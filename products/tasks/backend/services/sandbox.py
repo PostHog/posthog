@@ -60,7 +60,7 @@ class ExecutionStream(Protocol):
     def wait(self) -> ExecutionResult: ...
 
 
-SANDBOX_TTL_SECONDS = 60 * 120  # 2 hours (safety net; workflow inactivity timeout handles cleanup)
+SANDBOX_TTL_SECONDS = 6 * 60 * 60  # 6 hours (safety net; workflow inactivity timeout handles cleanup)
 
 
 class SandboxConfig(BaseModel):
