@@ -408,7 +408,13 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                             user_id=user.id,
                         )
                         failed_ids.append(sid)
-                        event_data = json.dumps({"session_id": sid, "error": str(result)})
+                        event_data = json.dumps(
+                            {
+                                "session_id": sid,
+                                "error": "Failed to generate summary for this session.",
+                                "error_code": "summary_failed",
+                            }
+                        )
                         yield f"event: error\ndata: {event_data}\n\n".encode()
                     else:
                         completed_ids.append(sid)

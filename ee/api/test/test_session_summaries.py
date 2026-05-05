@@ -507,8 +507,9 @@ class TestStreamSessionSummariesAPI(APIBaseTest):
         error_event = next(e for e in events if e["event"] == "error")
         error_data = json.loads(error_event["data"])
         self.assertEqual(error_data["session_id"], "session_fail")
-        self.assertIn("error", error_data)
-        self.assertIsInstance(error_data["error"], str)
+        self.assertEqual(error_data["error"], "Failed to generate summary for this session.")
+        self.assertEqual(error_data["error_code"], "summary_failed")
+        self.assertNotIn("summarization failed", error_data["error"])
 
         done_event = next(e for e in events if e["event"] == "done")
         done_data = json.loads(done_event["data"])
@@ -623,6 +624,34 @@ class TestStreamSessionSummariesAPI(APIBaseTest):
         done_data = json.loads(done_event["data"])
         self.assertEqual(done_data["completed"], [])
         self.assertCountEqual(done_data["failed"], ["session_1", "session_2"])
+
+    @patch("ee.api.session_summaries.find_sessions_timestamps")
+    @patch("ee.api.session_summaries.execute_summarize_session")
+    def test_stream_individually_error_payload_does_not_leak_exception_message(
+        self,
+        mock_execute: Mock,
+        mock_find_sessions: Mock,
+    ) -> None:
+        mock_find_sessions.return_value = (
+            datetime(2024, 1, 1, 10, 0, 0),
+            datetime(2024, 1, 1, 11, 0, 0),
+        )
+        sensitive_message = "openai key sk-internal-leak at /etc/secrets/prompt.txt"
+        mock_execute.side_effect = Exception(sensitive_message)
+
+        response = self._make_streaming_request(session_ids=["session_1"])
+
+        self.assertEqual(response.status_code, 200)
+        events = self._get_sse_events(response)
+        error_event = next(e for e in events if e["event"] == "error")
+        error_data = json.loads(error_event["data"])
+
+        self.assertEqual(error_data["error"], "Failed to generate summary for this session.")
+        self.assertEqual(error_data["error_code"], "summary_failed")
+        # Regression: the raw exception message must not leak through the SSE payload.
+        self.assertNotIn("sk-internal-leak", error_event["data"])
+        self.assertNotIn("/etc/secrets", error_event["data"])
+        self.assertNotIn(sensitive_message, error_event["data"])
 
     def test_stream_individually_missing_session_ids_returns_400(self) -> None:
         # Input validation happens before streaming begins, so the response is a regular 400
