@@ -231,6 +231,17 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
         try:
             _start_external_data_workflow(client, workflow_id, inputs)
         except Exception as e:
+            # Best-effort rollback of the pause we just did. Without this, a failed
+            # workflow start leaves the schedule paused forever (the flag is read
+            # by the workflow at completion, and there's no workflow if start
+            # failed) and the flag orphaned in sync_type_config.
+            if admin_paused_now:
+                try:
+                    unpause_external_data_schedule(str(schema.id))
+                    schema.sync_type_config.pop("admin_unpause_schedule_after_run", None)
+                    schema.save(update_fields=["sync_type_config"])
+                except Exception:
+                    pass
             messages.error(
                 request,
                 f"Saved {change_label}, but failed to trigger reset resync: {e}. "
