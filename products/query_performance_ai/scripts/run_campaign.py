@@ -27,7 +27,7 @@ import urllib.request
 from pathlib import Path
 
 from .runtime import SCRIPTS_DIR, CampaignError, log, run
-from .sandboxing import LockdownFailed, install_pi_toolchain, lockdown_network, prepare_pi_runtime
+from .sandboxing import LockdownFailed, ensure_pi_toolchain, lockdown_network, prepare_pi_runtime
 
 DEFAULT_WORKSPACE = Path("/tmp/autoresearch-campaign")
 
@@ -362,7 +362,7 @@ def main() -> int:
         except LockdownFailed as e:
             raise CampaignError(f"network lockdown failed; refusing to run pi without it: {e}") from e
 
-        install_pi_toolchain()
+        ensure_pi_toolchain()
         prepare_pi_runtime()
 
         log(f"resetting workspace {args.workspace}")

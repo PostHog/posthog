@@ -7,10 +7,12 @@ Three concerns:
    Docker gateway, the Anthropic API host, and DNS to the configured
    resolvers). pi-coding-agent runs after this, so its egress is fully
    bounded.
-2. ``install_pi_toolchain`` makes the sandbox runnable: on PI_BASE
-   (#55821) the toolchain is pre-baked and this is a no-op, on
-   DEFAULT_BASE it npm-installs ``pi-coding-agent`` and clones the
-   ``pi-autoresearch`` extension at the pinned commit.
+2. ``ensure_pi_toolchain`` requires the PI_BASE image's pre-baked
+   layout — ``pi`` on PATH and the extension at the expected location.
+   Anything else fails fast: lockdown has already cut general egress, so
+   even if we wanted to fall back to ``npm install`` / ``git clone`` we
+   couldn't reach the registries, and we never want to run unpinned
+   third-party code anyway.
 3. ``prepare_pi_runtime`` patches the baked pi-ai bundle so it points
    at our ``ANTHROPIC_BASE_URL`` (when set) and patches pi-autoresearch's
    ``index.ts`` to preserve the campaign workspace dirs across pi's
@@ -27,20 +29,16 @@ from __future__ import annotations
 import os
 import json
 import shutil
-import tempfile
 import subprocess
 import urllib.parse
 from pathlib import Path
 
 from .runtime import AUTORESEARCH_DIR, CampaignError, atomic_write, log, run
 
-# Bumping these requires a fresh smoke run — `_patch_pi_ai_anthropic_baseurl`
-# is sensitive to pi-ai's bundle shape at this exact version.
-PI_CODING_AGENT_VERSION = "0.68.1"
-PI_AUTORESEARCH_COMMIT = "56e9f2ec6f0dc6f9997126e4f1d8a4223de2a534"
-
-# Layout the dedicated PI_BASE image bakes; `install_pi_toolchain` reproduces
-# it when running on DEFAULT_BASE.
+# Layout the dedicated PI_BASE image bakes. `ensure_pi_toolchain` requires
+# this exact path; the image build (Dockerfile.sandbox-pi) is the only place
+# pi-coding-agent and pi-autoresearch are installed, both at their pinned
+# versions/commits in the Dockerfile.
 BAKED_PI_AUTORESEARCH_EXTENSION = Path("/root/.pi/agent/extensions/pi-autoresearch")
 
 
@@ -219,60 +217,31 @@ def lockdown_network(coordinator_url: str) -> None:
         log(f"lockdown diagnostic skipped: {e}")
 
 
-def install_pi_toolchain() -> None:
-    """No-op once PI_BASE (#55821) lands; until then DEFAULT_BASE pays a
-    ~30-90s install per sandbox."""
-    pi_already_installed = shutil.which("pi") is not None
-    extension_present = BAKED_PI_AUTORESEARCH_EXTENSION.is_dir()
-    if pi_already_installed and extension_present:
-        log(f"pi toolchain pre-installed (pi @ {shutil.which('pi')}, extension at {BAKED_PI_AUTORESEARCH_EXTENSION})")
-        return
+def ensure_pi_toolchain() -> None:
+    """Require the pre-baked pi toolchain — fail fast if missing.
 
-    if not pi_already_installed:
-        log(f"installing pi-coding-agent@{PI_CODING_AGENT_VERSION} via npm (global)")
-        run(
-            [
-                "npm",
-                "install",
-                "-g",
-                f"@mariozechner/pi-coding-agent@{PI_CODING_AGENT_VERSION}",
-            ]
+    PI_BASE (Dockerfile.sandbox-pi) is the only supported sandbox image
+    for autoresearch; it bakes ``pi-coding-agent`` at a pinned version
+    and ``pi-autoresearch`` at a pinned commit. We refuse to fall back
+    to ``npm install`` / ``git clone`` because (a) lockdown has already
+    cut general egress so it wouldn't work anyway, and (b) installing
+    unpinned third-party code from inside a network-isolated sandbox is
+    a pattern we explicitly never want.
+    """
+    pi_path = shutil.which("pi")
+    if pi_path is None:
+        raise CampaignError(
+            "pi-coding-agent binary not found on PATH — sandbox image is wrong "
+            "(expected PI_BASE / Dockerfile.sandbox-pi). Refusing to bootstrap "
+            "an unpinned install at runtime."
         )
-
-    if not extension_present:
-        with tempfile.TemporaryDirectory(prefix="pi-autoresearch-src-") as tmpdir:
-            src_root = Path(tmpdir) / "pi-autoresearch"
-            log(f"cloning pi-autoresearch@{PI_AUTORESEARCH_COMMIT[:8]} → {src_root}")
-            run(
-                [
-                    "git",
-                    "clone",
-                    "--quiet",
-                    "https://github.com/davebcn87/pi-autoresearch.git",
-                    str(src_root),
-                ]
-            )
-            run(["git", "checkout", "--quiet", PI_AUTORESEARCH_COMMIT], cwd=src_root)
-
-            ext_src = src_root / "extensions" / "pi-autoresearch"
-            if not ext_src.is_dir():
-                raise CampaignError(
-                    f"pi-autoresearch upstream missing {ext_src.relative_to(src_root)} at pinned commit"
-                )
-            BAKED_PI_AUTORESEARCH_EXTENSION.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copytree(ext_src, BAKED_PI_AUTORESEARCH_EXTENSION)
-            log(f"copied extension files to {BAKED_PI_AUTORESEARCH_EXTENSION}")
-
-            skills_src = src_root / "skills"
-            if skills_src.is_dir():
-                skills_dst = Path("/root/.pi/agent/skills")
-                skills_dst.mkdir(parents=True, exist_ok=True)
-                for skill_dir in skills_src.iterdir():
-                    if skill_dir.is_dir():
-                        target = skills_dst / skill_dir.name
-                        if not target.exists():
-                            shutil.copytree(skill_dir, target)
-                log(f"copied skills to {skills_dst}")
+    if not BAKED_PI_AUTORESEARCH_EXTENSION.is_dir():
+        raise CampaignError(
+            f"pi-autoresearch extension not found at {BAKED_PI_AUTORESEARCH_EXTENSION} "
+            "— sandbox image is wrong (expected PI_BASE / Dockerfile.sandbox-pi). "
+            "Refusing to clone the upstream repo at runtime."
+        )
+    log(f"pi toolchain pre-installed (pi @ {pi_path}, extension at {BAKED_PI_AUTORESEARCH_EXTENSION})")
 
 
 def prepare_pi_runtime() -> None:
