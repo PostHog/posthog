@@ -41,7 +41,9 @@ class EventDefinition(UUIDTModel):
         default=SchemaEnforcementMode.ALLOW,
     )
 
-    promoted_property = models.CharField(max_length=400, null=True, blank=True)
+    # DB column kept as `promoted_property` to avoid a Postgres column rename.
+    # Safe because the feature is flag-gated (`promoted-event-properties-edit`) and minimally used.
+    primary_property = models.CharField(max_length=400, null=True, blank=True, db_column="promoted_property")
 
     class Meta:
         db_table = "posthog_eventdefinition"

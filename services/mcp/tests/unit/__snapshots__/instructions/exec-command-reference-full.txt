@@ -3,7 +3,7 @@ CLI-style command string. Supported commands:
 ```text
 tools                                    — list available tool names
 search <regex_pattern>                   — search tools by JavaScript regex (matches name, title, description)
-info <tool_name>                         — show tool name, description, and input schema (summarized if too large)
+info [--json] <tool_name>                — show tool name, description, and input schema as YAML (summarized if too large; --json returns raw JSON instead)
 schema <tool_name> [field_path]          — drill into a specific field schema (supports dot-notation, e.g. series, breakdownFilter.breakdowns)
 call [--json] <tool_name> <json_input>   — call a tool with JSON input (--json returns raw JSON instead of formatted text. Use raw JSON for scripts.)
 ```

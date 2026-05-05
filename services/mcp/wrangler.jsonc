@@ -37,6 +37,7 @@
     },
     "observability": {
         "enabled": true,
+        "head_sampling_rate": 0.1,
         "logs": {
             "enabled": true,
             "destinations": ["posthog"],
@@ -48,11 +49,6 @@
         {
             "type": "Text",
             "globs": ["**/*.md"],
-            "fallthrough": true,
-        },
-        {
-            "type": "Text",
-            "globs": ["src/static/**/*.html"],
             "fallthrough": true,
         },
     ],

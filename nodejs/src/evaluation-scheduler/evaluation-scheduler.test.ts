@@ -1,8 +1,14 @@
 import { Message } from 'node-rdkafka'
 
-import { createAiGenerationEvent, createEvaluation, createEvaluationCondition } from '~/llm-analytics/_tests/fixtures'
+import {
+    createAiGenerationEvent,
+    createEvaluation,
+    createEvaluationCondition,
+    createTagger,
+} from '~/llm-analytics/_tests/fixtures'
 import { Hub } from '~/types'
 import { closeHub, createHub } from '~/utils/db/hub'
+import { logger } from '~/utils/logger'
 
 import {
     EvaluationMatcher,
@@ -10,6 +16,7 @@ import {
     checkRolloutPercentage,
     filterAndParseMessages,
     groupEventsByTeam,
+    unwrapOrLog,
 } from './evaluation-scheduler'
 
 jest.mock('~/llm-analytics/services/temporal.service')
@@ -363,6 +370,74 @@ describe('Evaluation Scheduler', () => {
                     }),
                 })
             )
+        })
+
+        it('matches taggers using the same Matchable contract as evaluations', async () => {
+            mockExecHog.mockResolvedValue({ execResult: { result: true } })
+
+            const event = createAiGenerationEvent(teamId)
+            const tagger = createTagger({
+                enabled: true,
+                conditions: [
+                    createEvaluationCondition({ id: 'cond-1', rollout_percentage: 100, bytecode: ['_H', 1, 32, true] }),
+                ],
+            })
+
+            const result = await matcher.shouldTriggerEvaluation(event, tagger)
+
+            expect(result).toEqual({ matched: true, conditionId: 'cond-1' })
+        })
+
+        it('returns disabled for a disabled tagger without consulting bytecode', async () => {
+            const event = createAiGenerationEvent(teamId)
+            const tagger = createTagger({ enabled: false })
+
+            const result = await matcher.shouldTriggerEvaluation(event, tagger)
+
+            expect(result).toEqual({ matched: false, reason: 'disabled' })
+            expect(mockExecHog).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('unwrapOrLog', () => {
+        it('returns the value when the promise was fulfilled', () => {
+            const result = unwrapOrLog(
+                { status: 'fulfilled', value: { 1: ['a'], 2: ['b'] } } as PromiseSettledResult<
+                    Record<string, string[]>
+                >,
+                'should not log'
+            )
+
+            expect(result).toEqual({ 1: ['a'], 2: ['b'] })
+        })
+
+        it('returns an empty object and logs when rejected', () => {
+            const errorSpy = jest.spyOn(logger, 'error').mockImplementation(() => undefined)
+
+            const result = unwrapOrLog(
+                { status: 'rejected', reason: new Error('db down') } as PromiseSettledResult<Record<string, string[]>>,
+                'fetch failed'
+            )
+
+            expect(result).toEqual({})
+            expect(errorSpy).toHaveBeenCalledWith('fetch failed', { error: 'db down' })
+
+            errorSpy.mockRestore()
+        })
+
+        it('coerces non-Error rejection reasons to string for the log payload', () => {
+            const errorSpy = jest.spyOn(logger, 'error').mockImplementation(() => undefined)
+
+            unwrapOrLog(
+                { status: 'rejected', reason: 'plain string failure' } as PromiseSettledResult<
+                    Record<string, string[]>
+                >,
+                'fetch failed'
+            )
+
+            expect(errorSpy).toHaveBeenCalledWith('fetch failed', { error: 'plain string failure' })
+
+            errorSpy.mockRestore()
         })
     })
 })
