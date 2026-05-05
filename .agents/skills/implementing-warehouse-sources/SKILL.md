@@ -332,31 +332,9 @@ Common cases: 401 Unauthorized, 403 Forbidden, invalid/expired tokens, OAuth tok
 
 ## `validate_credentials`
 
-Called from two places with different intent:
+Called with `schema_name=None` at source-create (one cheap probe to confirm the token is genuine) and with `schema_name=<name>` from the per-schema `incremental_fields` action (confirm scope for that specific endpoint).
 
-1. **Source-create** (Django, synchronous, blocks the user's "Connect" click) — `validate_credentials(config, team_id)` with **no `schema_name`**. Goal: confirm the token is genuine. Should be one cheap probe.
-2. **Per-schema, via the `incremental_fields` action** — `validate_credentials(config, team_id, schema_name=<name>)`. Goal: confirm the token has scope for that specific endpoint before the wizard reveals sync settings.
-
-**Distinguish 401 from 403 at source-create time.** If the API returns 403 for "valid token, missing scope" and 401 for "invalid token", accept 403 at source-create — the user may legitimately only intend to grant scopes for the endpoints they want to sync. Re-raise 403 only when `schema_name` is set, since at that point the user is asking to validate one specific endpoint.
-
-```python
-if table_name and table_name in ENDPOINTS:
-    is_create_probe = False
-    endpoints_to_check: list[str] = [table_name]
-else:
-    is_create_probe = True
-    endpoints_to_check = [ENDPOINTS[0]]
-
-for endpoint in endpoints_to_check:
-    response = session.get(f"{BASE_URL}/{endpoint}/", params={"limit": 1}, ...)
-    if response.status_code == 403:
-        if is_create_probe:
-            continue          # token authentic; defer scope check to per-schema validate or first sync
-        raise PermissionError(f"Missing permissions for {endpoint}")
-    response.raise_for_status()  # 401 → invalid token → fail
-```
-
-Sync-time 403s are caught separately by `get_non_retryable_errors()` mapping the friendly message onto the schema's `latest_error`.
+If the API distinguishes 401 (bad token) from 403 (valid token, missing scope), **accept 403 at source-create** — users may legitimately only grant scopes for the endpoints they want to sync. Re-raise 403 only when `schema_name` is set. Sync-time 403s are handled separately by `get_non_retryable_errors()`.
 
 ## Document required token scopes in the caption
 
