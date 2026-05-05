@@ -145,6 +145,7 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
         updateExperimentMetrics,
         addSharedMetricsToExperiment,
         removeSharedMetricFromExperiment,
+        removeMetric,
     } = useActions(experimentLogic)
 
     if (!tabId) {
@@ -265,11 +266,7 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
                                 return
                             }
 
-                            setExperiment({
-                                [context.field]: experiment[context.field].filter((m) => m.uuid !== metric.uuid),
-                            })
-
-                            updateExperimentMetrics()
+                            removeMetric(metric.uuid, context.type)
                             closeExperimentMetricModal()
                         }}
                     />

@@ -849,6 +849,8 @@ export const experimentLogic = kea<experimentLogicType>([
             isSecondary,
             newUuid,
         }),
+        // Semantic metric actions - each controls its own reload behavior
+        removeMetric: (uuid: string, context: 'primary' | 'secondary') => ({ uuid, context }),
         updateMetricBreakdown: (uuid: string, breakdown: Breakdown) => ({ uuid, breakdown }),
         removeMetricBreakdown: (uuid: string, index: number, breakdown: Breakdown) => ({ uuid, index, breakdown }),
         // METRICS RESULTS
@@ -1604,10 +1606,12 @@ export const experimentLogic = kea<experimentLogicType>([
         changeExperimentStartDate: async ({ startDate }) => {
             actions.updateExperiment({ start_date: startDate, update_feature_flag_params: false })
             values.experiment && eventUsageLogic.actions.reportExperimentStartDateChange(values.experiment, startDate)
+            actions.refreshExperimentResults(true, 'config_change')
         },
         changeExperimentEndDate: async ({ endDate }) => {
             actions.updateExperiment({ end_date: endDate, update_feature_flag_params: false })
             values.experiment && eventUsageLogic.actions.reportExperimentEndDateChange(values.experiment, endDate)
+            actions.refreshExperimentResults(true, 'config_change')
         },
         endExperiment: async () => {
             try {
@@ -1801,6 +1805,8 @@ export const experimentLogic = kea<experimentLogicType>([
                 metrics_secondary: values.experiment.metrics_secondary,
                 update_feature_flag_params: false,
             })
+            // Reload results for added/edited metrics
+            actions.refreshExperimentResults(true, 'config_change')
         },
         updateExperimentCollectionGoal: async () => {
             const { recommendedRunningTime, recommendedSampleSize, minimumDetectableEffect } = values
@@ -1842,17 +1848,11 @@ export const experimentLogic = kea<experimentLogicType>([
             if (payload?.update_feature_flag_params && experiment.feature_flag) {
                 actions.updateFlagFromPartial(experiment.feature_flag)
             }
-            if (isLaunched(experiment)) {
-                // For launched experiments, refresh results if any of these fields are updated
-                const forceRefresh =
-                    payload?.start_date !== undefined ||
-                    payload?.end_date !== undefined ||
-                    payload?.metrics !== undefined ||
-                    payload?.metrics_secondary !== undefined ||
-                    payload?.stats_config !== undefined ||
-                    payload?.only_count_matured_users !== undefined
-                actions.refreshExperimentResults(forceRefresh, 'config_change')
-            }
+            // NOTE: No implicit metric reload here. Each action that calls updateExperiment
+            // is responsible for triggering its own reload if needed. This prevents:
+            // 1. Unnecessary reloads (e.g., removing a metric doesn't need to re-query)
+            // 2. Double reloads (callers that explicitly reload were also getting implicit reload)
+            // See the semantic actions (removeMetric, etc.) for explicit reload patterns.
         },
         createExposureCohortSuccess: ({ exposureCohort }) => {
             if (exposureCohort && exposureCohort.id !== 'new') {
@@ -2316,6 +2316,18 @@ export const experimentLogic = kea<experimentLogicType>([
                     logic.actions.loadFeatureFlag() // Access the loader through actions
                 }
             }
+        },
+        removeMetric: ({ uuid, context }) => {
+            const isPrimary = context === 'primary'
+            const field = isPrimary ? 'metrics' : 'metrics_secondary'
+            const currentMetrics: (ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery)[] =
+                values.experiment[field] || []
+            const filtered = currentMetrics.filter((m) => m.uuid !== uuid)
+
+            actions.updateExperiment({
+                [field]: filtered,
+                update_feature_flag_params: false,
+            })
         },
         updateMetricBreakdown: async ({ uuid, breakdown }) => {
             const isPrimary = values.experiment.metrics.some((m) => m.uuid === uuid)
