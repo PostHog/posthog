@@ -76,21 +76,17 @@ describe('databaseTableListLogic', () => {
                 })
         )
 
-        logic = databaseTableListLogic()
-        logic.mount()
+        const localLogic = databaseTableListLogic()
+        localLogic.mount()
 
-        const request = logic.asyncActions.loadDatabase()
+        const request = localLogic.asyncActions.loadDatabase()
 
-        logic.unmount()
+        localLogic.unmount()
         resolveQuery?.({ tables: {}, joins: [] })
 
-        await request.catch((error: unknown) => {
-            // kea breakpoint errors are expected; a "Can not find path" error is the bug
-            const message = error instanceof Error ? error.message : String(error)
-            if (message.includes('Can not find path')) {
-                throw error
-            }
-        })
+        // The unmount-during-load fix returns null gracefully; we just need to make sure
+        // no "Can not find path" error is thrown.
+        await expect(request).resolves.toBeNull()
     })
 
     it('does not let a stale schema response overwrite the selected connection schema', async () => {

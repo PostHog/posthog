@@ -49,14 +49,16 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
         database: [
             null as Required<DatabaseSchemaQueryResponse> | null,
             {
-                loadDatabase: async (_, breakpoint): Promise<Required<DatabaseSchemaQueryResponse> | null> => {
+                loadDatabase: async (): Promise<Required<DatabaseSchemaQueryResponse> | null> => {
                     const requestConnectionId = values.connectionId ?? undefined
                     const requestKey = requestConnectionId ?? '__posthog__'
 
                     if (inFlightDatabaseLoadKey === requestKey && inFlightDatabaseLoadPromise) {
                         const inFlight = inFlightDatabaseLoadPromise
                         const result = await inFlight
-                        breakpoint()
+                        if (!databaseTableListLogic.isMounted()) {
+                            return null
+                        }
                         return result
                     }
 
@@ -80,7 +82,12 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
                         }
                     }
 
-                    breakpoint()
+                    // The logic may have been unmounted while the request was in flight (user
+                    // navigated away). Touching `values` post-unmount throws a kea path-not-found
+                    // error, so bail out before reading the store.
+                    if (!databaseTableListLogic.isMounted()) {
+                        return null
+                    }
 
                     const currentConnectionId = values.connectionId ?? undefined
                     if (currentConnectionId !== requestConnectionId) {
