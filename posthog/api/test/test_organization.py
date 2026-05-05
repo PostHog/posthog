@@ -15,7 +15,7 @@ from rest_framework import status
 from rest_framework.test import APIRequestFactory
 
 from posthog.api.oauth.test_dcr import generate_rsa_key
-from posthog.api.organization import OrganizationSerializer, _org_serializer_cache_version
+from posthog.api.organization import OrganizationSerializer, _fetch_member_count, _org_serializer_cache_version
 from posthog.models import FeatureFlag, Organization, OrganizationMembership, Team
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -786,6 +786,46 @@ class TestOrganizationSerializer(APIBaseTest):
             serializer.get_teams(self.organization)
             serializer.get_teams(self.organization)
         assert spy.call_count == 2
+
+    def test_get_member_count_caches_per_org(self):
+        serializer = OrganizationSerializer(self.organization, context=self.context)
+        with patch("posthog.api.organization._fetch_member_count", wraps=_fetch_member_count) as spy:
+            first = serializer.get_member_count(self.organization)
+            second = serializer.get_member_count(self.organization)
+        assert spy.call_count == 1
+        assert first == second == 1
+
+    @parameterized.expand(
+        [
+            (
+                "membership_create",
+                lambda self: self._create_user("invalidates-create@posthog.com"),
+                3,
+            ),
+            (
+                "membership_delete",
+                lambda self: OrganizationMembership.objects.filter(user=self._seeded_user).delete(),
+                1,
+            ),
+        ]
+    )
+    def test_get_member_count_invalidates_on_membership_change(self, _name, mutate, expected_after):
+        # Seed a second member so the delete path has something to remove and the
+        # baseline count is the same for both parameter cases.
+        self._seeded_user = self._create_user("invalidates-seed@posthog.com")
+        cache.clear()
+        baseline = OrganizationSerializer(self.organization, context=self.context).get_member_count(self.organization)
+        assert baseline == 2
+
+        with self.captureOnCommitCallbacks(execute=True):
+            mutate(self)
+
+        with patch("posthog.api.organization._fetch_member_count", wraps=_fetch_member_count) as spy:
+            after = OrganizationSerializer(
+                self.organization, context=self._fresh_context_for(self.user)
+            ).get_member_count(self.organization)
+        assert spy.call_count == 1
+        assert after == expected_after
 
 
 class TestOrganizationRbacMigrations(APIBaseTest):

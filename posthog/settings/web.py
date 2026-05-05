@@ -71,6 +71,7 @@ PRODUCTS_APPS = [
     "products.legal_documents.backend.apps.LegalDocumentsConfig",
     "products.query_performance_ai.backend.apps.QueryPerformanceAiConfig",
     "products.access_control.backend.apps.AccessControlConfig",
+    "products.warehouse_sources_queue.backend.apps.WarehouseSourcesQueueConfig",
 ]
 
 INSTALLED_APPS = [

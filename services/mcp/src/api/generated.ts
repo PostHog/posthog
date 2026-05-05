@@ -1695,6 +1695,11 @@ export namespace Schemas {
        * @nullable
        */
       sessionIdPushdown?: boolean | null;
+      /**
+       * Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap pre-aggregation that only materializes the columns referenced by the outer-WHERE session predicate)`. Useful when the breakdown/SELECT pulls in many session columns (e.g. `$channel_type`) but the filter only references one (e.g. `$entry_current_url`).
+       * @nullable
+       */
+      sessionPropertyPreAggregation?: boolean | null;
       sessionTableVersion?: SessionTableVersion | null;
       sessionsV2JoinMode?: SessionsV2JoinMode | null;
       /** @nullable */
@@ -6569,6 +6574,7 @@ export namespace Schemas {
     * `Workflows` - Workflows
     * `HTTP` - Http
     * `NoOp` - Noop
+    * `FileDownload` - File Download
      */
     export type BatchExportDestinationTypeEnum = typeof BatchExportDestinationTypeEnum[keyof typeof BatchExportDestinationTypeEnum];
 
@@ -6584,6 +6590,7 @@ export namespace Schemas {
       Workflows: 'Workflows',
       Http: 'HTTP',
       NoOp: 'NoOp',
+      FileDownload: 'FileDownload',
     } as const;
 
     /**
@@ -6601,7 +6608,8 @@ export namespace Schemas {
     * `AzureBlob` - Azure Blob
     * `Workflows` - Workflows
     * `HTTP` - Http
-    * `NoOp` - Noop */
+    * `NoOp` - Noop
+    * `FileDownload` - File Download */
       type: BatchExportDestinationTypeEnum;
       /** A JSON field to store all configuration parameters required to access a BatchExportDestination. */
       config?: unknown;
@@ -7666,6 +7674,8 @@ export namespace Schemas {
     } as const;
 
     export interface YAxisSettings {
+      /** @nullable */
+      label?: string | null;
       scale?: Scale | null;
       /** @nullable */
       showGridLines?: boolean | null;
@@ -7708,6 +7718,8 @@ export namespace Schemas {
        */
       stackBars100?: boolean | null;
       xAxis?: ChartAxis | null;
+      /** @nullable */
+      xAxisLabel?: string | null;
       /** @nullable */
       yAxis?: ChartAxis[] | null;
       /**
@@ -15546,6 +15558,21 @@ export namespace Schemas {
       metadata?: unknown | null;
       version: string;
       project: string;
+    }
+
+    export interface ErrorTrackingSettings {
+      /**
+       * Maximum number of exception events ingested per bucket for the entire project. Null removes the limit.
+       * @minimum 1
+       * @nullable
+       */
+      project_rate_limit_value?: number | null;
+      /**
+       * Bucket window over which the project-wide rate limit applies, in minutes.
+       * @minimum 1
+       * @nullable
+       */
+      project_rate_limit_bucket_size_minutes?: number | null;
     }
 
     export type ErrorTrackingSimilarIssuesQueryKind = typeof ErrorTrackingSimilarIssuesQueryKind[keyof typeof ErrorTrackingSimilarIssuesQueryKind];
@@ -26028,6 +26055,8 @@ export namespace Schemas {
       readonly onboarding_delegation_accepted_at: string | null;
       /** @nullable */
       readonly is_organization_first_user: boolean | null;
+      /** Real-time notification types that currently have a live dispatch site. Drives the in-app notifications settings UI. Read-only. */
+      readonly active_realtime_notification_types: readonly string[];
       readonly pending_invites: readonly PendingInvite[];
     }
 
@@ -27319,6 +27348,21 @@ export namespace Schemas {
       metadata?: unknown | null;
       version?: string;
       project?: string;
+    }
+
+    export interface PatchedErrorTrackingSettings {
+      /**
+       * Maximum number of exception events ingested per bucket for the entire project. Null removes the limit.
+       * @minimum 1
+       * @nullable
+       */
+      project_rate_limit_value?: number | null;
+      /**
+       * Bucket window over which the project-wide rate limit applies, in minutes.
+       * @minimum 1
+       * @nullable
+       */
+      project_rate_limit_bucket_size_minutes?: number | null;
     }
 
     export interface PatchedErrorTrackingSpikeDetectionConfig {
@@ -31410,6 +31454,8 @@ export namespace Schemas {
       readonly onboarding_delegation_accepted_at?: string | null;
       /** @nullable */
       readonly is_organization_first_user?: boolean | null;
+      /** Real-time notification types that currently have a live dispatch site. Drives the in-app notifications settings UI. Read-only. */
+      readonly active_realtime_notification_types?: readonly string[];
       readonly pending_invites?: readonly PendingInvite[];
     }
 
@@ -35796,6 +35842,21 @@ export namespace Schemas {
     }
 
     /**
+     * Filter shape mirrors the previous frontend `api.query({filters: ...})` payload.
+
+    `filters` accepts the same `HogQLFilters` schema that the legacy frontend HogQL
+    path used (dateRange, filterTestAccounts, properties), so the migration is
+    behaviour-preserving for callers that pass a request unchanged.
+     */
+    export interface SentimentGenerationsRequest {
+      filters?: unknown;
+    }
+
+    export interface SentimentGenerationsResponse {
+      results: unknown[][];
+    }
+
+    /**
      * * `trace` - trace
     * `generation` - generation
      */
@@ -35809,7 +35870,7 @@ export namespace Schemas {
 
     export interface SentimentRequest {
       /**
-       * Trace IDs or generation IDs to classify, depending on analysis_level.
+       * Trace IDs (analysis_level=trace) or generation event UUIDs (analysis_level=generation).
        * @minItems 1
        * @maxItems 5
        */
@@ -39584,6 +39645,43 @@ export namespace Schemas {
 
     export type EnvironmentsIntegrationsListParams = {
     /**
+     * * `apns` - Apple Push
+    * `azure-blob` - Azure Blob
+    * `bing-ads` - Bing Ads
+    * `clickup` - Clickup
+    * `customerio-app` - Customerio App
+    * `customerio-track` - Customerio Track
+    * `customerio-webhook` - Customerio Webhook
+    * `databricks` - Databricks
+    * `email` - Email
+    * `firebase` - Firebase
+    * `github` - Github
+    * `gitlab` - Gitlab
+    * `google-ads` - Google Ads
+    * `google-cloud-service-account` - Google Cloud Service Account
+    * `google-cloud-storage` - Google Cloud Storage
+    * `google-pubsub` - Google Pubsub
+    * `google-sheets` - Google Sheets
+    * `hubspot` - Hubspot
+    * `intercom` - Intercom
+    * `jira` - Jira
+    * `linear` - Linear
+    * `linkedin-ads` - Linkedin Ads
+    * `meta-ads` - Meta Ads
+    * `pinterest-ads` - Pinterest Ads
+    * `postgresql` - Postgresql
+    * `reddit-ads` - Reddit Ads
+    * `salesforce` - Salesforce
+    * `slack` - Slack
+    * `slack-posthog-code` - Slack Posthog Code
+    * `snapchat` - Snapchat
+    * `stripe` - Stripe
+    * `tiktok-ads` - Tiktok Ads
+    * `twilio` - Twilio
+    * `vercel` - Vercel
+     */
+    kind?: EnvironmentsIntegrationsListKind;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -39592,6 +39690,46 @@ export namespace Schemas {
      */
     offset?: number;
     };
+
+    export type EnvironmentsIntegrationsListKind = typeof EnvironmentsIntegrationsListKind[keyof typeof EnvironmentsIntegrationsListKind];
+
+
+    export const EnvironmentsIntegrationsListKind = {
+      Apns: 'apns',
+      AzureBlob: 'azure-blob',
+      BingAds: 'bing-ads',
+      Clickup: 'clickup',
+      CustomerioApp: 'customerio-app',
+      CustomerioTrack: 'customerio-track',
+      CustomerioWebhook: 'customerio-webhook',
+      Databricks: 'databricks',
+      Email: 'email',
+      Firebase: 'firebase',
+      Github: 'github',
+      Gitlab: 'gitlab',
+      GoogleAds: 'google-ads',
+      GoogleCloudServiceAccount: 'google-cloud-service-account',
+      GoogleCloudStorage: 'google-cloud-storage',
+      GooglePubsub: 'google-pubsub',
+      GoogleSheets: 'google-sheets',
+      Hubspot: 'hubspot',
+      Intercom: 'intercom',
+      Jira: 'jira',
+      Linear: 'linear',
+      LinkedinAds: 'linkedin-ads',
+      MetaAds: 'meta-ads',
+      PinterestAds: 'pinterest-ads',
+      Postgresql: 'postgresql',
+      RedditAds: 'reddit-ads',
+      Salesforce: 'salesforce',
+      Slack: 'slack',
+      SlackPosthogCode: 'slack-posthog-code',
+      Snapchat: 'snapchat',
+      Stripe: 'stripe',
+      TiktokAds: 'tiktok-ads',
+      Twilio: 'twilio',
+      Vercel: 'vercel',
+    } as const;
 
     export type EnvironmentsIntegrationsGithubBranchesRetrieveParams = {
     /**
@@ -40853,6 +40991,10 @@ export namespace Schemas {
     export type LlmAnalyticsSentimentCreate400 = { [key: string]: unknown };
 
     export type LlmAnalyticsSentimentCreate500 = { [key: string]: unknown };
+
+    export type LlmAnalyticsSentimentGenerationsCreate400 = { [key: string]: unknown };
+
+    export type LlmAnalyticsSentimentGenerationsCreate500 = { [key: string]: unknown };
 
     export type LlmAnalyticsSummarizationCreate400 = { [key: string]: unknown };
 
@@ -44041,6 +44183,43 @@ export namespace Schemas {
 
     export type IntegrationsListParams = {
     /**
+     * * `apns` - Apple Push
+    * `azure-blob` - Azure Blob
+    * `bing-ads` - Bing Ads
+    * `clickup` - Clickup
+    * `customerio-app` - Customerio App
+    * `customerio-track` - Customerio Track
+    * `customerio-webhook` - Customerio Webhook
+    * `databricks` - Databricks
+    * `email` - Email
+    * `firebase` - Firebase
+    * `github` - Github
+    * `gitlab` - Gitlab
+    * `google-ads` - Google Ads
+    * `google-cloud-service-account` - Google Cloud Service Account
+    * `google-cloud-storage` - Google Cloud Storage
+    * `google-pubsub` - Google Pubsub
+    * `google-sheets` - Google Sheets
+    * `hubspot` - Hubspot
+    * `intercom` - Intercom
+    * `jira` - Jira
+    * `linear` - Linear
+    * `linkedin-ads` - Linkedin Ads
+    * `meta-ads` - Meta Ads
+    * `pinterest-ads` - Pinterest Ads
+    * `postgresql` - Postgresql
+    * `reddit-ads` - Reddit Ads
+    * `salesforce` - Salesforce
+    * `slack` - Slack
+    * `slack-posthog-code` - Slack Posthog Code
+    * `snapchat` - Snapchat
+    * `stripe` - Stripe
+    * `tiktok-ads` - Tiktok Ads
+    * `twilio` - Twilio
+    * `vercel` - Vercel
+     */
+    kind?: IntegrationsListKind;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -44049,6 +44228,46 @@ export namespace Schemas {
      */
     offset?: number;
     };
+
+    export type IntegrationsListKind = typeof IntegrationsListKind[keyof typeof IntegrationsListKind];
+
+
+    export const IntegrationsListKind = {
+      Apns: 'apns',
+      AzureBlob: 'azure-blob',
+      BingAds: 'bing-ads',
+      Clickup: 'clickup',
+      CustomerioApp: 'customerio-app',
+      CustomerioTrack: 'customerio-track',
+      CustomerioWebhook: 'customerio-webhook',
+      Databricks: 'databricks',
+      Email: 'email',
+      Firebase: 'firebase',
+      Github: 'github',
+      Gitlab: 'gitlab',
+      GoogleAds: 'google-ads',
+      GoogleCloudServiceAccount: 'google-cloud-service-account',
+      GoogleCloudStorage: 'google-cloud-storage',
+      GooglePubsub: 'google-pubsub',
+      GoogleSheets: 'google-sheets',
+      Hubspot: 'hubspot',
+      Intercom: 'intercom',
+      Jira: 'jira',
+      Linear: 'linear',
+      LinkedinAds: 'linkedin-ads',
+      MetaAds: 'meta-ads',
+      PinterestAds: 'pinterest-ads',
+      Postgresql: 'postgresql',
+      RedditAds: 'reddit-ads',
+      Salesforce: 'salesforce',
+      Slack: 'slack',
+      SlackPosthogCode: 'slack-posthog-code',
+      Snapchat: 'snapchat',
+      Stripe: 'stripe',
+      TiktokAds: 'tiktok-ads',
+      Twilio: 'twilio',
+      Vercel: 'vercel',
+    } as const;
 
     export type IntegrationsGithubBranchesRetrieveParams = {
     /**

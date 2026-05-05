@@ -11,6 +11,16 @@ import {
 } from '@/tools/toolDefinitions'
 import type { Context } from '@/tools/types'
 
+/**
+ * Returns every tool name that opts in to `always_available: true`.
+ * Tests use this to assert that filtered results never drop these tools,
+ * without hard-coding the exact set (which grows as utility tools are added).
+ */
+const collectAlwaysAvailableToolNames = (version?: number): string[] =>
+    Object.entries(getToolDefinitions(version))
+        .filter(([_, def]: [string, ToolDefinition]) => def.always_available === true)
+        .map(([name]) => name)
+
 describe('Tool Filtering - Features', () => {
     const featureTests = [
         {
@@ -126,16 +136,54 @@ describe('Tool Filtering - Tools Allowlist', () => {
             expect(withEmptyTools).toEqual(allTools)
         })
 
-        it('should return only specified tools', () => {
-            const tools = getToolsForFeatures({ tools: ['dashboard-get', 'dashboard-create'] })
+        it('should return only specified tools (plus always_available tools when enabled)', () => {
+            const tools = getToolsForFeatures({
+                tools: ['dashboard-get', 'dashboard-create'],
+                featureFlags: { 'mcp-feedback-tool': true },
+            })
             expect(tools).toContain('dashboard-get')
             expect(tools).toContain('dashboard-create')
-            expect(tools).toHaveLength(2)
+
+            // always_available tools are included alongside the allowlist regardless of order
+            // (when their gating feature flag is enabled).
+            const alwaysAvailableTools = collectAlwaysAvailableToolNames()
+            expect(tools).toContain('agent-feedback')
+
+            // Every extra tool beyond the explicit allowlist must be always_available.
+            const extras = tools.filter((name) => !['dashboard-get', 'dashboard-create'].includes(name))
+            for (const extra of extras) {
+                expect(alwaysAvailableTools).toContain(extra)
+            }
         })
 
-        it('should return empty array for nonexistent tool names', () => {
-            const tools = getToolsForFeatures({ tools: ['nonexistent-tool'] })
-            expect(tools).toEqual([])
+        it('should return only always_available tools for nonexistent tool names', () => {
+            const tools = getToolsForFeatures({
+                tools: ['nonexistent-tool'],
+                featureFlags: { 'mcp-feedback-tool': true },
+            })
+            const alwaysAvailableTools = collectAlwaysAvailableToolNames()
+
+            // The result is exactly the always_available set (order-independent).
+            expect(tools).toContain('agent-feedback')
+            expect(new Set(tools)).toEqual(new Set(alwaysAvailableTools))
+        })
+
+        it('should always include agent-feedback even when feature filter matches no tools', () => {
+            const tools = getToolsForFeatures({
+                features: ['nonexistent-feature'],
+                featureFlags: { 'mcp-feedback-tool': true },
+            })
+            expect(tools).toContain('agent-feedback')
+        })
+
+        it('should hide agent-feedback when its gating feature flag is off', () => {
+            // Flag explicitly off — tool is hidden even though it's always_available.
+            const toolsWithFlagOff = getToolsForFeatures({ featureFlags: { 'mcp-feedback-tool': false } })
+            expect(toolsWithFlagOff).not.toContain('agent-feedback')
+
+            // No flags evaluated at all — also hidden (default behavior is `enable`).
+            const toolsWithoutFlags = getToolsForFeatures({})
+            expect(toolsWithoutFlags).not.toContain('agent-feedback')
         })
 
         it('should union with features (OR) when both are provided', () => {
@@ -207,6 +255,7 @@ const createMockContext = (scopes: string[]): Context => ({
     } as any,
     sessionManager: new SessionManager({} as any),
     getDistinctId: async () => 'test-distinct-id',
+    trackEvent: async () => {},
 })
 
 describe('Tool Filtering - API Scopes', () => {
@@ -273,24 +322,43 @@ describe('Tool Filtering - API Scopes', () => {
 
     it('should return only tools with no required scopes when user has no matching scopes', async () => {
         const context = createMockContext(['some:unknown'])
-        const tools = await getToolsFromContext(context)
+        const tools = await getToolsFromContext(context, { featureFlags: { 'mcp-feedback-tool': true } })
         const toolNames = tools.map((t) => t.name)
 
-        // Only debug tool should be available since it has no required scopes
+        // Only tools with no required scopes (or that bypass scope checks) should be available.
         expect(toolNames).toContain('debug-mcp-ui-apps')
-        expect(tools).toHaveLength(1)
+        expect(toolNames).toContain('agent-feedback')
+        expectAllToolsHaveNoRequiredScopes(toolNames)
     })
 
     it('should return only tools with no required scopes when user has empty scopes', async () => {
         const context = createMockContext([])
-        const tools = await getToolsFromContext(context)
+        const tools = await getToolsFromContext(context, { featureFlags: { 'mcp-feedback-tool': true } })
         const toolNames = tools.map((t) => t.name)
 
-        // Only debug tool should be available since it has no required scopes
         expect(toolNames).toContain('debug-mcp-ui-apps')
-        expect(tools).toHaveLength(1)
+        expect(toolNames).toContain('agent-feedback')
+        expectAllToolsHaveNoRequiredScopes(toolNames)
     })
 })
+
+/**
+ * Asserts that every tool in `toolNames` has an empty `required_scopes` array
+ * in its definition. Used by the "user has no scopes" tests so they don't
+ * break when a new no-scope utility tool is added.
+ */
+function expectAllToolsHaveNoRequiredScopes(toolNames: string[]): void {
+    const definitions = getToolDefinitions()
+    for (const name of toolNames) {
+        const def = definitions[name]
+        if (def === undefined) {
+            // Hand-written tools like `insight-query` aren't always present in
+            // the static definitions; the scope filter handles them separately.
+            continue
+        }
+        expect(def.required_scopes).toEqual([])
+    }
+}
 
 describe('OAUTH_SCOPES_SUPPORTED completeness', () => {
     it('should include every scope referenced in tool definitions', () => {
@@ -419,6 +487,7 @@ describe('Tool Filtering - AI Consent', () => {
             } as any,
             sessionManager: new SessionManager({} as any),
             getDistinctId: async () => 'test-distinct-id',
+            trackEvent: async () => {},
         }
         const tools = await getToolsFromContext(context)
         const toolNames = tools.map((t) => t.name)
@@ -444,6 +513,7 @@ describe('Tool Filtering - AI Consent', () => {
             } as any,
             sessionManager: new SessionManager({} as any),
             getDistinctId: async () => 'test-distinct-id',
+            trackEvent: async () => {},
         }
         const tools = await getToolsFromContext(context)
         const toolNames = tools.map((t) => t.name)
@@ -564,10 +634,16 @@ describe('Tool Filtering - Feature Flags', () => {
 
     it('getRequiredFeatureFlags should return flags used by current definitions', () => {
         const flags = getRequiredFeatureFlags()
+        // Includes the gating flag for agent-feedback alongside the other gated tools.
         expect(flags).toEqual(
-            expect.arrayContaining(['logs-alerting', 'replay-video-based-summarization', 'visual-review'])
+            expect.arrayContaining([
+                'logs-alerting',
+                'replay-video-based-summarization',
+                'visual-review',
+                'mcp-feedback-tool',
+            ])
         )
-        expect(flags).toHaveLength(3)
+        expect(flags).toHaveLength(4)
     })
 
     // Test the filtering logic with a direct unit test approach using

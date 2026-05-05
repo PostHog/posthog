@@ -396,7 +396,7 @@ async def ensure_llm_single_session_summary(
         inactivity_periods=inactivity_periods,
     )
 
-    # Slice runs inside the guard so a failure still triggers Gemini file cleanup.
+    cleanup_done = False  # falls through to the `finally` if a3/a4 fails before early cleanup
     try:
         await temporalio.workflow.execute_activity(
             slice_session_data_for_segments_activity,
@@ -425,6 +425,15 @@ async def ensure_llm_single_session_summary(
 
         segment_tasks = [_analyze_segment_with_semaphore(segment_spec) for segment_spec in segment_specs]
         segment_results = await asyncio.gather(*segment_tasks, return_exceptions=True)
+
+        # Release before consolidation — Gemini's 20 GB cap limits in-flight summaries.
+        await temporalio.workflow.execute_activity(
+            cleanup_gemini_file_activity,
+            args=(uploaded_video.gemini_file_name, inputs.session_id),
+            start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=RetryPolicy(maximum_attempts=2),
+        )
+        cleanup_done = True
 
         raw_segments: list[VideoSegmentOutput] = []
         for result in segment_results:
@@ -523,13 +532,15 @@ async def ensure_llm_single_session_summary(
         if isinstance(store_result, BaseException):
             raise store_result
     finally:
-        _set_phase(progress, "cleanup")
-        await temporalio.workflow.execute_activity(
-            cleanup_gemini_file_activity,
-            args=(uploaded_video.gemini_file_name, inputs.session_id),
-            start_to_close_timeout=timedelta(seconds=30),
-            retry_policy=RetryPolicy(maximum_attempts=2),
-        )
+        if not cleanup_done:
+            # Sweep reaps within ~5min if this also fails.
+            _set_phase(progress, "cleanup")
+            await temporalio.workflow.execute_activity(
+                cleanup_gemini_file_activity,
+                args=(uploaded_video.gemini_file_name, inputs.session_id),
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RetryPolicy(maximum_attempts=2),
+            )
 
 
 async def _start_video_summary_workflow(

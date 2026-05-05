@@ -826,7 +826,7 @@ export const LlmAnalyticsSentimentCreateBody = /* @__PURE__ */ zod.object({
         .array(zod.string())
         .min(1)
         .max(llmAnalyticsSentimentCreateBodyIdsMax)
-        .describe('Trace IDs or generation IDs to classify, depending on analysis_level.'),
+        .describe('Trace IDs (analysis_level=trace) or generation event UUIDs (analysis_level=generation).'),
     analysis_level: zod
         .enum(['trace', 'generation'])
         .describe('* `trace` - trace\n* `generation` - generation')
