@@ -4,9 +4,16 @@ import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 
 import { HogQLQueryResponse, InsightVizNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
-import { AnyPropertyFilter, FilterLogicalOperator, PropertyFilterType, UniversalFiltersGroup } from '~/types'
+import {
+    AnyPropertyFilter,
+    FilterLogicalOperator,
+    PropertyFilterType,
+    UniversalFiltersGroup,
+    UniversalFiltersGroupValue,
+} from '~/types'
 
 import { issueFiltersLogic } from '../../../../components/IssueFilters/issueFiltersLogic'
 import { ERROR_TRACKING_SCENE_LOGIC_KEY } from '../../errorTrackingSceneLogic'
@@ -24,6 +31,25 @@ export interface InsightsSummaryStats {
     totalSessions: number
     crashSessions: number
     crashFreeRate: number
+}
+
+function stripIssueFiltersFromGroup(group: UniversalFiltersGroup): UniversalFiltersGroup {
+    const values = group.values.reduce<UniversalFiltersGroupValue[]>((strippedValues, filter) => {
+        if (isUniversalGroupFilterLike(filter)) {
+            const strippedGroup = stripIssueFiltersFromGroup(filter)
+            if (strippedGroup.values.length > 0) {
+                strippedValues.push(strippedGroup)
+            }
+            return strippedValues
+        }
+
+        if (filter.type !== PropertyFilterType.ErrorTrackingIssue) {
+            strippedValues.push(filter)
+        }
+        return strippedValues
+    }, [])
+
+    return { ...group, values }
 }
 
 export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
@@ -55,12 +81,7 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
                 const inner = mergedFilterGroup.values[0] as UniversalFiltersGroup
                 return {
                     type: FilterLogicalOperator.And,
-                    values: [
-                        {
-                            ...inner,
-                            values: inner.values.filter((f: any) => f.type !== PropertyFilterType.ErrorTrackingIssue),
-                        },
-                    ],
+                    values: [stripIssueFiltersFromGroup(inner)],
                 } as UniversalFiltersGroup
             },
         ],

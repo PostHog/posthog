@@ -1,9 +1,9 @@
-import { cleanup, render } from '@testing-library/react'
+import { cleanup, type RenderResult } from '@testing-library/react'
 import React from 'react'
 
-import type { BaseChartContext, ChartLayoutContextValue } from '../core/chart-context'
-import { ChartHoverContext, ChartLayoutContext } from '../core/chart-context'
-import type { ChartTheme, ResolvedSeries, ResolveValueFn } from '../core/types'
+import type { BaseChartContext } from '../core/chart-context'
+import type { ChartScales, ChartTheme, ResolvedSeries, ResolveValueFn } from '../core/types'
+import { makeOverlayContext, type OverlayContextOverrides, renderOverlayInChart } from '../testing'
 import { ValueLabels } from './ValueLabels'
 
 const DIMENSIONS = {
@@ -22,40 +22,21 @@ const xScale = (label: string): number | undefined => X_POSITIONS[label]
 // Left axis: 0 -> 368, 100 -> 16
 const yScale = (v: number): number => 368 - (v / 100) * 352
 
-const DEFAULT_THEME: ChartTheme = { colors: ['#000'], backgroundColor: '#ffffff' }
-const DEFAULT_RESOLVE: ResolveValueFn = (s, i) => s.data[i] ?? 0
-
-function makeContext(series: ResolvedSeries[], overrides: Partial<BaseChartContext> = {}): BaseChartContext {
-    return {
+function makeContext(
+    series: ResolvedSeries[],
+    overrides: OverlayContextOverrides & { scales?: ChartScales } = {}
+): BaseChartContext {
+    const { scales, ...rest } = overrides
+    return makeOverlayContext(scales ?? { x: xScale, y: yScale, yTicks: () => [0, 50, 100] }, {
         dimensions: DIMENSIONS,
         labels: LABELS,
         series,
-        scales: {
-            x: xScale,
-            y: yScale,
-            yTicks: () => [0, 50, 100],
-        },
-        theme: DEFAULT_THEME,
-        resolveValue: DEFAULT_RESOLVE,
-        canvasBounds: () => null,
-        axisOrientation: 'vertical',
-        isPercent: false,
-        hoverIndex: -1,
-        ...overrides,
-    }
+        ...rest,
+    })
 }
 
-function toLayout(ctx: BaseChartContext): ChartLayoutContextValue {
-    const { hoverIndex: _hoverIndex, ...layout } = ctx
-    return layout
-}
-
-function renderInChart(context: BaseChartContext, node: React.ReactNode): ReturnType<typeof render> {
-    return render(
-        <ChartLayoutContext.Provider value={toLayout(context)}>
-            <ChartHoverContext.Provider value={{ hoverIndex: context.hoverIndex }}>{node}</ChartHoverContext.Provider>
-        </ChartLayoutContext.Provider>
-    )
+function renderInChart(context: BaseChartContext, node: React.ReactNode): RenderResult {
+    return renderOverlayInChart(node, context)
 }
 
 function labelDivs(container: HTMLElement): HTMLDivElement[] {

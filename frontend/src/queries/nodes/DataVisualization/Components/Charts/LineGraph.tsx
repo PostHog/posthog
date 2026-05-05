@@ -67,11 +67,18 @@ const isAreaSeries = (chartType: ChartDisplayType, settings: AxisSeriesSettings 
     return chartType === ChartDisplayType.ActionsAreaGraph || settings?.display?.displayType === 'area'
 }
 
+const axisLabelFont = {
+    family: '"Emoji Flags Polyfill", -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "Roboto", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol"',
+    size: 12,
+    weight: 'normal' as const,
+}
+
 const getYAxisSettings = (
     chartSettings: ChartSettings,
     settings: YAxisSettings | undefined,
     stacked: boolean,
     position: 'left' | 'right',
+    axisLabelColor: string | null,
     tickOptions: Partial<TickOptions>,
     gridOptions: Partial<GridLineOptions>
 ): ScaleOptionsByType<ChartTypeRegistry['line']['scales']> => {
@@ -85,6 +92,12 @@ const getYAxisSettings = (
         stacked: stacked,
         grid: mixedGridOptions,
         position,
+        title: {
+            display: !!settings?.label,
+            text: settings?.label ?? '',
+            color: axisLabelColor ?? undefined,
+            font: axisLabelFont,
+        },
         border: {
             display: chartSettings.showYAxisBorder ?? true,
         },
@@ -648,6 +661,12 @@ export const LineGraph = ({
                         border: {
                             display: chartSettings.showXAxisBorder ?? true,
                         },
+                        title: {
+                            display: !!chartSettings.xAxisLabel,
+                            text: chartSettings.xAxisLabel ?? '',
+                            color: colors.axisLabel ?? undefined,
+                            font: axisLabelFont,
+                        },
                     },
                     ...(hasLeftYAxis
                         ? {
@@ -656,6 +675,7 @@ export const LineGraph = ({
                                   chartSettings.leftYAxisSettings,
                                   isAreaChart || isStackedBarChart,
                                   'left',
+                                  colors.axisLabel,
                                   tickOptions,
                                   gridOptions
                               ),
@@ -668,6 +688,7 @@ export const LineGraph = ({
                                   chartSettings.rightYAxisSettings,
                                   isAreaChart || isStackedBarChart,
                                   'right',
+                                  colors.axisLabel,
                                   tickOptions,
                                   gridOptions
                               ),

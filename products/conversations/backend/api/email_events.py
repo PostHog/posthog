@@ -13,7 +13,9 @@ from django.views.decorators.csrf import csrf_exempt
 import structlog
 
 from posthog.models.comment import Comment
+from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
+from posthog.models.user import User
 
 from products.conversations.backend.mailgun import validate_webhook_signature
 from products.conversations.backend.models import Channel, EmailChannel, EmailMessageMapping, Status
@@ -229,6 +231,46 @@ def _recover_dmarc_rewritten_sender(
     return sender_email, sender_name
 
 
+def _sender_authenticated(request: HttpRequest, sender_email: str) -> bool:
+    """Verify the From header domain is authenticated before trusting it for identity.
+
+    We require SPF pass + envelope-to-From domain alignment:
+      - SPF pass means the sending IP is authorized by the envelope sender's
+        domain DNS (X-Mailgun-Spf). An attacker can't pass SPF for posthog.com
+        without controlling posthog.com's DNS records.
+      - Domain alignment means the envelope sender (MAIL FROM) domain matches
+        the From header domain, preventing an attacker from passing SPF on
+        evil.com while forging From: teammate@posthog.com.
+
+    DKIM alone is insufficient — Mailgun's X-Mailgun-Dkim-Check-Result only
+    confirms a valid signature exists without reporting which domain signed it.
+    An attacker signing with evil.com's key but forging From: teammate@posthog.com
+    would still get DKIM Pass.
+    """
+    spf_passed = request.POST.get("X-Mailgun-Spf", "").lower() == "pass"
+    if not spf_passed:
+        return False
+    envelope_sender = request.POST.get("sender", "")
+    envelope_domain = envelope_sender.rsplit("@", 1)[-1].lower() if "@" in envelope_sender else ""
+    from_domain = sender_email.rsplit("@", 1)[-1].lower() if "@" in sender_email else ""
+    return bool(envelope_domain and from_domain and envelope_domain == from_domain)
+
+
+def _resolve_team_member(email: str, team: Team) -> User | None:
+    """Match a sender email to a PostHog user within the team's organization."""
+    if not email:
+        return None
+    membership = (
+        OrganizationMembership.objects.filter(
+            organization_id=team.organization_id,
+            user__email__iexact=email,
+        )
+        .select_related("user")
+        .first()
+    )
+    return membership.user if membership else None
+
+
 @csrf_exempt
 def email_inbound_handler(request: HttpRequest) -> HttpResponse:
     if request.method != "POST":
@@ -310,6 +352,11 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
     content = (request.POST.get("stripped-text", "") or request.POST.get("body-plain", ""))[:MAX_EMAIL_BODY_LENGTH]
     subject = request.POST.get("subject", "")
 
+    # 7b. Detect team member sender — only trust From when DKIM passes
+    # AND the envelope-sender domain aligns with the From domain.
+    posthog_user = _resolve_team_member(sender_email, team) if _sender_authenticated(request, sender_email) else None
+    is_team_member = posthog_user is not None
+
     # 8. Create ticket/comment/mapping in a transaction
     # Attachments are extracted inside the transaction so UploadedMedia rows roll back
     # on duplicate-race IntegrityError. Orphaned S3 blobs are acceptable.
@@ -339,13 +386,13 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
                     email_subject=subject,
                     email_from=sender_email,
                     cc_participants=cc_list,
-                    unread_team_count=1,
+                    unread_team_count=0 if is_team_member else 1,
                 )
 
             assert ticket is not None
 
             item_context = {
-                "author_type": "customer",
+                "author_type": "support" if is_team_member else "customer",
                 "is_private": False,
                 "email_from": sender_email,
                 "email_from_name": sender_name,
@@ -360,15 +407,20 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
                 content=content,
                 rich_content=rich_content,
                 item_context=item_context,
+                created_by=posthog_user,
             )
 
             if existing_ticket:
                 qs = Ticket.objects.filter(id=ticket.id, team=team)
-                if cc_list:
-                    merged = list(dict.fromkeys(ticket.cc_participants + cc_list))
-                    qs.update(unread_team_count=F("unread_team_count") + 1, cc_participants=merged)
-                else:
+                if not is_team_member and cc_list:
+                    qs.update(
+                        unread_team_count=F("unread_team_count") + 1,
+                        cc_participants=list(dict.fromkeys(ticket.cc_participants + cc_list)),
+                    )
+                elif not is_team_member:
                     qs.update(unread_team_count=F("unread_team_count") + 1)
+                elif cc_list:
+                    qs.update(cc_participants=list(dict.fromkeys(ticket.cc_participants + cc_list)))
 
             EmailMessageMapping.objects.create(
                 message_id=email_message_id,

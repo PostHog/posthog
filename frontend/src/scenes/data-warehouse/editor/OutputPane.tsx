@@ -386,6 +386,7 @@ function VisualizationActions({
                     size="small"
                     onClick={onToggleChartSettingsPanel}
                     tooltip="Visualization settings"
+                    data-attr="sql-editor-visualization-settings-button"
                 />
             </div>
         </div>

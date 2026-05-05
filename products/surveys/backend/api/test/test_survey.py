@@ -24,7 +24,7 @@ from rest_framework import status
 
 from posthog.api.test.test_personal_api_keys import PersonalAPIKeysBaseTest
 from posthog.constants import AvailableFeature
-from posthog.models import Action, FeatureFlag, Person, Team
+from posthog.models import Action, FeatureFlag, Insight, Person, Team
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.organization import Organization, OrganizationMembership
 
@@ -1601,6 +1601,83 @@ class TestSurvey(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "Feature Flag with this ID does not exist" in str(response.json())
+
+    def test_creating_survey_with_linked_insight_from_different_team_returns_400(self):
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        other_insight = Insight.objects.create(team=other_team, name="other-team-insight", created_by=self.user)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Test Survey",
+                "type": "popover",
+                "questions": [{"type": "open", "question": "Test?"}],
+                "linked_insight_id": other_insight.id,
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Insight with this ID does not exist" in str(response.json())
+        assert not Survey.objects.filter(linked_insight_id=other_insight.id).exists()
+
+    def test_updating_survey_with_linked_insight_from_different_team_returns_400(self):
+        own_insight = Insight.objects.create(team=self.team, name="own-insight", created_by=self.user)
+        survey = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Test Survey",
+                "type": "popover",
+                "questions": [{"type": "open", "question": "Test?"}],
+                "linked_insight_id": own_insight.id,
+            },
+            format="json",
+        ).json()
+
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        other_insight = Insight.objects.create(team=other_team, name="other-team-insight", created_by=self.user)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey['id']}/",
+            data={"linked_insight_id": other_insight.id},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Insight with this ID does not exist" in str(response.json())
+        assert Survey.objects.get(id=survey["id"]).linked_insight_id == own_insight.id
+
+    def test_creating_survey_with_nonexistent_linked_insight_returns_400(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Test Survey",
+                "type": "popover",
+                "questions": [{"type": "open", "question": "Test?"}],
+                "linked_insight_id": 999999,
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Insight with this ID does not exist" in str(response.json())
+
+    def test_can_create_survey_with_linked_insight_in_same_team(self):
+        own_insight = Insight.objects.create(team=self.team, name="own-insight", created_by=self.user)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Test Survey",
+                "type": "popover",
+                "questions": [{"type": "open", "question": "Test?"}],
+                "linked_insight_id": own_insight.id,
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert Survey.objects.get(id=response.json()["id"]).linked_insight_id == own_insight.id
 
     def test_deleting_survey_deletes_targeting_flag(self):
         response = self.client.post(
