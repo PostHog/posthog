@@ -438,6 +438,10 @@ export interface AssistantTrendsBreakdownFilter extends AssistantBreakdownFilter
      * @maxLength 3
      */
     breakdowns: AssistantMultipleBreakdownFilter[]
+    /**
+     * When `true`, applies the project's configured path cleaning rules to URL or path breakdown values (e.g. `$pathname`, `$current_url`). Use this whenever the user asks for a breakdown by a URL or path property and there is no specific reason to keep the raw values. The user does not need to provide a regex — path cleaning rules come from the project's settings.
+     */
+    breakdown_path_cleaning?: boolean
 }
 
 // Remove deprecated display types.

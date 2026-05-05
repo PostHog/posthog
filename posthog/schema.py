@@ -6164,6 +6164,17 @@ class AssistantTrendsBreakdownFilter(BaseModel):
         extra="forbid",
     )
     breakdown_limit: int | None = Field(default=25, description="How many distinct values to show.")
+    breakdown_path_cleaning: bool | None = Field(
+        default=None,
+        description=(
+            "When `true`, applies the project's configured path cleaning rules to URL"
+            " or path breakdown values (e.g. `$pathname`, `$current_url`). Use this"
+            " whenever the user asks for a breakdown by a URL or path property and"
+            " there is no specific reason to keep the raw values. The user does not"
+            " need to provide a regex — path cleaning rules come from the project's"
+            " settings."
+        ),
+    )
     breakdowns: list[AssistantGroupMultipleBreakdownFilter | AssistantGenericMultipleBreakdownFilter] = Field(
         ..., description="Use this field to define breakdowns.", max_length=3
     )
