@@ -37,7 +37,8 @@ DEFAULT_STAGGER_MINUTES = 12
 MAX_RUNS_PER_TICK = 50
 
 # Default schedule cadence. v1 spec: "stagger schedule, ~1 run per agent per hour".
-COORDINATOR_INTERVAL_MINUTES = 60
+# TODO: revert to 60 before merge — temporarily 15 for chaos→agent dev iteration.
+COORDINATOR_INTERVAL_MINUTES = 15
 
 
 @dataclass
