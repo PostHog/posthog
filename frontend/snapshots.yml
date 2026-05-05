@@ -684,6 +684,70 @@ snapshots:
         hash: v1.k794b7964.a5da914f6486b76afc43a8e1a7f29e3560e11b087748b6008a6677ae23e24168.szD53pfqHAVvxPL4w5UZg37otd9XNTyYPMcs7loV19Y
     components-html-elements-display--without-central-highlight-display--light:
         hash: v1.k794b7964.59d5a2262840ed80fa8f3cbc52e4135d71d4ea9c2d1fcb67f65a59ed2a86de58.dEvHx0f5nsPkujMiMiesufA4GuGubJh2oO2YKA4rrB8
+    components-integrations-anthropic--default--dark:
+        hash: v1.k794b7964.cd5c8e548fff36ad3d0353e1512aa1a06fe04272da67cd8646ab7e77aaba8117.zxroa2GHrMvFwXz2XKW4-6_gF4jL4u0PkxuXD-FSl7o
+    components-integrations-anthropic--default--light:
+        hash: v1.k794b7964.e731d853654343c08505040bfd5d852003cdc2f9a6f0a0258d7b015ad5c2e487.ZGKLag5vUsStudvPXDhq6TjeMWKmltV_gJ2S-0lI0cs
+    components-integrations-anthropic--with-detail-error--dark:
+        hash: v1.k794b7964.f7fdb55eb5a91f187453c38bf2dae3fb1507b68f21fed375a91b874b85f24e5c.w4aDhF9D6g6YS0LkAHlT4oESOqa-PQxWtLp1midOq8w
+    components-integrations-anthropic--with-detail-error--light:
+        hash: v1.k794b7964.e7b316c0aca2c56ed4a1cff66e1e1c2f63383f6add19ecd764e5b92182edcf8e.OT3FIzrs9hu4JHLSR_D1YsYNqIkpxF0JIgtQk0jX064
+    components-integrations-anthropic--with-submission-error--dark:
+        hash: v1.k794b7964.f7fdb55eb5a91f187453c38bf2dae3fb1507b68f21fed375a91b874b85f24e5c.l7E1eVhdPQOKZC0Vnlc1lA5Qgqdg-BVcZSr1t7QX1TQ
+    components-integrations-anthropic--with-submission-error--light:
+        hash: v1.k794b7964.e7b316c0aca2c56ed4a1cff66e1e1c2f63383f6add19ecd764e5b92182edcf8e.1PorqqJ0R206ix3gcwJiaA_pcT8LrQs6VTbrpyR_Rz4
+    components-integrations-anthropic-pickers-agent--empty--dark:
+        hash: v1.k794b7964.610a3a10ee7aa4fc73f51f9117490c32e6c2e9df2ae2e858bb9cc5f55d73d6bb.ppT73l5tEyNqcdcBQ5i8XrM2XiXkYbSVfSUA-CNrvYE
+    components-integrations-anthropic-pickers-agent--empty--light:
+        hash: v1.k794b7964.0a728a083610bdbe06808a10f26bb6bc2afb8bf0e36ddfb635b2bc3817e6f689.F5EYLQE3BMqf8PIaa_3IrF9g8qBguJowWwxdP-3o9R8
+    components-integrations-anthropic-pickers-agent--has-more-truncation--dark:
+        hash: v1.k794b7964.610a3a10ee7aa4fc73f51f9117490c32e6c2e9df2ae2e858bb9cc5f55d73d6bb.Z50-FFVdjP24COQSagZyyzaxMgppx3sMfRdmzGMBDqA
+    components-integrations-anthropic-pickers-agent--has-more-truncation--light:
+        hash: v1.k794b7964.0a728a083610bdbe06808a10f26bb6bc2afb8bf0e36ddfb635b2bc3817e6f689.CUMRVFUTiH64PWCZf8eWsl_lBzg7fVBITGEl85x1jbc
+    components-integrations-anthropic-pickers-agent--loaded--dark:
+        hash: v1.k794b7964.610a3a10ee7aa4fc73f51f9117490c32e6c2e9df2ae2e858bb9cc5f55d73d6bb.PgHmdhHE0SOZVVkVrrMkV8yCWq_eOMcP_zeLmirk3Mg
+    components-integrations-anthropic-pickers-agent--loaded--light:
+        hash: v1.k794b7964.0a728a083610bdbe06808a10f26bb6bc2afb8bf0e36ddfb635b2bc3817e6f689.ZTluMwv6eS9gILmh1cjKWRua47P6SJFQd9FhTL9JfC0
+    components-integrations-anthropic-pickers-agent--loading--dark:
+        hash: v1.k794b7964.610a3a10ee7aa4fc73f51f9117490c32e6c2e9df2ae2e858bb9cc5f55d73d6bb.qE206ESculu7IRZLU60cTRkV8SyuZddz9SCLEjAyg_4
+    components-integrations-anthropic-pickers-agent--loading--light:
+        hash: v1.k794b7964.0a728a083610bdbe06808a10f26bb6bc2afb8bf0e36ddfb635b2bc3817e6f689.4wgYj1dhsIUmm20QWs1YOzKm4FM1dFOCzLEb8RbbFTE
+    components-integrations-anthropic-pickers-agent--malformed-response--dark:
+        hash: v1.k794b7964.610a3a10ee7aa4fc73f51f9117490c32e6c2e9df2ae2e858bb9cc5f55d73d6bb._fYnQ5sO38wj-cfeLDrz-154Se5ttrbOVtztOIO56r0
+    components-integrations-anthropic-pickers-agent--malformed-response--light:
+        hash: v1.k794b7964.0a728a083610bdbe06808a10f26bb6bc2afb8bf0e36ddfb635b2bc3817e6f689.BGF28Cm4ml-pY2g6R9xH3He1mhaB5BaGAPOE_tUAwqA
+    components-integrations-anthropic-pickers-environment--empty--dark:
+        hash: v1.k794b7964.03b821509290c21201b331fae148feb42dc8a7df0ced9c17d7f7fa75a7cc47c6.8pJmbF2RlooynC3sWv1l81to2lGbSdHLrEPplRTw9kk
+    components-integrations-anthropic-pickers-environment--empty--light:
+        hash: v1.k794b7964.e907e4d4f4aa766d268de87788d4e9c56f58cfa9e02be525c68f932f85a152f0.BLUH9XLiLySnoejgi7JZMVdljZye9MTMJnjI_3WIJek
+    components-integrations-anthropic-pickers-environment--has-more-truncation--dark:
+        hash: v1.k794b7964.03b821509290c21201b331fae148feb42dc8a7df0ced9c17d7f7fa75a7cc47c6.vc3Dpa-bFYMKV4nzBjIdTANGBN4XNTM0CJi5L6K8Xz8
+    components-integrations-anthropic-pickers-environment--has-more-truncation--light:
+        hash: v1.k794b7964.e907e4d4f4aa766d268de87788d4e9c56f58cfa9e02be525c68f932f85a152f0.lBqSOVRPv0CAlOH7AfbYHgJvNmqyHf9EdCytp5WV-UQ
+    components-integrations-anthropic-pickers-environment--loaded--dark:
+        hash: v1.k794b7964.03b821509290c21201b331fae148feb42dc8a7df0ced9c17d7f7fa75a7cc47c6.4QXHnvg3q4v6C3bJnFVam3A0tvAvvwj13F-sQntqbXk
+    components-integrations-anthropic-pickers-environment--loaded--light:
+        hash: v1.k794b7964.e907e4d4f4aa766d268de87788d4e9c56f58cfa9e02be525c68f932f85a152f0._fo_A86Lu-UhTrt4RI8FkmafCgwGF3KAO0IXfRgyeNo
+    components-integrations-anthropic-pickers-vault--empty--dark:
+        hash: v1.k794b7964.74566eb7b53b83244b05bb2661569ec63489df46b30c3fc0495c074676fecd19.mAsLFgIPTciipk89fEGwIANghPyCg2lg2_MOapbTUss
+    components-integrations-anthropic-pickers-vault--empty--light:
+        hash: v1.k794b7964.ec6fbab2d3db044e53e1e8ddf57a1b1e95debc24e04ff52329bae99d44249178.Dl6swUe_6Ww1Ix1Tg-qcsirPdD9xOlNiFxemvfLN39I
+    components-integrations-anthropic-pickers-vault--loaded--dark:
+        hash: v1.k794b7964.74566eb7b53b83244b05bb2661569ec63489df46b30c3fc0495c074676fecd19.9dhNxyFt01woFhBeJ7VoO8soKY07hAK2XcZLqo_H9Q4
+    components-integrations-anthropic-pickers-vault--loaded--light:
+        hash: v1.k794b7964.ec6fbab2d3db044e53e1e8ddf57a1b1e95debc24e04ff52329bae99d44249178.zrEbAEvqSM-CIHuYUh-4tqeBMRLxhuylLRybI8t_SZM
+    components-integrations-integrationview--anthropic-auth-failed--dark:
+        hash: v1.k794b7964.9ef43946d41e96afb590bdd9fff59c8c0f1146f63796efb9144f90dac1d34677.tSOPlm-kASQfhC2qww0Wt96E3x5L4FRzU_qJtiZLYNQ
+    components-integrations-integrationview--anthropic-auth-failed--light:
+        hash: v1.k794b7964.5741d9013c0742560505d42e2eccd3d2b32b857ec6cc3b5495f957db628e99f9.6c2HJsIgaEewTzGG34VTaAg-5Pt-nLapCvffkxvUMJ0
+    components-integrations-integrationview--anthropic-healthy--dark:
+        hash: v1.k794b7964.2d65ab341724537b9ee0b5bc9ddce5732b0d23c9038e5e24f6e84e9a95dfdc4c.USzromXtcE3iYfK9JXR29OaLxtrUTCqwCw0qbPRCHec
+    components-integrations-integrationview--anthropic-healthy--light:
+        hash: v1.k794b7964.ba390469158f74f74eef0e2ede29976996e1246cf65f1a911f086548aed66bfb.XI8zMUJ1m9jyEnTTTTcEe41j7JqFU44i2Du8e6qyZIA
+    components-integrations-integrationview--slack-auth-failed--dark:
+        hash: v1.k794b7964.5ca67c47a263a7c6fcbc099a5022d194813b2b56a48d8e5e882dacc8f6d7c0d3.Oo30nRo558WFX6qCSGZkadm_6V-7EVRDv3_2R6J3SII
+    components-integrations-integrationview--slack-auth-failed--light:
+        hash: v1.k794b7964.ba282f62ee090535c282e5ad16211e2b95de6171a8a644eb356937a8d32d39bb.faMvRJOPvEpgrashjqWMccELq86WfGqbgqcQQ-jpyjE
     components-integrations-slack--slack-integration--dark:
         hash: v1.k794b7964.42c95a19ac0e08970f2563f01b6456c2312b46145fdc0fb4e67e4d38a1fcc3c0.PvFf9rXiGdhmZyYpAQHbDX3bPxwdI3f5Y9mlUJ5aQFI
     components-integrations-slack--slack-integration--light:
