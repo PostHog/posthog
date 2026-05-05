@@ -850,12 +850,12 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         )
 
     def _has_session_breakdown(self) -> bool:
-        bf = self.query.breakdownFilter
-        if bf is None:
+        filter = self.query.breakdownFilter
+        if filter is None:
             return False
-        if bf.breakdown_type == "session":
+        if filter.breakdown_type == "session":
             return True
-        return any(b.type == "session" for b in (bf.breakdowns or []))
+        return any(breakdown.type == "session" for breakdown in (filter.breakdowns or []))
 
     def _team_flag_session_property_pre_aggregation(self) -> bool:
         return posthoganalytics.feature_enabled(
