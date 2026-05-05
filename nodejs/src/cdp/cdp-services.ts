@@ -256,7 +256,7 @@ export function createCdpValkeyShadowPools(
         .catch((err) => {
             logger.error(
                 '🪞',
-                `[${name}] shadow writer at ${config.CDP_VALKEY_HOST}:${config.CDP_VALKEY_PORT} failed startup health check — shadow ops will surface as failures in cdp_valkey_shadow_failures_total`,
+                `[${name}] shadow writer at ${config.CDP_VALKEY_HOST}:${config.CDP_VALKEY_PORT} failed startup health check — shadow ops will surface as "[mirror:*] failed" warn logs from mirrorCall()`,
                 { err }
             )
         })
