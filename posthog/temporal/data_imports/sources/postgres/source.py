@@ -17,6 +17,7 @@ from posthog.schema import (
 )
 
 from posthog.exceptions_capture import capture_exception
+from posthog.temporal.data_imports.naming_convention import NamingConvention
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from posthog.temporal.data_imports.sources.common.mixins import SSHTunnelMixin, ValidateDatabaseHostMixin
@@ -496,7 +497,7 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
         # Prefer the per-row `schema_metadata.source_schema` so multi-schema warehouse sources work
         # without needing to encode the schema in `config.schema`. Falls back to `config.schema` for
         # legacy single-schema warehouse sources whose rows haven't been reconciled yet.
-        return postgres_source(
+        response = postgres_source(
             tunnel=ssh_tunnel,
             user=config.user,
             password=config.password,
@@ -515,3 +516,12 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
             is_initial_sync=not schema.initial_sync_complete,
             synced_columns=schema.synced_columns,
         )
+        # Force the resource name to follow the user-facing `ExternalDataSchema.name` rather than
+        # the source-side table name. Downstream `validate_schema_and_update_table` derives the
+        # `DataWarehouseTable.url_pattern` from `normalize(schema.name)`, so the Delta write path
+        # (driven by `SourceResponse.name`) must use the same input or HogQL queries the wrong
+        # location and returns no rows. This shows up immediately for multi-schema warehouse rows
+        # like `public.auth_group`, where source-side table name (`auth_group`) and schema name
+        # diverge after `rename_postgres_schemas_to_match_source_schemas`.
+        response.name = NamingConvention.normalize_identifier(inputs.schema_name)
+        return response
