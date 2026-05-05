@@ -16,7 +16,13 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import type { HogQLQueryString } from '~/queries/utils'
-import { PropertyDefinitionType, PropertyFilterType, SurveyDisplayConditions, SurveyMatchType } from '~/types'
+import {
+    PropertyDefinitionType,
+    PropertyFilterType,
+    PropertyOperator,
+    SurveyDisplayConditions,
+    SurveyMatchType,
+} from '~/types'
 
 import { surveyLogic } from '../../surveyLogic'
 import { SurveyAudienceFilters } from '../SurveyAudienceFilters'
@@ -36,6 +42,12 @@ type UrlAudienceEstimate =
     | { status: 'loading' }
     | { status: 'loaded'; count: number }
     | { status: 'error' }
+
+const URL_MATCH_MODE_PROPERTY_OPERATORS: Record<UrlMatchMode, PropertyOperator> = {
+    [SurveyMatchType.Contains]: PropertyOperator.IContains,
+    [SurveyMatchType.Exact]: PropertyOperator.Exact,
+    [SurveyMatchType.Regex]: PropertyOperator.Regex,
+}
 
 function getRegexValidationError(pattern: string, matchType: UrlMatchMode): string | null {
     if (matchType !== SurveyMatchType.Regex || !pattern) {
@@ -168,7 +180,7 @@ export function WhereStep({ onOpenFullEditor }: { onOpenFullEditor?: () => void 
                             properties: [
                                 {
                                     key: '$current_url',
-                                    operator: urlMatchMode,
+                                    operator: URL_MATCH_MODE_PROPERTY_OPERATORS[urlMatchMode],
                                     type: PropertyFilterType.Event,
                                     value: trimmedPattern,
                                 },
