@@ -1673,7 +1673,9 @@ class TestTaskInternalFilterAPI(BaseTaskAPITest):
 
     def test_list_internal_true_shows_only_internal_tasks_for_staff(self):
         # Staff users can list internal tasks even with DEBUG=False.
-        staff_user = User.objects.create_user(email="staff@example.com", password="password", is_staff=True)
+        staff_user = User.objects.create_user(
+            email="staff@example.com", password="password", first_name="Staff", is_staff=True
+        )
         self.organization.members.add(staff_user)
         staff_client = APIClient()
         staff_client.force_authenticate(staff_user)
