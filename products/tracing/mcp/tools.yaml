@@ -27,6 +27,7 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
+        feature_flag: tracing
         title: List tracing attribute values
         description: >
             List values for a specific span or resource attribute key. Use to discover what values exist for a given
@@ -43,6 +44,7 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
+        feature_flag: tracing
         title: List tracing span attributes
         description: >
             List available span or resource attribute names. Use attribute_type "span" for span-level attributes or
@@ -61,6 +63,7 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
+        feature_flag: tracing
         title: List tracing service names
         description: >
             List distinct service names that have emitted trace spans. Use to discover available services before
@@ -80,6 +83,7 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
+        feature_flag: tracing
         title: Retrieve trace spans
         description: >
             Fetch all spans for a specific trace by its hex trace ID. Returns the full span tree for the trace including
@@ -98,6 +102,7 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
+        feature_flag: tracing
         title: Query tracing spans
         description_file: ./prompts/query-apm-spans.md
         ui_app: trace-span-list
