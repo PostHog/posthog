@@ -1057,9 +1057,34 @@
                 "column": {
                     "description": "Name of a column returned by the SQL query to map onto this axis.",
                     "type": "string"
+                },
+                "settings": {
+                    "$ref": "#/definitions/AssistantDataVisualizationAxisSettings",
+                    "description": "Optional series settings. Only applies to Y-axis series."
                 }
             },
             "required": ["column"],
+            "type": "object"
+        },
+        "AssistantDataVisualizationAxisDisplaySettings": {
+            "additionalProperties": false,
+            "properties": {
+                "yAxisPosition": {
+                    "description": "Which Y axis this numeric series should use. Use `right` for a secondary Y axis.",
+                    "enum": ["left", "right"],
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        },
+        "AssistantDataVisualizationAxisSettings": {
+            "additionalProperties": false,
+            "properties": {
+                "display": {
+                    "$ref": "#/definitions/AssistantDataVisualizationAxisDisplaySettings",
+                    "description": "Display settings for a plotted Y series."
+                }
+            },
             "type": "object"
         },
         "AssistantDataVisualizationChartSettings": {
@@ -1071,6 +1096,14 @@
                         "$ref": "#/definitions/AssistantDataVisualizationGoalLine"
                     },
                     "type": "array"
+                },
+                "leftYAxisSettings": {
+                    "$ref": "#/definitions/AssistantDataVisualizationYAxisSettings",
+                    "description": "Settings for the left Y axis."
+                },
+                "rightYAxisSettings": {
+                    "$ref": "#/definitions/AssistantDataVisualizationYAxisSettings",
+                    "description": "Settings for the right Y axis. Only applies when a Y series uses `settings.display.yAxisPosition: \"right\"`."
                 },
                 "seriesBreakdownColumn": {
                     "description": "Column that splits a single Y series into multiple colored series — e.g. breaking down a line chart by `country`. Set to `null` or omit to disable.",
@@ -1091,6 +1124,10 @@
                 "xAxis": {
                     "$ref": "#/definitions/AssistantDataVisualizationAxis",
                     "description": "Column used as the X axis. Typically a time bucket or categorical column."
+                },
+                "xAxisLabel": {
+                    "description": "Label rendered under the X axis.",
+                    "type": "string"
                 },
                 "yAxis": {
                     "description": "One or more numeric columns plotted as Y series.",
@@ -1181,6 +1218,33 @@
                 },
                 "transpose": {
                     "description": "Transpose rows and columns.",
+                    "type": "boolean"
+                }
+            },
+            "type": "object"
+        },
+        "AssistantDataVisualizationYAxisSettings": {
+            "additionalProperties": false,
+            "properties": {
+                "label": {
+                    "description": "Label rendered beside this Y axis.",
+                    "type": "string"
+                },
+                "scale": {
+                    "description": "Scale used for this Y axis.",
+                    "enum": ["linear", "logarithmic"],
+                    "type": "string"
+                },
+                "showGridLines": {
+                    "description": "Show grid lines for this Y axis.",
+                    "type": "boolean"
+                },
+                "showTicks": {
+                    "description": "Show tick labels on this Y axis.",
+                    "type": "boolean"
+                },
+                "startAtZero": {
+                    "description": "Whether this Y axis should start at zero.",
                     "type": "boolean"
                 }
             },
@@ -1727,6 +1791,45 @@
             },
             "type": "object"
         },
+        "AssistantFunnelsGroupNode": {
+            "additionalProperties": false,
+            "description": "Defines a funnel step that combines multiple events or actions with OR (e.g. \"Pageview OR Pageleave\" counted as a single step). Filters live on the inner nodes — set per-node `properties` to give each event its own filter. Step-wide group filters, funnel math, and `optionalInFunnel` are not supported on grouped steps.",
+            "properties": {
+                "custom_name": {
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "GroupNode",
+                    "type": "string"
+                },
+                "name": {
+                    "description": "Display name for the combined step.",
+                    "type": "string"
+                },
+                "nodes": {
+                    "description": "Events and actions combined into the step. Use per-node `properties` to filter each event; there is no step-wide filter on a grouped step.",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/AssistantFunnelsEventsNode"
+                            },
+                            {
+                                "$ref": "#/definitions/AssistantFunnelsActionsNode"
+                            }
+                        ]
+                    },
+                    "minItems": 2,
+                    "type": "array"
+                },
+                "operator": {
+                    "const": "OR",
+                    "description": "Only `OR` is supported.",
+                    "type": "string"
+                }
+            },
+            "required": ["kind", "operator", "nodes"],
+            "type": "object"
+        },
         "AssistantFunnelsMath": {
             "enum": ["first_time_for_user", "first_time_for_user_with_filters"],
             "type": "string"
@@ -1738,6 +1841,9 @@
                 },
                 {
                     "$ref": "#/definitions/AssistantFunnelsActionsNode"
+                },
+                {
+                    "$ref": "#/definitions/AssistantFunnelsGroupNode"
                 }
             ]
         },
@@ -3617,6 +3723,10 @@
                     "$ref": "#/definitions/integer",
                     "default": 25,
                     "description": "How many distinct values to show."
+                },
+                "breakdown_path_cleaning": {
+                    "description": "When `true`, applies the project's configured path cleaning rules to URL or path breakdown values (e.g. `$pathname`, `$current_url`). Use this whenever the user asks for a breakdown by a URL or path property and there is no specific reason to keep the raw values. The user does not need to provide a regex — path cleaning rules come from the project's settings.",
+                    "type": "boolean"
                 },
                 "breakdowns": {
                     "description": "Use this field to define breakdowns.",
@@ -10162,6 +10272,9 @@
                 },
                 "xAxis": {
                     "$ref": "#/definitions/ChartAxis"
+                },
+                "xAxisLabel": {
+                    "type": "string"
                 },
                 "yAxis": {
                     "items": {
@@ -20590,6 +20703,10 @@
                 },
                 "sessionIdPushdown": {
                     "description": "Push a `session_id_v7 IN (SELECT … FROM events WHERE …)` predicate into the raw_sessions subquery to limit aggregation to sessions that participate in the outer events filter.",
+                    "type": "boolean"
+                },
+                "sessionPropertyPreAggregation": {
+                    "description": "Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap pre-aggregation that only materializes the columns referenced by the outer-WHERE session predicate)`. Useful when the breakdown/SELECT pulls in many session columns (e.g. `$channel_type`) but the filter only references one (e.g. `$entry_current_url`).",
                     "type": "boolean"
                 },
                 "sessionTableVersion": {
@@ -40050,6 +40167,9 @@
         "YAxisSettings": {
             "additionalProperties": false,
             "properties": {
+                "label": {
+                    "type": "string"
+                },
                 "scale": {
                     "enum": ["linear", "logarithmic"],
                     "type": "string"

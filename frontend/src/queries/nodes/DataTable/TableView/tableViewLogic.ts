@@ -29,6 +29,22 @@ export interface TableViewLogicProps {
     setQuery: (query: TableViewSupportedQueryType) => void
 }
 
+interface EventSyntheticMarker {
+    key: 'event'
+    value: EventsQuery['event']
+    operator: PropertyOperator.Exact
+    type: undefined
+}
+
+interface EventsSyntheticMarker {
+    key: 'events'
+    value: EventsQuery['events']
+    operator: PropertyOperator.In
+    type: undefined
+}
+
+type TableViewSavedFilter = AnyPropertyFilter | EventSyntheticMarker | EventsSyntheticMarker
+
 function getViewData(
     props: TableViewLogicProps,
     name?: string,
@@ -43,15 +59,17 @@ function getViewData(
             filters: props.query.properties,
         }
     }
-    const event = {
+    const event: EventSyntheticMarker = {
         key: 'event',
         value: props.query.event,
         operator: PropertyOperator.Exact,
+        type: undefined,
     }
-    const events = {
+    const events: EventsSyntheticMarker = {
         key: 'events',
         value: props.query.events,
         operator: PropertyOperator.In,
+        type: undefined,
     }
     return {
         context_key: props.contextKey,
@@ -82,10 +100,14 @@ function getQueryFromView(
         } as TableViewSupportedQueryType
     }
 
-    const rawFilters = (view.filters || []) as AnyPropertyFilter[]
-    const properties = rawFilters.filter((filter) => filter.key !== 'event' && filter.key !== 'events')
-    const event = rawFilters.find((filter) => filter.key === 'event')?.value
-    const events = rawFilters.find((filter) => filter.key === 'events')?.value
+    const rawFilters = (view.filters || []) as TableViewSavedFilter[]
+    const isEventMarker = (f: TableViewSavedFilter): f is EventSyntheticMarker =>
+        f.key === 'event' && f.type === undefined
+    const isEventsMarker = (f: TableViewSavedFilter): f is EventsSyntheticMarker =>
+        f.key === 'events' && f.type === undefined
+    const properties = rawFilters.filter((f): f is AnyPropertyFilter => !isEventMarker(f) && !isEventsMarker(f))
+    const event = rawFilters.find(isEventMarker)?.value
+    const events = rawFilters.find(isEventsMarker)?.value
     return {
         ...query,
         select: view.columns || [],

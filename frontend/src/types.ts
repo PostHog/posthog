@@ -327,6 +327,7 @@ export type OnboardingSkippedReason = 'delegated' | 'later' | 'other' | null
 export interface UserType extends UserBaseType {
     date_joined: string
     notification_settings: NotificationSettings
+    active_realtime_notification_types?: readonly string[]
     events_column_config: ColumnConfig
     anonymize_data: boolean
     allow_impersonation: boolean
@@ -414,6 +415,7 @@ export interface NotificationSettings {
     web_analytics_weekly_digest: boolean
     web_analytics_weekly_digest_project_enabled?: Record<string, boolean>
     organization_member_join_email_disabled?: Record<string, boolean>
+    realtime_notifications_disabled?: Record<string, Record<string, boolean>>
 }
 
 export interface InAppNotification {
@@ -575,6 +577,7 @@ export interface ListOrganizationMembersParams {
     offset?: number
     limit?: number
     updated_after?: string
+    search?: string
 }
 
 export interface APIErrorType {
@@ -4392,7 +4395,7 @@ export interface EventDefinition {
     enforcement_mode?: SchemaEnforcementMode
     media_preview_urls?: string[]
     /** Name of a single property on this event to display alongside it in PostHog UI surfaces. */
-    promoted_property?: string | null
+    primary_property?: string | null
 }
 
 export interface EventDefinitionMetrics {
@@ -4589,6 +4592,10 @@ export interface Experiment {
         frequentist?: {
             alpha?: number
         }
+        cuped?: {
+            enabled?: boolean
+            lookback_days?: number
+        }
     }
     scheduling_config?: {
         timeseries?: boolean
@@ -4671,7 +4678,7 @@ export interface CoreFilterDefinition {
     /** whether this is a property PostHog adds to aid with debugging */
     used_for_debug?: boolean
     /** Name of a single property on events of this name that UIs should display alongside the event. */
-    promoted_property?: string
+    primary_property?: string
 }
 
 export interface TileParams {
@@ -5763,6 +5770,8 @@ export interface WebhookExternalStatus {
     error?: string
 }
 
+export type WebhookInputValue = { secret: true } | { value: unknown }
+
 export interface WebhookInfo {
     supports_webhooks: boolean
     exists: boolean
@@ -5775,6 +5784,7 @@ export interface WebhookInfo {
     }
     webhook_url?: string
     schema_mapping?: Record<string, string>
+    inputs?: Record<string, WebhookInputValue>
     external_status?: WebhookExternalStatus | null
 }
 
@@ -6393,7 +6403,8 @@ export type AvailableOnboardingProducts = Record<
     | ProductKey.WEB_ANALYTICS
     | ProductKey.ERROR_TRACKING
     | ProductKey.LLM_ANALYTICS
-    | ProductKey.WORKFLOWS,
+    | ProductKey.WORKFLOWS
+    | ProductKey.LOGS,
     OnboardingProduct
 >
 
