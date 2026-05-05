@@ -308,12 +308,10 @@ export class KafkaConsumerV2 {
 
         const settled: Promise<void> = (async () => {
             try {
-                await Promise.race([
-                    raw,
-                    sleep(this.backgroundTaskTimeoutMs).then(() => {
-                        throw new Error(`background_task_timeout_after_${this.backgroundTaskTimeoutMs}ms`)
-                    }),
-                ])
+                const { timedOut } = await raceWithTimeout(Promise.resolve(raw), this.backgroundTaskTimeoutMs)
+                if (timedOut) {
+                    throw new Error(`background_task_timeout_after_${this.backgroundTaskTimeoutMs}ms`)
+                }
             } catch (error) {
                 logger.error('🔥', 'kafka_consumer_v2_background_task_failed', { error: String(error) })
                 captureException(error)
@@ -448,12 +446,8 @@ export class KafkaConsumerV2 {
         const promises = this.inFlight.map((t) => t.settled)
         let timedOut = false
         try {
-            await Promise.race([
-                Promise.all(promises),
-                sleep(this.drainTimeoutMs).then(() => {
-                    timedOut = true
-                }),
-            ])
+            const result = await raceWithTimeout(Promise.all(promises), this.drainTimeoutMs)
+            timedOut = result.timedOut
         } finally {
             stop()
         }
@@ -561,8 +555,24 @@ export class KafkaConsumerV2 {
     }
 }
 
-function sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms))
+/**
+ * Race `p` against a timeout. Unlike `Promise.race([p, sleep(ms).then(...)])`, this clears
+ * the timer when `p` settles first so we don't leak a pending setTimeout into the event loop.
+ */
+function raceWithTimeout<T>(p: Promise<T>, ms: number): Promise<{ value?: T; timedOut: boolean }> {
+    return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => resolve({ timedOut: true }), ms)
+        p.then(
+            (v) => {
+                clearTimeout(timer)
+                resolve({ value: v, timedOut: false })
+            },
+            (e) => {
+                clearTimeout(timer)
+                reject(e)
+            }
+        )
+    })
 }
 
 /** For each (topic, partition) in `messages`, return the next offset to commit (highest seen + 1). */

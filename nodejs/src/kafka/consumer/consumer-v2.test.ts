@@ -262,6 +262,10 @@ describe('KafkaConsumerV2', () => {
         eachBatchGate.resolve()
         await delay(5)
 
+        // Validate the fix mechanism, not just the outcome: all 3 tasks are tracked in inFlight,
+        // including t3 which was dispatched AFTER REVOKE arrived.
+        expect((consumer as any).inFlight.length).toBe(3)
+
         // Resolve t1 + t2 only. t3 still pending.
         p1.resolve()
         p2.resolve()
@@ -291,16 +295,25 @@ describe('KafkaConsumerV2', () => {
         slow.resolve()
         await delay(20)
         expect(mockRdKafka.incrementalUnassign).toHaveBeenCalledTimes(1)
+        // The slow task crossed the rebalance generation — its storeOffsets MUST have been
+        // skipped (generation-tag mechanism). Validates the H2 protection directly.
+        expect(mockRdKafka.offsetsStore).not.toHaveBeenCalled()
+
+        // Snapshot offsetsStore + unassign call counts before the reassign so we can assert
+        // nothing further happens once we re-acquire the partition.
+        const offsetCallsBeforeReassign = mockRdKafka.offsetsStore.mock.calls.length
+        mockRdKafka.incrementalUnassign.mockClear()
 
         // Now simulate cooperative-sticky reassign of the same partition.
-        mockRdKafka.incrementalUnassign.mockClear()
         fireAssign()
         await delay(5)
         expect(mockRdKafka.incrementalAssign).toHaveBeenCalledWith([{ topic: 'test-topic', partition: 0 }])
 
-        // No deferred .then armed — no bogus unassign of the just-reassigned partition.
+        // No deferred .then armed — no bogus unassign and no surprise offset writes against
+        // the just-reassigned partition.
         await delay(20)
         expect(mockRdKafka.incrementalUnassign).not.toHaveBeenCalled()
+        expect(mockRdKafka.offsetsStore.mock.calls.length).toBe(offsetCallsBeforeReassign)
     })
 
     it('H3 regression: out-of-order task completion — drain awaits ALL settled before unassign', async () => {
