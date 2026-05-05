@@ -143,7 +143,7 @@ export function buildDerivedConfigs<R extends TrendsResultLike>(
             // Self-map: applyComparisonDimming only checks key presence; the paired primary
             // id isn't carried on TrendsResultLike.
             comparisonOf[key] = key
-            if (includeMa) {
+            if (includeMa && r.data.length >= (opts.movingAverageIntervals as number)) {
                 comparisonOf[movingAverageKey(key)] = key
             }
         }

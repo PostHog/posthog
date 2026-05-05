@@ -298,6 +298,14 @@ describe('trendsChartTransforms', () => {
                 })
                 expect(out.comparisonOf).toEqual({ '1': '1', '1-ma': '1' })
             })
+
+            it('omits the MA-of-previous key when the result is too short for an MA series', () => {
+                const out = buildDerivedConfigs(
+                    [makeResult({ id: 1, compare: true, compare_label: 'previous', data: [1, 2] })],
+                    { showMovingAverage: true, movingAverageIntervals: 3 }
+                )
+                expect(out.comparisonOf).toEqual({ '1': '1' })
+            })
         })
     })
 })
