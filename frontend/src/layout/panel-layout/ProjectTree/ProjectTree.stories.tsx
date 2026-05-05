@@ -2,10 +2,15 @@ import type { Meta, StoryObj } from '@storybook/react'
 import { useActions } from 'kea'
 import { useEffect } from 'react'
 
+import { IconClock, IconHome, IconNotification } from '@posthog/icons'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/urls'
 
+import { NavLink } from '~/layout/panel-layout/ai-first/NavLink'
 import { setFeatureFlags } from '~/mocks/browser'
+import { ActivityTab } from '~/types'
 
 import { ProjectTree, ProjectTreeProps } from './ProjectTree'
 
@@ -75,6 +80,55 @@ export const AllProducts: Story = {
                 <div className="p-2 border-b text-sm font-semibold text-secondary">All Products Sidebar</div>
                 <div className="h-[calc(100%-40px)] overflow-auto group/colorful-product-icons colorful-product-icons-true">
                     <ProjectTree root="products://" onlyTree />
+                </div>
+            </div>
+        )
+    },
+}
+
+// Story showing the AI-first NavLink items with the SIDEBAR_HIDE_ICONS flag
+// enabled — labels render without their leading icons (the experiment surface).
+export const SidebarHideIconsEnabled: Story = {
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.SIDEBAR_HIDE_ICONS],
+    },
+    render: () => {
+        const { setFeatureFlags: logicSetFeatureFlags } = useActions(featureFlagLogic)
+
+        useEffect(() => {
+            setFeatureFlags([FEATURE_FLAGS.SIDEBAR_HIDE_ICONS])
+            logicSetFeatureFlags([FEATURE_FLAGS.SIDEBAR_HIDE_ICONS], {
+                [FEATURE_FLAGS.SIDEBAR_HIDE_ICONS]: true,
+            })
+        }, [logicSetFeatureFlags])
+
+        return (
+            <div className="w-[280px] h-[400px] border rounded bg-surface-tertiary overflow-hidden">
+                <div className="p-2 border-b text-sm font-semibold text-secondary">
+                    Sidebar nav with SIDEBAR_HIDE_ICONS on
+                </div>
+                <div className="flex flex-col gap-px p-2">
+                    <NavLink
+                        to={urls.projectRoot()}
+                        label="Home"
+                        icon={<IconHome />}
+                        isCollapsed={false}
+                        data-attr="story-nav-home"
+                    />
+                    <NavLink
+                        to={urls.inbox()}
+                        label="Inbox"
+                        icon={<IconNotification />}
+                        isCollapsed={false}
+                        data-attr="story-nav-inbox"
+                    />
+                    <NavLink
+                        to={urls.activity(ActivityTab.ExploreEvents)}
+                        label="Activity"
+                        icon={<IconClock />}
+                        isCollapsed={false}
+                        data-attr="story-nav-activity"
+                    />
                 </div>
             </div>
         )
