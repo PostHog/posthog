@@ -90,7 +90,7 @@ class IntercomSource(SimpleSource[IntercomSourceConfig], OAuthMixin):
         if not integration.access_token:
             return False, "Intercom integration has no access token. Please reconnect."
 
-        return validate_intercom_credentials(integration.access_token)
+        return validate_intercom_credentials(integration.access_token, schema_name=schema_name)
 
     def source_for_pipeline(self, config: IntercomSourceConfig, inputs: SourceInputs) -> SourceResponse:
         integration = self.get_oauth_integration(config.intercom_integration_id, inputs.team_id)
@@ -104,6 +104,7 @@ class IntercomSource(SimpleSource[IntercomSourceConfig], OAuthMixin):
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             should_use_incremental_field=inputs.should_use_incremental_field,
+            incremental_field=inputs.incremental_field if inputs.should_use_incremental_field else None,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
             else None,

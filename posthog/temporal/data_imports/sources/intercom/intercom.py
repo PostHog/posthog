@@ -64,20 +64,24 @@ class IntercomSearchPaginator(BasePaginator):
         pagination["starting_after"] = self._next_cursor
 
 
-def _build_search_body(cfg: IntercomEndpointConfig, db_incremental_field_last_value: Optional[Any]) -> dict[str, Any]:
+def _build_search_body(
+    cfg: IntercomEndpointConfig,
+    incremental_field: str,
+    db_incremental_field_last_value: Optional[Any],
+) -> dict[str, Any]:
     """Build the POST body for Intercom's ``/<resource>/search`` endpoints.
 
     ``value: 0`` is the historical-backfill case (matches every record);
-    once we have a watermark from a prior sync we filter ``updated_at > <ts>``.
-    Sorting ascending so the cursor advances monotonically — without it
-    Intercom returns by relevance and the watermark we persist would be
-    meaningless.
+    once we have a watermark from a prior sync we filter ``<field> > <ts>``.
+    Sorting ascending on the same field so the cursor advances monotonically
+    — without it Intercom returns by relevance and the watermark we persist
+    would be meaningless.
     """
     cursor_value = int(db_incremental_field_last_value) if db_incremental_field_last_value is not None else 0
     return {
-        "query": {"field": "updated_at", "operator": ">", "value": cursor_value},
+        "query": {"field": incremental_field, "operator": ">", "value": cursor_value},
         "pagination": {"per_page": cfg.page_size},
-        "sort": {"field": "updated_at", "order": "ascending"},
+        "sort": {"field": incremental_field, "order": "ascending"},
     }
 
 
@@ -97,6 +101,7 @@ def _build_paginator(cfg: IntercomEndpointConfig) -> BasePaginator:
 def get_resource(
     name: str,
     should_use_incremental_field: bool,
+    incremental_field: str | None,
     db_incremental_field_last_value: Optional[Any],
 ) -> EndpointResource:
     cfg = INTERCOM_ENDPOINTS[name]
@@ -111,7 +116,9 @@ def get_resource(
         endpoint["method"] = "POST"
 
     if cfg.paginator_kind == "search":
-        endpoint["json"] = _build_search_body(cfg, db_incremental_field_last_value)
+        if not incremental_field:
+            raise ValueError(f"Intercom search endpoint {name!r} requires an incremental_field")
+        endpoint["json"] = _build_search_body(cfg, incremental_field, db_incremental_field_last_value)
     elif cfg.method == "POST" and cfg.paginator_kind in ("cursor", "next_url"):
         # POST list endpoints (`/companies/list`) take `per_page` in the body.
         # The next-URL paginator preserves the POST method and body when it
@@ -138,11 +145,17 @@ def get_resource(
     }
 
 
-def validate_credentials(access_token: str) -> tuple[bool, str | None]:
+def validate_credentials(access_token: str, schema_name: str | None = None) -> tuple[bool, str | None]:
     """Validate an Intercom access token by hitting `/me`.
 
     Works identically with OAuth-issued access tokens and Personal Access
     Tokens — both flow as `Authorization: Bearer …`.
+
+    At source-create (``schema_name is None``) we accept 403 — the token
+    is genuine but the workspace hasn't granted scope for ``/me``. The
+    user can still grant scope per-endpoint downstream. Per-schema calls
+    (``schema_name`` set) re-raise 403 so the missing-scope error
+    surfaces against the specific table the user tried to use.
     """
     if not access_token:
         return False, "Missing Intercom access token"
@@ -164,6 +177,8 @@ def validate_credentials(access_token: str) -> tuple[bool, str | None]:
     if response.status_code == 401:
         return False, "Your Intercom access token is invalid or expired. Please reconnect."
     if response.status_code == 403:
+        if schema_name is None:
+            return True, None
         return False, "Your Intercom access token is missing required scopes. Please reconnect."
     return False, f"HTTP {response.status_code}: {response.text[:200]}"
 
@@ -174,6 +189,7 @@ def intercom_source(
     team_id: int,
     job_id: str,
     should_use_incremental_field: bool = False,
+    incremental_field: str | None = None,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     cfg = INTERCOM_ENDPOINTS[endpoint]
@@ -188,7 +204,14 @@ def intercom_source(
             "headers": _default_headers(),
         },
         "resource_defaults": {},
-        "resources": [get_resource(endpoint, should_use_incremental_field, db_incremental_field_last_value)],
+        "resources": [
+            get_resource(
+                endpoint,
+                should_use_incremental_field,
+                incremental_field,
+                db_incremental_field_last_value,
+            )
+        ],
     }
 
     resource = rest_api_resource(config, team_id, job_id, db_incremental_field_last_value)
