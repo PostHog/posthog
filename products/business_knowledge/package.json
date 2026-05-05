@@ -8,13 +8,13 @@
         "kea": "catalog:",
         "kea-forms": "catalog:",
         "kea-loaders": "catalog:",
-        "kea-router": "catalog:"
+        "kea-router": "catalog:",
+        "posthog-js": "catalog:"
     },
     "peerDependencies": {
         "@posthog/icons": "*",
         "@posthog/lemon-ui": "*",
         "@types/react": "*",
-        "posthog-js": "*",
         "react": "*"
     }
 }
