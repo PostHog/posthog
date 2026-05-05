@@ -754,6 +754,186 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
     variables: zod.array(zod.record(zod.string(), zod.string())).optional(),
 })
 
+/**
+ * Replay all blocked runs in a single bulk call to Node.
+ */
+export const hogFlowsReplayAllBlockedRunsCreateBodyNameMax = 400
+
+export const hogFlowsReplayAllBlockedRunsCreateBodyTriggerMaskingOneTtlMin = 60
+export const hogFlowsReplayAllBlockedRunsCreateBodyTriggerMaskingOneTtlMax = 94608000
+
+export const hogFlowsReplayAllBlockedRunsCreateBodyActionsItemNameMax = 400
+
+export const hogFlowsReplayAllBlockedRunsCreateBodyActionsItemDescriptionDefault = ``
+export const hogFlowsReplayAllBlockedRunsCreateBodyActionsItemFiltersOneSourceDefault = `events`
+export const hogFlowsReplayAllBlockedRunsCreateBodyActionsItemTypeMax = 100
+
+export const HogFlowsReplayAllBlockedRunsCreateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(hogFlowsReplayAllBlockedRunsCreateBodyNameMax).nullish(),
+    description: zod.string().optional(),
+    status: zod
+        .enum(['draft', 'active', 'archived'])
+        .optional()
+        .describe('* `draft` - Draft\n* `active` - Active\n* `archived` - Archived'),
+    trigger: zod.unknown().optional(),
+    trigger_masking: zod
+        .object({
+            ttl: zod
+                .number()
+                .min(hogFlowsReplayAllBlockedRunsCreateBodyTriggerMaskingOneTtlMin)
+                .max(hogFlowsReplayAllBlockedRunsCreateBodyTriggerMaskingOneTtlMax)
+                .nullish(),
+            threshold: zod.number().nullish(),
+            hash: zod.string(),
+            bytecode: zod.unknown().nullish(),
+        })
+        .nullish(),
+    conversion: zod.unknown().nullish(),
+    exit_condition: zod
+        .enum([
+            'exit_on_conversion',
+            'exit_on_trigger_not_matched',
+            'exit_on_trigger_not_matched_or_conversion',
+            'exit_only_at_end',
+        ])
+        .optional()
+        .describe(
+            '* `exit_on_conversion` - Conversion\n* `exit_on_trigger_not_matched` - Trigger Not Matched\n* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n* `exit_only_at_end` - Only At End'
+        ),
+    edges: zod.unknown().optional(),
+    actions: zod.array(
+        zod.object({
+            id: zod.string(),
+            name: zod.string().max(hogFlowsReplayAllBlockedRunsCreateBodyActionsItemNameMax),
+            description: zod.string().default(hogFlowsReplayAllBlockedRunsCreateBodyActionsItemDescriptionDefault),
+            on_error: zod
+                .union([
+                    zod
+                        .enum(['continue', 'abort', 'complete', 'branch'])
+                        .describe(
+                            '* `continue` - continue\n* `abort` - abort\n* `complete` - complete\n* `branch` - branch'
+                        ),
+                    zod.literal(null),
+                ])
+                .nullish(),
+            created_at: zod.number().optional(),
+            updated_at: zod.number().optional(),
+            filters: zod
+                .object({
+                    source: zod
+                        .enum(['events', 'person-updates', 'data-warehouse-table'])
+                        .describe(
+                            '* `events` - events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table'
+                        )
+                        .default(hogFlowsReplayAllBlockedRunsCreateBodyActionsItemFiltersOneSourceDefault),
+                    actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                    events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                    data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                    properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                    bytecode: zod.unknown().nullish(),
+                    transpiled: zod.unknown().optional(),
+                    filter_test_accounts: zod.boolean().optional(),
+                    bytecode_error: zod.string().optional(),
+                })
+                .nullish(),
+            type: zod.string().max(hogFlowsReplayAllBlockedRunsCreateBodyActionsItemTypeMax),
+            config: zod.unknown(),
+            output_variable: zod.unknown().nullish(),
+        })
+    ),
+    variables: zod.array(zod.record(zod.string(), zod.string())).optional(),
+})
+
+/**
+ * Replay a single blocked run. Django fetches the event, Node creates the invocation and writes the log.
+ */
+export const hogFlowsReplayBlockedRunCreateBodyNameMax = 400
+
+export const hogFlowsReplayBlockedRunCreateBodyTriggerMaskingOneTtlMin = 60
+export const hogFlowsReplayBlockedRunCreateBodyTriggerMaskingOneTtlMax = 94608000
+
+export const hogFlowsReplayBlockedRunCreateBodyActionsItemNameMax = 400
+
+export const hogFlowsReplayBlockedRunCreateBodyActionsItemDescriptionDefault = ``
+export const hogFlowsReplayBlockedRunCreateBodyActionsItemFiltersOneSourceDefault = `events`
+export const hogFlowsReplayBlockedRunCreateBodyActionsItemTypeMax = 100
+
+export const HogFlowsReplayBlockedRunCreateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(hogFlowsReplayBlockedRunCreateBodyNameMax).nullish(),
+    description: zod.string().optional(),
+    status: zod
+        .enum(['draft', 'active', 'archived'])
+        .optional()
+        .describe('* `draft` - Draft\n* `active` - Active\n* `archived` - Archived'),
+    trigger: zod.unknown().optional(),
+    trigger_masking: zod
+        .object({
+            ttl: zod
+                .number()
+                .min(hogFlowsReplayBlockedRunCreateBodyTriggerMaskingOneTtlMin)
+                .max(hogFlowsReplayBlockedRunCreateBodyTriggerMaskingOneTtlMax)
+                .nullish(),
+            threshold: zod.number().nullish(),
+            hash: zod.string(),
+            bytecode: zod.unknown().nullish(),
+        })
+        .nullish(),
+    conversion: zod.unknown().nullish(),
+    exit_condition: zod
+        .enum([
+            'exit_on_conversion',
+            'exit_on_trigger_not_matched',
+            'exit_on_trigger_not_matched_or_conversion',
+            'exit_only_at_end',
+        ])
+        .optional()
+        .describe(
+            '* `exit_on_conversion` - Conversion\n* `exit_on_trigger_not_matched` - Trigger Not Matched\n* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n* `exit_only_at_end` - Only At End'
+        ),
+    edges: zod.unknown().optional(),
+    actions: zod.array(
+        zod.object({
+            id: zod.string(),
+            name: zod.string().max(hogFlowsReplayBlockedRunCreateBodyActionsItemNameMax),
+            description: zod.string().default(hogFlowsReplayBlockedRunCreateBodyActionsItemDescriptionDefault),
+            on_error: zod
+                .union([
+                    zod
+                        .enum(['continue', 'abort', 'complete', 'branch'])
+                        .describe(
+                            '* `continue` - continue\n* `abort` - abort\n* `complete` - complete\n* `branch` - branch'
+                        ),
+                    zod.literal(null),
+                ])
+                .nullish(),
+            created_at: zod.number().optional(),
+            updated_at: zod.number().optional(),
+            filters: zod
+                .object({
+                    source: zod
+                        .enum(['events', 'person-updates', 'data-warehouse-table'])
+                        .describe(
+                            '* `events` - events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table'
+                        )
+                        .default(hogFlowsReplayBlockedRunCreateBodyActionsItemFiltersOneSourceDefault),
+                    actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                    events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                    data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                    properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                    bytecode: zod.unknown().nullish(),
+                    transpiled: zod.unknown().optional(),
+                    filter_test_accounts: zod.boolean().optional(),
+                    bytecode_error: zod.string().optional(),
+                })
+                .nullish(),
+            type: zod.string().max(hogFlowsReplayBlockedRunCreateBodyActionsItemTypeMax),
+            config: zod.unknown(),
+            output_variable: zod.unknown().nullish(),
+        })
+    ),
+    variables: zod.array(zod.record(zod.string(), zod.string())).optional(),
+})
+
 export const hogFlowsSchedulesCreateBodyNameMax = 400
 
 export const hogFlowsSchedulesCreateBodyTriggerMaskingOneTtlMin = 60

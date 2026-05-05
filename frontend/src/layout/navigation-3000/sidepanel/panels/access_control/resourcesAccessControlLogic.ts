@@ -288,6 +288,7 @@ export const resourcesAccessControlLogic = kea<resourcesAccessControlLogicType>(
                     AccessControlResourceType.Dashboard,
                     AccessControlResourceType.Experiment,
                     AccessControlResourceType.ExternalDataSource,
+                    AccessControlResourceType.WarehouseObjects,
                     AccessControlResourceType.FeatureFlag,
                     AccessControlResourceType.Insight,
                     AccessControlResourceType.LlmAnalytics,

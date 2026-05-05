@@ -1,10 +1,11 @@
 import { actions, connect, kea, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
-import { urlToAction } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getRelativeNextPath } from 'lib/utils'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import type { verifyEmailLogicType } from './verifyEmailLogicType'
@@ -38,11 +39,21 @@ export const verifyEmailLogic = kea<verifyEmailLogicType>([
             {
                 validateEmailToken: async ({ uuid, token }: { uuid: string; token: string }, breakpoint) => {
                     try {
-                        await api.create(`api/users/verify_email/`, { token, uuid })
+                        const response = await api.create<{ success: boolean; token?: string; requires_2fa?: boolean }>(
+                            `api/users/verify_email/`,
+                            { token, uuid }
+                        )
                         actions.setView('success')
                         await breakpoint(VERIFY_EMAIL_REDIRECT_DELAY_MS)
 
                         const nextUrl = getRelativeNextPath(new URLSearchParams(location.search).get('next'), location)
+                        if (response.requires_2fa) {
+                            lemonToast.success(
+                                'Email verified! Please log in with your password to complete two-factor authentication.'
+                            )
+                            router.actions.push(urls.login(), nextUrl ? { next: nextUrl } : {})
+                            return { success: true, token, uuid }
+                        }
 
                         // this url is validated in getRelativeNextPath as either being relative or on the same origin
                         // this url is also secret and so we can trust it's not attacker controlled

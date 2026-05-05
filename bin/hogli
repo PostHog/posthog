@@ -1,28 +1,41 @@
-#!/usr/bin/env -S uv run --script
-"""Entry point for the PostHog developer CLI."""
+#!/bin/bash
+# Wrapper that ensures venv is active before running hogli.
+# Needed for git hooks / lint-staged which may run outside an activated shell.
 
-from pathlib import Path
-import sys
+set -euo pipefail
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-COMMON_DIR = REPO_ROOT / "common"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PYTHON_CMD="python"
 
-# Add both REPO_ROOT (for posthog, ee, etc.) and common/ (for hogli as top-level package)
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
-if str(COMMON_DIR) not in sys.path:
-    sys.path.insert(0, str(COMMON_DIR))
+if [ -z "${VIRTUAL_ENV:-}" ]; then
+    for venv in "$REPO_ROOT/.flox/cache/venv" "$REPO_ROOT/.venv" "$REPO_ROOT/env"; do
+        if [ -d "$venv" ]; then
+            source "$venv/bin/activate"
+            PYTHON_CMD="$venv/bin/python"
+            break
+        fi
+    done
+else
+    PYTHON_CMD="$VIRTUAL_ENV/bin/python"
+fi
 
-try:
-    from hogli.core.cli import cli  # noqa: E402  (import after path modification)
-except ModuleNotFoundError as exc:  # pragma: no cover - depends on environment state
-    missing = exc.name
-    if missing == "click":
-        sys.stderr.write(
-            "Click is not installed. Activate the Flox environment or run `uv sync` to install Python dependencies.\n"
-        )
-        sys.exit(1)
-    raise
+# Migration aid: after the common/hogli/ -> tools/hogli/ + tools/hogli-commands/
+# restructure, users with stale venvs see `ModuleNotFoundError: hogli`. Catch it
+# early and point at `uv sync`. Safe to delete once everyone has re-activated.
+HOGLI_IMPORT_ERR="$("$PYTHON_CMD" -c "import hogli" 2>&1)" || true
+if [[ -n "$HOGLI_IMPORT_ERR" && "$HOGLI_IMPORT_ERR" == *"No module named 'hogli'"* ]]; then
+    cat >&2 <<'EOF'
+error: the `hogli` package is not importable from your active venv.
 
-if __name__ == "__main__":
-    cli()
+It recently moved to tools/hogli/ (framework) + tools/hogli-commands/ (commands).
+Your venv has stale paths — re-sync it:
+
+    flox activate            # recommended (flox auto-runs uv sync)
+    uv sync --active         # or sync directly
+
+Then rerun your hogli command.
+EOF
+    exit 127
+fi
+
+exec "$PYTHON_CMD" -m hogli "$@"

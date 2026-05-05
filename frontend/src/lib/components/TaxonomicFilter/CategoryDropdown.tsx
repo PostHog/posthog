@@ -2,9 +2,10 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useCallback } from 'react'
 
-import { IconChevronDown, IconFilter } from '@posthog/icons'
+import { IconChevronDown } from '@posthog/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { CLICK_OUTSIDE_BLOCK_CLASS } from 'lib/hooks/useOutsideClickHandler'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -68,6 +69,7 @@ export function CategoryDropdown({
             onVisibilityChange={onVisibilityChange}
             activeItemIndex={activeItemIndex >= 0 ? activeItemIndex : undefined}
             placement="bottom-start"
+            className={CLICK_OUTSIDE_BLOCK_CLASS}
         >
             {renderTrigger(variant, activeLabel)}
         </LemonMenu>
@@ -75,30 +77,16 @@ export function CategoryDropdown({
 }
 
 function renderTrigger(variant: Exclude<CategoryDropdownVariant, 'control'>, activeLabel: string): JSX.Element {
-    const dataAttr = `taxonomic-category-dropdown-trigger-${variant}`
-
-    if (variant === 'pill') {
-        return (
-            <LemonButton
-                type="secondary"
-                size="xsmall"
-                sideIcon={<IconChevronDown />}
-                data-attr={dataAttr}
-                aria-label={`Current category: ${activeLabel}. Click to change.`}
-            >
-                {activeLabel}
-            </LemonButton>
-        )
-    }
-
     return (
         <LemonButton
             type="secondary"
             size="xsmall"
-            icon={<IconFilter />}
             sideIcon={<IconChevronDown />}
-            data-attr={dataAttr}
+            data-attr={`taxonomic-category-dropdown-trigger-${variant}`}
             aria-label={`Current category: ${activeLabel}. Click to change.`}
-        />
+            className={CLICK_OUTSIDE_BLOCK_CLASS}
+        >
+            {activeLabel}
+        </LemonButton>
     )
 }

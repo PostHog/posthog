@@ -195,10 +195,10 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
 
 class PersonalApiKeySelfAccessPermission(BasePermission):
     """
-    Personal API Keys can only access their own key and only for retrieval
+    Personal API keys can only access their own key and only for retrieval
     """
 
-    message = "This action does not support Personal API Key access"
+    message = "This action does not support personal API key access"
 
     def has_permission(self, request, view) -> bool:
         # This permission check only applies to the personal api key

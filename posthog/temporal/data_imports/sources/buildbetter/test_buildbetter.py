@@ -57,7 +57,7 @@ class TestMakePaginatedRequest:
         manager = _make_manager(can_resume=can_resume, state=state)
         logger = MagicMock()
 
-        with patch("posthog.temporal.data_imports.sources.buildbetter.buildbetter.requests.Session") as session_cls:
+        with patch("posthog.temporal.data_imports.sources.buildbetter.buildbetter.make_tracked_session") as session_cls:
             session = session_cls.return_value
             session.post.return_value = _make_response(resumed_page)
 
@@ -87,7 +87,7 @@ class TestMakePaginatedRequest:
         manager = _make_manager(can_resume=False)
         logger = MagicMock()
 
-        with patch("posthog.temporal.data_imports.sources.buildbetter.buildbetter.requests.Session") as session_cls:
+        with patch("posthog.temporal.data_imports.sources.buildbetter.buildbetter.make_tracked_session") as session_cls:
             session = session_cls.return_value
             session.post.return_value = _make_response({"data": {"interview": []}})
 
@@ -112,7 +112,7 @@ class TestMakePaginatedRequest:
         manager = _make_manager(can_resume=False)
         logger = MagicMock()
 
-        with patch("posthog.temporal.data_imports.sources.buildbetter.buildbetter.requests.Session") as session_cls:
+        with patch("posthog.temporal.data_imports.sources.buildbetter.buildbetter.make_tracked_session") as session_cls:
             session = session_cls.return_value
             session.post.side_effect = [
                 _make_response(full_page_a),
@@ -136,7 +136,7 @@ class TestMakePaginatedRequest:
         manager = _make_manager(can_resume=False)
         logger = MagicMock()
 
-        with patch("posthog.temporal.data_imports.sources.buildbetter.buildbetter.requests.Session") as session_cls:
+        with patch("posthog.temporal.data_imports.sources.buildbetter.buildbetter.make_tracked_session") as session_cls:
             session = session_cls.return_value
             session.post.return_value = _make_response({"data": {"interview": []}})
 
@@ -160,7 +160,7 @@ class TestBuildbetterSource:
         manager = _make_manager(can_resume=False)
         logger = MagicMock()
 
-        with patch("posthog.temporal.data_imports.sources.buildbetter.buildbetter.requests.Session") as session_cls:
+        with patch("posthog.temporal.data_imports.sources.buildbetter.buildbetter.make_tracked_session") as session_cls:
             session = session_cls.return_value
             session.post.return_value = _make_response(_interview_payload(["x"]))
 

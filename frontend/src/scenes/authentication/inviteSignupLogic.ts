@@ -19,6 +19,7 @@ import type { inviteSignupLogicType } from './inviteSignupLogicType'
 export enum ErrorCodes {
     InvalidInvite = 'invalid_invite',
     InvalidRecipient = 'invalid_recipient',
+    UserAlreadyMember = 'user_already_member',
     Unknown = 'unknown',
 }
 
@@ -117,6 +118,8 @@ export const inviteSignupLogic = kea<inviteSignupLogicType>([
                         if (e.status === 400) {
                             if (e.code === 'invalid_recipient') {
                                 actions.setError({ code: ErrorCodes.InvalidRecipient, detail: e.detail })
+                            } else if (e.code === 'user_already_member') {
+                                actions.setError({ code: ErrorCodes.UserAlreadyMember, detail: e.detail })
                             } else if (e.code === 'account_exists') {
                                 location.href = e.detail
                             } else {

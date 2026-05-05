@@ -6,8 +6,8 @@ import socket
 import hashlib
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Any, Literal, NamedTuple, Optional
-from urllib.parse import urlencode, urlparse
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple, NoReturn, Optional
+from urllib.parse import urlencode
 
 from products.workflows.backend.providers import MAILDEV_MOCK_DNS_RECORDS
 
@@ -25,6 +25,7 @@ from disposable_email_domains import blocklist as disposable_email_domains_list
 from free_email_domains import whitelist as free_email_domains_list
 from google.auth.transport.requests import Request as GoogleRequest
 from google.oauth2 import service_account
+from opentelemetry import trace
 from prometheus_client import Counter
 from requests.auth import HTTPBasicAuth
 from rest_framework.exceptions import ValidationError
@@ -51,6 +52,7 @@ from posthog.utils import get_instance_region
 from products.workflows.backend.providers import SESProvider, TwilioProvider
 
 logger = structlog.get_logger(__name__)
+tracer = trace.get_tracer(__name__)
 
 
 def _decode_jwt_payload(token: str) -> dict | None:
@@ -91,11 +93,58 @@ def dot_get(d: Any, path: str, default: Any = None) -> Any:
     return d
 
 
+def _extract_oauth_error_message(res: requests.Response) -> str | None:
+    """Pull a human-readable error from a failed OAuth token-exchange response.
+
+    Most providers (Stripe, Google, etc.) return JSON of the shape
+    `{"error": "...", "error_description": "..."}`. Fall back to the raw body
+    (truncated) when the JSON has none of those fields, or when the body isn't
+    JSON at all — better to dump a snippet than to swallow the cause silently
+    and let the caller render a status-code-only message.
+    """
+    try:
+        body = res.json()
+    except Exception:
+        text = (res.text or "").strip()
+        return text[:300] if text else None
+
+    if isinstance(body, dict):
+        description = body.get("error_description") or body.get("message")
+        code = body.get("error")
+        if description and code:
+            return f"{code}: {description}"
+        if description:
+            return str(description)
+        if code:
+            return str(code)
+
+    # Unknown shape — surface a serialized snippet so the customer at least sees what came back.
+    try:
+        snippet = json.dumps(body)
+    except (TypeError, ValueError):
+        snippet = (res.text or "").strip()
+    return snippet[:300] if snippet else None
+
+
+def _raise_oauth_validation_error(kind: str, res: requests.Response) -> NoReturn:
+    """Raise a ValidationError describing a failed OAuth token exchange.
+
+    DRF turns ValidationError into a 400 with a populated `detail`, so the frontend toast renders
+    a useful message instead of the generic "Something went wrong" fallback that follows from a
+    bare Exception (which surfaces as a 500 with no detail).
+    """
+    provider_error = _extract_oauth_error_message(res)
+    if provider_error:
+        raise ValidationError(f"{kind} OAuth failed: {provider_error}")
+    raise ValidationError(f"{kind} OAuth failed (status {res.status_code}). Please try again.")
+
+
 ERROR_TOKEN_REFRESH_FAILED = "TOKEN_REFRESH_FAILED"
 
 
 class Integration(models.Model):
     class IntegrationKind(models.TextChoices):
+        APPLE_PUSH = "apns"
         AZURE_BLOB = "azure-blob"
         BING_ADS = "bing-ads"
         CLICKUP = "clickup"
@@ -177,6 +226,8 @@ class Integration(models.Model):
             return self.integration_id or "unknown ID"
         if self.kind == "email":
             return self.config.get("email", self.integration_id)
+        if self.kind == "apns":
+            return self.config.get("bundle_id", self.integration_id)
 
         return f"ID: {self.integration_id}"
 
@@ -219,22 +270,16 @@ POSTHOG_SLACK_SCOPE = ",".join(
         "groups:read",
         "chat:write",
         "chat:write.customize",
-        *(
-            [  # New scopes that came with the update adding PostHog AI integration with Slack
-                "app_mentions:read",
-                "channels:history",
-                "groups:history",
-                "links:read",
-                "links:write",
-                "reactions:read",
-                "reactions:write",
-                "team:read",
-                "users:read",
-                "users:read.email",
-            ]
-            if settings.DEBUG or settings.CLOUD_DEPLOYMENT == "DEV"
-            else []
-        ),
+        "app_mentions:read",
+        "channels:history",
+        "groups:history",
+        "links:read",
+        "links:write",
+        "reactions:read",
+        "reactions:write",
+        "team:read",
+        "users:read",
+        "users:read.email",
     ]
 )
 
@@ -707,7 +752,12 @@ class OauthIntegration:
                 },
             )
 
-        config: dict = res.json()
+        try:
+            config: dict = res.json()
+        except ValueError:
+            # Non-JSON body (e.g. an HTML 502 from a proxy). Keep going so the status-code
+            # branch below can surface a structured ValidationError to the frontend.
+            config = {}
 
         access_token = None
         if kind == "tiktok-ads":
@@ -731,11 +781,14 @@ class OauthIntegration:
                     },
                 )
 
-                config = res.json()
+                try:
+                    config = res.json()
+                except ValueError:
+                    config = {}
 
                 if res.status_code != 200 or not config.get("access_token"):
                     logger.error(f"Oauth error for {kind}", response=res.text)
-                    raise Exception(f"Oauth error for {kind}. Status code = {res.status_code}")
+                    _raise_oauth_validation_error(kind, res)
             else:
                 # Include request context so on-call can compare what we sent against what
                 # the merchant authorized with in Stripe. Code prefix only, full grant is
@@ -748,7 +801,10 @@ class OauthIntegration:
                     redirect_uri=OauthIntegration.redirect_uri(kind),
                     code_prefix=str(params.get("code", ""))[:12],
                 )
-                raise Exception(f"Oauth error. Status code = {res.status_code}")
+                # Surface the provider's error to the frontend toast — without this, DRF turns
+                # the bare Exception into a generic 500 and the user sees "Something went wrong"
+                # with no actionable detail. ValidationError → 400 with `detail` set.
+                _raise_oauth_validation_error(kind, res)
 
         if oauth_config.token_info_url:
             # If token info url is given we call it and check the integration id from there
@@ -1040,11 +1096,14 @@ class SlackIntegrationError(Exception):
     pass
 
 
+SLACK_INTEGRATION_KINDS: tuple[str, ...] = ("slack", "slack-posthog-code")
+
+
 class SlackIntegration:
     integration: Integration
 
     def __init__(self, integration: Integration) -> None:
-        if integration.kind not in ("slack", "slack-posthog-code"):
+        if integration.kind not in SLACK_INTEGRATION_KINDS:
             raise Exception("SlackIntegration init called with Integration with wrong 'kind'")
 
         self.integration = integration
@@ -1131,13 +1190,17 @@ class SlackIntegration:
     @classmethod
     @cache_for(timedelta(minutes=5))
     def slack_config(cls):
-        config = get_instance_settings(
-            [
-                "SLACK_APP_CLIENT_ID",
-                "SLACK_APP_CLIENT_SECRET",
-                "SLACK_APP_SIGNING_SECRET",
-            ]
-        )
+        # Span only fires on cache miss (cache_for is process-local in-memory).
+        # If preflight.slack_config_main is fast in production traces, this span
+        # will be absent; if it appears, it tells us the DB hit was slow.
+        with tracer.start_as_current_span("slack_integration.slack_config_db"):
+            config = get_instance_settings(
+                [
+                    "SLACK_APP_CLIENT_ID",
+                    "SLACK_APP_CLIENT_SECRET",
+                    "SLACK_APP_SIGNING_SECRET",
+                ]
+            )
 
         return config
 
@@ -1630,6 +1693,82 @@ class FirebaseIntegration:
         return self.integration.sensitive_config.get("access_token", "")
 
 
+class ApplePushIntegration:
+    """
+    Integration for Apple Push Notification Service (APNS).
+
+    config stores:
+      - team_id: Apple Developer Team ID
+      - bundle_id: App bundle identifier (e.g. com.example.app)
+      - key_id: The Key ID for the .p8 signing key
+
+    sensitive_config stores:
+      - signing_key: The .p8 signing key contents
+    """
+
+    integration: Integration
+
+    def __init__(self, integration: Integration) -> None:
+        if integration.kind != "apns":
+            raise Exception("ApplePushIntegration init called with Integration with wrong 'kind'")
+        self.integration = integration
+
+    @classmethod
+    def integration_from_key(
+        cls,
+        signing_key: str,
+        key_id: str,
+        team_id_apple: str,
+        bundle_id: str,
+        team_id: int,
+        created_by: User | None = None,
+    ) -> "Integration":
+        if not all([signing_key, key_id, team_id_apple, bundle_id]):
+            raise ValidationError("All APNS fields are required: signing_key, key_id, team_id_apple, bundle_id")
+
+        integration, created = Integration.objects.update_or_create(
+            team_id=team_id,
+            kind="apns",
+            integration_id=f"{team_id_apple}.{bundle_id}",
+            defaults={
+                "config": {
+                    "team_id": team_id_apple,
+                    "bundle_id": bundle_id,
+                    "key_id": key_id,
+                },
+                "sensitive_config": {
+                    "signing_key": signing_key,
+                },
+            },
+        )
+
+        if created and created_by is not None:
+            integration.created_by = created_by
+            integration.save(update_fields=["created_by"])
+
+        if integration.errors:
+            integration.errors = ""
+            integration.save(update_fields=["errors"])
+
+        return integration
+
+    @property
+    def team_id_apple(self) -> str:
+        return self.integration.config.get("team_id", "")
+
+    @property
+    def bundle_id(self) -> str:
+        return self.integration.config.get("bundle_id", "")
+
+    @property
+    def key_id(self) -> str:
+        return self.integration.config.get("key_id", "")
+
+    @property
+    def signing_key(self) -> str:
+        return self.integration.sensitive_config.get("signing_key", "")
+
+
 class LinkedInAdsIntegration:
     integration: Integration
 
@@ -2095,7 +2234,13 @@ class GitHubRateLimitError(GitHubIntegrationError):
     """GitHub API rate limit exhausted for this installation."""
 
     def __init__(self, message: str, reset_at: int | None = None, retry_after: int | None = None):
-        super().__init__(message)
+        # Forward to the base error so backoff filters using `exc.is_rate_limit` /
+        # `exc.retry_after_seconds` continue to work for instances of this subclass.
+        super().__init__(
+            message,
+            is_rate_limit=True,
+            retry_after_seconds=float(retry_after) if retry_after is not None else None,
+        )
         self.reset_at = reset_at
         self.retry_after = retry_after
 
@@ -2201,6 +2346,9 @@ class GitHubIntegration(GitHubIntegrationBase):
     def github_user_from_code(cls, code: str, *, redirect_uri: str | None = None) -> "GitHubUserAuthorization | None":
         """Exchange an OAuth code from the GitHub App user authorization flow.
 
+        Pass ``redirect_uri`` when the user was sent to ``/login/oauth/authorize`` with
+        the same redirect URI (required by GitHub for the token exchange in that flow).
+
         Returns a :class:`GitHubUserAuthorization` with the user's id/login plus the
         user-to-server access/refresh tokens and their expirations, or ``None`` if
         the exchange fails or the response lacks an id/login.
@@ -2211,64 +2359,60 @@ class GitHubIntegration(GitHubIntegrationBase):
             logger.warning("GitHubIntegration: GITHUB_APP_CLIENT_ID/SECRET not configured, cannot exchange code")
             return None
 
-        token_payload: dict[str, str] = {
+        token_body: dict[str, str] = {
             "client_id": client_id,
             "client_secret": client_secret,
             "code": code,
         }
         if redirect_uri is not None:
-            token_payload["redirect_uri"] = redirect_uri
+            token_body["redirect_uri"] = redirect_uri
 
-        try:
-            token_response = requests.post(
-                "https://github.com/login/oauth/access_token",
-                json=token_payload,
-                headers={"Accept": "application/json"},
-                timeout=10,
+        token_response = requests.post(
+            "https://github.com/login/oauth/access_token",
+            json=token_body,
+            headers={"Accept": "application/json"},
+            timeout=10,
+        )
+        token_data = token_response.json()
+        access_token = token_data.get("access_token")
+        if not access_token:
+            logger.warning(
+                "GitHubIntegration: code exchange returned no access_token",
+                status_code=token_response.status_code,
+                error=token_data.get("error"),
+                error_description=token_data.get("error_description"),
+                error_uri=token_data.get("error_uri"),
             )
-            token_data = token_response.json()
-            access_token = token_data.get("access_token")
-            if not access_token:
-                logger.warning(
-                    "GitHubIntegration: code exchange returned no access_token",
-                    status_code=token_response.status_code,
-                    error=token_data.get("error"),
-                    error_description=token_data.get("error_description"),
-                    error_uri=token_data.get("error_uri"),
-                )
-                return None
-
-            user_response = requests.get(
-                "https://api.github.com/user",
-                headers={
-                    "Accept": "application/vnd.github+json",
-                    "Authorization": f"Bearer {access_token}",
-                    "X-GitHub-Api-Version": GITHUB_API_VERSION,
-                },
-                timeout=10,
-            )
-            if user_response.status_code != 200:
-                logger.warning("GitHubIntegration: /user request failed", status_code=user_response.status_code)
-                return None
-
-            payload = user_response.json()
-            gh_id = payload.get("id")
-            gh_login = payload.get("login")
-            if gh_id is None or not gh_login:
-                return None
-            access_expires_in = token_data.get("expires_in")
-            refresh_expires_in = token_data.get("refresh_token_expires_in")
-            return GitHubUserAuthorization(
-                gh_id=int(gh_id),
-                gh_login=str(gh_login),
-                access_token=str(access_token),
-                refresh_token=token_data.get("refresh_token") or None,
-                access_token_expires_in=int(access_expires_in) if access_expires_in is not None else None,
-                refresh_token_expires_in=int(refresh_expires_in) if refresh_expires_in is not None else None,
-            )
-        except Exception:
-            logger.warning("GitHubIntegration: failed to exchange code for github user", exc_info=True)
             return None
+
+        user_response = requests.get(
+            "https://api.github.com/user",
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {access_token}",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+            timeout=10,
+        )
+        if user_response.status_code != 200:
+            logger.warning("GitHubIntegration: /user request failed", status_code=user_response.status_code)
+            return None
+
+        payload = user_response.json()
+        gh_id = payload.get("id")
+        gh_login = payload.get("login")
+        if gh_id is None or not gh_login:
+            return None
+        access_expires_in = token_data.get("expires_in")
+        refresh_expires_in = token_data.get("refresh_token_expires_in")
+        return GitHubUserAuthorization(
+            gh_id=int(gh_id),
+            gh_login=str(gh_login),
+            access_token=str(access_token),
+            refresh_token=token_data.get("refresh_token") or None,
+            access_token_expires_in=int(access_expires_in) if access_expires_in is not None else None,
+            refresh_token_expires_in=int(refresh_expires_in) if refresh_expires_in is not None else None,
+        )
 
     @classmethod
     def first_for_team_repository(cls, team_id: int, repository: str) -> "GitHubIntegration | None":
@@ -2304,6 +2448,138 @@ class GitHubIntegration(GitHubIntegrationBase):
         self.integration.errors = ""
         reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
         oauth_refresh_counter.labels(self.integration.kind, "success").inc()
+
+    @staticmethod
+    def _is_secondary_rate_limit(response: requests.Response) -> bool:
+        """GitHub signals secondary rate limits via 429, or 403 + ``Retry-After`` /
+        ``X-RateLimit-Remaining: 0``, or 403 with a body marker (no headers)."""
+        if response.status_code == 429:
+            return True
+        if response.status_code != 403:
+            return False
+        if response.headers.get("Retry-After"):
+            return True
+        if response.headers.get("X-RateLimit-Remaining") == "0":
+            return True
+        # Some 403s carry the secondary-limit signal only in the body.
+        body = (response.text or "").lower()
+        return "secondary rate limit" in body or "abuse detection" in body
+
+    @staticmethod
+    def _parse_retry_after_seconds(response: requests.Response) -> float | None:
+        header = response.headers.get("Retry-After")
+        if header:
+            try:
+                return max(0.0, float(header))
+            except ValueError:
+                return None
+        reset = response.headers.get("X-RateLimit-Reset")
+        if reset:
+            try:
+                return max(0.0, float(reset) - time.time())
+            except ValueError:
+                return None
+        return None
+
+    def _gh_api_get(self, path: str, *, endpoint: str, timeout: int = 10) -> dict:
+        """Authenticated GET against ``https://api.github.com`` returning parsed JSON.
+
+        ``endpoint`` is the low-cardinality template label (e.g. ``/repos/{owner}/{repo}``)
+        forwarded to ``_github_api_get`` for prometheus instrumentation.
+        """
+        # 1. Validate path + assemble URL.
+        if not path.startswith("/"):
+            raise ValueError(f"_gh_api_get path must start with '/', got {path!r}")
+        url = f"https://api.github.com{path}"
+        transient_status_codes = {502, 503, 504}
+        # 2. Proactively refresh expiring tokens (failure here is non-fatal — fetch will retry on 401).
+        try:
+            if self.access_token_expired():
+                self.refresh_access_token()
+        except Exception:
+            logger.warning("GitHubIntegration: token refresh pre-check failed", exc_info=True)
+
+        def fetch() -> requests.Response:
+            access_token = self.integration.sensitive_config.get("access_token")
+            return self._github_api_get(
+                url,
+                endpoint=endpoint,
+                headers={
+                    "Accept": "application/vnd.github+json",
+                    "Authorization": f"Bearer {access_token}",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                },
+                timeout=timeout,
+            )
+
+        # 3. Try up to twice — second attempt covers token refresh after 401 or one transient 5xx.
+        last_error_message = "GitHubIntegration: _gh_api_get exhausted retries"
+        for attempt in range(2):
+            # Network call (one retry on connection-level failure).
+            try:
+                response = fetch()
+            except requests.RequestException as exc:
+                if attempt == 0:
+                    logger.info(
+                        "GitHubIntegration: _gh_api_get retrying network error",
+                        path=path,
+                        exc_info=True,
+                    )
+                    continue
+                raise GitHubIntegrationError(f"GitHubIntegration: _gh_api_get network error on {path}") from exc
+            # Auth failure → refresh token and retry once.
+            if response.status_code == 401 and attempt == 0:
+                try:
+                    self.refresh_access_token()
+                except Exception as exc:
+                    raise GitHubIntegrationError(
+                        f"GitHubIntegration: token refresh after 401 failed on {path}"
+                    ) from exc
+                continue
+            # Secondary rate limit → bubble up with retry hint (no in-method retry).
+            if self._is_secondary_rate_limit(response):
+                # When headers don't give us a delay (body-only signal), GitHub recommends ≥60s.
+                retry_after = self._parse_retry_after_seconds(response) or 60.0
+                raise GitHubIntegrationError(
+                    f"GitHubIntegration: secondary rate limit on {path}",
+                    status_code=response.status_code,
+                    is_rate_limit=True,
+                    retry_after_seconds=retry_after,
+                )
+            # Transient 5xx → retry once.
+            if response.status_code in transient_status_codes and attempt == 0:
+                logger.info(
+                    "GitHubIntegration: _gh_api_get retrying transient error",
+                    path=path,
+                    status_code=response.status_code,
+                )
+                continue
+            # Any remaining non-2xx is terminal.
+            if response.status_code < 200 or response.status_code >= 300:
+                logger.warning(
+                    "GitHubIntegration: _gh_api_get non-2xx response",
+                    path=path,
+                    status_code=response.status_code,
+                )
+                raise GitHubIntegrationError(
+                    f"GitHubIntegration: _gh_api_get failed on {path}",
+                    status_code=response.status_code,
+                )
+            # 4. Parse + shape-check the response body.
+            try:
+                body = response.json()
+            except Exception as exc:
+                raise GitHubIntegrationError(
+                    f"GitHubIntegration: _gh_api_get non-JSON response on {path}",
+                    status_code=response.status_code,
+                ) from exc
+            if not isinstance(body, dict):
+                raise GitHubIntegrationError(
+                    f"GitHubIntegration: _gh_api_get unexpected payload on {path}",
+                    status_code=response.status_code,
+                )
+            return body
+        raise GitHubIntegrationError(last_error_message)
 
     @database_sync_to_async
     def list_cached_repositories_async(
@@ -2576,94 +2852,6 @@ class GitHubIntegration(GitHubIntegrationBase):
                 "status_code": response.status_code,
             }
 
-    @staticmethod
-    def parse_pull_request_url(pr_url: str) -> tuple[str, str, int] | None:
-        """Parse a GitHub pull request URL into ``(owner, repo, pr_number)``.
-
-        Returns ``None`` if the URL does not look like a GitHub PR URL.
-        """
-        try:
-            parsed = urlparse(pr_url)
-        except Exception:
-            return None
-        if parsed.netloc not in {"github.com", "www.github.com"}:
-            return None
-        parts = [p for p in parsed.path.split("/") if p]
-        # Expected path: /{owner}/{repo}/pull/{number}[/...]
-        if len(parts) < 4 or parts[2] != "pull":
-            return None
-        owner, repo, _, pr_number_str = parts[:4]
-        try:
-            pr_number = int(pr_number_str)
-        except ValueError:
-            return None
-        return owner, repo, pr_number
-
-    def get_pull_request(self, repository: str, pr_number: int) -> dict[str, Any]:
-        """Fetch a pull request by repository (``owner/repo`` or just ``repo``) and PR number."""
-        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
-
-        response = self._installation_authenticated_get(
-            f"https://api.github.com/repos/{repo_path}/pulls/{pr_number}",
-            endpoint="/repos/{owner}/{repo}/pulls/{pull_number}",
-        )
-        if response is None:
-            return {"success": False, "error": "Network error fetching pull request"}
-        if response.status_code != 200:
-            return {
-                "success": False,
-                "error": f"Failed to fetch pull request: {response.text}",
-                "status_code": response.status_code,
-            }
-        try:
-            pr = response.json()
-        except Exception:
-            logger.warning(
-                "GitHubIntegration: get_pull_request non-JSON response",
-                repository=repo_path,
-                pr_number=pr_number,
-            )
-            return {"success": False, "error": "Failed to parse pull request JSON"}
-
-        head = pr.get("head") or {}
-        base = pr.get("base") or {}
-        user = pr.get("user") or {}
-
-        return {
-            "success": True,
-            "number": pr.get("number"),
-            "title": pr.get("title"),
-            "body": pr.get("body"),
-            "url": pr.get("html_url"),
-            "state": pr.get("state"),
-            "merged": pr.get("merged", False),
-            "draft": pr.get("draft", False),
-            "head_branch": head.get("ref"),
-            "base_branch": base.get("ref"),
-            "head_sha": head.get("sha"),
-            "base_sha": base.get("sha"),
-            "repository": repo_path,
-            "author": user.get("login"),
-            "created_at": pr.get("created_at"),
-            "updated_at": pr.get("updated_at"),
-            "merged_at": pr.get("merged_at"),
-            "closed_at": pr.get("closed_at"),
-            "comments": pr.get("comments", 0),
-            "review_comments": pr.get("review_comments", 0),
-            "commits": pr.get("commits", 0),
-            "additions": pr.get("additions", 0),
-            "deletions": pr.get("deletions", 0),
-            "changed_files": pr.get("changed_files", 0),
-        }
-
-    def get_pull_request_from_url(self, pr_url: str) -> dict[str, Any]:
-        """Fetch a pull request by its HTML URL (e.g. ``https://github.com/owner/repo/pull/123``)."""
-        parsed = self.parse_pull_request_url(pr_url)
-        if parsed is None:
-            return {"success": False, "error": f"Invalid GitHub pull request URL: {pr_url}"}
-        owner, repo, pr_number = parsed
-        return self.get_pull_request(f"{owner}/{repo}", pr_number)
-
 
 class GitLabIntegrationError(Exception):
     pass
@@ -2771,11 +2959,11 @@ class MetaAdsIntegration:
     def refresh_access_token(self):
         oauth_config = OauthIntegration.oauth_config_for_kind(self.integration.kind)
 
-        # check if refresh is necessary (less than 7 days)
+        # skip refresh if more than 7 days until expiry
         if self.integration.config.get("expires_in") and self.integration.config.get("refreshed_at"):
             if (
                 time.time()
-                > self.integration.config.get("refreshed_at") + self.integration.config.get("expires_in") - 604800
+                < self.integration.config.get("refreshed_at") + self.integration.config.get("expires_in") - 604800
             ):
                 return
 

@@ -418,6 +418,8 @@ export interface HogQLQueryModifiers {
     optimizeJoinedFilters?: boolean
     /** Push a `session_id_v7 IN (SELECT … FROM events WHERE …)` predicate into the raw_sessions subquery to limit aggregation to sessions that participate in the outer events filter. */
     sessionIdPushdown?: boolean
+    /** Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap pre-aggregation that only materializes the columns referenced by the outer-WHERE session predicate)`. Useful when the breakdown/SELECT pulls in many session columns (e.g. `$channel_type`) but the filter only references one (e.g. `$entry_current_url`). */
+    sessionPropertyPreAggregation?: boolean
     dataWarehouseEventsModifiers?: DataWarehouseEventsModifier[]
     debug?: boolean
     timings?: boolean
@@ -3135,6 +3137,7 @@ export type FileSystemIconType =
     | 'sdk_doctor'
     | 'pipeline_status'
     | 'llm_evaluations'
+    | 'llm_tags'
     | 'llm_datasets'
     | 'llm_playground'
     | 'llm_prompts'
@@ -4569,6 +4572,7 @@ export type AIEventType =
     | '$ai_metric'
     | '$ai_feedback'
     | '$ai_evaluation'
+    | '$ai_tag'
     | '$ai_trace_summary'
     | '$ai_generation_summary'
     | '$ai_trace_clusters'
@@ -6087,6 +6091,7 @@ export enum UserProductListReason {
     USED_ON_SEPARATE_TEAM = 'used_on_separate_team',
     NEW_PRODUCT = 'new_product',
     SALES_LED = 'sales_led',
+    ONBOARDING_DELEGATED = 'onboarding_delegated',
 }
 
 export interface UserProductListItem {
@@ -6185,6 +6190,7 @@ export enum ProductIntentContext {
 
     // LLM Analytics
     LLM_ANALYTICS_VIEWED = 'llm_analytics_viewed',
+    LLM_ANALYTICS_TRACE_VIEWED = 'llm_analytics_trace_viewed',
     LLM_ANALYTICS_DOCS_VIEWED = 'llm_analytics_docs_viewed',
     LLM_CLUSTER_EXPLORED = 'llm_cluster_explored',
     LLM_DATASET_CREATED = 'llm_dataset_created',

@@ -1,4 +1,5 @@
 import math
+import random
 import datetime as dt
 from dataclasses import dataclass, field
 from enum import StrEnum, auto
@@ -11,6 +12,7 @@ import pytz
 from posthog.demo.matrix.models import EVENT_AUTOCAPTURE, Effect, SimPerson, SimSessionIntent
 
 from .taxonomy import (
+    BIAS_WARNING_FLIP_PROBABILITY,
     EVENT_DELETED_FILE,
     EVENT_DOWNGRADED_PLAN,
     EVENT_DOWNLOADED_FILE,
@@ -28,6 +30,7 @@ from .taxonomy import (
     FILE_ENGAGEMENT_BLUE_UPLOAD_MULTIPLIER,
     FILE_ENGAGEMENT_RED_SHARE_MULTIPLIER,
     FILE_ENGAGEMENT_RED_UPLOAD_MULTIPLIER,
+    FLAG_BIAS_WARNING_DEMO_EXPERIMENT,
     FLAG_FILE_ENGAGEMENT_EXPERIMENT,
     FLAG_ONBOARDING_EXPERIMENT,
     FLAG_PRICING_PAGE_EXPERIMENT,
@@ -173,6 +176,8 @@ class HedgeboxPerson(SimPerson):
     sharing_variant: str
     upgrade_prompt_variant: str
     team_collab_variant: str
+    bias_warning_initial_variant: str
+    bias_warning_flips: bool
     watches_marius_tech_tips: bool
 
     # Internal state - plain
@@ -239,6 +244,16 @@ class HedgeboxPerson(SimPerson):
         self.sharing_variant = self._pick_variant("control", "test")
         self.upgrade_prompt_variant = self._pick_variant("control", "aggressive", "subtle")
         self.team_collab_variant = self._pick_variant("control", "test")
+
+        # Bias warning demo experiment: 90/10 split, with a small share of users
+        # flipping variants mid-experiment so they end up exposed to both.
+        # Uses a separate per-person RNG seeded from the (deterministic) email so we
+        # don't perturb the cluster's shared RNG sequence — drawing from cluster.random
+        # here would shift every downstream session/pageview decision and break tests
+        # that depend on the seeded data shape (e.g. the SQL playwright test).
+        person_rng = random.Random(self.email)
+        self.bias_warning_initial_variant = "control" if person_rng.random() < 0.9 else "test"
+        self.bias_warning_flips = person_rng.random() < BIAS_WARNING_FLIP_PROBABILITY
 
     def __str__(self) -> str:
         return f"{self.name} <{self.email}>"
@@ -314,6 +329,16 @@ class HedgeboxPerson(SimPerson):
         if m.team_collab_experiment_start <= t < m.team_collab_experiment_end:
             flags[FLAG_TEAM_COLLAB_EXPERIMENT] = self.team_collab_variant
 
+        # Bias warning demo (running): 60% onward, with mid-experiment flip for some users
+        if t >= m.bias_warning_experiment_start:
+            if self.bias_warning_flips and t >= m.bias_warning_experiment_flip_time:
+                # Flipped to the other variant — the user is now exposed to both
+                flags[FLAG_BIAS_WARNING_DEMO_EXPERIMENT] = (
+                    "test" if self.bias_warning_initial_variant == "control" else "control"
+                )
+            else:
+                flags[FLAG_BIAS_WARNING_DEMO_EXPERIMENT] = self.bias_warning_initial_variant
+
         return flags
 
     _EXPERIMENT_FLAG_KEYS = {
@@ -323,6 +348,7 @@ class HedgeboxPerson(SimPerson):
         FLAG_SHARING_INCENTIVE_EXPERIMENT,
         FLAG_UPGRADE_PROMPT_EXPERIMENT,
         FLAG_TEAM_COLLAB_EXPERIMENT,
+        FLAG_BIAS_WARNING_DEMO_EXPERIMENT,
     }
 
     def capture_feature_flag_exposures(self):

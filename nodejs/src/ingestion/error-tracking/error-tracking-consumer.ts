@@ -7,7 +7,7 @@ import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { PluginEvent } from '~/plugin-scaffold'
 
 import { TransformationResult } from '../../cdp/hog-transformations/hog-transformer.service'
-import { KafkaConsumer } from '../../kafka/consumer'
+import { KafkaConsumerInterface, createKafkaConsumer } from '../../kafka/consumer'
 import { HealthCheckResult, IngestionLane, PluginServerService } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
 import { logger } from '../../utils/logger'
@@ -91,7 +91,7 @@ const latestOffsetTimestampGauge = new Gauge({
 
 export class ErrorTrackingConsumer {
     protected name = 'error-tracking-consumer'
-    protected kafkaConsumer: KafkaConsumer
+    protected kafkaConsumer: KafkaConsumerInterface
     protected pipeline!: BatchPipelineUnwrapper<
         { message: Message },
         ErrorTrackingPipelineOutput,
@@ -109,7 +109,7 @@ export class ErrorTrackingConsumer {
         private config: ErrorTrackingConsumerOptions,
         private deps: ErrorTrackingConsumerDeps
     ) {
-        this.kafkaConsumer = new KafkaConsumer({
+        this.kafkaConsumer = createKafkaConsumer({
             groupId: config.groupId,
             topic: config.topic,
         })

@@ -62,6 +62,7 @@ export type RequestProperties = {
     readOnly?: boolean
     mode?: McpMode
     transport?: 'streamable-http' | 'sse'
+    viaSseRedirect?: boolean
     requestStartTime?: number
 }
 
@@ -333,7 +334,9 @@ export class MCP extends McpAgent<Env> {
         }
     }
 
-    private async getAnalyticsContextSafe(context: Context): Promise<MCPAnalyticsContext | undefined> {
+    private async getAnalyticsContextSafe(
+        context: Pick<Context, 'stateManager'>
+    ): Promise<MCPAnalyticsContext | undefined> {
         try {
             return await context.stateManager.getAnalyticsContext()
         } catch {
@@ -454,14 +457,20 @@ export class MCP extends McpAgent<Env> {
 
     async getContext(): Promise<Context> {
         const api = await this.api()
-        return {
+        const stateManager = new StateManager(this.cache, api)
+        const partialContext: Omit<Context, 'trackEvent'> = {
             api,
             cache: this.cache,
             env: this.env,
-            stateManager: new StateManager(this.cache, api),
+            stateManager,
             sessionManager: this.sessionManager,
             getDistinctId: () => this.getDistinctId(),
         }
+        const trackEvent: Context['trackEvent'] = async (event, properties = {}) => {
+            const analyticsContext = await this.getAnalyticsContextSafe(partialContext)
+            await this.trackEvent(event, properties, analyticsContext ? { context: analyticsContext } : undefined)
+        }
+        return { ...partialContext, trackEvent }
     }
 
     async init(): Promise<void> {
@@ -481,12 +490,6 @@ export class MCP extends McpAgent<Env> {
         // worker entry point); the DO-storage fallback inside
         // `resolveClientInfo` is only reachable post-init.
         await this.resolveClientInfo()
-
-        const clientProfile = new MCPClientProfile({
-            clientName: this.mcpClientName,
-            clientVersion: this.mcpClientVersion,
-            consumer: this.requestProperties.mcpConsumer,
-        })
 
         // Start feature flag resolution in parallel with cache seeding
         const flagPromise = this.resolveVersionFlag()
@@ -524,21 +527,36 @@ export class MCP extends McpAgent<Env> {
             flagPromise,
             toolFlagsPromise,
             singleExecPromise,
+            // Trigger OAuth introspection so the OAuth client name is cached before the useSingleExec decision below
+            context.stateManager.getApiKey(),
         ])
+
+        const oauthClientName = (await this.cache.get('clientName')) || undefined
+
+        const clientProfile = new MCPClientProfile({
+            clientName: this.mcpClientName,
+            clientVersion: this.mcpClientVersion,
+            consumer: this.requestProperties.mcpConsumer,
+            oauthClientName,
+        })
 
         // Restrict single-exec mode to coding agents only — Cursor and other clients that
         // render `structuredContent` in their UI need the full per-tool roster, not the
         // wrapped CLI. `resolveClientInfo` is awaited at the top of `init()` so this
         // decision sees the real value on first-connect. PostHog's agent wrapper
         // self-identifies via the `x-posthog-mcp-consumer` header and forces
-        // single-exec regardless of the wrapped client's reported name.
+        // single-exec regardless of the wrapped client's reported name. Vibe-coding
+        // platforms (Lovable, Replit) are detected by OAuth client name since they
+        // typically connect through a generic MCP client wrapper.
         // An explicit `mode` from the caller (header `x-posthog-mcp-mode` or query
         // param `mode`) wins over the flag + client-profile heuristic.
         const useSingleExec =
             mode === 'cli' ||
             (mode !== 'tools' &&
                 singleExecFlagOn &&
-                (clientProfile.isCodingAgent() || clientProfile.isPostHogCodeConsumer()))
+                (clientProfile.isCodingAgent() ||
+                    clientProfile.isPostHogCodeConsumer() ||
+                    clientProfile.isVibeCodingClient()))
         const version = useSingleExec ? 2 : (flagVersion ?? clientVersion ?? 1)
 
         // Fetch group types and metadata in parallel (cache is now seeded)
@@ -576,9 +594,9 @@ export class MCP extends McpAgent<Env> {
             featureFlags: toolFeatureFlags,
         })
 
-        // OAuth introspection has now run (triggered by getToolsFromContext → getApiKey),
-        // so update the ApiClient with the verified OAuth client name for header forwarding.
-        const oauthClientName = (await this.cache.get('clientName')) || undefined
+        // OAuth introspection ran above (we awaited `getApiKey()` before constructing
+        // `clientProfile`), so update the ApiClient with the verified OAuth client
+        // name for header forwarding.
         if (oauthClientName && this._api) {
             this._api.config.oauthClientName = oauthClientName
         }
@@ -642,18 +660,22 @@ export class MCP extends McpAgent<Env> {
             registerUiAppResources(this.server, context),
         ])
 
-        // In single-exec mode, register one "posthog" tool that wraps all tools
-        // behind a CLI-like interface. Otherwise, register each tool individually.
-        if (useSingleExec) {
-            // Swap execute-sql's description with the single-exec-specific
-            // prompt (visible via `info execute-sql`). It already folds in
-            // the HogQL/SQL intro, guidelines, discovery workflow, and the
-            // truncation guidance that the base JSON description carried.
+        // execute-sql is v2-only. Swap its description with the rich SQL prompt
+        // (visible via `info execute-sql` in single-exec, and as the tool's own
+        // description otherwise). It folds in the HogQL/SQL intro, guidelines,
+        // discovery workflow, and the truncation guidance that the base JSON
+        // description carried — and it triggers the `querying-posthog-data`
+        // skill more reliably than the shorter default.
+        if (version === 2) {
             const sqlTool = allTools.find((t) => t.name === 'execute-sql')
             if (sqlTool) {
                 sqlTool.description = formatPrompt(EXECUTE_SQL_PROMPT, { guidelines: guidelines.trim() })
             }
+        }
 
+        // In single-exec mode, register one "posthog" tool that wraps all tools
+        // behind a CLI-like interface. Otherwise, register each tool individually.
+        if (useSingleExec) {
             // Strip `{tool_domains}`, `{query_tools}`, `{defined_groups}`, `{metadata}`
             // from the command-parameter description when they're already in `instructions`
             // (their placeholders resolve to empty strings via `buildInstructionsV2`).
@@ -736,6 +758,7 @@ export class MCP extends McpAgent<Env> {
                     has_organization_id: !!organizationId,
                     has_project_id: !!projectId,
                     read_only: !!readOnly,
+                    via_sse_redirect: !!this.requestProperties.viaSseRedirect,
                     ...(mode ? { mcp_mode_explicit: mode } : {}),
                     ...(initDurationMs !== undefined ? { init_duration_ms: initDurationMs } : {}),
                 },

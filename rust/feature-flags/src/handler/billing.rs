@@ -118,6 +118,7 @@ pub fn should_record_usage(filtered_flags: &FeatureFlagList) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::flags::feature_flag_list::PreparedFlags;
     use crate::flags::flag_analytics::{
         PRODUCT_TOUR_TARGETING_FLAG_PREFIX, SURVEY_TARGETING_FLAG_PREFIX,
     };
@@ -191,7 +192,7 @@ mod tests {
         let disabled_flag = mock!(FeatureFlag, id: 1, key: "regular_flag".mock_into());
 
         let flag_list = mock!(FeatureFlagList,
-            flags: vec![disabled_flag.clone()],
+            flags: PreparedFlags::seal(vec![disabled_flag.clone()]),
             filtered_out_flag_ids: HashSet::from([disabled_flag.id])
         );
 
@@ -205,7 +206,7 @@ mod tests {
         let active_flag = mock!(FeatureFlag, id: 2, key: "active_flag".mock_into());
 
         let flag_list = mock!(FeatureFlagList,
-            flags: vec![disabled_flag.clone(), active_flag],
+            flags: PreparedFlags::seal(vec![disabled_flag.clone(), active_flag]),
             filtered_out_flag_ids: HashSet::from([disabled_flag.id])
         );
 
@@ -219,7 +220,7 @@ mod tests {
             mock!(FeatureFlag, id: 1, key: format!("{SURVEY_TARGETING_FLAG_PREFIX}survey1"));
 
         let flag_list = mock!(FeatureFlagList,
-            flags: vec![disabled_survey_flag.clone()],
+            flags: PreparedFlags::seal(vec![disabled_survey_flag.clone()]),
             filtered_out_flag_ids: HashSet::from([disabled_survey_flag.id])
         );
 
@@ -234,7 +235,7 @@ mod tests {
             mock!(FeatureFlag, id: 2, key: format!("{SURVEY_TARGETING_FLAG_PREFIX}survey1"));
 
         let flag_list = mock!(FeatureFlagList,
-            flags: vec![disabled_flag.clone(), survey_flag],
+            flags: PreparedFlags::seal(vec![disabled_flag.clone(), survey_flag]),
             filtered_out_flag_ids: HashSet::from([disabled_flag.id])
         );
 
@@ -272,7 +273,7 @@ mod tests {
             mock!(FeatureFlag, id: 1, key: format!("{PRODUCT_TOUR_TARGETING_FLAG_PREFIX}tour1"));
 
         let flag_list = mock!(FeatureFlagList,
-            flags: vec![disabled_tour_flag.clone()],
+            flags: PreparedFlags::seal(vec![disabled_tour_flag.clone()]),
             filtered_out_flag_ids: HashSet::from([disabled_tour_flag.id])
         );
 

@@ -882,6 +882,83 @@ describe('HogTransformer', () => {
             expect(result.event?.properties?.$transformations_failed).toBeUndefined()
         })
 
+        it('should catch thrown executeHogFunction errors without crashing, track failure, and queue app metric', async () => {
+            const successTemplate: HogFunctionTemplate = {
+                free: true,
+                status: 'beta',
+                type: 'transformation',
+                id: 'template-success',
+                name: 'Success Template',
+                description: 'A template that should succeed',
+                category: ['Custom'],
+                code_language: 'hog',
+                code: `
+                    let returnEvent := event
+                    returnEvent.properties.success := true
+                    return returnEvent
+                `,
+                inputs_schema: [],
+            }
+
+            const brokenFunction = createHogFunction({
+                type: 'transformation',
+                name: 'Broken Template',
+                team_id: teamId,
+                enabled: true,
+                bytecode: await compileHog('return event'),
+                execution_order: 1,
+            })
+
+            const successFunction = createHogFunction({
+                type: 'transformation',
+                name: successTemplate.name,
+                team_id: teamId,
+                enabled: true,
+                bytecode: await compileHog(successTemplate.code),
+                execution_order: 2,
+            })
+
+            await insertHogFunction(hub.postgres, teamId, brokenFunction)
+            await insertHogFunction(hub.postgres, teamId, successFunction)
+
+            hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [
+                brokenFunction.id,
+                successFunction.id,
+            ])
+
+            const executeHogFunctionSpy = jest.spyOn(hogTransformer as any, 'executeHogFunction')
+            executeHogFunctionSpy.mockRejectedValueOnce(
+                new Error('Could not execute bytecode for input field: person_id')
+            )
+
+            const queueAppMetricSpy = jest.spyOn(hogTransformer['hogFunctionMonitoringService'], 'queueAppMetric')
+
+            const event = createPluginEvent({ event: 'test', properties: {} }, teamId)
+            const result = await hogTransformer.transformEventAndProduceMessages(event)
+
+            expect(result.event?.properties?.$transformations_failed).toEqual([
+                `Broken Template (${brokenFunction.id})`,
+            ])
+            expect(result.event?.properties?.$transformations_succeeded).toEqual([
+                `Success Template (${successFunction.id})`,
+            ])
+            expect(result.event?.properties?.success).toBe(true)
+
+            expect(queueAppMetricSpy).toHaveBeenCalledWith(
+                {
+                    team_id: teamId,
+                    app_source_id: brokenFunction.id,
+                    metric_kind: 'failure',
+                    metric_name: 'failed',
+                    count: 1,
+                },
+                'hog_function'
+            )
+
+            executeHogFunctionSpy.mockRestore()
+            queueAppMetricSpy.mockRestore()
+        })
+
         it('should track both successful and skipped transformations in sequence', async () => {
             const successTemplate = {
                 free: true,

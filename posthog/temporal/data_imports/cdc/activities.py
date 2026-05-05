@@ -465,18 +465,41 @@ class CDCExtractActivity:
     # Setup phase
     # ------------------------------------------------------------------
     def _setup(self) -> bool:
-        """Load source + schemas + adapter. Returns False if there's nothing to do."""
-        self.source = ExternalDataSource.objects.get(pk=self.inputs.source_id)
-        self.cdc_schemas = self._get_cdc_schemas()
+        """Load source + schemas + adapter. Returns False if there's nothing to do.
 
+        Self-cleans the Temporal schedule if the source is deleted or has no
+        active CDC schemas — otherwise the workflow keeps firing forever.
+        """
+        try:
+            self.source = ExternalDataSource.objects.get(pk=self.inputs.source_id)
+        except ExternalDataSource.DoesNotExist:
+            self.log.info("source_not_found_deleting_schedule")
+            self._delete_own_schedule()
+            return False
+
+        if self.source.deleted:
+            self.log.info("source_soft_deleted_deleting_schedule")
+            self._delete_own_schedule()
+            return False
+
+        self.cdc_schemas = self._get_cdc_schemas()
         if not self.cdc_schemas:
-            self.log.info("no_cdc_schemas_found")
+            self.log.info("no_active_cdc_schemas_deleting_schedule")
+            self._delete_own_schedule()
             return False
 
         self.schema_by_name = {s.name: s for s in self.cdc_schemas}
         self.adapter = get_cdc_adapter(self.source)
         self.reader = self.adapter.create_reader(self.source)
         return True
+
+    def _delete_own_schedule(self) -> None:
+        try:
+            from products.data_warehouse.backend.data_load.service import delete_cdc_extraction_schedule
+
+            delete_cdc_extraction_schedule(str(self.inputs.source_id))
+        except Exception:
+            self.log.exception("failed_to_delete_own_schedule")
 
     def _mark_schemas_running(self) -> None:
         """Mark CDC schemas as Running at the start."""
@@ -801,20 +824,26 @@ def cleanup_orphan_slots_activity() -> None:
             management_mode=cdc_config.management_mode,
         )
 
-        # 1. Deleted sources — clean up PostHog-managed slots
-        if source.deleted and cdc_config.management_mode == "posthog":
-            source_log.info("cleaning_up_deleted_source_slot")
+        # 1. Deleted sources — drop the Temporal schedule (always; PostHog-side)
+        #    and PostHog-managed slot/publication (only when we own them).
+        if source.deleted:
             try:
-                with adapter.management_connection(source, connect_timeout=10) as conn:
-                    adapter.drop_resources(conn, cdc_config.slot_name, cdc_config.publication_name)
+                from products.data_warehouse.backend.data_load.service import delete_cdc_extraction_schedule
+
+                delete_cdc_extraction_schedule(str(source.id))
             except Exception:
-                source_log.exception("failed_to_cleanup_deleted_source_slot")
+                source_log.exception("failed_to_delete_cdc_extraction_schedule")
+
+            if cdc_config.management_mode == "posthog":
+                source_log.info("cleaning_up_deleted_source_slot")
+                try:
+                    with adapter.management_connection(source, connect_timeout=10) as conn:
+                        adapter.drop_resources(conn, cdc_config.slot_name, cdc_config.publication_name)
+                except Exception:
+                    source_log.exception("failed_to_cleanup_deleted_source_slot")
             continue
 
         # 2. Active sources — check WAL lag
-        if source.deleted:
-            continue
-
         try:
             with adapter.management_connection(source, connect_timeout=10) as conn:
                 lag_bytes = adapter.get_lag_bytes(conn, cdc_config.slot_name)
