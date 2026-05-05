@@ -239,9 +239,6 @@ class DockerSandbox(SandboxBase):
         DockerSandbox._build_image_if_needed(DEFAULT_IMAGE_NAME, dockerfile_path)
 
         if template == SandboxTemplate.PI_BASE:
-            # Pi image FROMs ghcr.io/posthog/posthog-sandbox-base:master by default; in
-            # local dev we don't pull from ghcr — point it at the freshly-built local
-            # base image so the layered pi additions land on top of it.
             pi_dockerfile = os.path.join(
                 settings.BASE_DIR, "products/tasks/backend/sandbox/images/Dockerfile.sandbox-pi"
             )
@@ -335,11 +332,6 @@ class DockerSandbox(SandboxBase):
                     volume_args.extend(["-v", f"{host_skill}:{container_skill}:ro"])
 
             cap_args = ["--cap-add", "SYS_PTRACE"]
-            # The PI_BASE image is used by autoresearch sandboxes, which install
-            # iptables DROP rules to restrict egress to the coordinator port
-            # before pi launches. iptables modifications need NET_ADMIN; without
-            # this cap, the lockdown step fails and `run_campaign.py` aborts
-            # rather than run pi against an open network.
             if config.template == SandboxTemplate.PI_BASE:
                 cap_args.extend(["--cap-add", "NET_ADMIN"])
 
