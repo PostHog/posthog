@@ -31,8 +31,8 @@ export function LegacyExperimentDates(): JSX.Element | null {
     // If the experiment has a start date, show the start date and end date
     return (
         <>
-            <LegacyExperimentDate label="Start Date" date={start_date} data-attr="experiment-start-date" />
-            <LegacyExperimentDate label="End Date" date={end_date} data-attr="experiment-end-date" />
+            <LegacyExperimentDate label="Start date" date={start_date} data-attr="experiment-start-date" />
+            <LegacyExperimentDate label="End date" date={end_date} data-attr="experiment-end-date" />
         </>
     )
 }

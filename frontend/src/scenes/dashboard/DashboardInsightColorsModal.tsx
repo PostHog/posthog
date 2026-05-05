@@ -87,7 +87,7 @@ export function DashboardInsightColorsModal(): JSX.Element {
     ]
 
     return (
-        <LemonModal title="Customize Breakdown Colors" isOpen={isOpen} onClose={hideInsightColorsModal}>
+        <LemonModal title="Customize breakdown colors" isOpen={isOpen} onClose={hideInsightColorsModal}>
             <LemonLabel info="Select a color theme for all insights on this dashboard. If a theme is selected, it will be applied to all series and breakdowns.">
                 Color theme
             </LemonLabel>

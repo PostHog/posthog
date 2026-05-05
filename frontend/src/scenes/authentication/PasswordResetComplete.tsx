@@ -81,7 +81,7 @@ function NewPasswordForm(): JSX.Element {
                     />
                 </LemonField>
 
-                <LemonField name="passwordConfirm" label="Confirm Password">
+                <LemonField name="passwordConfirm" label="Confirm password">
                     <LemonInput
                         autoComplete="new-password"
                         type="password"

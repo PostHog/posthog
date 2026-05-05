@@ -254,7 +254,7 @@ export function DefinitionEdit(props: DefinitionLogicProps): JSX.Element {
 
                         {isProperty && (
                             <div className="ph-ignore-input">
-                                <LemonField name="property_type" label="Property Type" data-attr="property-type">
+                                <LemonField name="property_type" label="Property type" data-attr="property-type">
                                     {({ value, onChange }) => (
                                         <LemonSelect
                                             onChange={(val) => onChange(val)}

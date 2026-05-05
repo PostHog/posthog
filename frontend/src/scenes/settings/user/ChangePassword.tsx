@@ -27,7 +27,7 @@ export function ChangePassword(): JSX.Element {
             className="deprecated-space-y-4 max-w-160"
         >
             {hasPassword && (
-                <LemonField name="current_password" label="Current Password">
+                <LemonField name="current_password" label="Current password">
                     <LemonInput
                         autoComplete="current-password"
                         type="password"
@@ -55,7 +55,7 @@ export function ChangePassword(): JSX.Element {
             </LemonField>
 
             {!hasPassword && (
-                <LemonField name="confirm_password" label="Confirm Password">
+                <LemonField name="confirm_password" label="Confirm password">
                     <LemonInput
                         autoComplete="new-password"
                         type="password"

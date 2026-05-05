@@ -396,7 +396,7 @@ export function NavTabBrowse(): JSX.Element {
                     data-attr="nav-section-apps"
                 >
                     <div className="relative">
-                        <SectionTrigger icon={<IconApps />} label="My Apps" isCollapsed={isLayoutNavCollapsed} />
+                        <SectionTrigger icon={<IconApps />} label="My apps" isCollapsed={isLayoutNavCollapsed} />
                         {expandedNavSections.apps && (
                             <ButtonPrimitive
                                 iconOnly

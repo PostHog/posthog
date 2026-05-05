@@ -58,7 +58,7 @@ export function WebVitalsPathBreakdown(props: {
                 <Content band="good" response={webVitalsQueryResponse} responseLoading={responseLoading} />
             </div>
             <div className="p-4">
-                <Header band="needs_improvements" label="Needs Improvements" />
+                <Header band="needs_improvements" label="Needs Improvement" />
                 <Content
                     band="needs_improvements"
                     response={webVitalsQueryResponse}

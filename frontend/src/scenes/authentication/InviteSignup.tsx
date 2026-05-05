@@ -350,7 +350,7 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
 
                         <LemonField
                             name="first_name"
-                            label="First Name"
+                            label="First name"
                             help={
                                 invite?.first_name
                                     ? 'Your name was provided in the invite, feel free to change it.'

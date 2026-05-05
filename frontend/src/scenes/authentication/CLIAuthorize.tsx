@@ -170,7 +170,7 @@ export function CLIAuthorize(): JSX.Element {
                         authorize your CLI.
                     </p>
                     <Form logic={cliAuthorizeLogic} formKey="authorize" enableFormOnSubmit className="space-y-4">
-                        <LemonField name="userCode" label="Authorization Code">
+                        <LemonField name="userCode" label="Authorization code">
                             <LemonInput
                                 className="ph-ignore-input font-mono text-lg tracking-wider"
                                 autoFocus

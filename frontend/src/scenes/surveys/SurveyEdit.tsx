@@ -1581,7 +1581,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                               </div>
                                                                           </LemonField.Pure>
                                                                           <LemonField.Pure
-                                                                              label="Device Types"
+                                                                              label="Device types"
                                                                               error={
                                                                                   deviceTypesMatchTypeValidationError
                                                                               }

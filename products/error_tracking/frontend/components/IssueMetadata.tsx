@@ -86,7 +86,7 @@ export const Metadata = ({ children, className }: PropsWithChildren<{ className?
                                 <TimeBoundary
                                     time={firstSeen}
                                     loading={issueLoading}
-                                    label="First Seen"
+                                    label="First seen"
                                     updateDateRange={(dateRange) => {
                                         dateRange.date_from = firstSeen?.toISOString()
                                         return dateRange
@@ -96,7 +96,7 @@ export const Metadata = ({ children, className }: PropsWithChildren<{ className?
                                 <TimeBoundary
                                     time={lastSeen}
                                     loading={summaryLoading}
-                                    label="Last Seen"
+                                    label="Last seen"
                                     updateDateRange={(dateRange) => {
                                         dateRange.date_to = lastSeen?.endOf('minute').toISOString()
                                         return dateRange

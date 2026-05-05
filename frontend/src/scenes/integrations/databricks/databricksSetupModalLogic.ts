@@ -29,9 +29,9 @@ export const databricksSetupModalLogic = kea<databricksSetupModalLogicType>([
                 clientSecret: '',
             },
             errors: ({ serverHostname, clientId, clientSecret }) => ({
-                serverHostname: serverHostname.trim() ? undefined : 'Server Hostname is required',
+                serverHostname: serverHostname.trim() ? undefined : 'Server hostname is required',
                 clientId: clientId.trim() ? undefined : 'Client ID is required',
-                clientSecret: clientSecret.trim() ? undefined : 'Client Secret is required',
+                clientSecret: clientSecret.trim() ? undefined : 'Client secret is required',
             }),
             submit: async () => {
                 try {

@@ -54,7 +54,7 @@ export function CreateSlotModal(): JSX.Element {
         <LemonModal
             isOpen
             onClose={() => setShowCreateModal(false)}
-            title="Assign Materialized Column Slot"
+            title="Assign materialized column slot"
             width="36rem"
             footer={
                 <>

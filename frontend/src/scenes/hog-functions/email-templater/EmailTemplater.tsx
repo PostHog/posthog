@@ -702,7 +702,7 @@ function SaveTemplateModal({
                 <div className="flex flex-col gap-1">
                     <LemonLabel>Template name</LemonLabel>
                     <LemonInput
-                        placeholder="My Email Template"
+                        placeholder="My email template"
                         value={templateName}
                         onChange={setTemplateName}
                         autoFocus

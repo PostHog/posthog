@@ -126,7 +126,7 @@ export const Settings = ({
         <div className="p-3">
             <LemonSwitch
                 onChange={() => updateAttributes({ noInspector: !attributes.noInspector })}
-                label="Hide Inspector"
+                label="Hide inspector"
                 checked={attributes.noInspector}
                 fullWidth={true}
             />

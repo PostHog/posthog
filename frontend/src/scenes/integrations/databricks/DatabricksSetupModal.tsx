@@ -25,13 +25,13 @@ export const DatabricksSetupModal = (props: DatabricksSetupModalLogicProps): JSX
         >
             <Form logic={databricksSetupModalLogic} formKey="databricksIntegration">
                 <div className="gap-4 flex flex-col">
-                    <LemonField name="serverHostname" label="Server Hostname">
+                    <LemonField name="serverHostname" label="Server hostname">
                         <LemonInput type="text" placeholder="dbc-xxxxxxxxx-xxxx.cloud.databricks.com" />
                     </LemonField>
                     <LemonField name="clientId" label="Client ID">
                         <LemonInput type="text" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
                     </LemonField>
-                    <LemonField name="clientSecret" label="Client Secret">
+                    <LemonField name="clientSecret" label="Client secret">
                         <LemonInput type="password" />
                     </LemonField>
                     <div className="flex justify-end">
