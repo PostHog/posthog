@@ -1,28 +1,27 @@
 """Tests for the `aggregate_and_chunk_org_reports` Temporal activity.
 
-Mocks S3 with an in-memory dict and patches the underlying gather queries to
-return canned per-team rows, so we can verify the activity correctly:
-
-* reconstructs the legacy `all_data` dict from S3 query files,
-* fans out `output="multi"` results into the right destination keys,
-* runs `_get_team_report` + `_add_team_report_to_org_reports` per team,
-* writes gzipped JSONL chunks to S3,
-* writes a manifest JSON enumerating the chunks.
+These run end-to-end against real MinIO (via `minio_workflow_ctx`) and a
+real Postgres test DB (`@pytest.mark.django_db`). Only the "expensive"
+gather queries (the ClickHouse + ORM functions in
+`posthog.tasks.usage_report`) are mocked — by seeding canned per-spec
+JSON files into MinIO ourselves, then letting the activity read,
+aggregate, and write back as in production.
 """
 
 import gzip
 import json
-from collections.abc import Iterable
-from datetime import UTC, datetime
 from typing import Any
 
 import pytest
 from unittest.mock import patch
 
 from posthog.models import Organization, Team
+from posthog.storage import object_storage
 from posthog.tasks.usage_report import InstanceMetadata
+from posthog.temporal.usage_report import storage
 from posthog.temporal.usage_report.activities import aggregate_and_chunk_org_reports
 from posthog.temporal.usage_report.queries import QUERIES
+from posthog.temporal.usage_report.storage import queries_key, write_json
 from posthog.temporal.usage_report.types import AggregateInputs, RunQueryToS3Result, WorkflowContext
 
 
@@ -114,59 +113,39 @@ def _instance_metadata() -> InstanceMetadata:
     )
 
 
-class _S3:
-    """Minimal in-memory stand-in for posthog.storage.object_storage."""
-
-    def __init__(self) -> None:
-        self.objects: dict[str, bytes] = {}
-
-    def write(self, key: str, content: Any, extras: dict | None = None) -> None:
-        if isinstance(content, str):
-            content = content.encode("utf-8")
-        self.objects[key] = content
-
-    def write_stream(self, key: str, fileobj: Any, extras: dict | None = None) -> None:
-        self.objects[key] = fileobj.read()
-
-    def read_bytes(self, key: str) -> bytes:
-        return self.objects[key]
-
-    def delete(self, key: str) -> None:
-        self.objects.pop(key, None)
+def _seed_query_results(ctx: WorkflowContext, team_a_id: int, team_b_id: int) -> list[RunQueryToS3Result]:
+    """Write a canned JSON file per QuerySpec into MinIO and return the
+    matching `RunQueryToS3Result` list the activity expects as input.
+    """
+    query_results: list[RunQueryToS3Result] = []
+    for spec in QUERIES:
+        key = queries_key(ctx, spec.name)
+        write_json(key, _canned_query_payload(spec.name, team_a_id, team_b_id))
+        query_results.append(RunQueryToS3Result(query_name=spec.name, s3_key=key, duration_ms=1))
+    return query_results
 
 
-@pytest.fixture
-def s3() -> Iterable[_S3]:
-    fake = _S3()
-    with patch("posthog.temporal.usage_report.storage.object_storage", fake):
-        yield fake
+def _read_jsonl_gz(key: str) -> list[dict]:
+    body = object_storage.read_bytes(key, bucket=storage.bucket())
+    assert body is not None, f"missing chunk at {key}"
+    return [json.loads(line) for line in gzip.decompress(body).decode("utf-8").splitlines()]
+
+
+def _read_json(key: str) -> Any:
+    body = object_storage.read_bytes(key, bucket=storage.bucket())
+    assert body is not None, f"missing object at {key}"
+    return json.loads(body)
 
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_aggregate_writes_chunks_and_manifest(s3: _S3, activity_environment) -> None:
+async def test_aggregate_writes_chunks_and_manifest(minio_workflow_ctx: WorkflowContext, activity_environment) -> None:
     org_a = await Organization.objects.acreate(name="Org A")
     org_b = await Organization.objects.acreate(name="Org B")
     team_a = await Team.objects.acreate(organization=org_a, name="Team A")
     team_b = await Team.objects.acreate(organization=org_b, name="Team B")
 
-    ctx = WorkflowContext(
-        run_id="run-test",
-        period_start=datetime(2026, 5, 4, 0, 0, 0, tzinfo=UTC),
-        period_end=datetime(2026, 5, 4, 23, 59, 59, 999999, tzinfo=UTC),
-        date_str="2026-05-04",
-    )
-
-    # Seed S3 with one canned JSON per QuerySpec, and build the matching
-    # `query_results` list the activity expects as input.
-    query_results = []
-    for spec in QUERIES:
-        key = f"tasks/billing/usage_reports/2026-05-04/run-test/queries/{spec.name}.json"
-        s3.objects[key] = json.dumps(
-            _canned_query_payload(spec.name, team_a.id, team_b.id),
-            default=str,
-        ).encode("utf-8")
-        query_results.append(RunQueryToS3Result(query_name=spec.name, s3_key=key, duration_ms=1))
+    query_results = _seed_query_results(minio_workflow_ctx, team_a.id, team_b.id)
 
     with patch(
         "posthog.temporal.usage_report.activities.get_instance_metadata",
@@ -174,7 +153,7 @@ async def test_aggregate_writes_chunks_and_manifest(s3: _S3, activity_environmen
     ):
         result = await activity_environment.run(
             aggregate_and_chunk_org_reports,
-            AggregateInputs(ctx=ctx, query_results=query_results),
+            AggregateInputs(ctx=minio_workflow_ctx, query_results=query_results),
         )
 
     assert result.total_orgs == 2
@@ -184,19 +163,18 @@ async def test_aggregate_writes_chunks_and_manifest(s3: _S3, activity_environmen
     chunk_key = result.chunk_keys[0]
     assert chunk_key.endswith("/chunks/chunk_0000.jsonl.gz")
 
-    # Manifest exists and matches.
-    assert result.manifest_key.endswith("/run-test/manifest.json")
-    manifest = json.loads(s3.objects[result.manifest_key])
+    # Manifest matches what the activity returned.
+    assert result.manifest_key.endswith("/manifest.json")
+    manifest = _read_json(result.manifest_key)
     assert manifest["version"] == 2
-    assert manifest["run_id"] == "run-test"
+    assert manifest["run_id"] == minio_workflow_ctx.run_id
     assert manifest["chunk_count"] == 1
     assert manifest["chunk_keys"] == [chunk_key]
     assert manifest["total_orgs"] == 2
 
     # Decompress the chunk and inspect the per-org rows.
-    chunk_lines = gzip.decompress(s3.objects[chunk_key]).decode("utf-8").splitlines()
-    assert len(chunk_lines) == 2
-    rows = [json.loads(line) for line in chunk_lines]
+    rows = _read_jsonl_gz(chunk_key)
+    assert len(rows) == 2
     by_org = {row["organization_id"]: row["usage_report"] for row in rows}
     assert set(by_org.keys()) == {str(org_a.id), str(org_b.id)}
 
@@ -223,36 +201,21 @@ async def test_aggregate_writes_chunks_and_manifest(s3: _S3, activity_environmen
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_aggregate_chunks_into_batches_of_ten_thousand(s3: _S3, activity_environment) -> None:
+async def test_aggregate_chunks_into_batches_of_ten_thousand(
+    minio_workflow_ctx: WorkflowContext, activity_environment
+) -> None:
     """Exercise chunking — set CHUNK_SIZE_ORGS low and verify multiple chunks."""
     from posthog.temporal.usage_report import activities as module
 
     org = await Organization.objects.acreate(name="Org X")
-    teams = []
-    for i in range(5):
-        teams.append(await Team.objects.acreate(organization=org, name=f"T{i}"))
+    team = await Team.objects.acreate(organization=org, name="T0")
 
-    ctx = WorkflowContext(
-        run_id="run-chunked",
-        period_start=datetime(2026, 5, 4, 0, 0, 0, tzinfo=UTC),
-        period_end=datetime(2026, 5, 4, 23, 59, 59, 999999, tzinfo=UTC),
-        date_str="2026-05-04",
-    )
-
-    # Produce three orgs by mocking `_get_teams_for_usage_reports` to return
-    # teams across three orgs, then force `CHUNK_SIZE_ORGS=2` to split them.
     extra_org_a = await Organization.objects.acreate(name="Extra A")
     extra_org_b = await Organization.objects.acreate(name="Extra B")
     extra_team_a = await Team.objects.acreate(organization=extra_org_a, name="EA")
     await Team.objects.acreate(organization=extra_org_b, name="EB")
 
-    query_results = []
-    for spec in QUERIES:
-        key = f"tasks/billing/usage_reports/2026-05-04/run-chunked/queries/{spec.name}.json"
-        s3.objects[key] = (
-            json.dumps(_canned_query_payload(spec.name, teams[0].id, extra_team_a.id), default=str)
-        ).encode("utf-8")
-        query_results.append(RunQueryToS3Result(query_name=spec.name, s3_key=key, duration_ms=1))
+    query_results = _seed_query_results(minio_workflow_ctx, team.id, extra_team_a.id)
 
     with (
         patch.object(module, "CHUNK_SIZE_ORGS", 2),
@@ -263,7 +226,7 @@ async def test_aggregate_chunks_into_batches_of_ten_thousand(s3: _S3, activity_e
     ):
         result = await activity_environment.run(
             aggregate_and_chunk_org_reports,
-            AggregateInputs(ctx=ctx, query_results=query_results),
+            AggregateInputs(ctx=minio_workflow_ctx, query_results=query_results),
         )
 
     # 3 orgs / 2 per chunk = 2 chunks (2 + 1)
@@ -272,39 +235,26 @@ async def test_aggregate_chunks_into_batches_of_ten_thousand(s3: _S3, activity_e
 
     all_lines: list[dict] = []
     for key in result.chunk_keys:
-        body = gzip.decompress(s3.objects[key]).decode("utf-8")
-        all_lines.extend(json.loads(line) for line in body.splitlines())
+        all_lines.extend(_read_jsonl_gz(key))
     assert len(all_lines) == 3
     assert {row["organization_id"] for row in all_lines} == {str(org.id), str(extra_org_a.id), str(extra_org_b.id)}
+
     # Manifest enumerates both chunks
-    manifest = json.loads(s3.objects[result.manifest_key])
+    manifest = _read_json(result.manifest_key)
     assert manifest["chunk_count"] == 2
     assert manifest["chunk_keys"] == result.chunk_keys
 
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_aggregate_filters_by_organization_ids(s3: _S3, activity_environment) -> None:
+async def test_aggregate_filters_by_organization_ids(minio_workflow_ctx: WorkflowContext, activity_environment) -> None:
     org_a = await Organization.objects.acreate(name="A")
     org_b = await Organization.objects.acreate(name="B")
     team_a = await Team.objects.acreate(organization=org_a, name="A")
     team_b = await Team.objects.acreate(organization=org_b, name="B")
 
-    ctx = WorkflowContext(
-        run_id="run-filter",
-        period_start=datetime(2026, 5, 4, 0, 0, 0, tzinfo=UTC),
-        period_end=datetime(2026, 5, 4, 23, 59, 59, 999999, tzinfo=UTC),
-        date_str="2026-05-04",
-        organization_ids=[str(org_a.id)],
-    )
-
-    query_results = []
-    for spec in QUERIES:
-        key = f"tasks/billing/usage_reports/2026-05-04/run-filter/queries/{spec.name}.json"
-        s3.objects[key] = json.dumps(_canned_query_payload(spec.name, team_a.id, team_b.id), default=str).encode(
-            "utf-8"
-        )
-        query_results.append(RunQueryToS3Result(query_name=spec.name, s3_key=key, duration_ms=1))
+    ctx = minio_workflow_ctx.model_copy(update={"organization_ids": [str(org_a.id)]})
+    query_results = _seed_query_results(ctx, team_a.id, team_b.id)
 
     with patch(
         "posthog.temporal.usage_report.activities.get_instance_metadata",
@@ -316,6 +266,5 @@ async def test_aggregate_filters_by_organization_ids(s3: _S3, activity_environme
         )
 
     assert result.total_orgs == 1
-    chunk_lines = gzip.decompress(s3.objects[result.chunk_keys[0]]).decode("utf-8").splitlines()
-    rows = [json.loads(line) for line in chunk_lines]
+    rows = _read_jsonl_gz(result.chunk_keys[0])
     assert {row["organization_id"] for row in rows} == {str(org_a.id)}

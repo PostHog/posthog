@@ -1,18 +1,30 @@
-"""Pure-Python tests for the usage report S3 helpers."""
+"""Tests for the usage report S3 helpers.
+
+Pure key-formatting tests don't touch storage. Roundtrip and writer tests
+hit the real MinIO instance configured for the dev stack — the
+`minio_workflow_ctx` fixture cleans up its run prefix at teardown so
+the bucket stays tidy. Error-path tests (failed delete, exception
+during stream) stay mocked because MinIO won't naturally trigger them.
+"""
 
 import gzip
 import json
-from typing import Any
 
+import pytest
 from unittest.mock import patch
 
+from posthog.storage import object_storage
+from posthog.temporal.usage_report import storage
 from posthog.temporal.usage_report.storage import (
     chunk_key,
     chunks_prefix,
+    delete_keys,
     manifest_key,
     queries_key,
     queries_prefix,
     run_prefix,
+    streamed_jsonl_gzip_writer,
+    write_json,
     write_jsonl_chunk_gzip,
 )
 from posthog.temporal.usage_report.types import WorkflowContext
@@ -27,6 +39,9 @@ def _ctx(run_id: str = "abc-123", date_str: str = "2026-05-04") -> WorkflowConte
         period_end=datetime(2026, 5, 4, 23, 59, 59, 999999, tzinfo=UTC),
         date_str=date_str,
     )
+
+
+# ---- key formatting (pure) -----------------------------------------------
 
 
 def test_run_prefix_includes_date_and_run_id() -> None:
@@ -59,38 +74,109 @@ def test_queries_and_chunks_prefix() -> None:
     assert chunks_prefix(ctx).endswith("/abc-123/chunks")
 
 
-def test_write_jsonl_chunk_gzip_roundtrip() -> None:
-    captured: dict[str, Any] = {}
+def test_bucket_reads_billing_setting() -> None:
+    """`bucket()` reflects the dedicated billing bucket setting."""
+    with patch("posthog.temporal.usage_report.storage.settings") as mock_settings:
+        mock_settings.BILLING_USAGE_REPORTS_S3_BUCKET = "posthog-billing-usage-reports"
+        assert storage.bucket() == "posthog-billing-usage-reports"
 
-    def fake_write_stream(key, fileobj, extras=None):  # type: ignore[no-untyped-def]
-        captured["key"] = key
-        captured["body"] = fileobj.read()
-        captured["extras"] = extras
 
+# ---- real MinIO roundtrips -----------------------------------------------
+
+
+def test_write_json_roundtrip_via_minio(minio_workflow_ctx: WorkflowContext) -> None:
+    key = queries_key(minio_workflow_ctx, "teams_with_event_count_in_period")
+    payload = {"data": [(1, 100), (2, 50)], "meta": {"version": 1}}
+
+    write_json(key, payload)
+
+    decoded = storage.read_json(key)
+    # `default=str` coerces tuples to lists during JSON encoding.
+    assert decoded == {"data": [[1, 100], [2, 50]], "meta": {"version": 1}}
+
+
+def test_write_jsonl_chunk_gzip_roundtrip_via_minio(minio_workflow_ctx: WorkflowContext) -> None:
+    """End-to-end: gzipped JSONL written via the helper is downloadable
+    and decompresses to the original lines.
+    """
+    key = chunk_key(minio_workflow_ctx, 0)
     lines = [
         {"organization_id": "org-1", "usage_report": {"event_count_in_period": 1}},
         {"organization_id": "org-2", "usage_report": {"event_count_in_period": 2}},
         {"organization_id": "org-3", "usage_report": {"event_count_in_period": 3}},
     ]
 
-    with patch("posthog.temporal.usage_report.storage.object_storage.write_stream", side_effect=fake_write_stream):
-        count = write_jsonl_chunk_gzip("foo/bar.jsonl.gz", lines)
+    count = write_jsonl_chunk_gzip(key, lines)
 
     assert count == 3
-    assert captured["key"] == "foo/bar.jsonl.gz"
-    assert captured["extras"] == {"ContentType": "application/x-ndjson", "ContentEncoding": "gzip"}
-
-    decompressed = gzip.decompress(captured["body"]).decode("utf-8")
+    body = object_storage.read_bytes(key, bucket=storage.bucket())
+    assert body is not None
+    decompressed = gzip.decompress(body).decode("utf-8")
     decoded = [json.loads(line) for line in decompressed.splitlines()]
     assert decoded == lines
 
 
-def test_delete_keys_continues_on_failure() -> None:
-    from posthog.temporal.usage_report.storage import delete_keys
+def test_write_jsonl_chunk_gzip_sets_content_headers_via_minio(minio_workflow_ctx: WorkflowContext) -> None:
+    """The chunk object must land with `application/x-ndjson` + `gzip`
+    encoding so billing's S3 reader can stream-decompress it.
+    """
+    key = chunk_key(minio_workflow_ctx, 0)
+    write_jsonl_chunk_gzip(key, [{"organization_id": "org-1"}])
 
+    head = object_storage.head_object(key, bucket=storage.bucket())
+    assert head is not None
+    assert head["ContentType"] == "application/x-ndjson"
+    assert head["ContentEncoding"] == "gzip"
+
+
+@pytest.mark.asyncio
+async def test_streamed_jsonl_gzip_writer_uploads_on_clean_exit_via_minio(
+    minio_workflow_ctx: WorkflowContext,
+) -> None:
+    """Async ctx-mgr happy path: lines written, gzip streamed to MinIO."""
+    key = chunk_key(minio_workflow_ctx, 0)
+
+    async with streamed_jsonl_gzip_writer(key) as w:
+        w.write({"organization_id": "org-1"})
+        w.write_lines([{"organization_id": "org-2"}, {"organization_id": "org-3"}])
+        assert w.line_count == 3
+
+    body = object_storage.read_bytes(key, bucket=storage.bucket())
+    assert body is not None
+    rows = [json.loads(line) for line in gzip.decompress(body).decode("utf-8").splitlines()]
+    assert rows == [
+        {"organization_id": "org-1"},
+        {"organization_id": "org-2"},
+        {"organization_id": "org-3"},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_streamed_jsonl_gzip_writer_skips_upload_on_exception_via_minio(
+    minio_workflow_ctx: WorkflowContext,
+) -> None:
+    """If the body raises, we must not upload a partial chunk."""
+    key = chunk_key(minio_workflow_ctx, 0)
+
+    with pytest.raises(RuntimeError, match="boom"):
+        async with streamed_jsonl_gzip_writer(key) as w:
+            w.write({"organization_id": "org-1"})
+            raise RuntimeError("boom")
+
+    # head_object swallows NoSuchKey and returns None
+    assert object_storage.head_object(key, bucket=storage.bucket()) is None
+
+
+# ---- mocked error paths --------------------------------------------------
+# MinIO doesn't error on `delete` of a missing key, so the failure-handling
+# branch in `delete_keys` is exercised with a mock — there's no way to
+# trigger it against real S3 short of taking the bucket offline.
+
+
+def test_delete_keys_continues_on_failure() -> None:
     calls: list[str] = []
 
-    def fake_delete(key: str) -> None:
+    def fake_delete(key, bucket=None):  # type: ignore[no-untyped-def]
         calls.append(key)
         if key == "fail":
             raise RuntimeError("boom")
@@ -102,55 +188,15 @@ def test_delete_keys_continues_on_failure() -> None:
     assert deleted == 2
 
 
-# ---- streamed_jsonl_gzip_writer (async context manager) ------------------
+def test_delete_keys_via_minio_removes_real_objects(minio_workflow_ctx: WorkflowContext) -> None:
+    """Sanity check the MinIO path of `delete_keys` end-to-end."""
+    key_a = queries_key(minio_workflow_ctx, "spec_a")
+    key_b = queries_key(minio_workflow_ctx, "spec_b")
+    write_json(key_a, {"x": 1})
+    write_json(key_b, {"x": 2})
 
-import pytest  # noqa: E402
+    deleted = delete_keys([key_a, key_b])
 
-from posthog.temporal.usage_report.storage import streamed_jsonl_gzip_writer  # noqa: E402
-
-
-@pytest.mark.asyncio
-async def test_streamed_jsonl_gzip_writer_uploads_on_clean_exit() -> None:
-    """`async with` exits cleanly → gzipped JSONL streamed to S3 with the
-    right ContentType/ContentEncoding headers.
-    """
-    captured: dict[str, object] = {}
-
-    def fake_write_stream(key, fileobj, extras=None):  # type: ignore[no-untyped-def]
-        captured["key"] = key
-        captured["body"] = fileobj.read()
-        captured["extras"] = extras
-
-    with patch("posthog.temporal.usage_report.storage.object_storage.write_stream", side_effect=fake_write_stream):
-        async with streamed_jsonl_gzip_writer("foo/bar.jsonl.gz") as w:
-            w.write({"organization_id": "org-1"})
-            w.write_lines([{"organization_id": "org-2"}, {"organization_id": "org-3"}])
-            assert w.line_count == 3
-
-    assert captured["key"] == "foo/bar.jsonl.gz"
-    assert captured["extras"] == {"ContentType": "application/x-ndjson", "ContentEncoding": "gzip"}
-
-    decompressed = gzip.decompress(captured["body"]).decode("utf-8")  # type: ignore[arg-type]
-    rows = [json.loads(line) for line in decompressed.splitlines()]
-    assert rows == [
-        {"organization_id": "org-1"},
-        {"organization_id": "org-2"},
-        {"organization_id": "org-3"},
-    ]
-
-
-@pytest.mark.asyncio
-async def test_streamed_jsonl_gzip_writer_skips_upload_on_exception() -> None:
-    """If the body raises, we must not upload a partial chunk."""
-    write_calls: list = []
-
-    def fake_write_stream(*args, **kwargs):  # type: ignore[no-untyped-def]
-        write_calls.append((args, kwargs))
-
-    with patch("posthog.temporal.usage_report.storage.object_storage.write_stream", side_effect=fake_write_stream):
-        with pytest.raises(RuntimeError, match="boom"):
-            async with streamed_jsonl_gzip_writer("foo/bar.jsonl.gz") as w:
-                w.write({"organization_id": "org-1"})
-                raise RuntimeError("boom")
-
-    assert write_calls == []
+    assert deleted == 2
+    assert object_storage.head_object(key_a, bucket=storage.bucket()) is None
+    assert object_storage.head_object(key_b, bucket=storage.bucket()) is None
