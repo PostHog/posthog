@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { IconGear } from '@posthog/icons'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Link } from 'lib/lemon-ui/Link'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
@@ -24,6 +25,7 @@ export function NavLink({ to, label, icon, isCollapsed, 'data-attr': dataAttr, o
     const { isConfigurePinnedTabsTooltipVisible, mobileLayout } = useValues(navigationLogic)
     const { showLayoutNavBar } = useActions(panelLayoutLogic)
     const { pathname, navExperimentActiveTab } = useValues(panelLayoutLogic)
+    const hideSidebarIcons = useFeatureFlag('SIDEBAR_HIDE_ICONS')
 
     const isHomePage = to === urls.projectRoot()
     const currentPath = removeProjectIdIfPresent(pathname)
@@ -50,14 +52,16 @@ export function NavLink({ to, label, icon, isCollapsed, 'data-attr': dataAttr, o
                 tooltip={isCollapsed ? label : undefined}
                 tooltipPlacement="right"
             >
-                <span
-                    className={cn(
-                        'relative size-4 text-secondary group-hover:text-primary opacity-50 group-hover:opacity-100 transition-all duration-50',
-                        isActive && 'text-primary opacity-100'
-                    )}
-                >
-                    {icon}
-                </span>
+                {(!hideSidebarIcons || isCollapsed) && (
+                    <span
+                        className={cn(
+                            'relative size-4 text-secondary group-hover:text-primary opacity-50 group-hover:opacity-100 transition-all duration-50',
+                            isActive && 'text-primary opacity-100'
+                        )}
+                    >
+                        {icon}
+                    </span>
+                )}
                 {!isCollapsed && (
                     <span
                         className={cn(

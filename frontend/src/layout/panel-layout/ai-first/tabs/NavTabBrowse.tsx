@@ -187,6 +187,7 @@ export function NavTabBrowse(): JSX.Element {
     } = useValues(panelLayoutLogic)
     const { firstTabIsActive } = useValues(sceneLogic)
     const isProductAutonomyEnabled = useFeatureFlag('PRODUCT_AUTONOMY')
+    const hideSidebarIcons = useFeatureFlag('SIDEBAR_HIDE_ICONS')
     const { recentItems, recentItemsLoading } = useValues(navRecentsLogic)
     const { isEditMode, checkedItems } = useValues(inlineEditAppsLogic)
     const { enterEditMode, saveAndExitEditMode, toggleProduct } = useActions(inlineEditAppsLogic)
@@ -280,16 +281,18 @@ export function NavTabBrowse(): JSX.Element {
                                     onClick={() => handlePanelTriggerClick(item.identifier)}
                                     data-attr={`menu-item-${item.identifier.toLowerCase()}`}
                                 >
-                                    <span
-                                        className={cn(
-                                            'relative size-4 text-secondary group-hover:text-primary opacity-50 group-hover:opacity-100 transition-all duration-50',
-                                            isActive && 'text-primary opacity-100'
-                                        )}
-                                    >
-                                        {item.icon}
+                                    {(!hideSidebarIcons || isLayoutNavCollapsed) && (
+                                        <span
+                                            className={cn(
+                                                'relative size-4 text-secondary group-hover:text-primary opacity-50 group-hover:opacity-100 transition-all duration-50',
+                                                isActive && 'text-primary opacity-100'
+                                            )}
+                                        >
+                                            {item.icon}
 
-                                        <PanelIndicatorIcon />
-                                    </span>
+                                            <PanelIndicatorIcon />
+                                        </span>
+                                    )}
                                     {!isLayoutNavCollapsed && (
                                         <>
                                             <span

@@ -99,6 +99,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     const { toggleCommand } = useActions(commandLogic)
     const isProductAutonomyEnabled = useFeatureFlag('PRODUCT_AUTONOMY')
     const isNotificationsEnabled = useFeatureFlag('REAL_TIME_NOTIFICATIONS')
+    const hideSidebarIcons = useFeatureFlag('SIDEBAR_HIDE_ICONS')
 
     function handlePanelTriggerClick(item: PanelLayoutNavIdentifier): void {
         if (activePanelIdentifier !== item) {
@@ -375,7 +376,9 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                         tooltipDocLink={item.documentationUrl}
                                                         data-attr={`menu-item-${item.identifier.toString().toLowerCase()}`}
                                                     >
-                                                        <span className={iconClassName}>{item.icon}</span>
+                                                        {(!hideSidebarIcons || isLayoutNavCollapsed) && (
+                                                            <span className={iconClassName}>{item.icon}</span>
+                                                        )}
                                                         {!isLayoutNavCollapsed && (
                                                             <>
                                                                 <span className="truncate">{item.label}</span>
@@ -406,7 +409,9 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                             tooltipPlacement="right"
                                                             tooltipDocLink={item.documentationUrl}
                                                         >
-                                                            <span className={iconClassName}>{item.icon}</span>
+                                                            {(!hideSidebarIcons || isLayoutNavCollapsed) && (
+                                                                <span className={iconClassName}>{item.icon}</span>
+                                                            )}
                                                             {!isLayoutNavCollapsed && (
                                                                 <span className="truncate">{item.label}</span>
                                                             )}
@@ -513,7 +518,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     tooltipPlacement="right"
                                     data-attr="navbar-settings"
                                 >
-                                    <IconGear />
+                                    {(!hideSidebarIcons || isLayoutNavCollapsed) && <IconGear />}
                                     {!isLayoutNavCollapsed && 'Settings'}
                                 </Link>
                                 <Link
@@ -523,7 +528,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     tooltipPlacement="right"
                                     data-attr="navbar-exports-button"
                                 >
-                                    <IconDownload />
+                                    {(!hideSidebarIcons || isLayoutNavCollapsed) && <IconDownload />}
                                     {!isLayoutNavCollapsed && 'Exports'}
                                 </Link>
                                 <HealthMenu iconOnly={isLayoutNavCollapsed} />

@@ -12,6 +12,7 @@ import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
 import { commandLogic } from 'lib/components/Command/commandLogic'
 import { Resizer } from 'lib/components/Resizer/Resizer'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Collapsible } from 'lib/ui/Collapsible/Collapsible'
 import { Label } from 'lib/ui/Label/Label'
@@ -50,6 +51,7 @@ export function SectionTrigger({
     isCollapsed: boolean
     icon: React.ReactNode
 }): JSX.Element {
+    const hideSidebarIcons = useFeatureFlag('SIDEBAR_HIDE_ICONS')
     return (
         <Collapsible.Trigger
             className={cn(
@@ -64,7 +66,7 @@ export function SectionTrigger({
                     isCollapsed && 'text-[7px] m-0 w-full text-center'
                 )}
             >
-                {icon && !isCollapsed && <span className="size-3 mr-1">{icon}</span>}
+                {icon && !isCollapsed && !hideSidebarIcons && <span className="size-3 mr-1">{icon}</span>}
                 {label}
             </Label>
         </Collapsible.Trigger>
@@ -103,6 +105,7 @@ export function Nav(): JSX.Element {
     const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
     const { firstTabIsActive } = useValues(sceneLogic)
     const { toggleCommand } = useActions(commandLogic)
+    const hideSidebarIcons = useFeatureFlag('SIDEBAR_HIDE_ICONS')
 
     useAppShortcut({
         name: 'ToggleLeftNav',
@@ -221,16 +224,18 @@ export function Nav(): JSX.Element {
                                                 className="group data-[composite-item-active]:bg-surface-tertiary w-1/2 justify-center"
                                                 data-attr={`nav-tab-${tab.id}`}
                                             >
-                                                <span
-                                                    className={cn(
-                                                        'flex size-4',
-                                                        navExperimentActiveTab === tab.id
-                                                            ? 'text-primary'
-                                                            : 'text-secondary group-hover:text-primary'
-                                                    )}
-                                                >
-                                                    {tab.icon}
-                                                </span>
+                                                {!hideSidebarIcons && (
+                                                    <span
+                                                        className={cn(
+                                                            'flex size-4',
+                                                            navExperimentActiveTab === tab.id
+                                                                ? 'text-primary'
+                                                                : 'text-secondary group-hover:text-primary'
+                                                        )}
+                                                    >
+                                                        {tab.icon}
+                                                    </span>
+                                                )}
                                                 <span
                                                     className={cn(
                                                         'text-xs',

@@ -13,6 +13,8 @@ import { urls } from 'scenes/urls'
 
 export function NavBarFooter({ isLayoutNavCollapsed }: { isLayoutNavCollapsed: boolean }): JSX.Element {
     const isNotificationsEnabled = useFeatureFlag('REAL_TIME_NOTIFICATIONS')
+    const hideSidebarIcons = useFeatureFlag('SIDEBAR_HIDE_ICONS')
+    const showIcon = !hideSidebarIcons || isLayoutNavCollapsed
 
     return (
         <div className="p-1 flex flex-col gap-px items-start pb-2">
@@ -39,7 +41,7 @@ export function NavBarFooter({ isLayoutNavCollapsed }: { isLayoutNavCollapsed: b
                     tooltipPlacement="right"
                     data-attr="navbar-settings"
                 >
-                    <IconGear />
+                    {showIcon && <IconGear />}
                     {!isLayoutNavCollapsed && 'Settings'}
                 </Link>
                 <Link
@@ -49,7 +51,7 @@ export function NavBarFooter({ isLayoutNavCollapsed }: { isLayoutNavCollapsed: b
                     tooltipPlacement="right"
                     data-attr="navbar-exports-button"
                 >
-                    <IconDownload />
+                    {showIcon && <IconDownload />}
                     {!isLayoutNavCollapsed && 'Exports'}
                 </Link>
                 <HealthMenu iconOnly={isLayoutNavCollapsed} />
