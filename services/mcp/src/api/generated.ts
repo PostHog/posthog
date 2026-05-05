@@ -14227,19 +14227,19 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `pass` - pass
-    * `warn` - warn
-    * `fail` - fail
-    * `skip` - skip
+     * * `passed` - passed
+    * `warned` - warned
+    * `failed` - failed
+    * `skipped` - skipped
      */
     export type DiagnosticCheckResultStatusEnum = typeof DiagnosticCheckResultStatusEnum[keyof typeof DiagnosticCheckResultStatusEnum];
 
 
     export const DiagnosticCheckResultStatusEnum = {
-      Pass: 'pass',
-      Warn: 'warn',
-      Fail: 'fail',
-      Skip: 'skip',
+      Passed: 'passed',
+      Warned: 'warned',
+      Failed: 'failed',
+      Skipped: 'skipped',
     } as const;
 
     /**
@@ -14286,12 +14286,12 @@ export namespace Schemas {
       id: string;
       /** Human-readable check name. */
       name: string;
-      /** pass: ok. warn: degraded but not blocking. fail: blocking. skip: not run for this state.
+      /** passed: ok. warned: degraded but not blocking. failed: blocking. skipped: not run for this state.
 
-    * `pass` - pass
-    * `warn` - warn
-    * `fail` - fail
-    * `skip` - skip */
+    * `passed` - passed
+    * `warned` - warned
+    * `failed` - failed
+    * `skipped` - skipped */
       status: DiagnosticCheckResultStatusEnum;
       /** Customer-facing explanation of the check's outcome. */
       detail: string;
