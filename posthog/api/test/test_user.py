@@ -213,6 +213,14 @@ class TestUserAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"a bag": "of data"}
 
+    def test_users_me_includes_active_realtime_notification_types(self):
+        self.client.force_login(self.user)
+        response = self.client.get("/api/users/@me/")
+        assert response.status_code == 200
+        body = response.json()
+        assert "active_realtime_notification_types" in body
+        assert "comment_mention" in body["active_realtime_notification_types"]
+
     def test_can_only_list_yourself(self):
         """
         At this moment only the current user can be retrieved from this endpoint.
@@ -1598,6 +1606,7 @@ class TestUserAPI(APIBaseTest):
                 "materialized_view_sync_failed": True,
                 "web_analytics_weekly_digest": True,
                 "organization_member_join_email_disabled": {},
+                "realtime_notifications_disabled": {},
             },
         )
 
@@ -1616,6 +1625,7 @@ class TestUserAPI(APIBaseTest):
                 "materialized_view_sync_failed": True,
                 "web_analytics_weekly_digest": True,
                 "organization_member_join_email_disabled": {},
+                "realtime_notifications_disabled": {},
             },
         )
 
@@ -1669,6 +1679,129 @@ class TestUserAPI(APIBaseTest):
             },
         )
 
+    def test_notification_settings_default_includes_realtime_disabled_empty_dict(self):
+        user = self._create_user("rt-defaults@test.com")
+        assert user.notification_settings["realtime_notifications_disabled"] == {}
+
+    def test_realtime_notifications_disabled_accepts_valid_payload(self):
+        self.client.force_login(self.user)
+        response = self.client.patch(
+            "/api/users/@me/",
+            {
+                "notification_settings": {
+                    "realtime_notifications_disabled": {"comment_mention": {str(self.team.id): True}}
+                }
+            },
+            format="json",
+        )
+        assert response.status_code == 200, response.json()
+        self.user.refresh_from_db()
+        assert self.user.partial_notification_settings is not None
+        assert self.user.partial_notification_settings["realtime_notifications_disabled"] == {
+            "comment_mention": {str(self.team.id): True}
+        }
+
+    @parameterized.expand(
+        [
+            ("unknown_type", {"made_up_type": {"1": True}}, "Unknown notification type"),
+            ("non_bool_value", {"comment_mention": {"1": "yes"}}, "must be boolean"),
+            ("non_dict_top_level", "not_a_dict", "must be a dict"),
+            ("non_dict_inner", {"comment_mention": "not_a_dict"}, "must be a dict of team_id"),
+        ]
+    )
+    def test_realtime_notifications_disabled_rejects_invalid_payload(self, _name, payload, expected_message_substr):
+        self.client.force_login(self.user)
+        response = self.client.patch(
+            "/api/users/@me/",
+            {"notification_settings": {"realtime_notifications_disabled": payload}},
+            format="json",
+        )
+        assert response.status_code == 400, response.json()
+        assert expected_message_substr in response.json()["detail"], response.json()
+
+    def test_realtime_notifications_disabled_false_overwrites_true_for_same_pair(self):
+        self.user.partial_notification_settings = {"realtime_notifications_disabled": {"comment_mention": {"1": True}}}
+        self.user.save()
+        self.client.force_login(self.user)
+        response = self.client.patch(
+            "/api/users/@me/",
+            {"notification_settings": {"realtime_notifications_disabled": {"comment_mention": {"1": False}}}},
+            format="json",
+        )
+        assert response.status_code == 200, response.json()
+        self.user.refresh_from_db()
+        assert self.user.partial_notification_settings is not None
+        assert self.user.partial_notification_settings["realtime_notifications_disabled"] == {
+            "comment_mention": {"1": False}
+        }
+
+    def test_realtime_notifications_disabled_two_level_merge_preserves_other_pairs(self):
+        self.user.partial_notification_settings = {
+            "realtime_notifications_disabled": {
+                "comment_mention": {"7": True, "8": True},
+                "alert_firing": {"7": True},
+            }
+        }
+        self.user.save()
+        self.client.force_login(self.user)
+        response = self.client.patch(
+            "/api/users/@me/",
+            {"notification_settings": {"realtime_notifications_disabled": {"comment_mention": {"9": True}}}},
+            format="json",
+        )
+        assert response.status_code == 200, response.json()
+        self.user.refresh_from_db()
+        assert self.user.partial_notification_settings is not None
+        assert self.user.partial_notification_settings["realtime_notifications_disabled"] == {
+            "comment_mention": {"7": True, "8": True, "9": True},
+            "alert_firing": {"7": True},
+        }
+
+    @parameterized.expand(
+        [
+            ("bool_scalar", "all_weekly_digest_disabled", False),
+            ("plugin_disabled_bool", "plugin_disabled", True),
+            ("project_dict", "project_weekly_digest_disabled", {"99": True}),
+            ("org_dict", "organization_member_join_email_disabled", {"00000000-0000-0000-0000-000000000099": True}),
+            ("realtime_two_level_dict", "realtime_notifications_disabled", {"comment_mention": {"99": True}}),
+            ("float_threshold", "data_pipeline_error_threshold", 0.99),
+        ]
+    )
+    def test_partial_notification_settings_patch_preserves_unrelated_keys(self, _name, patched_key, patched_value):
+        # Pre-seed every key with a non-default value so any clobber is visible.
+        pre_seeded = {
+            "plugin_disabled": False,
+            "error_tracking_issue_assigned": False,
+            "discussions_mentioned": False,
+            "project_weekly_digest_disabled": {"1": True, "2": True},
+            "all_weekly_digest_disabled": True,
+            "data_pipeline_error_threshold": 0.42,
+            "project_api_key_exposed": False,
+            "materialized_view_sync_failed": True,
+            "web_analytics_weekly_digest": False,
+            "organization_member_join_email_disabled": {"00000000-0000-0000-0000-000000000001": True},
+            "realtime_notifications_disabled": {"comment_mention": {"1": True}},
+        }
+        self.user.partial_notification_settings = pre_seeded
+        self.user.save()
+        self.client.force_login(self.user)
+
+        response = self.client.patch(
+            "/api/users/@me/",
+            {"notification_settings": {patched_key: patched_value}},
+            format="json",
+        )
+
+        assert response.status_code == 200, response.json()
+        self.user.refresh_from_db()
+        assert self.user.partial_notification_settings is not None
+        for unrelated_key, original_value in pre_seeded.items():
+            if unrelated_key == patched_key:
+                continue
+            assert self.user.partial_notification_settings[unrelated_key] == original_value, (
+                f"Patching {patched_key!r} clobbered {unrelated_key!r}"
+            )
+
     def test_invalid_notification_settings_returns_error(self):
         response = self.client.patch("/api/users/@me/", {"notification_settings": {"invalid_key": True}})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -1720,6 +1853,7 @@ class TestUserAPI(APIBaseTest):
                 "materialized_view_sync_failed": False,  # Default value
                 "web_analytics_weekly_digest": True,  # Default value
                 "organization_member_join_email_disabled": {},  # Default value
+                "realtime_notifications_disabled": {},  # Default value
             },
         )
 

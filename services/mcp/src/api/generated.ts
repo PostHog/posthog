@@ -15548,6 +15548,21 @@ export namespace Schemas {
       project: string;
     }
 
+    export interface ErrorTrackingSettings {
+      /**
+       * Maximum number of exception events ingested per bucket for the entire project. Null removes the limit.
+       * @minimum 1
+       * @nullable
+       */
+      project_rate_limit_value?: number | null;
+      /**
+       * Bucket window over which the project-wide rate limit applies, in minutes.
+       * @minimum 1
+       * @nullable
+       */
+      project_rate_limit_bucket_size_minutes?: number | null;
+    }
+
     export type ErrorTrackingSimilarIssuesQueryKind = typeof ErrorTrackingSimilarIssuesQueryKind[keyof typeof ErrorTrackingSimilarIssuesQueryKind];
 
 
@@ -26028,6 +26043,8 @@ export namespace Schemas {
       readonly onboarding_delegation_accepted_at: string | null;
       /** @nullable */
       readonly is_organization_first_user: boolean | null;
+      /** Real-time notification types that currently have a live dispatch site. Drives the in-app notifications settings UI. Read-only. */
+      readonly active_realtime_notification_types: readonly string[];
       readonly pending_invites: readonly PendingInvite[];
     }
 
@@ -27319,6 +27336,21 @@ export namespace Schemas {
       metadata?: unknown | null;
       version?: string;
       project?: string;
+    }
+
+    export interface PatchedErrorTrackingSettings {
+      /**
+       * Maximum number of exception events ingested per bucket for the entire project. Null removes the limit.
+       * @minimum 1
+       * @nullable
+       */
+      project_rate_limit_value?: number | null;
+      /**
+       * Bucket window over which the project-wide rate limit applies, in minutes.
+       * @minimum 1
+       * @nullable
+       */
+      project_rate_limit_bucket_size_minutes?: number | null;
     }
 
     export interface PatchedErrorTrackingSpikeDetectionConfig {
@@ -31410,6 +31442,8 @@ export namespace Schemas {
       readonly onboarding_delegation_accepted_at?: string | null;
       /** @nullable */
       readonly is_organization_first_user?: boolean | null;
+      /** Real-time notification types that currently have a live dispatch site. Drives the in-app notifications settings UI. Read-only. */
+      readonly active_realtime_notification_types?: readonly string[];
       readonly pending_invites?: readonly PendingInvite[];
     }
 

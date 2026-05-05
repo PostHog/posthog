@@ -1824,7 +1824,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         detail=True,
         methods=["get"],
         url_path="connection_token",
-        required_scopes=["task:read"],
+        required_scopes=["task:write"],
     )
     def connection_token(self, request, pk=None, **kwargs):
         task_run = cast(TaskRun, self.get_object())

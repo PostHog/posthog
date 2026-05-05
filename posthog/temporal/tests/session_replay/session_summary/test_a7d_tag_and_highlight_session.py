@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from temporalio.testing import ActivityEnvironment
 
-from posthog.temporal.session_replay.session_summary.activities.video_based.a6d_tag_and_highlight_session import (
+from posthog.temporal.session_replay.session_summary.activities.video_based.a7d_tag_and_highlight_session import (
     tag_and_highlight_session_activity,
 )
 from posthog.temporal.session_replay.session_summary.types.video import (
@@ -11,7 +11,7 @@ from posthog.temporal.session_replay.session_summary.types.video import (
     VideoSummarySingleSessionInputs,
 )
 
-ACTIVITY_MODULE = "posthog.temporal.session_replay.session_summary.activities.video_based.a6d_tag_and_highlight_session"
+ACTIVITY_MODULE = "posthog.temporal.session_replay.session_summary.activities.video_based.a7d_tag_and_highlight_session"
 
 
 def _inputs() -> VideoSummarySingleSessionInputs:
