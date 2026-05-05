@@ -88,6 +88,29 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
             if method in cls.__dict__:
                 raise Exception(f"Method {method} is protected and should not be overridden. {message}")
 
+    def dispatch(self, request, *args, **kwargs):
+        """
+        Outermost wrapper for the request lifecycle. We use this to *guarantee*
+        the team scope ContextVar token is reset on the way out, regardless of
+        whether the response path goes through the normal flow or a subclass
+        that customizes initial()/finalize_response() without calling super().
+
+        ContextVars in sync Django are thread-local and the same worker thread
+        is reused across requests — a leaked token persists, which would let
+        scope from one request bleed into the next. Resetting in this finally
+        block is the safety net for that.
+
+        Setting the scope still happens in initial() (where authentication has
+        completed and self.team is loaded by permission checks for free).
+        """
+        try:
+            return super().dispatch(request, *args, **kwargs)
+        finally:
+            token = getattr(self, "_team_scope_token", None)
+            if token is not None:
+                reset_current_team_id(token)
+                self._team_scope_token = None
+
     def initial(self, request, *args, **kwargs):
         """
         Set team scope context to the canonical team_id (parent if the URL
@@ -102,6 +125,11 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
 
         Runs after super().initial() so authentication has completed and
         permission checks have already loaded self.team for free.
+
+        If a subclass overrides initial() without calling super(), context is
+        simply never set — scoped queries raise TeamScopeError, which is the
+        correct fail-closed behavior. dispatch() above guarantees cleanup
+        regardless.
         """
         super().initial(request, *args, **kwargs)
         self._team_scope_token = None
@@ -125,15 +153,6 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
             else:
                 canonical_team_id = team_id
             self._team_scope_token = set_current_team_id(canonical_team_id)
-
-    def finalize_response(self, request, response, *args, **kwargs):
-        try:
-            return super().finalize_response(request, response, *args, **kwargs)
-        finally:
-            token = getattr(self, "_team_scope_token", None)
-            if token is not None:
-                reset_current_team_id(token)
-                self._team_scope_token = None
 
     def dangerously_get_permissions(self):
         """

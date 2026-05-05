@@ -61,4 +61,4 @@ Auto-scoped queries, `.unscoped()` escape hatch, `.for_team(id)` for explicit sc
 
 - **`_base_manager`**: Django uses `_base_manager` (not `objects`) for related-object access like `repo.runs.all()`. This bypasses the scoped manager. Related-object traversal is still safe because the FK constrains the result set — but the team_id filter is not applied.
 - **Raw SQL**: `cursor.execute()` and `QuerySet.raw()` bypass managers entirely.
-- **Django admin**: Uses `_default_manager`. Since `objects` is declared first on `ProductTeamModel`, admin goes through the scoped manager and will raise without context. Use `.unscoped` in admin classes.
+- **Django admin**: Uses `_default_manager`. Since `objects` is declared first on `ProductTeamModel`, admin goes through the scoped manager and will raise without context. Use the second Manager `Repo.all_teams` (deliberately not named `unscoped` to avoid confusion with the queryset method `Repo.objects.unscoped()` — autocompleting the Manager attribute would silently return rows across teams).

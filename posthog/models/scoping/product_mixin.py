@@ -64,15 +64,21 @@ class ProductTeamModel(models.Model):
     and reads agree on where data lives — same convention as
     RootTeamMixin for main-DB models.
 
-    Accessing .objects without team context raises TeamScopeError. Use
-    .unscoped (the second Manager) for intentional cross-team access in
-    admin / migrations / background jobs without context.
+    Two managers:
+    - `objects` (ProductTeamManager): fail-closed, auto-scopes by context.
+      Raises TeamScopeError when no context is set. This is the manager
+      Django admin / Model.objects / `_default_manager` resolves to.
+    - `all_teams` (plain Manager): bypass for admin / migrations / contexts
+      that genuinely need cross-team access. Named distinctly from the
+      queryset method `Model.objects.unscoped()` to avoid the autocomplete
+      footgun where `Model.unscoped.filter(...)` looks like "I'm being
+      explicit about scoping" but actually returns every team's rows.
     """
 
     team_id = models.BigIntegerField(db_index=True)
 
     objects = ProductTeamManager()
-    unscoped = models.Manager()  # noqa: DJ012 — both are managers, ruff misclassifies this
+    all_teams = models.Manager()  # noqa: DJ012 — both are managers, ruff misclassifies this
 
     class Meta:
         abstract = True
