@@ -336,9 +336,25 @@ Called with `schema_name=None` at source-create (one cheap probe to confirm the 
 
 If the API distinguishes 401 (bad token) from 403 (valid token, missing scope), **accept 403 at source-create** — users may legitimately only grant scopes for the endpoints they want to sync. Re-raise 403 only when `schema_name` is set. Sync-time 403s are handled separately by `get_non_retryable_errors()`.
 
-## Document required token scopes in the caption
+## Document required token scopes
 
-If the API issues OAuth scopes or per-resource access tokens, list every scope the source actually calls in `caption` (or `permissionsCaption`). Don't make the user guess and grant the full set defensively. Example:
+If the API issues OAuth scopes or per-resource access tokens, declare every scope the source actually calls so the user knows what to grant. Don't make them guess and grant the full set defensively.
+
+**OAuth sources (preferred):** set `requiredScopes` on the `SourceFieldOauthConfig`. The frontend checks the connected integration's actual granted scopes against this list and blocks creation with a clear message when scopes are missing — strictly better than text in the caption, which doesn't validate anything. Pass a single space-separated string (matches the OAuth `scope` parameter format):
+
+```python
+SourceFieldOauthConfig(
+    name="foo_integration_id",
+    label="Foo account",
+    required=True,
+    kind="foo",
+    requiredScopes="customers:read orders:read products:read",
+)
+```
+
+See `posthog/temporal/data_imports/sources/slack/source.py` for a real example.
+
+**Non-OAuth sources (PAT, API key, etc.):** there's no integration object to inspect, so list scopes in the `caption` instead. Captions render through `LemonMarkdown`, so backticks, bold, and links work:
 
 ```python
 caption=(
@@ -346,8 +362,6 @@ caption=(
     "**Required scopes:** `customers:read`, `orders:read`, `products:read`."
 ),
 ```
-
-Captions are rendered through `LemonMarkdown`, so backticks, bold, and links work.
 
 ## Mixins
 
