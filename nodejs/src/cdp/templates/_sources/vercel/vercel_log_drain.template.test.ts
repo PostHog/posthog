@@ -221,9 +221,20 @@ describe('vercel log drain template', () => {
         expect(response.capturedPostHogEvents[0].distinct_id).toMatch(/^http_log_[A-Za-z0-9+/]{22}$/)
     })
 
-    it('should capture all Vercel log properties with snake_case naming', async () => {
+    it('snapshot: default config (forward_ip_and_user_agent on) emits PII fields', async () => {
         const response = await tester.invoke(
             {},
+            {
+                request: createVercelRequest(vercelLogDrain),
+            }
+        )
+
+        expect(response.capturedPostHogEvents).toMatchSnapshot()
+    })
+
+    it('snapshot: forward_ip_and_user_agent disabled drops PII fields', async () => {
+        const response = await tester.invoke(
+            { forward_ip_and_user_agent: false },
             {
                 request: createVercelRequest(vercelLogDrain),
             }
