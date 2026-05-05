@@ -1,11 +1,19 @@
 import { createPool } from 'generic-pool'
 import { Pipeline, Redis } from 'ioredis'
+import { Histogram } from 'prom-client'
 
 import { RedisPoolConfig, createRedisFromConfig } from '../../utils/db/redis'
 import { timeoutGuard } from '../../utils/db/utils'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
 import { defineLuaTokenBucket } from './redis-token-bucket.lua'
+
+const redisCallDurationMs = new Histogram({
+    name: 'redis_call_duration_ms',
+    help: 'Duration of RedisV2 useClient/usePipeline calls in ms, labeled by call name and outcome',
+    labelNames: ['name', 'outcome'],
+    buckets: [0.5, 1, 2, 5, 10, 25, 50, 100, 250, 500, 1000, 2500],
+})
 
 type WithCheckRateLimit<T, TV2> = {
     checkRateLimit: (key: string, now: number, cost: number, poolMax: number, fillRate: number, expiry: number) => T
@@ -60,11 +68,15 @@ export const createRedisV2PoolFromConfig = (config: RedisPoolConfig): RedisV2 =>
             undefined,
             options.timeout
         )
-        const client = await pool.acquire()
+        const startedAt = performance.now()
+        let outcome: 'success' | 'error' = 'success'
+        let client: RedisClient | undefined
 
         try {
+            client = await pool.acquire()
             return await callback(client)
         } catch (e) {
+            outcome = 'error'
             if (options.failOpen) {
                 // We log the error and return null
                 captureException(e)
@@ -73,7 +85,10 @@ export const createRedisV2PoolFromConfig = (config: RedisPoolConfig): RedisV2 =>
             }
             throw e
         } finally {
-            await pool.release(client)
+            redisCallDurationMs.labels({ name: options.name, outcome }).observe(performance.now() - startedAt)
+            if (client) {
+                await pool.release(client)
+            }
             clearTimeout(timeout)
         }
     }
