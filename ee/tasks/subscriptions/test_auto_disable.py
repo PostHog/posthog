@@ -69,6 +69,19 @@ class TestDisableInvalidSubscription(APIBaseTest):
         assert sub.enabled is False
         send_mock.assert_called_once_with(sub, SLACK_DISCONNECTED_DISABLE_REASON.description, [self.user.email])
 
+    def test_compare_and_swap_no_op_when_already_disabled(self):
+        # Simulates a cross-workflow race: by the time this caller reaches the UPDATE,
+        # another caller has already flipped enabled→False. We must NOT re-fire the
+        # disabled-notification email (UUID4 campaign keys defeat MessagingRecord dedup).
+        sub = self._make_subscription(enabled=False)
+
+        with patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription") as send_mock:
+            disable_invalid_subscription(sub, SLACK_DISCONNECTED_DISABLE_REASON)
+
+        sub.refresh_from_db()
+        assert sub.enabled is False
+        send_mock.assert_not_called()
+
     @parameterized.expand(
         [
             ("no_creator", False),

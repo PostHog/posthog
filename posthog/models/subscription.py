@@ -1,5 +1,6 @@
+import copy
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any, Literal, Optional, cast
 
 from django.contrib.postgres.fields import ArrayField
@@ -166,6 +167,28 @@ class Subscription(models.Model):
         # We never want next_delivery_date to be in the past
         now = timezone.now() + timedelta(minutes=15)  # Buffer of 15 minutes since we might run a bit early
         self.next_delivery_date = self.rrule.after(dt=max(from_dt or now, now), inc=False)
+
+    @classmethod
+    def project_next_delivery_date(
+        cls, instance: Optional["Subscription"] = None, **overrides: Any
+    ) -> Optional[datetime]:
+        """What `next_delivery_date` would be for an rrule defined by `instance` fields
+        (when given) layered with `overrides`, without persisting. Returns None on an
+        exhausted rrule. Pass `instance` for PATCH validation, omit it for creates."""
+        if instance is not None:
+            candidate = copy.copy(instance)
+            # Drop the cached rrule from `__init__` so a future change to
+            # `set_next_delivery_date` reading `_rrule` doesn't silently use stale fields.
+            candidate.__dict__.pop("_rrule", None)
+            for field in cls.RRULE_FIELDS & overrides.keys():
+                setattr(candidate, field, overrides[field])
+        else:
+            relevant = {k: v for k, v in overrides.items() if k in cls.RRULE_FIELDS}
+            if "frequency" not in relevant or "start_date" not in relevant:
+                return None
+            candidate = cls(**relevant)
+        candidate.set_next_delivery_date()
+        return candidate.next_delivery_date
 
     @property
     def url(self):

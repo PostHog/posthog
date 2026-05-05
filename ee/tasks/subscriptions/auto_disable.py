@@ -53,13 +53,28 @@ def validate_re_enable(target_type: str | None, integration_id: int | None) -> s
 
 
 def disable_invalid_subscription(subscription: Subscription, reason: DisableReason) -> None:
+    # Compare-and-swap so only one racing caller sends the disabled-notification
+    # email (UUID4 campaign keys mean MessagingRecord can't dedup the duplicate).
+    rowcount = Subscription.objects.filter(pk=subscription.pk, enabled=True).update(enabled=False)
+    if rowcount == 0:
+        # A concurrent caller already disabled the row — no-op, no side effects.
+        # The in-memory `subscription.enabled` is intentionally NOT touched here so
+        # callers can distinguish "we just disabled it" from "it was already disabled";
+        # the activity site re-fetches via select_related when it needs fresh state.
+        logger.info(
+            "subscription.auto_disable_already_disabled",
+            subscription_id=subscription.id,
+            team_id=subscription.team_id,
+            reason=reason.key,
+        )
+        return
+
     logger.warning(
         "subscription.auto_disabling",
         subscription_id=subscription.id,
         team_id=subscription.team_id,
         reason=reason.key,
     )
-    Subscription.objects.filter(pk=subscription.pk).update(enabled=False)
     # Mirror the UPDATE in memory so callers see the new state without a fresh
     # SELECT — refresh_from_db() would also drop the eagerly-loaded created_by
     # relation (loaded via select_related at the activity site).

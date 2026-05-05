@@ -220,6 +220,35 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             if error_message:
                 raise ValidationError({"enabled": [error_message]})
 
+            # `enabled=True` with `next_delivery_date=None` is invisible to the
+            # scheduler (`fetch_due_subscriptions_activity` filters by `__lte=now`).
+            if Subscription.project_next_delivery_date(instance=self.instance, **attrs) is None:
+                raise ValidationError(
+                    {
+                        "enabled": [
+                            "Subscription schedule has reached its end date. "
+                            "Extend until_date or remove count before re-enabling."
+                        ]
+                    }
+                )
+
+        # Same check at create-time, against the symmetric hole.
+        elif self.instance is None and Subscription.project_next_delivery_date(**attrs) is None:
+            raise ValidationError(
+                {"start_date": ["Subscription schedule has reached its end date. Extend until_date or remove count."]}
+            )
+
+        # And on PATCH: editing the rrule of an already-enabled sub into an
+        # exhausted state would land `next_delivery_date=None` via the model's
+        # save()-side rrule-change branch and silently un-schedule the sub.
+        elif (
+            self.instance is not None
+            and self.instance.enabled
+            and Subscription.RRULE_FIELDS & attrs.keys()
+            and Subscription.project_next_delivery_date(instance=self.instance, **attrs) is None
+        ):
+            raise ValidationError("Subscription schedule has reached its end date. Extend until_date or remove count.")
+
         if target_type == Subscription.SubscriptionTarget.SLACK:
             if not integration_id:
                 raise ValidationError({"integration_id": ["A Slack integration is required for Slack subscriptions."]})

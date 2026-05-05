@@ -1290,6 +1290,109 @@ class TestSubscriptionTemporal(APILicensedTest):
         # the date reset prevents the *scheduler* from firing a second one moments later.
         temporal_mock.return_value.start_workflow.assert_called_once()
 
+    @parameterized.expand(
+        [
+            # `until_date` already in the past → no future occurrence.
+            ("until_date_in_past", {"until_date": -1}),
+            # `count=2` deliveries already consumed at start_date and start_date+1d.
+            ("count_exhausted", {"count": 2}),
+        ]
+    )
+    def test_re_enable_rejects_when_rrule_exhausted(self, _label, schedule_kwargs):
+        # Both exhaustion modes land `next_delivery_date=None` via
+        # `set_next_delivery_date()`, the scheduler `__lte=now` filter excludes
+        # nulls, and the sub would silently never schedule again.
+        kwargs = dict(schedule_kwargs)
+        if "until_date" in kwargs:
+            kwargs["until_date"] = timezone.now() + timedelta(days=kwargs["until_date"])
+        subscription = Subscription.objects.create(
+            team=self.team,
+            target_type="email",
+            target_value="vasco@posthog.com",
+            frequency="daily",
+            start_date=timezone.now() - timedelta(days=10),
+            insight=self.insight,
+            title="t",
+            enabled=False,
+            **kwargs,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription.id}/",
+            {"enabled": True},
+            format="json",
+        )
+
+        assert response.status_code == 400, response.content
+        assert "reached its end date" in str(response.json())
+        subscription.refresh_from_db()
+        assert subscription.enabled is False  # rejected pre-write
+
+    def test_patch_rrule_into_exhausted_state_is_rejected(self):
+        # Path 2 of the silent-fail family: editing an active sub's schedule into
+        # an exhausted state. `Subscription.save()` would call
+        # `set_next_delivery_date()` and land `next_delivery_date=None`.
+        subscription = Subscription.objects.create(
+            team=self.team,
+            target_type="email",
+            target_value="vasco@posthog.com",
+            frequency="daily",
+            start_date=timezone.now() - timedelta(days=10),
+            insight=self.insight,
+            title="t",
+            enabled=True,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription.id}/",
+            {"until_date": (timezone.now() - timedelta(days=1)).isoformat()},
+            format="json",
+        )
+
+        assert response.status_code == 400, response.content
+        assert "reached its end date" in str(response.json())
+        subscription.refresh_from_db()
+        assert subscription.next_delivery_date is not None  # unchanged
+
+    def test_create_rejects_when_rrule_already_exhausted(self):
+        # Symmetric hole at create-time: a brand-new sub with `until_date` in the
+        # past would land `next_delivery_date=None` and silently never schedule.
+        response = self._create_subscription(
+            start_date="2020-01-01T00:00:00",
+            until_date="2020-01-02T00:00:00",
+        )
+        assert response.status_code == 400, response.content
+        assert "reached its end date" in str(response.json())
+
+    def test_re_enable_with_extended_until_date_is_allowed(self):
+        # User extending their schedule in the same PATCH that re-enables — the
+        # candidate-rrule check honors the new `until_date` and lets it through.
+        subscription = Subscription.objects.create(
+            team=self.team,
+            target_type="email",
+            target_value="vasco@posthog.com",
+            frequency="daily",
+            start_date=timezone.now() - timedelta(days=10),
+            until_date=timezone.now() - timedelta(days=1),
+            insight=self.insight,
+            title="t",
+            enabled=False,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription.id}/",
+            {"enabled": True, "until_date": (timezone.now() + timedelta(days=30)).isoformat()},
+            format="json",
+        )
+
+        assert response.status_code == 200, response.content
+        subscription.refresh_from_db()
+        assert subscription.enabled is True
+        # Scheduler-visible invariant: `next_delivery_date` must be a future timestamp,
+        # not None — that's what the candidate-rrule validation defends.
+        assert subscription.next_delivery_date is not None
+        assert subscription.next_delivery_date > timezone.now()
+
     def test_get_returns_enabled_field(self):
         subscription = Subscription.objects.create(
             team=self.team,
