@@ -121,9 +121,8 @@ property. The revenue analytics dashboard will show monthly revenue lumpy
 (annual subscriptions land in one month) instead of spread across the
 service period. Check the `revenue_item` view: rows where
 `is_recurring = true` and `period_start` / `period_end` are null. Emit when
-
-> 20% of recurring rows are missing period info — finance reporting is wrong
-> in a subtle way.
+more than ~20% of recurring rows are missing period info — finance reporting
+is wrong in a subtle way.
 
 ### Goal miss without escalation
 
