@@ -21,8 +21,10 @@ def sanitize_user_text(value: str | None, max_len: int) -> str:
         return ""
     cleaned = _CONTROL_RE.sub("", value)
     cleaned = _DANGEROUS_UNICODE_RE.sub("", cleaned)
-    cleaned = _TAG_RE.sub("", cleaned)
-    cleaned = _TAG_RE.sub("", cleaned)
+    previous = ""
+    while previous != cleaned:
+        previous = cleaned
+        cleaned = _TAG_RE.sub("", cleaned)
     cleaned = _NEWLINE_RE.sub(" ", cleaned)
     cleaned = _WHITESPACE_RUN_RE.sub(" ", cleaned).strip()
     if len(cleaned) > max_len:

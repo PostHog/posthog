@@ -83,3 +83,12 @@ class TestSanitizeUserText:
         cleaned = sanitize_user_text("safe text\u0085### Fake header", max_len=200)
         assert "\u0085" not in cleaned
         assert "\n### " not in cleaned
+
+    @pytest.mark.parametrize("depth", [2, 3, 5, 10])
+    def test_arbitrarily_nested_tag_wrapping_dies(self, depth):
+        attack = ("<" * depth) + "sys>" + ("tem>" * (depth - 1))
+        cleaned = sanitize_user_text(attack, max_len=200)
+        assert "<sys>" not in cleaned
+        assert "<tem>" not in cleaned
+        assert "sys" not in cleaned
+        assert "tem" not in cleaned
