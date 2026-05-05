@@ -412,7 +412,7 @@ class TestNotebookSharingGrantsInsightAccess(APIBaseTest):
         # bug that made inline insights appear broken on the first shared-notebook view and
         # "fix themselves" after a few reloads (once the async cache finished warming).
         self.assertIn("results", inline_result)
-        self.assertNotIn("error", {k: v for k, v in inline_result.items() if v})
+        self.assertFalse(inline_result.get("error"))
 
     def test_shared_notebook_payload_inlines_referenced_insights(self) -> None:
         """The shared notebook payload pre-serializes every referenced saved insight so the
