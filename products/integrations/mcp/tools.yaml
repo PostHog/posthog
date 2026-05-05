@@ -33,8 +33,8 @@ tools:
             idempotent: true
         title: Get integration
         description: >
-            Get a specific integration by ID. Returns full integration details including kind, display name,
-            error status, and creation metadata. Does not expose sensitive credentials or raw configuration.
+            Get a specific integration by ID. Returns full integration details including kind, display name, error
+            status, and creation metadata. Does not expose sensitive credentials or raw configuration.
         response:
             include:
                 - id
