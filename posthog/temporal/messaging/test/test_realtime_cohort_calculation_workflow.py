@@ -946,6 +946,8 @@ class TestQueryPercentileThresholdsActivity:
     @pytest.mark.asyncio
     async def test_get_percentile_thresholds_defaults_to_p0_p100(self):
         """Should default to p0-p100 when percentiles not specified."""
+        from posthog.temporal.messaging.quantiles_storage import CachedQuantiles
+
         inputs = QueryPercentileThresholdsInput()  # No percentiles specified
 
         # Mock cohort queryset with duration data (in milliseconds)
@@ -956,12 +958,18 @@ class TestQueryPercentileThresholdsActivity:
             mock_queryset.values_list.return_value = mock_durations
             mock_cohort.objects.filter.return_value = mock_queryset
 
-            result = await get_query_percentile_thresholds_activity(inputs)
+            # Pin the cache lookup so the test isn't affected by Redis state from
+            # previous tests in the session.
+            with patch(
+                "posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.get_cached_quantiles_or_calculate",
+                return_value=CachedQuantiles(quantiles=[float(d) for d in mock_durations] * 10, max_value=5000),
+            ):
+                result = await get_query_percentile_thresholds_activity(inputs)
 
         assert result is not None
-        # p0 is treated as a lower bound of 0, p100 should be the maximum observed value (5000)
+        # p0 is treated as a lower bound of 0, p100 should be the cached max value (5000)
         assert result.min_threshold_ms == 0  # p0 (lower bound)
-        assert result.max_threshold_ms == 5000  # p100 (max value)
+        assert result.max_threshold_ms == 5000  # p100 (cached max)
 
     @pytest.mark.asyncio
     @pytest.mark.django_db

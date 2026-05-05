@@ -14,6 +14,7 @@ from unittest.mock import patch
 
 from posthog.redis import get_client
 from posthog.temporal.messaging.quantiles_storage import (
+    CachedQuantiles,
     _get_cache_key,
     _get_lock_key,
     get_cached_quantiles_or_calculate,
@@ -99,7 +100,7 @@ class TestQuantilesConcurrencyIntegration:
         try:
             # Try to store quantiles while lock is held by another process
             test_quantiles = [100.0, 200.0, 300.0]
-            result = store_quantiles(test_quantiles, hour_bucket)
+            result = store_quantiles(test_quantiles, max_value=400, hour_bucket=hour_bucket)
 
             # Should fail because lock is already held
             assert result is False, "Should fail to store when lock is held"
@@ -112,7 +113,7 @@ class TestQuantilesConcurrencyIntegration:
             redis_client.delete(lock_key)
 
         # Now storing should succeed
-        result = store_quantiles(test_quantiles, hour_bucket)
+        result = store_quantiles(test_quantiles, max_value=400, hour_bucket=hour_bucket)
         assert result is True, "Should succeed after lock is released"
         assert redis_client.exists(cache_key), "Cache should exist after successful store"
 
@@ -120,6 +121,7 @@ class TestQuantilesConcurrencyIntegration:
         """Test that cache expiration works correctly."""
         hour_bucket = "2024-01-15:16"
         test_quantiles = [100.0, 200.0, 300.0]
+        test_max = 400
 
         # Store with short TTL for testing
         redis_client = get_client()
@@ -127,12 +129,12 @@ class TestQuantilesConcurrencyIntegration:
 
         # Store quantiles with 1 second TTL
         with patch("posthog.temporal.messaging.quantiles_storage.DEFAULT_TTL", 1):
-            result = store_quantiles(test_quantiles, hour_bucket)
+            result = store_quantiles(test_quantiles, max_value=test_max, hour_bucket=hour_bucket)
             assert result is True
 
         # Should be retrievable immediately
         cached_result = get_quantiles(hour_bucket)
-        assert cached_result == test_quantiles
+        assert cached_result == CachedQuantiles(quantiles=test_quantiles, max_value=test_max)
 
         # Wait for expiration
         time.sleep(1.1)
@@ -186,11 +188,11 @@ class TestQuantilesConcurrencyIntegration:
             """Simulate p0-p50 workflow calculating quantiles."""
             nonlocal p0_p50_result
             try:
-                quantiles = get_cached_quantiles_or_calculate(durations, hour_bucket)
-                if quantiles:
+                cached = get_cached_quantiles_or_calculate(durations, hour_bucket)
+                if cached:
                     # Calculate p0-p50 thresholds
                     p50_index = 50 - 1  # quantiles[49] is p50
-                    p0_p50_result = {"min_threshold_ms": 0, "max_threshold_ms": int(quantiles[p50_index])}
+                    p0_p50_result = {"min_threshold_ms": 0, "max_threshold_ms": int(cached.quantiles[p50_index])}
             except Exception as e:
                 errors.append(f"p0-p50 workflow error: {e}")
 
@@ -198,14 +200,14 @@ class TestQuantilesConcurrencyIntegration:
             """Simulate p50-p80 workflow calculating quantiles."""
             nonlocal p50_p80_result
             try:
-                quantiles = get_cached_quantiles_or_calculate(durations, hour_bucket)
-                if quantiles:
+                cached = get_cached_quantiles_or_calculate(durations, hour_bucket)
+                if cached:
                     # Calculate p50-p80 thresholds
                     p50_index = 50 - 1  # quantiles[49] is p50
                     p80_index = 80 - 1  # quantiles[79] is p80
                     p50_p80_result = {
-                        "min_threshold_ms": int(quantiles[p50_index]),
-                        "max_threshold_ms": int(quantiles[p80_index]),
+                        "min_threshold_ms": int(cached.quantiles[p50_index]),
+                        "max_threshold_ms": int(cached.quantiles[p80_index]),
                     }
             except Exception as e:
                 errors.append(f"p50-p80 workflow error: {e}")

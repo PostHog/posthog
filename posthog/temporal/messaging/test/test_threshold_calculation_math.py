@@ -10,6 +10,7 @@ import statistics
 import pytest
 from unittest.mock import Mock, patch
 
+from posthog.temporal.messaging.quantiles_storage import CachedQuantiles
 from posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator import (
     QueryPercentileThresholdsInput,
     calculate_percentile_thresholds,
@@ -121,6 +122,7 @@ class TestThresholdCalculationMath:
     async def test_tier_boundaries_no_overlap_with_caching(self, durations, description):
         """Test that cached quantiles produce non-overlapping tier boundaries."""
         expected_quantiles = statistics.quantiles(durations, n=100, method="inclusive")
+        expected_max = int(max(durations))
 
         with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort:
             mock_queryset = Mock()
@@ -128,9 +130,9 @@ class TestThresholdCalculationMath:
             mock_cohort.objects.filter.return_value = mock_queryset
 
             with patch(
-                "posthog.temporal.messaging.quantiles_storage.get_cached_quantiles_or_calculate"
+                "posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.get_cached_quantiles_or_calculate"
             ) as mock_get_quantiles:
-                mock_get_quantiles.return_value = expected_quantiles
+                mock_get_quantiles.return_value = CachedQuantiles(quantiles=expected_quantiles, max_value=expected_max)
 
                 # Calculate thresholds for all tiers
                 p0_p50_input = QueryPercentileThresholdsInput(min_percentile=0.0, max_percentile=50.0)
@@ -172,6 +174,7 @@ class TestThresholdCalculationMath:
         durations = list(range(100, 2000, 50))  # Clean test data
 
         expected_quantiles = statistics.quantiles(durations, n=100, method="inclusive")
+        expected_max = int(max(durations))
 
         with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort:
             mock_queryset = Mock()
@@ -179,10 +182,10 @@ class TestThresholdCalculationMath:
             mock_cohort.objects.filter.return_value = mock_queryset
 
             with patch(
-                "posthog.temporal.messaging.quantiles_storage.get_cached_quantiles_or_calculate"
+                "posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.get_cached_quantiles_or_calculate"
             ) as mock_get_quantiles:
                 # Ensure cache returns same quantiles every time
-                mock_get_quantiles.return_value = expected_quantiles
+                mock_get_quantiles.return_value = CachedQuantiles(quantiles=expected_quantiles, max_value=expected_max)
 
                 # Multiple workflows calculating p50-p80 thresholds
                 input_data = QueryPercentileThresholdsInput(min_percentile=50.0, max_percentile=80.0)
@@ -207,6 +210,7 @@ class TestThresholdCalculationMath:
         durations = [500, 1000, 1500]  # Minimal data
 
         expected_quantiles = statistics.quantiles(durations, n=100, method="inclusive")
+        expected_max = int(max(durations))
 
         with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort:
             mock_queryset = Mock()
@@ -214,9 +218,9 @@ class TestThresholdCalculationMath:
             mock_cohort.objects.filter.return_value = mock_queryset
 
             with patch(
-                "posthog.temporal.messaging.quantiles_storage.get_cached_quantiles_or_calculate"
+                "posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.get_cached_quantiles_or_calculate"
             ) as mock_get_quantiles:
-                mock_get_quantiles.return_value = expected_quantiles
+                mock_get_quantiles.return_value = CachedQuantiles(quantiles=expected_quantiles, max_value=expected_max)
 
                 # Test p0 edge case
                 p0_input = QueryPercentileThresholdsInput(min_percentile=0.0, max_percentile=10.0)
@@ -241,7 +245,7 @@ class TestThresholdCalculationMath:
             mock_cohort.objects.filter.return_value = mock_queryset
 
             with patch(
-                "posthog.temporal.messaging.quantiles_storage.get_cached_quantiles_or_calculate"
+                "posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.get_cached_quantiles_or_calculate"
             ) as mock_get_quantiles:
                 # Simulate cache failure
                 mock_get_quantiles.return_value = None

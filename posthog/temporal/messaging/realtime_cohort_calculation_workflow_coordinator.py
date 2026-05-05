@@ -194,9 +194,9 @@ async def calculate_percentile_thresholds(
             # Get quantiles from cache or calculate atomically
             # This ensures all workflows use the same percentile boundaries
             # Check cache first even if current query has insufficient data
-            quantiles = get_cached_quantiles_or_calculate(durations_list)
+            cached = get_cached_quantiles_or_calculate(durations_list)
 
-            if quantiles is None:
+            if cached is None:
                 LOGGER.warning("Failed to get or calculate quantiles")
                 # Emit metric for monitoring quantiles unavailability.
                 # This runs inside an activity, so use the activity meter rather than the
@@ -211,20 +211,24 @@ async def calculate_percentile_thresholds(
                     pass
                 return None
 
+            quantiles = cached.quantiles
+            cached_max = cached.max_value
+
             # Special handling for p0: use 0 instead of calculating from data
             if min_percentile is None or min_percentile <= 0.0:
                 min_threshold = 0
             elif min_percentile >= 99.9:
-                # p100 case - use actual maximum from data
-                min_threshold = int(max(durations_list))
+                # p100 case - use cached max so all workflows sharing this cache entry
+                # get identical p100 boundaries even if current durations_list differs.
+                min_threshold = cached_max
             else:
                 # For percentiles 1-99, quantiles[0] is p1, quantiles[1] is p2, etc.
                 min_threshold = int(quantiles[int(min_percentile) - 1])
 
             # Calculate max threshold
             if max_percentile is None or max_percentile >= 99.9:
-                # p100 case - use actual maximum from data
-                max_threshold = int(max(durations_list))
+                # p100 case - use cached max for cross-workflow consistency.
+                max_threshold = cached_max
             else:
                 # For percentiles 1-99, quantiles[0] is p1, quantiles[1] is p2, etc.
                 max_threshold = int(quantiles[int(max_percentile) - 1])

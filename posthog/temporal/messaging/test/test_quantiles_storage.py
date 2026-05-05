@@ -11,6 +11,7 @@ import pytest
 from unittest.mock import Mock, patch
 
 from posthog.temporal.messaging.quantiles_storage import (
+    CachedQuantiles,
     _get_cache_key,
     _get_current_hour_bucket,
     _get_lock_key,
@@ -172,12 +173,16 @@ class TestQuantilesCache:
         mock_get_client.return_value = mock_redis
 
         quantiles = [100.0, 200.0, 300.0]
-        result = store_quantiles(quantiles, "2024-01-15:14")
+        result = store_quantiles(quantiles, max_value=400, hour_bucket="2024-01-15:14")
 
         assert result is True
         mock_redis.set.assert_called_once()  # Lock
         mock_redis.setex.assert_called_once()  # Store data
-        mock_redis.delete.assert_called_once()  # Release lock
+        # Lock release uses an atomic Lua compare-and-delete via redis_client.eval
+        mock_redis.eval.assert_called_once()
+        # Persisted payload is the new dict format including max_value
+        stored_payload = json.loads(mock_redis.setex.call_args.args[2])
+        assert stored_payload == {"quantiles": quantiles, "max_value": 400}
 
     @patch("posthog.temporal.messaging.quantiles_storage.get_client")
     def test_store_quantiles_lock_contention(self, mock_get_client):
@@ -187,7 +192,7 @@ class TestQuantilesCache:
         mock_get_client.return_value = mock_redis
 
         quantiles = [100.0, 200.0, 300.0]
-        result = store_quantiles(quantiles, "2024-01-15:14")
+        result = store_quantiles(quantiles, max_value=400, hour_bucket="2024-01-15:14")
 
         assert result is False
         mock_redis.setex.assert_not_called()  # Should not store
@@ -196,13 +201,13 @@ class TestQuantilesCache:
     def test_get_quantiles_hit(self, mock_get_client):
         """Test successful cache retrieval."""
         mock_redis = Mock()
-        cached_data = json.dumps([100.0, 200.0, 300.0])
+        cached_data = json.dumps({"quantiles": [100.0, 200.0, 300.0], "max_value": 400})
         mock_redis.get.return_value = cached_data
         mock_get_client.return_value = mock_redis
 
         result = get_quantiles("2024-01-15:14")
 
-        assert result == [100.0, 200.0, 300.0]
+        assert result == CachedQuantiles(quantiles=[100.0, 200.0, 300.0], max_value=400)
 
     @patch("posthog.temporal.messaging.quantiles_storage.get_client")
     def test_get_quantiles_miss(self, mock_get_client):
@@ -216,6 +221,19 @@ class TestQuantilesCache:
         assert result is None
 
     @patch("posthog.temporal.messaging.quantiles_storage.get_client")
+    def test_get_quantiles_legacy_format_is_treated_as_miss(self, mock_get_client):
+        """Legacy bare-list cache entries should be discarded so callers recalculate
+        with the new max_value contract instead of silently mixing formats."""
+        mock_redis = Mock()
+        mock_redis.get.return_value = json.dumps([100.0, 200.0, 300.0])
+        mock_get_client.return_value = mock_redis
+
+        result = get_quantiles("2024-01-15:14")
+
+        assert result is None
+        mock_redis.delete.assert_called_once()
+
+    @patch("posthog.temporal.messaging.quantiles_storage.get_client")
     @patch("posthog.temporal.messaging.quantiles_storage.time.sleep")
     def test_get_or_calculate_race_condition_handling(self, mock_sleep, mock_get_client):
         """Test race condition handling with retry logic."""
@@ -223,6 +241,7 @@ class TestQuantilesCache:
         mock_get_client.return_value = mock_redis
 
         with patch("statistics.quantiles", return_value=[100.0, 200.0, 300.0]):
+            cached_payload = json.dumps({"quantiles": [100.0, 200.0, 300.0], "max_value": 250})
             # First call: cache miss for current bucket
             # Second call: cache miss for previous bucket
             # Third call: lock contention, then cache hit after retry
@@ -230,7 +249,7 @@ class TestQuantilesCache:
                 None,  # Initial cache miss (current hour)
                 None,  # Previous hour cache miss
                 None,  # Still miss after first store attempt fails
-                json.dumps([100.0, 200.0, 300.0]),  # Hit after retry
+                cached_payload,  # Hit after retry
             ]
             mock_redis.set.side_effect = [False, True]  # First lock fails, second succeeds
             mock_redis.exists.return_value = False
@@ -238,7 +257,7 @@ class TestQuantilesCache:
             durations = [50, 100, 150, 200, 250]
             result = get_cached_quantiles_or_calculate(durations, "2024-01-15:14", max_retries=2)
 
-            assert result == [100.0, 200.0, 300.0]
+            assert result == CachedQuantiles(quantiles=[100.0, 200.0, 300.0], max_value=250)
             assert mock_sleep.call_count == 1  # Should retry once
 
     def test_race_condition_scenario_realistic(self):
@@ -247,18 +266,20 @@ class TestQuantilesCache:
         # start at the same time and both try to calculate quantiles
 
         durations = list(range(100, 1000, 10))  # Realistic duration spread
+        cached_payload = json.dumps({"quantiles": [200.0, 400.0, 600.0], "max_value": 990})
 
         with patch("posthog.temporal.messaging.quantiles_storage.get_client") as mock_get_client:
             mock_redis = Mock()
             mock_get_client.return_value = mock_redis
-
-            # Simulate first workflow wins the lock
-            mock_redis.set.side_effect = [True, False]  # First wins, second loses
             mock_redis.exists.return_value = False
+            # Workflow 1: both current and previous-hour buckets miss → calculates and stores;
+            # Workflow 2: current-hour bucket hits the populated cache.
             mock_redis.get.side_effect = [
-                None,  # Cache miss for first workflow
-                json.dumps([200.0, 400.0, 600.0]),  # Cache hit for second workflow
+                None,  # workflow 1: current bucket miss
+                None,  # workflow 1: previous-hour fallback miss
+                cached_payload,  # workflow 2: current bucket hit
             ]
+            mock_redis.set.side_effect = [True]  # workflow 1 acquires lock
 
             # First workflow calculates and stores
             result1 = get_cached_quantiles_or_calculate(durations, "2024-01-15:14")
@@ -266,6 +287,6 @@ class TestQuantilesCache:
             # Second workflow gets from cache
             result2 = get_cached_quantiles_or_calculate(durations, "2024-01-15:14")
 
-            # Both should get the same result (consistency achieved)
+            # Both should be populated; workflow 2's result is the canonical cached value
             assert result1 is not None
-            assert result2 == [200.0, 400.0, 600.0]  # From cache
+            assert result2 == CachedQuantiles(quantiles=[200.0, 400.0, 600.0], max_value=990)

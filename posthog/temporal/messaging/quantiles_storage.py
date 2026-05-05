@@ -16,6 +16,7 @@ import uuid
 import random
 import datetime as dt
 import statistics
+import dataclasses
 from typing import Optional
 
 import structlog
@@ -36,6 +37,19 @@ LOCK_TTL = 300  # 5 minutes
 MAX_RETRIES = 3
 BASE_RETRY_DELAY = 0.05  # 50ms
 MAX_RETRY_DELAY = 0.2  # 200ms max
+
+
+@dataclasses.dataclass(frozen=True)
+class CachedQuantiles:
+    """Cached quantile boundaries plus the maximum observed value used for p100.
+
+    Caching the max alongside the quantiles guarantees workflows that share the same
+    cache entry produce identical p100 thresholds, even if the underlying queryset
+    changes between workflows within the cache window.
+    """
+
+    quantiles: list[float]
+    max_value: int
 
 
 def _get_cache_key(hour_bucket: str) -> str:
@@ -61,12 +75,14 @@ def _get_previous_hour_bucket() -> str:
     return previous_hour.strftime("%Y-%m-%d:%H")
 
 
-def store_quantiles(quantiles_data: list[float], hour_bucket: Optional[str] = None) -> bool:
+def store_quantiles(quantiles_data: list[float], max_value: int, hour_bucket: Optional[str] = None) -> bool:
     """
     Atomically store quantiles in Redis if not already cached.
 
     Args:
         quantiles_data: List of 99 quantile values (p1 through p99)
+        max_value: Maximum observed duration; used as the p100 threshold by all
+            workflows that share this cache entry, ensuring tier consistency.
         hour_bucket: Optional hour bucket, defaults to current hour
 
     Returns:
@@ -106,14 +122,15 @@ def store_quantiles(quantiles_data: list[float], hour_bucket: Optional[str] = No
             return False
 
         # Store quantiles with TTL
-        quantiles_json = json.dumps(quantiles_data)
-        redis_client.setex(cache_key, DEFAULT_TTL, quantiles_json)
+        payload_json = json.dumps({"quantiles": quantiles_data, "max_value": max_value})
+        redis_client.setex(cache_key, DEFAULT_TTL, payload_json)
 
         LOGGER.info(
             "Successfully stored quantiles in cache",
             hour_bucket=hour_bucket,
             cache_key=cache_key,
             quantiles_count=len(quantiles_data),
+            max_value=max_value,
             ttl_seconds=DEFAULT_TTL,
         )
 
@@ -146,7 +163,7 @@ def store_quantiles(quantiles_data: list[float], hour_bucket: Optional[str] = No
                 LOGGER.warning("Failed to release quantiles calculation lock", lock_key=lock_key, error=str(e))
 
 
-def get_quantiles(hour_bucket: Optional[str] = None) -> Optional[list[float]]:
+def get_quantiles(hour_bucket: Optional[str] = None) -> Optional[CachedQuantiles]:
     """
     Retrieve cached quantiles from Redis.
 
@@ -154,7 +171,8 @@ def get_quantiles(hour_bucket: Optional[str] = None) -> Optional[list[float]]:
         hour_bucket: Optional hour bucket, defaults to current hour
 
     Returns:
-        List of 99 quantile values if cached, None if not found
+        CachedQuantiles with 99 quantile values and the cached max if cached,
+        None if not found or unparseable.
     """
     if hour_bucket is None:
         hour_bucket = _get_current_hour_bucket()
@@ -169,18 +187,36 @@ def get_quantiles(hour_bucket: Optional[str] = None) -> Optional[list[float]]:
             LOGGER.info("No quantiles found in cache", hour_bucket=hour_bucket, cache_key=cache_key)
             return None
 
-        quantiles_data = json.loads(cached_data)
+        payload = json.loads(cached_data)
+
+        # Reject any payload that doesn't carry both quantiles and max_value, including
+        # legacy bare-list entries from earlier versions of this branch. Treat as a miss
+        # so callers fall back to recalculation rather than silently mixing formats.
+        if not isinstance(payload, dict) or "quantiles" not in payload or "max_value" not in payload:
+            LOGGER.warning(
+                "Cached quantiles payload is missing required fields",
+                hour_bucket=hour_bucket,
+                cache_key=cache_key,
+            )
+            try:
+                redis_client.delete(cache_key)
+            except Exception:
+                pass
+            return None
+
+        cached = CachedQuantiles(quantiles=payload["quantiles"], max_value=int(payload["max_value"]))
 
         LOGGER.info(
             "Successfully retrieved quantiles from cache",
             hour_bucket=hour_bucket,
             cache_key=cache_key,
-            quantiles_count=len(quantiles_data),
+            quantiles_count=len(cached.quantiles),
+            max_value=cached.max_value,
         )
 
-        return quantiles_data
+        return cached
 
-    except (json.JSONDecodeError, TypeError) as e:
+    except (json.JSONDecodeError, TypeError, ValueError) as e:
         LOGGER.warning(
             "Failed to parse cached quantiles data", hour_bucket=hour_bucket, cache_key=cache_key, error=str(e)
         )
@@ -200,7 +236,7 @@ def get_quantiles(hour_bucket: Optional[str] = None) -> Optional[list[float]]:
 
 def get_cached_quantiles_or_calculate(
     durations_list: list[int], hour_bucket: Optional[str] = None, max_retries: int = MAX_RETRIES
-) -> Optional[list[float]]:
+) -> Optional[CachedQuantiles]:
     """
     Get quantiles from cache first, regardless of current data size.
     Only calculate new quantiles if cache is empty and we have sufficient data.
@@ -212,22 +248,22 @@ def get_cached_quantiles_or_calculate(
         hour_bucket = _get_current_hour_bucket()
 
     # First, try to get from current hour bucket cache
-    cached_quantiles = get_quantiles(hour_bucket)
-    if cached_quantiles is not None:
-        return cached_quantiles
+    cached = get_quantiles(hour_bucket)
+    if cached is not None:
+        return cached
 
     # Cache miss - try previous hour bucket to handle hour-boundary issue
     # This prevents overlapping thresholds when schedules run near :59/:00
     previous_hour_bucket = _get_previous_hour_bucket()
     if previous_hour_bucket != hour_bucket:  # Only check if different from current
-        cached_quantiles = get_quantiles(previous_hour_bucket)
-        if cached_quantiles is not None:
+        cached = get_quantiles(previous_hour_bucket)
+        if cached is not None:
             LOGGER.info(
                 "Using quantiles from previous hour bucket to handle hour-boundary timing",
                 current_bucket=hour_bucket,
                 previous_bucket=previous_hour_bucket,
             )
-            return cached_quantiles
+            return cached
 
     # No cache available - only calculate if we have sufficient current data
     if len(durations_list) < 2:
@@ -245,7 +281,7 @@ def get_cached_quantiles_or_calculate(
 
 def _calculate_and_cache_quantiles(
     durations_list: list[int], hour_bucket: str, max_retries: int = MAX_RETRIES
-) -> Optional[list[float]]:
+) -> Optional[CachedQuantiles]:
     """
     Calculate and cache quantiles atomically with retry logic for race conditions.
 
@@ -258,15 +294,18 @@ def _calculate_and_cache_quantiles(
         max_retries: Maximum number of retries for handling race conditions
 
     Returns:
-        List of 99 quantile values (p1 through p99), or None on failure
+        CachedQuantiles with 99 quantile values (p1 through p99) and the max
+        observed duration, or None on failure.
     """
     try:
-        # Calculate quantiles
+        # Calculate quantiles and capture max from the same dataset so the cached
+        # p100 stays in lockstep with the cached p1..p99 boundaries.
         quantiles = statistics.quantiles(durations_list, n=100, method="inclusive")
+        max_value = int(max(durations_list))
 
         # Try to store in cache with retry logic for race conditions
         for attempt in range(max_retries):
-            stored = store_quantiles(quantiles, hour_bucket)
+            stored = store_quantiles(quantiles, max_value, hour_bucket)
 
             if stored:
                 # We successfully stored the quantiles
@@ -276,16 +315,16 @@ def _calculate_and_cache_quantiles(
                     attempt=attempt + 1,
                     data_points=len(durations_list),
                 )
-                return quantiles
+                return CachedQuantiles(quantiles=quantiles, max_value=max_value)
 
             # Another process stored quantiles while we were calculating
             # Try to retrieve the stored values
-            cached_quantiles = get_quantiles(hour_bucket)
-            if cached_quantiles is not None:
+            cached = get_quantiles(hour_bucket)
+            if cached is not None:
                 LOGGER.info(
                     "Using quantiles calculated by another process", hour_bucket=hour_bucket, attempt=attempt + 1
                 )
-                return cached_quantiles
+                return cached
 
             # Cache still empty, retry with exponential backoff
             if attempt < max_retries - 1:
@@ -302,14 +341,14 @@ def _calculate_and_cache_quantiles(
         # because doing so can reintroduce inconsistent percentile boundaries across workflows.
         # Perform one final cache read in case another process populated the cache
         # after our last retry attempt, otherwise fail closed.
-        cached_quantiles = get_quantiles(hour_bucket)
-        if cached_quantiles is not None:
+        cached = get_quantiles(hour_bucket)
+        if cached is not None:
             LOGGER.info(
                 "Using quantiles calculated by another process after final cache check",
                 hour_bucket=hour_bucket,
                 max_retries=max_retries,
             )
-            return cached_quantiles
+            return cached
 
         LOGGER.error(
             "Failed to obtain cached quantiles after all retries; returning None to preserve consistency",
