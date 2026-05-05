@@ -1762,11 +1762,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
             })
         },
         updateTileColor: async ({ tileId, color }) => {
-            const previousColor = values.tiles.find((tile) => tile.id === tileId)?.color
-            actions.setTileProperty(tileId, { color })
             if (isSharedView()) {
                 return
             }
+            const previousColor = values.tiles.find((tile) => tile.id === tileId)?.color
+            actions.setTileProperty(tileId, { color })
             try {
                 await api.update(`api/environments/${values.currentTeamId}/dashboards/${props.id}`, {
                     tiles: [{ id: tileId, color }],
@@ -1777,13 +1777,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         toggleTileDescription: async ({ tileId }) => {
+            if (isSharedView()) {
+                return
+            }
             const matchingTile = values.tiles.find((tile) => tile.id === tileId)
             const previousValue = matchingTile?.show_description
             const newValue = previousValue === false
             actions.setTileProperty(tileId, { show_description: newValue })
-            if (isSharedView()) {
-                return
-            }
             try {
                 await api.update(`api/environments/${values.currentTeamId}/dashboards/${props.id}`, {
                     tiles: [{ id: tileId, show_description: newValue }],
