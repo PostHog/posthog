@@ -1,3 +1,5 @@
+enableGlobalVirtualStore: true
+
 packages:
     - '.'
     - common/esbuilder

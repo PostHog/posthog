@@ -761,6 +761,10 @@ export type MembersListParams = {
      * Sort order. Defaults to `-joined_at`.
      */
     order?: string
+    /**
+     * Fuzzy match against member `first_name`, `last_name`, and `email` using Postgres trigram word similarity. Supports typos and prefix-as-you-type. Capped at 200 characters.
+     */
+    search?: string
 }
 
 export type RolesListParams = {

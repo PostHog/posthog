@@ -3,13 +3,14 @@ import type { LineChartConfig, Series } from 'lib/hog-charts'
 import {
     buildConfidenceIntervalSeries,
     buildMovingAverageSeries,
+    buildTrendLineSeries,
 } from 'lib/hog-charts/charts/TimeSeriesLineChart/utils/derived-series'
-import { ciRanges, trendLine } from 'lib/statistics'
+import { ciRanges } from 'lib/statistics'
 import { hexToRGBA } from 'lib/utils'
 
 import { ChartDisplayType } from '~/types'
 
-import { COMPARE_PREVIOUS_DIM_OPACITY, TRENDLINE_DIM_OPACITY } from '../trendsAdapterConstants'
+import { COMPARE_PREVIOUS_DIM_OPACITY } from '../trendsAdapterConstants'
 
 // Shape both IndexedTrendResult (kea) and TrendsResultItem (MCP) satisfy.
 export interface TrendsResultLike {
@@ -117,34 +118,34 @@ function buildDerivedTrendsSeries<R extends TrendsResultLike, M = unknown>(
             label: `${label} (Moving avg)`,
         })
         out.push(maSeries)
-
-        if (opts.showTrendLines && !excluded) {
-            out.push({
-                key: `${r.id}-ma__trendline`,
-                label: `${label} (Moving avg)`,
-                data: trendLine(maSeries.data),
-                color: hexToRGBA(baseColor, TRENDLINE_DIM_OPACITY),
-                yAxisId: main.yAxisId,
-                stroke: { pattern: [1, 3] },
-                visibility: { fromTooltip: true, fromValueLabels: true, fromStack: true },
-            })
-        }
     }
 
-    // Fit excludes the in-progress tail (dashedFromIndex..end) so the flat
-    // partial bucket doesn't drag the slope down. Dimmed so the dashed
-    // overlay reads as subordinate to the series line — at full intensity
-    // the two colors visually compete, especially on a dark background.
+    if (maSeries && opts.showTrendLines && !excluded) {
+        // The MA-derived trendline must use the un-dimmed baseColor so compare-prev
+        // dimming doesn't compound with the trendline's own dimming. Pass a
+        // synthetic source whose colour is the un-dimmed base.
+        out.push(
+            buildTrendLineSeries<M>({
+                sourceSeries: { ...maSeries, color: baseColor },
+                kind: 'linear',
+                label: `${label} (Moving avg)`,
+            })
+        )
+    }
+
     if (opts.showTrendLines && !excluded) {
-        out.push({
-            key: `${r.id}__trendline`,
-            label,
-            data: trendLine(r.data, dashedFromIndex),
-            color: hexToRGBA(baseColor, TRENDLINE_DIM_OPACITY),
-            yAxisId: main.yAxisId,
-            stroke: { pattern: [1, 3] },
-            visibility: { fromTooltip: true, fromValueLabels: true, fromStack: true },
-        })
+        // Fit excludes the in-progress tail (dashedFromIndex..end) so the flat
+        // partial bucket doesn't drag the slope down. Dimmed so the dashed
+        // overlay reads as subordinate to the series line — at full intensity
+        // the two colors visually compete, especially on a dark background.
+        out.push(
+            buildTrendLineSeries<M>({
+                sourceSeries: { ...main, color: baseColor },
+                kind: 'linear',
+                label,
+                fitUpTo: dashedFromIndex,
+            })
+        )
     }
 
     return out
