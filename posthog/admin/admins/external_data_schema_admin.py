@@ -1,5 +1,5 @@
 import time
-from typing import get_args
+from typing import Any, get_args
 
 from django.conf import settings
 from django.contrib import admin, messages
@@ -37,6 +37,21 @@ async def _start_external_data_workflow(client: Client, workflow_id: str, inputs
         id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
         task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
     )
+
+
+@async_to_sync
+async def _is_schedule_paused(client: Client, schedule_id: str) -> bool:
+    """Best-effort check whether the per-schema Temporal schedule is currently paused.
+
+    Returns False if the schedule does not exist or describe fails — the caller
+    treats that as 'no schedule to pause' and proceeds without pausing.
+    """
+    handle = client.get_schedule_handle(schedule_id)
+    try:
+        desc = await handle.describe()
+    except Exception:
+        return False
+    return bool(desc.schedule.state.paused)
 
 
 def _change_url(schema_id) -> str:
@@ -122,14 +137,20 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
             )
             return redirect(_change_url(schema_id))
 
+        # Validate input by mode and stage the value to write. We defer the actual
+        # save so we can do one DB write that updates the partition knob AND sets
+        # reset_pipeline AND records whether to auto-unpause the schedule.
+        partition_field: str
+        partition_value: Any
+        previous_value: Any
         if schema.partition_mode == "datetime":
             new_format = request.POST.get("partition_format")
             if new_format not in PARTITION_FORMAT_CHOICES:
                 messages.error(request, f"Invalid partition_format: {new_format!r}.")
                 return redirect(_change_url(schema_id))
-            previous_format = schema.partition_format
-            schema.update_partition_setting("partition_format", new_format)
-            change_label = f"partition_format: {previous_format!r} → {new_format!r}"
+            partition_field = "partition_format"
+            partition_value = new_format
+            previous_value = schema.partition_format
         elif schema.partition_mode == "numerical":
             raw = request.POST.get("partition_size", "").strip()
             try:
@@ -140,9 +161,9 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
             if new_size < 1:
                 messages.error(request, f"partition_size must be >= 1; got {new_size}.")
                 return redirect(_change_url(schema_id))
-            previous_size = schema.partition_size
-            schema.update_partition_setting("partition_size", new_size)
-            change_label = f"partition_size: {previous_size!r} → {new_size}"
+            partition_field = "partition_size"
+            partition_value = new_size
+            previous_value = schema.partition_size
         elif schema.partition_mode == "md5":
             raw = request.POST.get("partition_count", "").strip()
             try:
@@ -153,20 +174,50 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
             if new_count < 1:
                 messages.error(request, f"partition_count must be >= 1; got {new_count}.")
                 return redirect(_change_url(schema_id))
-            previous_count = schema.partition_count
-            schema.update_partition_setting("partition_count", new_count)
-            change_label = f"partition_count: {previous_count!r} → {new_count}"
+            partition_field = "partition_count"
+            partition_value = new_count
+            previous_value = schema.partition_count
+        else:
+            messages.error(
+                request,
+                f"Unsupported partition_mode {schema.partition_mode!r}; admin repartition only "
+                f"handles datetime / numerical / md5.",
+            )
+            return redirect(_change_url(schema_id))
 
-        # Bundled non-billable reset+resync. Operator should pause the schedule
-        # before running this — the banner on the change form prompts for that.
-        #
-        # IMPORTANT: set reset_pipeline on sync_type_config rather than the workflow
-        # input. The pipeline pops it from sync_type_config after the first reset, so
-        # activity retries within the same workflow won't re-reset. Passing
-        # reset_pipeline=True on inputs makes every retry re-read True and wipe Delta
-        # + cursor, so retries always restart from row 0 (which is what was happening
-        # in production before this fix).
+        change_label = f"{partition_field}: {previous_value!r} → {partition_value!r}"
+
+        # Pause the schedule before triggering an admin resync so the scheduled
+        # workflow doesn't race with the admin one (Temporal's "OnlyOne" overlap
+        # policy is per-schedule, not across schedule + ad-hoc workflow). If the
+        # schedule was already paused (operator paused it manually beforehand),
+        # skip auto-unpause so we don't undo their action.
+        try:
+            client = sync_connect()
+        except Exception as e:
+            messages.error(request, f"Failed to connect to Temporal: {e}.")
+            return redirect(_change_url(schema_id))
+
+        was_paused = _is_schedule_paused(client, str(schema.id))
+        admin_paused_now = False
+        if not was_paused:
+            try:
+                pause_external_data_schedule(str(schema.id))
+                admin_paused_now = True
+            except Exception as e:
+                messages.error(request, f"Failed to pause schedule before resync: {e}.")
+                return redirect(_change_url(schema_id))
+
+        # Single save: stage the partition update, reset_pipeline, and the auto-
+        # unpause marker (read by `update_external_data_job_model` at workflow end)
+        # in one round-trip. reset_pipeline goes on sync_type_config rather than the
+        # workflow input so the pipeline can pop it after the first reset; passing
+        # it on inputs makes every activity retry re-read True and wipe Delta +
+        # cursor, restarting from row 0.
+        schema.sync_type_config[partition_field] = partition_value
         schema.sync_type_config["reset_pipeline"] = True
+        if admin_paused_now:
+            schema.sync_type_config["admin_unpause_schedule_after_run"] = True
         schema.save(update_fields=["sync_type_config"])
 
         inputs = ExternalDataWorkflowInputs(
@@ -178,7 +229,6 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
         )
         workflow_id = f"{schema.id}-admin-repartition-{int(time.time())}"
         try:
-            client = sync_connect()
             _start_external_data_workflow(client, workflow_id, inputs)
         except Exception as e:
             messages.error(
@@ -188,9 +238,14 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
             )
             return redirect(_change_url(schema_id))
 
+        pause_note = (
+            " Schedule paused for the duration of this run; will auto-unpause on a successful completion."
+            if admin_paused_now
+            else " Schedule was already paused; leaving it paused."
+        )
         messages.success(
             request,
-            f"{change_label}. Triggered non-billable reset resync (workflow_id={workflow_id}).",
+            f"{change_label}. Triggered non-billable reset resync (workflow_id={workflow_id}).{pause_note}",
         )
         return redirect(_change_url(schema_id))
 
