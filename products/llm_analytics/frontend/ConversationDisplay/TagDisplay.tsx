@@ -6,15 +6,18 @@ import { urls } from 'scenes/urls'
 import { EventType } from '~/types'
 
 import { MetadataTag } from '../components/MetadataTag'
+import { parseTagsCell } from '../generationTagRunsLogic'
 
 export function TagDisplay({ eventProperties }: { eventProperties: EventType['properties'] }): JSX.Element {
-    const tags: string[] = eventProperties.$ai_tags ?? []
+    // Reuse the loader's JSON-string defense so a stringified $ai_tags property
+    // doesn't end up iterated character-by-character here.
+    const tags: string[] = parseTagsCell(eventProperties.$ai_tags)
     const reasoning = eventProperties.$ai_tag_reasoning
     const taggerName = eventProperties.$ai_tagger_name
     const model = eventProperties.$ai_model
     const traceId = eventProperties.$ai_trace_id
     const targetEventId = eventProperties.$ai_target_event_id
-    const tagCount = eventProperties.$ai_tag_count ?? tags.length
+    const tagCount = eventProperties.$ai_tag_count
 
     return (
         <div className="space-y-4">
@@ -41,7 +44,9 @@ export function TagDisplay({ eventProperties }: { eventProperties: EventType['pr
                         {lowercaseFirstLetter(model)}
                     </MetadataTag>
                 )}
-                <MetadataTag label="Tag count">{String(tagCount)}</MetadataTag>
+                {tagCount !== undefined && tagCount !== null && (
+                    <MetadataTag label="Tag count">{String(tagCount)}</MetadataTag>
+                )}
                 {traceId && targetEventId && (
                     <MetadataTag label="Target event">
                         <Link to={urls.llmAnalyticsTrace(traceId, { event: targetEventId })}>

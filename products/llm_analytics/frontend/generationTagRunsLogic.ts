@@ -12,7 +12,9 @@ export interface GenerationTagRunsLogicProps {
     generationEventId: string
 }
 
-function parseTagsCell(raw: unknown): string[] {
+// Shared by the trace tags tab (this loader) and the event-panel TagDisplay so
+// the JSON-string defense lives in one place — see TagDisplay.tsx.
+export function parseTagsCell(raw: unknown): string[] {
     if (Array.isArray(raw)) {
         return raw as string[]
     }
@@ -46,6 +48,7 @@ export const generationTagRunsLogic = kea<generationTagRunsLogicType>([
                         kind: NodeKind.HogQLQuery,
                         query: `
                             SELECT
+                                uuid,
                                 timestamp,
                                 properties.$ai_tags as tags,
                                 properties.$ai_tag_reasoning as reasoning,
@@ -61,20 +64,19 @@ export const generationTagRunsLogic = kea<generationTagRunsLogicType>([
                         `,
                         values: { generation_event_id: props.generationEventId },
                     }
-                    try {
-                        const response = await api.query(query)
-                        return (response.results || []).map((row: any[]) => ({
-                            timestamp: row[0],
-                            tags: parseTagsCell(row[1]),
-                            reasoning: row[2] || '',
-                            trace_id: row[3] || '',
-                            target_event_id: row[4] || '',
-                            tagger_id: row[5] || '',
-                            tagger_name: row[6] || '',
-                        }))
-                    } catch {
-                        return []
-                    }
+                    // Let kea-loaders surface failures: a swallowed catch here would render
+                    // empty-state for both "no tags" and "query broke", masking real errors.
+                    const response = await api.query(query)
+                    return (response.results || []).map((row: any[]) => ({
+                        uuid: row[0],
+                        timestamp: row[1],
+                        tags: parseTagsCell(row[2]),
+                        reasoning: row[3] || '',
+                        trace_id: row[4] || '',
+                        target_event_id: row[5] || '',
+                        tagger_id: row[6] || '',
+                        tagger_name: row[7] || '',
+                    }))
                 },
             },
         ],

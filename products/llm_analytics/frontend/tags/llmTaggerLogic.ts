@@ -35,6 +35,10 @@ export interface HogTestResult {
 }
 
 export interface TagRun {
+    // Optional because the tagger detail page's loader (in this file) doesn't
+    // select uuid — only the per-generation loader does, where it's needed
+    // for collision-free row keys in the trace Tags tab.
+    uuid?: string
     timestamp: string
     tags: string[]
     reasoning: string

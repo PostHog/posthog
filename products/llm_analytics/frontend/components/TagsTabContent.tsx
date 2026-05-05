@@ -82,7 +82,7 @@ export function TagsTabContent({ generationEventId }: { generationEventId: strin
                 columns={columns}
                 dataSource={generationTagRuns}
                 loading={generationTagRunsLoading}
-                rowKey={(run) => `${run.tagger_id}-${run.timestamp}`}
+                rowKey={(run) => run.uuid ?? `${run.tagger_id}-${run.timestamp}`}
                 nouns={['tag run', 'tag runs']}
                 emptyState={
                     <div className="text-center py-8 text-muted">
