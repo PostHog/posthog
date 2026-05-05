@@ -177,10 +177,15 @@ def register_all_admin():
     admin.site.register(MCPServerTemplate, MCPServerTemplateAdmin)
 
 
-# OAuth models live in the `posthog` app, so by default they appear under
-# "PostHog" in the admin sidebar alongside dozens of unrelated models. Move
-# them into their own "OAuth" section by overriding `get_app_list` — this
-# avoids changing model `app_label` (which would force a db_table migration).
+# :KRUDGE: OAuth models live in the `posthog` app, so by default they appear
+# under "PostHog" in the admin sidebar alongside dozens of unrelated models.
+# The "real" fix would be to move these to `products/oauth/` so Django groups
+# them automatically — but every model here is `swappable` (referenced as
+# `OAUTH2_PROVIDER_APPLICATION_MODEL` etc.). Changing the app_label means
+# rewriting every existing migration that points at the swappable target,
+# both in oauth2_provider and in any FK that's been added on top — a known
+# Django landmine. Until there's a separate reason to isolate OAuth as its
+# own product, override `get_app_list` instead.
 _OAUTH_ADMIN_MODEL_NAMES = frozenset(
     {
         "OAuthApplication",
