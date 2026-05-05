@@ -377,9 +377,7 @@ function AnnotationsPopover({
                                 openModalToCreateAnnotation(activeDate, insightId, annotationsOverlayProps.dashboardId)
                             }
                             disabledReason={
-                                !isDateLocked
-                                    ? 'Click a date on the chart first to add an annotation'
-                                    : undefined
+                                !isDateLocked ? 'Click a date on the chart first to add an annotation' : undefined
                             }
                         >
                             Add annotation
