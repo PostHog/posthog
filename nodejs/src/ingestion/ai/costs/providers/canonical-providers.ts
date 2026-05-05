@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-05-05 10:32:34 UTC
+// Generated at: 2026-05-05 20:19:56 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -11,6 +11,11 @@ export type CanonicalProvider =
     | 'alibaba'
     | 'alibaba-opensource'
     | 'amazon-bedrock'
+    | 'amazon-bedrock-eu-west-1'
+    | 'amazon-bedrock-global'
+    | 'amazon-bedrock-us'
+    | 'amazon-bedrock-us-east-1'
+    | 'amazon-bedrock-us-west-2'
     | 'ambient-fp8'
     | 'anthropic'
     | 'anthropic-2'
@@ -20,6 +25,8 @@ export type CanonicalProvider =
     | 'atlas-cloud-fp8'
     | 'atlas-cloud-int4'
     | 'azure'
+    | 'azure-swedencentral'
+    | 'azure-us-east-2'
     | 'baidu-fp8'
     | 'baseten-fp4'
     | 'cerebras-fp16'
@@ -45,12 +52,16 @@ export type CanonicalProvider =
     | 'friendli'
     | 'gmicloud-fp8'
     | 'google-ai-studio'
+    | 'google-ai-studio-global'
     | 'google-vertex'
     | 'google-vertex-eu'
     | 'google-vertex-europe'
     | 'google-vertex-global'
     | 'google-vertex-us'
+    | 'google-vertex-us-central1'
     | 'google-vertex-us-east5'
+    | 'google-vertex-us-south1'
+    | 'google-vertex-us-west2'
     | 'groq'
     | 'inception'
     | 'inceptron-fp8'

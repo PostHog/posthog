@@ -8403,6 +8403,10 @@ export namespace Schemas {
       deleted?: boolean | null;
       mentions?: number[];
       slug?: string;
+      /** Whether this comment is an actionable task that can be marked complete. Tasks render with a checkbox in the UI and can be filtered as a separate kind. Cannot be set on replies (source_comment) or emoji reactions. Immutable after creation. */
+      is_task?: boolean;
+      /** The user who marked this task complete. Null for open tasks and non-task comments. */
+      readonly completed_by: UserBasic | null;
       /** @nullable */
       content?: string | null;
       rich_content?: unknown | null;
@@ -8416,6 +8420,11 @@ export namespace Schemas {
       item_context?: unknown | null;
       /** @maxLength 79 */
       scope: string;
+      /**
+       * ISO timestamp when the task was marked complete. Only meaningful when is_task is true. Read-only — toggled via the /complete and /reopen actions, not via PATCH.
+       * @nullable
+       */
+      readonly completed_at: string | null;
       /** @nullable */
       source_comment?: string | null;
     }
@@ -20810,7 +20819,8 @@ export namespace Schemas {
     }
 
     /**
-     * * `apns` - Apple Push
+     * * `anthropic` - Anthropic
+    * `apns` - Apple Push
     * `azure-blob` - Azure Blob
     * `bing-ads` - Bing Ads
     * `clickup` - Clickup
@@ -20850,6 +20860,7 @@ export namespace Schemas {
 
 
     export const IntegrationKindEnum = {
+      Anthropic: 'anthropic',
       Apns: 'apns',
       AzureBlob: 'azure-blob',
       BingAds: 'bing-ads',
@@ -26645,6 +26656,10 @@ export namespace Schemas {
       deleted?: boolean | null;
       mentions?: number[];
       slug?: string;
+      /** Whether this comment is an actionable task that can be marked complete. Tasks render with a checkbox in the UI and can be filtered as a separate kind. Cannot be set on replies (source_comment) or emoji reactions. Immutable after creation. */
+      is_task?: boolean;
+      /** The user who marked this task complete. Null for open tasks and non-task comments. */
+      readonly completed_by?: UserBasic | null;
       /** @nullable */
       content?: string | null;
       rich_content?: unknown | null;
@@ -26658,6 +26673,11 @@ export namespace Schemas {
       item_context?: unknown | null;
       /** @maxLength 79 */
       scope?: string;
+      /**
+       * ISO timestamp when the task was marked complete. Only meaningful when is_task is true. Read-only — toggled via the /complete and /reopen actions, not via PATCH.
+       * @nullable
+       */
+      readonly completed_at?: string | null;
       /** @nullable */
       source_comment?: string | null;
     }
@@ -39811,7 +39831,8 @@ export namespace Schemas {
 
     export type EnvironmentsIntegrationsListParams = {
     /**
-     * * `apns` - Apple Push
+     * * `anthropic` - Anthropic
+    * `apns` - Apple Push
     * `azure-blob` - Azure Blob
     * `bing-ads` - Bing Ads
     * `clickup` - Clickup
@@ -39862,6 +39883,7 @@ export namespace Schemas {
 
 
     export const EnvironmentsIntegrationsListKind = {
+      Anthropic: 'anthropic',
       Apns: 'apns',
       AzureBlob: 'azure-blob',
       BingAds: 'bing-ads',
@@ -42437,6 +42459,15 @@ export namespace Schemas {
 
     export type CommentsListParams = {
     /**
+     * When kind=task, restrict to open (incomplete) or completed tasks. Ignored when kind is not 'task'. Defaults to 'any' (no filter).
+
+    * `any` - any
+    * `open` - open
+    * `completed` - completed
+     * @minLength 1
+     */
+    completed?: CommentsListCompleted;
+    /**
      * The pagination cursor value.
      */
     cursor?: string;
@@ -42445,6 +42476,15 @@ export namespace Schemas {
      * @minLength 1
      */
     item_id?: string;
+    /**
+     * Filter by comment kind. 'task' returns only items intentionally created as actionable. 'comment' excludes tasks. Defaults to 'any' (no filter).
+
+    * `any` - any
+    * `comment` - comment
+    * `task` - task
+     * @minLength 1
+     */
+    kind?: CommentsListKind;
     /**
      * Filter by resource type (e.g. Dashboard, FeatureFlag, Insight, Replay).
      * @minLength 1
@@ -42461,6 +42501,24 @@ export namespace Schemas {
      */
     source_comment?: string;
     };
+
+    export type CommentsListCompleted = typeof CommentsListCompleted[keyof typeof CommentsListCompleted];
+
+
+    export const CommentsListCompleted = {
+      Any: 'any',
+      Open: 'open',
+      Completed: 'completed',
+    } as const;
+
+    export type CommentsListKind = typeof CommentsListKind[keyof typeof CommentsListKind];
+
+
+    export const CommentsListKind = {
+      Any: 'any',
+      Comment: 'comment',
+      Task: 'task',
+    } as const;
 
     export type ConversationsTicketsListParams = {
     /**
@@ -44386,7 +44444,8 @@ export namespace Schemas {
 
     export type IntegrationsListParams = {
     /**
-     * * `apns` - Apple Push
+     * * `anthropic` - Anthropic
+    * `apns` - Apple Push
     * `azure-blob` - Azure Blob
     * `bing-ads` - Bing Ads
     * `clickup` - Clickup
@@ -44437,6 +44496,7 @@ export namespace Schemas {
 
 
     export const IntegrationsListKind = {
+      Anthropic: 'anthropic',
       Apns: 'apns',
       AzureBlob: 'azure-blob',
       BingAds: 'bing-ads',
