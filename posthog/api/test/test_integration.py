@@ -2540,6 +2540,11 @@ class TestAnthropicIntegration:
         assert integration.integration_id == "production"
         assert integration.created_by == self.user
 
+        # Assert the anthropic-beta was called to validate the key during creation.
+        get_call = mock_anthropic_class.return_value.get.call_args
+        assert get_call.args[0] == "/v1/agents"
+        assert get_call.kwargs["options"]["headers"]["anthropic-beta"] == "managed-agents-2026-04-01"
+
     @patch("posthog.models.integration.Anthropic")
     def test_create_strips_whitespace_from_api_key(self, mock_anthropic_class, client: HttpClient):
         self._mock_anthropic_validate_key(mock_anthropic_class)

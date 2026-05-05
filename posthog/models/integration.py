@@ -43,7 +43,7 @@ from posthog.models.github_integration_base import GitHubIntegrationBase, GitHub
 from posthog.models.instance_setting import get_instance_settings
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
 from posthog.models.user import User
-from posthog.models.utils import generate_random_oauth_access_token, generate_random_oauth_refresh_token
+from posthog.models.utils import IntegrityError, generate_random_oauth_access_token, generate_random_oauth_refresh_token
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 from posthog.rbac.decorators import field_access_control
 from posthog.security.url_validation import is_url_allowed
@@ -3164,41 +3164,45 @@ class AnthropicIntegration:
     ) -> Integration:
         cls.validate_key(api_key)
 
+        anthropic_kind: str = Integration.IntegrationKind.ANTHROPIC.value
         integration_id = workspace_label or f"{ANTHROPIC_DEFAULT_INTEGRATION_ID_PREFIX}{team_id}"
         config: dict[str, Any] = {}
         if workspace_label:
             config["workspace_label"] = workspace_label
 
-        # Avoid silently overwriting an existing integration's API key — a team
-        # admin connecting a second time without a label would otherwise clobber
-        # whatever credential is already there with no audit trail.
-        existing = Integration.objects.filter(
-            team_id=team_id,
-            kind=Integration.IntegrationKind.ANTHROPIC.value,
-            integration_id=integration_id,
-        ).first()
-        if existing and not force:
+        if force:
+            integration, _ = Integration.objects.update_or_create(
+                team_id=team_id,
+                kind=anthropic_kind,
+                integration_id=integration_id,
+                defaults={
+                    "config": config,
+                    "sensitive_config": {"api_key": api_key},
+                    "created_by": created_by,
+                    "errors": "",
+                },
+            )
+            return integration
+
+        try:
+            return Integration.objects.create(
+                team_id=team_id,
+                kind=anthropic_kind,
+                integration_id=integration_id,
+                config=config,
+                sensitive_config={"api_key": api_key},
+                created_by=created_by,
+                errors="",
+            )
+        except IntegrityError:
             raise ValidationError(
                 {
                     "config": (
-                        "An Anthropic integration already exists for this workspace label. "
-                        "Disconnect the existing integration first, or pass `force: true` to overwrite it."
+                        f"An integration with id '{integration_id}' already exists for this team. Choose a different "
+                        "workspace label, delete the existing integration and try again, or set 'force' to true to overwrite the existing integration."
                     )
                 }
             )
-
-        integration, _ = Integration.objects.update_or_create(
-            team_id=team_id,
-            kind=Integration.IntegrationKind.ANTHROPIC.value,
-            integration_id=integration_id,
-            defaults={
-                "config": config,
-                "sensitive_config": {"api_key": api_key},
-                "created_by": created_by,
-                "errors": "",
-            },
-        )
-        return integration
 
 
 class DatabricksIntegrationError(Exception):
