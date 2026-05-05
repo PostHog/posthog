@@ -138,8 +138,12 @@ def validate_credentials(api_key: str, table_name: Optional[str] = None) -> bool
     # endpoint's scope is missing — the user may legitimately only have scopes for
     # a subset of endpoints. Accept the token as authentic and defer per-endpoint
     # scope checks to the per-schema action / first sync.
-    is_create_probe = not table_name or table_name not in ENDPOINTS
-    endpoints_to_check = [ENDPOINTS[0]] if is_create_probe else [table_name]
+    if table_name and table_name in ENDPOINTS:
+        is_create_probe = False
+        endpoints_to_check: list[str] = [table_name]
+    else:
+        is_create_probe = True
+        endpoints_to_check = [ENDPOINTS[0]]
 
     for endpoint in endpoints_to_check:
         response = polar_request(
