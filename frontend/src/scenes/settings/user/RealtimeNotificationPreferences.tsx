@@ -1,11 +1,9 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
 
 import { IconChevronRight } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonTag } from '@posthog/lemon-ui'
 
 import { REALTIME_NOTIFICATION_TYPE_META } from 'lib/components/NotificationsMenu/NotificationRow'
-import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { TeamBasicType } from '~/types'
@@ -16,22 +14,13 @@ export function RealtimeNotificationPreferences(): JSX.Element {
     const { userLoading } = useValues(userLogic)
     const { updateRealtimeNotificationForTeam, updateRealtimeNotificationForProject, updateAllRealtimeNotifications } =
         useActions(userLogic)
-    const { currentOrganization } = useValues(organizationLogic)
-    const { activeTypes, isTypeEnabledForTeam, projectState } = useValues(realtimeNotificationPreferencesLogic)
-
-    const teams = currentOrganization?.teams ?? []
-    const teamIds = teams.map((t) => t.id)
-    const defaultExpanded = teams.length <= 3
-    const [expanded, setExpanded] = useState<Record<number, boolean>>(() =>
-        Object.fromEntries(teams.map((t) => [t.id, defaultExpanded]))
-    )
+    const { activeTypes, isTypeEnabledForTeam, projectState, teams, teamIds, isProjectExpanded, allOn, allOff } =
+        useValues(realtimeNotificationPreferencesLogic)
+    const { setProjectExpanded } = useActions(realtimeNotificationPreferencesLogic)
 
     if (activeTypes.length === 0) {
         return <div className="text-muted text-sm">No real-time notifications are wired up for your account yet.</div>
     }
-
-    const allOn = teamIds.every((teamId) => projectState(teamId) === 'on')
-    const allOff = teamIds.every((teamId) => projectState(teamId) === 'off')
 
     return (
         <div className="space-y-3">
@@ -57,7 +46,7 @@ export function RealtimeNotificationPreferences(): JSX.Element {
             <div className="space-y-2">
                 {teams.map((team: TeamBasicType) => {
                     const state = projectState(team.id)
-                    const isOpen = expanded[team.id] ?? defaultExpanded
+                    const isOpen = isProjectExpanded(team.id)
                     return (
                         <div key={team.id}>
                             <div className="flex items-center gap-2">
@@ -69,7 +58,7 @@ export function RealtimeNotificationPreferences(): JSX.Element {
                                             className={`transition-transform ${isOpen ? 'rotate-90' : ''}`}
                                         />
                                     }
-                                    onClick={() => setExpanded({ ...expanded, [team.id]: !isOpen })}
+                                    onClick={() => setProjectExpanded(team.id, !isOpen)}
                                 />
                                 <LemonCheckbox
                                     id={`realtime-project-${team.id}`}
