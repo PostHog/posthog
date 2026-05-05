@@ -351,6 +351,15 @@ def _forward_comment_to_task(task_run: TaskRun, pr_url: str, message: str) -> No
             run_id=str(task_run.id),
         )
         return
+    if not user.distinct_id:
+        logger.warning(
+            "github_comment_webhook_user_missing_distinct_id",
+            pr_url=pr_url,
+            task_id=str(task_run.task_id),
+            run_id=str(task_run.id),
+            user_id=user.pk,
+        )
+        return
     org_id = user.current_organization_id
     if not posthoganalytics.feature_enabled(
         "github-comment-auto-resume",

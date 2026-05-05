@@ -156,7 +156,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         # group) so we can emit a "failed" transition from the workflow-level
         # exception handler onto the right card.
         self._current_progress_step: Optional[tuple[str, str, str]] = None
-        self._pr_fingerprint: Optional[str] = None
 
     @property
     def context(self) -> TaskProcessingContext:

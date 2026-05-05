@@ -683,6 +683,7 @@ class TestGitHubCommentWebhook(TestCase):
         # Verify the new run was created with proper state
         new_run = TaskRun.objects.filter(task=self.task).order_by("-created_at").first()
         self.assertIsNotNone(new_run)
+        assert new_run is not None  # narrow Optional for mypy
         self.assertEqual(new_run.state.get("snapshot_external_id"), "snap-123")
         self.assertIn("[CONTEXT:", new_run.state.get("pending_user_message", ""))
         self.assertIn("Please fix the tests", new_run.state.get("pending_user_message", ""))
