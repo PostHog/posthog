@@ -41,4 +41,50 @@ describe('useDerivedSeries', () => {
         expect(result.current[0].color).toBe('#112233')
         expect(result.current[1].color).toMatch(/^rgba\([^)]*,\s*0\.5\)$/)
     })
+
+    it('resolves a trendline whose seriesKey targets a moving-average series', () => {
+        const { result } = renderHook(() =>
+            useDerivedSeries(SOURCE, {
+                movingAverage: [{ seriesKey: 'a', window: 2 }],
+                trendLines: [{ seriesKey: 'a-ma', kind: 'linear' }],
+            })
+        )
+        // Order: source (a, b) → MA (a-ma) → trendline of MA (a-ma__trendline)
+        expect(result.current.map((s) => s.key)).toEqual(['a', 'b', 'a-ma', 'a-ma__trendline'])
+    })
+
+    it('threads fitUpTo from the trendLines config into the regression fit', () => {
+        // Linear regression over [10, 10, 10, 10, 100, 100] would slope upward; restricting
+        // the fit to the first 4 indices (all 10s) produces a flat ~10 trendline across the
+        // full range. The two configs must therefore yield different first values.
+        const data = [10, 10, 10, 10, 100, 100]
+        const labels = ['mo', 'tu', 'we', 'th', 'fr', 'sa']
+        const source: Series[] = [{ key: 'a', label: 'A', data, color: '#112233' }]
+        const { result: fitted } = renderHook(() =>
+            useDerivedSeries(source, { trendLines: [{ seriesKey: 'a', kind: 'linear', fitUpTo: 4 }] })
+        )
+        const { result: full } = renderHook(() =>
+            useDerivedSeries(source, { trendLines: [{ seriesKey: 'a', kind: 'linear' }] })
+        )
+        const fittedTrend = fitted.current.find((s) => s.key === 'a__trendline')!.data
+        const fullTrend = full.current.find((s) => s.key === 'a__trendline')!.data
+        expect(labels.length).toBe(data.length) // sanity
+        // Constrained fit stays flat near 10; unconstrained fit slopes up.
+        expect(fittedTrend.every((v) => Math.abs(v - 10) < 1e-6)).toBe(true)
+        expect(fullTrend[fullTrend.length - 1]).toBeGreaterThan(fittedTrend[fittedTrend.length - 1])
+    })
+
+    it('busts the memo cache when fitUpTo changes between renders', () => {
+        const data = [10, 10, 10, 10, 100, 100]
+        const source: Series[] = [{ key: 'a', label: 'A', data, color: '#112233' }]
+        const { result, rerender } = renderHook(
+            ({ fitUpTo }: { fitUpTo: number | undefined }) =>
+                useDerivedSeries(source, { trendLines: [{ seriesKey: 'a', kind: 'linear', fitUpTo }] }),
+            { initialProps: { fitUpTo: 4 as number | undefined } }
+        )
+        const constrained = result.current.find((s) => s.key === 'a__trendline')!.data.slice()
+        rerender({ fitUpTo: undefined })
+        const unconstrained = result.current.find((s) => s.key === 'a__trendline')!.data
+        expect(unconstrained[unconstrained.length - 1]).toBeGreaterThan(constrained[constrained.length - 1])
+    })
 })
