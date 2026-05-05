@@ -1,16 +1,16 @@
 import { getRedisHost } from './redis'
 
 describe('getRedisHost', () => {
-    it('extracts host from a standard redis:// URL', () => {
-        expect(getRedisHost('redis://prod-host:6379')).toBe('prod-host:6379')
+    it('extracts host from a standard rediss:// URL', () => {
+        expect(getRedisHost('rediss://prod-host:6379')).toBe('prod-host:6379')
     })
 
     it('strips credentials from a URL with embedded password', () => {
-        expect(getRedisHost('redis://:secret@prod-host:6379')).toBe('prod-host:6379')
+        expect(getRedisHost('rediss://:secret@prod-host:6379')).toBe('prod-host:6379')
     })
 
     it('strips username and password from URL', () => {
-        expect(getRedisHost('redis://user:pass@my-host:6380/0')).toBe('my-host:6380')
+        expect(getRedisHost('rediss://user:pass@my-host:6380/0')).toBe('my-host:6380')
     })
 
     it('handles a plain hostname that is not a valid URL', () => {
