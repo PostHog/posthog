@@ -226,7 +226,10 @@ mod tests {
         .to_string();
         let evt = ai_event("$ai_generation", Some(&props));
         let doc = parse(&evt).unwrap().unwrap();
-        assert_eq!(doc.tool_names, vec!["get_weather", "search", "raw_string_tool"]);
+        assert_eq!(
+            doc.tool_names,
+            vec!["get_weather", "search", "raw_string_tool"]
+        );
     }
 
     #[test]

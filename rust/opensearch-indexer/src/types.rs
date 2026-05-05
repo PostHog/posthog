@@ -109,15 +109,24 @@ mod tests {
         let json = serde_json::to_string(&fixture_doc()).unwrap();
         let v: Value = serde_json::from_str(&json).unwrap();
         assert_eq!(v["@timestamp"], "2024-01-01T12:00:00.000Z");
-        assert!(v.get("timestamp").is_none(), "raw `timestamp` must not appear");
+        assert!(
+            v.get("timestamp").is_none(),
+            "raw `timestamp` must not appear"
+        );
     }
 
     #[test]
     fn serialize_skips_internal_fields() {
         let json = serde_json::to_string(&fixture_doc()).unwrap();
         let v: Value = serde_json::from_str(&json).unwrap();
-        assert!(v.get("event_uuid").is_none(), "event_uuid is the bulk action _id, not body");
-        assert!(v.get("parsed_at").is_none(), "parsed_at is internal metric state");
+        assert!(
+            v.get("event_uuid").is_none(),
+            "event_uuid is the bulk action _id, not body"
+        );
+        assert!(
+            v.get("parsed_at").is_none(),
+            "parsed_at is internal metric state"
+        );
     }
 
     #[test]
@@ -149,7 +158,10 @@ mod tests {
         doc.tool_names = vec!["get_weather".to_string(), "search".to_string()];
         let json = serde_json::to_string(&doc).unwrap();
         let v: Value = serde_json::from_str(&json).unwrap();
-        assert_eq!(v["tool_names"], serde_json::json!(["get_weather", "search"]));
+        assert_eq!(
+            v["tool_names"],
+            serde_json::json!(["get_weather", "search"])
+        );
     }
 }
 

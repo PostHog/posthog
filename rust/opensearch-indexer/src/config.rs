@@ -194,9 +194,7 @@ mod tests {
 
     #[test]
     fn rejects_non_numeric_team_overrides_key() {
-        let err = r#"{"abc":{"floor":1,"rate":1.0}}"#
-            .parse::<TeamOverridesEnv>()
-            .unwrap_err();
+        let err = r#"{"abc":{"floor":1,"rate":1.0}}"#.parse::<TeamOverridesEnv>().unwrap_err();
         assert!(matches!(
             err,
             TeamOverridesParseError::InvalidTeamId(ref k, _) if k == "abc"
@@ -205,9 +203,7 @@ mod tests {
 
     #[test]
     fn rejects_rate_above_one() {
-        let err = r#"{"42":{"floor":100,"rate":1.5}}"#
-            .parse::<TeamOverridesEnv>()
-            .unwrap_err();
+        let err = r#"{"42":{"floor":100,"rate":1.5}}"#.parse::<TeamOverridesEnv>().unwrap_err();
         assert!(matches!(
             err,
             TeamOverridesParseError::InvalidRate(42, r) if (r - 1.5).abs() < 1e-9
@@ -216,9 +212,7 @@ mod tests {
 
     #[test]
     fn rejects_negative_rate() {
-        let err = r#"{"42":{"floor":100,"rate":-0.1}}"#
-            .parse::<TeamOverridesEnv>()
-            .unwrap_err();
+        let err = r#"{"42":{"floor":100,"rate":-0.1}}"#.parse::<TeamOverridesEnv>().unwrap_err();
         assert!(matches!(
             err,
             TeamOverridesParseError::InvalidRate(42, r) if (r + 0.1).abs() < 1e-9

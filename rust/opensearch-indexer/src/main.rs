@@ -19,8 +19,8 @@ use serve_metrics::setup_metrics_routes;
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
-use tracing::level_filters::LevelFilter;
 use tracing::info;
+use tracing::level_filters::LevelFilter;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
 
 common_alloc::used!();
@@ -32,7 +32,9 @@ common_alloc::used!();
 /// runs and will see the token already cancelled if shutdown happened earlier.
 fn spawn_early_signal_listener(token: CancellationToken) {
     tokio::spawn(async move {
-        let mut sigterm = match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+        let mut sigterm = match tokio::signal::unix::signal(
+            tokio::signal::unix::SignalKind::terminate(),
+        ) {
             Ok(s) => s,
             Err(e) => {
                 tracing::warn!(error = %e, "failed to install SIGTERM handler for readiness gate");

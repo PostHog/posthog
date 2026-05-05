@@ -341,7 +341,10 @@ mod tests {
         for _ in 0..20 {
             gate.observe(true);
         }
-        let wait = gate.next_flush_at.unwrap().saturating_duration_since(Instant::now());
+        let wait = gate
+            .next_flush_at
+            .unwrap()
+            .saturating_duration_since(Instant::now());
         assert!(
             wait <= RETRY_AFTER_MAX + RETRY_AFTER_JITTER_MAX,
             "wait {:?} exceeds cap",
@@ -512,9 +515,7 @@ mod tests {
         tx.send(99).await.expect("first send fills the channel");
 
         let token_clone = token.clone();
-        let send_task = tokio::spawn(async move {
-            send_or_shutdown(&token_clone, &tx, 100).await
-        });
+        let send_task = tokio::spawn(async move { send_or_shutdown(&token_clone, &tx, 100).await });
 
         // Give the send a beat to enter the blocked state.
         tokio::time::sleep(Duration::from_millis(20)).await;

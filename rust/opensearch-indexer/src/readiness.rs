@@ -20,11 +20,7 @@ pub async fn wait_for_alias(
     alias: &str,
     shutdown: CancellationToken,
 ) -> anyhow::Result<()> {
-    let url = format!(
-        "{}/_alias/{}",
-        opensearch_url.trim_end_matches('/'),
-        alias
-    );
+    let url = format!("{}/_alias/{}", opensearch_url.trim_end_matches('/'), alias);
     let start = tokio::time::Instant::now();
     let mut attempt: u32 = 0;
     loop {
@@ -76,7 +72,8 @@ mod tests {
         let mock = server
             .mock_async(|when, then| {
                 when.method(GET).path("/_alias/llm-traces");
-                then.status(200).body(r#"{"some-index":{"aliases":{"llm-traces":{}}}}"#);
+                then.status(200)
+                    .body(r#"{"some-index":{"aliases":{"llm-traces":{}}}}"#);
             })
             .await;
 
@@ -106,9 +103,8 @@ mod tests {
         // Spawn the gate; it will see 404 → wait → re-poll.
         let url = server.base_url();
         let token = CancellationToken::new();
-        let gate = tokio::spawn(async move {
-            wait_for_alias(&client(), &url, "llm-traces", token).await
-        });
+        let gate =
+            tokio::spawn(async move { wait_for_alias(&client(), &url, "llm-traces", token).await });
 
         // After ~1.5s replace the 404 mock with a 200 mock — the gate's next
         // poll (POLL_INTERVAL = 2s) will succeed.
@@ -142,13 +138,7 @@ mod tests {
         });
 
         let start = tokio::time::Instant::now();
-        let result = wait_for_alias(
-            &client(),
-            &server.base_url(),
-            "llm-traces",
-            token,
-        )
-        .await;
+        let result = wait_for_alias(&client(), &server.base_url(), "llm-traces", token).await;
         let elapsed = start.elapsed();
 
         assert!(result.is_err(), "expected Err, got {result:?}");
@@ -158,7 +148,10 @@ mod tests {
             elapsed
         );
         let err = format!("{:#}", result.unwrap_err());
-        assert!(err.contains("shutdown"), "error should mention shutdown: {err}");
+        assert!(
+            err.contains("shutdown"),
+            "error should mention shutdown: {err}"
+        );
     }
 
     #[tokio::test]

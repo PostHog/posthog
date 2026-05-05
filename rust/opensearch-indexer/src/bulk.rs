@@ -337,7 +337,9 @@ pub struct BulkWriter {
 
 impl BulkWriter {
     pub fn new(opensearch_url: &str, alias: &str) -> reqwest::Result<Self> {
-        let client = reqwest::Client::builder().timeout(REQUEST_TIMEOUT).build()?;
+        let client = reqwest::Client::builder()
+            .timeout(REQUEST_TIMEOUT)
+            .build()?;
         let url = format!("{}/{}/_bulk", opensearch_url.trim_end_matches('/'), alias);
         Ok(Self {
             client,
@@ -756,12 +758,19 @@ mod tests {
     fn bulk_response_rejects_unknown_action_type() {
         let body = br#"{"took":3,"errors":false,"items":[{"create":{"status":201}}]}"#;
         let result: Result<BulkResponse, _> = serde_json::from_slice(body);
-        assert!(result.is_err(), "non-`index` actions must fail to deserialize");
+        assert!(
+            result.is_err(),
+            "non-`index` actions must fail to deserialize"
+        );
     }
 
     // ---------- Classifier ----------
 
-    fn make_result(status: u16, error_type: Option<&str>, reason: Option<&str>) -> BulkActionResult {
+    fn make_result(
+        status: u16,
+        error_type: Option<&str>,
+        reason: Option<&str>,
+    ) -> BulkActionResult {
         BulkActionResult {
             status,
             error: error_type.map(|t| BulkError {
@@ -799,7 +808,11 @@ mod tests {
 
     #[test]
     fn classify_400_mapper_is_permanent_with_context() {
-        match classify(make_result(400, Some("mapper_parsing_exception"), Some("bad doc"))) {
+        match classify(make_result(
+            400,
+            Some("mapper_parsing_exception"),
+            Some("bad doc"),
+        )) {
             ItemOutcome::Permanent {
                 status,
                 error_type,
@@ -836,7 +849,11 @@ mod tests {
             ItemOutcome::Retryable { status: 403 }
         );
         assert_eq!(
-            classify(make_result(409, Some("es_rejected_execution_exception"), None)),
+            classify(make_result(
+                409,
+                Some("es_rejected_execution_exception"),
+                None
+            )),
             ItemOutcome::Retryable { status: 409 }
         );
     }
@@ -928,7 +945,10 @@ mod tests {
         with_tools.tool_names = vec!["get_weather".to_string(), "search_web".to_string()];
         let estimate = approx_doc_bytes(&with_tools);
 
-        assert_eq!(estimate - baseline, "get_weather".len() + 4 + "search_web".len() + 4);
+        assert_eq!(
+            estimate - baseline,
+            "get_weather".len() + 4 + "search_web".len() + 4
+        );
     }
 
     #[test]
@@ -1020,10 +1040,7 @@ mod tests {
         push_indexed(&mut b, 1, 0, 12);
         push_indexed(&mut b, 2, 1, 100);
 
-        let outcomes = vec![
-            ItemOutcome::Retryable { status: 429 },
-            ItemOutcome::Success,
-        ];
+        let outcomes = vec![ItemOutcome::Retryable { status: 429 }, ItemOutcome::Success];
         let result = b.process_response(outcomes);
 
         assert!(!result.commit.contains_key(&0));
@@ -1082,10 +1099,7 @@ mod tests {
         push_indexed(&mut b, 2, 0, 13);
         b.push_skip(TestOffset::detached(0, 14));
 
-        let outcomes = vec![
-            ItemOutcome::Success,
-            ItemOutcome::Retryable { status: 429 },
-        ];
+        let outcomes = vec![ItemOutcome::Success, ItemOutcome::Retryable { status: 429 }];
         let result = b.process_response(outcomes);
 
         // Skip at 14 sits above LW(0)=13 → not committable.
@@ -1229,7 +1243,10 @@ mod tests {
             })
             .await;
 
-        let resp = post_handle.await.expect("task joined").expect("Ok after retry");
+        let resp = post_handle
+            .await
+            .expect("task joined")
+            .expect("Ok after retry");
         assert_eq!(resp.items.len(), 1);
     }
 
@@ -1259,7 +1276,11 @@ mod tests {
         assert!(!FlushError::HttpStatus(reqwest::StatusCode::BAD_REQUEST).is_retryable());
         assert!(!FlushError::HttpStatus(reqwest::StatusCode::NOT_FOUND).is_retryable());
         assert!(!FlushError::Parse(serde_json::from_str::<u8>("xx").unwrap_err()).is_retryable());
-        assert!(!FlushError::ItemCountMismatch { sent: 1, received: 0 }.is_retryable());
+        assert!(!FlushError::ItemCountMismatch {
+            sent: 1,
+            received: 0
+        }
+        .is_retryable());
         assert!(!FlushError::ShutdownAborted.is_retryable());
     }
 

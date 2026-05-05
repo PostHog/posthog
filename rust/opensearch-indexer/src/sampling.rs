@@ -33,18 +33,13 @@ pub fn new_decision_write_joinset() -> DecisionWriteJoinSet {
 /// `opensearch_indexer_team_decisions_shutdown_aborted_total` per aborted
 /// task so operators can see whether shutdown is leaving observability
 /// writes on the table.
-pub async fn drain_decision_writes(
-    decision_writes: DecisionWriteJoinSet,
-    deadline: Duration,
-) {
+pub async fn drain_decision_writes(decision_writes: DecisionWriteJoinSet, deadline: Duration) {
     let mut set = decision_writes.lock().await;
     let total_at_start = set.len();
     if total_at_start == 0 {
         return;
     }
-    let drain = async {
-        while set.join_next().await.is_some() {}
-    };
+    let drain = async { while set.join_next().await.is_some() {} };
     match tokio::time::timeout(deadline, drain).await {
         Ok(()) => info!(
             total = total_at_start,
@@ -140,10 +135,7 @@ impl std::fmt::Debug for SamplingConfig {
             .field("default_above_floor_rate", &self.default_above_floor_rate)
             .field("deny_teams", &self.deny_teams)
             .field("overrides", &self.overrides)
-            .field(
-                "decision_writes_attached",
-                &self.decision_writes.is_some(),
-            )
+            .field("decision_writes_attached", &self.decision_writes.is_some())
             .finish()
     }
 }
@@ -608,7 +600,12 @@ mod tests {
     #[test]
     fn stable_hash_bucket_in_range() {
         // Bucket must always be 0..1000 regardless of input.
-        for input in ["", "x", "very-long-trace-id-string", "00000000-0000-0000-0000-000000000000"] {
+        for input in [
+            "",
+            "x",
+            "very-long-trace-id-string",
+            "00000000-0000-0000-0000-000000000000",
+        ] {
             let b = stable_hash_bucket(input);
             assert!(b < 1_000, "bucket {b} for {input:?} out of range");
         }
@@ -937,9 +934,7 @@ mod tests {
             .into_vec()
             .into_iter()
             .find_map(|(key, _, _, value)| {
-                if key.key().name()
-                    == "opensearch_indexer_team_decisions_shutdown_aborted_total"
-                {
+                if key.key().name() == "opensearch_indexer_team_decisions_shutdown_aborted_total" {
                     if let DebugValue::Counter(v) = value {
                         return Some(v);
                     }

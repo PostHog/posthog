@@ -1426,10 +1426,7 @@ mod integration_tests {
             .query_async(&mut conn)
             .await
             .unwrap();
-        assert!(
-            (0..=60).contains(&ttl),
-            "expected TTL in 0..=60, got {ttl}"
-        );
+        assert!((0..=60).contains(&ttl), "expected TTL in 0..=60, got {ttl}");
 
         // Cleanup
         client.del(key).await.unwrap();
