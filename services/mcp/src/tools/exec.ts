@@ -142,10 +142,7 @@ export function createExecTool(
                         if (forceJson) {
                             return JSON.stringify({ ...payload, inputSchema: schema })
                         }
-                        return stringifyYaml(
-                            { ...payload, inputSchema: JSON.stringify(schema, null, 2) },
-                            { lineWidth: 0 }
-                        )
+                        return stringifyYaml({ ...payload, inputSchema: JSON.stringify(schema) }, { lineWidth: 0 })
                     }
 
                     const topShape = {

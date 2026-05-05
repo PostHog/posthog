@@ -3,6 +3,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { format } from 'oxfmt'
 import { describe, expect, it } from 'vitest'
+import { parse as parseYaml } from 'yaml'
 import { z } from 'zod'
 
 import { buildInstructionsV2 } from '@/lib/instructions'
@@ -210,17 +211,11 @@ describe('exec tool', () => {
             expect(result).toContain('title: Mock tool')
             // The whole envelope is not JSON
             expect(() => JSON.parse(result)).toThrow()
-            // inputSchema is dumped as a JSON string within the YAML — pull it
-            // out of the YAML block scalar and confirm it parses as JSON.
-            const lines = result.split('\n')
-            const schemaIdx = lines.findIndex((l) => l.startsWith('inputSchema:'))
-            expect(schemaIdx).toBeGreaterThanOrEqual(0)
-            const schemaBlock = lines
-                .slice(schemaIdx + 1)
-                .filter((l) => l.startsWith('  '))
-                .map((l) => l.slice(2))
-                .join('\n')
-            const parsedSchema = JSON.parse(schemaBlock)
+            // inputSchema is dumped as a JSON string within the YAML — parse the
+            // envelope as YAML, then JSON.parse the inputSchema value.
+            const envelope = parseYaml(result) as { inputSchema: string }
+            expect(typeof envelope.inputSchema).toBe('string')
+            const parsedSchema = JSON.parse(envelope.inputSchema)
             expect(parsedSchema.type).toBe('object')
             expect(parsedSchema.properties.name.description).toBe('Person name')
         })
