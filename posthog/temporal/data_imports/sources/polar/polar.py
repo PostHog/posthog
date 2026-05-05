@@ -6,7 +6,6 @@ import requests
 from structlog.types import FilteringBoundLogger
 from urllib3.util.retry import Retry
 
-from posthog.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.common.http import make_tracked_session
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -70,7 +69,6 @@ def get_rows(
     if resume_config and resume_config.next_url:
         url = resume_config.next_url
 
-    batcher = Batcher(logger=logger)
     session = _get_polar_session()
     seen_urls: set[str] = set()
 
@@ -83,12 +81,12 @@ def get_rows(
         response.raise_for_status()
         data = response.json()
 
+        # Yield the whole page list; the pipeline batcher handles chunking into
+        # pa.Tables at its own thresholds (5000 rows / 200 MiB) and accepts
+        # lists directly without per-row overhead.
         items = data.get("items", [])
-        for item in items:
-            batcher.batch(item)
-
-            if batcher.should_yield():
-                yield batcher.get_table()
+        if items:
+            yield items
 
         pagination = data.get("pagination") or {}
         max_page = int(pagination.get("max_page") or 0)
@@ -98,11 +96,6 @@ def get_rows(
             url = _build_url(endpoint, page=current_page + 1)
         else:
             url = None
-
-        if batcher.should_yield(include_incomplete_chunk=not url):
-            py_table = batcher.get_table()
-            if py_table.num_rows > 0:
-                yield py_table
 
         if url:
             resumable_source_manager.save_state(PolarResumeConfig(next_url=url))
