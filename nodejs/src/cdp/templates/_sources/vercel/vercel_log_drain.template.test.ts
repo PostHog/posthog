@@ -25,7 +25,7 @@ describe('vercel log drain template', () => {
         expect(response.finished).toEqual(true)
         expect(response.capturedPostHogEvents).toHaveLength(1)
         expect(response.capturedPostHogEvents[0].event).toEqual('$http_log')
-        expect(response.capturedPostHogEvents[0].distinct_id).toMatch(/^http_log_[a-f0-9]{64}$/)
+        expect(response.capturedPostHogEvents[0].distinct_id).toMatch(/^http_log_[A-Za-z0-9+/]{22}$/)
         expect(response.capturedPostHogEvents[0].properties).toMatchObject({
             source: 'lambda',
             level: 'info',
@@ -218,7 +218,7 @@ describe('vercel log drain template', () => {
         )
 
         expect(response.error).toBeUndefined()
-        expect(response.capturedPostHogEvents[0].distinct_id).toMatch(/^http_log_[a-f0-9]{64}$/)
+        expect(response.capturedPostHogEvents[0].distinct_id).toMatch(/^http_log_[A-Za-z0-9+/]{22}$/)
     })
 
     it('should capture all Vercel log properties with snake_case naming', async () => {
@@ -306,7 +306,7 @@ describe('vercel log drain template', () => {
 
         expect(response.error).toBeUndefined()
         expect(response.capturedPostHogEvents).toHaveLength(1)
-        expect(response.capturedPostHogEvents[0].distinct_id).toMatch(/^http_log_[a-f0-9]{64}$/)
+        expect(response.capturedPostHogEvents[0].distinct_id).toMatch(/^http_log_[A-Za-z0-9+/]{22}$/)
         // Proxy fields should be null when proxy is missing
         expect(response.capturedPostHogEvents[0].properties.proxy_method).toBeNull()
     })
@@ -549,7 +549,7 @@ describe('vercel log drain template', () => {
             const id1Repeat = day1Repeat.capturedPostHogEvents[0].distinct_id
             const id2 = day2.capturedPostHogEvents[0].distinct_id
 
-            expect(id1).toMatch(/^http_log_[a-f0-9]{64}$/)
+            expect(id1).toMatch(/^http_log_[A-Za-z0-9+/]{22}$/)
             expect(id1Repeat).toBe(id1)
             expect(id2).not.toBe(id1)
             expect(day1.capturedPostHogEvents[0].properties.$distinct_id_strategy).toBe('rotating_salt')
@@ -585,7 +585,7 @@ describe('vercel log drain template', () => {
                 { request: createVercelRequest(vercelLogDrain) }
             )
 
-            expect(day1.capturedPostHogEvents[0].distinct_id).toMatch(/^http_log_[a-f0-9]{64}$/)
+            expect(day1.capturedPostHogEvents[0].distinct_id).toMatch(/^http_log_[A-Za-z0-9+/]{22}$/)
             expect(day2.capturedPostHogEvents[0].distinct_id).toBe(day1.capturedPostHogEvents[0].distinct_id)
             expect(rotated.capturedPostHogEvents[0].distinct_id).not.toBe(day1.capturedPostHogEvents[0].distinct_id)
             expect(day1.capturedPostHogEvents[0].properties.$distinct_id_strategy).toBe('fixed_salt')
@@ -641,7 +641,7 @@ describe('vercel log drain template', () => {
             )
 
             expect(response.error).toBeUndefined()
-            expect(response.capturedPostHogEvents[0].distinct_id).toMatch(/^http_log_[a-f0-9]{64}$/)
+            expect(response.capturedPostHogEvents[0].distinct_id).toMatch(/^http_log_[A-Za-z0-9+/]{22}$/)
             expect(response.capturedPostHogEvents[0].properties.$distinct_id_strategy).toBe('rotating_salt_fallback')
             expect(response.logs.map((l) => l.message)).toContainEqual(
                 expect.stringContaining('custom_template empty, falling back')

@@ -170,17 +170,24 @@ let strategy := inputs.distinct_id_strategy ?? 'rotating_salt'
 let activeStrategy := strategy
 let distinctId := ''
 
+// Hashed strategies emit a 22-char unpadded base64 prefix of sha256, matching
+// the visual format of PostHog cookieless distinct IDs (132 bits of entropy —
+// far more than needed for collision resistance, and short enough to be readable).
+fun shortHash(input) {
+    return substring(sha256(input, 'base64'), 1, 22)
+}
+
 if (strategy == 'rotating_salt') {
-    distinctId := f'http_log_{sha256Hex(f'{salt}:{day}:{clientIp}:{host}:{userAgent}')}'
+    distinctId := f'http_log_{shortHash(f'{salt}:{day}:{clientIp}:{host}:{userAgent}')}'
 } else if (strategy == 'fixed_salt') {
-    distinctId := f'http_log_{sha256Hex(f'{salt}:{clientIp}:{host}:{userAgent}')}'
+    distinctId := f'http_log_{shortHash(f'{salt}:{clientIp}:{host}:{userAgent}')}'
 } else if (strategy == 'ip') {
     distinctId := f'http_log_{clientIp}'
 } else if (strategy == 'custom') {
     let customTemplate := inputs.custom_template ?? ''
     if (empty(customTemplate)) {
         print('vercel log drain: custom_template empty, falling back to rotating_salt')
-        distinctId := f'http_log_{sha256Hex(f'{salt}:{day}:{clientIp}:{host}:{userAgent}')}'
+        distinctId := f'http_log_{shortHash(f'{salt}:{day}:{clientIp}:{host}:{userAgent}')}'
         activeStrategy := 'rotating_salt_fallback'
     } else {
         let result := customTemplate
@@ -195,7 +202,7 @@ if (strategy == 'rotating_salt') {
     }
 } else {
     // Unknown strategy value — treat as rotating_salt
-    distinctId := f'http_log_{sha256Hex(f'{salt}:{day}:{clientIp}:{host}:{userAgent}')}'
+    distinctId := f'http_log_{shortHash(f'{salt}:{day}:{clientIp}:{host}:{userAgent}')}'
     activeStrategy := 'rotating_salt'
 }
 
