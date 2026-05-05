@@ -1,11 +1,5 @@
 import { DEFAULT_Y_AXIS_ID } from 'lib/hog-charts'
-import type { LineChartConfig, Series } from 'lib/hog-charts'
-import {
-    buildConfidenceIntervalSeries,
-    buildMovingAverageSeries,
-    buildTrendLineSeries,
-} from 'lib/hog-charts/charts/TimeSeriesLineChart/utils/derived-series'
-import { ciRanges } from 'lib/statistics'
+import type { Series } from 'lib/hog-charts'
 import { hexToRGBA } from 'lib/utils'
 
 import { ChartDisplayType } from '~/types'
@@ -34,13 +28,6 @@ export interface BuildTrendsSeriesOpts<R extends TrendsResultLike, M = unknown> 
     getColor: (r: R, index: number) => string
     getHidden?: (r: R, index: number) => boolean
     buildMeta?: (r: R, index: number) => M
-    // Derived series — opt-in. Each block is independent so MCP-side callers
-    // can leave them off without unintended overlays.
-    showConfidenceIntervals?: boolean
-    confidenceLevel?: number
-    showMovingAverage?: boolean
-    movingAverageIntervals?: number
-    showTrendLines?: boolean
 }
 
 export interface BuiltTrendsSeries<M> {
@@ -80,113 +67,9 @@ export function buildMainTrendsSeries<R extends TrendsResultLike, M = unknown>(
     return { main, baseColor, dashedFromIndex, excluded }
 }
 
-function buildDerivedTrendsSeries<R extends TrendsResultLike, M = unknown>(
-    r: R,
-    built: BuiltTrendsSeries<M>,
-    opts: BuildTrendsSeriesOpts<R, M>
-): Series<M>[] {
-    const { main, baseColor, dashedFromIndex, excluded } = built
-    const label = r.label ?? ''
-    const out: Series<M>[] = []
-
-    if (opts.showConfidenceIntervals) {
-        const ci = (opts.confidenceLevel ?? 95) / 100
-        const [lower, upper] = ciRanges(r.data, ci)
-        out.push(
-            buildConfidenceIntervalSeries<M>({
-                seriesKey: main.key,
-                label,
-                baseColor: main.color,
-                lower,
-                upper,
-                yAxisId: main.yAxisId,
-                meta: main.meta,
-                excluded,
-            })
-        )
-    }
-
-    let maSeries: Series<M> | undefined
-    if (
-        opts.showMovingAverage &&
-        opts.movingAverageIntervals !== undefined &&
-        r.data.length >= opts.movingAverageIntervals
-    ) {
-        maSeries = buildMovingAverageSeries<M>({
-            sourceSeries: main,
-            window: opts.movingAverageIntervals,
-            label: `${label} (Moving avg)`,
-        })
-        out.push(maSeries)
-    }
-
-    if (maSeries && opts.showTrendLines && !excluded) {
-        // The MA-derived trendline must use the un-dimmed baseColor so compare-prev
-        // dimming doesn't compound with the trendline's own dimming. Pass a
-        // synthetic source whose colour is the un-dimmed base.
-        out.push(
-            buildTrendLineSeries<M>({
-                sourceSeries: { ...maSeries, color: baseColor },
-                kind: 'linear',
-                label: `${label} (Moving avg)`,
-            })
-        )
-    }
-
-    if (opts.showTrendLines && !excluded) {
-        // Fit excludes the in-progress tail (dashedFromIndex..end) so the flat
-        // partial bucket doesn't drag the slope down. Dimmed so the dashed
-        // overlay reads as subordinate to the series line — at full intensity
-        // the two colors visually compete, especially on a dark background.
-        out.push(
-            buildTrendLineSeries<M>({
-                sourceSeries: { ...main, color: baseColor },
-                kind: 'linear',
-                label,
-                fitUpTo: dashedFromIndex,
-            })
-        )
-    }
-
-    return out
-}
-
 export function buildTrendsSeries<R extends TrendsResultLike, M = unknown>(
     results: R[],
     opts: BuildTrendsSeriesOpts<R, M>
 ): Series<M>[] {
-    return results.flatMap((r, index) => {
-        const built = buildMainTrendsSeries(r, index, opts)
-        return [built.main, ...buildDerivedTrendsSeries(r, built, opts)]
-    })
-}
-
-export interface BuildTrendsChartConfigOpts {
-    // Anything other than 'log10' is treated as linear.
-    yAxisScaleType?: string | null
-    isPercentStackView?: boolean
-    showCrosshair?: boolean
-    showGrid?: boolean
-    pinnableTooltip?: boolean
-    tooltipPlacement?: 'top' | 'follow-data'
-    xTickFormatter?: (value: string | number, index: number) => string | null
-    yTickFormatter?: (value: number) => string
-}
-
-// Undefined keys fall through to hog-charts defaults — don't add fallbacks here.
-export function buildTrendsChartConfig(opts: BuildTrendsChartConfigOpts): LineChartConfig {
-    const tooltip =
-        opts.pinnableTooltip !== undefined || opts.tooltipPlacement !== undefined
-            ? { pinnable: opts.pinnableTooltip, placement: opts.tooltipPlacement }
-            : undefined
-    const yScaleType: 'linear' | 'log' = opts.yAxisScaleType === 'log10' ? 'log' : 'linear'
-    return {
-        showGrid: opts.showGrid,
-        showCrosshair: opts.showCrosshair,
-        tooltip,
-        yScaleType,
-        percentStackView: opts.isPercentStackView,
-        xTickFormatter: opts.xTickFormatter,
-        yTickFormatter: opts.yTickFormatter,
-    }
+    return results.map((r, index) => buildMainTrendsSeries(r, index, opts).main)
 }
