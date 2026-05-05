@@ -306,7 +306,6 @@ jobs:
                   NODE_OPTIONS: --max-old-space-size=16384
 
             - name: Save TypeScript incremental build info
-              if: github.ref == 'refs/heads/master'
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
               with:
                   path: frontend/tsconfig.tsbuildinfo
