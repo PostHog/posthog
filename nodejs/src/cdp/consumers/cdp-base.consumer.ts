@@ -7,7 +7,13 @@ import { GeoIPService } from '../../utils/geoip'
 import { logger } from '../../utils/logger'
 import { GroupRepository } from '../../worker/ingestion/groups/repositories/group-repository.interface'
 import { PersonRepository } from '../../worker/ingestion/persons/repositories/person-repository'
-import { CdpCoreServicesConfig, CdpCoreServicesDeps, CdpOutputs, createCdpCoreServices } from '../cdp-services'
+import {
+    CdpCoreServicesConfig,
+    CdpCoreServicesDeps,
+    CdpOutputs,
+    CdpValkeyShadowPools,
+    createCdpCoreServices,
+} from '../cdp-services'
 import type { CdpConfig } from '../config'
 import { HogExecutorService } from '../services/hog-executor.service'
 import { HogFlowExecutorService } from '../services/hogflows/hogflow-executor.service'
@@ -45,12 +51,14 @@ export interface TeamIDWithConfig {
 
 export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = CdpConsumerBaseConfig> {
     redis: RedisV2
+    valkeyShadow: CdpValkeyShadowPools | null
     isStopping = false
 
     hogExecutor: HogExecutorService
     hogFlowExecutor: HogFlowExecutorService
     hogMasker: HogMaskerService
     hogWatcher: HogWatcherService
+    hogWatcherMirror: HogWatcherService | null
 
     groupsManager: GroupsManagerService
     hogFlowManager: HogFlowManagerService
@@ -77,9 +85,11 @@ export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = Cd
         const services = createCdpCoreServices(config, deps)
 
         this.redis = services.redis
+        this.valkeyShadow = services.valkeyShadow
         this.hogFunctionManager = services.hogFunctionManager
         this.hogFlowManager = services.hogFlowManager
         this.hogWatcher = services.hogWatcher
+        this.hogWatcherMirror = services.hogWatcherMirror
         this.hogExecutor = services.hogExecutor
         this.hogFunctionTemplateManager = services.hogFunctionTemplateManager
         this.hogFlowFunctionsService = services.hogFlowFunctionsService

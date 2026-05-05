@@ -36,6 +36,7 @@ export class CdpEventsConsumer<
     protected kafkaConsumer: KafkaConsumerInterface
 
     private hogRateLimiter: HogRateLimiterService
+    private hogRateLimiterMirror: HogRateLimiterService | null
 
     constructor(
         config: TConfig,
@@ -46,14 +47,15 @@ export class CdpEventsConsumer<
         super(config, deps)
         this.cyclotronJobQueue = new CyclotronJobQueue(config.CONSUMER_BATCH_SIZE, config.KAFKA_CLIENT_RACK, config)
         this.kafkaConsumer = createKafkaConsumer({ groupId, topic })
-        this.hogRateLimiter = new HogRateLimiterService(
-            {
-                bucketSize: config.CDP_RATE_LIMITER_BUCKET_SIZE,
-                refillRate: config.CDP_RATE_LIMITER_REFILL_RATE,
-                ttl: config.CDP_RATE_LIMITER_TTL,
-            },
-            this.redis
-        )
+        const rateLimiterConfig = {
+            bucketSize: config.CDP_RATE_LIMITER_BUCKET_SIZE,
+            refillRate: config.CDP_RATE_LIMITER_REFILL_RATE,
+            ttl: config.CDP_RATE_LIMITER_TTL,
+        }
+        this.hogRateLimiter = new HogRateLimiterService(rateLimiterConfig, this.redis)
+        this.hogRateLimiterMirror = this.valkeyShadow
+            ? new HogRateLimiterService(rateLimiterConfig, this.valkeyShadow.writer)
+            : null
     }
 
     public async processBatch(
@@ -128,12 +130,21 @@ export class CdpEventsConsumer<
             )
         ).flat()
 
-        const states = await instrumentFn('cdpConsumer.handleEachBatch.hogWatcher.getEffectiveStates', async () => {
-            return await this.hogWatcher.getEffectiveStates(possibleInvocations.map((x) => x.hogFunction.id))
-        })
-        const rateLimits = await instrumentFn('cdpConsumer.handleEachBatch.hogRateLimiter.rateLimitMany', async () => {
-            return await this.hogRateLimiter.rateLimitMany(possibleInvocations.map((x) => [x.hogFunction.id, 1]))
-        })
+        const hogFunctionIds = possibleInvocations.map((x) => x.hogFunction.id)
+        const [states] = await Promise.all([
+            instrumentFn('cdpConsumer.handleEachBatch.hogWatcher.getEffectiveStates', async () => {
+                return await this.hogWatcher.getEffectiveStates(hogFunctionIds)
+            }),
+            this.hogWatcherMirror?.getEffectiveStates(hogFunctionIds).catch(() => undefined) ?? Promise.resolve(),
+        ])
+
+        const rateLimitInputs = possibleInvocations.map((x) => [x.hogFunction.id, 1] as [string, number])
+        const [rateLimits] = await Promise.all([
+            instrumentFn('cdpConsumer.handleEachBatch.hogRateLimiter.rateLimitMany', async () => {
+                return await this.hogRateLimiter.rateLimitMany(rateLimitInputs)
+            }),
+            this.hogRateLimiterMirror?.rateLimitMany(rateLimitInputs).catch(() => undefined) ?? Promise.resolve(),
+        ])
 
         const validInvocations: CyclotronJobInvocationHogFunction[] = []
 
@@ -284,12 +295,21 @@ export class CdpEventsConsumer<
             )
         ).flat()
 
-        const states = await instrumentFn('cdpConsumer.handleEachBatch.hogWatcher.getEffectiveStates', async () => {
-            return await this.hogWatcher.getEffectiveStates(possibleInvocations.map((x) => x.hogFlow.id))
-        })
-        const rateLimits = await instrumentFn('cdpConsumer.handleEachBatch.hogRateLimiter.rateLimitMany', async () => {
-            return await this.hogRateLimiter.rateLimitMany(possibleInvocations.map((x) => [x.hogFlow.id, 1]))
-        })
+        const hogFlowIds = possibleInvocations.map((x) => x.hogFlow.id)
+        const [states] = await Promise.all([
+            instrumentFn('cdpConsumer.handleEachBatch.hogWatcher.getEffectiveStates', async () => {
+                return await this.hogWatcher.getEffectiveStates(hogFlowIds)
+            }),
+            this.hogWatcherMirror?.getEffectiveStates(hogFlowIds).catch(() => undefined) ?? Promise.resolve(),
+        ])
+
+        const rateLimitInputs = possibleInvocations.map((x) => [x.hogFlow.id, 1] as [string, number])
+        const [rateLimits] = await Promise.all([
+            instrumentFn('cdpConsumer.handleEachBatch.hogRateLimiter.rateLimitMany', async () => {
+                return await this.hogRateLimiter.rateLimitMany(rateLimitInputs)
+            }),
+            this.hogRateLimiterMirror?.rateLimitMany(rateLimitInputs).catch(() => undefined) ?? Promise.resolve(),
+        ])
         const validInvocations: CyclotronJobInvocation[] = []
 
         // Iterate over adding them to the list and updating their priority

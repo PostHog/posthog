@@ -153,7 +153,10 @@ export class CdpCyclotronWorker<
     @instrumented({ key: 'cdpConsumer.backgroundTask.hogWatcherObserve', timeoutMs: 10_000, sendException: false })
     private async observeResults(invocationResults: CyclotronJobInvocationResult[]): Promise<void> {
         try {
-            await this.hogWatcher.observeResults(invocationResults)
+            await Promise.all([
+                this.hogWatcher.observeResults(invocationResults),
+                this.hogWatcherMirror?.observeResults(invocationResults).catch(() => {}) ?? Promise.resolve(),
+            ])
         } catch (err: any) {
             captureException(err)
             logger.error('Error observing results', { err })
