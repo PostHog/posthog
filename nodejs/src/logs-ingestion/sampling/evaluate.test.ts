@@ -4,6 +4,7 @@ import {
     SAMPLING_DECISION_DROP,
     SAMPLING_DECISION_SAMPLE_DROPPED,
     SAMPLING_DECISION_SAMPLE_KEPT,
+    classifySamplingRecord,
     evaluateLogRecord,
     severityOrdinalFromRecord,
 } from './evaluate'
@@ -157,5 +158,79 @@ describe('evaluateLogRecord', () => {
         }
         const elapsed = Date.now() - t0
         expect(elapsed).toBeLessThan(10_000)
+    })
+
+    it('compileRuleSet marks hasRateLimitRules for valid rate_limit config', () => {
+        const rs = compileRuleSet([
+            {
+                id: 'rl',
+                rule_type: 'rate_limit',
+                scope_service: 'api',
+                scope_path_pattern: null,
+                scope_attribute_filters: [],
+                config: { logs_per_second: 100, burst_logs: 300 },
+            },
+        ])
+        expect(rs.hasRateLimitRules).toBe(true)
+        expect(rs.rules[0]?.rateLimit).toEqual({ refillPerSecond: 100, poolMax: 300 })
+    })
+
+    it('classifySamplingRecord defers to rate_limit when first matching rule', () => {
+        const rules = compileRuleSet([
+            {
+                id: 'rl',
+                rule_type: 'rate_limit',
+                scope_service: 'api',
+                scope_path_pattern: null,
+                scope_attribute_filters: [],
+                config: { logs_per_second: 10 },
+            },
+        ])
+        const rec = baseRecord()
+        rec.service_name = 'api'
+        expect(classifySamplingRecord(rules, rec)).toEqual({ kind: 'rate_limit', ruleId: 'rl' })
+    })
+
+    it('classifySamplingRecord skips rate_limit when service scope does not match', () => {
+        const rules = compileRuleSet([
+            {
+                id: 'rl',
+                rule_type: 'rate_limit',
+                scope_service: 'other',
+                scope_path_pattern: null,
+                scope_attribute_filters: [],
+                config: { logs_per_second: 10 },
+            },
+        ])
+        const rec = baseRecord()
+        rec.service_name = 'api'
+        expect(classifySamplingRecord(rules, rec).kind).toBe('resolved')
+    })
+
+    it('path_drop match runs before rate_limit in rule order', () => {
+        const rules = compileRuleSet([
+            {
+                id: 'pd',
+                rule_type: 'path_drop',
+                scope_service: null,
+                scope_path_pattern: null,
+                scope_attribute_filters: [],
+                config: { patterns: ['/healthz'] },
+            },
+            {
+                id: 'rl',
+                rule_type: 'rate_limit',
+                scope_service: 'api',
+                scope_path_pattern: null,
+                scope_attribute_filters: [],
+                config: { logs_per_second: 10 },
+            },
+        ])
+        const rec = baseRecord()
+        expect(classifySamplingRecord(rules, rec)).toEqual({
+            kind: 'resolved',
+            decision: SAMPLING_DECISION_DROP,
+            ruleId: 'pd',
+        })
     })
 })

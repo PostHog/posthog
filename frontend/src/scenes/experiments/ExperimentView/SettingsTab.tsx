@@ -4,7 +4,6 @@ import { IconPencil } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, Link } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
 import { urls } from 'scenes/urls'
@@ -20,7 +19,6 @@ export function SettingsTab(): JSX.Element {
     const { updateExperiment } = useActions(experimentLogic)
     const { openStatsEngineModal } = useActions(modalsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const showMaturedUsersOption = useFeatureFlag('EXPERIMENTS_MATURED_USERS_FILTER')
 
     const isBayesian = statsMethod === ExperimentStatsMethod.Bayesian
 
@@ -46,28 +44,26 @@ export function SettingsTab(): JSX.Element {
                 </div>
                 <StatsMethodModal />
             </div>
-            {showMaturedUsersOption && (
-                <div>
-                    <h2 className="font-semibold text-lg">Conversion windows</h2>
-                    <div className="flex items-center gap-2">
-                        <LemonCheckbox
-                            label="Require completed conversion window"
-                            checked={experiment.only_count_matured_users ?? false}
-                            onChange={(checked) => {
-                                updateExperiment({ only_count_matured_users: checked })
-                            }}
-                        />
-                    </div>
-                    <p className="text-muted text-xs mt-1">
-                        Only count participants whose full conversion window has elapsed. Applies to metrics with a
-                        custom time window. Default is set in{' '}
-                        <Link to={urls.settings('environment-experiments', 'environment-experiment-matured-users')}>
-                            environment settings
-                        </Link>
-                        .
-                    </p>
+            <div>
+                <h2 className="font-semibold text-lg">Conversion windows</h2>
+                <div className="flex items-center gap-2">
+                    <LemonCheckbox
+                        label="Require completed conversion window"
+                        checked={experiment.only_count_matured_users ?? false}
+                        onChange={(checked) => {
+                            updateExperiment({ only_count_matured_users: checked })
+                        }}
+                    />
                 </div>
-            )}
+                <p className="text-muted text-xs mt-1">
+                    Only count participants whose full conversion window has elapsed. Applies to metrics with a custom
+                    time window. Default is set in{' '}
+                    <Link to={urls.settings('environment-experiments', 'environment-experiment-matured-users')}>
+                        environment settings
+                    </Link>
+                    .
+                </p>
+            </div>
             {shouldShowSignificanceAlerts && (
                 <div>
                     <h2 className="font-semibold text-lg">Notifications</h2>

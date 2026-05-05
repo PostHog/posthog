@@ -5,9 +5,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { LemonTagType, PaginationManual } from '@posthog/lemon-ui'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual, toParams } from 'lib/utils'
 import { FLAGS_PER_PAGE, type FeatureFlagsResult, featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { projectLogic } from 'scenes/projectLogic'
@@ -180,8 +178,6 @@ export const experimentsLogic = kea<experimentsLogicType>([
             ['currentProjectId'],
             userLogic,
             ['user', 'hasAvailableFeature'],
-            featureFlagLogic,
-            ['featureFlags'],
             featureFlagsLogic,
             ['featureFlags'],
             router,
@@ -480,10 +476,6 @@ export const experimentsLogic = kea<experimentsLogicType>([
                     entryCount: count,
                 }
             },
-        ],
-        webExperimentsAvailable: [
-            () => [featureFlagLogic.selectors.featureFlags],
-            (featureFlags: FeatureFlagsSet) => featureFlags[FEATURE_FLAGS.WEB_EXPERIMENTS],
         ],
         // TRICKY: we do not load all feature flags here, just the latest ones.
         unavailableFeatureFlagKeys: [
