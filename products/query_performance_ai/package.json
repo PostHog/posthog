@@ -1,6 +1,6 @@
 {
     "name": "@posthog/products-query-performance-ai",
     "scripts": {
-        "backend:test": "pytest products/query_performance_ai/orchestrator products/query_performance_ai/sandboxed_autoresearch_agent"
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. orchestrator sandboxed_autoresearch_agent -v --tb=short"
     }
 }
