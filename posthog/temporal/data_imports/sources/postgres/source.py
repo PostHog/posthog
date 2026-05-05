@@ -413,11 +413,9 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
         access_method: str,
         schema_name: Optional[str] = None,
     ) -> tuple[bool, str | None]:
-        if access_method != "direct":
-            schema = config.schema.strip() if isinstance(config.schema, str) else ""
-            if not schema and not schema_name:
-                return False, "Schema is required for warehouse imports."
-
+        # Both warehouse and direct now accept blank `schema` — discovery walks every non-system
+        # schema in that case. Each `ExternalDataSchema` row pins its own `(schema, table)` via
+        # `schema_metadata` populated by `reconcile_postgres_schemas`.
         return self.validate_credentials(config, team_id, schema_name=schema_name)
 
     def get_connection_metadata(
@@ -499,15 +497,16 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
         # CDC snapshot schemas fall through to run initial full_refresh via postgres_source()
         require_ssl = source_requires_ssl(schema.source, config)
 
+        # Prefer the per-row `schema_metadata.source_schema` so multi-schema warehouse sources work
+        # without needing to encode the schema in `config.schema`. Falls back to `config.schema` for
+        # legacy single-schema warehouse sources whose rows haven't been reconciled yet.
         return postgres_source(
             tunnel=ssh_tunnel,
             user=config.user,
             password=config.password,
             database=config.database,
             sslmode="prefer",
-            # config.schema wins so warehouse-mode renames flow through without rewriting
-            # schema_metadata. Falls back to source_schema for direct mode (browse-all).
-            schema=config.schema or source_schema or "public",
+            schema=source_schema or config.schema or "public",
             table_names=[source_table_name or inputs.schema_name],
             should_use_incremental_field=inputs.should_use_incremental_field,
             logger=inputs.logger,
@@ -518,4 +517,5 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
             team_id=inputs.team_id,
             require_ssl=require_ssl,
             is_initial_sync=not schema.initial_sync_complete,
+            synced_columns=schema.synced_columns,
         )

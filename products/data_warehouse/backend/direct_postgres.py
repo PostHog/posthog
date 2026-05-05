@@ -225,14 +225,61 @@ def rename_direct_postgres_join_references(*, team_id: int, old_name: str, new_n
     DataWarehouseJoin.objects.filter(team_id=team_id, joining_table_name=old_name).update(joining_table_name=new_name)
 
 
-def reconcile_direct_postgres_schemas(
+def filter_dwh_columns_by_synced_columns(
+    columns: DirectPostgresColumns,
+    synced_columns: list[str] | None,
+    primary_keys: list[str] | None,
+) -> DirectPostgresColumns:
+    """Project a `DataWarehouseTable.columns` dict down to user-selected `synced_columns` plus PKs.
+
+    `None`/empty `synced_columns` returns the dict unchanged."""
+    if not synced_columns:
+        return columns
+
+    retained: set[str] = set(synced_columns)
+    for pk in primary_keys or []:
+        retained.add(pk)
+
+    return {name: column for name, column in columns.items() if name in retained}
+
+
+def filter_columns_by_synced_columns(
+    columns: list[tuple[str, str, bool]],
+    synced_columns: list[str] | None,
+    primary_keys: list[str] | None,
+    incremental_field: str | None = None,
+) -> list[tuple[str, str, bool]]:
+    """Project `columns` down to user-selected `synced_columns` plus always-retained PK + incremental field.
+
+    `None`/empty `synced_columns` means no projection (return all). Always preserves source ordering.
+    """
+    if not synced_columns:
+        return columns
+
+    retained: set[str] = set(synced_columns)
+    for pk in primary_keys or []:
+        retained.add(pk)
+    if incremental_field:
+        retained.add(incremental_field)
+
+    return [col for col in columns if col[0] in retained]
+
+
+def reconcile_postgres_schemas(
     *,
     source: ExternalDataSource,
     source_schemas: list[SourceSchema],
     team_id: int,
 ) -> list[str]:
+    """Persist `schema_metadata` on every Postgres `ExternalDataSchema` and (for direct mode) upsert
+    the live-query `DataWarehouseTable`.
+
+    Generalized from the direct-only path so warehouse-mode sources also gain `schema_metadata` for
+    multi-schema discovery.
+    """
     from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
 
+    is_direct = source.is_direct_query
     source_schema_names = [schema.name for schema in source_schemas]
     schema_models = {
         schema.name: schema
@@ -253,6 +300,8 @@ def reconcile_direct_postgres_schemas(
             },
             default_schema=(source.job_inputs or {}).get("schema"),
         )
+        # `schema_metadata` carries the FULL column list so the column-picker UI can re-add
+        # excluded columns later. Per-row column projection lives on `synced_columns` separately.
         schema_metadata = postgres_schema_metadata(
             source_schema.columns,
             source_schema.foreign_keys,
@@ -263,15 +312,24 @@ def reconcile_direct_postgres_schemas(
         schema_model.sync_type_config = {**(schema_model.sync_type_config or {}), "schema_metadata": schema_metadata}
         schema_model.save(update_fields=["sync_type_config", "updated_at"])
 
+        if not is_direct:
+            # Warehouse mode: ingestion workflow creates/manages `DataWarehouseTable` itself.
+            continue
+
         if not schema_model.should_sync:
             hide_direct_postgres_table(schema_model.table)
             continue
 
+        projected_columns = filter_columns_by_synced_columns(
+            source_schema.columns,
+            schema_model.synced_columns,
+            source_schema.detected_primary_keys,
+        )
         table_model = upsert_direct_postgres_table(
             schema_model.table,
             schema_name=source_schema.name,
             source=source,
-            columns=postgres_columns_to_dwh_columns(source_schema.columns),
+            columns=postgres_columns_to_dwh_columns(projected_columns),
             source_catalog=resolved_source_catalog,
             source_schema=resolved_source_schema,
             source_table_name=resolved_source_table_name,
@@ -279,6 +337,12 @@ def reconcile_direct_postgres_schemas(
         if schema_model.table_id != table_model.id:
             schema_model.table = table_model
             schema_model.save(update_fields=["table"])
+
+    if not is_direct:
+        # Warehouse mode: don't soft-delete schemas that vanished from discovery here. The shared
+        # `sync_old_schemas_with_new_schemas` path already handles add/delete reconciliation for
+        # warehouse rows and is invoked alongside this function in `refresh_schemas`.
+        return []
 
     stale_schema_names: list[str] = []
     stale_schemas = ExternalDataSchema.objects.filter(
@@ -293,6 +357,16 @@ def reconcile_direct_postgres_schemas(
         stale_schema_names.append(stale_schema.name)
 
     return stale_schema_names
+
+
+def reconcile_direct_postgres_schemas(
+    *,
+    source: ExternalDataSource,
+    source_schemas: list[SourceSchema],
+    team_id: int,
+) -> list[str]:
+    """Deprecated alias retained for callers that pre-date warehouse-mode parity."""
+    return reconcile_postgres_schemas(source=source, source_schemas=source_schemas, team_id=team_id)
 
 
 def rename_direct_postgres_schemas_to_match_source_schemas(

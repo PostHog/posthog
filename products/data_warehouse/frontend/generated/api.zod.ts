@@ -122,6 +122,12 @@ export const ExternalDataSchemasCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'For CDC syncs: consolidated, cdc_only, or both.\n\n\* `consolidated` - consolidated\n\* `cdc_only` - cdc_only\n\* `both` - both'
         ),
+    synced_columns: zod
+        .array(zod.string())
+        .nullish()
+        .describe(
+            'Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.'
+        ),
 })
 
 export const ExternalDataSchemasUpdateBody = /* @__PURE__ */ zod.object({
@@ -190,6 +196,12 @@ export const ExternalDataSchemasUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'For CDC syncs: consolidated, cdc_only, or both.\n\n\* `consolidated` - consolidated\n\* `cdc_only` - cdc_only\n\* `both` - both'
+        ),
+    synced_columns: zod
+        .array(zod.string())
+        .nullish()
+        .describe(
+            'Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.'
         ),
 })
 
@@ -260,6 +272,12 @@ export const ExternalDataSchemasPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'For CDC syncs: consolidated, cdc_only, or both.\n\n\* `consolidated` - consolidated\n\* `cdc_only` - cdc_only\n\* `both` - both'
         ),
+    synced_columns: zod
+        .array(zod.string())
+        .nullish()
+        .describe(
+            'Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.'
+        ),
 })
 
 export const ExternalDataSchemasCancelCreateBody = /* @__PURE__ */ zod.object({
@@ -328,6 +346,12 @@ export const ExternalDataSchemasCancelCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'For CDC syncs: consolidated, cdc_only, or both.\n\n\* `consolidated` - consolidated\n\* `cdc_only` - cdc_only\n\* `both` - both'
+        ),
+    synced_columns: zod
+        .array(zod.string())
+        .nullish()
+        .describe(
+            'Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.'
         ),
 })
 
@@ -398,6 +422,12 @@ export const ExternalDataSchemasIncrementalFieldsCreateBody = /* @__PURE__ */ zo
         .describe(
             'For CDC syncs: consolidated, cdc_only, or both.\n\n\* `consolidated` - consolidated\n\* `cdc_only` - cdc_only\n\* `both` - both'
         ),
+    synced_columns: zod
+        .array(zod.string())
+        .nullish()
+        .describe(
+            'Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.'
+        ),
 })
 
 export const ExternalDataSchemasReloadCreateBody = /* @__PURE__ */ zod.object({
@@ -467,6 +497,12 @@ export const ExternalDataSchemasReloadCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'For CDC syncs: consolidated, cdc_only, or both.\n\n\* `consolidated` - consolidated\n\* `cdc_only` - cdc_only\n\* `both` - both'
         ),
+    synced_columns: zod
+        .array(zod.string())
+        .nullish()
+        .describe(
+            'Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.'
+        ),
 })
 
 export const ExternalDataSchemasResyncCreateBody = /* @__PURE__ */ zod.object({
@@ -535,6 +571,12 @@ export const ExternalDataSchemasResyncCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'For CDC syncs: consolidated, cdc_only, or both.\n\n\* `consolidated` - consolidated\n\* `cdc_only` - cdc_only\n\* `both` - both'
+        ),
+    synced_columns: zod
+        .array(zod.string())
+        .nullish()
+        .describe(
+            'Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.'
         ),
 })
 

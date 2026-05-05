@@ -136,7 +136,9 @@ class TestPostgresSourceNonRetryableErrors:
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Unrepresentable decimal error should be non-retryable: {error_msg}"
 
-    def test_validate_credentials_for_access_method_requires_schema_for_warehouse_imports(self, source):
+    def test_validate_credentials_for_access_method_allows_blank_schema_for_warehouse_imports(self, source):
+        # Multi-schema parity: warehouse mode now accepts blank `schema` (browse-all) just like
+        # direct mode. Each `ExternalDataSchema` row pins its own `(schema, table)` in metadata.
         config = source.parse_config(
             {
                 "host": "localhost",
@@ -148,10 +150,14 @@ class TestPostgresSourceNonRetryableErrors:
             }
         )
 
-        valid, error = source.validate_credentials_for_access_method(config, team_id=1, access_method="warehouse")
+        with mock.patch.object(source, "validate_credentials", return_value=(True, None)) as validate_credentials:
+            valid, error = source.validate_credentials_for_access_method(
+                config, team_id=1, access_method="warehouse"
+            )
 
-        assert valid is False
-        assert error == "Schema is required for warehouse imports."
+        assert valid is True
+        assert error is None
+        validate_credentials.assert_called_once_with(config, 1, schema_name=None)
 
     def test_validate_credentials_for_access_method_allows_blank_schema_for_direct_queries(self, source):
         config = source.parse_config(
@@ -490,6 +496,92 @@ class TestBuildQuery:
         assert "random() < 0.01" in rendered
         assert '"id"' in rendered
         assert "LIMIT 1000" in rendered
+
+    def test_synced_columns_emits_explicit_select_list(self):
+        query = _build_query(
+            "public",
+            "users",
+            False,
+            "table",
+            None,
+            None,
+            None,
+            synced_columns=["email", "name"],
+            primary_keys=["id"],
+        )
+        rendered = self._render(query)
+        # PK auto-included even though not listed.
+        assert '"email"' in rendered
+        assert '"name"' in rendered
+        assert '"id"' in rendered
+        assert "SELECT *" not in rendered
+
+    def test_synced_columns_preserves_user_order(self):
+        query = _build_query(
+            "public",
+            "users",
+            False,
+            "table",
+            None,
+            None,
+            None,
+            synced_columns=["zeta", "alpha"],
+            primary_keys=["id"],
+        )
+        rendered = self._render(query)
+        # User order preserved; PK appended at the end.
+        zeta_pos = rendered.index('"zeta"')
+        alpha_pos = rendered.index('"alpha"')
+        id_pos = rendered.index('"id"')
+        assert zeta_pos < alpha_pos < id_pos
+
+    def test_synced_columns_includes_incremental_field(self):
+        query = _build_query(
+            "public",
+            "events",
+            True,
+            "table",
+            "updated_at",
+            IncrementalFieldType.Timestamp,
+            "2024-01-01",
+            synced_columns=["payload"],
+            primary_keys=["id"],
+        )
+        rendered = self._render(query)
+        # Incremental field auto-included even though only "payload" was selected.
+        assert '"payload"' in rendered
+        assert '"updated_at"' in rendered
+        assert '"id"' in rendered
+
+    def test_synced_columns_none_is_select_star(self):
+        query = _build_query(
+            "public",
+            "users",
+            False,
+            "table",
+            None,
+            None,
+            None,
+            synced_columns=None,
+            primary_keys=["id"],
+        )
+        rendered = self._render(query)
+        assert "SELECT *" in rendered
+
+    def test_synced_columns_empty_list_is_select_star(self):
+        query = _build_query(
+            "public",
+            "users",
+            False,
+            "table",
+            None,
+            None,
+            None,
+            synced_columns=[],
+            primary_keys=["id"],
+        )
+        rendered = self._render(query)
+        assert "SELECT *" in rendered
 
 
 class TestBuildPartitionQuery:

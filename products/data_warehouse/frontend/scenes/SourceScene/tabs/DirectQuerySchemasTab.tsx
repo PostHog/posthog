@@ -21,6 +21,7 @@ import { ExternalDataSource, ExternalDataSourceSchema } from '~/types'
 import { SourceEditorAction } from 'products/data_warehouse/frontend/shared/components/SourceEditorAction'
 import { buildTableQueryUrl } from 'products/data_warehouse/frontend/utils'
 
+import { ColumnSelectionModal } from './ColumnSelectionModal'
 import { sourceSettingsLogic } from './sourceSettingsLogic'
 
 export function splitDirectQuerySchemaName(
@@ -81,6 +82,8 @@ export function DirectQuerySchemasTab({ id }: DirectQuerySchemasTabProps): JSX.E
         useValues(logic)
     const { setShowEnabledSchemasOnly, setSchemaNameFilter, refreshSchemas, updateSchema } = useActions(logic)
 
+    const [columnModalSchema, setColumnModalSchema] = useState<ExternalDataSourceSchema | null>(null)
+
     const directQueryDefaultSchema = typeof source?.job_inputs?.schema === 'string' ? source.job_inputs.schema : null
     const groupedSchemas = groupDirectQuerySourceSchemasBySchema(filteredSchemas, directQueryDefaultSchema)
 
@@ -120,6 +123,18 @@ export function DirectQuerySchemasTab({ id }: DirectQuerySchemasTabProps): JSX.E
                 groupedSchemas={groupedSchemas}
                 isLoading={sourceLoading}
                 updateSchema={updateSchema}
+                onConfigureColumns={setColumnModalSchema}
+            />
+            <ColumnSelectionModal
+                isOpen={columnModalSchema !== null}
+                schema={columnModalSchema}
+                onClose={() => setColumnModalSchema(null)}
+                onSave={(syncedColumns) => {
+                    if (columnModalSchema) {
+                        updateSchema({ ...columnModalSchema, synced_columns: syncedColumns })
+                    }
+                    setColumnModalSchema(null)
+                }}
             />
         </div>
     )
@@ -130,11 +145,13 @@ function DirectQuerySchemaGroups({
     groupedSchemas,
     isLoading,
     updateSchema,
+    onConfigureColumns,
 }: {
     source: ExternalDataSource | null
     groupedSchemas: { schemaName: string; schemas: ExternalDataSourceSchema[] }[]
     isLoading: boolean
     updateSchema: (schema: ExternalDataSourceSchema) => void
+    onConfigureColumns?: (schema: ExternalDataSourceSchema) => void
 }): JSX.Element {
     const [initialLoad, setInitialLoad] = useState(true)
     const groupedSchemaKeys = groupedSchemas.map((group) => group.schemaName)
@@ -241,7 +258,7 @@ function DirectQuerySchemaGroups({
                                     return (
                                         <div
                                             key={schema.id}
-                                            className="grid grid-cols-[auto_minmax(0,1fr)] gap-2 px-6 py-1 items-center"
+                                            className="grid grid-cols-[auto_minmax(0,1fr)_auto] gap-2 px-6 py-1 items-center"
                                         >
                                             <SourceEditorAction source={source}>
                                                 <LemonCheckbox
@@ -270,6 +287,17 @@ function DirectQuerySchemaGroups({
                                                     </Tooltip>
                                                 )}
                                             </div>
+                                            {onConfigureColumns && (
+                                                <SourceEditorAction source={source}>
+                                                    <LemonButton
+                                                        type="tertiary"
+                                                        size="xsmall"
+                                                        onClick={() => onConfigureColumns(schema)}
+                                                    >
+                                                        Columns
+                                                    </LemonButton>
+                                                </SourceEditorAction>
+                                            )}
                                         </div>
                                     )
                                 })}

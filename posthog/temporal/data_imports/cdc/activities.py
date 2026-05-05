@@ -27,6 +27,7 @@ from posthog.temporal.data_imports.cdc.batcher import (
     deduplicate_table,
     enrich_delete_rows,
 )
+from posthog.temporal.data_imports.cdc.types import ChangeEvent
 from posthog.temporal.data_imports.pipelines.pipeline_v3.kafka.common import SyncTypeLiteral
 from posthog.temporal.data_imports.pipelines.pipeline_v3.kafka.producer import KafkaBatchProducer
 from posthog.temporal.data_imports.pipelines.pipeline_v3.s3.writer import S3BatchWriter
@@ -100,6 +101,10 @@ class CDCExtractActivity:
         self.cdc_schemas: list[ExternalDataSchema] = []
         self.schema_by_name: dict[str, ExternalDataSchema] = {}
         self.pk_columns_by_table: dict[str, list[str]] = {}
+        # Per-table column projection. Keyed by `table_name` (matches `ChangeEvent.table_name`).
+        # Empty/missing entry = sync all columns. Populated alongside `pk_columns_by_table` in
+        # `_load_pk_columns`. PK columns are always retained regardless of `synced_columns`.
+        self.synced_columns_by_table: dict[str, set[str]] = {}
         self.write_trackers: dict[str, _WriteTracker] = {}
         self.created_jobs: list[ExternalDataJob] = []
         self.adapter: typing.Any = None
@@ -535,6 +540,38 @@ class CDCExtractActivity:
 
         self.log.info("pk_columns_loaded", tables=list(self.pk_columns_by_table.keys()))
 
+        for schema in self.cdc_schemas:
+            synced = schema.synced_columns
+            if isinstance(synced, list) and synced:
+                retained: set[str] = set(synced)
+                # PK columns are always retained — merges break without them.
+                for pk in self.pk_columns_by_table.get(schema.name, []):
+                    retained.add(pk)
+                # CDC schemas can also carry `incremental_field` (rare, but supported on the model).
+                inc = schema.incremental_field
+                if isinstance(inc, str) and inc:
+                    retained.add(inc)
+                self.synced_columns_by_table[schema.name] = retained
+
+    def _project_event_columns(self, event: ChangeEvent) -> ChangeEvent:
+        """Project `event.columns` down to the per-table `synced_columns` set if one is configured.
+
+        No-op when the table has no projection configured. PK + incremental field already merged
+        into the retained set in `_load_pk_columns`."""
+        retained = self.synced_columns_by_table.get(event.table_name)
+        if retained is None:
+            return event
+        filtered = {name: value for name, value in event.columns.items() if name in retained}
+        if filtered.keys() == event.columns.keys():
+            return event
+        return ChangeEvent(
+            operation=event.operation,
+            table_name=event.table_name,
+            position_serialized=event.position_serialized,
+            timestamp=event.timestamp,
+            columns=filtered,
+        )
+
     # ------------------------------------------------------------------
     # WAL read loop with periodic micro-batch flushes
     # ------------------------------------------------------------------
@@ -558,6 +595,7 @@ class CDCExtractActivity:
             if event.table_name not in cdc_table_names:
                 continue
 
+            event = self._project_event_columns(event)
             self.batcher.add(event)
             self.last_end_lsn = event.position_serialized
             self.event_count += 1

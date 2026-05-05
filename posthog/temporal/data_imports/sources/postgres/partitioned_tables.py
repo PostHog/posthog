@@ -497,6 +497,9 @@ def build_partition_query(
     incremental_field: Optional[str],
     incremental_field_type: Optional[IncrementalFieldType],
     db_incremental_field_last_value: Optional[Any],
+    *,
+    synced_columns: Optional[list[str]] = None,
+    primary_keys: Optional[list[str]] = None,
 ) -> sql.Composed:
     """Build a SELECT against one child partition.
 
@@ -507,8 +510,33 @@ def build_partition_query(
     pipeline can advance the incremental cursor per chunk via max() without risking
     data loss on restart; the non-incremental branch returns a bare SELECT *.
     """
+    select_clause: sql.Composable
+    if synced_columns:
+        retained: set[str] = set(synced_columns)
+        for pk in primary_keys or []:
+            retained.add(pk)
+        if incremental_field:
+            retained.add(incremental_field)
+        # Preserve user-specified order, then append PK + incremental field.
+        seen: set[str] = set()
+        ordered: list[str] = []
+        for column in synced_columns:
+            if column in retained and column not in seen:
+                seen.add(column)
+                ordered.append(column)
+        for column in primary_keys or []:
+            if column in retained and column not in seen:
+                seen.add(column)
+                ordered.append(column)
+        if incremental_field and incremental_field in retained and incremental_field not in seen:
+            ordered.append(incremental_field)
+        select_clause = sql.SQL(", ").join(sql.Identifier(c) for c in ordered)
+    else:
+        select_clause = sql.SQL("*")
+
     if not should_use_incremental_field:
-        return sql.SQL("SELECT * FROM {schema}.{table}").format(
+        return sql.SQL("SELECT {cols} FROM {schema}.{table}").format(
+            cols=select_clause,
             schema=sql.Identifier(child_schema),
             table=sql.Identifier(child_name),
         )
@@ -519,7 +547,8 @@ def build_partition_query(
     if db_incremental_field_last_value is None:
         db_incremental_field_last_value = incremental_type_to_initial_value(incremental_field_type)
 
-    return sql.SQL("SELECT * FROM {schema}.{table} WHERE {field} > {last_value} ORDER BY {field} ASC").format(
+    return sql.SQL("SELECT {cols} FROM {schema}.{table} WHERE {field} > {last_value} ORDER BY {field} ASC").format(
+        cols=select_clause,
         schema=sql.Identifier(child_schema),
         table=sql.Identifier(child_name),
         field=sql.Identifier(incremental_field),

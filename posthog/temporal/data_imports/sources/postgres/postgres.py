@@ -759,6 +759,40 @@ class SafeDateLoader(Loader):
         return date.max
 
 
+def _build_select_clause(
+    synced_columns: Optional[list[str]],
+    primary_keys: Optional[list[str]],
+    incremental_field: Optional[str],
+) -> sql.Composable:
+    """Build the column list for SELECT. Empty/None `synced_columns` returns `*`. Otherwise emit
+    `col1, col2, ...` with PK columns and the incremental field always retained, source order
+    preserved."""
+    if not synced_columns:
+        return sql.SQL("*")
+
+    retained: set[str] = set(synced_columns)
+    for pk in primary_keys or []:
+        retained.add(pk)
+    if incremental_field:
+        retained.add(incremental_field)
+
+    seen: set[str] = set()
+    ordered: list[str] = []
+    # Honor `synced_columns` order, then append any auto-included identifiers that weren't listed.
+    for column in synced_columns:
+        if column in retained and column not in seen:
+            seen.add(column)
+            ordered.append(column)
+    for column in primary_keys or []:
+        if column in retained and column not in seen:
+            seen.add(column)
+            ordered.append(column)
+    if incremental_field and incremental_field in retained and incremental_field not in seen:
+        ordered.append(incremental_field)
+
+    return sql.SQL(", ").join(sql.Identifier(column) for column in ordered)
+
+
 def _build_query(
     schema: str,
     table_name: str,
@@ -770,15 +804,25 @@ def _build_query(
     add_sampling: Optional[bool] = False,
     *,
     upper_bound_inclusive: Optional[Any] = None,
+    synced_columns: Optional[list[str]] = None,
+    primary_keys: Optional[list[str]] = None,
 ) -> sql.Composed:
+    select_clause = _build_select_clause(synced_columns, primary_keys, incremental_field)
+
     if not should_use_incremental_field:
         if add_sampling:
             if table_type == "view":
-                query = sql.SQL("SELECT * FROM {} WHERE random() < 0.01").format(sql.Identifier(schema, table_name))
+                query = sql.SQL("SELECT {cols} FROM {table} WHERE random() < 0.01").format(
+                    cols=select_clause, table=sql.Identifier(schema, table_name)
+                )
             else:
-                query = sql.SQL("SELECT * FROM {} TABLESAMPLE SYSTEM (1)").format(sql.Identifier(schema, table_name))
+                query = sql.SQL("SELECT {cols} FROM {table} TABLESAMPLE SYSTEM (1)").format(
+                    cols=select_clause, table=sql.Identifier(schema, table_name)
+                )
         else:
-            query = sql.SQL("SELECT * FROM {}").format(sql.Identifier(schema, table_name))
+            query = sql.SQL("SELECT {cols} FROM {table}").format(
+                cols=select_clause, table=sql.Identifier(schema, table_name)
+            )
 
         if add_sampling:
             query_with_limit = cast(LiteralString, f"{query.as_string()} LIMIT 1000")
@@ -795,8 +839,9 @@ def _build_query(
     if add_sampling:
         if table_type == "view":
             query = sql.SQL(
-                "SELECT * FROM {schema}.{table} WHERE {incremental_field} > {last_value} AND random() < 0.01"
+                "SELECT {cols} FROM {schema}.{table} WHERE {incremental_field} > {last_value} AND random() < 0.01"
             ).format(
+                cols=select_clause,
                 schema=sql.Identifier(schema),
                 table=sql.Identifier(table_name),
                 incremental_field=sql.Identifier(incremental_field),
@@ -804,15 +849,17 @@ def _build_query(
             )
         else:
             query = sql.SQL(
-                "SELECT * FROM {schema}.{table} TABLESAMPLE SYSTEM (1) WHERE {incremental_field} > {last_value}"
+                "SELECT {cols} FROM {schema}.{table} TABLESAMPLE SYSTEM (1) WHERE {incremental_field} > {last_value}"
             ).format(
+                cols=select_clause,
                 schema=sql.Identifier(schema),
                 table=sql.Identifier(table_name),
                 incremental_field=sql.Identifier(incremental_field),
                 last_value=sql.Literal(db_incremental_field_last_value),
             )
     else:
-        query = sql.SQL("SELECT * FROM {schema}.{table} WHERE {incremental_field} > {last_value}").format(
+        query = sql.SQL("SELECT {cols} FROM {schema}.{table} WHERE {incremental_field} > {last_value}").format(
+            cols=select_clause,
             schema=sql.Identifier(schema),
             table=sql.Identifier(table_name),
             incremental_field=sql.Identifier(incremental_field),
@@ -1442,6 +1489,22 @@ def _get_table(
     return Table(name=table_name, parents=(schema,), columns=columns, type=table_type)
 
 
+def _project_table_columns(
+    table: Table[PostgreSQLColumn],
+    retained: list[str] | None,
+) -> Table[PostgreSQLColumn]:
+    """Return a new `Table` whose columns are filtered to `retained` (in source order).
+
+    `None` retained returns the table unchanged. Columns missing from `retained` are dropped from
+    the Arrow schema so projected SELECT output zips correctly into the schema."""
+    if retained is None:
+        return table
+
+    retained_set = set(retained)
+    filtered = [column for column in table.columns if column.name in retained_set]
+    return Table(name=table.name, parents=table.parents, columns=filtered, type=table.type, alias=table.alias)
+
+
 def postgres_source(
     tunnel: Callable[[], _GeneratorContextManager[tuple[str, int]]],
     user: str,
@@ -1459,6 +1522,7 @@ def postgres_source(
     incremental_field_type: Optional[IncrementalFieldType] = None,
     require_ssl: bool = False,
     is_initial_sync: bool = False,
+    synced_columns: Optional[list[str]] = None,
 ) -> SourceResponse:
     table_name = table_names[0]
     if not table_name:
@@ -1498,13 +1562,41 @@ def postgres_source(
                 # `is_initial_sync or full_table_scan` gating used a few lines below for
                 # partitioned-table row estimation.
                 fresh_schema_being_created = is_initial_sync or db_incremental_field_last_value is None
-                table = _get_table(
+                full_table = _get_table(
                     cursor,
                     schema,
                     table_name,
                     logger,
                     probe_unconstrained_numeric_scale=fresh_schema_being_created,
                 )
+
+                cursor.execute(
+                    sql.SQL("SET LOCAL statement_timeout = {timeout}").format(
+                        timeout=sql.Literal(1000 * 60 * 10)  # 10 mins
+                    )
+                )
+
+                logger.debug("Checking if source is a read replica...")
+                using_read_replica = _is_read_replica(cursor)
+                logger.debug(f"using_read_replica = {using_read_replica}")
+                logger.debug("Getting primary keys...")
+                primary_keys = _get_primary_keys(cursor, schema, table_name, logger)
+                if primary_keys:
+                    logger.debug(f"Found primary keys: {primary_keys}")
+
+                # Compute the retained column list once: user-selected `synced_columns` + PKs + the
+                # active incremental field. Project the schema and SELECT clauses so the Arrow
+                # schema matches the columns the cursor returns.
+                retained_columns: list[str] | None = None
+                if synced_columns:
+                    retained_set: set[str] = set(synced_columns)
+                    for pk in primary_keys or []:
+                        retained_set.add(pk)
+                    if incremental_field:
+                        retained_set.add(incremental_field)
+                    retained_columns = [column.name for column in full_table.columns if column.name in retained_set]
+
+                table = _project_table_columns(full_table, retained_columns)
                 logger.debug(f"Source schema: {table.to_arrow_schema()}")
 
                 inner_query_with_limit = _build_query(
@@ -1516,6 +1608,8 @@ def postgres_source(
                     incremental_field_type,
                     db_incremental_field_last_value,
                     add_sampling=True,
+                    synced_columns=synced_columns,
+                    primary_keys=primary_keys,
                 )
 
                 count_query = _build_count_query(
@@ -1526,19 +1620,8 @@ def postgres_source(
                     incremental_field_type,
                     db_incremental_field_last_value,
                 )
-                cursor.execute(
-                    sql.SQL("SET LOCAL statement_timeout = {timeout}").format(
-                        timeout=sql.Literal(1000 * 60 * 10)  # 10 mins
-                    )
-                )
+
                 try:
-                    logger.debug("Checking if source is a read replica...")
-                    using_read_replica = _is_read_replica(cursor)
-                    logger.debug(f"using_read_replica = {using_read_replica}")
-                    logger.debug("Getting primary keys...")
-                    primary_keys = _get_primary_keys(cursor, schema, table_name, logger)
-                    if primary_keys:
-                        logger.debug(f"Found primary keys: {primary_keys}")
                     logger.debug("Checking if table is partitioned...")
                     is_partitioned = False
                     child_partitions: list = []
@@ -1712,6 +1795,8 @@ def postgres_source(
                     incremental_field,
                     incremental_field_type,
                     db_incremental_field_last_value,
+                    synced_columns=synced_columns,
+                    primary_keys=primary_keys,
                 )
 
                 successive_errors = 0
@@ -1783,6 +1868,8 @@ def postgres_source(
                         incremental_field,
                         incremental_field_type,
                         db_incremental_field_last_value,
+                        synced_columns=synced_columns,
+                        primary_keys=primary_keys,
                     )
 
                 yield from iterate_partitions(
@@ -1812,6 +1899,8 @@ def postgres_source(
                         incremental_field_type,
                         lo,
                         upper_bound_inclusive=hi,
+                        synced_columns=synced_columns,
+                        primary_keys=primary_keys,
                     )
 
                 yield from iterate_date_windows(
@@ -1842,6 +1931,8 @@ def postgres_source(
                             incremental_field,
                             incremental_field_type,
                             db_incremental_field_last_value,
+                            synced_columns=synced_columns,
+                            primary_keys=primary_keys,
                         )
                         logger.debug(f"Postgres query: {query.as_string()}")
 

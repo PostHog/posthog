@@ -74,6 +74,9 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     sync_time_of_day = models.TimeField(null=True, blank=True, help_text="Time of day to run the sync (UTC)")
     initial_sync_complete = models.BooleanField(default=False)
     description = models.CharField(max_length=1000, null=True, blank=True)
+    # null = sync all columns (default). Non-empty list = exact column projection.
+    # PK + active incremental field are always retained server-side regardless of this list.
+    synced_columns = models.JSONField(null=True, blank=True, default=None)
 
     __repr__ = sane_repr("name")
 

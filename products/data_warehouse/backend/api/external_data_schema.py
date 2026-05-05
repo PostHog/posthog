@@ -5,7 +5,7 @@ from typing import Any, Optional
 
 import structlog
 import temporalio
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import filters, serializers, status, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
@@ -34,6 +34,7 @@ from products.data_warehouse.backend.data_load.service import (
     unpause_external_data_schedule,
 )
 from products.data_warehouse.backend.direct_postgres import (
+    filter_dwh_columns_by_synced_columns as _filter_dwh_columns_by_synced_columns,
     get_direct_postgres_location,
     hide_direct_postgres_table,
     postgres_schema_metadata_to_dwh_columns,
@@ -106,6 +107,21 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text="For CDC syncs: consolidated, cdc_only, or both.",
     )
+    synced_columns = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Names of source columns to sync. `null` (default) syncs all columns. "
+            "Primary-key columns and the active incremental field are always retained, "
+            "even if not listed here."
+        ),
+    )
+    available_columns = serializers.SerializerMethodField(
+        read_only=True,
+        help_text="Source-side column metadata (name, data type, nullable) discovered for this schema. "
+        "Empty until the source has been refreshed via `refresh_schemas`.",
+    )
 
     class Meta:
         model = ExternalDataSchema
@@ -128,6 +144,8 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             "description",
             "primary_key_columns",
             "cdc_table_mode",
+            "synced_columns",
+            "available_columns",
         ]
 
         read_only_fields = [
@@ -139,6 +157,36 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             "latest_error",
             "status",
             "description",
+            "available_columns",
+        ]
+
+    @extend_schema_field(
+        {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "data_type": {"type": "string"},
+                    "is_nullable": {"type": "boolean"},
+                },
+                "required": ["name"],
+            },
+        }
+    )
+    def get_available_columns(self, schema: ExternalDataSchema) -> list[dict[str, Any]]:
+        metadata = schema.schema_metadata or {}
+        columns = metadata.get("columns") if isinstance(metadata, dict) else None
+        if not isinstance(columns, list):
+            return []
+        return [
+            {
+                "name": column.get("name"),
+                "data_type": column.get("data_type"),
+                "is_nullable": column.get("is_nullable"),
+            }
+            for column in columns
+            if isinstance(column, dict) and isinstance(column.get("name"), str)
         ]
 
     def get_status(self, schema: ExternalDataSchema) -> str | None:
@@ -203,6 +251,28 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         validated_data.pop("incremental_field_type", None)
         validated_data.pop("primary_key_columns", None)
         validated_data.pop("cdc_table_mode", None)
+
+        if "synced_columns" in validated_data:
+            synced_columns = validated_data["synced_columns"]
+            if synced_columns is not None:
+                if not isinstance(synced_columns, list) or not all(isinstance(c, str) for c in synced_columns):
+                    raise ValidationError("synced_columns must be a list of column-name strings or null.")
+                if len(synced_columns) == 0:
+                    raise ValidationError("synced_columns must be null to sync all columns; empty list is invalid.")
+                metadata = instance.schema_metadata or {}
+                metadata_columns = metadata.get("columns") if isinstance(metadata, dict) else None
+                known = (
+                    {col.get("name") for col in metadata_columns if isinstance(col, dict)}
+                    if isinstance(metadata_columns, list)
+                    else set()
+                )
+                if known:
+                    unknown = [c for c in synced_columns if c not in known]
+                    if unknown:
+                        raise ValidationError(
+                            f"Unknown columns in synced_columns: {sorted(unknown)}. "
+                            "Run `Pull new schemas` to refresh available columns."
+                        )
 
         sync_type = data.get("sync_type")
 
@@ -331,6 +401,9 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             trigger_refresh = True
 
         if source.is_direct_postgres:
+            synced_columns_changed = "synced_columns" in validated_data and (
+                validated_data["synced_columns"] != instance.synced_columns
+            )
             # We use "should_sync" to determine if the table should be exposed or hidden.
             if should_sync is True and instance.should_sync is False:
                 source_catalog, source_schema, source_table_name = get_direct_postgres_location(
@@ -342,7 +415,33 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                     instance.table,
                     schema_name=instance.name,
                     source=source,
-                    columns=postgres_schema_metadata_to_dwh_columns(instance.schema_metadata),
+                    columns=_filter_dwh_columns_by_synced_columns(
+                        postgres_schema_metadata_to_dwh_columns(instance.schema_metadata),
+                        validated_data.get("synced_columns", instance.synced_columns),
+                        instance.primary_key_columns,
+                    ),
+                    source_catalog=source_catalog,
+                    source_schema=source_schema,
+                    source_table_name=source_table_name,
+                )
+
+            elif synced_columns_changed and instance.table is not None and instance.should_sync:
+                # Re-project the live-query DataWarehouseTable so HogQL sees the new column subset
+                # immediately (no re-sync needed for direct mode).
+                source_catalog, source_schema, source_table_name = get_direct_postgres_location(
+                    schema_name=instance.name,
+                    schema_metadata=instance.schema_metadata,
+                    default_schema=(source.job_inputs or {}).get("schema"),
+                )
+                validated_data["table"] = upsert_direct_postgres_table(
+                    instance.table,
+                    schema_name=instance.name,
+                    source=source,
+                    columns=_filter_dwh_columns_by_synced_columns(
+                        postgres_schema_metadata_to_dwh_columns(instance.schema_metadata),
+                        validated_data["synced_columns"],
+                        instance.primary_key_columns,
+                    ),
                     source_catalog=source_catalog,
                     source_schema=source_schema,
                     source_table_name=source_table_name,

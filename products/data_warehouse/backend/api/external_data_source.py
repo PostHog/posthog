@@ -67,7 +67,7 @@ from products.data_warehouse.backend.data_load.service import (
 from products.data_warehouse.backend.direct_postgres import (
     get_direct_postgres_location,
     postgres_schema_metadata,
-    reconcile_direct_postgres_schemas,
+    reconcile_postgres_schemas,
     rename_direct_postgres_schemas_to_match_source_schemas,
     upsert_direct_postgres_table,
 )
@@ -683,7 +683,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                     team_id=instance.team_id,
                     descriptions=descriptions,
                 )
-                reconcile_direct_postgres_schemas(
+                reconcile_postgres_schemas(
                     source=updated_source,
                     source_schemas=discovered_schemas,
                     team_id=instance.team_id,
@@ -1442,8 +1442,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 descriptions=descriptions,
             )
 
-            if instance.is_direct_postgres:
-                reconciled_deleted_schemas = reconcile_direct_postgres_schemas(
+            # Postgres sources (both warehouse and direct) persist `schema_metadata` on every row
+            # so multi-schema sync resolves the source `(schema, table)` per-row instead of from
+            # `config.schema`. Direct mode additionally reconciles the live-query
+            # `DataWarehouseTable`; the helper internally branches on `source.is_direct_query`.
+            if instance.source_type == ExternalDataSourceType.POSTGRES:
+                reconciled_deleted_schemas = reconcile_postgres_schemas(
                     source=instance,
                     source_schemas=schemas,
                     team_id=self.team_id,
