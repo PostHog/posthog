@@ -12,22 +12,28 @@ describe('chunkLoadErrorRecovery', () => {
         clearChunkLoadReloadAttempt()
     })
 
-    it('detects webpack chunk load errors', () => {
-        const error = new Error('Loading chunk 123 failed.')
-        error.name = 'ChunkLoadError'
-
-        expect(isChunkLoadError(error)).toBe(true)
-    })
-
-    it('detects esbuild dynamic import failures', () => {
-        expect(
-            isChunkLoadError(new Error('Failed to fetch dynamically imported module: /static/chunk-123.js'))
-        ).toBe(true)
-    })
-
-    it('ignores unrelated errors', () => {
-        expect(isChunkLoadError(new Error('TypeError: cannot read properties of undefined'))).toBe(false)
-        expect(getChunkLoadRecoveryAction(new Error('TypeError: cannot read properties of undefined'))).toBe('ignore')
+    it.each([
+        {
+            name: 'detects webpack chunk load errors',
+            error: Object.assign(new Error('Loading chunk 123 failed.'), { name: 'ChunkLoadError' }),
+            isChunkLoadErrorExpected: true,
+            recoveryActionExpected: 'reload',
+        },
+        {
+            name: 'detects esbuild dynamic import failures',
+            error: new Error('Failed to fetch dynamically imported module: /static/chunk-123.js'),
+            isChunkLoadErrorExpected: true,
+            recoveryActionExpected: 'reload',
+        },
+        {
+            name: 'ignores unrelated errors',
+            error: new Error('TypeError: cannot read properties of undefined'),
+            isChunkLoadErrorExpected: false,
+            recoveryActionExpected: 'ignore',
+        },
+    ])('$name', ({ error, isChunkLoadErrorExpected, recoveryActionExpected }) => {
+        expect(isChunkLoadError(error)).toBe(isChunkLoadErrorExpected)
+        expect(getChunkLoadRecoveryAction(error)).toBe(recoveryActionExpected)
     })
 
     it('reloads on the first chunk load failure', () => {
