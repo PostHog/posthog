@@ -76,7 +76,7 @@ describe('llmTaggerLogic', () => {
                 '/api/environments/:team_id/taggers/:id/': mockTagger,
             },
             post: {
-                '/api/environments/:team_id/query/': { results: [] },
+                '/api/environments/:team_id/query/:kind': { results: [] },
             },
         })
         initKeaTests()
@@ -485,7 +485,7 @@ describe('llmTaggerLogic', () => {
             // Now override the query mock and reload
             useMocks({
                 post: {
-                    '/api/environments/:team_id/query/': {
+                    '/api/environments/:team_id/query/:kind': {
                         results: [
                             [
                                 '2024-01-01T12:00:00Z',
