@@ -1,9 +1,10 @@
 import { BindLogic, BuiltLogic, Logic, LogicWrapper, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
+import { useState } from 'react'
 
 import { IconClock, IconCopy, IconRefresh, IconTrash, IconUpload, IconWarning } from '@posthog/icons'
-import { LemonBanner, LemonDialog, LemonDivider, LemonFileInput, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonDialog, LemonDivider, LemonFileInput, LemonTabs, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
@@ -101,6 +102,8 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
     const { featureFlags } = useValues(featureFlagLogic)
     const { canCopyToProject } = useValues(interProjectCopyLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
+
+    const [activeTab, setActiveTab] = useState<'overview' | 'history'>('overview')
 
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
     const dataNodeLogicKey = createCohortDataNodeLogicKey(cohort.id)
@@ -288,373 +291,390 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                             />
                         </LemonField>
 
-                        <SceneSection
-                            title="Type"
-                            description="Static cohorts are created once and never updated, while dynamic cohorts are recalculated based on the latest data."
-                            className="max-w-200 flex flex-col gap-y-2"
-                            hideTitleAndDescription
-                        >
-                            <div className="flex gap-4 flex-wrap">
-                                <div className={cn('flex-1 flex flex-col gap-y-4')}>
-                                    <LemonField name="is_static" label={null}>
-                                        {({ value, onChange }) => (
-                                            <LemonSelect
-                                                disabledReason={
-                                                    isNewCohort
-                                                        ? null
-                                                        : 'Create a new cohort to use a different type of cohort.'
-                                                }
-                                                options={COHORT_TYPE_OPTIONS}
-                                                value={value ? CohortTypeEnum.Static : CohortTypeEnum.Dynamic}
-                                                onChange={(cohortType) => {
-                                                    onChange(cohortType === CohortTypeEnum.Static)
-                                                }}
-                                                fullWidth
-                                                data-attr="cohort-type"
-                                            />
-                                        )}
-                                    </LemonField>
+                        {!isNewCohort && (
+                            <LemonTabs
+                                activeKey={activeTab}
+                                onChange={(key) => setActiveTab(key)}
+                                tabs={[
+                                    { key: 'overview', label: 'Overview' },
+                                    { key: 'history', label: 'History' },
+                                ]}
+                            />
+                        )}
 
-                                    {cohort.is_static && (
-                                        <div className="flex flex-col gap-y-2">
-                                            <h2 className="text-base mb-0">Populate from</h2>
-                                            <p className="text-sm text-secondary my-0 max-w-prose">
-                                                {staticCohortMode === 'criteria'
-                                                    ? 'People matching the criteria below will be snapshotted into a fixed list when the cohort is created. Unlike a dynamic cohort, the list will not update as people change.'
-                                                    : 'Manually add people via CSV upload or by selecting them individually.'}
-                                            </p>
-                                            <LemonSelect
-                                                disabledReason={
-                                                    isNewCohort
-                                                        ? undefined
-                                                        : 'Create a new cohort to change how a static cohort is populated.'
-                                                }
-                                                options={[
-                                                    {
-                                                        label: 'Criteria · One-time snapshot',
-                                                        value: 'criteria' as const,
-                                                    },
-                                                    {
-                                                        label: 'Upload or add people',
-                                                        value: 'people' as const,
-                                                    },
-                                                ]}
-                                                value={staticCohortMode}
-                                                onChange={(value) => setStaticCohortMode(value)}
-                                                fullWidth
-                                                data-attr="static-cohort-mode"
-                                            />
-                                        </div>
-                                    )}
+                        {activeTab === 'history' && typeof cohort.id === 'number' ? (
+                            <SceneSection
+                                title="History"
+                                description="Track changes made to this cohort over time."
+                                hideTitleAndDescription
+                            >
+                                <ActivityLog scope={ActivityScope.COHORT} id={cohort.id} />
+                            </SceneSection>
+                        ) : null}
 
-                                    {!isNewCohort && !cohort?.is_static && (
-                                        <div className="flex flex-col gap-y-2">
-                                            <div className="flex items-center gap-x-2 my-0">
-                                                <strong>Last calculated:</strong>
-                                                {isCalculatingOrPending ? (
-                                                    <div className="flex items-center gap-x-2">
-                                                        <Spinner size="small" />
-                                                        <span className="text-muted">In progress...</span>
-                                                    </div>
-                                                ) : cohort.last_calculation ? (
-                                                    <TZLabel time={cohort.last_calculation} />
-                                                ) : (
-                                                    <span className="text-muted">Not yet calculated</span>
-                                                )}
-                                            </div>
-
-                                            {isCalculatingOrPending ? (
-                                                <LemonBanner type="warning">
-                                                    {isPendingCalculation && !cohort.is_calculating
-                                                        ? cohort.last_calculation
-                                                            ? "We're queuing a recalculation. The table below shows results from the previous calculation."
-                                                            : "We're queuing the calculation. It should be ready in a few minutes."
-                                                        : cohort.last_calculation
-                                                          ? "We're recalculating the cohort. The table below shows results from the previous calculation."
-                                                          : "We're calculating the cohort. It should be ready in a few minutes."}
-                                                </LemonBanner>
-                                            ) : cohort.errors_calculating ? (
-                                                <LemonBanner
-                                                    type="error"
-                                                    action={{
-                                                        onClick: () => submitCohort(),
-                                                        children: 'Retry',
+                        <div className={cn(activeTab === 'overview' ? 'contents' : 'hidden')}>
+                            <SceneSection
+                                title="Type"
+                                description="Static cohorts are created once and never updated, while dynamic cohorts are recalculated based on the latest data."
+                                className="max-w-200 flex flex-col gap-y-2"
+                                hideTitleAndDescription
+                            >
+                                <div className="flex gap-4 flex-wrap">
+                                    <div className={cn('flex-1 flex flex-col gap-y-4')}>
+                                        <LemonField name="is_static" label={null}>
+                                            {({ value, onChange }) => (
+                                                <LemonSelect
+                                                    disabledReason={
+                                                        isNewCohort
+                                                            ? null
+                                                            : 'Create a new cohort to use a different type of cohort.'
+                                                    }
+                                                    options={COHORT_TYPE_OPTIONS}
+                                                    value={value ? CohortTypeEnum.Static : CohortTypeEnum.Dynamic}
+                                                    onChange={(cohortType) => {
+                                                        onChange(cohortType === CohortTypeEnum.Static)
                                                     }}
-                                                >
-                                                    <strong>Calculation failed:</strong>{' '}
-                                                    {cohort.last_error_message ||
-                                                        'Unable to calculate this cohort. Please check your matching criteria and try again.'}{' '}
-                                                    If it fails again,{' '}
-                                                    <Link
-                                                        onClick={() =>
-                                                            openSidePanel(SidePanelTab.Support, 'bug:cohorts::true')
-                                                        }
-                                                    >
-                                                        contact support
-                                                    </Link>
-                                                    .
-                                                </LemonBanner>
-                                            ) : null}
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        </SceneSection>
-                        {cohort.is_static && staticCohortMode === 'criteria' ? (
-                            <>
-                                <SceneDivider />
-                                <SceneSection hideTitleAndDescription>
-                                    {!isNewCohort && (
-                                        <LemonBanner type="info" className="mb-4">
-                                            This static cohort was snapshotted from criteria at creation time. Editing
-                                            these criteria is not supported. Create a new cohort to use different
-                                            criteria.
-                                        </LemonBanner>
-                                    )}
-                                    <AndOrFilterSelect
-                                        value={cohort.filters.properties.type}
-                                        onChange={(value) => {
-                                            setOuterGroupsType(value)
-                                        }}
-                                        topLevelFilter={true}
-                                        suffix={['criterion', 'criteria']}
-                                        disabledReason={
-                                            isNewCohort ? undefined : 'Create a new cohort to use different criteria.'
-                                        }
-                                    />
-                                    <div
-                                        className={cn(
-                                            'w-full [&>div]:my-0 [&>div]:w-full',
-                                            !isNewCohort && 'pointer-events-none opacity-60'
+                                                    fullWidth
+                                                    data-attr="cohort-type"
+                                                />
+                                            )}
+                                        </LemonField>
+
+                                        {cohort.is_static && (
+                                            <div className="flex flex-col gap-y-2">
+                                                <h2 className="text-base mb-0">Populate from</h2>
+                                                <p className="text-sm text-secondary my-0 max-w-prose">
+                                                    {staticCohortMode === 'criteria'
+                                                        ? 'People matching the criteria below will be snapshotted into a fixed list when the cohort is created. Unlike a dynamic cohort, the list will not update as people change.'
+                                                        : 'Manually add people via CSV upload or by selecting them individually.'}
+                                                </p>
+                                                <LemonSelect
+                                                    disabledReason={
+                                                        isNewCohort
+                                                            ? undefined
+                                                            : 'Create a new cohort to change how a static cohort is populated.'
+                                                    }
+                                                    options={[
+                                                        {
+                                                            label: 'Criteria · One-time snapshot',
+                                                            value: 'criteria' as const,
+                                                        },
+                                                        {
+                                                            label: 'Upload or add people',
+                                                            value: 'people' as const,
+                                                        },
+                                                    ]}
+                                                    value={staticCohortMode}
+                                                    onChange={(value) => setStaticCohortMode(value)}
+                                                    fullWidth
+                                                    data-attr="static-cohort-mode"
+                                                />
+                                            </div>
                                         )}
-                                        aria-disabled={!isNewCohort}
-                                    >
-                                        <CohortCriteriaGroups id={logicProps.id} />
+
+                                        {!isNewCohort && !cohort?.is_static && (
+                                            <div className="flex flex-col gap-y-2">
+                                                <div className="flex items-center gap-x-2 my-0">
+                                                    <strong>Last calculated:</strong>
+                                                    {isCalculatingOrPending ? (
+                                                        <div className="flex items-center gap-x-2">
+                                                            <Spinner size="small" />
+                                                            <span className="text-muted">In progress...</span>
+                                                        </div>
+                                                    ) : cohort.last_calculation ? (
+                                                        <TZLabel time={cohort.last_calculation} />
+                                                    ) : (
+                                                        <span className="text-muted">Not yet calculated</span>
+                                                    )}
+                                                </div>
+
+                                                {isCalculatingOrPending ? (
+                                                    <LemonBanner type="warning">
+                                                        {isPendingCalculation && !cohort.is_calculating
+                                                            ? cohort.last_calculation
+                                                                ? "We're queuing a recalculation. The table below shows results from the previous calculation."
+                                                                : "We're queuing the calculation. It should be ready in a few minutes."
+                                                            : cohort.last_calculation
+                                                              ? "We're recalculating the cohort. The table below shows results from the previous calculation."
+                                                              : "We're calculating the cohort. It should be ready in a few minutes."}
+                                                    </LemonBanner>
+                                                ) : cohort.errors_calculating ? (
+                                                    <LemonBanner
+                                                        type="error"
+                                                        action={{
+                                                            onClick: () => submitCohort(),
+                                                            children: 'Retry',
+                                                        }}
+                                                    >
+                                                        <strong>Calculation failed:</strong>{' '}
+                                                        {cohort.last_error_message ||
+                                                            'Unable to calculate this cohort. Please check your matching criteria and try again.'}{' '}
+                                                        If it fails again,{' '}
+                                                        <Link
+                                                            onClick={() =>
+                                                                openSidePanel(SidePanelTab.Support, 'bug:cohorts::true')
+                                                            }
+                                                        >
+                                                            contact support
+                                                        </Link>
+                                                        .
+                                                    </LemonBanner>
+                                                ) : null}
+                                            </div>
+                                        )}
                                     </div>
-                                </SceneSection>
-                            </>
-                        ) : cohort.is_static ? (
-                            <>
-                                <SceneDivider />
-                                <SceneSection
-                                    title={isNewCohort ? 'Upload users' : 'Add users'}
-                                    description={
-                                        isNewCohort
-                                            ? `Upload a CSV file to add users to your cohort. For single-column files, include
+                                </div>
+                            </SceneSection>
+                            {cohort.is_static && staticCohortMode === 'criteria' ? (
+                                <>
+                                    <SceneDivider />
+                                    <SceneSection hideTitleAndDescription>
+                                        {!isNewCohort && (
+                                            <LemonBanner type="info" className="mb-4">
+                                                This static cohort was snapshotted from criteria at creation time.
+                                                Editing these criteria is not supported. Create a new cohort to use
+                                                different criteria.
+                                            </LemonBanner>
+                                        )}
+                                        <AndOrFilterSelect
+                                            value={cohort.filters.properties.type}
+                                            onChange={(value) => {
+                                                setOuterGroupsType(value)
+                                            }}
+                                            topLevelFilter={true}
+                                            suffix={['criterion', 'criteria']}
+                                            disabledReason={
+                                                isNewCohort
+                                                    ? undefined
+                                                    : 'Create a new cohort to use different criteria.'
+                                            }
+                                        />
+                                        <div
+                                            className={cn(
+                                                'w-full [&>div]:my-0 [&>div]:w-full',
+                                                !isNewCohort && 'pointer-events-none opacity-60'
+                                            )}
+                                            aria-disabled={!isNewCohort}
+                                        >
+                                            <CohortCriteriaGroups id={logicProps.id} />
+                                        </div>
+                                    </SceneSection>
+                                </>
+                            ) : cohort.is_static ? (
+                                <>
+                                    <SceneDivider />
+                                    <SceneSection
+                                        title={isNewCohort ? 'Upload users' : 'Add users'}
+                                        description={
+                                            isNewCohort
+                                                ? `Upload a CSV file to add users to your cohort. For single-column files, include
                                         one distinct ID per row (all rows will be processed as data). For multi-column
                                         files, include a header row with a 'person_id', 'distinct_id', or 'email' column
                                         containing the user identifiers.`
-                                            : undefined
-                                    }
-                                    className={cn('ph-ignore-input')}
-                                >
-                                    {!isNewCohort && (
-                                        <div className="flex flex-col gap-y-0 flex-1 justify-center">
-                                            <h3 className="text-sm">Upload a CSV</h3>
-                                            <span className="max-w-prose">
-                                                Upload a CSV file to add users to your cohort. For single-column files,
-                                                include one distinct ID per row (all rows will be processed as data).
-                                                For multi-column files, include a header row with a 'person_id',
-                                                'distinct_id', or 'email' column containing the user identifiers.
-                                            </span>
-                                        </div>
-                                    )}
-                                    {/* TODO: @adamleithp Allow users to download a template CSV file */}
-                                    {/* TODO: @adamleithp Tell users that adding ANOTHER file will NOT(?) replace the current one */}
-                                    {/* TODO: @adamleithp Render the csv file and validate it */}
-                                    {/* TODO: @adamleithp Adding a csv file doesn't show up with cohort.csv... */}
-                                    <LemonField name="csv" data-attr="cohort-csv">
-                                        {({ onChange }) => (
-                                            <LemonFileInput
-                                                accept=".csv"
-                                                multiple={false}
-                                                value={cohort.csv ? [cohort.csv] : []}
-                                                onChange={(files) => onChange(files[0])}
-                                                showUploadedFiles={false}
-                                                callToAction={
-                                                    <div
-                                                        className={cn(
-                                                            'flex flex-col items-center justify-center flex-1 cohort-csv-dragger text-text-3000 deprecated-space-y-1',
-                                                            'text-primary mt-0 bg-transparent border border-dashed border-primary hover:border-secondary p-8',
-                                                            cohort.csv?.name && 'border-success'
-                                                        )}
-                                                    >
-                                                        {cohort.csv ? (
-                                                            <>
-                                                                <IconUpload
-                                                                    style={{
-                                                                        fontSize: '3rem',
-                                                                        color: 'var(--color-text-primary)',
-                                                                    }}
-                                                                />
-                                                                <div>{cohort.csv?.name ?? 'File chosen'}</div>
-                                                            </>
-                                                        ) : (
-                                                            <>
-                                                                <IconUpload
-                                                                    style={{
-                                                                        fontSize: '3rem',
-                                                                        color: 'var(--color-text-primary)',
-                                                                    }}
-                                                                />
-                                                                <div>
-                                                                    Drag a file here or click to browse for a file
-                                                                </div>
-                                                                <div className="text-secondary text-xs">
-                                                                    Accepts .csv files only
-                                                                </div>
-                                                            </>
-                                                        )}
-                                                    </div>
-                                                }
-                                            />
-                                        )}
-                                    </LemonField>
-                                </SceneSection>
-                                {isNewCohort && (
-                                    <>
-                                        <LemonDivider label="OR" />
-                                        <div>
-                                            <h3 className="font-semibold my-0 mb-1 max-w-prose">Add users manually</h3>
-                                            <span className="max-w-prose">
-                                                Select the users that you would like to add to the new cohort.
-                                            </span>
-                                        </div>
-                                        <PersonSelectList
-                                            query={creationPersonQuery}
-                                            setQuery={setCreationPersonQuery}
-                                            selectedPersons={personsToCreateStaticCohort}
-                                            onAddPerson={addPersonToCreateStaticCohort}
-                                            onRemovePerson={removePersonFromCreateStaticCohort}
-                                            dataNodeKey="createStaticCohort"
-                                        />
-                                    </>
-                                )}
-                                {!isNewCohort && (
-                                    <>
-                                        <LemonDivider label="OR" />
-                                        <div>
-                                            <h3 className="text-sm">Add users manually</h3>
-                                            <span className="max-w-prose">
-                                                Select the users that you would like to add to the cohort.
-                                            </span>
-                                            <LemonButton
-                                                className="w-fit mt-4"
-                                                type="primary"
-                                                onClick={showAddPersonToCohortModal}
-                                                data-attr="cohort-add-users-modal-open"
-                                            >
-                                                Add Users
-                                            </LemonButton>
-                                        </div>
-                                    </>
-                                )}
-                            </>
-                        ) : (
-                            <>
-                                <SceneDivider />
-                                {!isNewCohort && cohort.experiment_set && cohort.experiment_set.length > 0 && (
-                                    <LemonBanner type="info">
-                                        This cohort manages exposure for an experiment. Editing this cohort may change
-                                        experiment metrics. If unsure,{' '}
-                                        <Link to={urls.experiment(cohort.experiment_set[0])}>
-                                            check the experiment details.
-                                        </Link>
-                                    </LemonBanner>
-                                )}
-                                <SceneSection
-                                    // TODO: @adamleithp Add a number of matching persons to the title "Matching criteria (100)"
-                                    title="Matching criteria"
-                                    description="Actors who match the following criteria will be part of the cohort. Continuously updated automatically."
-                                    className={cn('flex items-start justify-between')}
-                                    hideTitleAndDescription
-                                >
-                                    <AndOrFilterSelect
-                                        value={cohort.filters.properties.type}
-                                        onChange={(value) => {
-                                            setOuterGroupsType(value)
-                                        }}
-                                        topLevelFilter={true}
-                                        suffix={['criterion', 'criteria']}
-                                    />
-                                    <div className={cn('w-full [&>div]:my-0 [&>div]:w-full')}>
-                                        <CohortCriteriaGroups id={logicProps.id} />
-                                    </div>
-                                </SceneSection>
-                            </>
-                        )}
-
-                        {/* The typeof here is needed to pass the cohort id to the query below. Using `isNewCohort` won't work */}
-                        {typeof cohort.id === 'number' && (
-                            <>
-                                <SceneDivider />
-                                <SceneSection
-                                    title={
-                                        <>
-                                            Persons in this cohort
-                                            <span className="text-secondary ml-2">
-                                                {!isCalculatingOrPending &&
-                                                    cohort.count != undefined &&
-                                                    `(${cohort.count})`}
-                                            </span>
-                                            {shouldShowCountWarning && (
-                                                <Tooltip title="The displayed number of persons is less than the cohort count due to deleted persons. This is expected behavior for dynamic cohorts where persons may be deleted after being counted.">
-                                                    <IconWarning className="text-warning ml-2" />
-                                                </Tooltip>
-                                            )}
-                                        </>
-                                    }
-                                    description="Persons who match the following criteria will be part of the cohort."
-                                    hideTitleAndDescription
-                                >
-                                    <div className="relative min-h-[400px]">
-                                        {isCalculatingOrPending && !cohort.last_calculation ? (
-                                            <div className="absolute inset-0 flex flex-col items-center justify-center bg-bg-light">
-                                                <Spinner size="large" />
-                                                <p className="text-muted mt-4">
-                                                    {isPendingCalculation && !cohort.is_calculating
-                                                        ? "We're queuing the calculation. It should be ready in a few minutes."
-                                                        : "We're calculating the cohort. It should be ready in a few minutes."}
-                                                </p>
+                                                : undefined
+                                        }
+                                        className={cn('ph-ignore-input')}
+                                    >
+                                        {!isNewCohort && (
+                                            <div className="flex flex-col gap-y-0 flex-1 justify-center">
+                                                <h3 className="text-sm">Upload a CSV</h3>
+                                                <span className="max-w-prose">
+                                                    Upload a CSV file to add users to your cohort. For single-column
+                                                    files, include one distinct ID per row (all rows will be processed
+                                                    as data). For multi-column files, include a header row with a
+                                                    'person_id', 'distinct_id', or 'email' column containing the user
+                                                    identifiers.
+                                                </span>
                                             </div>
-                                        ) : (
-                                            <Query
-                                                query={query}
-                                                setQuery={setQuery}
-                                                context={{
-                                                    refresh: 'force_blocking',
-                                                    fileNameForExport: cohort.name,
-                                                    cohortId: cohortId,
-                                                    dataNodeLogicKey: dataNodeLogicKey,
-                                                    columns: canRemovePersonFromCohort
-                                                        ? {
-                                                              'person.$delete': {
-                                                                  render: renderRemovePersonFromCohortButton,
-                                                              },
-                                                          }
-                                                        : undefined,
-                                                    emptyStateHeading: 'There are no matching persons for this cohort',
-                                                    emptyStateDetail:
-                                                        'Try adjusting your matching criteria or search to see more results.',
-                                                }}
-                                            />
                                         )}
-                                    </div>
-                                </SceneSection>
-                            </>
-                        )}
+                                        {/* TODO: @adamleithp Allow users to download a template CSV file */}
+                                        {/* TODO: @adamleithp Tell users that adding ANOTHER file will NOT(?) replace the current one */}
+                                        {/* TODO: @adamleithp Render the csv file and validate it */}
+                                        {/* TODO: @adamleithp Adding a csv file doesn't show up with cohort.csv... */}
+                                        <LemonField name="csv" data-attr="cohort-csv">
+                                            {({ onChange }) => (
+                                                <LemonFileInput
+                                                    accept=".csv"
+                                                    multiple={false}
+                                                    value={cohort.csv ? [cohort.csv] : []}
+                                                    onChange={(files) => onChange(files[0])}
+                                                    showUploadedFiles={false}
+                                                    callToAction={
+                                                        <div
+                                                            className={cn(
+                                                                'flex flex-col items-center justify-center flex-1 cohort-csv-dragger text-text-3000 deprecated-space-y-1',
+                                                                'text-primary mt-0 bg-transparent border border-dashed border-primary hover:border-secondary p-8',
+                                                                cohort.csv?.name && 'border-success'
+                                                            )}
+                                                        >
+                                                            {cohort.csv ? (
+                                                                <>
+                                                                    <IconUpload
+                                                                        style={{
+                                                                            fontSize: '3rem',
+                                                                            color: 'var(--color-text-primary)',
+                                                                        }}
+                                                                    />
+                                                                    <div>{cohort.csv?.name ?? 'File chosen'}</div>
+                                                                </>
+                                                            ) : (
+                                                                <>
+                                                                    <IconUpload
+                                                                        style={{
+                                                                            fontSize: '3rem',
+                                                                            color: 'var(--color-text-primary)',
+                                                                        }}
+                                                                    />
+                                                                    <div>
+                                                                        Drag a file here or click to browse for a file
+                                                                    </div>
+                                                                    <div className="text-secondary text-xs">
+                                                                        Accepts .csv files only
+                                                                    </div>
+                                                                </>
+                                                            )}
+                                                        </div>
+                                                    }
+                                                />
+                                            )}
+                                        </LemonField>
+                                    </SceneSection>
+                                    {isNewCohort && (
+                                        <>
+                                            <LemonDivider label="OR" />
+                                            <div>
+                                                <h3 className="font-semibold my-0 mb-1 max-w-prose">
+                                                    Add users manually
+                                                </h3>
+                                                <span className="max-w-prose">
+                                                    Select the users that you would like to add to the new cohort.
+                                                </span>
+                                            </div>
+                                            <PersonSelectList
+                                                query={creationPersonQuery}
+                                                setQuery={setCreationPersonQuery}
+                                                selectedPersons={personsToCreateStaticCohort}
+                                                onAddPerson={addPersonToCreateStaticCohort}
+                                                onRemovePerson={removePersonFromCreateStaticCohort}
+                                                dataNodeKey="createStaticCohort"
+                                            />
+                                        </>
+                                    )}
+                                    {!isNewCohort && (
+                                        <>
+                                            <LemonDivider label="OR" />
+                                            <div>
+                                                <h3 className="text-sm">Add users manually</h3>
+                                                <span className="max-w-prose">
+                                                    Select the users that you would like to add to the cohort.
+                                                </span>
+                                                <LemonButton
+                                                    className="w-fit mt-4"
+                                                    type="primary"
+                                                    onClick={showAddPersonToCohortModal}
+                                                    data-attr="cohort-add-users-modal-open"
+                                                >
+                                                    Add Users
+                                                </LemonButton>
+                                            </div>
+                                        </>
+                                    )}
+                                </>
+                            ) : (
+                                <>
+                                    <SceneDivider />
+                                    {!isNewCohort && cohort.experiment_set && cohort.experiment_set.length > 0 && (
+                                        <LemonBanner type="info">
+                                            This cohort manages exposure for an experiment. Editing this cohort may
+                                            change experiment metrics. If unsure,{' '}
+                                            <Link to={urls.experiment(cohort.experiment_set[0])}>
+                                                check the experiment details.
+                                            </Link>
+                                        </LemonBanner>
+                                    )}
+                                    <SceneSection
+                                        // TODO: @adamleithp Add a number of matching persons to the title "Matching criteria (100)"
+                                        title="Matching criteria"
+                                        description="Actors who match the following criteria will be part of the cohort. Continuously updated automatically."
+                                        className={cn('flex items-start justify-between')}
+                                        hideTitleAndDescription
+                                    >
+                                        <AndOrFilterSelect
+                                            value={cohort.filters.properties.type}
+                                            onChange={(value) => {
+                                                setOuterGroupsType(value)
+                                            }}
+                                            topLevelFilter={true}
+                                            suffix={['criterion', 'criteria']}
+                                        />
+                                        <div className={cn('w-full [&>div]:my-0 [&>div]:w-full')}>
+                                            <CohortCriteriaGroups id={logicProps.id} />
+                                        </div>
+                                    </SceneSection>
+                                </>
+                            )}
 
-                        {typeof cohort.id === 'number' && (
-                            <>
-                                <SceneDivider />
-                                <SceneSection
-                                    title="History"
-                                    description="Track changes made to this cohort over time."
-                                >
-                                    <ActivityLog scope={ActivityScope.COHORT} id={cohort.id} />
-                                </SceneSection>
-                            </>
-                        )}
+                            {/* The typeof here is needed to pass the cohort id to the query below. Using `isNewCohort` won't work */}
+                            {typeof cohort.id === 'number' && (
+                                <>
+                                    <SceneDivider />
+                                    <SceneSection
+                                        title={
+                                            <>
+                                                Persons in this cohort
+                                                <span className="text-secondary ml-2">
+                                                    {!isCalculatingOrPending &&
+                                                        cohort.count != undefined &&
+                                                        `(${cohort.count})`}
+                                                </span>
+                                                {shouldShowCountWarning && (
+                                                    <Tooltip title="The displayed number of persons is less than the cohort count due to deleted persons. This is expected behavior for dynamic cohorts where persons may be deleted after being counted.">
+                                                        <IconWarning className="text-warning ml-2" />
+                                                    </Tooltip>
+                                                )}
+                                            </>
+                                        }
+                                        description="Persons who match the following criteria will be part of the cohort."
+                                        hideTitleAndDescription
+                                    >
+                                        <div className="relative min-h-[400px]">
+                                            {isCalculatingOrPending && !cohort.last_calculation ? (
+                                                <div className="absolute inset-0 flex flex-col items-center justify-center bg-bg-light">
+                                                    <Spinner size="large" />
+                                                    <p className="text-muted mt-4">
+                                                        {isPendingCalculation && !cohort.is_calculating
+                                                            ? "We're queuing the calculation. It should be ready in a few minutes."
+                                                            : "We're calculating the cohort. It should be ready in a few minutes."}
+                                                    </p>
+                                                </div>
+                                            ) : (
+                                                <Query
+                                                    query={query}
+                                                    setQuery={setQuery}
+                                                    context={{
+                                                        refresh: 'force_blocking',
+                                                        fileNameForExport: cohort.name,
+                                                        cohortId: cohortId,
+                                                        dataNodeLogicKey: dataNodeLogicKey,
+                                                        columns: canRemovePersonFromCohort
+                                                            ? {
+                                                                  'person.$delete': {
+                                                                      render: renderRemovePersonFromCohortButton,
+                                                                  },
+                                                              }
+                                                            : undefined,
+                                                        emptyStateHeading:
+                                                            'There are no matching persons for this cohort',
+                                                        emptyStateDetail:
+                                                            'Try adjusting your matching criteria or search to see more results.',
+                                                    }}
+                                                />
+                                            )}
+                                        </div>
+                                    </SceneSection>
+                                </>
+                            )}
+                        </div>
                     </SceneContent>
                 </Form>
             </div>
