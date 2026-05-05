@@ -232,16 +232,23 @@ def _recover_dmarc_rewritten_sender(
 
 
 def _sender_authenticated(request: HttpRequest, sender_email: str) -> bool:
-    """Check that the From header is authenticated via DKIM with domain alignment.
+    """Verify the From header domain is authenticated before trusting it for identity.
 
-    Mailgun's X-Mailgun-Dkim-Check-Result only confirms a valid DKIM signature
-    exists — it does NOT verify which domain signed. An attacker at evil.com can
-    sign with their own key and forge From: teammate@posthog.com, and DKIM still
-    passes. We close this gap by requiring the envelope sender (MAIL FROM) domain
-    to match the From header domain.
+    We require SPF pass + envelope-to-From domain alignment:
+      - SPF pass means the sending IP is authorized by the envelope sender's
+        domain DNS (X-Mailgun-Spf). An attacker can't pass SPF for posthog.com
+        without controlling posthog.com's DNS records.
+      - Domain alignment means the envelope sender (MAIL FROM) domain matches
+        the From header domain, preventing an attacker from passing SPF on
+        evil.com while forging From: teammate@posthog.com.
+
+    DKIM alone is insufficient — Mailgun's X-Mailgun-Dkim-Check-Result only
+    confirms a valid signature exists without reporting which domain signed it.
+    An attacker signing with evil.com's key but forging From: teammate@posthog.com
+    would still get DKIM Pass.
     """
-    dkim_passed = request.POST.get("X-Mailgun-Dkim-Check-Result", "").lower() == "pass"
-    if not dkim_passed:
+    spf_passed = request.POST.get("X-Mailgun-Spf", "").lower() == "pass"
+    if not spf_passed:
         return False
     envelope_sender = request.POST.get("sender", "")
     envelope_domain = envelope_sender.rsplit("@", 1)[-1].lower() if "@" in envelope_sender else ""

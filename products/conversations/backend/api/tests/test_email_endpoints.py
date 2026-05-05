@@ -965,7 +965,7 @@ class TestEmailInboundTeamMemberDetection(BaseTest):
                 "Message-Id": "<reply@team.com>",
                 "In-Reply-To": "<init@external.com>",
                 "stripped-text": "Looking into this",
-                "X-Mailgun-Dkim-Check-Result": "Pass",
+                "X-Mailgun-Spf": "Pass",
             }
         )
 
@@ -984,13 +984,13 @@ class TestEmailInboundTeamMemberDetection(BaseTest):
         assert ticket.unread_team_count == 1
 
     @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
-    def test_no_dkim_treated_as_customer(self, _mock_sig: MagicMock):
-        """From header matches a team member but no DKIM → customer."""
+    def test_no_spf_treated_as_customer(self, _mock_sig: MagicMock):
+        """From header matches a team member but no SPF pass → customer."""
         self._post(
             {
                 "recipient": "team-ab01cd23ef45@mg.posthog.com",
                 "from": "Customer <customer@external.com>",
-                "Message-Id": "<nodkim-init@external.com>",
+                "Message-Id": "<nospf-init@external.com>",
                 "subject": "Question",
                 "stripped-text": "Hello",
             }
@@ -1000,8 +1000,8 @@ class TestEmailInboundTeamMemberDetection(BaseTest):
                 "recipient": "team-ab01cd23ef45@mg.posthog.com",
                 "sender": self.user.email,
                 "from": f"Forged <{self.user.email}>",
-                "Message-Id": "<nodkim-reply@external.com>",
-                "In-Reply-To": "<nodkim-init@external.com>",
+                "Message-Id": "<nospf-reply@external.com>",
+                "In-Reply-To": "<nospf-init@external.com>",
                 "stripped-text": "I am totally a team member",
             }
         )
@@ -1010,8 +1010,8 @@ class TestEmailInboundTeamMemberDetection(BaseTest):
         assert forged.created_by is None
 
     @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
-    def test_dkim_pass_but_mismatched_envelope_treated_as_customer(self, _mock_sig: MagicMock):
-        """DKIM passes but envelope sender domain != From domain → customer."""
+    def test_spf_pass_but_mismatched_envelope_treated_as_customer(self, _mock_sig: MagicMock):
+        """SPF passes but envelope sender domain != From domain → customer."""
         self._post(
             {
                 "recipient": "team-ab01cd23ef45@mg.posthog.com",
@@ -1029,7 +1029,7 @@ class TestEmailInboundTeamMemberDetection(BaseTest):
                 "Message-Id": "<align-reply@evil.com>",
                 "In-Reply-To": "<align-init@external.com>",
                 "stripped-text": "Cross-domain forgery attempt",
-                "X-Mailgun-Dkim-Check-Result": "Pass",
+                "X-Mailgun-Spf": "Pass",
             }
         )
         forged = Comment.objects.filter(team=self.team, scope="conversations_ticket").order_by("created_at")[1]
