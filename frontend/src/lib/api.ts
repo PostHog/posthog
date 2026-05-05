@@ -6870,6 +6870,8 @@ const api = {
     },
 } as const
 
+const warnedSharedViewLeaks = new Set<string>()
+
 async function handleFetch(url: string, method: string, fetcher: () => Promise<Response>): Promise<Response> {
     const startTime = new Date().getTime()
 
@@ -6906,9 +6908,11 @@ async function handleFetch(url: string, method: string, fetcher: () => Promise<R
             })
         }
         if (inSharedView && (response.status === 401 || response.status === 403)) {
-            console.warn(
-                `[shared-view] ${method} ${pathname} returned ${response.status} — call site should be gated with isSharedView()`
-            )
+            const leakKey = `${method} ${pathname}`
+            if (!warnedSharedViewLeaks.has(leakKey)) {
+                warnedSharedViewLeaks.add(leakKey)
+                console.warn(`[shared-view] unexpected ${response.status} on ${leakKey}`)
+            }
         }
 
         const data = await getJSONOrNull(response)
