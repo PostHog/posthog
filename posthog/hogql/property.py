@@ -60,6 +60,14 @@ from products.data_warehouse.backend.models import DataWarehouseJoin
 from products.data_warehouse.backend.models.util import get_view_or_table_by_name
 from products.event_definitions.backend.models.property_definition import PropertyType
 
+# Top-level columns on the persons table that the `person_metadata` filter type can target.
+# Keep in sync with the "person_metadata" group in
+# frontend/src/taxonomy/core-filter-definitions-by-group.json,
+# personMetadataPropertyDefinitions in frontend/src/models/propertyDefinitionsModel.ts,
+# and the per-field injection in rust/feature-flags/src/flags/flag_matching_utils.rs.
+# `test_person_metadata_fields_match_taxonomy` enforces the Python ↔ taxonomy half.
+PERSON_METADATA_FIELDS = {"created_at"}
+
 
 def parse_semver(value: str) -> tuple[str, str, str]:
     """
@@ -768,6 +776,7 @@ def property_to_expr(
         or property.type == "event_metadata"
         or property.type == "feature"
         or property.type == "person"
+        or property.type == "person_metadata"
         or property.type == "group"
         or property.type == "behavioral"
         or property.type == "data_warehouse"
@@ -786,13 +795,16 @@ def property_to_expr(
         or property.type == "workflow_variable"
     ):
         if (
-            (scope == "person" and property.type != "person")
+            (scope == "person" and property.type != "person" and property.type != "person_metadata")
             or (scope == "session" and property.type != "session")
             or (scope != "event" and property.type == "event_metadata")
             or (scope == "revenue_analytics" and property.type != "revenue_analytics")
             or (property.type == "revenue_analytics" and scope != "revenue_analytics")
         ):
             raise QueryError(f"The '{property.type}' property filter does not work in '{scope}' scope")
+
+        if property.type == "person_metadata" and property.key not in PERSON_METADATA_FIELDS:
+            raise QueryError(f"Unsupported person_metadata field: '{property.key}'")
         operator = cast(Optional[PropertyOperator], property.operator) or PropertyOperator.EXACT
         value = property.value
 
@@ -802,6 +814,8 @@ def property_to_expr(
             chain = ["person", "pdi"] if scope != "person" else ["pdi"]
         elif property.type == "person" and scope != "person":
             chain = ["person", "properties"]
+        elif property.type == "person_metadata":
+            chain = ["person"] if scope != "person" else []
         elif property.type == "event" and scope == "replay_entity":
             chain = ["events", "properties"]
         elif property.type == "session" and scope == "replay_entity":

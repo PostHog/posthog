@@ -1,4 +1,9 @@
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from datetime import datetime
+from typing import cast
+from zoneinfo import ZoneInfo
+
+from freezegun import freeze_time
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
 from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery, HogQLRealtimeCohortQuery
@@ -398,6 +403,128 @@ class TestHogQLCohortQuery(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("INTERSECT DISTINCT", query_str)
         # Should not use the OR optimization (which would create a single query with OR logic)
         self.assertNotIn("or(", query_str)
+
+    def test_person_metadata_created_at_cohort(self) -> None:
+        cohort_filters = {
+            "type": "AND",
+            "values": [
+                {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "created_at",
+                            "type": "person_metadata",
+                            "value": "2024-01-01",
+                            "operator": "is_date_after",
+                        }
+                    ],
+                }
+            ],
+        }
+        cohort = Cohort.objects.create(
+            team=self.team, name="created after 2024", filters={"properties": cohort_filters}
+        )
+
+        hogql_query = HogQLCohortQuery(cohort=cohort)
+        query_str = hogql_query.query_str("clickhouse")
+
+        self.assertIn("created_at", query_str)
+        # Should compare against the persons table column, not the properties JSON blob
+        self.assertNotIn("properties___created_at", query_str)
+
+    def test_person_metadata_cohort_membership_end_to_end(self) -> None:
+        # Persons need a deterministic created_at in BOTH Postgres and ClickHouse.
+        # _create_person with immediate=True under freeze_time writes both stores; we also
+        # pass created_at explicitly so the assertion stays valid even if Postgres stops
+        # using auto_now_add or default=timezone.now in a future migration.
+        utc = ZoneInfo("UTC")
+        old_dt = datetime(2023, 1, 1, tzinfo=utc)
+        new_dt = datetime(2025, 1, 1, tzinfo=utc)
+        with freeze_time(old_dt):
+            old_person = _create_person(
+                team=self.team,
+                distinct_ids=["old"],
+                properties={"name": "old user"},
+                created_at=old_dt,
+                immediate=True,
+            )
+        with freeze_time(new_dt):
+            new_person = _create_person(
+                team=self.team,
+                distinct_ids=["new"],
+                properties={"name": "new user"},
+                created_at=new_dt,
+                immediate=True,
+            )
+        flush_persons_and_events()
+
+        cohort = cast(
+            Cohort,
+            Cohort.objects.create(
+                team=self.team,
+                name="created after 2024",
+                filters={
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "key": "created_at",
+                                        "type": "person_metadata",
+                                        "value": "2024-06-01",
+                                        "operator": "is_date_after",
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                },
+            ),
+        )
+        cohort.calculate_people_ch(pending_version=0)
+
+        from posthog.clickhouse.client.execute import sync_execute
+
+        rows = sync_execute(
+            "SELECT person_id FROM cohortpeople WHERE cohort_id = %(cohort_id)s AND team_id = %(team_id)s "
+            "GROUP BY person_id, cohort_id, team_id, version HAVING sum(sign) > 0",
+            {"cohort_id": cohort.pk, "team_id": self.team.pk},
+        )
+        member_ids = {str(row[0]) for row in rows}
+        self.assertIn(str(new_person.uuid), member_ids)
+        self.assertNotIn(str(old_person.uuid), member_ids)
+
+    def test_person_metadata_realtime_cohort_raises_error(self) -> None:
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="created after 2024 realtime",
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "created_at",
+                                    "type": "person_metadata",
+                                    "value": "2024-06-01",
+                                    "operator": "is_date_after",
+                                    "conditionHash": "test_pm_hash",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+
+        hogql_query = HogQLRealtimeCohortQuery(cohort=cohort)
+        with self.assertRaises(ValueError) as ctx:
+            hogql_query.query_str("clickhouse")
+        self.assertIn("person_metadata", str(ctx.exception))
 
     def test_static_cohort_condition_rejects_cross_project_cohort(self) -> None:
         from posthog.models.organization import Organization

@@ -754,6 +754,9 @@
                     "$ref": "#/definitions/PersonPropertyFilter"
                 },
                 {
+                    "$ref": "#/definitions/PersonMetadataPropertyFilter"
+                },
+                {
                     "$ref": "#/definitions/CohortPropertyFilter"
                 },
                 {
@@ -772,6 +775,9 @@
                 },
                 {
                     "$ref": "#/definitions/PersonPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/PersonMetadataPropertyFilter"
                 },
                 {
                     "$ref": "#/definitions/ElementPropertyFilter"
@@ -26414,6 +26420,30 @@
             "required": ["id", "type", "protocol", "path", "created_at", "updated_at"],
             "type": "object"
         },
+        "PersonMetadataPropertyFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "operator": {
+                    "$ref": "#/definitions/PropertyOperator"
+                },
+                "type": {
+                    "const": "person_metadata",
+                    "description": "Top-level columns on the persons table (e.g. created_at), not properties JSON",
+                    "type": "string"
+                },
+                "value": {
+                    "$ref": "#/definitions/PropertyFilterValue"
+                }
+            },
+            "required": ["key", "operator", "type"],
+            "type": "object"
+        },
         "PersonPropertyFilter": {
             "additionalProperties": false,
             "description": "Sync with nodejs/src/types.ts",
@@ -26853,6 +26883,7 @@
                 "internal_event",
                 "event_metadata",
                 "person",
+                "person_metadata",
                 "element",
                 "feature",
                 "session",
@@ -36514,6 +36545,7 @@
                 "event_metadata",
                 "numerical_event_properties",
                 "person_properties",
+                "person_metadata",
                 "pageview_urls",
                 "pageview_events",
                 "screens",

@@ -312,6 +312,15 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
             return self.conditions
 
         if not all(property.type == "person" for property in cohort.properties.flat):
+            # Cohorts containing non-person property types (e.g. behavioral, person_metadata)
+            # are deliberately not inlined into flag groups. They flow to SDKs as cohort
+            # references; modern SDKs raise InconclusiveMatchError on unknown property types
+            # and fall back to /flags/, where the Rust matcher handles them.
+            #
+            # Note: do NOT route person_metadata through the legacy posthog/queries/base.py
+            # paths (`property_to_Q` / `match_property`). Those don't recognize the type;
+            # `match_property` in particular dispatches purely on `key` and would silently
+            # produce a wrong-but-not-erroring result.
             return self.conditions
 
         if any(property.negation for property in cohort.properties.flat):

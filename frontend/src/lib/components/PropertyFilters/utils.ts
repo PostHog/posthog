@@ -32,6 +32,7 @@ import {
     HogQLPropertyFilter,
     LogEntryPropertyFilter,
     LogPropertyFilter,
+    PersonMetadataPropertyFilter,
     PersonPropertyFilter,
     PropertyDefinitionType,
     PropertyFilterType,
@@ -114,6 +115,7 @@ export const PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE: Record<Propert
         [PropertyFilterType.Event]: TaxonomicFilterGroupType.EventProperties,
         [PropertyFilterType.InternalEvent]: TaxonomicFilterGroupType.EventProperties,
         [PropertyFilterType.EventMetadata]: TaxonomicFilterGroupType.EventMetadata,
+        [PropertyFilterType.PersonMetadata]: TaxonomicFilterGroupType.PersonMetadata,
         [PropertyFilterType.Feature]: TaxonomicFilterGroupType.EventFeatureFlags,
         [PropertyFilterType.Cohort]: TaxonomicFilterGroupType.Cohorts,
         [PropertyFilterType.Element]: TaxonomicFilterGroupType.Elements,
@@ -230,6 +232,9 @@ export function isCohortPropertyFilter(filter?: AnyFilterLike | null): filter is
 export function isEventMetadataPropertyFilter(filter?: AnyFilterLike | null): filter is EventMetadataPropertyFilter {
     return filter?.type === PropertyFilterType.EventMetadata
 }
+export function isPersonMetadataPropertyFilter(filter?: AnyFilterLike | null): filter is PersonMetadataPropertyFilter {
+    return filter?.type === PropertyFilterType.PersonMetadata
+}
 export function isRevenueAnalyticsPropertyFilter(
     filter?: AnyFilterLike | null
 ): filter is RevenueAnalyticsPropertyFilter {
@@ -319,6 +324,7 @@ export function isAnyPropertyfilter(filter?: AnyFilterLike | null): filter is An
     return (
         isEventPropertyFilter(filter) ||
         isPersonPropertyFilter(filter) ||
+        isPersonMetadataPropertyFilter(filter) ||
         isEventMetadataPropertyFilter(filter) ||
         isRevenueAnalyticsPropertyFilter(filter) ||
         isElementPropertyFilter(filter) ||
@@ -339,6 +345,7 @@ export function isPropertyFilterWithOperator(
 ): filter is
     | EventPropertyFilter
     | PersonPropertyFilter
+    | PersonMetadataPropertyFilter
     | EventMetadataPropertyFilter
     | RevenueAnalyticsPropertyFilter
     | ElementPropertyFilter
@@ -357,6 +364,7 @@ export function isPropertyFilterWithOperator(
         !isPropertyGroupFilterLike(filter) &&
         (isEventPropertyFilter(filter) ||
             isPersonPropertyFilter(filter) ||
+            isPersonMetadataPropertyFilter(filter) ||
             isEventMetadataPropertyFilter(filter) ||
             isRevenueAnalyticsPropertyFilter(filter) ||
             isElementPropertyFilter(filter) ||
@@ -393,6 +401,7 @@ const propertyFilterMapping: Partial<Record<PropertyFilterType, TaxonomicFilterG
     [PropertyFilterType.InternalEvent]: TaxonomicFilterGroupType.EventProperties,
     [PropertyFilterType.Feature]: TaxonomicFilterGroupType.EventFeatureFlags,
     [PropertyFilterType.EventMetadata]: TaxonomicFilterGroupType.EventMetadata,
+    [PropertyFilterType.PersonMetadata]: TaxonomicFilterGroupType.PersonMetadata,
     [PropertyFilterType.Cohort]: TaxonomicFilterGroupType.Cohorts,
     [PropertyFilterType.Element]: TaxonomicFilterGroupType.Elements,
     [PropertyFilterType.Session]: TaxonomicFilterGroupType.SessionProperties,
@@ -448,6 +457,7 @@ export function propertyFilterTypeToPropertyDefinitionType(
         [PropertyFilterType.Event]: PropertyDefinitionType.Event,
         [PropertyFilterType.EventMetadata]: PropertyDefinitionType.EventMetadata,
         [PropertyFilterType.Person]: PropertyDefinitionType.Person,
+        [PropertyFilterType.PersonMetadata]: PropertyDefinitionType.PersonMetadata,
         [PropertyFilterType.Group]: PropertyDefinitionType.Group,
         [PropertyFilterType.Session]: PropertyDefinitionType.Session,
         [PropertyFilterType.Recording]: PropertyDefinitionType.Session,
@@ -475,6 +485,9 @@ export function taxonomicFilterTypeToPropertyFilterType(
     }
     if (filterType === TaxonomicFilterGroupType.EventMetadata) {
         return PropertyFilterType.EventMetadata
+    }
+    if (filterType === TaxonomicFilterGroupType.PersonMetadata) {
+        return PropertyFilterType.PersonMetadata
     }
     if (
         filterType?.startsWith(TaxonomicFilterGroupType.GroupsPrefix) ||

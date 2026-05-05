@@ -486,6 +486,17 @@ fn apply_person_cohort_to_state(
     // This allows flags to filter on distinct_id even when no other person properties exist.
     all_person_properties.insert("distinct_id".to_string(), Value::String(distinct_id));
 
+    // PersonMetadata fields (top-level columns on the persons table) are written under a
+    // sentinel prefix to avoid colliding with user-set properties of the same name (e.g.
+    // a customer setting `properties.created_at` for their own analytics). The matcher
+    // applies the prefix when `filter.prop_type == PersonMetadata` — see `match_property`.
+    if let Some(ref person) = result.person {
+        all_person_properties.insert(
+            crate::properties::property_matching::person_metadata_key("created_at"),
+            Value::String(person.created_at.to_rfc3339()),
+        );
+    }
+
     state.set_person_properties(all_person_properties);
     person_processing_timer.fin();
 }

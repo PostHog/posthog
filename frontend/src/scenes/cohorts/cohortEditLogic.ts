@@ -585,14 +585,16 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                 return
             }
 
-            if (criteria.type !== BehavioralFilterKey.Person) {
+            if (criteria.type !== BehavioralFilterKey.Person && criteria.type !== BehavioralFilterKey.PersonMetadata) {
                 return
             }
 
+            const definitionType =
+                criteria.type === BehavioralFilterKey.PersonMetadata
+                    ? PropertyDefinitionType.PersonMetadata
+                    : PropertyDefinitionType.Person
             const propDef = newCriteria.key
-                ? propertyDefinitionsModel
-                      .findMounted()
-                      ?.values.getPropertyDefinition(newCriteria.key, PropertyDefinitionType.Person)
+                ? propertyDefinitionsModel.findMounted()?.values.getPropertyDefinition(newCriteria.key, definitionType)
                 : null
             const isDateTime = propDef?.property_type === PropertyType.DateTime
             const currentOperator = criteria.operator as PropertyOperator | undefined

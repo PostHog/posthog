@@ -1139,6 +1139,68 @@ class TestProperty(BaseTest):
             "The 'event_metadata' property filter does not work in 'person' scope",
         )
 
+    def test_property_to_expr_person_metadata_event_scope(self):
+        self.assertEqual(
+            self._property_to_expr(
+                {
+                    "type": "person_metadata",
+                    "key": "created_at",
+                    "value": "2024-01-01",
+                    "operator": "is_date_after",
+                },
+                scope="event",
+            ),
+            self._parse_expr("toDateTime(toString(person.created_at)) > toDateTime('2024-01-01')"),
+        )
+
+    def test_property_to_expr_person_metadata_person_scope(self):
+        self.assertEqual(
+            self._property_to_expr(
+                {
+                    "type": "person_metadata",
+                    "key": "created_at",
+                    "value": "2024-01-01",
+                    "operator": "is_date_before",
+                },
+                scope="person",
+            ),
+            self._parse_expr("toDateTime(toString(created_at)) < toDateTime('2024-01-01')"),
+        )
+
+    def test_property_to_expr_person_metadata_unsupported_field(self):
+        with self.assertRaises(Exception) as e:
+            self._property_to_expr(
+                {"type": "person_metadata", "key": "is_identified", "value": True, "operator": "exact"},
+                scope="event",
+            )
+        self.assertIn("Unsupported person_metadata field", str(e.exception))
+
+    def test_person_metadata_fields_match_taxonomy(self):
+        """
+        person_metadata fields are declared in four places that must stay in sync:
+            - posthog/hogql/property.py PERSON_METADATA_FIELDS
+            - frontend/src/taxonomy/core-filter-definitions-by-group.json "person_metadata" group
+            - frontend/src/models/propertyDefinitionsModel.ts personMetadataPropertyDefinitions
+            - rust/feature-flags/src/flags/flag_matching_utils.rs (per-field injection)
+        Adding a field requires touching all four. This test catches Python ↔ taxonomy drift.
+        """
+        import json
+        from pathlib import Path
+
+        from posthog.hogql.property import PERSON_METADATA_FIELDS
+
+        repo_root = Path(__file__).resolve().parents[3]
+        taxonomy_path = repo_root / "frontend/src/taxonomy/core-filter-definitions-by-group.json"
+        taxonomy = json.loads(taxonomy_path.read_text())
+        taxonomy_keys = set(taxonomy.get("person_metadata", {}).keys())
+        self.assertEqual(
+            PERSON_METADATA_FIELDS,
+            taxonomy_keys,
+            "PERSON_METADATA_FIELDS in posthog/hogql/property.py must match the "
+            "person_metadata group in core-filter-definitions-by-group.json. "
+            "Update both, plus propertyDefinitionsModel.ts and the Rust injection.",
+        )
+
     def test_virtual_person_properties_on_person_scope(self):
         assert self._property_to_expr(
             {"type": "person", "key": "$virt_initial_channel_type", "value": "Organic Search"}, scope="person"

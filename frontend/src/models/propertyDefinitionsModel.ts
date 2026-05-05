@@ -537,17 +537,32 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             },
         ],
         propertyDefinitionStorage: [
-            (s) => [s.rawPropertyDefinitionStorage, s.eventMetadataPropertyDefinitions],
-            (rawPropertyDefinitionStorage, eventMetadataPropertyDefinitions): PropertyDefinitionStorage => {
-                const metadataDefinitions = Object.fromEntries(
+            (s) => [
+                s.rawPropertyDefinitionStorage,
+                s.eventMetadataPropertyDefinitions,
+                s.personMetadataPropertyDefinitions,
+            ],
+            (
+                rawPropertyDefinitionStorage,
+                eventMetadataPropertyDefinitions,
+                personMetadataPropertyDefinitions: PropertyDefinition[]
+            ): PropertyDefinitionStorage => {
+                const eventMetadataDefinitions = Object.fromEntries(
                     eventMetadataPropertyDefinitions.map((definition) => [
                         `${PropertyDefinitionType.EventMetadata}/${definition.id}`,
                         definition,
                     ])
                 )
+                const personMetadataDefinitions = Object.fromEntries(
+                    personMetadataPropertyDefinitions.map((definition) => [
+                        `${PropertyDefinitionType.PersonMetadata}/${definition.id}`,
+                        definition,
+                    ])
+                )
                 return {
                     ...rawPropertyDefinitionStorage,
-                    ...metadataDefinitions,
+                    ...eventMetadataDefinitions,
+                    ...personMetadataDefinitions,
                 }
             },
         ],
@@ -652,6 +667,18 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                     return Array.isArray(valueToFormat) ? formattedValues : formattedValues[0]
                 }
             },
+        ],
+        personMetadataPropertyDefinitions: [
+            () => [],
+            () =>
+                [
+                    {
+                        id: 'created_at',
+                        name: 'created_at',
+                        property_type: PropertyType.DateTime,
+                        type: PropertyDefinitionType.PersonMetadata,
+                    },
+                ] as PropertyDefinition[],
         ],
         eventMetadataPropertyDefinitions: [
             (s) => [s.groupTypes],

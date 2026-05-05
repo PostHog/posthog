@@ -3249,6 +3249,13 @@
         }
     },
     "numerical_event_properties": {},
+    "person_metadata": {
+        "created_at": {
+            "description": "The time when the person was first seen.",
+            "label": "First seen",
+            "type": "DateTime"
+        }
+    },
     "person_properties": {
         "$$plugin_metrics": {
             "description": "Performance metrics for a given plugin.",

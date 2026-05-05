@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::properties::property_models::{CompiledRegex, OperatorType, PropertyFilter};
+use crate::properties::property_models::{CompiledRegex, OperatorType, PropertyFilter, PropertyType};
 use crate::properties::relative_date;
 use chrono::{DateTime, NaiveDateTime, Utc};
 use dateparser::parse as parse_date;
@@ -11,6 +11,25 @@ use serde_json::Value;
 /// Regex backtrack limit to prevent ReDoS attacks.
 /// 10k steps completes in ~1ms worst case, which is acceptable for a hot path.
 pub(crate) const REGEX_BACKTRACK_LIMIT: usize = 10_000;
+
+/// Prefix used when storing PersonMetadata field values (e.g. created_at) in the
+/// person properties map. Avoids collision with user-set properties of the same name.
+const PERSON_METADATA_KEY_PREFIX: &str = "__posthog_person_metadata__";
+
+/// Build the lookup key for a PersonMetadata field (e.g. created_at).
+pub fn person_metadata_key(field: &str) -> String {
+    format!("{}{}", PERSON_METADATA_KEY_PREFIX, field)
+}
+
+/// Resolve the lookup key for a property filter, applying the PersonMetadata prefix when
+/// the filter targets a top-level persons-table column rather than the properties JSON.
+pub fn lookup_key_for(filter: &PropertyFilter) -> String {
+    if filter.prop_type == PropertyType::PersonMetadata {
+        person_metadata_key(&filter.key)
+    } else {
+        filter.key.clone()
+    }
+}
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum FlagMatchingError {
@@ -56,9 +75,11 @@ pub fn match_property(
     matching_property_values: &HashMap<String, Value>,
     partial_props: bool,
 ) -> Result<bool, FlagMatchingError> {
+    let lookup_key = lookup_key_for(property);
+
     // only looks for matches where key exists in override_property_values
     // doesn't support operator is_not_set with partial_props
-    if partial_props && !matching_property_values.contains_key(&property.key) {
+    if partial_props && !matching_property_values.contains_key(&lookup_key) {
         tracing::warn!("Missing property for matching: {}", property.key);
         return Err(FlagMatchingError::MissingProperty(format!(
             "can't match properties without a value. Missing property: {}",
@@ -66,7 +87,7 @@ pub fn match_property(
         )));
     }
 
-    let key = &property.key;
+    let key = &lookup_key;
     let operator = property.operator.unwrap_or(OperatorType::Exact);
     let match_value = matching_property_values.get(key);
 
@@ -3388,5 +3409,40 @@ mod test_match_properties {
             false // non-partial mode
         )
         .expect("expected match to exist"));
+    }
+
+    #[test]
+    fn test_match_property_person_metadata_uses_sentinel_key() {
+        // PersonMetadata filters look up under a sentinel-prefixed key so they don't
+        // collide with user-set properties of the same name.
+        let filter = PropertyFilter {
+            key: "created_at".to_string(),
+            value: Some(json!("2024-01-01")),
+            operator: Some(OperatorType::IsDateAfter),
+            prop_type: PropertyType::PersonMetadata,
+            group_type_index: None,
+            negation: None,
+            compiled_regex: None,
+        };
+
+        // A user-set "created_at" property must NOT satisfy a person_metadata filter:
+        // the metadata field is intentionally segregated so user-set values can't
+        // override the canonical persons-table value.
+        let user_set_only = HashMap::from([(
+            "created_at".to_string(),
+            json!("2099-01-01"), // Far-future user-set value
+        )]);
+        assert!(match_property(&filter, &user_set_only, false).is_ok());
+        assert!(!match_property(&filter, &user_set_only, false)
+            .expect("filter evaluated"));
+
+        // The sentinel-prefixed key (which the matcher injects from Person.created_at)
+        // is what actually resolves the filter.
+        let metadata_only = HashMap::from([(
+            person_metadata_key("created_at"),
+            json!("2025-06-01"),
+        )]);
+        assert!(match_property(&filter, &metadata_only, false)
+            .expect("filter evaluated"));
     }
 }

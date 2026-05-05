@@ -41,6 +41,9 @@ pub enum PropertyType {
     #[default]
     #[serde(rename = "person")]
     Person,
+    // Top-level columns on the persons table (e.g. created_at), not the JSON properties blob.
+    #[serde(rename = "person_metadata")]
+    PersonMetadata,
     #[serde(rename = "cohort")]
     Cohort,
     #[serde(rename = "group")]

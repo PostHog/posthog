@@ -22,6 +22,7 @@ from posthog.schema import (
     HogQLPropertyFilter,
     HogQLQueryModifiers,
     InsightActorsQuery,
+    PersonMetadataPropertyFilter,
     PersonPropertyFilter,
     PersonsOnEventsMode,
     PropertyGroupFilterValue,
@@ -400,6 +401,20 @@ class HogQLCohortQuery:
         query_runner = ActorsQueryRunner(team=self.team, query=actors_query)
         return query_runner.to_query()
 
+    def get_person_metadata_condition(self, prop: Property) -> ast.SelectQuery:
+        # type = "person_metadata"
+        # key = "created_at" (a top-level column on the persons table, not properties JSON)
+        actors_query = ActorsQuery(
+            properties=[
+                PersonMetadataPropertyFilter(
+                    key=prop.key, value=prop.value, operator=prop.operator or PropertyOperator.EXACT
+                )
+            ],
+            select=["id"],
+        )
+        query_runner = ActorsQueryRunner(team=self.team, query=actors_query)
+        return query_runner.to_query()
+
     def get_static_cohort_condition(self, prop: Property) -> ast.SelectQuery:
         cohort = Cohort.objects.get(pk=cast(int, prop.value), team__project_id=self.team.project_id)
         return cast(
@@ -443,6 +458,8 @@ class HogQLCohortQuery:
                 raise ValueError(f"Invalid behavioral property value for Cohort: {prop.value}")
         elif prop.type == "person":
             return self.get_person_condition(prop)
+        elif prop.type == "person_metadata":
+            return self.get_person_metadata_condition(prop)
         elif prop.type == "static-cohort":  # static cohorts are handled by flattening during initialization
             return self.get_static_cohort_condition(prop)
         elif prop.type == "dynamic-cohort":
@@ -1210,6 +1227,15 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
         raise ValueError(
             "Realtime cohorts do not support static cohort filters. "
             "Only dynamic cohorts and behavioral filters are supported for realtime calculation."
+        )
+
+    def get_person_metadata_condition(self, prop: Property) -> ast.SelectQuery:
+        # TODO: realtime cohorts read from precalculated_person_properties keyed by conditionHash, which only
+        # carries values from the persons properties JSON blob — top-level columns like created_at are not
+        # exposed. Extend the realtime backfill/consumer if/when there's demand.
+        raise ValueError(
+            "Realtime cohorts do not support 'person_metadata' filters. "
+            "Use a non-realtime cohort to filter on top-level person columns like created_at."
         )
 
     def get_performed_event_sequence(self, prop: Property) -> ast.SelectQuery:

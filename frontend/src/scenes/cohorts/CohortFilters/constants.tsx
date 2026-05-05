@@ -973,7 +973,10 @@ export const renderField: Record<FilterType, (props: CohortFieldProps) => JSX.El
         return (
             <CohortTaxonomicField
                 {...(p as CohortTaxonomicFieldProps)}
-                taxonomicGroupTypes={[TaxonomicFilterGroupType.PersonProperties]}
+                taxonomicGroupTypes={[
+                    TaxonomicFilterGroupType.PersonProperties,
+                    TaxonomicFilterGroupType.PersonMetadata,
+                ]}
                 placeholder="Choose person property"
             />
         )

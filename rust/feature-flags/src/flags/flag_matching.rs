@@ -263,7 +263,11 @@ impl PropertyContext<'_> {
     /// an explicit type distinction.
     pub fn resolve_for_filter(&self, filter: &PropertyFilter) -> &HashMap<String, Value> {
         match filter.prop_type {
-            PropertyType::Person => self.person_properties.unwrap_or(&*EMPTY_PROPERTY_MAP),
+            // PersonMetadata fields (e.g. created_at) are injected into the same map as
+            // regular person properties — see `inject_person_metadata_into_properties`.
+            PropertyType::Person | PropertyType::PersonMetadata => {
+                self.person_properties.unwrap_or(&*EMPTY_PROPERTY_MAP)
+            }
             PropertyType::Group => {
                 let gti = filter.group_type_index.or(self.aggregation);
                 gti.and_then(|idx| self.group_properties.get(&idx))
@@ -1611,7 +1615,7 @@ impl FeatureFlagMatcher {
                     continue;
                 }
                 match prop.prop_type {
-                    PropertyType::Person => needs_person = true,
+                    PropertyType::Person | PropertyType::PersonMetadata => needs_person = true,
                     PropertyType::Group => {
                         if let Some(gti) = prop.group_type_index.or(effective_aggregation) {
                             group_types.insert(gti);
@@ -1670,7 +1674,14 @@ impl FeatureFlagMatcher {
             .cloned()
             .unwrap_or_default();
 
-        // Merge in overrides (overrides take precedence)
+        // Merge in overrides (overrides take precedence).
+        //
+        // PersonMetadata fields are stored under sentinel-prefixed keys (see
+        // `lookup_key_for` in property_matching.rs). A caller could override the canonical
+        // persons-table value by setting that sentinel key in `person_property_overrides`.
+        // That's intentional for testing — no SDK has any reason to set such a key in
+        // production, and overrides are caller-trusted by design. If we ever need to lock
+        // metadata fields to the DB value, filter the prefixed keys out here.
         if let Some(overrides) = property_overrides {
             merged_properties.extend(overrides.iter_owned());
         }
