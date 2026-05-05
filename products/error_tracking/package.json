@@ -11,6 +11,9 @@
         "kea-subscriptions": "catalog:",
         "posthog-js": "catalog:"
     },
+    "devDependencies": {
+        "kea-test-utils": "catalog:"
+    },
     "peerDependencies": {
         "@dnd-kit/core": "*",
         "@dnd-kit/modifiers": "*",
@@ -19,14 +22,19 @@
         "@posthog/icons": "*",
         "@storybook/addon-actions": "*",
         "@storybook/react": "*",
+        "@testing-library/jest-dom": "*",
+        "@testing-library/react": "*",
+        "@testing-library/user-event": "*",
         "@types/d3": "*",
         "@types/react": "*",
+        "@types/react-dom": "*",
         "clsx": "*",
         "cva": "1.0.0-beta.3",
         "d3": "*",
         "fast-deep-equal": "*",
         "fuse.js": "*",
         "react": "*",
+        "react-dom": "*",
         "ts-pattern": "*",
         "use-debounce": "*",
         "use-resize-observer": "*"

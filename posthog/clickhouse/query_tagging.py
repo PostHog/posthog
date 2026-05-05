@@ -118,6 +118,7 @@ SCENE_TO_TAGS: dict[str, FallbackTags | None] = {
     "Cohort": {"product": Product.COHORTS, "feature": Feature.COHORT},
     "EndpointScene": {"product": Product.ENDPOINTS, "feature": Feature.QUERY},
     "EndpointsScene": {"product": Product.ENDPOINTS, "feature": Feature.QUERY},
+    "Logs": {"product": Product.LOGS, "feature": Feature.QUERY},
     "EventDefinition": {"product": Product.PRODUCT_ANALYTICS, "feature": Feature.EVENT_DEFINITION_SCENE},
     "EventDefinitionEdit": {"product": Product.PRODUCT_ANALYTICS, "feature": Feature.EVENT_DEFINITION_SCENE},
     "EventDefinitions": {"product": Product.PRODUCT_ANALYTICS, "feature": Feature.EVENT_DEFINITION_SCENE},

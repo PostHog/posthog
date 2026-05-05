@@ -1049,6 +1049,17 @@ def break_part(
                 f"Staging target: {target_count:,} rows in {target_parts} parts (largest: {target_largest_gib:.1f} GiB)"
             )
 
+            # Log staging part names — useful for reconciliation if a later
+            # step fails after ATTACH PARTITION FROM (CH renumbers blocks at the
+            # destination, so these names will not match what lands in the source).
+            staging_part_names = client.execute(
+                "SELECT name FROM system.parts "
+                "WHERE database = %(db)s AND table = %(table)s AND active AND partition_id = %(partition_id)s "
+                "ORDER BY name",
+                {"db": database, "table": staging_target, "partition_id": partition_id},
+            )
+            context.log.info(f"Staging target parts: {[r[0] for r in staging_part_names]}")
+
             # Verify count is within tolerance (dedup may reduce slightly)
             if source_count > 0:
                 diff_pct = abs(target_count - source_count) / source_count

@@ -11,6 +11,7 @@ import {
     logsSamplingRulesCreate,
     logsSamplingRulesPartialUpdate,
     logsSamplingRulesSimulateCreate,
+    logsServicesCreate,
 } from 'products/logs/frontend/generated/api'
 import {
     LogsSamplingRuleApi,
@@ -46,6 +47,8 @@ export interface LogsSamplingFormType {
     severity_error_rate: number
     always_keep_status_gte: string
     always_keep_latency_ms_gt: string
+    rate_limit_logs_per_second: string
+    rate_limit_burst_logs: string
 }
 
 const DEFAULT_FORM: LogsSamplingFormType = {
@@ -67,6 +70,8 @@ const DEFAULT_FORM: LogsSamplingFormType = {
     severity_error_rate: 0.5,
     always_keep_status_gte: '',
     always_keep_latency_ms_gt: '',
+    rate_limit_logs_per_second: '',
+    rate_limit_burst_logs: '',
 }
 
 function parseSeverityPart(
@@ -130,6 +135,14 @@ export function buildSamplingFormDefaults(rule: LogsSamplingRuleApi | null): Log
             }
         }
     }
+    if (rule.rule_type === RuleTypeEnumApi.RateLimit) {
+        form.rate_limit_logs_per_second =
+            typeof cfg.logs_per_second === 'number' && !Number.isNaN(cfg.logs_per_second)
+                ? String(cfg.logs_per_second)
+                : ''
+        form.rate_limit_burst_logs =
+            typeof cfg.burst_logs === 'number' && !Number.isNaN(cfg.burst_logs) ? String(cfg.burst_logs) : ''
+    }
     return form
 }
 
@@ -153,6 +166,18 @@ export function buildSamplingConfigPayload(form: LogsSamplingFormType): Record<s
         const out: Record<string, unknown> = { patterns }
         if (key !== '') {
             out.match_attribute_key = key
+        }
+        return out
+    }
+    if (form.rule_type === RuleTypeEnumApi.RateLimit) {
+        const lps = parseInt(form.rate_limit_logs_per_second.trim(), 10)
+        const out: Record<string, unknown> = { logs_per_second: lps }
+        const burst = form.rate_limit_burst_logs.trim()
+        if (burst !== '') {
+            const b = parseInt(burst, 10)
+            if (!Number.isNaN(b)) {
+                out.burst_logs = b
+            }
         }
         return out
     }
@@ -200,6 +225,7 @@ export const logsSamplingFormLogic = kea<logsSamplingFormLogicType>([
 
     actions({
         scheduleSimulate: true,
+        refreshServiceTraffic: true,
     }),
 
     loaders(({ values, props }) => ({
@@ -207,7 +233,11 @@ export const logsSamplingFormLogic = kea<logsSamplingFormLogicType>([
             null as { estimated_reduction_pct: number; notes: string } | null,
             {
                 runSimulateNow: async () => {
-                    if (!props.rule?.id || props.rule.rule_type === RuleTypeEnumApi.SeveritySampling) {
+                    if (
+                        !props.rule?.id ||
+                        props.rule.rule_type === RuleTypeEnumApi.SeveritySampling ||
+                        props.rule.rule_type === RuleTypeEnumApi.RateLimit
+                    ) {
                         return null
                     }
                     const projectId = String(values.currentTeamId)
@@ -215,9 +245,42 @@ export const logsSamplingFormLogic = kea<logsSamplingFormLogicType>([
                 },
             },
         ],
+        serviceTraffic: [
+            null as { log_count: number; avg_logs_per_sec: number } | null,
+            {
+                loadServiceTraffic: async (_, breakpoint) => {
+                    await breakpoint(400)
+                    const form = values.samplingForm
+                    if (form.rule_type !== RuleTypeEnumApi.RateLimit) {
+                        return null
+                    }
+                    const svc = form.scope_service.trim()
+                    if (!svc) {
+                        return null
+                    }
+                    const projectId = String(values.currentTeamId)
+                    const res = await logsServicesCreate(projectId, {
+                        query: {
+                            dateRange: { date_from: '-24h', date_to: null },
+                            serviceNames: [svc],
+                        },
+                    })
+                    const row = res.services.find((s) => s.service_name === svc)
+                    if (!row) {
+                        return { log_count: 0, avg_logs_per_sec: 0 }
+                    }
+                    const logCount = row.log_count
+                    const avg = logCount / (24 * 3600)
+                    return { log_count: logCount, avg_logs_per_sec: avg }
+                },
+            },
+        ],
     })),
 
     listeners(({ actions, props, cache }) => ({
+        refreshServiceTraffic: () => {
+            actions.loadServiceTraffic(null)
+        },
         scheduleSimulate: () => {
             if (!props.rule?.id) {
                 return
@@ -232,6 +295,7 @@ export const logsSamplingFormLogic = kea<logsSamplingFormLogicType>([
         },
         setSamplingFormValue: () => {
             actions.scheduleSimulate()
+            actions.refreshServiceTraffic()
         },
         submitSamplingFormSuccess: () => {
             actions.scheduleSimulate()
@@ -242,35 +306,63 @@ export const logsSamplingFormLogic = kea<logsSamplingFormLogicType>([
         canSimulate: [
             () => [(_, props) => props.rule],
             (rule: LogsSamplingRuleApi | null) =>
-                Boolean(rule?.id) && rule?.rule_type !== RuleTypeEnumApi.SeveritySampling,
+                Boolean(rule?.id) &&
+                rule?.rule_type !== RuleTypeEnumApi.SeveritySampling &&
+                rule?.rule_type !== RuleTypeEnumApi.RateLimit,
         ],
         isNewRule: [() => [(_, props) => props.rule], (rule: LogsSamplingRuleApi | null) => !rule],
     }),
 
     afterMount(({ actions, props }) => {
         actions.resetSamplingForm(buildSamplingFormDefaults(props.rule))
-        if (props.rule?.id && props.rule.rule_type !== RuleTypeEnumApi.SeveritySampling) {
+        if (
+            props.rule?.id &&
+            props.rule.rule_type !== RuleTypeEnumApi.SeveritySampling &&
+            props.rule.rule_type !== RuleTypeEnumApi.RateLimit
+        ) {
             actions.scheduleSimulate()
         }
+        actions.refreshServiceTraffic()
     }),
 
     forms(({ props, values }) => ({
         samplingForm: {
             defaults: buildSamplingFormDefaults(props.rule),
-            errors: (form) => ({
-                name: !form.name?.trim() ? 'Name is required' : undefined,
-                path_drop_match_attribute_key:
-                    form.rule_type === RuleTypeEnumApi.PathDrop &&
-                    form.path_drop_match_target === 'custom_attribute' &&
-                    !form.path_drop_match_attribute_key?.trim()
-                        ? 'Enter the log attribute key (e.g. http.route)'
-                        : undefined,
-            }),
+            errors: (form) => {
+                const lps = parseInt(form.rate_limit_logs_per_second.trim(), 10)
+                const burstRaw = form.rate_limit_burst_logs.trim()
+                const burst = burstRaw === '' ? null : parseInt(burstRaw, 10)
+                return {
+                    name: !form.name?.trim() ? 'Name is required' : undefined,
+                    path_drop_match_attribute_key:
+                        form.rule_type === RuleTypeEnumApi.PathDrop &&
+                        form.path_drop_match_target === 'custom_attribute' &&
+                        !form.path_drop_match_attribute_key?.trim()
+                            ? 'Enter the log attribute key (e.g. http.route)'
+                            : undefined,
+                    scope_service:
+                        form.rule_type === RuleTypeEnumApi.RateLimit && !form.scope_service?.trim()
+                            ? 'Select or enter a service name'
+                            : undefined,
+                    rate_limit_logs_per_second:
+                        form.rule_type === RuleTypeEnumApi.RateLimit &&
+                        (form.rate_limit_logs_per_second.trim() === '' || Number.isNaN(lps) || lps < 1)
+                            ? 'Enter logs per second (integer ≥ 1)'
+                            : undefined,
+                    rate_limit_burst_logs:
+                        form.rule_type === RuleTypeEnumApi.RateLimit &&
+                        burstRaw !== '' &&
+                        (burst === null || Number.isNaN(burst) || burst < lps)
+                            ? 'Burst must be an integer ≥ sustained rate, or leave empty for default'
+                            : undefined,
+                }
+            },
             submit: async (form) => {
                 const projectId = String(values.currentTeamId)
                 try {
                     const scope_service = form.scope_service.trim() || null
-                    const scope_path_pattern = form.scope_path_pattern.trim() || null
+                    const scope_path_pattern =
+                        form.rule_type === RuleTypeEnumApi.RateLimit ? null : form.scope_path_pattern.trim() || null
                     const scope_attribute_filters = (props.rule?.scope_attribute_filters ??
                         []) as PatchedLogsSamplingRuleApi['scope_attribute_filters']
                     const payload = {
