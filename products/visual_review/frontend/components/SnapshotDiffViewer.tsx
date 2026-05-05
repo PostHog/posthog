@@ -237,17 +237,20 @@ export function SnapshotDiffViewer({
     // up to CLUSTER_MAX (currently 20) for completeness; the UI is more
     // useful with a tighter list — N+1 numbered chips on the image
     // crowd each other and the sidebar runs out of vertical space.
-    // `cluster_summary.total` keeps the true count regardless.
+    // `cluster_summary.total` keeps the pre-merge true count regardless.
     const VISIBLE_CLUSTER_CAP = 5
-    // When a single cluster covers most of the image, the bbox overlay
-    // adds no information beyond the diff% tag — full inversions or
-    // wholesale changes show as "1 region · 99%". Skip the overlay and
-    // panel in that regime so the user sees the underlying diff cleanly.
+    // When a single (post-merge) cluster covers most of the image, the
+    // bbox overlay adds no information beyond the diff% tag — full
+    // inversions or wholesale changes show as "1 region · 99%". Skip
+    // the overlay and panel in that regime so the user sees the
+    // underlying diff cleanly. Use `items.length` (post-merge count),
+    // not `total` — total is the pre-merge raw count so it can be 21
+    // even after pixelhog merged everything into one regional cluster.
     const DOMINANT_CLUSTER_PCT_THRESHOLD = 80
     const clusterSummary = snapshot.cluster_summary
     const isClusterDominant =
         !!clusterSummary &&
-        clusterSummary.total === 1 &&
+        clusterSummary.items.length === 1 &&
         snapshot.diff_percentage != null &&
         snapshot.diff_percentage >= DOMINANT_CLUSTER_PCT_THRESHOLD
     const visibleClusterSummary = useMemo(() => {
