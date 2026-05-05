@@ -36,6 +36,7 @@ path = "ee"
 depends_on = [
     "posthog",
     "products.alerts",
+    "products.business_knowledge",
     "products.dashboards",
     "products.data_warehouse",
     "products.error_tracking",
@@ -575,4 +576,20 @@ expose = [
 ]
 from = [
     "products.access_control",
+]
+
+[[interfaces]]
+expose = [
+    "backend\\.models.*",
+]
+from = [
+    "posthog",
+]
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+]
+from = [
+    "ee",
 ]
