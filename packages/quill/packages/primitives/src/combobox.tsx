@@ -138,7 +138,17 @@ function ComboboxList({ className, ...props }: ComboboxPrimitive.List.Props): Re
     return (
         <ComboboxPrimitive.List
             data-slot="combobox-list"
-            className={cn('quill-combobox__list scroll-mask-y-4 scroll-py-4', className)}
+            // `scroll-mask-t-4` always (top fade for items scrolling out of view).
+            // Bottom fade is conditional: if a `ComboboxListFooter` is rendered,
+            // the footer's own `quill-scroll-fade-top` pseudo handles the bottom
+            // fade (and only when content is actually hidden below, via
+            // container scroll-state). Otherwise, fall back to plugin's
+            // `scroll-mask-b-4` for the same behavior on lists without a footer.
+            className={cn(
+                'quill-combobox__list scroll-mask-t-4 scroll-py-4',
+                'not-has-[[data-slot=combobox-list-footer]]:scroll-mask-b-4',
+                className,
+            )}
             {...props}
         />
     )
@@ -252,7 +262,14 @@ function ComboboxChipsInput({ className, ...props }: ComboboxPrimitive.Input.Pro
 
 function ComboboxListFooter({ className, ...props }: React.ComponentProps<'div'>): React.ReactElement {
     return (
-        <div data-slot="combobox-list-footer" className={cn('quill-combobox__list-footer', className)}>
+        <div
+            data-slot="combobox-list-footer"
+            // `quill-scroll-fade-top` adds a `var(--card) → transparent` gradient
+            // pseudo-element above the footer, gated by container scroll-state on
+            // the parent list. Renders only when items are hidden below the visible
+            // area, mirroring `scroll-mask-b` without fading the footer itself.
+            className={cn('quill-combobox__list-footer quill-scroll-fade-top', className)}
+        >
             <div className="p-1" {...props} />
         </div>
     )
