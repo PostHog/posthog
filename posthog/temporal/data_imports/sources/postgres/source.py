@@ -127,10 +127,6 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
                         placeholder="public",
-                        caption=(
-                            "Required for warehouse imports. Leave blank only for direct Postgres queries "
-                            "to browse tables across all non-system schemas."
-                        ),
                         secret=False,
                     ),
                     SourceFieldSSHTunnelConfig(name="ssh_tunnel", label="Use SSH tunnel?"),
