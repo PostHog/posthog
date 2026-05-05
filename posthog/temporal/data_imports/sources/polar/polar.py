@@ -1,7 +1,7 @@
 import dataclasses
 from datetime import UTC, date, datetime, time
 from typing import Any, Optional
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlencode, urlparse
 
 import requests
 from dateutil import parser
@@ -60,12 +60,8 @@ def _default_sort_field(endpoint: str) -> str:
 
 
 def _build_url(endpoint: str, page: int, sort_field: str) -> str:
-    prepared = requests.Request(
-        "GET",
-        f"{POLAR_BASE_URL}/v1/{endpoint}/",
-        params={"limit": PAGE_SIZE, "page": page, "sorting": sort_field},
-    ).prepare()
-    return prepared.url or f"{POLAR_BASE_URL}/v1/{endpoint}/?limit={PAGE_SIZE}&page={page}&sorting={sort_field}"
+    qs = urlencode({"limit": PAGE_SIZE, "page": page, "sorting": sort_field})
+    return f"{POLAR_BASE_URL}/v1/{endpoint}/?{qs}"
 
 
 def _page_from_url(url: str) -> int:
