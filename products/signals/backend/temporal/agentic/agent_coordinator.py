@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import random
 import asyncio
 from dataclasses import dataclass, field
 from datetime import timedelta
@@ -136,11 +137,23 @@ def _collect_planned_runs() -> list[PlannedRun]:
 
 
 def _resolve_skill_names_for_config(config: SignalAgentConfig, *, team_id: int) -> list[str]:
-    """Return the ordered list of skill names to run for this team's config.
+    """Return the (length-0 or 1) list of skill names to run for this team's config.
 
-    `enabled_skill_names = None` → glob all `signals-agent-*` skills on the team.
-    `enabled_skill_names = [list]` → use the list verbatim, but still validate each
-    name actually exists on the team so the activity output is grounded in reality.
+    The set of *candidate* skills comes from:
+      - `enabled_skill_names = None` → all `signals-agent-*` skills on the team.
+      - `enabled_skill_names = [list]` → the list verbatim, intersected with the skills
+        that actually exist on the team so the activity output is grounded in reality.
+
+    The coordinator then picks **one** skill from the candidate set uniformly at random
+    per tick. With multiple `signals-agent-*` skills on a team (general + specialists),
+    this gives each skill an equal share of run slots over time without firing them all
+    every tick. The sample-of-one design lets users author new `signals-agent-foo`
+    skills that automatically join the rotation without coordinator-side wiring.
+
+    Inefficiency on a team where a specialist is irrelevant (e.g. `signals-agent-llm-analytics`
+    on a project with no LLM activity) is handled at the agent layer via memory: the
+    specialist's first run writes "no LLM activity here, close out fast" and future runs
+    short-circuit cold via the memory read.
     """
     available = set(
         LLMSkill.objects.filter(
@@ -151,17 +164,32 @@ def _resolve_skill_names_for_config(config: SignalAgentConfig, *, team_id: int) 
         ).values_list("name", flat=True)
     )
     if config.enabled_skill_names is None:
-        return sorted(available)
-    requested = list(config.enabled_skill_names)
-    resolved = [name for name in requested if name in available]
-    missing = [name for name in requested if name not in available]
-    if missing:
-        logger.warning(
-            "signals_agent coordinator: configured skill names not found on team",
-            team_id=team_id,
-            missing=missing,
-        )
-    return resolved
+        candidates = sorted(available)
+    else:
+        requested = list(config.enabled_skill_names)
+        candidates = [name for name in requested if name in available]
+        missing = [name for name in requested if name not in available]
+        if missing:
+            logger.warning(
+                "signals_agent coordinator: configured skill names not found on team",
+                team_id=team_id,
+                missing=missing,
+            )
+
+    if not candidates:
+        return []
+    if len(candidates) == 1:
+        return list(candidates)
+
+    chosen = random.choice(candidates)
+    logger.info(
+        "signals_agent coordinator: sampled skill from candidate set",
+        team_id=team_id,
+        chosen=chosen,
+        candidate_count=len(candidates),
+        candidates=candidates,
+    )
+    return [chosen]
 
 
 @workflow.defn(name="run-signals-agent-coordinator")
