@@ -263,6 +263,7 @@ jobs:
         outputs:
             run_legacy: ${{ steps.discover.outputs.run_legacy }}
             matrix: ${{ steps.discover.outputs.matrix }}
+            schema_cache_key: ${{ steps.schema-key.outputs.key }}
 
         steps:
             - uses: actions/checkout@v6
@@ -275,6 +276,23 @@ jobs:
               env:
                   BASE_REF: ${{ github.event.pull_request.base.ref }}
               run: git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
+
+            - name: Compute schema cache key from merge-base
+              id: schema-key
+              if: github.event_name == 'pull_request'
+              env:
+                  BASE_REF: ${{ github.event.pull_request.base.ref }}
+              run: |
+                  # HEAD is the synthetic merge commit; HEAD^2 is the PR branch tip.
+                  # The fetch-depth:1000 checkout + base-ref fetch above ensure the
+                  # full ancestry needed to find the divergence point is available.
+                  MERGE_BASE=$(git merge-base HEAD^2 "origin/${BASE_REF}" 2>/dev/null || echo "")
+                  if [ -n "$MERGE_BASE" ]; then
+                      echo "key=posthog-schema-master-${MERGE_BASE}" >> $GITHUB_OUTPUT
+                  else
+                      echo "key=" >> $GITHUB_OUTPUT
+                      echo "::notice::merge-base not found (branch too stale?) — schema cache will be skipped"
+                  fi
 
             - name: Setup pnpm
               uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
@@ -418,12 +436,11 @@ jobs:
               run: bin/ci-wait-for-docker wait
 
             - name: Restore schema cache from master
-              if: ${{ github.event_name == 'pull_request' }}
+              if: ${{ github.event_name == 'pull_request' && needs.turbo-discover.outputs.schema_cache_key != '' }}
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
               with:
                   path: schema.sql.gz
-                  key: posthog-schema-master-${{ github.sha }}
-                  restore-keys: posthog-schema-master-
+                  key: ${{ needs.turbo-discover.outputs.schema_cache_key }}
 
             - name: Prime test_posthog from cached schema
               # No-op on cache miss; pytest --reuse-db falls back to a full migrate.
@@ -884,11 +901,10 @@ jobs:
                   retention-days: 90
 
             - name: Save schema to Actions cache for PR shards
-              # Seeds a Postgres schema cache that PR test jobs will read in a
-              # follow-up change to skip the full Django migrate. SHA-suffixed
-              # key + restore-keys prefix means the newest master cache always
-              # wins; LRU eviction handles cleanup. No PR-side consumer yet —
-              # this just establishes the cache so the follow-up lands hot.
+              # Seeds a Postgres schema cache consumed by PR test jobs (turbo-tests,
+              # django, dagster). PR jobs restore using the merge-base SHA as the key
+              # so they always get a schema from their exact branch point rather than
+              # the newest master. LRU eviction handles cleanup.
               if: github.event_name == 'push'
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
               with:
@@ -1290,12 +1306,11 @@ jobs:
               run: bin/ci-wait-for-docker wait
 
             - name: Restore schema cache from master
-              if: ${{ github.event_name == 'pull_request' }}
+              if: ${{ github.event_name == 'pull_request' && needs.turbo-discover.outputs.schema_cache_key != '' }}
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
               with:
                   path: schema.sql.gz
-                  key: posthog-schema-master-${{ github.sha }}
-                  restore-keys: posthog-schema-master-
+                  key: ${{ needs.turbo-discover.outputs.schema_cache_key }}
 
             - name: Prime test_posthog from cached schema
               # No-op on cache miss; pytest --reuse-db falls back to a full migrate.
