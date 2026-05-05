@@ -487,8 +487,11 @@ export const signupLogic = kea<signupLogicType>([
             },
         ],
         panelTitle: [
-            (s) => [s.panel, s.passkeySignupEnabled, s.preflight],
-            (panel: number, passkeySignupEnabled: boolean, preflight): string => {
+            (s) => [s.panel, s.passkeySignupEnabled, s.preflight, s.pendingInvite],
+            (panel: number, passkeySignupEnabled: boolean, preflight, pendingInvite): string => {
+                if (panel === 0 && pendingInvite) {
+                    return ''
+                }
                 if (preflight?.demo) {
                     return 'Explore PostHog yourself'
                 }
