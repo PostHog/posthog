@@ -420,9 +420,7 @@ def _invalidate_product_intents_cache(team_id: int) -> None:
 def _capture_original_team_id(sender: type[ProductIntent], instance: ProductIntent, **kwargs: Any) -> None:
     # Stash the persisted team_id before save so post_save can invalidate the previous
     # team's cache when an intent is reassigned (instance.team_id != original).
-    if instance.pk is None:
-        instance._original_team_id = None  # type: ignore[attr-defined]
-        return
+    # For new rows the filter returns None (no row yet), which is the right value to stash.
     try:
         instance._original_team_id = (  # type: ignore[attr-defined]
             ProductIntent.objects.filter(pk=instance.pk).values_list("team_id", flat=True).first()
