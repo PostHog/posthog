@@ -31,6 +31,14 @@ class StatsTableQueryStrategy(ABC):
     @abstractmethod
     def build_query(self) -> ast.SelectQuery: ...
 
+    def _finalize_query(self, query: ast.SelectQuery) -> ast.SelectQuery:
+        columns = [select.alias for select in query.select if isinstance(select, ast.Alias)]
+        query.order_by = self.runner._order_by(columns)
+        fill_fraction = self.runner._fill_fraction(query.order_by)
+        if fill_fraction:
+            query.select.append(fill_fraction)
+        return query
+
 
 class MainQueryStrategy(StatsTableQueryStrategy):
     """Default query for most breakdown types.
@@ -150,15 +158,7 @@ class PathBounceStrategy(StatsTableQueryStrategy):
                 },
             )
         assert isinstance(query, ast.SelectQuery)
-
-        columns = [select.alias for select in query.select if isinstance(select, ast.Alias)]
-        query.order_by = self.runner._order_by(columns)
-
-        fill_fraction = self.runner._fill_fraction(query.order_by)
-        if fill_fraction:
-            query.select.append(fill_fraction)
-
-        return query
+        return self._finalize_query(query)
 
 
 class PathBounceAvgTimeStrategy(StatsTableQueryStrategy):
@@ -185,15 +185,7 @@ class PathBounceAvgTimeStrategy(StatsTableQueryStrategy):
                 },
             )
         assert isinstance(query, ast.SelectQuery)
-
-        columns = [select.alias for select in query.select if isinstance(select, ast.Alias)]
-        query.order_by = self.runner._order_by(columns)
-
-        fill_fraction = self.runner._fill_fraction(query.order_by)
-        if fill_fraction:
-            query.select.append(fill_fraction)
-
-        return query
+        return self._finalize_query(query)
 
 
 class FrustrationMetricsStrategy(StatsTableQueryStrategy):
