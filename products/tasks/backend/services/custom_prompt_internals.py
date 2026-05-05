@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import re
 import json
 import asyncio
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from asgiref.sync import sync_to_async
 
@@ -54,30 +55,7 @@ class EmptyAgentTurnError(RuntimeError):
         self.printed_lines = printed_lines
 
 
-async def run_prompt(
-    prompt: str,
-    context: CustomPromptSandboxContext,
-    *,
-    branch: str | None = None,
-    step_name: str = "",
-    verbose: bool = False,
-    output_fn: OutputFn = None,
-    origin_product: Task.OriginProduct | None = None,
-    internal: bool = False,
-) -> tuple[str, str]:
-    """Spawn a sandbox agent with the given prompt and return (last_message, full_log)."""
-    task, task_run = await _create_task_and_trigger(
-        prompt, context, branch, step_name, origin_product=origin_product, internal=internal
-    )
-    logger.info("custom_prompt: started task=%s run=%s step=%s", task.id, task_run.id, step_name or "unknown")
-    # No try/catch, propagating to the caller, if it fails,
-    # to turn into a clear failure instead of JSON parse error
-    last_message, full_log, _, _ = await _poll_for_turn(task_run, verbose=verbose, output_fn=output_fn)
-    logger.info("custom_prompt: finished run=%s", task_run.id)
-    return last_message, full_log or ""
-
-
-async def _create_task_and_trigger(
+async def create_task_and_trigger(
     description: str,
     context: CustomPromptSandboxContext,
     branch: str | None = None,
@@ -109,7 +87,7 @@ async def _create_task_and_trigger(
     return task, task_run
 
 
-async def _poll_for_turn(
+async def poll_for_turn(
     task_run,
     *,
     skip_lines: int = 0,
@@ -378,3 +356,43 @@ def _extract_text(update: dict) -> str | None:
     if isinstance(message, str) and message.strip():
         return message.strip()
     return None
+
+
+def extract_json_from_text(text: str | None, label: str) -> Any:
+    """Extract JSON from text that might contain markdown formatting or surrounding commentary."""
+    if text is None:
+        raise ValueError(f"Text to extract JSON from ({label}) is None")
+
+    # 1. ```json ... ``` fenced code block (non-greedy to stop at first closing fence)
+    match = re.search(r"```json\s*(.*?)\s*```", text, re.DOTALL)
+    if match:
+        candidate = match.group(1).strip()
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError:
+            pass
+
+    # 2. ``` ... ``` generic code block that happens to contain JSON
+    match = re.search(r"```\s*(.*?)\s*```", text, re.DOTALL)
+    if match:
+        candidate = match.group(1).strip()
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError:
+            pass
+
+    # 3. Bare JSON object in surrounding text — try each { from the left paired with the last }
+    last_brace = text.rfind("}")
+    if last_brace != -1:
+        start = 0
+        while True:
+            brace_pos = text.find("{", start)
+            if brace_pos == -1 or brace_pos >= last_brace:
+                break
+            try:
+                return json.loads(text[brace_pos : last_brace + 1])
+            except json.JSONDecodeError:
+                start = brace_pos + 1
+
+    # 4. Last resort — try the whole text as-is
+    return json.loads(text)

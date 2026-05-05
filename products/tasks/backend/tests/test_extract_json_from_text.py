@@ -2,7 +2,7 @@ import pytest
 
 from parameterized import parameterized
 
-from products.tasks.backend.services.custom_prompt_executor import extract_json_from_text
+from products.tasks.backend.services.custom_prompt_internals import extract_json_from_text
 
 EXPECTED = {"answer": "hello world"}
 JSON_STR = '{"answer": "hello world"}'
