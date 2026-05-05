@@ -81,11 +81,102 @@ pub const DB_CONNECTION_POOL_IDLE_COUNTER: &str = "flags_db_connection_pool_idle
 pub const DB_CONNECTION_POOL_MAX_COUNTER: &str = "flags_db_connection_pool_max_total";
 pub const DB_CONNECTION_POOL_SIZE_GAUGE: &str = "flags_db_connection_pool_size";
 
-// Flag billing timing
-// Duration of the Redis HINCRBY billing increment call. Labeled by
-// `outcome` ("ok" | "timeout" | "error") to isolate the happy path from
-// Redis timeouts — closes a sub-metric blind spot on the billing path.
+// Synchronous-path billing increment timing.
+// Labeled by `outcome` ("ok" | "timeout" | "error") to isolate the happy
+// path from Redis timeouts.
 pub const FLAG_BILLING_INCREMENT_TIME: &str = "flags_billing_increment_time_ms";
+
+// Counter for Redis errors observed during the synchronous billing
+// increment. Labeled by `error_type` ("timeout" | "transport" | "not_found"
+// | "parse" | "config") — same classification the billing flusher uses, so
+// breakdowns line up across both paths. The raw error message is never used
+// as a label (cardinality risk).
+pub const FLAG_REQUEST_REDIS_ERROR: &str = "flag_request_redis_error";
+
+// Billing aggregator metrics
+// See `src/billing/aggregator.rs`. The accounting identity
+//   flags_billing_records_total ≈ flags_billing_entries_flushed_total
+//                                + flags_billing_unflushed_requests_total{cause="cap_drop"}
+//                                + flags_billing_unflushed_requests_total{cause="flush_dropped_on_error"}
+//                                + flags_billing_unflushed_requests_total{cause="shutdown_drop"}
+//                                + flags_billing_pending_records (the residual still in `pending`)
+// should hold per pod over any window. The `redis_error` cause is omitted
+// from this identity because it only fires under `BailOnError` (normal
+// ticks): the affected entries are requeued and eventually flush or land
+// in `shutdown_drop`, so they aren't lost at the moment the error fires.
+// Under `BestEffort` (shutdown) the same chunk failures are recorded only
+// as `flush_dropped_on_error`, so summing `redis_error` with the other
+// causes for a total-loss figure does not double-count.
+
+// Counter, labeled by `request_type` ("decide" | "flag_definitions").
+pub const FLAGS_BILLING_RECORDS: &str = "flags_billing_records_total";
+
+// Counter: sum of `count` args across all successfully written HINCRBYs.
+pub const FLAGS_BILLING_ENTRIES_FLUSHED: &str = "flags_billing_entries_flushed_total";
+
+// Gauge of the live `pending` map size. Sustained growth is the leading
+// indicator of a wedged flusher; alert when the gauge approaches
+// `max_pending_entries`. Pair with `flags_billing_seconds_since_successful_flush`
+// to distinguish a hung `execute_pipeline` (gauge growing, staleness rising)
+// from steady-state high traffic (gauge oscillating, staleness near zero).
+pub const FLAGS_BILLING_PENDING_ENTRIES: &str = "flags_billing_pending_entries";
+
+// Gauge: sum of counts in `pending` — the per-pod count of records that
+// would be lost if the process crashed at scrape time (SIGKILL past
+// `terminationGracePeriodSeconds`, OOM-kill, node loss, panic). The
+// crashed pod cannot emit at the moment of loss, so this gauge is the
+// pre-crash signal: scrape it just before the pod is gone, and you have
+// an upper bound on the loss. Use `sum(flags_billing_pending_records)`
+// for fleet-wide loss exposure, and correlate per-pod spikes with
+// `kube_pod_container_status_restarts_total` to attribute crash-loss to
+// specific restarts. Differs from `flags_billing_pending_entries`
+// (number of distinct keys), which can stay flat while record counts
+// per key climb.
+pub const FLAGS_BILLING_PENDING_RECORDS: &str = "flags_billing_pending_records";
+
+// Gauge: seconds elapsed since the last successful flush (0 until the
+// first successful flush completes).
+pub const FLAGS_BILLING_SECONDS_SINCE_SUCCESSFUL_FLUSH: &str =
+    "flags_billing_seconds_since_successful_flush";
+
+pub const FLAGS_BILLING_FLUSH_DURATION_MS: &str = "flags_billing_flush_duration_ms";
+
+// Histogram of per-call `record()` latency in microseconds, with no labels
+// to keep the hot-path emission allocation-free. The expected uncontended
+// p50 is sub-microsecond (one atomic increment + a hash + a HashMap entry
+// op). p99 climbing while p50 stays flat is the canonical signature of
+// `pending` mutex contention — this metric is the sole signal for it, since
+// `record()` would otherwise be invisible to monitoring.
+pub const FLAGS_BILLING_RECORD_DURATION_US: &str = "flags_billing_record_duration_us";
+
+// Counter: flusher-side Redis failures, labeled by `error_type`
+// ("timeout" | "transport" | "not_found" | "parse" | "config"). Alert on
+// `rate(flags_billing_flush_errors_total[1m]) > 0 for: 30s` to catch a
+// wedged Redis link without a separate consecutive-failures gauge.
+pub const FLAGS_BILLING_FLUSH_ERRORS: &str = "flags_billing_flush_errors_total";
+
+// Counter: billable requests that did not reach Redis, labeled by `cause`.
+// `sum(rate(flags_billing_unflushed_requests_total[5m]))` is the
+// one-expression billing-leak rate. Cause values:
+//   - "cap_drop": dropped at the hot path because `pending_entries` was at
+//     `max_pending_entries` and the incoming key was new. Tripwire — any
+//     non-zero rate is an incident signal.
+//   - "flush_dropped_on_error": drained from `pending`, then lost because a
+//     flush chunk errored AND the flush policy couldn't retry. In practice
+//     only fires on the shutdown path (`BestEffort`); normal ticks
+//     (`BailOnError`) re-queue failed entries back into `pending`.
+//   - "shutdown_drop": entries lost during shutdown because the final flush
+//     timed out or panicked. SIGKILL past the grace window lands here.
+//   - "redis_error": affected-request count for chunks that hit a Redis
+//     error during a normal-tick flush. Only emitted under `BailOnError`:
+//     includes the failing chunk plus the unattempted remainder so the
+//     rate reflects all requests blocked by the error, not just the chunk
+//     that hit it. These records are requeued and retried, so this label
+//     is an "incident magnitude" signal rather than a terminal-loss
+//     signal. Suppressed under `BestEffort` (shutdown) where the same
+//     counts terminally land in `flush_dropped_on_error` — emitting both
+//     would double-count when summing causes for a total-loss figure.
+pub const FLAGS_BILLING_UNFLUSHED_REQUESTS: &str = "flags_billing_unflushed_requests_total";
 
 // Flag evaluation timing
 pub const FLAG_EVALUATION_TIME: &str = "flags_evaluation_time";
