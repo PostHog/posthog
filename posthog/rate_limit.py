@@ -346,6 +346,19 @@ class SignupEmailPrecheckThrottle(IPThrottle):
     rate = "30/minute"
 
 
+class SignupResendInviteThrottle(UserOrEmailRateThrottle):
+    """
+    Rate limit signup invite-resend requests per email address.
+
+    Resending an invite triggers a real email side effect, so the per-email cap
+    bounds inbox spam to a victim regardless of how many IPs an attacker rotates
+    through. The IP-keyed precheck throttle still applies via the shared scope.
+    """
+
+    scope = "signup_resend_invite"
+    rate = "5/hour"
+
+
 class BurstRateThrottle(PersonalApiKeyRateThrottle):
     # Throttle class that's applied on all endpoints (except for capture + decide)
     # Intended to block quick bursts of requests, per project
