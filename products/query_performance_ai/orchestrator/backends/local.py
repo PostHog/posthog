@@ -40,7 +40,7 @@ _TEAM_ONE_PROMPT_TEMPLATE = (
 
 
 class LocalClickhouseBackend(ExecutionBackend):
-    def __init__(self, *, team_id: int = 1):
+    def __init__(self, *, team_id: int = 1) -> None:
         self._team_id = team_id
 
     @property

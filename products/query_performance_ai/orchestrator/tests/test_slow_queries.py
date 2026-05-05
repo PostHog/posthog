@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from products.query_performance_ai.scripts import slow_queries
+from products.query_performance_ai.orchestrator import slow_queries
 
 
 def test_build_sql_substitutes_filters() -> None:

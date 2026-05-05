@@ -50,7 +50,7 @@ class CoordinatorServer(ThreadingHTTPServer):
         backend: ExecutionBackend,
         token: str,
         info: ServerInfo,
-    ):
+    ) -> None:
         super().__init__(server_address, RequestHandlerClass)
         self._backend = backend
         self._token = token

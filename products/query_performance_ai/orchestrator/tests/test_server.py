@@ -8,8 +8,8 @@ from typing import Any
 
 import pytest
 
-from products.query_performance_ai.scripts.backends.base import BackendError, ExecutionBackend, ExecutionResult
-from products.query_performance_ai.scripts.server import (
+from products.query_performance_ai.orchestrator.backends.base import BackendError, ExecutionBackend, ExecutionResult
+from products.query_performance_ai.orchestrator.server import (
     ServerInfo,
     generate_token,
     make_server,

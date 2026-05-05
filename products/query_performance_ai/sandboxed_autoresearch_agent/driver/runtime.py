@@ -12,9 +12,9 @@ import sys
 import subprocess
 from pathlib import Path
 
-PRODUCT_DIR = Path(__file__).resolve().parent.parent
-AUTORESEARCH_DIR = PRODUCT_DIR / "autoresearch"
-SCRIPTS_DIR = AUTORESEARCH_DIR / "scripts"
+SANDBOXED_AGENT_DIR = Path(__file__).resolve().parent.parent
+PI_PLUGIN_DIR = SANDBOXED_AGENT_DIR / "pi_plugin"
+PI_PLUGIN_SCRIPTS_DIR = PI_PLUGIN_DIR / "scripts"
 
 
 class CampaignError(RuntimeError):

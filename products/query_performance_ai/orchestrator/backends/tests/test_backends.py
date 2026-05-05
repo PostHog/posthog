@@ -7,8 +7,8 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from products.query_performance_ai.scripts.backends.base import BackendError
-from products.query_performance_ai.scripts.backends.metabase import MetabaseBackend
+from products.query_performance_ai.orchestrator.backends.base import BackendError
+from products.query_performance_ai.orchestrator.backends.metabase import MetabaseBackend
 
 
 def _completed(stdout: str = "", stderr: str = "", returncode: int = 0) -> Any:

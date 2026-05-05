@@ -18,9 +18,13 @@ extend-select = ["ANN001", "ANN201", "ANN202", "ANN204"]
 # autoresearch sandbox scripts use stdout as their orchestration protocol
 # (pi-autoresearch's `METRIC name=value` parse format and the campaign init's
 # human-readable banner) so the no-print lint doesn't apply.
-"query_performance_ai/autoresearch/scripts/**" = ["T201"]
-"query_performance_ai/autoresearch/templates/workspace/**" = ["T201"]
-"query_performance_ai/scripts/run_campaign.py" = ["T201"]
+"query_performance_ai/sandboxed_autoresearch_agent/pi_plugin/scripts/**" = ["T201"]
+"query_performance_ai/sandboxed_autoresearch_agent/pi_plugin/templates/workspace/**" = ["T201"]
+"query_performance_ai/sandboxed_autoresearch_agent/driver/run_campaign.py" = ["T201"]
+# In-sandbox driver: shell-callable scripts where ANN policing
+# isn't worth the noise (overrides Python stdlib base-class signatures
+# without re-typing every arg).
+"query_performance_ai/sandboxed_autoresearch_agent/driver/**" = ["ANN"]
 
 # Temporarily exempted — too many violations to fix in one pass.
 # Run: ruff check products/<name>/backend --select ANN --statistics

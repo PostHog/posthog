@@ -26,7 +26,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-from .runtime import SCRIPTS_DIR, CampaignError, log, run
+from .runtime import PI_PLUGIN_SCRIPTS_DIR, CampaignError, log, run
 from .sandboxing import LockdownFailed, ensure_pi_toolchain, lockdown_network, prepare_pi_runtime
 
 DEFAULT_WORKSPACE = Path("/tmp/autoresearch-campaign")
@@ -101,7 +101,7 @@ def init_campaign(workspace: Path, query_file: Path, *, query_id: str) -> None:
     run(
         [
             sys.executable,
-            str(SCRIPTS_DIR / "ch_campaign_init.py"),
+            str(PI_PLUGIN_SCRIPTS_DIR / "ch_campaign_init.py"),
             "--workspace",
             str(workspace),
             "--query-id",
@@ -151,7 +151,7 @@ def capture_baseline(workspace: Path) -> None:
     run(
         [
             sys.executable,
-            str(SCRIPTS_DIR / "ch_capture_baseline.py"),
+            str(PI_PLUGIN_SCRIPTS_DIR / "ch_capture_baseline.py"),
             "--workspace",
             str(workspace),
         ]

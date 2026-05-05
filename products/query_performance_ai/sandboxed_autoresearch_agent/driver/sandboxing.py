@@ -33,7 +33,7 @@ import subprocess
 import urllib.parse
 from pathlib import Path
 
-from .runtime import AUTORESEARCH_DIR, CampaignError, atomic_write, log, run
+from .runtime import PI_PLUGIN_DIR, CampaignError, atomic_write, log, run
 
 # Layout the dedicated PI_BASE image bakes. `ensure_pi_toolchain` requires
 # this exact path; the image build (Dockerfile.sandbox-pi) is the only place
@@ -252,7 +252,7 @@ def prepare_pi_runtime() -> None:
     plugin_dir = Path.home() / ".pi/packages/pi-clickhouse-autoresearch"
     if not plugin_dir.is_dir():
         log("installing local pi-clickhouse-autoresearch plugin")
-        run(["pi", "install", str(AUTORESEARCH_DIR)])
+        run(["pi", "install", str(PI_PLUGIN_DIR)])
     else:
         log("pi-clickhouse-autoresearch already installed")
 

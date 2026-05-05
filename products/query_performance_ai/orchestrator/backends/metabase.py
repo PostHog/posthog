@@ -36,7 +36,7 @@ LOCAL_DEV_DB_PROMPT = (
 
 
 class MetabaseBackend(ExecutionBackend):
-    def __init__(self, *, region: str, database_id: int, team_id: int, target_label: str = "test_cluster"):
+    def __init__(self, *, region: str, database_id: int, team_id: int, target_label: str = "test_cluster") -> None:
         self._region = region
         self._database_id = int(database_id)
         self._team_id = int(team_id)

@@ -18,8 +18,8 @@ import pytest
 
 # transports.py is meant to be imported as a sibling script inside the sandbox;
 # load it directly so the test process doesn't have to pretend to be the sandbox.
-_AUTORESEARCH_SCRIPTS = Path(__file__).resolve().parents[2] / "autoresearch" / "scripts"
-sys.path.insert(0, str(_AUTORESEARCH_SCRIPTS))
+_PLUGIN_SCRIPTS_DIR = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(_PLUGIN_SCRIPTS_DIR))
 import transports  # noqa: E402
 
 
