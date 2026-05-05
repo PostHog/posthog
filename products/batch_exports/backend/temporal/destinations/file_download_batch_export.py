@@ -352,8 +352,6 @@ class FileDownloadBatchExportWorkflow(PostHogWorkflow):
             except OverBillingLimitError:
                 return FileDownloadBatchExportResult(records_completed=0, bytes_exported=0)
 
-        self._run_id = run_id
-
         export_inputs = ExportInputs(
             batch_export=BatchExportInsertInputs(
                 team_id=inputs.team_id,
