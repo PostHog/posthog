@@ -67,6 +67,32 @@ describe('databaseTableListLogic', () => {
         expect(performQuery).toHaveBeenCalledTimes(1)
     })
 
+    it('does not crash with a kea path error when unmounted while a schema load is in flight', async () => {
+        let resolveQuery: ((value: { tables: Record<string, never>; joins: never[] }) => void) | undefined
+        ;(performQuery as jest.Mock).mockImplementation(
+            () =>
+                new Promise((resolve) => {
+                    resolveQuery = resolve
+                })
+        )
+
+        logic = databaseTableListLogic()
+        logic.mount()
+
+        const request = logic.asyncActions.loadDatabase()
+
+        logic.unmount()
+        resolveQuery?.({ tables: {}, joins: [] })
+
+        await request.catch((error: unknown) => {
+            // kea breakpoint errors are expected; a "Can not find path" error is the bug
+            const message = error instanceof Error ? error.message : String(error)
+            if (message.includes('Can not find path')) {
+                throw error
+            }
+        })
+    })
+
     it('does not let a stale schema response overwrite the selected connection schema', async () => {
         let resolvePosthogQuery:
             | ((value: { tables: Record<string, { name: string; type: 'posthog' }>; joins: never[] }) => void)

@@ -49,12 +49,15 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
         database: [
             null as Required<DatabaseSchemaQueryResponse> | null,
             {
-                loadDatabase: async (): Promise<Required<DatabaseSchemaQueryResponse> | null> => {
+                loadDatabase: async (_, breakpoint): Promise<Required<DatabaseSchemaQueryResponse> | null> => {
                     const requestConnectionId = values.connectionId ?? undefined
                     const requestKey = requestConnectionId ?? '__posthog__'
 
                     if (inFlightDatabaseLoadKey === requestKey && inFlightDatabaseLoadPromise) {
-                        return await inFlightDatabaseLoadPromise
+                        const inFlight = inFlightDatabaseLoadPromise
+                        const result = await inFlight
+                        breakpoint()
+                        return result
                     }
 
                     const request = performQuery(
@@ -67,21 +70,24 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
                     inFlightDatabaseLoadKey = requestKey
                     inFlightDatabaseLoadPromise = request
 
+                    let database: Required<DatabaseSchemaQueryResponse> | null = null
                     try {
-                        const database = await request
-                        const currentConnectionId = values.connectionId ?? undefined
-
-                        if (currentConnectionId !== requestConnectionId) {
-                            return values.database
-                        }
-
-                        return database
+                        database = await request
                     } finally {
                         if (inFlightDatabaseLoadKey === requestKey) {
                             inFlightDatabaseLoadKey = null
                             inFlightDatabaseLoadPromise = null
                         }
                     }
+
+                    breakpoint()
+
+                    const currentConnectionId = values.connectionId ?? undefined
+                    if (currentConnectionId !== requestConnectionId) {
+                        return values.database
+                    }
+
+                    return database
                 },
             },
         ],
