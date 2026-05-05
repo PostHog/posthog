@@ -123,10 +123,7 @@ class SharingConfiguration(models.Model):
         if obj.team_id != self.team_id:  # type: ignore
             return False
 
-        if obj._meta.object_name == "Insight" and self.dashboard:
-            return cast(Insight, obj).id in self.get_connected_insight_ids()
-
-        if obj._meta.object_name == "Insight" and self.notebook:
+        if obj._meta.object_name == "Insight" and (self.dashboard or self.notebook):
             return cast(Insight, obj).id in self.get_connected_insight_ids()
 
         for comparison in [self.insight, self.dashboard, self.recording, self.notebook]:

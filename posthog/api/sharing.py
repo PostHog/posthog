@@ -617,6 +617,9 @@ def _compute_inline_query_results_for_shared_notebook(notebook: Notebook, team: 
             capture_exception(e)
             continue
 
+        if serialized is None:
+            continue
+
         # `process_query_dict` swallows pydantic validation errors and returns a `QueryResponse`
         # with `error` populated. Don't ship those to anonymous viewers — the placeholder is a
         # better surface than a serialized validation traceback.
