@@ -108,7 +108,6 @@ const handleRequest = async (
         return Response.redirect(redirectTo, redirect.status)
     }
 
-<<<<<<< New base: refactor stuff, start adding client tests
     // The legacy SSE transport (`/sse`) is deprecated in favor of `/mcp`
     // (Streamable HTTP). Permanently redirect `/sse*` to the equivalent `/mcp*`.
     // We tag the redirect Location with `_deprecated=sse` so the followup
@@ -123,39 +122,9 @@ const handleRequest = async (
         return Response.redirect(target.toString(), 308)
     }
 
-    // OAuth Protected Resource Metadata (RFC 9728)
-    // This endpoint tells MCP clients where to authenticate to get tokens.
-    //
-    // Per RFC 9728, the well-known URL is constructed by inserting /.well-known/oauth-protected-resource
-    // between the host and the path. For example:
-    // - Resource: https://mcp.posthog.com/mcp → Well-known: https://mcp.posthog.com/.well-known/oauth-protected-resource/mcp
-    //
-    // OAuth flow for MCP:
-    // 1. Client connects to MCP server without a token
-    // 2. MCP returns 401 with WWW-Authenticate header pointing to this metadata endpoint
-    // 3. Client fetches this metadata to discover the authorization server
-    // 4. Client performs OAuth flow with PostHog (US or EU based on region param)
-    // 5. Client reconnects to MCP with the access token
-||||||| Common ancestor
-    // OAuth Protected Resource Metadata (RFC 9728)
-    // This endpoint tells MCP clients where to authenticate to get tokens.
-    //
-    // Per RFC 9728, the well-known URL is constructed by inserting /.well-known/oauth-protected-resource
-    // between the host and the path. For example:
-    // - Resource: https://mcp.posthog.com/mcp → Well-known: https://mcp.posthog.com/.well-known/oauth-protected-resource/mcp
-    // - Resource: https://mcp.posthog.com/sse → Well-known: https://mcp.posthog.com/.well-known/oauth-protected-resource/sse
-    //
-    // OAuth flow for MCP:
-    // 1. Client connects to MCP server without a token
-    // 2. MCP returns 401 with WWW-Authenticate header pointing to this metadata endpoint
-    // 3. Client fetches this metadata to discover the authorization server
-    // 4. Client performs OAuth flow with PostHog (US or EU based on region param)
-    // 5. Client reconnects to MCP with the access token
-=======
     // OAuth Protected Resource Metadata (RFC 9728).
     // Per RFC 9728, the well-known URL is constructed by inserting
     // /.well-known/oauth-protected-resource between host and resource path.
->>>>>>> Current commit: refactor stuff, start adding client tests
     const wellKnownPrefix = '/.well-known/oauth-protected-resource'
     if (url.pathname.startsWith(wellKnownPrefix)) {
         const resourcePath = url.pathname.slice(wellKnownPrefix.length) || '/'
@@ -182,35 +151,6 @@ const handleRequest = async (
     const token = request.headers.get('Authorization')?.split(' ')[1]
 
     if (!token) {
-<<<<<<< New base: refactor stuff, start adding client tests
-        // Return 401 with WWW-Authenticate header per RFC 9728.
-        // The resource_metadata URL tells OAuth-capable clients where to discover auth server.
-        // Per RFC 9728, the well-known URL is constructed by inserting the well-known path
-        // between the host and the resource path:
-        // - Resource /mcp → metadata at /.well-known/oauth-protected-resource/mcp
-        const metadataUrl = getPublicUrl(request)
-        metadataUrl.pathname = `/.well-known/oauth-protected-resource${url.pathname}`
-        metadataUrl.search = ''
-        if (effectiveRegion) {
-            metadataUrl.searchParams.set('region', effectiveRegion)
-        }
-
-||||||| Common ancestor
-        // Return 401 with WWW-Authenticate header per RFC 9728.
-        // The resource_metadata URL tells OAuth-capable clients where to discover auth server.
-        // Per RFC 9728, the well-known URL is constructed by inserting the well-known path
-        // between the host and the resource path:
-        // - Resource /mcp → metadata at /.well-known/oauth-protected-resource/mcp
-        // - Resource /sse → metadata at /.well-known/oauth-protected-resource/sse
-        const metadataUrl = getPublicUrl(request)
-        metadataUrl.pathname = `/.well-known/oauth-protected-resource${url.pathname}`
-        metadataUrl.search = ''
-        if (effectiveRegion) {
-            metadataUrl.searchParams.set('region', effectiveRegion)
-        }
-
-=======
->>>>>>> Current commit: refactor stuff, start adding client tests
         log.extend({ authError: 'no_token' })
         return buildMissingTokenResponse(request, effectiveRegion)
     }
@@ -254,7 +194,6 @@ const handleRequest = async (
         log.extend({ mcpClientName: props.mcpClientName })
     }
 
-<<<<<<< New base: refactor stuff, start adding client tests
     // Marker set by the /sse → /mcp redirect handler above. Lets us correlate
     // success/failure on this /mcp request back to clients that originated on
     // the deprecated /sse path — both in worker logs and in the `mcp init`
@@ -265,26 +204,10 @@ const handleRequest = async (
         Object.assign(ctx.props, { viaSseRedirect: true })
     }
 
-    let server: Promise<Response> | null = null
-    if (url.pathname.startsWith('/mcp')) {
-        Object.assign(ctx.props, { transport: 'streamable-http' })
-||||||| Common ancestor
-    let server: Promise<Response> | null = null
-    if (url.pathname.startsWith('/mcp')) {
-        Object.assign(ctx.props, { transport: 'streamable-http' })
-=======
     if (transport === 'streamable-http') {
->>>>>>> Current commit: refactor stuff, start adding client tests
         server = MCP.serve('/mcp').fetch(request, env, ctx)
-<<<<<<< New base: refactor stuff, start adding client tests
-||||||| Common ancestor
-    } else if (url.pathname.startsWith('/sse')) {
-        Object.assign(ctx.props, { transport: 'sse' })
-        server = MCP.serveSSE('/sse').fetch(request, env, ctx)
-=======
     } else if (transport === 'sse') {
         server = MCP.serveSSE('/sse').fetch(request, env, ctx)
->>>>>>> Current commit: refactor stuff, start adding client tests
     }
 
     if (server !== null) {

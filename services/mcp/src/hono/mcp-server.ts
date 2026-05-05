@@ -12,24 +12,21 @@ import {
     isFeatureFlagEnabled,
     type MCPAnalyticsContext,
 } from '@/lib/analytics'
+import { hasScope } from '@/lib/api'
 import { buildToolResultPayload, isToolCallPayload } from '@/lib/build-tool-result'
 import { MCPClientProfile } from '@/lib/client-detection'
 import { handleToolError, wrapError } from '@/lib/errors'
-import { buildInstructionsV1, buildInstructionsV2, type QueryToolInfo } from '@/lib/instructions'
+import { type QueryToolInfo } from '@/lib/instructions'
+import { InstructionsFormatter } from '@/lib/instructions-formatter'
 import { initMcpCatObservability } from '@/lib/mcpcat'
 import { type RequestProperties } from '@/lib/request-properties'
 import { SessionManager } from '@/lib/SessionManager'
 import { StateManager } from '@/lib/StateManager'
-import { formatPrompt, sanitizeHeaderValue } from '@/lib/utils'
+import { formatPrompt, type McpMode } from '@/lib/utils'
 import { registerPrompts } from '@/prompts'
 import { registerResources } from '@/resources'
 import { registerUiAppResources } from '@/resources/ui-apps'
-import CLI_PROXY_COMMAND from '@/templates/cli-proxy-command.md'
-import CLI_PROXY_TOOL from '@/templates/cli-proxy-tool.md'
 import EXECUTE_SQL_PROMPT from '@/templates/execute-sql-prompt.md'
-import INSTRUCTIONS_TEMPLATE_V1 from '@/templates/instructions-v1.md'
-import INSTRUCTIONS_TEMPLATE_V2 from '@/templates/instructions-v2.md'
-import SINGLE_EXEC_INSTRUCTIONS from '@/templates/single-exec-instructions.md'
 import { createExecTool, type ExecInnerCallTracker } from '@/tools/exec'
 import { getToolDefinition } from '@/tools/toolDefinitions'
 import { type CloudRegion, type Context, type Env, type State, type Tool } from '@/tools/types'
@@ -45,6 +42,8 @@ import {
 } from './constants'
 
 export type { RequestProperties }
+
+const instructionsFormatter = new InstructionsFormatter()
 
 // Guidelines are generated at build time; optional import so tests and
 // unbundled dev runs don't explode when the file is absent.
@@ -76,6 +75,8 @@ export class HonoMcpServer {
     private mcpClientName: string | undefined
     private mcpClientVersion: string | undefined
     private mcpProtocolVersion: string | undefined
+    private mcpMode: McpMode | undefined
+    private mcpVersion: number | undefined
 
     constructor(redis: RedisLike, props: RequestProperties) {
         this.props = props
@@ -83,7 +84,7 @@ export class HonoMcpServer {
         this.env = getEnv()
         this.server = new McpServer(
             { name: 'PostHog', version: '1.0.0' },
-            { instructions: INSTRUCTIONS_TEMPLATE_V1 }
+            { instructions: instructionsFormatter.buildV1Instructions() }
         )
     }
 
@@ -157,7 +158,6 @@ export class HonoMcpServer {
             return customApiBaseUrl
         }
 
-        // Check region from request props first (passed via URL param), then cache, then detect
         const propsRegion = this.props.region
         if (propsRegion) {
             const region = toCloudRegion(propsRegion)
@@ -240,6 +240,8 @@ export class HonoMcpServer {
                     ...(this.mcpProtocolVersion ? { mcp_protocol_version: this.mcpProtocolVersion } : {}),
                     ...(this.props.mcpConsumer ? { mcp_consumer: this.props.mcpConsumer } : {}),
                     ...(this.props.transport ? { mcp_transport: this.props.transport } : {}),
+                    ...(this.mcpMode ? { mcp_mode: this.mcpMode } : {}),
+                    ...(this.mcpVersion !== undefined ? { mcp_version: this.mcpVersion } : {}),
                     mcp_runtime: 'hono',
                     ...contextProperties,
                     ...previousContextProperties,
@@ -251,7 +253,9 @@ export class HonoMcpServer {
         }
     }
 
-    private async getAnalyticsContextSafe(context: Context): Promise<MCPAnalyticsContext | undefined> {
+    private async getAnalyticsContextSafe(
+        context: Pick<Context, 'stateManager'>
+    ): Promise<MCPAnalyticsContext | undefined> {
         try {
             return await context.stateManager.getAnalyticsContext()
         } catch {
@@ -311,15 +315,9 @@ export class HonoMcpServer {
                 if (isContextSwitch) {
                     void this.trackContextSwitchEvent(tool.name, await this.getContext(), previousContext)
                 }
-                // The exec wrapper (single-exec mode) assembles the per-call payload itself —
-                // propagating the inner tool's UI resourceUri onto the response — so pass it
-                // through unchanged. Re-running `buildToolResultPayload` on the payload would
-                // object-rest-destructure its content/structuredContent fields.
                 if (isToolCallPayload(handlerResult)) {
                     return handlerResult
                 }
-                // Fetch distinctId only when a UI-resource tool with a non-string result might
-                // actually use it in structuredContent; avoids an extra round-trip otherwise.
                 const hasUiResource = !!tool._meta?.ui?.resourceUri
                 const needsDistinctId = hasUiResource && typeof handlerResult !== 'string'
                 const distinctId = needsDistinctId ? await this.getDistinctId() : undefined
@@ -345,8 +343,6 @@ export class HonoMcpServer {
             }
         }
 
-        // Normalize _meta to include both new (ui.resourceUri) and legacy (ui/resourceUri) formats
-        // for compatibility with different MCP clients
         let normalizedMeta = tool._meta
         if (tool._meta?.ui?.resourceUri && !tool._meta[RESOURCE_URI_META_KEY]) {
             normalizedMeta = {
@@ -370,14 +366,20 @@ export class HonoMcpServer {
 
     async getContext(): Promise<Context> {
         const api = await this.api()
-        return {
+        const stateManager = new StateManager(this.cache, api)
+        const partialContext: Omit<Context, 'trackEvent'> = {
             api,
             cache: this.cache,
             env: this.env,
-            stateManager: new StateManager(this.cache, api),
+            stateManager,
             sessionManager: this.sessionManager,
             getDistinctId: () => this.getDistinctId(),
         }
+        const trackEvent: Context['trackEvent'] = async (event, properties = {}) => {
+            const analyticsContext = await this.getAnalyticsContextSafe(partialContext)
+            await this.trackEvent(event, properties, analyticsContext ? { context: analyticsContext } : undefined)
+        }
+        return { ...partialContext, trackEvent }
     }
 
     async init(): Promise<void> {
@@ -391,21 +393,12 @@ export class HonoMcpServer {
             mode,
         } = this.props
 
-        // Resolve MCP client info before any code reads it
         await this.resolveClientInfo()
 
-        const clientProfile = new MCPClientProfile({
-            clientName: this.mcpClientName,
-            clientVersion: this.mcpClientVersion,
-            consumer: this.props.mcpConsumer,
-        })
-
-        // Start feature flag resolution in parallel with cache seeding
         const flagPromise = this.resolveVersionFlag()
         const toolFlagsPromise = this.resolveToolFeatureFlags(clientVersion)
         const singleExecPromise = this.resolveSingleExecFlag()
 
-        // Seed cache with header-provided IDs before any fetches
         if (organizationId) {
             await this.cache.set('orgId', organizationId)
         }
@@ -416,13 +409,10 @@ export class HonoMcpServer {
         }
 
         const context = await this.getContext()
-        // Sticky session: skip default resolution if a previous init for this
-        // userHash already picked a project (cache survives across requests).
         if (!cachedProjectId) {
             cachedProjectId = await this.cache.get('projectId')
         }
 
-        // Initialize org and project
         if (!cachedProjectId) {
             await context.stateManager.setDefaultOrganizationAndProject()
         }
@@ -431,27 +421,41 @@ export class HonoMcpServer {
             flagPromise,
             toolFlagsPromise,
             singleExecPromise,
+            // Trigger OAuth introspection so the OAuth client name is cached before the useSingleExec decision below
+            context.stateManager.getApiKey(),
         ])
 
-        // Restrict single-exec mode to coding agents only
-        const useSingleExec =
-            mode === 'cli' ||
-            (mode !== 'tools' &&
-                singleExecFlagOn &&
-                (clientProfile.isCodingAgent() || clientProfile.isPostHogCodeConsumer()))
-        const version = useSingleExec ? 2 : (flagVersion ?? clientVersion ?? 1)
+        const oauthClientName = (await this.cache.get('clientName')) || undefined
 
-        // Fetch group types and metadata in parallel (cache is now seeded)
+        const clientProfile = new MCPClientProfile({
+            clientName: this.mcpClientName,
+            clientVersion: this.mcpClientVersion,
+            consumer: this.props.mcpConsumer,
+            oauthClientName,
+        })
+
+        const { useSingleExec, version } = this.resolveModeAndVersion({
+            mode,
+            singleExecFlagOn,
+            clientProfile,
+            flagVersion,
+            clientVersion,
+        })
+
         const resolvedProjectId = projectId || (await this.cache.get('projectId'))
         const [groupTypes, metadata] = await Promise.all([
-            resolvedProjectId
-                ? context.stateManager.getOrFetchGroupTypes(resolvedProjectId)
-                : Promise.resolve(undefined),
+            (async () => {
+                if (!resolvedProjectId) {
+                    return undefined
+                }
+                const apiKey = await context.stateManager.getApiKey()
+                return hasScope(apiKey.scopes, 'group:read')
+                    ? context.stateManager.getOrFetchGroupTypes(resolvedProjectId)
+                    : undefined
+            })(),
             context.stateManager.getEnvironmentPrompt(),
         ])
 
-        // When project ID is provided, both switch tools are removed (project implies org).
-        // When only organization ID is provided, only switch-organization is removed.
         const excludeTools: string[] = []
         if (projectId) {
             excludeTools.push('switch-organization', 'switch-project')
@@ -459,8 +463,6 @@ export class HonoMcpServer {
             excludeTools.push('switch-organization')
         }
 
-        // Fetch tools up-front so we can build the query tool catalog (and the
-        // CLI exec tool's domain list) before constructing the system prompt.
         const { getToolsFromContext } = await import('@/tools')
         const allTools = await getToolsFromContext(context, {
             features,
@@ -471,9 +473,6 @@ export class HonoMcpServer {
             featureFlags: toolFeatureFlags,
         })
 
-        // OAuth introspection has now run (triggered by getToolsFromContext → getApiKey),
-        // so update the ApiClient with the verified OAuth client name for header forwarding.
-        const oauthClientName = (await this.cache.get('clientName')) || undefined
         if (oauthClientName && this._api) {
             this._api.config.oauthClientName = oauthClientName
         }
@@ -495,64 +494,51 @@ export class HonoMcpServer {
 
         const supportsInstructions = clientProfile.capabilities.supportsInstructions
 
+        const instructionsContext = {
+            guidelines: _guidelines,
+            groupTypes,
+            metadata,
+            tools: toolInfos,
+            queryTools: queryToolInfos,
+            featureFlags: toolFeatureFlags,
+        }
+
         let instructions = ''
         if (supportsInstructions) {
             if (useSingleExec) {
-                instructions = buildInstructionsV2(
-                    SINGLE_EXEC_INSTRUCTIONS,
-                    _guidelines,
-                    groupTypes,
-                    metadata,
-                    toolInfos,
-                    queryToolInfos,
-                    { compact: true }
-                )
+                instructions = instructionsFormatter.buildExecInstructions(instructionsContext)
+            } else if (version === 2) {
+                instructions = instructionsFormatter.buildV2Instructions(instructionsContext)
             } else {
-                instructions =
-                    version === 2
-                        ? buildInstructionsV2(
-                              INSTRUCTIONS_TEMPLATE_V2,
-                              _guidelines,
-                              groupTypes,
-                              metadata,
-                              toolInfos,
-                              queryToolInfos
-                          )
-                        : buildInstructionsV1(INSTRUCTIONS_TEMPLATE_V1, metadata)
+                instructions = instructionsFormatter.buildV1Instructions(metadata)
             }
         }
 
         this.server = new McpServer({ name: 'PostHog', version: '1.0.0' }, { instructions })
 
-        // Register prompts and resources
         await Promise.all([
             registerPrompts(this.server),
             registerResources(this.server, context),
             registerUiAppResources(this.server, context),
         ])
 
-        // In single-exec mode, register one "posthog" tool that wraps all tools
-        // behind a CLI-like interface. Otherwise, register each tool individually.
-        if (useSingleExec) {
+        if (version === 2) {
             const sqlTool = allTools.find((t) => t.name === 'execute-sql')
             if (sqlTool) {
                 sqlTool.description = formatPrompt(EXECUTE_SQL_PROMPT, { guidelines: _guidelines.trim() })
             }
+        }
 
-            const commandReference = buildInstructionsV2(
-                CLI_PROXY_COMMAND,
-                _guidelines,
-                supportsInstructions ? undefined : groupTypes,
-                supportsInstructions ? undefined : metadata,
-                supportsInstructions ? undefined : toolInfos,
-                supportsInstructions ? undefined : queryToolInfos
-            )
+        if (useSingleExec) {
+            const commandReference = instructionsFormatter.buildExecCommandReference(instructionsContext, {
+                stripEnvContext: supportsInstructions,
+            })
 
             const trackInnerCall: ExecInnerCallTracker = (toolName, properties) => {
                 void (async () => {
                     const freshContext = await this.getAnalyticsContextSafe(await this.getContext())
                     await this.trackEvent(
-                        AnalyticsEvent.MCP_TOOL_CALLED,
+                        AnalyticsEvent.MCP_TOOL_CALL,
                         { tool_name: toolName, ...properties },
                         freshContext ? { context: freshContext } : undefined
                     )
@@ -562,7 +548,7 @@ export class HonoMcpServer {
             const execTool = createExecTool(
                 allTools,
                 context,
-                CLI_PROXY_TOOL,
+                instructionsFormatter.buildExecToolDescription(),
                 commandReference,
                 this.props.mcpConsumer,
                 trackInnerCall
@@ -579,36 +565,29 @@ export class HonoMcpServer {
         await initMcpCatObservability(this.server, {
             getDistinctId: () => this.getDistinctId(),
             getSessionUuid: async () =>
-                this.props.sessionId
-                    ? this.sessionManager.getSessionUuid(this.props.sessionId)
-                    : undefined,
+                this.props.sessionId ? this.sessionManager.getSessionUuid(this.props.sessionId) : undefined,
             getMcpClientName: async () => this.mcpClientName,
             getMcpClientVersion: async () => this.mcpClientVersion,
             getMcpProtocolVersion: async () => this.mcpProtocolVersion,
-            // Prefer the cached region (set on init after detection) so we don't miss it
-            // when the inbound request didn't include the `region` hint.
             getRegion: async () => (await this.cache.get('region')) ?? this.props.region,
             getAnalyticsContext: async () => this.getAnalyticsContextSafe(await this.getContext()),
             getClientUserAgent: async () => this.props.clientUserAgent,
-            getVersion: async () => version,
+            getMcpVersion: async () => version,
             getOAuthClientName: async () => (await this.cache.get('clientName')) || undefined,
             getReadOnly: async () => readOnly,
             getTransport: async () => this.props.transport,
+            getMcpConsumer: async () => this.props.mcpConsumer,
+            getMcpMode: async () => this.mcpMode,
         })
 
-        const initDurationMs = this.props.requestStartTime
-            ? Date.now() - this.props.requestStartTime
-            : undefined
+        const initDurationMs = this.props.requestStartTime ? Date.now() - this.props.requestStartTime : undefined
 
-        // Resolve analytics context from the already-primed cache
         const analyticsContext = await this.getAnalyticsContextSafe(context)
 
         void this.trackEvent(
             AnalyticsEvent.MCP_INIT,
             {
                 tool_count: allTools.length,
-                mcp_version: version,
-                mcp_mode: useSingleExec ? 'cli' : 'tools',
                 has_organization_id: !!organizationId,
                 has_project_id: !!projectId,
                 read_only: !!readOnly,
@@ -617,6 +596,29 @@ export class HonoMcpServer {
             },
             analyticsContext ? { context: analyticsContext } : undefined
         )
+    }
+
+    private resolveModeAndVersion(args: {
+        mode: McpMode | undefined
+        singleExecFlagOn: boolean
+        clientProfile: MCPClientProfile
+        flagVersion: number | undefined
+        clientVersion: number | undefined
+    }): { useSingleExec: boolean; version: number } {
+        const { mode, singleExecFlagOn, clientProfile, flagVersion, clientVersion } = args
+        const useSingleExec =
+            mode === 'cli' ||
+            (mode !== 'tools' &&
+                singleExecFlagOn &&
+                (clientProfile.isCodingAgent() ||
+                    clientProfile.isPostHogCodeConsumer() ||
+                    clientProfile.isVibeCodingClient()))
+        const version = useSingleExec ? 2 : (flagVersion ?? clientVersion ?? 1)
+
+        this.mcpMode = useSingleExec ? 'cli' : 'tools'
+        this.mcpVersion = version
+
+        return { useSingleExec, version }
     }
 
     private async resolveVersionFlag(): Promise<number | undefined> {

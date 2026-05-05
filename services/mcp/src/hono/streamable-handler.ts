@@ -77,9 +77,11 @@ export class StreamableMcpHandler {
             return new Response('Too many active sessions', { status: 503 })
         }
         const mcpServer = await bootMcpServer(this.redis, props)
-        const transport = new WebStandardStreamableHTTPServerTransport({
+        const transport: WebStandardStreamableHTTPServerTransport = new WebStandardStreamableHTTPServerTransport({
             sessionIdGenerator: () => uuidv4(),
-            onsessioninitialized: (sid) => this.store.streamable.set(sid, transport, props.userHash),
+            onsessioninitialized: (sid: string): void => {
+                this.store.streamable.set(sid, transport, props.userHash)
+            },
         })
         transport.onclose = () => {
             if (transport.sessionId) {

@@ -11,9 +11,6 @@ import {
 } from './constants'
 import type { HonoCtx, HonoEnv, RedisWithPing } from './types'
 
-import RAW_LANDING_HTML from '../static/landing.html'
-
-const PARSED_LANDING_HTML = RAW_LANDING_HTML.replace('{{DOCS_URL}}', MCP_DOCS_URL)
 const WELL_KNOWN_PREFIX = '/.well-known/oauth-protected-resource'
 const OPENAI_CHALLENGE_TOKEN = 'pRLV9JYbPOF5Dy039v3Rn3-qrMuKqZ2_4SsX9GoL9aU'
 
@@ -83,7 +80,7 @@ export function registerPublicRoutes(app: Hono<HonoEnv>, redis: RedisWithPing): 
     // URL pattern works on both runtimes.
     app.use('/ui-apps/*', serveStatic({ root: './public' }))
 
-    app.get('/', (c) => c.html(PARSED_LANDING_HTML))
+    app.get('/', (c) => c.redirect(MCP_DOCS_URL, 302) as unknown as Response)
     app.get('/.well-known/openai-apps-challenge', (c) => c.text(OPENAI_CHALLENGE_TOKEN))
     app.get('/health', healthHandler)
     app.get('/healthz', healthHandler)

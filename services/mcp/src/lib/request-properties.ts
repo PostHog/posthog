@@ -23,6 +23,7 @@ export type RequestProperties = {
     readOnly?: boolean | undefined
     mode?: McpMode | undefined
     transport?: Transport | undefined
+    viaSseRedirect?: boolean | undefined
     requestStartTime?: number | undefined
 }
 

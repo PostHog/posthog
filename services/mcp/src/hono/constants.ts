@@ -33,7 +33,6 @@ export function getEnv(): Env {
         extras.TEST = process.env.TEST
     }
     return {
-        INKEEP_API_KEY: process.env.INKEEP_API_KEY || undefined,
         POSTHOG_API_BASE_URL: process.env.POSTHOG_API_BASE_URL || undefined,
         MCP_APPS_BASE_URL: process.env.MCP_APPS_BASE_URL || undefined,
         POSTHOG_MCP_APPS_ANALYTICS_BASE_URL: process.env.POSTHOG_MCP_APPS_ANALYTICS_BASE_URL || undefined,
