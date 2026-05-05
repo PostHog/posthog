@@ -335,6 +335,48 @@ class TestMultiTurnSessionStartBranch:
         assert persisted.branch == branch
 
 
+class TestMultiTurnSessionStartCleanup:
+    """Regression: if MultiTurnSession.start raises after create_task_and_trigger
+    has already started the workflow (e.g. poll_for_turn fails), the failure path
+    must signal completion so the orphaned workflow doesn't run until its
+    inactivity timeout."""
+
+    @pytest.mark.asyncio
+    async def test_cleans_up_when_initial_poll_fails(self):
+        fake_task = MagicMock()
+        fake_task.id = "task-id"
+        fake_run = MagicMock()
+        fake_run.id = "run-id"
+
+        mock_handle = MagicMock()
+        mock_handle.signal = AsyncMock()
+        mock_client = MagicMock(get_workflow_handle=MagicMock(return_value=mock_handle))
+
+        with (
+            patch(
+                "products.tasks.backend.services.custom_prompt_multi_turn_runner.create_task_and_trigger",
+                new=AsyncMock(return_value=(fake_task, fake_run)),
+            ),
+            patch(
+                "products.tasks.backend.services.custom_prompt_multi_turn_runner.async_connect",
+                new=AsyncMock(return_value=mock_client),
+            ),
+            patch(
+                "products.tasks.backend.services.custom_prompt_multi_turn_runner.poll_for_turn",
+                new=AsyncMock(side_effect=RuntimeError("storage explode")),
+            ),
+            pytest.raises(RuntimeError, match="storage explode"),
+        ):
+            await MultiTurnSession.start(
+                prompt="test",
+                context=CustomPromptSandboxContext(team_id=1, user_id=2),
+                model=_Resp,
+            )
+
+        # session.end() must have signalled the workflow exactly once on the cleanup path.
+        mock_handle.signal.assert_called_once()
+
+
 @pytest.mark.django_db(transaction=True)
 class TestCreateTaskAndTriggerForwardsContext:
     """Regression: CustomPromptSandboxContext.sandbox_environment_id and
