@@ -7,9 +7,9 @@ Assistant: I need to find the right query tool and data schema tool.
 Assistant: Let me check the tool descriptions and schemas.
 [Runs posthog:exec({ "command": "info query-trends" }) and posthog:exec({ "command": "info read-data-schema" }) in parallel]
 Assistant: I see query-trends needs `series` (array with hint). Let me get the full field schema and discover events.
-[Runs posthog:exec({ "command": "schema query-trends series" }) and posthog:exec({ "command": "call read-data-schema", "input": { "query": { "kind": "events" } } }) in parallel]
+[Runs posthog:exec({ "command": "schema query-trends series" }) and posthog:exec({ "command": "call read-data-schema {\"query\": {\"kind\": \"events\"}}" }) in parallel]
 Assistant: Now I know the exact series structure and available events. Let me construct the query.
-[Runs posthog:exec({ "command": "call query-trends", "input": { ... } })]
+[Runs posthog:exec({ "command": "call query-trends {...}" })]
 </example>
 
 <example>
@@ -28,14 +28,14 @@ Assistant: Let me find the data schema tool.
 [Runs posthog:exec({ "command": "search read-data" })]
 [Runs posthog:exec({ "command": "info read-data-schema" })]
 Assistant: Now I can list events and pick the onboarding-related ones.
-[Runs posthog:exec({ "command": "call read-data-schema", "input": { "query": { "kind": "events" } } })]
+[Runs posthog:exec({ "command": "call read-data-schema {\"query\": {\"kind\": \"events\"}}" })]
 </example>
 
 **INCORRECT usage patterns — NEVER do this:**
 
 <bad-example>
 User: Show me our feature flags
-Assistant: [Directly calls posthog:exec({ "command": "call feature-flag-get-all", "input": {} }) with guessed parameters]
+Assistant: [Directly calls posthog:exec({ "command": "call feature-flag-get-all {}" }) with guessed parameters]
 WRONG — You must run `info feature-flag-get-all` FIRST to check the schema
 </bad-example>
 
@@ -55,7 +55,7 @@ You MUST follow the hint and run `schema` before constructing the series field.
 <bad-example>
 User: query pageviews for the last 7 days
 Assistant: [Runs `info query-trends`, then `call query-trends` with `event: "$pageview"` from the prompt]
-WRONG — skipped `call read-data-schema` with `input: { "query": { "kind": "events" } }`. Canonical-looking events still need confirmation per team.
+WRONG — skipped `call read-data-schema {"query": {"kind": "events"}}`. Canonical-looking events still need confirmation per team.
 </bad-example>
 
 <bad-example>

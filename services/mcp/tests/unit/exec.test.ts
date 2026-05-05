@@ -83,19 +83,18 @@ describe('exec tool', () => {
         it('throws usage error for bare call', async () => {
             const exec = createExec()
             await expect(exec.handler(mockContext, { command: 'call' })).rejects.toThrow(
-                'Usage: call <tool_name>  (pass arguments via the `input` parameter, output format via `output_format`)'
+                'Usage: call <tool_name> [<json_input>]  (output format via `output_format`)'
             )
         })
 
-        it('passes structured `input` whose values collide with the legacy --json flag literal', async () => {
+        it('passes inline JSON whose values collide with the legacy --json flag literal', async () => {
             const tool = makeMockTool({
                 schema: z.object({ tag: z.string() }),
                 handler: async (_ctx, params) => params,
             })
             const exec = createExec([tool])
             const result = await exec.handler(mockContext, {
-                command: 'call mock-tool',
-                input: { tag: '--json' },
+                command: 'call mock-tool {"tag":"--json"}',
             })
             // Without the flag in `command`, output is TOON-formatted regardless of
             // payload values.
@@ -174,67 +173,41 @@ describe('exec tool', () => {
             expect(typeof calls[0]!.properties.duration_ms).toBe('number')
         })
 
-        it('passes structured `input` to the inner tool', async () => {
+        it('passes inline JSON arguments to the inner tool', async () => {
             const tool = makeMockTool({
                 schema: z.object({ name: z.string(), tags: z.array(z.string()) }),
                 handler: async (_ctx, params) => params,
             })
             const exec = createExec([tool])
             const result = await exec.handler(mockContext, {
-                command: 'call mock-tool',
+                command: 'call mock-tool {"name":"foo","tags":["a","b"]}',
                 output_format: 'json',
-                input: { name: 'foo', tags: ['a', 'b'] },
             })
             expect(JSON.parse(result as string)).toEqual({ name: 'foo', tags: ['a', 'b'] })
         })
 
-        it('preserves quote-heavy and multi-line content in structured `input`', async () => {
+        it('preserves quote-heavy and multi-line content in inline JSON', async () => {
             const tool = makeMockTool({
                 schema: z.object({ name: z.string(), content: z.string() }),
                 handler: async (_ctx, params) => params,
             })
             const exec = createExec([tool])
             const content = '# Title\n\nLine with "double quotes", \'single quotes\', and `backticks` — also unicode ☃.'
+            const payload = JSON.stringify({ name: 'skill', content })
             const result = await exec.handler(mockContext, {
-                command: 'call mock-tool',
+                command: `call mock-tool ${payload}`,
                 output_format: 'json',
-                input: { name: 'skill', content },
             })
             expect(JSON.parse(result as string)).toEqual({ name: 'skill', content })
         })
 
-        it('rejects inline JSON in `command` — structured `input` is the only supported way to pass arguments', async () => {
+        it('throws a descriptive error when the inline JSON body is malformed', async () => {
             const exec = createExec()
             await expect(
                 exec.handler(mockContext, {
-                    command: 'call mock-tool {"x":1}',
+                    command: 'call mock-tool {not-json}',
                 })
-            ).rejects.toThrow(/Inline JSON in `command` is no longer supported/)
-        })
-
-        it('rejects trailing tokens after the tool name in `command`', async () => {
-            const exec = createExec()
-            await expect(
-                exec.handler(mockContext, {
-                    command: 'call mock-tool junk',
-                })
-            ).rejects.toThrow(/Inline JSON in `command` is no longer supported/)
-        })
-
-        it('discovery commands ignore stray `input` (no error)', async () => {
-            const exec = createExec()
-            const toolsResult = await exec.handler(mockContext, {
-                command: 'tools',
-                input: { ignored: true },
-            })
-            expect(JSON.parse(toolsResult as string)).toEqual(['mock-tool'])
-
-            const infoResult = await exec.handler(mockContext, {
-                command: 'info mock-tool',
-                output_format: 'json',
-                input: { ignored: true },
-            })
-            expect(JSON.parse(infoResult as string).name).toBe('mock-tool')
+            ).rejects.toThrow(/Invalid JSON input: .*Body received: \{not-json\}/)
         })
 
         it('invokes the inner-call tracker with success=false when the inner tool throws', async () => {

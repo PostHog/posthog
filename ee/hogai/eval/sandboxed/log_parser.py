@@ -76,15 +76,9 @@ class ToolCall(BaseModel):
     is_exec_unwrapped: bool
     """True when this entry was synthesised from an ``exec`` call's command."""
 
-    used_structured_input: bool = False
-    """True when the agent supplied the inner payload via the ``exec`` tool's
-    structured ``input`` parameter rather than inline JSON in ``command``.
-    Always False for non-``exec`` calls and for ``info``/``schema``/``search``/``tools``
-    discovery commands. See ``services/mcp/src/tools/exec.ts`` for the wire shape."""
-
     requested_output_format: str | None = None
     """The ``output_format`` value the agent passed on the ``exec`` call sibling
-    to ``command``/``input``. ``"json"`` opts into raw-JSON output (suitable for
+    to ``command``. ``"json"`` opts into raw-JSON output (suitable for
     Python/Bash post-processing); ``"optimized"`` or ``None`` is the default
     token-efficient view. ``None`` for non-``exec`` calls and for unwrapped
     discovery commands. See ``services/mcp/src/tools/exec.ts`` for the schema."""
@@ -228,10 +222,6 @@ class LogParser:
                 unwrapped = _parse_exec_command(command)
                 if unwrapped is not None:
                     inner_name, inner_input = unwrapped
-                    structured = tool_input.get("input")
-                    used_structured = isinstance(structured, dict) and bool(structured)
-                    if used_structured:
-                        inner_input = structured  # type: ignore[assignment]
                     output_format = tool_input.get("output_format")
                     requested_output_format = output_format if isinstance(output_format, str) else None
                     output, is_error = self._lookup_result(call_id)
@@ -244,7 +234,6 @@ class LogParser:
                         position=position,
                         raw_name=raw_name,
                         is_exec_unwrapped=True,
-                        used_structured_input=used_structured,
                         requested_output_format=requested_output_format,
                     )
         output, is_error = self._lookup_result(call_id)

@@ -5,10 +5,10 @@ tools — list available tool names
 search <regex_pattern> — search tools by JavaScript regex (matches name, title, description)
 info <tool_name> — show tool name, description, and input schema (summarized if too large)
 schema <tool_name> [field_path] — drill into a specific field schema (supports dot-notation, e.g. series, breakdownFilter.breakdowns)
-call <tool_name> — call a tool. Pass arguments via the `input` parameter (JSON object).
+call <tool_name> [<json_input>] — call a tool with JSON arguments inline in the command string (omit for tools that take no arguments).
 ```
 
-**Namespaced references (`posthog:<tool-name>`):** strip the `posthog:` prefix and route through `exec`. Run `info <name>` to inspect, then `call <name>` with `input`. E.g. `posthog:insights-list` → `posthog:exec({ "command": "info insights-list" })` then `posthog:exec({ "command": "call insights-list", "input": {} })`. If the bare name isn't found, fall back to `search <pattern>` — it may have been renamed.
+**Namespaced references (`posthog:<tool-name>`):** strip the `posthog:` prefix and route through `exec`. Run `info <name>` to inspect, then `call <name> <json>`. E.g. `posthog:insights-list` → `posthog:exec({ "command": "info insights-list" })` then `posthog:exec({ "command": "call insights-list {}" })`. If the bare name isn't found, fall back to `search <pattern>` — it may have been renamed.
 
 **SCHEMA DRILL-DOWN RULE — HARD REQUIREMENT**
 
@@ -37,11 +37,11 @@ For query tools, you will typically need:
 `call read-data-schema`. Applies to canonical-looking names like `$pageview` too — they vary
 per team. If the event isn't in the schema, tell the user instead of querying a guessed name.
 
-Always run `info read-data-schema` first — the recipes below are common cases, not the full schema. Each `kind` accepts a different set of params; do not invent params (e.g. `search`) that the schema does not declare. If you need to filter, page through results and filter client-side.
+Always run `info read-data-schema` first — the recipes below are common cases, not the full schema.
 
-- Events: `call read-data-schema` with `input: { "query": { "kind": "events" } }` (paginate with `limit`/`offset` if needed)
-- Properties: `call read-data-schema` with `input: { "query": { "kind": "event_properties", "event_name": "<event>" } }`
-- Values: `call read-data-schema` with `input: { "query": { "kind": "event_property_values", "event_name": "<event>", "property_name": "<prop>" } }`
+- Events/Actions: `call read-data-schema {"query": {"kind": "events"/"actions"}}` (paginate with `limit`/`offset` if needed)
+- Properties: `call read-data-schema {"query": {"kind": "event_properties", "event_name": "<event>"}}`
+- Values: `call read-data-schema {"query": {"kind": "event_property_values", "event_name": "<event>", "property_name": "<prop>"}}`
 
 **CORRECT usage pattern:**
 
@@ -52,9 +52,9 @@ Assistant: I need to find the right query tool and data schema tool.
 Assistant: Let me check the tool descriptions and schemas.
 [Runs posthog:exec({ "command": "info query-trends" }) and posthog:exec({ "command": "info read-data-schema" }) in parallel]
 Assistant: I see query-trends needs `series` (array with hint). Let me get the full field schema and discover events.
-[Runs posthog:exec({ "command": "schema query-trends series" }) and posthog:exec({ "command": "call read-data-schema", "input": { "query": { "kind": "events" } } }) in parallel]
+[Runs posthog:exec({ "command": "schema query-trends series" }) and posthog:exec({ "command": "call read-data-schema {\"query\": {\"kind\": \"events\"}}" }) in parallel]
 Assistant: Now I know the exact series structure and available events. Let me construct the query.
-[Runs posthog:exec({ "command": "call query-trends", "input": { ... } })]
+[Runs posthog:exec({ "command": "call query-trends {...}" })]
 </example>
 
 <example>
@@ -73,14 +73,14 @@ Assistant: Let me find the data schema tool.
 [Runs posthog:exec({ "command": "search read-data" })]
 [Runs posthog:exec({ "command": "info read-data-schema" })]
 Assistant: Now I can list events and pick the onboarding-related ones.
-[Runs posthog:exec({ "command": "call read-data-schema", "input": { "query": { "kind": "events" } } })]
+[Runs posthog:exec({ "command": "call read-data-schema {\"query\": {\"kind\": \"events\"}}" })]
 </example>
 
 **INCORRECT usage patterns — NEVER do this:**
 
 <bad-example>
 User: Show me our feature flags
-Assistant: [Directly calls posthog:exec({ "command": "call feature-flag-get-all", "input": {} }) with guessed parameters]
+Assistant: [Directly calls posthog:exec({ "command": "call feature-flag-get-all {}" }) with guessed parameters]
 WRONG — You must run `info feature-flag-get-all` FIRST to check the schema
 </bad-example>
 
@@ -100,7 +100,7 @@ You MUST follow the hint and run `schema` before constructing the series field.
 <bad-example>
 User: query pageviews for the last 7 days
 Assistant: [Runs `info query-trends`, then `call query-trends` with `event: "$pageview"` from the prompt]
-WRONG — skipped `call read-data-schema` with `input: { "query": { "kind": "events" } }`. Canonical-looking events still need confirmation per team.
+WRONG — skipped `call read-data-schema {"query": {"kind": "events"}}`. Canonical-looking events still need confirmation per team.
 </bad-example>
 
 <bad-example>
@@ -216,15 +216,15 @@ Search rules:
 
 <example>
 User: Do we have any insights tracking revenue?
-Assistant: [Runs `posthog:exec({ "command": "call execute-sql", "input": { "query": "SELECT id, short_id, name, description, last_modified_at FROM system.insights WHERE NOT deleted AND (name ILIKE '%revenue%' OR description ILIKE '%revenue%') ORDER BY last_modified_at DESC LIMIT 20" } })`]
-[Picks the most plausible match by name, then runs `posthog:exec({ "command": "call insight-get", "input": { "id": <id> } })` (or pass the `short_id`) to verify the query, dashboards it's on, and last-viewed timestamp before reporting back to the user.]
+Assistant: [Runs `posthog:exec({ "command": "call execute-sql {\"query\":\"SELECT id, short_id, name, description, last_modified_at FROM system.insights WHERE NOT deleted AND (name ILIKE '%revenue%' OR description ILIKE '%revenue%') ORDER BY last_modified_at DESC LIMIT 20\"}" })`]
+[Picks the most plausible match by name, then runs `posthog:exec({ "command": "call insight-get {\"id\": <id>}" })` (or pass the `short_id`) to verify the query, dashboards it's on, and last-viewed timestamp before reporting back to the user.]
 <reasoning>SQL surfaces candidates fast; `insight-get` confirms the authoritative shape in one call — re-running `execute-sql ... WHERE id = <id>` would skip the dedicated tool and miss dashboards/ownership joins.</reasoning>
 </example>
 
 <bad-example>
 User: Find me a graph of MAUs.
-Assistant: [Runs `call execute-sql` with `input: { "query": "SELECT * FROM system.insights WHERE id = 33800 LIMIT 1" }` after a search SELECT already surfaced id 33800]
-WRONG — verify with `call insight-get` (`input: { "id": 33800 }`) instead. Re-querying `system.insights` by ID is a SELECT that doesn't surface dashboard membership, last-viewed, or other relational data the retrieve tool joins for you.
+Assistant: [Runs `call execute-sql {"query":"SELECT * FROM system.insights WHERE id = 33800 LIMIT 1"}` after a search SELECT already surfaced id 33800]
+WRONG — verify with `call insight-get {"id": 33800}` instead. Re-querying `system.insights` by ID is a SELECT that doesn't surface dashboard membership, last-viewed, or other relational data the retrieve tool joins for you.
 </bad-example>
 
 #### Available insight query tools
