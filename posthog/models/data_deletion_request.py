@@ -17,7 +17,7 @@ def jsonhas_expr(prop: str, param_prefix: str) -> str:
     return f"JSONHas(properties, {args})"
 
 
-def compile_hogql_predicate(obj) -> tuple[str, dict]:
+def compile_hogql_predicate(obj, *, target_data_table: bool = False) -> tuple[str, dict]:
     """Parse and compile ``obj.hogql_predicate`` into a ClickHouse SQL fragment.
 
     Returns ``(sql_fragment, extra_params)``. Both are empty when the predicate
@@ -25,6 +25,15 @@ def compile_hogql_predicate(obj) -> tuple[str, dict]:
     decide how to splice it (typically ``AND (<fragment>)``). Raises
     :class:`~django.core.exceptions.ValidationError` on parse, resolution or
     subquery errors — suitable for use inside ``Model.clean()``.
+
+    ``target_data_table`` selects the ClickHouse table the fragment will be
+    spliced against:
+
+    - ``False`` (default): emit ``events.<col>`` qualifiers — for read queries
+      against the Distributed ``events`` proxy (e.g. cluster-wide row counts).
+    - ``True``: emit ``sharded_events.<col>`` qualifiers — for the local
+      ``sharded_events`` MergeTree (DELETE mutations, parts inspection, deferred
+      uuid extraction).
     """
     predicate = (getattr(obj, "hogql_predicate", "") or "").strip()
     if not predicate:
@@ -55,9 +64,13 @@ def compile_hogql_predicate(obj) -> tuple[str, dict]:
     if obj.team_id is None:
         raise ValidationError({"hogql_predicate": "team_id must be set before validating the predicate."})
 
-    context = HogQLContext(team_id=obj.team_id, within_non_hogql_query=True, enable_select_queries=True)
+    context = HogQLContext(team_id=obj.team_id, within_non_hogql_query=True, enable_select_queries=False)
+    # Default leaves the events table un-aliased so qualified column references (e.g. mat-column
+    # shortcuts) print as ``events.<col>`` — the right shape for the Distributed proxy used by
+    # read queries. Only the data-table case needs an alias swap.
+    table_alias = "sharded_events" if target_data_table else None
     try:
-        sql = translate_hogql(predicate, context, dialect="clickhouse")
+        sql = translate_hogql(predicate, context, dialect="clickhouse", events_table_alias=table_alias)
     except Exception as exc:
         raise ValidationError({"hogql_predicate": f"Could not compile HogQL: {exc}"}) from exc
 
@@ -150,13 +163,13 @@ class DataDeletionRequest(UUIDModel):
         models.UUIDField(),
         blank=True,
         default=list,
-        help_text="Person UUIDs to target. Combined with person_distinct_ids; total ≤ 1000.",
+        help_text="Person UUIDs to target. Mutually exclusive with person_distinct_ids; max 1000.",
     )
     person_distinct_ids = ArrayField(
         models.CharField(max_length=400),
         blank=True,
         default=list,
-        help_text="Person distinct IDs to target. Combined with person_uuids; total ≤ 1000.",
+        help_text="Person distinct IDs to target. Mutually exclusive with person_uuids; max 1000.",
     )
     person_drop_profiles = models.BooleanField(
         null=True,
@@ -285,11 +298,13 @@ class DataDeletionRequest(UUIDModel):
             raise ValidationError({"start_time": "start_time must be before end_time."})
 
     def _clean_person_removal(self) -> None:
+        if self.person_uuids and self.person_distinct_ids:
+            raise ValidationError({"person_uuids": "Provide either person_uuids or person_distinct_ids, not both."})
         total = len(self.person_uuids) + len(self.person_distinct_ids)
         if total == 0:
             raise ValidationError({"person_uuids": "Provide at least one person_uuid or person_distinct_id."})
         if total > 1000:
-            raise ValidationError({"person_uuids": "Combined person_uuids + person_distinct_ids must be ≤ 1000."})
+            raise ValidationError({"person_uuids": "person_uuids or person_distinct_ids must be ≤ 1000."})
         if not (self.person_drop_profiles or self.person_drop_events or self.person_drop_recordings):
             raise ValidationError(
                 {"person_drop_profiles": "At least one of person_drop_profiles / events / recordings must be true."}

@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 import pytest
 from unittest.mock import patch
 
@@ -273,7 +275,7 @@ def _mock_openai_response(content: str = "", prompt_tokens: int = 0, completion_
 
 
 class TestGenerateChangeSummary:
-    @patch("posthog.temporal.subscriptions.llm_change_summary.get_llm_client")
+    @patch("posthog.temporal.subscriptions.llm_change_summary._get_openai_client")
     def test_returns_content_with_correct_params(self, mock_get_client):
         mock_client = mock_get_client.return_value
         mock_client.chat.completions.create.return_value = _mock_openai_response(
@@ -291,7 +293,7 @@ class TestGenerateChangeSummary:
         assert call_kwargs.kwargs["temperature"] == 0.3
         assert call_kwargs.kwargs["max_tokens"] == 500
 
-    @patch("posthog.temporal.subscriptions.llm_change_summary.get_llm_client")
+    @patch("posthog.temporal.subscriptions.llm_change_summary._get_openai_client")
     def test_uses_initial_prompt_when_no_previous_states(self, mock_get_client):
         mock_client = mock_get_client.return_value
         mock_client.chat.completions.create.return_value = _mock_openai_response(
@@ -308,7 +310,7 @@ class TestGenerateChangeSummary:
         system_content = messages[0]["content"]
         assert "current state" in system_content
 
-    @patch("posthog.temporal.subscriptions.llm_change_summary.get_llm_client")
+    @patch("posthog.temporal.subscriptions.llm_change_summary._get_openai_client")
     def test_handles_empty_content(self, mock_get_client):
         mock_client = mock_get_client.return_value
         mock_client.chat.completions.create.return_value = _mock_openai_response("", 0, 0)
@@ -320,7 +322,7 @@ class TestGenerateChangeSummary:
 
         assert result == ""
 
-    @patch("posthog.temporal.subscriptions.llm_change_summary.get_llm_client")
+    @patch("posthog.temporal.subscriptions.llm_change_summary._get_openai_client")
     def test_attaches_insight_images_as_multimodal_parts(self, mock_get_client):
         mock_client = mock_get_client.return_value
         mock_client.chat.completions.create.return_value = _mock_openai_response("- Data shown")
@@ -342,7 +344,7 @@ class TestGenerateChangeSummary:
         assert image_parts[0]["image_url"]["url"].startswith("data:image/png;base64,")
         assert image_parts[0]["image_url"]["detail"] == "auto"
 
-    @patch("posthog.temporal.subscriptions.llm_change_summary.get_llm_client")
+    @patch("posthog.temporal.subscriptions.llm_change_summary._get_openai_client")
     def test_prepends_label_text_part_before_each_image(self, mock_get_client):
         mock_client = mock_get_client.return_value
         mock_client.chat.completions.create.return_value = _mock_openai_response("- ok")
@@ -361,7 +363,7 @@ class TestGenerateChangeSummary:
         assert "Chart for: Pageviews" in label_texts
         assert "Chart for: Signups" in label_texts
 
-    @patch("posthog.temporal.subscriptions.llm_change_summary.get_llm_client")
+    @patch("posthog.temporal.subscriptions.llm_change_summary._get_openai_client")
     def test_preserves_state_order_when_attaching_images(self, mock_get_client):
         import base64
 
@@ -383,7 +385,7 @@ class TestGenerateChangeSummary:
         expected_first = f"data:image/png;base64,{base64.b64encode(b'su').decode()}"
         assert image_parts[0]["image_url"]["url"] == expected_first
 
-    @patch("posthog.temporal.subscriptions.llm_change_summary.get_llm_client")
+    @patch("posthog.temporal.subscriptions.llm_change_summary._get_openai_client")
     def test_leaves_user_message_as_string_when_no_images(self, mock_get_client):
         mock_client = mock_get_client.return_value
         mock_client.chat.completions.create.return_value = _mock_openai_response("- ok")
@@ -395,7 +397,7 @@ class TestGenerateChangeSummary:
         messages = mock_client.chat.completions.create.call_args.kwargs["messages"]
         assert isinstance(messages[-1]["content"], str)
 
-    @patch("posthog.temporal.subscriptions.llm_change_summary.get_llm_client")
+    @patch("posthog.temporal.subscriptions.llm_change_summary._get_openai_client")
     def test_skips_images_for_insights_not_in_current_states(self, mock_get_client):
         mock_client = mock_get_client.return_value
         mock_client.chat.completions.create.return_value = _mock_openai_response("- ok")
@@ -409,7 +411,7 @@ class TestGenerateChangeSummary:
         image_parts = [p for p in messages[-1]["content"] if p.get("type") == "image_url"]
         assert len(image_parts) == 1
 
-    @patch("posthog.temporal.subscriptions.llm_change_summary.get_llm_client")
+    @patch("posthog.temporal.subscriptions.llm_change_summary._get_openai_client")
     def test_user_tag_includes_delivery_id_when_provided(self, mock_get_client):
         mock_client = mock_get_client.return_value
         mock_client.chat.completions.create.return_value = _mock_openai_response("- ok")
@@ -420,3 +422,87 @@ class TestGenerateChangeSummary:
 
         user_tag = mock_client.chat.completions.create.call_args.kwargs["user"]
         assert user_tag.endswith("-delivery-abc-123")
+
+    @patch("posthog.temporal.subscriptions.llm_change_summary._get_openai_client")
+    def test_marks_generation_billable_to_team_when_team_provided(self, mock_get_client):
+        mock_client = mock_get_client.return_value
+        mock_client.chat.completions.create.return_value = _mock_openai_response("- ok")
+
+        team = SimpleNamespace(id=42)
+        current = [_make_state(1, "Pageviews", "...", timestamp="2025-04-15T10:00:00Z")]
+
+        generate_change_summary(None, current, team=team, delivery_id="abc-123")  # type: ignore[arg-type]
+
+        call_kwargs = mock_client.chat.completions.create.call_args.kwargs
+        assert call_kwargs["posthog_properties"]["$ai_billable"] is True
+        assert call_kwargs["posthog_properties"]["team_id"] == 42
+        assert call_kwargs["posthog_properties"]["ai_product"] == "subscriptions"
+        assert call_kwargs["posthog_properties"]["delivery_id"] == "abc-123"
+        assert call_kwargs["posthog_groups"] == {"project": "42"}
+        assert call_kwargs["posthog_distinct_id"] == call_kwargs["user"]
+
+    @patch("posthog.temporal.subscriptions.llm_change_summary._get_openai_client")
+    def test_does_not_mark_billable_when_team_missing(self, mock_get_client):
+        mock_client = mock_get_client.return_value
+        mock_client.chat.completions.create.return_value = _mock_openai_response("- ok")
+
+        current = [_make_state(1, "Pageviews", "...", timestamp="2025-04-15T10:00:00Z")]
+
+        generate_change_summary(None, current, team=None)
+
+        call_kwargs = mock_client.chat.completions.create.call_args.kwargs
+        assert "$ai_billable" not in call_kwargs["posthog_properties"]
+        assert "team_id" not in call_kwargs["posthog_properties"]
+        assert "posthog_groups" not in call_kwargs
+
+    def test_get_openai_client_raises_when_api_key_missing(self, monkeypatch):
+        from posthog.temporal.subscriptions.llm_change_summary import _get_openai_client
+
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        with pytest.raises(ValueError, match="OPENAI_API_KEY"):
+            _get_openai_client()
+
+    def test_emits_ai_generation_event_with_billing_properties(self, monkeypatch):
+        from unittest.mock import MagicMock
+
+        monkeypatch.setenv("OPENAI_API_KEY", "test-fake-key")
+
+        captured_calls: list[dict] = []
+
+        def fake_capture(*args, **kwargs):
+            captured_calls.append(kwargs)
+
+        monkeypatch.setattr("posthoganalytics.capture", fake_capture)
+
+        usage_details = MagicMock()
+        usage_details.cached_tokens = 0
+        usage_details.reasoning_tokens = 0
+        usage = MagicMock()
+        usage.prompt_tokens = 10
+        usage.completion_tokens = 5
+        usage.prompt_tokens_details = usage_details
+        usage.completion_tokens_details = usage_details
+        choice = MagicMock()
+        choice.message.content = "- ok"
+        choice.message.tool_calls = None
+        choice.finish_reason = "stop"
+        fake_response = MagicMock()
+        fake_response.choices = [choice]
+        fake_response.usage = usage
+        fake_response.model = "gpt-4.1-mini"
+
+        team = SimpleNamespace(id=42)
+        current = [_make_state(1, "Pageviews", "...", timestamp="2025-04-15T10:00:00Z")]
+
+        with patch("openai.resources.chat.completions.Completions.create", return_value=fake_response):
+            generate_change_summary(None, current, team=team, delivery_id="abc-123")  # type: ignore[arg-type]
+
+        ai_generation_calls = [c for c in captured_calls if c.get("event") == "$ai_generation"]
+        assert len(ai_generation_calls) == 1, (
+            f"expected exactly one $ai_generation capture, got events: {[c.get('event') for c in captured_calls]}"
+        )
+        captured = ai_generation_calls[0]
+        assert captured["properties"]["$ai_billable"] is True
+        assert captured["properties"]["team_id"] == 42
+        assert captured["properties"]["ai_product"] == "subscriptions"
+        assert captured["groups"] == {"project": "42"}

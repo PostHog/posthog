@@ -1,12 +1,10 @@
 """Syncs per-team schedules with SignalSourceConfig on every tick.
 
-Only upserts *new* teams rather than all enabled teams — re-upserting every
-cycle would fix schedule-definition drift automatically but costs one Temporal
-RPC per enabled team per minute. Recreate schedules manually if `_build_schedule`
-changes and needs to apply to existing ones.
+Each schedule carries a config-fingerprint search attribute; mismatches with the
+freshly-computed fingerprint trigger a rewrite, so UI edits propagate within one
+RECONCILER_INTERVAL.
 """
 
-import json
 import asyncio
 from typing import Any
 
@@ -20,7 +18,7 @@ from posthog.temporal.session_replay.summarization_sweep.constants import (
     RECONCILER_WORKFLOW_NAME,
     UPSERT_SCHEDULE_TIMEOUT,
 )
-from posthog.temporal.session_replay.summarization_sweep.models import (
+from posthog.temporal.session_replay.summarization_sweep.types import (
     DeleteTeamScheduleInput,
     ReconcileSchedulesInputs,
     ReconcileSchedulesResult,
@@ -39,17 +37,13 @@ with workflow.unsafe.imports_passed_through():
 
 @workflow.defn(name=RECONCILER_WORKFLOW_NAME)
 class ReconcileSummarizationSchedulesWorkflow(PostHogWorkflow):
-    @staticmethod
-    def parse_inputs(inputs: list[str]) -> ReconcileSchedulesInputs:
-        if not inputs:
-            return ReconcileSchedulesInputs()
-        return ReconcileSchedulesInputs(**json.loads(inputs[0]))
+    inputs_cls = ReconcileSchedulesInputs
+    inputs_optional = True
 
     @workflow.run
     async def run(self, inputs: ReconcileSchedulesInputs) -> dict[str, Any]:
-        # A team enabled between the two listings may get deleted this tick and
-        # recreated next tick — worst case ~one RECONCILER_INTERVAL of missed summaries.
-        enabled_ids, existing_ids = await asyncio.gather(
+        # A team toggled between the two listings recovers on the next tick.
+        enabled_fingerprints, existing_fingerprints = await asyncio.gather(
             workflow.execute_activity(
                 list_enabled_teams_activity,
                 start_to_close_timeout=LIST_ENABLED_TEAMS_TIMEOUT,
@@ -61,9 +55,11 @@ class ReconcileSummarizationSchedulesWorkflow(PostHogWorkflow):
                 retry_policy=RetryPolicy(maximum_attempts=3),
             ),
         )
-        enabled = set(enabled_ids)
-        existing = set(existing_ids)
-        to_upsert = sorted(enabled - existing)
+        enabled = set(enabled_fingerprints)
+        existing = set(existing_fingerprints)
+        # Untagged legacy schedules surface as None and naturally drift on first tick.
+        drifted = {tid for tid in (enabled & existing) if existing_fingerprints[tid] != enabled_fingerprints[tid]}
+        to_upsert = sorted((enabled - existing) | drifted)
         to_delete = sorted(existing - enabled)
 
         upsert_results, delete_results = await asyncio.gather(
@@ -71,7 +67,7 @@ class ReconcileSummarizationSchedulesWorkflow(PostHogWorkflow):
                 to_upsert,
                 lambda tid: workflow.execute_activity(
                     upsert_team_schedule_activity,
-                    UpsertTeamScheduleInput(team_id=tid, dry_run=inputs.dry_run),
+                    UpsertTeamScheduleInput(team_id=tid),
                     start_to_close_timeout=UPSERT_SCHEDULE_TIMEOUT,
                     retry_policy=RetryPolicy(maximum_attempts=3),
                 ),
@@ -80,7 +76,7 @@ class ReconcileSummarizationSchedulesWorkflow(PostHogWorkflow):
                 to_delete,
                 lambda tid: workflow.execute_activity(
                     delete_team_schedule_activity,
-                    DeleteTeamScheduleInput(team_id=tid, dry_run=inputs.dry_run),
+                    DeleteTeamScheduleInput(team_id=tid),
                     start_to_close_timeout=UPSERT_SCHEDULE_TIMEOUT,
                     retry_policy=RetryPolicy(maximum_attempts=3),
                 ),
@@ -91,7 +87,6 @@ class ReconcileSummarizationSchedulesWorkflow(PostHogWorkflow):
             deleted_team_ids=[tid for tid, ok in zip(to_delete, delete_results) if ok],
             failed_upsert_team_ids=[tid for tid, ok in zip(to_upsert, upsert_results) if not ok],
             failed_delete_team_ids=[tid for tid, ok in zip(to_delete, delete_results) if not ok],
-            dry_run=inputs.dry_run,
         )
         if result.failed_upsert_team_ids or result.failed_delete_team_ids:
             workflow.logger.warning(
@@ -106,7 +101,6 @@ class ReconcileSummarizationSchedulesWorkflow(PostHogWorkflow):
             "deleted": len(result.deleted_team_ids),
             "failed_upsert": len(result.failed_upsert_team_ids),
             "failed_delete": len(result.failed_delete_team_ids),
-            "dry_run": inputs.dry_run,
         }
 
     async def _fan_out(self, team_ids: list[int], make_coro) -> list[bool]:

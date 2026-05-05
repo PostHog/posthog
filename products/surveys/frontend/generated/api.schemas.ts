@@ -2005,7 +2005,7 @@ export type SurveysListParams = {
      */
     offset?: number
     /**
-     * A search term.
+     * Fuzzy match against survey `name` and `description` using Postgres trigram word similarity. Supports typos and prefix-as-you-type.
      */
     search?: string
 }

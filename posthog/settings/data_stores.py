@@ -178,6 +178,7 @@ if persons_db_writer_url:
 
 product_routes = load_product_db_routes(Path(__file__).resolve().parents[2])
 configured_product_databases: set[str] = set()
+PRODUCT_DB_WRITER_URLS: dict[str, str] = {}
 
 for route in product_routes:
     if route.database in configured_product_databases:
@@ -198,6 +199,7 @@ for route in product_routes:
     if not writer_url:
         continue
 
+    PRODUCT_DB_WRITER_URLS[db] = writer_url
     DATABASES[writer_alias] = dict(dj_database_url.parse(writer_url, conn_max_age=0))
     DATABASES[writer_alias].setdefault("OPTIONS", {})["connect_timeout"] = 3
 

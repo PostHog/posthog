@@ -48,7 +48,7 @@ def captured_logs():
 
 
 def _entries(logs: list[dict]) -> list[dict]:
-    return [entry for entry in logs if entry.get("event") == "data_imports.http.request"]
+    return [entry for entry in logs if entry.get("event", "").startswith("data_imports.http.request")]
 
 
 @pytest.fixture

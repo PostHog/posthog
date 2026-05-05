@@ -2,13 +2,17 @@ use async_trait::async_trait;
 use personhog_proto::personhog::replica::v1::person_hog_replica_client::PersonHogReplicaClient;
 use personhog_proto::personhog::types::v1::{
     CheckCohortMembershipRequest, CohortMembershipResponse, CountCohortMembersRequest,
-    CountCohortMembersResponse, DeleteCohortMemberRequest, DeleteCohortMemberResponse,
-    DeleteCohortMembersBulkRequest, DeleteCohortMembersBulkResponse,
+    CountCohortMembersResponse, CreateGroupRequest, CreateGroupResponse, DeleteCohortMemberRequest,
+    DeleteCohortMemberResponse, DeleteCohortMembersBulkRequest, DeleteCohortMembersBulkResponse,
+    DeleteGroupTypeMappingRequest, DeleteGroupTypeMappingResponse,
+    DeleteGroupTypeMappingsBatchForTeamRequest, DeleteGroupTypeMappingsBatchForTeamResponse,
+    DeleteGroupsBatchForTeamRequest, DeleteGroupsBatchForTeamResponse,
     DeleteHashKeyOverridesByTeamsRequest, DeleteHashKeyOverridesByTeamsResponse,
     DeletePersonsBatchForTeamRequest, DeletePersonsBatchForTeamResponse, DeletePersonsRequest,
     DeletePersonsResponse, GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
     GetDistinctIdsForPersonsRequest, GetDistinctIdsForPersonsResponse, GetGroupRequest,
-    GetGroupResponse, GetGroupTypeMappingsByProjectIdRequest,
+    GetGroupResponse, GetGroupTypeMappingByDashboardIdRequest,
+    GetGroupTypeMappingByDashboardIdResponse, GetGroupTypeMappingsByProjectIdRequest,
     GetGroupTypeMappingsByProjectIdsRequest, GetGroupTypeMappingsByTeamIdRequest,
     GetGroupTypeMappingsByTeamIdsRequest, GetGroupsBatchRequest, GetGroupsBatchResponse,
     GetGroupsRequest, GetHashKeyOverrideContextRequest, GetHashKeyOverrideContextResponse,
@@ -17,7 +21,8 @@ use personhog_proto::personhog::types::v1::{
     GetPersonsRequest, GroupTypeMappingsBatchResponse, GroupTypeMappingsResponse, GroupsResponse,
     InsertCohortMembersRequest, InsertCohortMembersResponse, ListCohortMemberIdsRequest,
     ListCohortMemberIdsResponse, PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse,
-    PersonsResponse, UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
+    PersonsResponse, UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
+    UpdateGroupTypeMappingResponse, UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
 };
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
@@ -329,6 +334,59 @@ impl PersonHogBackend for ReplicaBackend {
         request: GetGroupTypeMappingsByProjectIdsRequest,
     ) -> Result<GroupTypeMappingsBatchResponse, Status> {
         retry_call!(self, get_group_type_mappings_by_project_ids, request)
+    }
+
+    async fn get_group_type_mapping_by_dashboard_id(
+        &self,
+        request: GetGroupTypeMappingByDashboardIdRequest,
+    ) -> Result<GetGroupTypeMappingByDashboardIdResponse, Status> {
+        retry_call!(self, get_group_type_mapping_by_dashboard_id, request)
+    }
+
+    // Group writes
+
+    async fn create_group(
+        &self,
+        request: CreateGroupRequest,
+    ) -> Result<CreateGroupResponse, Status> {
+        retry_call!(self, create_group, request)
+    }
+
+    async fn update_group(
+        &self,
+        request: UpdateGroupRequest,
+    ) -> Result<UpdateGroupResponse, Status> {
+        retry_call!(self, update_group, request)
+    }
+
+    async fn delete_groups_batch_for_team(
+        &self,
+        request: DeleteGroupsBatchForTeamRequest,
+    ) -> Result<DeleteGroupsBatchForTeamResponse, Status> {
+        retry_call!(self, delete_groups_batch_for_team, request)
+    }
+
+    // Group type mapping writes
+
+    async fn update_group_type_mapping(
+        &self,
+        request: UpdateGroupTypeMappingRequest,
+    ) -> Result<UpdateGroupTypeMappingResponse, Status> {
+        retry_call!(self, update_group_type_mapping, request)
+    }
+
+    async fn delete_group_type_mapping(
+        &self,
+        request: DeleteGroupTypeMappingRequest,
+    ) -> Result<DeleteGroupTypeMappingResponse, Status> {
+        retry_call!(self, delete_group_type_mapping, request)
+    }
+
+    async fn delete_group_type_mappings_batch_for_team(
+        &self,
+        request: DeleteGroupTypeMappingsBatchForTeamRequest,
+    ) -> Result<DeleteGroupTypeMappingsBatchForTeamResponse, Status> {
+        retry_call!(self, delete_group_type_mappings_batch_for_team, request)
     }
 }
 

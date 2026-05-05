@@ -194,7 +194,6 @@ const createMockContext = (scopes: string[]): Context => ({
     api: {} as any,
     cache: {} as any,
     env: {
-        INKEEP_API_KEY: undefined,
         MCP_APPS_BASE_URL: undefined,
         POSTHOG_ANALYTICS_API_KEY: undefined,
         POSTHOG_ANALYTICS_HOST: undefined,
@@ -407,7 +406,6 @@ describe('Tool Filtering - AI Consent', () => {
             api: {} as any,
             cache: {} as any,
             env: {
-                INKEEP_API_KEY: undefined,
                 MCP_APPS_BASE_URL: undefined,
                 POSTHOG_ANALYTICS_API_KEY: undefined,
                 POSTHOG_ANALYTICS_HOST: undefined,
@@ -433,7 +431,6 @@ describe('Tool Filtering - AI Consent', () => {
             api: {} as any,
             cache: {} as any,
             env: {
-                INKEEP_API_KEY: undefined,
                 MCP_APPS_BASE_URL: undefined,
                 POSTHOG_ANALYTICS_API_KEY: undefined,
                 POSTHOG_ANALYTICS_HOST: undefined,
@@ -567,7 +564,10 @@ describe('Tool Filtering - Feature Flags', () => {
 
     it('getRequiredFeatureFlags should return flags used by current definitions', () => {
         const flags = getRequiredFeatureFlags()
-        expect(flags).toEqual(['logs-alerting'])
+        expect(flags).toEqual(
+            expect.arrayContaining(['logs-alerting', 'replay-video-based-summarization', 'visual-review'])
+        )
+        expect(flags).toHaveLength(3)
     })
 
     // Test the filtering logic with a direct unit test approach using
