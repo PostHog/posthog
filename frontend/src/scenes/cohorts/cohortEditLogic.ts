@@ -666,13 +666,9 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
 
     actionToUrl(({ values }) => ({
         setActiveTab: () => {
-            const { pathname } = router.values.location
-            if (!pathname.startsWith('/cohorts/')) {
-                return
-            }
             const { tab: _, ...restHash } = router.values.hashParams
             const nextHash = values.activeTab === 'overview' ? restHash : { ...restHash, tab: values.activeTab }
-            return [pathname, router.values.searchParams, nextHash, { replace: true }]
+            return [router.values.location.pathname, router.values.searchParams, nextHash, { replace: true }]
         },
     })),
 
