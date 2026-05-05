@@ -31,7 +31,6 @@ import {
     consumerBatchUtilization,
     consumerDrainDuration,
     consumerDrainTimeouts,
-    consumerKeepaliveUnexpectedMessages,
     consumerStaleStoreOffsetsSkipped,
     kafkaConsumerAssignment,
 } from './metrics'
@@ -58,8 +57,6 @@ export type RdKafkaConsumerOverrides = Omit<
 export type EachBatchResult = { backgroundTask?: Promise<unknown> } | void
 export type EachBatch = (messages: Message[]) => Promise<EachBatchResult>
 
-type State = 'IDLE' | 'CONSUMING' | 'DRAINING' | 'STOPPED'
-
 type RebalanceEvent =
     | { type: 'ASSIGN'; partitions: Assignment[] }
     | { type: 'REVOKE'; partitions: Assignment[] }
@@ -71,16 +68,10 @@ type TaskEntry = {
 }
 
 /**
- * KafkaConsumerV2 — single-coroutine consumer with deterministic rebalance handling.
- *
- * Design contract:
- *   - The main loop is the only mutator of state. The rebalance callback only enqueues events.
- *   - REVOKE → DRAINING → drain all in-flight settle promises → incrementalUnassign → IDLE.
- *   - drain awaits the post-storeOffsets chain (`settled`), not the raw user task.
- *   - tasks are only created in CONSUMING state, so no task is excluded from a drain snapshot.
- *
- * See plans/kafka-consumer-v2-rewrite.md for the full design + the H1/H2/H3 regressions
- * this is built to defeat.
+ * Single-coroutine Kafka consumer. The loop is the only mutator; the rebalance callback
+ * just enqueues events. On REVOKE the loop synchronously drains in-flight settle promises
+ * (post-storeOffsets, not raw user tasks), bumps `generation` so any laggard task skips
+ * its now-invalid storeOffsets, then calls incrementalUnassign.
  */
 export class KafkaConsumerV2 {
     private rdKafkaConsumer: RdKafkaConsumer
@@ -88,8 +79,8 @@ export class KafkaConsumerV2 {
     private podName: string
     private consumerId: string
 
-    // Loop control
-    private state: State = 'IDLE'
+    // Loop iterates while running; disconnect() flips it false.
+    private running = true
     private generation = 0
     private rebalanceQueue: RebalanceEvent[] = []
     private inFlight: TaskEntry[] = []
@@ -153,10 +144,7 @@ export class KafkaConsumerV2 {
             ['auto.offset.reset' as keyof ConsumerGlobalConfig]: 'earliest' as never,
             ...getKafkaConfigFromEnv('CONSUMER'),
             ...rdKafkaOverrides,
-            // Below are settings we DO NOT allow callers to override.
-            // (v1 used `roundrobin` under jest as a workaround for librdkafka 2.2.0 flakiness;
-            // we're on 2.12.0 now and that note is stale. Using cooperative-sticky everywhere
-            // gives the integration tests prod parity — partial-revoke paths are eager-invisible.)
+            // Settings we don't allow callers to override.
             'partition.assignment.strategy': 'cooperative-sticky',
             'enable.auto.offset.store': false,
             'enable.auto.commit': this.config.autoCommit,
@@ -182,7 +170,7 @@ export class KafkaConsumerV2 {
                 {
                     topic: this.config.topic,
                     groupId: this.config.groupId,
-                    state: this.state,
+                    running: this.running,
                     timeSinceLastTick,
                     threshold: this.loopStallThresholdMs,
                 }
@@ -192,7 +180,6 @@ export class KafkaConsumerV2 {
         return new HealthCheckResultOk()
     }
 
-    /** Current partition assignments — useful for tests waiting on group-join completion. */
     public assignments(): Assignment[] {
         return this.rdKafkaConsumer.isConnected() ? this.rdKafkaConsumer.assignments() : []
     }
@@ -231,13 +218,13 @@ export class KafkaConsumerV2 {
     }
 
     public async disconnect(): Promise<void> {
-        if (this.state === 'STOPPED') {
+        if (!this.running) {
             return
         }
-        // Flip to STOPPED so the loop exits at its next iteration AND so the
+        // Flip to !running so the loop exits at its next iteration AND so the
         // rebalanceCallback handles the final REVOKE that librdkafka delivers during
         // disconnect (see rebalanceCallback() for the special-case path).
-        this.state = 'STOPPED'
+        this.running = false
         if (this.loopDone) {
             await this.loopDone.catch((error) => {
                 logger.error('🔁', 'kafka_consumer_v2_loop_failed_during_disconnect', { error: String(error) })
@@ -252,29 +239,27 @@ export class KafkaConsumerV2 {
 
     private async runLoop(eachBatch: EachBatch): Promise<void> {
         try {
-            while ((this.state as State) !== 'STOPPED') {
+            while (this.running) {
                 this.lastLoopTickAt = Date.now()
 
-                // 1. Process all queued rebalance events synchronously, with awaits where needed.
+                // 1. Drain rebalance events. handleRebalanceEvent on REVOKE awaits drainAll
+                // and calls incrementalUnassign before returning.
                 while (this.rebalanceQueue.length > 0) {
                     const event = this.rebalanceQueue.shift()!
                     await this.handleRebalanceEvent(event)
-                    if ((this.state as State) === 'STOPPED') {
+                    if (!this.running) {
                         break
                     }
                 }
-                if ((this.state as State) === 'STOPPED') {
+                if (!this.running) {
                     break
                 }
 
-                // 2. State-gated work. Only CONSUMING and IDLE are reachable here:
-                // handleRebalanceEvent always transitions DRAINING → IDLE before returning.
-                if ((this.state as State) === 'CONSUMING') {
-                    await this.fetchAndDispatch(eachBatch)
-                } else {
-                    // IDLE — see consumeKeepalive() for why we still poll.
-                    await this.consumeKeepalive()
-                }
+                // 2. Always poll. consume() drives the librdkafka group-membership protocol
+                // (heartbeats, JoinGroup, rebalance event delivery) regardless of whether we
+                // currently have any partitions assigned. When we have none it returns 0 messages
+                // within fetch.wait.max.ms; when we have some, it returns whatever's buffered.
+                await this.fetchAndDispatch(eachBatch)
             }
         } finally {
             // Drain whatever is left before letting the caller's disconnect() return.
@@ -295,10 +280,10 @@ export class KafkaConsumerV2 {
             return
         }
 
-        // Bail out if disconnect() ran during consume(). State transitions from rebalance
-        // events only happen inside handleRebalanceEvent (top of loop), so the only way
-        // we can land here non-CONSUMING is STOPPED.
-        if ((this.state as State) !== 'CONSUMING') {
+        // Bail out if disconnect() ran during consume(). Rebalance events only mutate state
+        // inside handleRebalanceEvent (top of loop), so the only way we land here non-running
+        // is shutdown.
+        if (!this.running) {
             return
         }
 
@@ -412,12 +397,10 @@ export class KafkaConsumerV2 {
             logger.info('🔁', 'kafka_consumer_v2_assigned', {
                 partitions: event.partitions.map((p) => `${p.topic}/${p.partition}`),
             })
-            this.state = 'CONSUMING'
             return
         }
 
         if (event.type === 'REVOKE') {
-            this.state = 'DRAINING'
             this.generation++
             logger.info('🔁', 'kafka_consumer_v2_revoke_starting', {
                 inFlight: this.inFlight.length,
@@ -447,16 +430,10 @@ export class KafkaConsumerV2 {
                     })
                     .set(0)
             }
-            // Cooperative-sticky often revokes a subset of partitions while the consumer keeps
-            // the rest, with no follow-up ASSIGN. We must only go IDLE when nothing is assigned;
-            // otherwise the keepalive runs in IDLE and silently discards messages from the still-
-            // owned partitions (broke the keepalive-no-messages invariant in prod).
             const remaining = this.rdKafkaConsumer.isConnected() ? this.rdKafkaConsumer.assignments() : []
-            this.state = remaining.length > 0 ? 'CONSUMING' : 'IDLE'
             logger.info('🔁', 'kafka_consumer_v2_revoke_complete', {
                 generation: this.generation,
                 remainingAssignments: remaining.length,
-                nextState: this.state,
             })
             return
         }
@@ -499,50 +476,6 @@ export class KafkaConsumerV2 {
         }
     }
 
-    /**
-     * Drive librdkafka's group-membership/rebalance protocol while we have no assignments.
-     * Called from IDLE only — without periodic consume() calls librdkafka never sends
-     * JoinGroup and the initial ASSIGN never arrives.
-     *
-     * No messages should ever come back: in IDLE we have zero assigned partitions, so
-     * consume(1) has nothing to fetch. If a message DOES come back, our state-machine
-     * invariant is violated — we'd be silently discarding a message that should have
-     * been processed in CONSUMING state. We capture and log loudly rather than throw
-     * (we don't want a single rogue message to kill the whole consumer process).
-     *
-     * The 1 (vs 0) is required because node-rdkafka's `consume(0, cb)` blocks forever.
-     */
-    private async consumeKeepalive(): Promise<void> {
-        let messages: Message[] = []
-        try {
-            messages = await promisifyCallback<Message[]>((cb) => this.rdKafkaConsumer.consume(1, cb))
-        } catch {
-            // ignore — keepalive only
-            return
-        }
-        if (messages.length > 0) {
-            // Counter is the alertable signal — `rate(...) > 0` means the invariant broke.
-            consumerKeepaliveUnexpectedMessages.labels(this.config.topic, this.config.groupId).inc(messages.length)
-            const error = new Error(
-                `kafka_consumer_v2_keepalive_unexpected_messages: received ${messages.length} message(s) ` +
-                    `in IDLE state; expected zero. Partitions: ${messages
-                        .map((m) => `${m.topic}/${m.partition}@${m.offset}`)
-                        .join(',')}`
-            )
-            logger.error('🔥', 'kafka_consumer_v2_keepalive_unexpected_messages', {
-                count: messages.length,
-                state: this.state,
-                assignments: this.rdKafkaConsumer.assignments(),
-                samples: messages.slice(0, 3).map((m) => ({
-                    topic: m.topic,
-                    partition: m.partition,
-                    offset: m.offset,
-                })),
-            })
-            captureException(error)
-        }
-    }
-
     private storeOffsetsInternal(offsets: TopicPartitionOffset[]): void {
         if (offsets.length === 0) {
             return
@@ -564,7 +497,7 @@ export class KafkaConsumerV2 {
         // Special case: during disconnect, librdkafka delivers a final REVOKE and waits
         // for the application to call unassign() synchronously. The loop has already
         // exited at this point, so we have to handle it inline rather than enqueue.
-        if (this.state === 'STOPPED') {
+        if (!this.running) {
             if (err.code === CODES.ERRORS.ERR__REVOKE_PARTITIONS) {
                 try {
                     if (this.rdKafkaConsumer.rebalanceProtocol() === 'COOPERATIVE') {

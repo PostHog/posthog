@@ -3,7 +3,6 @@ import { CODES, Message, KafkaConsumer as RdKafkaConsumer } from 'node-rdkafka'
 import { captureException } from '../../utils/posthog'
 import { delay } from '../../utils/utils'
 import { KafkaConsumerV2 } from './consumer-v2'
-import { consumerKeepaliveUnexpectedMessages } from './metrics'
 
 jest.mock('../admin', () => ({ ensureTopicExists: jest.fn().mockResolvedValue(undefined) }))
 
@@ -373,10 +372,10 @@ describe('KafkaConsumerV2', () => {
         expect(mockRdKafka.consume.mock.calls.length).toBeGreaterThan(callsBeforeAssign)
     })
 
-    it('REVOKE without follow-up ASSIGN: loop stays alive and keeps polling in IDLE', async () => {
+    it('REVOKE without follow-up ASSIGN: loop stays alive and keeps polling', async () => {
         // Validates that if librdkafka revokes our partitions and never re-assigns (e.g. the
-        // group went down to one consumer and we got nothing in the rebalance), the loop
-        // doesn't wedge — it keeps calling consume(1, cb) to drive heartbeats.
+        // group went down to one consumer), the loop doesn't wedge — it keeps calling
+        // consume() to drive heartbeats and the next rebalance.
         const eachBatch = jest.fn(() => Promise.resolve({}))
         await startConsuming(eachBatch)
 
@@ -384,8 +383,8 @@ describe('KafkaConsumerV2', () => {
         await delay(20)
         expect(mockRdKafka.incrementalUnassign).toHaveBeenCalled()
 
-        // No fireAssign() — we stay in IDLE. Drive several keepalive polls.
-        const callsAtIdleStart = mockRdKafka.consume.mock.calls.length
+        // No fireAssign() — drive several polls.
+        const callsBefore = mockRdKafka.consume.mock.calls.length
         for (let i = 0; i < 5; i++) {
             if (consumeCallback) {
                 const cb = consumeCallback
@@ -394,10 +393,9 @@ describe('KafkaConsumerV2', () => {
             }
             await delay(5)
         }
-        // The loop kept polling (each empty consume returned, loop iterated, called consume again).
-        expect(mockRdKafka.consume.mock.calls.length).toBeGreaterThan(callsAtIdleStart)
-        // Still IDLE — not crashed.
-        expect((consumer as any).state).toBe('IDLE')
+        expect(mockRdKafka.consume.mock.calls.length).toBeGreaterThan(callsBefore)
+        // Loop still running — not crashed.
+        expect((consumer as any).running).toBe(true)
     })
 
     it('Sticky reassign roundtrip: REVOKE [P0] → ASSIGN [P0] back, no stuck or duplicate work', async () => {
@@ -419,7 +417,6 @@ describe('KafkaConsumerV2', () => {
 
         // Critical: no spurious unassign of the just-reassigned partition.
         expect(mockRdKafka.incrementalUnassign.mock.calls.length).toBe(unassignCallsBeforeReassign)
-        expect((consumer as any).state).toBe('CONSUMING')
     })
 
     it('Incremental ASSIGN: a second ASSIGN with new partitions extends the assignment', async () => {
@@ -440,11 +437,9 @@ describe('KafkaConsumerV2', () => {
         expect(mockRdKafka.incrementalUnassign).not.toHaveBeenCalled()
     })
 
-    it('Partial REVOKE: state stays CONSUMING when partitions remain assigned', async () => {
-        // Cooperative-sticky often revokes a subset of partitions while keeping others, with
-        // no follow-up ASSIGN. We MUST stay in CONSUMING (not flip to IDLE) — otherwise the
-        // keepalive runs in IDLE and silently discards messages from the still-owned
-        // partitions. Real bug observed in prod: state=IDLE with 7 partitions still assigned.
+    it('Partial REVOKE: only the revoked partition is unassigned, drain awaits in-flight task', async () => {
+        // Cooperative-sticky drops a subset; we await the in-flight task before
+        // unassigning, and only call incrementalUnassign for the revoked partition.
         ;(consumer as any).maxBackgroundTasks = 5
         const eachBatch = jest.fn(() => Promise.resolve({}))
         await startConsuming(eachBatch, [
@@ -452,40 +447,19 @@ describe('KafkaConsumerV2', () => {
             { topic: 'test-topic', partition: 1 },
         ])
 
-        // In-flight task on the (still-owned) consumer.
         const p1 = triggerablePromise()
         await dispatchBatch(eachBatch, [createMessage({ offset: 1, partition: 0 })], p1.promise)
 
-        // After incrementalUnassign(p1), librdkafka still reports partition 0 as assigned.
-        ;(mockRdKafka.assignments as jest.Mock).mockReturnValue([{ topic: 'test-topic', partition: 0 }])
-
-        // Revoke ONLY partition 1.
         fireRevoke([{ topic: 'test-topic', partition: 1 }])
         await delay(5)
 
-        // Drain awaits p1 first.
+        // Drain blocks unassign until the in-flight task settles.
         expect(mockRdKafka.incrementalUnassign).not.toHaveBeenCalled()
         p1.resolve()
         await delay(20)
 
-        // Only the revoked partition is unassigned.
         expect(mockRdKafka.incrementalUnassign).toHaveBeenCalledWith([{ topic: 'test-topic', partition: 1 }])
-        // CRITICAL: state must NOT have flipped to IDLE — partition 0 is still ours.
-        expect((consumer as any).state).toBe('CONSUMING')
-    })
-
-    it('Full REVOKE: state goes to IDLE when no partitions remain', async () => {
-        const eachBatch = jest.fn(() => Promise.resolve({}))
-        await startConsuming(eachBatch, [{ topic: 'test-topic', partition: 0 }])
-
-        // After unassign, librdkafka reports no remaining assignments.
-        ;(mockRdKafka.assignments as jest.Mock).mockReturnValue([])
-
-        fireRevoke([{ topic: 'test-topic', partition: 0 }])
-        await delay(20)
-
-        expect(mockRdKafka.incrementalUnassign).toHaveBeenCalled()
-        expect((consumer as any).state).toBe('IDLE')
+        expect((consumer as any).running).toBe(true)
     })
 
     it('Disconnect drains in-flight tasks before tearing down', async () => {
@@ -615,60 +589,6 @@ describe('KafkaConsumerV2', () => {
 
         // storeOffsets should NOT be called for this stale task.
         expect(mockRdKafka.offsetsStore).not.toHaveBeenCalled()
-    })
-
-    describe('IDLE keepalive invariant', () => {
-        it('does NOT call eachBatch or storeOffsets if a message somehow comes back in IDLE', async () => {
-            const eachBatch = jest.fn(() => Promise.resolve({}))
-            await consumer.connect(eachBatch)
-
-            // Loop is now in IDLE state, awaiting consume(1, cb) for the keepalive. We have
-            // NOT fired ASSIGN — so no partitions are assigned and the consumer should never
-            // see a real message here. Force-deliver TWO anyway to simulate the impossible
-            // case and verify the invariant fires + the counter increments by message count.
-            const counterBefore =
-                (await consumerKeepaliveUnexpectedMessages.get()).values.find(
-                    (v) => v.labels.topic === 'test-topic' && v.labels.groupId === 'test-group'
-                )?.value ?? 0
-
-            expect(consumeCallback).toBeDefined()
-            const cb = consumeCallback!
-            consumeCallback = undefined
-            cb(null, [
-                createMessage({ offset: 42, partition: 7, topic: 'unexpected-topic' }),
-                createMessage({ offset: 43, partition: 7, topic: 'unexpected-topic' }),
-            ])
-            await delay(5)
-
-            // No real processing should have happened.
-            expect(eachBatch).not.toHaveBeenCalled()
-            expect(mockRdKafka.offsetsStore).not.toHaveBeenCalled()
-            // captureException should have been invoked with a descriptive error.
-            expect(captureException).toHaveBeenCalledTimes(1)
-            const err = (captureException as jest.Mock).mock.calls[0][0] as Error
-            expect(err.message).toContain('keepalive_unexpected_messages')
-            expect(err.message).toContain('unexpected-topic/7@42')
-            // Counter incremented by message count (alert hook).
-            const counterAfter =
-                (await consumerKeepaliveUnexpectedMessages.get()).values.find(
-                    (v) => v.labels.topic === 'test-topic' && v.labels.groupId === 'test-group'
-                )?.value ?? 0
-            expect(counterAfter - counterBefore).toBe(2)
-        })
-
-        it('does NOT capture an exception when keepalive returns the expected empty batch', async () => {
-            const eachBatch = jest.fn(() => Promise.resolve({}))
-            await consumer.connect(eachBatch)
-
-            // Empty batch is the normal IDLE outcome.
-            expect(consumeCallback).toBeDefined()
-            const cb = consumeCallback!
-            consumeCallback = undefined
-            cb(null, [])
-            await delay(5)
-
-            expect(captureException).not.toHaveBeenCalled()
-        })
     })
 
     it('Health: not connected → error', () => {

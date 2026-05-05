@@ -71,14 +71,3 @@ export const consumerStaleStoreOffsetsSkipped = new Counter({
     help: 'Number of times an offset store was skipped because the task spanned a rebalance generation',
     labelNames: ['topic', 'groupId'],
 })
-
-/**
- * Should always be 0. Increments only if the IDLE keepalive's `consume(1, cb)` returns a
- * message — which can only happen if the state-machine invariant is violated. Wire an alert
- * to `rate(...) > 0`. The counter sums messages, not events, so a bad batch of N is N.
- */
-export const consumerKeepaliveUnexpectedMessages = new Counter({
-    name: 'kafka_consumer_keepalive_unexpected_messages_total',
-    help: 'Messages returned by the IDLE keepalive consume() — should always be 0; non-zero indicates a state-machine bug',
-    labelNames: ['topic', 'groupId'],
-})
