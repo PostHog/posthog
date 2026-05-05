@@ -927,14 +927,17 @@ class IntegrationViewSet(
         linear = LinearIntegration(instance)
         return Response({"teams": linear.list_teams()})
 
+    @extend_schema(operation_id="integrations_anthropic_managed_agents_retrieve")
     @action(methods=["GET"], detail=True, url_path="anthropic_managed_agents")
     def anthropic_managed_agents(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         return self._anthropic_managed_list_response(request, resource="agents")
 
+    @extend_schema(operation_id="integrations_anthropic_managed_agent_envs_retrieve")
     @action(methods=["GET"], detail=True, url_path="anthropic_managed_agent_environments")
     def anthropic_managed_agent_environments(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         return self._anthropic_managed_list_response(request, resource="environments")
 
+    @extend_schema(operation_id="integrations_anthropic_managed_agent_vaults_retrieve")
     @action(methods=["GET"], detail=True, url_path="anthropic_managed_agent_vaults")
     def anthropic_managed_agent_vaults(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         return self._anthropic_managed_list_response(request, resource="vaults")

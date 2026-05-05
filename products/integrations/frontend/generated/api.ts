@@ -241,16 +241,16 @@ export const integrationsDestroy = async (projectId: string, id: number, options
     })
 }
 
-export const getIntegrationsAnthropicManagedAgentRetrieveUrl = (projectId: string, id: number) => {
+export const getIntegrationsAnthropicManagedAgentEnvsRetrieveUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/integrations/${id}/anthropic_managed_agent_environments/`
 }
 
-export const integrationsAnthropicManagedAgentRetrieve = async (
+export const integrationsAnthropicManagedAgentEnvsRetrieve = async (
     projectId: string,
     id: number,
     options?: RequestInit
 ): Promise<void> => {
-    return apiMutator<void>(getIntegrationsAnthropicManagedAgentRetrieveUrl(projectId, id), {
+    return apiMutator<void>(getIntegrationsAnthropicManagedAgentEnvsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
