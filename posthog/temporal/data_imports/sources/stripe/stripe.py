@@ -2,7 +2,7 @@ import os
 import re
 import dataclasses
 from collections.abc import Callable
-from typing import Any, Optional, Union, get_args, get_type_hints
+from typing import Any, Optional, Union, cast, get_args, get_type_hints
 
 import orjson
 import stripe as stripe_lib
@@ -423,13 +423,9 @@ def validate_credentials(api_key: str, table_name: Optional[str] = None) -> bool
         """
         entry = all_resources[name]
         if isinstance(entry, StripeNestedResource):
-            parent_entry = all_resources[entry.parent_name]
-            assert isinstance(parent_entry, StripeResource), (
-                f"Nested resource {name!r} declares parent_name={entry.parent_name!r}, but that "
-                f"is not a top-level StripeResource. The "
-                f"test_validate_credentials_nested_resources_have_registered_parents test "
-                f"covers this invariant."
-            )
+            # Type narrowed via the CI test, not at runtime — see
+            # test_validate_credentials_nested_resources_have_registered_parents.
+            parent_entry = cast(StripeResource, all_resources[entry.parent_name])
             return f"{name} ({entry.parent_name})", parent_entry
         return name, entry
 

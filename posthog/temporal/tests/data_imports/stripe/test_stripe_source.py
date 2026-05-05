@@ -494,15 +494,14 @@ def test_validate_credentials_nested_resources_have_registered_parents():
     mock_client = mock.MagicMock()
     resources = _build_resources(mock_client, logger=None)
 
-    top_level_names = {name for name, r in resources.items() if isinstance(r, StripeResource)}
-
     for name, resource in resources.items():
         if isinstance(resource, StripeNestedResource):
             assert resource.parent_name, f"Nested resource {name!r} must declare a parent_name."
-            assert resource.parent_name in top_level_names, (
-                f"Nested resource {name!r} declares parent_name={resource.parent_name!r}, "
-                f"but no top-level StripeResource with that name is registered in "
-                f"_build_resources. validate_credentials would crash trying to resolve it."
+            parent_entry = resources.get(resource.parent_name)
+            assert isinstance(parent_entry, StripeResource), (
+                f"Nested resource {name!r} declares parent_name={resource.parent_name!r}, but no "
+                f"top-level StripeResource with that name is registered in _build_resources. "
+                f"validate_credentials would crash trying to resolve it."
             )
 
 
