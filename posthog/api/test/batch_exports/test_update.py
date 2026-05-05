@@ -544,7 +544,7 @@ def test_can_patch_config_with_invalid_old_values(client: HttpClient, interval, 
     assert args.get("invalid_key", None) is None
 
 
-def test_patch_different_type_resets_config(
+def test_patch_rejects_destination_type_change(
     client: HttpClient,
     temporal,
     organization,
@@ -552,11 +552,7 @@ def test_patch_different_type_resets_config(
     user,
     bigquery_integration,
 ):
-    """Assert patching a config with a different type resets it.
-
-    We confirm no previous values are present in Temporal or in the database.
-    """
-    interval = "hour"
+    """Assert PATCH cannot change the destination type — callers must delete and recreate."""
     destination_data = {
         "type": "S3",
         "config": {
@@ -570,18 +566,12 @@ def test_patch_different_type_resets_config(
 
     batch_export_data = {
         "name": "my-production-s3-bucket-destination",
-        "interval": interval,
+        "destination": destination_data,
+        "interval": "hour",
     }
 
     client.force_login(user)
-
-    destination = BatchExportDestination(**destination_data)
-    batch_export = BatchExport(team=team, destination=destination, **batch_export_data)
-
-    sync_batch_export(batch_export, created=True)
-
-    destination.save()
-    batch_export.save()
+    batch_export = create_batch_export_ok(client, team.pk, batch_export_data)
 
     new_destination_data = {
         "type": "BigQuery",
@@ -591,32 +581,69 @@ def test_patch_different_type_resets_config(
             "dataset_id": "test",
         },
     }
+    response = patch_batch_export(
+        client,
+        team.pk,
+        batch_export["id"],
+        {"destination": new_destination_data},
+    )
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert "Cannot change destination type" in response.json()["detail"]
 
-    new_batch_export_data = {
-        "name": "my-production-bigquery-destination",
-        "destination": new_destination_data,
+    # The original destination is still intact.
+    refreshed = get_batch_export_ok(client, team.pk, batch_export["id"])
+    assert refreshed["destination"]["type"] == "S3"
+    assert refreshed["destination"]["config"]["bucket_name"] == "my-production-s3-bucket"
+
+
+def test_put_rejects_destination_type_change(
+    client: HttpClient,
+    temporal,
+    organization,
+    team,
+    user,
+):
+    """Assert PUT cannot change the destination type either — same restriction as PATCH."""
+    destination_data = {
+        "type": "S3",
+        "config": {
+            "bucket_name": "my-production-s3-bucket",
+            "region": "us-east-1",
+            "prefix": "posthog-events/",
+            "aws_access_key_id": "abc123",
+            "aws_secret_access_key": "secret",
+        },
     }
 
-    response = patch_batch_export(client, team.pk, batch_export.id, new_batch_export_data)
-    assert response.status_code == status.HTTP_200_OK, response.json()
+    batch_export_data = {
+        "name": "my-production-s3-bucket-destination",
+        "destination": destination_data,
+        "interval": "hour",
+    }
 
-    batch_export_data = get_batch_export_ok(client, team.pk, batch_export.id)
-    assert batch_export_data["interval"] == interval
-    assert batch_export_data["destination"]["config"].get("bucket_name") is None
-    assert batch_export_data["destination"]["config"].get("aws_secret_access_key") is None
-    assert batch_export_data["destination"]["config"]["dataset_id"] == "test"
-    assert batch_export_data["destination"]["config"]["table_id"] == "test"
-    assert batch_export_data["destination"]["integration"] == bigquery_integration.id
+    client.force_login(user)
+    batch_export = create_batch_export_ok(client, team.pk, batch_export_data)
 
-    # validate the underlying temporal schedule has been updated
-    codec = EncryptionCodec(settings=settings)
-    new_schedule = describe_schedule(temporal, batch_export_data["id"])
-    decoded_payload = async_to_sync(codec.decode)(new_schedule.schedule.action.args)
-    args = json.loads(decoded_payload[0].data)
-    assert args["table_id"] == "test"
-    assert args.get("aws_access_key_id") is None
-    assert args.get("bucket_name") is None
-    assert args.get("aws_secret_access_key") is None
+    new_batch_export_data = {
+        "name": "my-production-s3-bucket-destination",
+        "destination": {
+            "type": "BigQuery",
+            "config": {
+                "table_id": "test",
+                "dataset_id": "test",
+                "project_id": "test",
+            },
+        },
+        "interval": "hour",
+    }
+    response = put_batch_export(client, team.pk, batch_export["id"], new_batch_export_data)
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert "Cannot change destination type" in response.json()["detail"]
+
+    # The original destination is still intact.
+    refreshed = get_batch_export_ok(client, team.pk, batch_export["id"])
+    assert refreshed["destination"]["type"] == "S3"
+    assert refreshed["destination"]["config"]["bucket_name"] == "my-production-s3-bucket"
 
 
 def test_can_patch_hogql_query(client: HttpClient, temporal, organization, team, user):
