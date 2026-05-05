@@ -43,11 +43,6 @@ pub struct Config {
     #[envconfig(default = "1000")]
     pub bulk_max_age_ms: u64,
 
-    // Cardinality cap for per-team metric labels. Teams outside the top-N by event volume
-    // are folded into a single `team_id="other"` bucket.
-    #[envconfig(default = "50")]
-    pub metric_team_label_topn: usize,
-
     // Daily-floor sampling defaults; overridable per-team via Redis at runtime.
     #[envconfig(default = "10000")]
     pub default_floor: u64,

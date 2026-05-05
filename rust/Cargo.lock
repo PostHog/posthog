@@ -6320,6 +6320,7 @@ dependencies = [
  "chrono",
  "common-alloc",
  "common-kafka",
+ "common-metrics",
  "common-redis",
  "envconfig",
  "httpmock",

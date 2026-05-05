@@ -434,6 +434,22 @@ impl Client for RedisClient {
         Ok(count)
     }
 
+    async fn hincrby_with_expire(
+        &self,
+        key: String,
+        field: String,
+        amount: i64,
+        ttl_seconds: u64,
+    ) -> Result<i64, CustomRedisError> {
+        let mut pipe = redis::pipe();
+        pipe.cmd("HINCRBY").arg(&key).arg(&field).arg(amount);
+        pipe.cmd("EXPIRE").arg(&key).arg(ttl_seconds).ignore();
+
+        let mut conn = self.connection.clone();
+        let (count,): (i64,) = pipe.query_async(&mut conn).await?;
+        Ok(count)
+    }
+
     async fn del(&self, k: String) -> Result<(), CustomRedisError> {
         let mut conn = self.connection.clone();
         conn.del::<_, ()>(k).await?;
@@ -1414,6 +1430,51 @@ mod integration_tests {
             (0..=60).contains(&ttl),
             "expected TTL in 0..=60, got {ttl}"
         );
+
+        // Cleanup
+        client.del(key).await.unwrap();
+    }
+
+    #[tokio::test]
+    #[ignore] // Requires Docker; run with: cargo test integration_tests -- --ignored
+    async fn test_hincrby_with_expire_returns_count_and_sets_ttl() {
+        let (client, _container) = create_test_client().await;
+
+        // First HINCRBY on a fresh field returns the increment amount; second
+        // returns the running total. Verifies pipeline result destructuring
+        // picks the HINCRBY return, not the EXPIRE acknowledgement.
+        let key = "hincrby_with_expire_test_key".to_string();
+        let field = "decision_floor".to_string();
+        let count_one = client
+            .hincrby_with_expire(key.clone(), field.clone(), 1, 60)
+            .await
+            .unwrap();
+        assert_eq!(count_one, 1, "first HINCRBY by 1 should return 1");
+
+        let count_two = client
+            .hincrby_with_expire(key.clone(), field.clone(), 1, 60)
+            .await
+            .unwrap();
+        assert_eq!(count_two, 2, "second HINCRBY by 1 should return 2");
+
+        // Distinct fields under the same key are tracked independently.
+        let other_count = client
+            .hincrby_with_expire(key.clone(), "decision_drop".to_string(), 5, 60)
+            .await
+            .unwrap();
+        assert_eq!(
+            other_count, 5,
+            "fresh field should return the increment amount"
+        );
+
+        // Verify TTL was set on the hash.
+        let mut conn = client.connection.clone();
+        let ttl: i64 = redis::cmd("TTL")
+            .arg(&key)
+            .query_async(&mut conn)
+            .await
+            .unwrap();
+        assert!((0..=60).contains(&ttl), "expected TTL in 0..=60, got {ttl}");
 
         // Cleanup
         client.del(key).await.unwrap();

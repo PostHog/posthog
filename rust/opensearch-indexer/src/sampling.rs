@@ -2,11 +2,13 @@ use std::{
     borrow::Cow,
     collections::{HashMap, HashSet},
     hash::{DefaultHasher, Hash, Hasher},
+    sync::Arc,
 };
 
 use chrono::{DateTime, Utc};
 use common_redis::{Client, CustomRedisError};
 use serde::Deserialize;
+use tracing::warn;
 
 use crate::{config::Config, types::IndexDoc};
 
@@ -22,15 +24,37 @@ pub struct TeamOverride {
     pub rate: f64,
 }
 
-/// Outcome of the sampling decision. The four variants distinguish *why* the
-/// event indexes (or doesn't) so callers can label per-decision metrics without
+/// Outcome of the sampling decision. Variants distinguish *why* the event
+/// indexes (or doesn't) so callers can label per-decision metrics without
 /// reclassifying.
+///
+/// `Deny` and `Drop` both result in the event not being indexed but are kept
+/// distinct so ops can see how much volume a deny rule is suppressing
+/// (`team_decisions:{team}:{date} deny`) versus how much sampling dropped
+/// above the floor (`team_decisions:{team}:{date} drop`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Decision {
     Drop,
     IndexFloor,
     IndexSample,
     IndexError,
+    Deny,
+}
+
+impl Decision {
+    /// Stable label used both as a Prometheus `decision` label value and as a
+    /// Redis hash field in `opensearch_indexer:team_decisions:{team}:{date}`.
+    /// Renaming any variant would silently re-bucket historical data, so the
+    /// mapping is fixed here as the single source of truth.
+    pub(crate) fn label(&self) -> &'static str {
+        match self {
+            Decision::Drop => "drop",
+            Decision::IndexFloor => "floor",
+            Decision::IndexSample => "sample",
+            Decision::IndexError => "error",
+            Decision::Deny => "deny",
+        }
+    }
 }
 
 /// Snapshot of sampling parameters resolved at process start. The clock is
@@ -86,20 +110,62 @@ fn stable_hash_bucket(key: &str) -> u64 {
 }
 
 pub(crate) async fn decide(
-    redis: &(dyn Client + Send + Sync),
+    redis: Arc<dyn Client + Send + Sync>,
     config: &SamplingConfig,
     doc: &IndexDoc,
 ) -> Result<Decision, CustomRedisError> {
+    let now = (config.now_utc)();
+    let date = now.format("%Y-%m-%d").to_string();
+
     if config.deny_teams.contains(&doc.team_id) {
-        return Ok(Decision::Drop);
+        // Deny is observable so ops can see how much volume the rule is
+        // suppressing per team. The decision write is the only Redis op for
+        // a denied event — we skip the floor INCR because no further logic
+        // depends on the count.
+        spawn_per_decision_write(Arc::clone(&redis), doc.team_id, &date, Decision::Deny);
+        return Ok(Decision::Deny);
     }
+
+    let decision = compute_active_decision(redis.as_ref(), config, doc, &date).await?;
+    spawn_per_decision_write(redis, doc.team_id, &date, decision);
+    Ok(decision)
+}
+
+/// Spawn the per-team×decision daily counter write off the consumer's critical
+/// path. The consumer must not wait on this Redis op — its failure is an
+/// observability degradation, not a correctness signal, and a slow Redis would
+/// otherwise halve consumer throughput.
+fn spawn_per_decision_write(
+    redis: Arc<dyn Client + Send + Sync>,
+    team_id: i32,
+    date: &str,
+    decision: Decision,
+) {
+    let key = format!("opensearch_indexer:team_decisions:{team_id}:{date}");
+    let field = decision.label().to_string();
+    tokio::spawn(async move {
+        if let Err(e) = redis
+            .hincrby_with_expire(key, field, 1, COUNTER_TTL_SECONDS)
+            .await
+        {
+            warn!(error = %e, team_id, "team_decisions HINCRBY failed");
+            metrics::counter!("opensearch_indexer_team_decisions_write_errors_total").increment(1);
+        }
+    });
+}
+
+async fn compute_active_decision(
+    redis: &(dyn Client + Send + Sync),
+    config: &SamplingConfig,
+    doc: &IndexDoc,
+    date: &str,
+) -> Result<Decision, CustomRedisError> {
     if doc.is_error {
         return Ok(Decision::IndexError);
     }
 
     let (floor, rate) = config.resolve(doc.team_id);
 
-    let date = (config.now_utc)().format("%Y-%m-%d").to_string();
     let key = format!("opensearch_indexer:counter:{}:{}", doc.team_id, date);
     let raw_count = redis.incr_with_expire(key, COUNTER_TTL_SECONDS).await?;
 
@@ -108,7 +174,9 @@ pub(crate) async fn decide(
     // so the caller's fail-open path takes over, instead of silently treating
     // it as "way past floor".
     let count: u64 = u64::try_from(raw_count).map_err(|_| {
-        CustomRedisError::ParseError(format!("incr_with_expire returned non-positive: {raw_count}"))
+        CustomRedisError::ParseError(format!(
+            "incr_with_expire returned non-positive: {raw_count}"
+        ))
     })?;
 
     // Floor accounting and trace-bucket sampling are independent. A trace whose
@@ -180,21 +248,34 @@ mod tests {
         )
     }
 
+    /// Wrap a MockRedisClient in `Arc<dyn Client>` for `decide`. The mock's
+    /// `Clone` shares the `Arc<Mutex<Vec<MockRedisCall>>>` recorder, so the
+    /// caller can keep the original handle and observe calls made through the
+    /// trait-object copy.
+    fn arc_client(mock: &MockRedisClient) -> Arc<dyn Client + Send + Sync> {
+        Arc::new(mock.clone())
+    }
+
+    /// Yield once so any tasks spawned by `decide` (the per-decision HINCRBY)
+    /// run to completion before the test inspects the recorder. The mock's
+    /// `hincrby_with_expire` impl has no internal awaits, so a single yield
+    /// is enough on tokio's current_thread runtime.
+    async fn flush_spawned() {
+        tokio::task::yield_now().await;
+    }
+
     #[tokio::test]
-    async fn deny_team_drops_without_incr() {
+    async fn deny_team_returns_deny_without_incr() {
         let redis = MockRedisClient::new();
         let mut config = config_with(10, 0.5, HashMap::new());
         config.deny_teams.insert(42);
 
         let doc = fixture_doc(42, Some("t-1"), false);
-        let decision = decide(&redis, &config, &doc).await.unwrap();
-        assert_eq!(decision, Decision::Drop);
+        let decision = decide(arc_client(&redis), &config, &doc).await.unwrap();
+        assert_eq!(decision, Decision::Deny);
         assert!(
-            redis
-                .get_calls()
-                .iter()
-                .all(|c| c.op != "incr_with_expire"),
-            "deny-list short-circuit must not call Redis"
+            redis.get_calls().iter().all(|c| c.op != "incr_with_expire"),
+            "deny-list short-circuit must not call the floor INCR"
         );
     }
 
@@ -204,90 +285,76 @@ mod tests {
         let config = config_with(10, 0.5, HashMap::new());
 
         let doc = fixture_doc(42, Some("t-1"), true);
-        let decision = decide(&redis, &config, &doc).await.unwrap();
+        let decision = decide(arc_client(&redis), &config, &doc).await.unwrap();
         assert_eq!(decision, Decision::IndexError);
         assert!(
-            redis
-                .get_calls()
-                .iter()
-                .all(|c| c.op != "incr_with_expire"),
+            redis.get_calls().iter().all(|c| c.op != "incr_with_expire"),
             "error events must not consume floor budget"
         );
     }
 
     #[tokio::test]
     async fn count_at_floor_indexes_floor() {
-        let mut redis = MockRedisClient::new();
-        let team_id = 42;
-        redis = redis.incr_with_expire_ret(&key_for(team_id), Ok(10));
+        let redis = MockRedisClient::new().incr_with_expire_ret(&key_for(42), Ok(10));
         let config = config_with(10, 0.0, HashMap::new());
 
-        let doc = fixture_doc(team_id, Some("t-1"), false);
-        let decision = decide(&redis, &config, &doc).await.unwrap();
+        let doc = fixture_doc(42, Some("t-1"), false);
+        let decision = decide(arc_client(&redis), &config, &doc).await.unwrap();
         assert_eq!(decision, Decision::IndexFloor);
     }
 
     #[tokio::test]
     async fn count_above_floor_with_rate_one_samples() {
-        let mut redis = MockRedisClient::new();
-        let team_id = 42;
-        redis = redis.incr_with_expire_ret(&key_for(team_id), Ok(11));
+        let redis = MockRedisClient::new().incr_with_expire_ret(&key_for(42), Ok(11));
         let config = config_with(10, 1.0, HashMap::new());
 
-        let doc = fixture_doc(team_id, Some("t-1"), false);
-        let decision = decide(&redis, &config, &doc).await.unwrap();
+        let doc = fixture_doc(42, Some("t-1"), false);
+        let decision = decide(arc_client(&redis), &config, &doc).await.unwrap();
         assert_eq!(decision, Decision::IndexSample);
     }
 
     #[tokio::test]
     async fn count_above_floor_with_rate_zero_drops() {
-        let mut redis = MockRedisClient::new();
-        let team_id = 42;
-        redis = redis.incr_with_expire_ret(&key_for(team_id), Ok(11));
+        let redis = MockRedisClient::new().incr_with_expire_ret(&key_for(42), Ok(11));
         let config = config_with(10, 0.0, HashMap::new());
 
-        let doc = fixture_doc(team_id, Some("t-1"), false);
-        let decision = decide(&redis, &config, &doc).await.unwrap();
+        let doc = fixture_doc(42, Some("t-1"), false);
+        let decision = decide(arc_client(&redis), &config, &doc).await.unwrap();
         assert_eq!(decision, Decision::Drop);
     }
 
     #[tokio::test]
     async fn trace_cohesive_sampling() {
-        let mut redis = MockRedisClient::new();
-        let team_id = 42;
         // Both events bump the same counter key; mock returns the same count
         // for any number of calls.
-        redis = redis.incr_with_expire_ret(&key_for(team_id), Ok(11));
+        let redis = MockRedisClient::new().incr_with_expire_ret(&key_for(42), Ok(11));
         let config = config_with(10, 0.5, HashMap::new());
 
-        let span_a = fixture_doc(team_id, Some("trace-shared"), false);
-        let span_b = fixture_doc(team_id, Some("trace-shared"), false);
-        let d_a = decide(&redis, &config, &span_a).await.unwrap();
-        let d_b = decide(&redis, &config, &span_b).await.unwrap();
+        let span_a = fixture_doc(42, Some("trace-shared"), false);
+        let span_b = fixture_doc(42, Some("trace-shared"), false);
+        let d_a = decide(arc_client(&redis), &config, &span_a).await.unwrap();
+        let d_b = decide(arc_client(&redis), &config, &span_b).await.unwrap();
         assert_eq!(d_a, d_b, "spans of one trace must share the decision");
     }
 
     #[tokio::test]
     async fn redis_error_propagates() {
-        let mut redis = MockRedisClient::new();
-        let team_id = 42;
-        redis = redis.incr_with_expire_ret(&key_for(team_id), Err(CustomRedisError::Timeout));
+        let redis = MockRedisClient::new()
+            .incr_with_expire_ret(&key_for(42), Err(CustomRedisError::Timeout));
         let config = config_with(10, 0.5, HashMap::new());
 
-        let doc = fixture_doc(team_id, Some("t-1"), false);
-        let err = decide(&redis, &config, &doc).await.unwrap_err();
+        let doc = fixture_doc(42, Some("t-1"), false);
+        let err = decide(arc_client(&redis), &config, &doc).await.unwrap_err();
         assert!(matches!(err, CustomRedisError::Timeout));
     }
 
     #[tokio::test]
     async fn key_format_includes_team_and_date() {
-        let mut redis = MockRedisClient::new();
-        let team_id = 99;
-        redis = redis.incr_with_expire_ret(&key_for(team_id), Ok(1));
+        let redis = MockRedisClient::new().incr_with_expire_ret(&key_for(99), Ok(1));
         let config = config_with(10, 0.5, HashMap::new());
 
-        let doc = fixture_doc(team_id, Some("t-1"), false);
-        let _ = decide(&redis, &config, &doc).await.unwrap();
+        let doc = fixture_doc(99, Some("t-1"), false);
+        let _ = decide(arc_client(&redis), &config, &doc).await.unwrap();
 
         let calls = redis.get_calls();
         let incr_call = calls
@@ -303,10 +370,9 @@ mod tests {
 
     #[tokio::test]
     async fn team_override_uses_team_specific_floor_and_rate() {
-        let mut redis = MockRedisClient::new();
         let team_a = 42;
         let team_b = 99;
-        redis = redis
+        let redis = MockRedisClient::new()
             .incr_with_expire_ret(&key_for(team_a), Ok(150))
             .incr_with_expire_ret(&key_for(team_b), Ok(50));
 
@@ -323,14 +389,14 @@ mod tests {
         // Team A: count=150, override floor=100, rate=1.0 -> above floor, full sample.
         let doc_a = fixture_doc(team_a, Some("ta-1"), false);
         assert_eq!(
-            decide(&redis, &config, &doc_a).await.unwrap(),
+            decide(arc_client(&redis), &config, &doc_a).await.unwrap(),
             Decision::IndexSample
         );
 
         // Team B: count=50, default floor=10, rate=0.0 -> above floor, drop.
         let doc_b = fixture_doc(team_b, Some("tb-1"), false);
         assert_eq!(
-            decide(&redis, &config, &doc_b).await.unwrap(),
+            decide(arc_client(&redis), &config, &doc_b).await.unwrap(),
             Decision::Drop
         );
     }
@@ -353,8 +419,8 @@ mod tests {
 
         let doc = fixture_doc(team_id, Some("t-1"), false);
         assert_eq!(
-            decide(&redis, &config, &doc).await.unwrap(),
-            Decision::Drop
+            decide(arc_client(&redis), &config, &doc).await.unwrap(),
+            Decision::Deny
         );
     }
 
@@ -375,7 +441,7 @@ mod tests {
 
         let doc = fixture_doc(team_id, Some("t-1"), true);
         assert_eq!(
-            decide(&redis, &config, &doc).await.unwrap(),
+            decide(arc_client(&redis), &config, &doc).await.unwrap(),
             Decision::IndexError
         );
     }
@@ -386,26 +452,22 @@ mod tests {
     async fn none_trace_id_with_rate_zero_drops_past_floor() {
         // Tests the bucket_key fallback to event_uuid when trace_id is None.
         // With rate=0.0 the threshold is 0, so any bucket value drops.
-        let mut redis = MockRedisClient::new();
-        let team_id = 42;
-        redis = redis.incr_with_expire_ret(&key_for(team_id), Ok(11));
+        let redis = MockRedisClient::new().incr_with_expire_ret(&key_for(42), Ok(11));
         let config = config_with(10, 0.0, HashMap::new());
 
-        let doc = fixture_doc(team_id, None, false);
-        let decision = decide(&redis, &config, &doc).await.unwrap();
+        let doc = fixture_doc(42, None, false);
+        let decision = decide(arc_client(&redis), &config, &doc).await.unwrap();
         assert_eq!(decision, Decision::Drop);
     }
 
     #[tokio::test]
     async fn none_trace_id_with_rate_one_indexes_past_floor() {
         // Symmetric to the drop case: trace_id=None, rate=1.0, past floor -> sample.
-        let mut redis = MockRedisClient::new();
-        let team_id = 42;
-        redis = redis.incr_with_expire_ret(&key_for(team_id), Ok(11));
+        let redis = MockRedisClient::new().incr_with_expire_ret(&key_for(42), Ok(11));
         let config = config_with(10, 1.0, HashMap::new());
 
-        let doc = fixture_doc(team_id, None, false);
-        let decision = decide(&redis, &config, &doc).await.unwrap();
+        let doc = fixture_doc(42, None, false);
+        let decision = decide(arc_client(&redis), &config, &doc).await.unwrap();
         assert_eq!(decision, Decision::IndexSample);
     }
 
@@ -454,17 +516,192 @@ mod tests {
         // INCR is monotonic-positive in Redis. A negative return is a protocol
         // surprise; the defensive cast must surface it as a ParseError so the
         // caller's fail-open path takes over.
-        let mut redis = MockRedisClient::new();
-        let team_id = 42;
-        redis = redis.incr_with_expire_ret(&key_for(team_id), Ok(-1));
+        let redis = MockRedisClient::new().incr_with_expire_ret(&key_for(42), Ok(-1));
         let config = config_with(10, 0.5, HashMap::new());
 
-        let doc = fixture_doc(team_id, Some("t-1"), false);
-        let err = decide(&redis, &config, &doc).await.unwrap_err();
+        let doc = fixture_doc(42, Some("t-1"), false);
+        let err = decide(arc_client(&redis), &config, &doc).await.unwrap_err();
         assert!(
             matches!(err, CustomRedisError::ParseError(_)),
             "expected ParseError for negative count, got {err:?}"
         );
+
+        // Parse-error short-circuits before the per-decision write fires.
+        flush_spawned().await;
+        assert!(
+            redis
+                .get_calls()
+                .iter()
+                .all(|c| c.op != "hincrby_with_expire"),
+            "parse-error path must not write to the per-decision counter"
+        );
+    }
+
+    fn team_decisions_key(team_id: i32) -> String {
+        format!(
+            "opensearch_indexer:team_decisions:{}:{}",
+            team_id,
+            Utc::now().format("%Y-%m-%d")
+        )
+    }
+
+    fn find_hincrby_call(
+        calls: &[common_redis::MockRedisCall],
+    ) -> Option<&common_redis::MockRedisCall> {
+        calls.iter().find(|c| c.op == "hincrby_with_expire")
+    }
+
+    #[tokio::test]
+    async fn decide_records_floor_decision_to_redis_hash() {
+        let team_id = 42;
+        let redis = MockRedisClient::new().incr_with_expire_ret(&key_for(team_id), Ok(10));
+        let config = config_with(100, 0.5, HashMap::new());
+
+        let doc = fixture_doc(team_id, Some("t-1"), false);
+        let decision = decide(arc_client(&redis), &config, &doc).await.unwrap();
+        assert_eq!(decision, Decision::IndexFloor);
+
+        flush_spawned().await;
+        let calls = redis.get_calls();
+        let hincrby =
+            find_hincrby_call(&calls).expect("decide() should record per-decision HINCRBY");
+        assert_eq!(
+            hincrby.key,
+            format!("{}:floor", team_decisions_key(team_id))
+        );
+    }
+
+    #[tokio::test]
+    async fn decide_records_sample_decision_to_redis_hash() {
+        let team_id = 42;
+        let redis = MockRedisClient::new().incr_with_expire_ret(&key_for(team_id), Ok(200));
+        let config = config_with(10, 1.0, HashMap::new());
+
+        let doc = fixture_doc(team_id, Some("t-1"), false);
+        let decision = decide(arc_client(&redis), &config, &doc).await.unwrap();
+        assert_eq!(decision, Decision::IndexSample);
+
+        flush_spawned().await;
+        let hincrby = find_hincrby_call(&redis.get_calls())
+            .expect("decide() should record per-decision HINCRBY")
+            .clone();
+        assert_eq!(
+            hincrby.key,
+            format!("{}:sample", team_decisions_key(team_id))
+        );
+    }
+
+    #[tokio::test]
+    async fn decide_records_drop_decision_to_redis_hash() {
+        let team_id = 42;
+        let redis = MockRedisClient::new().incr_with_expire_ret(&key_for(team_id), Ok(200));
+        let config = config_with(10, 0.0, HashMap::new());
+
+        let doc = fixture_doc(team_id, Some("t-1"), false);
+        let decision = decide(arc_client(&redis), &config, &doc).await.unwrap();
+        assert_eq!(decision, Decision::Drop);
+
+        flush_spawned().await;
+        let hincrby = find_hincrby_call(&redis.get_calls())
+            .expect("decide() should record per-decision HINCRBY")
+            .clone();
+        assert_eq!(hincrby.key, format!("{}:drop", team_decisions_key(team_id)));
+    }
+
+    #[tokio::test]
+    async fn decide_records_error_decision_to_redis_hash() {
+        let redis = MockRedisClient::new();
+        let team_id = 42;
+        let config = config_with(10, 0.5, HashMap::new());
+
+        let doc = fixture_doc(team_id, Some("t-1"), true);
+        let decision = decide(arc_client(&redis), &config, &doc).await.unwrap();
+        assert_eq!(decision, Decision::IndexError);
+
+        flush_spawned().await;
+        let calls = redis.get_calls();
+        // Error short-circuit must not consume the floor budget.
+        assert!(
+            calls.iter().all(|c| c.op != "incr_with_expire"),
+            "error path must not call incr_with_expire"
+        );
+        let hincrby =
+            find_hincrby_call(&calls).expect("error path should still record per-decision HINCRBY");
+        assert_eq!(
+            hincrby.key,
+            format!("{}:error", team_decisions_key(team_id))
+        );
+    }
+
+    #[tokio::test]
+    async fn decide_records_deny_decision_to_redis_hash() {
+        let redis = MockRedisClient::new();
+        let team_id = 42;
+        let mut config = config_with(10, 0.5, HashMap::new());
+        config.deny_teams.insert(team_id);
+
+        let doc = fixture_doc(team_id, Some("t-1"), false);
+        let decision = decide(arc_client(&redis), &config, &doc).await.unwrap();
+        assert_eq!(decision, Decision::Deny);
+
+        flush_spawned().await;
+        let calls = redis.get_calls();
+        assert!(
+            calls.iter().all(|c| c.op != "incr_with_expire"),
+            "deny path must not consume floor budget"
+        );
+        let hincrby = find_hincrby_call(&calls)
+            .expect("deny path should still record per-decision HINCRBY for ops visibility");
+        assert_eq!(hincrby.key, format!("{}:deny", team_decisions_key(team_id)));
+    }
+
+    #[tokio::test]
+    async fn decide_does_not_record_on_redis_error() {
+        // INCR fails -> decide returns Err before reaching the per-decision
+        // write. The aggregate Prometheus counter in work_loop still emits
+        // decision="redis_error", but Redis itself records nothing.
+        let team_id = 42;
+        let redis = MockRedisClient::new()
+            .incr_with_expire_ret(&key_for(team_id), Err(CustomRedisError::Timeout));
+        let config = config_with(10, 0.5, HashMap::new());
+
+        let doc = fixture_doc(team_id, Some("t-1"), false);
+        let err = decide(arc_client(&redis), &config, &doc).await.unwrap_err();
+        assert!(matches!(err, CustomRedisError::Timeout));
+
+        flush_spawned().await;
+        assert!(
+            redis
+                .get_calls()
+                .iter()
+                .all(|c| c.op != "hincrby_with_expire"),
+            "INCR failure must short-circuit before the per-decision write"
+        );
+    }
+
+    #[tokio::test]
+    async fn decide_swallows_hincrby_failure() {
+        // The per-decision HINCRBY runs in a spawned task — its failure must
+        // not affect the decision returned to the caller. Without spawn, an
+        // awaited HINCRBY would block the consumer; with spawn, the decision
+        // is returned before the task is even polled.
+        let team_id = 42;
+        let redis = MockRedisClient::new()
+            .incr_with_expire_ret(&key_for(team_id), Ok(5))
+            .hincrby_with_expire_ret(
+                &format!("{}:floor", team_decisions_key(team_id)),
+                Err(CustomRedisError::Timeout),
+            );
+        let config = config_with(10, 0.5, HashMap::new());
+
+        let doc = fixture_doc(team_id, Some("t-1"), false);
+        let decision = decide(arc_client(&redis), &config, &doc).await.unwrap();
+        assert_eq!(decision, Decision::IndexFloor);
+
+        // Drain the spawned task so a subsequent test doesn't observe its
+        // panic-or-warning artifacts. The HINCRBY itself produces a warn log
+        // and bumps the write-errors counter; both are non-blocking.
+        flush_spawned().await;
     }
 
     #[tokio::test]
@@ -478,14 +715,13 @@ mod tests {
         }
 
         let pinned_key = "opensearch_indexer:counter:42:2024-03-15";
-        let mut redis = MockRedisClient::new();
-        redis = redis.incr_with_expire_ret(pinned_key, Ok(1));
+        let redis = MockRedisClient::new().incr_with_expire_ret(pinned_key, Ok(1));
 
         let mut config = config_with(10, 0.5, HashMap::new());
         config.now_utc = fixed_2024_03_15;
 
         let doc = fixture_doc(42, Some("t-1"), false);
-        decide(&redis, &config, &doc).await.unwrap();
+        decide(arc_client(&redis), &config, &doc).await.unwrap();
 
         let calls = redis.get_calls();
         let key_seen = calls
@@ -493,5 +729,18 @@ mod tests {
             .find(|c| c.op == "incr_with_expire")
             .expect("decide() should have called incr_with_expire");
         assert_eq!(key_seen.key, pinned_key);
+    }
+
+    #[test]
+    fn decision_label_strings_are_pinned() {
+        // These strings are persisted in Redis hash fields and exposed as
+        // Prometheus label values. A rename here re-buckets historical data
+        // silently — keep this test in lockstep with `Decision::label()` and
+        // think hard about migrations before changing any value.
+        assert_eq!(Decision::Drop.label(), "drop");
+        assert_eq!(Decision::IndexFloor.label(), "floor");
+        assert_eq!(Decision::IndexSample.label(), "sample");
+        assert_eq!(Decision::IndexError.label(), "error");
+        assert_eq!(Decision::Deny.label(), "deny");
     }
 }

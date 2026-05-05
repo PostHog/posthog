@@ -11,6 +11,7 @@ bytes = { workspace = true }
 chrono = { workspace = true }
 common-alloc = { path = "../common/alloc" }
 common-kafka = { path = "../common/kafka" }
+common-metrics = { path = "../common/metrics" }
 common-redis = { path = "../common/redis" }
 envconfig = { workspace = true }
 lifecycle = { path = "../common/lifecycle" }

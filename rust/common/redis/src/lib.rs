@@ -268,6 +268,18 @@ pub trait Client: Send + Sync {
         ttl_seconds: u64,
     ) -> Result<i64, CustomRedisError>;
 
+    /// HINCRBY a single hash field and EXPIRE the hash in one round-trip,
+    /// returning the post-HINCRBY field value. Mirrors `incr_with_expire` for
+    /// callers that need a per-field counter inside a TTL'd hash (e.g. a
+    /// per-team×decision daily breakdown rolling up under a single key).
+    async fn hincrby_with_expire(
+        &self,
+        key: String,
+        field: String,
+        amount: i64,
+        ttl_seconds: u64,
+    ) -> Result<i64, CustomRedisError>;
+
     async fn del(&self, k: String) -> Result<(), CustomRedisError>;
     async fn hget(&self, k: String, field: String) -> Result<String, CustomRedisError>;
     async fn scard(&self, k: String) -> Result<u64, CustomRedisError>;

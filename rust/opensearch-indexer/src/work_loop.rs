@@ -18,16 +18,28 @@ use crate::{
 /// of the consumer loop so the fail-open behavior is unit-testable without
 /// constructing a Kafka consumer.
 ///
-/// Anything other than `Ok(Decision::Drop)` indexes — including any `Err(_)`,
-/// which is the fail-open commit. Reversing this arm to `SinkMsg::Skip` would
-/// silently drop events during a Redis outage.
+/// Anything other than `Ok(Decision::Drop | Decision::Deny)` indexes —
+/// including any `Err(_)`, which is the fail-open commit. Reversing the
+/// `Err(_)` arm to `SinkMsg::Skip` would silently drop events during a
+/// Redis outage.
 fn classify_for_sink(
     decide_result: Result<Decision, CustomRedisError>,
     doc: Box<IndexDoc>,
 ) -> SinkMsg {
     match decide_result {
-        Ok(Decision::Drop) => SinkMsg::Skip,
+        Ok(Decision::Drop | Decision::Deny) => SinkMsg::Skip,
         Ok(_) | Err(_) => SinkMsg::Index(doc),
+    }
+}
+
+/// Map a `decide()` result onto the value used as the `decision` label on the
+/// aggregate Prometheus counter. `Err` is its own label ("redis_error") rather
+/// than collapsing onto an Ok variant — the fail-open IndexFloor commit and a
+/// Redis outage are operationally distinct events.
+fn decision_label(result: &Result<Decision, CustomRedisError>) -> &'static str {
+    match result {
+        Ok(d) => d.label(),
+        Err(_) => "redis_error",
     }
 }
 
@@ -99,14 +111,17 @@ pub async fn run_consumer(
 
         let msg = match parse(&event) {
             Ok(Some(doc)) => {
-                let decide_result = decide(redis.as_ref(), &sampling_config, &doc).await;
+                let decide_result = decide(Arc::clone(&redis), &sampling_config, &doc).await;
+                common_metrics::inc(
+                    "opensearch_indexer_events_total",
+                    &[(
+                        "decision".to_string(),
+                        decision_label(&decide_result).to_string(),
+                    )],
+                    1,
+                );
                 if let Err(ref e) = decide_result {
-                    // Fail-open: sampling is cost-control, not correctness.
-                    // Indexing without it during a Redis blip beats pausing
-                    // ingestion. The counter exposes the degraded mode to
-                    // operators without coupling pod uptime to Redis.
                     warn!(error = %e, team_id = doc.team_id, "decide() Redis error; defaulting to IndexFloor");
-                    metrics::counter!("decide_redis_errors_total").increment(1);
                 }
                 classify_for_sink(decide_result, Box::new(doc))
             }
@@ -332,8 +347,14 @@ mod tests {
     }
 
     #[test]
-    fn classify_for_sink_drops_only_on_decision_drop() {
+    fn classify_for_sink_drops_on_decision_drop() {
         let msg = classify_for_sink(Ok(Decision::Drop), fixture_doc());
+        assert!(matches!(msg, SinkMsg::Skip));
+    }
+
+    #[test]
+    fn classify_for_sink_drops_on_decision_deny() {
+        let msg = classify_for_sink(Ok(Decision::Deny), fixture_doc());
         assert!(matches!(msg, SinkMsg::Skip));
     }
 
@@ -372,5 +393,50 @@ mod tests {
             fixture_doc(),
         );
         assert!(matches!(msg, SinkMsg::Index(_)));
+    }
+
+    // ---- decision_label: aggregate Prometheus label correctness ----
+
+    #[test]
+    fn decision_label_floor() {
+        assert_eq!(decision_label(&Ok(Decision::IndexFloor)), "floor");
+    }
+
+    #[test]
+    fn decision_label_sample() {
+        assert_eq!(decision_label(&Ok(Decision::IndexSample)), "sample");
+    }
+
+    #[test]
+    fn decision_label_error() {
+        assert_eq!(decision_label(&Ok(Decision::IndexError)), "error");
+    }
+
+    #[test]
+    fn decision_label_drop() {
+        assert_eq!(decision_label(&Ok(Decision::Drop)), "drop");
+    }
+
+    #[test]
+    fn decision_label_deny() {
+        assert_eq!(decision_label(&Ok(Decision::Deny)), "deny");
+    }
+
+    #[test]
+    fn decision_label_redis_error_for_any_err_kind() {
+        // The Err arm collapses every CustomRedisError variant onto a single
+        // label so dashboards don't shatter into per-error-kind series.
+        assert_eq!(
+            decision_label(&Err(CustomRedisError::Timeout)),
+            "redis_error"
+        );
+        assert_eq!(
+            decision_label(&Err(CustomRedisError::ParseError("x".to_string()))),
+            "redis_error"
+        );
+        assert_eq!(
+            decision_label(&Err(CustomRedisError::NotFound)),
+            "redis_error"
+        );
     }
 }

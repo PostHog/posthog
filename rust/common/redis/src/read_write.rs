@@ -437,6 +437,18 @@ impl Client for ReadWriteClient {
         self.writer.incr_with_expire(key, ttl_seconds).await
     }
 
+    async fn hincrby_with_expire(
+        &self,
+        key: String,
+        field: String,
+        amount: i64,
+        ttl_seconds: u64,
+    ) -> Result<i64, CustomRedisError> {
+        self.writer
+            .hincrby_with_expire(key, field, amount, ttl_seconds)
+            .await
+    }
+
     async fn del(&self, k: String) -> Result<(), CustomRedisError> {
         self.writer.del(k).await
     }
