@@ -16,7 +16,7 @@ import { urls } from 'scenes/urls'
 
 import { FeatureFlagFilters, Survey, SurveyMatchType } from '~/types'
 
-import { LOADING_SURVEY_RESULTS_TOAST_ID, NEW_SURVEY, NewSurvey, SurveyMatchTypeLabels } from './constants'
+import { LOADING_SURVEY_RESULTS_TOAST_ID, NewSurvey, SurveyMatchTypeLabels } from './constants'
 import SurveyEdit from './SurveyEdit'
 import { SurveyLogicProps, surveyLogic } from './surveyLogic'
 import { SurveyView } from './SurveyView'
@@ -29,15 +29,14 @@ export const scene: SceneExport<SurveyLogicProps> = {
 
 export function SurveyComponent({ id }: SurveyLogicProps): JSX.Element {
     const { editingSurvey, setSelectedPageIndex, loadSurvey } = useActions(surveyLogic)
-    const { isEditingSurvey, surveyMissing, survey, surveyLoading } = useValues(surveyLogic)
+    const { isEditingSurvey, surveyMissing, survey } = useValues(surveyLogic)
 
-    const isInitialSurveyLoad = surveyLoading && survey.id === NEW_SURVEY.id
     const surveyId = survey?.id && survey.id !== 'new' ? survey.id : null
 
     useFileSystemLogView({
         type: 'survey',
         ref: surveyId,
-        enabled: Boolean(surveyId && !isInitialSurveyLoad),
+        enabled: Boolean(surveyId),
     })
 
     // register tool so edits from AI will always reload the survey data on-page
