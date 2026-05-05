@@ -12,7 +12,7 @@ import { urls } from 'scenes/urls'
 import type { QuarantinedIdentifierEntryApi, SnapshotApi, ToleratedHashEntryApi } from '../generated/api.schemas'
 import { visualReviewPreferencesLogic } from '../scenes/visualReviewPreferencesLogic'
 import { QuarantineAction } from './QuarantineAction'
-import { SnapshotChangeBadge } from './SnapshotChangeBadge'
+import { SnapshotChangeBadge, hasSnapshotChangeBadge } from './SnapshotChangeBadge'
 import { SnapshotClusterPanel } from './SnapshotClusterPanel'
 import { SnapshotStatusIndicator } from './SnapshotStatusIndicator'
 
@@ -413,8 +413,7 @@ export function SnapshotDiffViewer({
                                     </span>
                                 </div>
                             )}
-                            {(snapshot.change_kind ||
-                                (snapshot.diff_percentage != null && snapshot.diff_percentage > 0)) && (
+                            {hasSnapshotChangeBadge(snapshot) && (
                                 <div className="flex items-center justify-between text-xs">
                                     <span className="text-muted">Change</span>
                                     <SnapshotChangeBadge snapshot={snapshot} />

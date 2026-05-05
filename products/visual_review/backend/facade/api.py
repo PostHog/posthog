@@ -384,7 +384,11 @@ def get_snapshot_history(repo_id: UUID, identifier: str, run_type: str) -> list[
             current_artifact=_to_artifact(e.current_artifact, repo_id) if e.current_artifact else None,
             ssim_score=e.ssim_score,
             change_kind=e.change_kind or "",
-            size_mismatch=_parse_diff_metadata(e.diff_metadata)[1],
+            # Read the flag directly instead of round-tripping through the
+            # full Pydantic parse — `cluster_summary` isn't on the history
+            # entry contract and we'd just be allocating cluster dataclasses
+            # to throw away. The default mirrors `DiffMetadata.size_mismatch`.
+            size_mismatch=bool((e.diff_metadata or {}).get("size_mismatch", False)),
         )
         for e in entries
     ]

@@ -14,7 +14,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { QuarantineAction } from '../components/QuarantineAction'
-import { SnapshotChangeBadge } from '../components/SnapshotChangeBadge'
+import { SnapshotChangeBadge, hasSnapshotChangeBadge } from '../components/SnapshotChangeBadge'
 import { VisualReviewTabs } from '../components/VisualReviewTabs'
 import type { QuarantinedIdentifierEntryApi, SnapshotHistoryEntryApi } from '../generated/api.schemas'
 import {
@@ -154,7 +154,7 @@ function HistoryRow({
                     ) : (
                         <span className="font-mono">{entry.commit_sha.slice(0, 8)}</span>
                     )}
-                    {(entry.change_kind || (entry.diff_percentage != null && entry.diff_percentage > 0)) && (
+                    {hasSnapshotChangeBadge(entry) && (
                         <>
                             <span>·</span>
                             <SnapshotChangeBadge snapshot={entry} size="small" />

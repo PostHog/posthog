@@ -2,6 +2,8 @@
 
 import io
 
+import pytest
+
 import numpy as np
 from PIL import Image, ImageDraw
 
@@ -68,10 +70,23 @@ class TestTwoTierClassification:
     shift that SSIM catches.
     """
 
-    def test_obvious_change_caught_by_pixelmatch(self):
-        red = _make_png(100, 100, (255, 0, 0, 255))
-        blue = _make_png(100, 100, (0, 0, 255, 255))
-        assert _classify(red, blue) == ChangeKind.PIXEL
+    @pytest.mark.parametrize(
+        "baseline_color, current_color, expected_kind",
+        [
+            pytest.param((255, 0, 0, 255), (0, 0, 255, 255), ChangeKind.PIXEL, id="obvious_pixel_change"),
+            pytest.param((100, 100, 100, 255), (100, 100, 100, 255), None, id="identical"),
+            pytest.param((100, 100, 100, 255), (105, 100, 100, 255), None, id="subtle_noise"),
+        ],
+    )
+    def test_solid_color_classification(
+        self,
+        baseline_color: tuple[int, int, int, int],
+        current_color: tuple[int, int, int, int],
+        expected_kind: ChangeKind | None,
+    ):
+        baseline = _make_png(100, 100, baseline_color)
+        current = _make_png(100, 100, current_color)
+        assert _classify(baseline, current) == expected_kind
 
     def test_tall_page_change_caught_by_ssim(self):
         baseline = _make_tall_settings_page(extra_element=False)
@@ -84,15 +99,6 @@ class TestTwoTierClassification:
         assert ssim_dissimilarity > SSIM_DISSIMILARITY_THRESHOLD
 
         assert _classify(baseline, current) == ChangeKind.STRUCTURAL
-
-    def test_identical_images_classified_unchanged(self):
-        page = _make_tall_settings_page(extra_element=False)
-        assert _classify(page, page) is None
-
-    def test_subtle_noise_classified_unchanged(self):
-        img1 = _make_png(100, 100, (100, 100, 100, 255))
-        img2 = _make_png(100, 100, (105, 100, 100, 255))
-        assert _classify(img1, img2) is None
 
     def test_size_mismatch_still_classifies_normally(self):
         # Pixelhog pads to the bigger size and runs metrics over the

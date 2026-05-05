@@ -15,7 +15,7 @@ import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardSh
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import { SnapshotChangeBadge } from '../components/SnapshotChangeBadge'
+import { SnapshotChangeBadge, hasSnapshotChangeBadge } from '../components/SnapshotChangeBadge'
 import { SnapshotDiffViewer } from '../components/SnapshotDiffViewer'
 import { SnapshotStatusIndicator } from '../components/SnapshotStatusIndicator'
 import { VisualReviewTabs } from '../components/VisualReviewTabs'
@@ -54,14 +54,10 @@ function SnapshotThumbnail({
 
     const isReviewed = snapshot.review_state === 'approved' || snapshot.review_state === 'tolerated'
     const showBadge = isReviewed || isQuarantined
-    // True when we have something the SnapshotChangeBadge will render —
-    // covers `structural`, any positive pixel-diff (current `pixel` kind
-    // or legacy rows without a kind), and the size_mismatch chip.
-    const kind = snapshot.change_kind ?? ''
-    const hasDiff =
-        kind === 'structural' ||
-        snapshot.size_mismatch === true ||
-        (snapshot.diff_percentage != null && snapshot.diff_percentage > 0)
+    // True iff the SnapshotChangeBadge will actually render. Mirrors
+    // its visibility predicate so we don't show "hasDiff = true but
+    // empty chip area" for sub-display-floor noise rows.
+    const hasDiff = hasSnapshotChangeBadge(snapshot)
 
     const imgSrc = thumbnailSrc ?? fallbackSrc
 

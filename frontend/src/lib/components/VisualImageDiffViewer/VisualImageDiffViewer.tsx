@@ -585,7 +585,11 @@ export function VisualImageDiffViewer({
                                 />
                                 {/* Second copy of the bbox overlay inside the
                                  * clipped After half so the boxes stay visible
-                                 * regardless of where the user drags the split. */}
+                                 * regardless of where the user drags the split.
+                                 * Forwards onHover so hovering a chip on the
+                                 * After side still syncs with the sidebar
+                                 * panel (without it the After-side bboxes were
+                                 * silently non-interactive). */}
                                 {!!overlayBoxesIfShown &&
                                     overlayBoxesIfShown.length > 0 &&
                                     !!overlayCoordWidth &&
@@ -597,6 +601,7 @@ export function VisualImageDiffViewer({
                                             width={overlayCoordWidth}
                                             height={overlayCoordHeight}
                                             highlightedIndex={highlightedOverlayIndex ?? null}
+                                            onHover={onOverlayHover}
                                         />
                                     )}
                             </div>

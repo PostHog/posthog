@@ -41,6 +41,30 @@ type ChangeBadgeSnapshot = {
     size_mismatch?: boolean | null
 }
 
+/**
+ * Mirrors the render rules below — true when the badge will render
+ * something. Callers should gate parent-level layout (separators,
+ * "Change" rows, hasDiff badges) on this rather than rolling their
+ * own predicate, otherwise sub-floor/legacy snapshots leave empty
+ * UI shells when the badge ends up returning null.
+ */
+export function hasSnapshotChangeBadge(snapshot: ChangeBadgeSnapshot): boolean {
+    if (snapshot.size_mismatch) {
+        return true
+    }
+    const kind = snapshot.change_kind || ''
+    if (kind === 'structural') {
+        return true
+    }
+    if (kind === 'pixel' || kind === '') {
+        const pct = snapshot.diff_percentage ?? null
+        if (pct != null && pct >= PCT_DISPLAY_FLOOR) {
+            return true
+        }
+    }
+    return false
+}
+
 type ChangeBadgeProps = {
     snapshot: ChangeBadgeSnapshot
     size?: 'small' | 'default'
