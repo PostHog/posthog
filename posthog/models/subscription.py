@@ -37,14 +37,6 @@ class SubscriptionResourceInfo:
     url: str
 
 
-_SUBSCRIPTION_FREQ_MAP: dict[str, int] = {
-    "daily": DAILY,
-    "weekly": WEEKLY,
-    "monthly": MONTHLY,
-    "yearly": YEARLY,
-}
-
-
 class Subscription(models.Model):
     """
     Rather than re-invent the wheel, we are roughly following the iCalender format for recurring schedules
@@ -74,6 +66,13 @@ class Subscription(models.Model):
         SUNDAY = "sunday"
 
     RRULE_FIELDS = {"frequency", "count", "interval", "start_date", "until_date", "bysetpos", "byweekday"}
+
+    _FREQ_MAP: dict[str, int] = {
+        SubscriptionFrequency.DAILY: DAILY,
+        SubscriptionFrequency.WEEKLY: WEEKLY,
+        SubscriptionFrequency.MONTHLY: MONTHLY,
+        SubscriptionFrequency.YEARLY: YEARLY,
+    }
 
     # Relations - i.e. WHAT are we exporting?
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
@@ -160,7 +159,7 @@ class Subscription(models.Model):
         bysetpos: Any = None,
         byweekday: Any = None,
     ) -> rrule:
-        freq = cast(Literal[0, 1, 2, 3, 4, 5, 6], _SUBSCRIPTION_FREQ_MAP[frequency])
+        freq = cast(Literal[0, 1, 2, 3, 4, 5, 6], Subscription._FREQ_MAP[frequency])
         return rrule(
             freq=freq,
             count=count,
