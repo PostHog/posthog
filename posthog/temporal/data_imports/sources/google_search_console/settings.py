@@ -1,6 +1,6 @@
 from typing import TypedDict
 
-from products.data_warehouse.backend.types import IncrementalFieldType
+from products.data_warehouse.backend.types import IncrementalField, IncrementalFieldType
 
 
 class SearchAnalyticsSchema(TypedDict):
@@ -71,7 +71,7 @@ SEARCH_ANALYTICS_SCHEMAS: dict[str, SearchAnalyticsSchema] = {
 }
 
 
-SEARCH_ANALYTICS_INCREMENTAL_FIELD = {
+SEARCH_ANALYTICS_INCREMENTAL_FIELD: IncrementalField = {
     "label": "date",
     "field": "date",
     "type": IncrementalFieldType.Date,

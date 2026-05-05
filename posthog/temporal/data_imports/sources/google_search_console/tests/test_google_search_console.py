@@ -113,7 +113,7 @@ def test_source_yields_rows_and_advances_dates(monkeypatch):
     )
 
     fake_today = dt.date(2026, 4, 30)
-    pages_per_date = {
+    pages_per_date: dict[str, list[list[dict]]] = {
         "2026-04-25": [[{"keys": ["2026-04-25"], "clicks": 1, "impressions": 5, "ctr": 0.2, "position": 3.0}]],
         "2026-04-26": [[{"keys": ["2026-04-26"], "clicks": 2, "impressions": 6, "ctr": 0.33, "position": 2.5}]],
         "2026-04-27": [[]],
@@ -147,7 +147,7 @@ def test_source_yields_rows_and_advances_dates(monkeypatch):
         fake_query,
     )
 
-    batches = list(response.items())
+    batches = list(response.items())  # type: ignore[arg-type]
 
     yielded_dates = [batch[0]["date"] for batch in batches]
     assert dt.date(2026, 4, 25) in yielded_dates
@@ -197,7 +197,7 @@ def test_source_resumes_from_saved_state(monkeypatch):
         db_incremental_field_last_value=dt.date(2026, 4, 1),
     )
 
-    list(response.items())
+    list(response.items())  # type: ignore[arg-type]
 
     # Earliest query should be the resumed date+offset
     assert queries[0] == ("2026-04-26", 5000)
