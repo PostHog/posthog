@@ -26,7 +26,7 @@ class TestDispatchPluginDisabledRealtime(BaseTest):
         assert first.title == "Plugin GeoIP disabled"
         assert first.body == "boom"
         assert first.resource_id == str(plugin_config.id)
-        assert first.source_url == f"/project/{self.team.project_id}/pipeline/transformations/{plugin_config.id}"
+        assert first.source_url == f"/project/{self.team.project_id}/pipeline/plugins/{plugin_config.id}"
 
     @patch("posthog.tasks.plugin_server.create_notification", side_effect=RuntimeError("kafka"))
     def test_swallows_per_recipient_exceptions(self, mock_create: MagicMock) -> None:

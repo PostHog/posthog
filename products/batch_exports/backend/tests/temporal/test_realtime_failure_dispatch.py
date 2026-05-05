@@ -10,7 +10,7 @@ from products.batch_exports.backend.temporal.batch_exports import _dispatch_batc
 
 
 class TestDispatchBatchExportFailureRealtime(BaseTest):
-    @patch("products.notifications.backend.facade.api.create_notification")
+    @patch("products.batch_exports.backend.temporal.batch_exports.create_notification")
     def test_dispatches_for_failed_batch_export_run(self, mock_create_notification: MagicMock) -> None:
         destination = BatchExportDestination.objects.create(
             type=BatchExportDestination.Destination.S3, config={"bucket_name": "my_bucket"}
@@ -31,10 +31,10 @@ class TestDispatchBatchExportFailureRealtime(BaseTest):
         assert first.notification_type.value == "pipeline_failure"
         assert "Batch export A batch export failed" in first.title
         assert first.resource_id == str(batch_export.id)
-        assert first.source_url == f"/project/{self.team.project_id}/batch_exports/{batch_export.id}"
+        assert first.source_url == f"/project/{self.team.project_id}/pipeline/batch-exports/{batch_export.id}"
 
     @patch(
-        "products.notifications.backend.facade.api.create_notification",
+        "products.batch_exports.backend.temporal.batch_exports.create_notification",
         side_effect=RuntimeError("kafka"),
     )
     def test_swallows_per_recipient_exceptions(self, mock_create: MagicMock) -> None:
@@ -55,7 +55,7 @@ class TestDispatchBatchExportFailureRealtime(BaseTest):
         # so a silent early-return would not mask a regression here.
         assert mock_create.call_count >= 1
 
-    @patch("products.notifications.backend.facade.api.create_notification")
+    @patch("products.batch_exports.backend.temporal.batch_exports.create_notification")
     def test_swallows_missing_run(self, mock_create_notification: MagicMock) -> None:
         _dispatch_batch_export_failure_realtime(str(UUIDT()))
         mock_create_notification.assert_not_called()

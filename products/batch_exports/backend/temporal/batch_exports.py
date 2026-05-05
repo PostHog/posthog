@@ -21,6 +21,7 @@ from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT
 from posthog.settings.base_variables import TEST
 from posthog.sync import database_sync_to_async
+from posthog.tasks.email import get_members_to_notify_for_pipeline_error, send_batch_export_run_failure
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
@@ -46,6 +47,14 @@ from products.batch_exports.backend.temporal.sql import (
     SELECT_FROM_EVENTS_VIEW_RECENT,
     SELECT_FROM_EVENTS_VIEW_UNBOUNDED,
 )
+from products.notifications.backend.facade.api import (
+    NotificationData,
+    NotificationType,
+    Priority,
+    TargetType,
+    create_notification,
+)
+from products.notifications.backend.facade.enums import NotificationOnlyResourceType
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, list_limited_team_attributes
 
@@ -60,9 +69,10 @@ AsyncRecordsGenerator = collections.abc.AsyncGenerator[pa.RecordBatch, None]
 
 
 def _notify_run_failure(batch_export_run_id: str | UUIDT) -> None:
-    """Fan out failure notifications across every channel for a failed run."""
-    from posthog.tasks.email import send_batch_export_run_failure
+    """Fan out failure notifications across every channel for a failed run.
 
+    Both channels swallow their own exceptions, so this helper itself never raises.
+    """
     try:
         send_batch_export_run_failure(batch_export_run_id)
     except Exception:
@@ -72,6 +82,7 @@ def _notify_run_failure(batch_export_run_id: str | UUIDT) -> None:
         )
 
     _dispatch_batch_export_failure_realtime(batch_export_run_id)
+    EXTERNAL_LOGGER.info("Failure notifications for run '%s' have been dispatched", batch_export_run_id)
 
 
 def _dispatch_batch_export_failure_realtime(batch_export_run_id: str | UUIDT) -> None:
@@ -80,27 +91,18 @@ def _dispatch_batch_export_failure_realtime(batch_export_run_id: str | UUIDT) ->
     Per-recipient try/except so one bad write does not drop the rest. Never raises so
     a realtime failure cannot poison the email side-effect.
     """
-    from posthog.tasks.email import get_members_to_notify_for_pipeline_error
-
-    from products.notifications.backend.facade.api import (
-        NotificationData,
-        NotificationType,
-        Priority,
-        TargetType,
-        create_notification,
-    )
-    from products.notifications.backend.facade.enums import NotificationOnlyResourceType
-
     try:
         run = BatchExportRun.objects.select_related("batch_export__team").get(id=batch_export_run_id)
         team = run.batch_export.team
+        # failure_rate=1.0 mirrors the email path (send_batch_export_run_failure default) — a fully
+        # failed run is treated as 100%, so users are filtered only by their data_pipeline_error_threshold.
         memberships = get_members_to_notify_for_pipeline_error(team, failure_rate=1.0)
         if not memberships:
             return
         name = (run.batch_export.name or "")[:80]
         title = f"Batch export {name} failed"
         body = f"Last failure at {run.last_updated_at.strftime('%I:%M%p %Z on %B %d, %Y')}"
-        source_url = f"/project/{team.project_id}/batch_exports/{run.batch_export.id}"
+        source_url = f"/project/{team.project_id}/pipeline/batch-exports/{run.batch_export.id}"
         for membership in memberships:
             try:
                 create_notification(
@@ -627,12 +629,7 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
         )
 
     elif batch_export_run.status == BatchExportRun.Status.FAILED:
-        try:
-            await database_sync_to_async(_notify_run_failure)(inputs.id)
-        except Exception:
-            logger.exception("Failure notification could not be sent")
-        else:
-            external_logger.info("Failure notifications for run '%s' have been dispatched", inputs.id)
+        await database_sync_to_async(_notify_run_failure)(inputs.id)
 
         external_logger.error(
             "Batch export for range %s - %s failed with a non-recoverable error: %s",

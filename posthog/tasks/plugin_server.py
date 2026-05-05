@@ -34,12 +34,14 @@ def _dispatch_plugin_disabled_realtime(plugin_config_id: int, error: str) -> Non
         team = plugin_config.team
         if team is None:
             return
+        # failure_rate=1.0 mirrors the email path (send_fatal_plugin_error) — a disabled plugin
+        # is treated as 100% failure, so users are filtered only by their data_pipeline_error_threshold.
         memberships = get_members_to_notify_for_pipeline_error(team, failure_rate=1.0)
         if not memberships:
             return
         title = f"Plugin {plugin_config.plugin.name} disabled"[:100]
         body = error[:200]
-        source_url = f"/project/{team.project_id}/pipeline/transformations/{plugin_config_id}"
+        source_url = f"/project/{team.project_id}/pipeline/plugins/{plugin_config_id}"
         for membership in memberships:
             try:
                 create_notification(
