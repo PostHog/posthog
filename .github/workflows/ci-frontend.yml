@@ -273,6 +273,14 @@ jobs:
                   key: ${{ runner.os }}-typegen-${{ hashFiles('pnpm-lock.yaml') }}
                   restore-keys: ${{ runner.os }}-typegen-
 
+            # If tsc starts skipping checks it should run, bump the suffix (e.g. -v2) to invalidate.
+            - name: Restore TypeScript incremental build info
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
+              with:
+                  path: frontend/tsconfig.tsbuildinfo
+                  key: ${{ runner.os }}-tsbuildinfo-${{ hashFiles('pnpm-lock.yaml', 'tsconfig.json', 'frontend/tsconfig.json') }}
+                  restore-keys: ${{ runner.os }}-tsbuildinfo-
+
             - name: Build products
               run: pnpm --filter=@posthog/frontend build:products
 
@@ -296,6 +304,13 @@ jobs:
               run: pnpm --filter=@posthog/frontend typescript:check
               env:
                   NODE_OPTIONS: --max-old-space-size=16384
+
+            - name: Save TypeScript incremental build info
+              if: github.ref == 'refs/heads/master'
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
+              with:
+                  path: frontend/tsconfig.tsbuildinfo
+                  key: ${{ runner.os }}-tsbuildinfo-${{ hashFiles('pnpm-lock.yaml', 'tsconfig.json', 'frontend/tsconfig.json') }}
 
             - name: Check if schema.json and validators.js are up to date
               run: pnpm --filter=@posthog/frontend schema:build:json && git diff --exit-code
