@@ -84,6 +84,23 @@ export const manifest: ProductManifest = {
             layout: 'app-container',
             iconType: 'llm_evaluations',
         },
+        LLMAnalyticsTags: {
+            import: () => import('./frontend/tags/LLMAnalyticsTagsScene'),
+            projectBased: true,
+            name: 'Tags',
+            description: 'Add custom tags to your LLM generations automatically.',
+            activityScope: 'LLMAnalytics',
+            layout: 'app-container',
+            iconType: 'llm_tags',
+        },
+        LLMAnalyticsTag: {
+            import: () => import('./frontend/tags/LLMAnalyticsTag'),
+            projectBased: true,
+            name: 'LLM analytics tag',
+            activityScope: 'LLMAnalytics',
+            layout: 'app-container',
+            iconType: 'llm_tags',
+        },
         LLMAnalyticsPrompts: {
             import: () => import('./frontend/prompts/LLMPromptsScene'),
             projectBased: true,
@@ -145,6 +162,8 @@ export const manifest: ProductManifest = {
         '/llm-analytics/playground': ['LLMAnalyticsPlayground', 'llmAnalyticsPlayground'],
         '/llm-analytics/datasets': ['LLMAnalyticsDatasets', 'llmAnalyticsDatasets'],
         '/llm-analytics/datasets/:id': ['LLMAnalyticsDataset', 'llmAnalyticsDataset'],
+        '/llm-analytics/tags': ['LLMAnalyticsTags', 'llmAnalyticsTags'],
+        '/llm-analytics/tags/:id': ['LLMAnalyticsTag', 'llmAnalyticsTag'],
         '/llm-analytics/evaluations': ['LLMAnalyticsEvaluations', 'llmAnalyticsEvaluations'],
         '/llm-analytics/evaluations/offline/experiments': ['LLMAnalyticsEvaluations', 'llmAnalyticsOfflineEvaluations'],
         '/llm-analytics/evaluations/offline/experiments/:experimentId': [
@@ -224,6 +243,8 @@ export const manifest: ProductManifest = {
         llmAnalyticsDatasets: (): string => '/llm-analytics/datasets',
         llmAnalyticsDataset: (id: string, params?: { item?: string }): string =>
             combineUrl(`/llm-analytics/datasets/${id}`, params).url,
+        llmAnalyticsTags: (): string => '/llm-analytics/tags',
+        llmAnalyticsTag: (id: string): string => `/llm-analytics/tags/${id}`,
         llmAnalyticsEvaluations: (): string => '/llm-analytics/evaluations',
         llmAnalyticsOfflineEvaluations: (): string => '/llm-analytics/evaluations/offline/experiments',
         llmAnalyticsOfflineEvaluationExperiment: (experimentId: string, encode: boolean = true): string =>
@@ -301,6 +322,18 @@ export const manifest: ProductManifest = {
             href: urls.llmAnalyticsEvaluations(),
             flag: FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS,
             sceneKey: 'LLMAnalyticsEvaluations',
+        },
+        {
+            path: 'Tags',
+            intents: [ProductKey.LLM_ANALYTICS],
+            category: ProductItemCategory.AI_ENGINEERING,
+            type: 'llm_tags',
+            iconType: 'llm_tags' as FileSystemIconType,
+            iconColor: ['var(--color-product-llm-analytics-light)'] as FileSystemIconColor,
+            href: urls.llmAnalyticsTags(),
+            flag: FEATURE_FLAGS.LLM_ANALYTICS_TAGS,
+            tags: ['alpha'],
+            sceneKey: 'LLMAnalyticsTags',
         },
         {
             path: 'Prompts',

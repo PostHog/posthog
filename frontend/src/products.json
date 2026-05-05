@@ -121,6 +121,13 @@
             "intents": ["llm_evaluations"]
         },
         {
+            "path": "Tags",
+            "category": "AI engineering",
+            "iconType": null,
+            "type": "llm_tags",
+            "intents": ["llm_analytics"]
+        },
+        {
             "path": "Prompts",
             "category": "AI engineering",
             "iconType": null,

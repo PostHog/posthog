@@ -7,7 +7,13 @@ from pydantic import BaseModel, Field
 from posthog.schema import (
     ArtifactContentType,
     ArtifactSource,
+    AssistantDataVisualizationChartSettings,
+    AssistantDataVisualizationDisplayType,
+    AssistantHogQLQuery,
     AssistantToolCallMessage,
+    ChartDisplayType,
+    ChartSettings,
+    DataVisualizationNode,
     HogQLFilters,
     HogQLQuery,
     VisualizationArtifactContent,
@@ -55,6 +61,14 @@ class ExecuteSQLToolArgs(BaseModel):
     viz_description: str = Field(
         description="Short, concise summary of the SQL query (1 sentence) that will be displayed as a description in the visualization."
     )
+    display: AssistantDataVisualizationDisplayType | None = Field(
+        default=None,
+        description="Optional visualization type for the SQL result, such as ActionsBar or ActionsLineGraph. Use this when the user asks for a chart.",
+    )
+    chart_settings: AssistantDataVisualizationChartSettings | None = Field(
+        default=None,
+        description="Optional chart settings for the SQL result, including X-axis label, left Y-axis label, right Y-axis label, and which Y series uses the right axis.",
+    )
 
 
 class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
@@ -82,7 +96,13 @@ class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
         return cls(team=team, user=user, state=state, node_path=node_path, config=config, description=prompt)
 
     async def _arun_impl(
-        self, query: str, viz_title: str, viz_description: str, filters: HogQLFilters | None = None
+        self,
+        query: str,
+        viz_title: str,
+        viz_description: str,
+        filters: HogQLFilters | None = None,
+        display: AssistantDataVisualizationDisplayType | None = None,
+        chart_settings: AssistantDataVisualizationChartSettings | dict[str, object] | None = None,
     ) -> tuple[str, ToolMessagesArtifact | None]:
         parsed_query = self._parse_output({"query": query})
         try:
@@ -92,13 +112,35 @@ class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
         except PydanticOutputParserException as e:
             return format_prompt_string(EXECUTE_SQL_RECOVERABLE_ERROR_PROMPT, error=str(e)), None
 
-        query_model = (
+        query_model: AssistantHogQLQuery | HogQLQuery = (
             HogQLQuery(query=parsed_query.query.query, filters=filters) if filters is not None else parsed_query.query
         )
 
+        artifact_query: AssistantHogQLQuery | HogQLQuery | DataVisualizationNode = query_model
+        if display or chart_settings:
+            if isinstance(chart_settings, AssistantDataVisualizationChartSettings):
+                chart_settings_data = chart_settings.model_dump(mode="json", exclude_none=True)
+            elif chart_settings:
+                chart_settings_data = AssistantDataVisualizationChartSettings.model_validate(chart_settings).model_dump(
+                    mode="json", exclude_none=True
+                )
+            else:
+                chart_settings_data = None
+
+            source_query = (
+                query_model
+                if isinstance(query_model, HogQLQuery)
+                else HogQLQuery(**query_model.model_dump(mode="json", exclude_none=True))
+            )
+            artifact_query = DataVisualizationNode(
+                source=source_query,
+                display=ChartDisplayType(display) if display else None,
+                chartSettings=ChartSettings.model_validate(chart_settings_data) if chart_settings_data else None,
+            )
+
         # Display an ephemeral visualization message to the user.
         artifact = await self._context_manager.artifacts.acreate(
-            VisualizationArtifactContent(query=query_model, name=viz_title, description=viz_description),
+            VisualizationArtifactContent(query=artifact_query, name=viz_title, description=viz_description),
             "SQL Query",
         )
         artifact_message = self._context_manager.artifacts.create_message(
@@ -123,6 +165,13 @@ class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
         except Exception:
             return EXECUTE_SQL_UNRECOVERABLE_ERROR_PROMPT, None
 
+        if isinstance(artifact_query, DataVisualizationNode):
+            tool_payload = artifact_query.model_dump(mode="json", exclude_none=True)
+        elif isinstance(query_model, HogQLQuery):
+            tool_payload = query_model.model_dump(mode="json", exclude_none=True)
+        else:
+            tool_payload = query_model.query
+
         return "", ToolMessagesArtifact(
             messages=[
                 artifact_message,
@@ -130,13 +179,7 @@ class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
                     content=result,
                     id=str(uuid4()),
                     tool_call_id=self.tool_call_id,
-                    ui_payload={
-                        self.get_name(): (
-                            query_model.model_dump(mode="json", exclude_none=True)
-                            if isinstance(query_model, HogQLQuery)
-                            else query_model.query
-                        )
-                    },
+                    ui_payload={self.get_name(): tool_payload},
                 ),
             ]
         )
