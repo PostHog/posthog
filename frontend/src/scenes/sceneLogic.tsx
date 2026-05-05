@@ -36,6 +36,7 @@ import {
 } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { isSharedView } from '~/exporter/exporterViewLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel } from '~/types'
@@ -957,6 +958,9 @@ export const sceneLogic = kea<sceneLogicType>([
             }
         },
         loadPinnedTabsFromBackend: async () => {
+            if (isSharedView()) {
+                return
+            }
             try {
                 const response = await api.get<{
                     tabs?: SceneTab[]
@@ -1558,6 +1562,9 @@ export const sceneLogic = kea<sceneLogicType>([
 
     subscriptions(({ actions, values, cache }) => {
         const schedulePinnedStateSync = (): void => {
+            if (isSharedView()) {
+                return
+            }
             const pinnedTabsForPersistence = getPinnedTabsForPersistence(values.tabs)
             const homepageForPersistence = getHomepageForPersistence(values.homepage)
             const serializedPinnedState = JSON.stringify({
