@@ -1,6 +1,7 @@
 from unittest import mock
 
 import pytest
+
 from snowflake.connector.errors import DatabaseError, OperationalError
 
 from posthog.temporal.data_imports.sources.generated_configs import (
