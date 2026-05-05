@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import random
-from datetime import UTC, datetime
+import asyncio
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from posthog.test.base import BaseTest
@@ -260,6 +261,99 @@ async def test_skip_if_running_prevents_concurrent_runs(ateam, aerrors_skill):
     assert result.skip_reason and "RUNNING" in result.skip_reason
     count = await database_sync_to_async(SignalAgentRun.objects.filter(team=ateam).count)()
     assert count == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_cancelled_run_persists_failure_and_re_raises(ateam, aerrors_skill):
+    """asyncio.CancelledError is BaseException, not Exception — the cleanup branch must
+    still mark the row FAILED before re-raising so Temporal sees the activity as failed
+    and the row doesn't go stale.
+    """
+
+    async def fake_spawn(**_kwargs):
+        raise asyncio.CancelledError("worker is shutting down")
+
+    with patch("products.signals.backend.agent_harness.runner._spawn_and_run", side_effect=fake_spawn):
+        with pytest.raises(asyncio.CancelledError):
+            await arun_signals_agent(team_id=ateam.id, skill_name="signals-agent-errors")
+
+    # Exactly one row, marked failed with the cancellation reason recorded.
+    runs = await database_sync_to_async(list)(SignalAgentRun.objects.filter(team=ateam))
+    assert len(runs) == 1
+    assert runs[0].status == SignalAgentRun.Status.FAILED
+    assert runs[0].completed_at is not None
+    assert runs[0].metadata.get("error_type") == "CancelledError"
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_self_heal_unblocks_stale_running_row(ateam, aerrors_skill):
+    """A RUNNING row whose age exceeds 2x its max_runtime_s budget must be auto-healed
+    before the skip-if-running guard fires, so a fresh run can spawn instead of being
+    blocked indefinitely by an orphaned row from a worker shutdown / sandbox crash.
+    """
+    config = await database_sync_to_async(SignalAgentConfig.objects.create)(team=ateam)
+    stale = await database_sync_to_async(SignalAgentRun.objects.create)(
+        team=ateam,
+        agent_config=config,
+        skill_name="signals-agent-errors",
+        skill_version=1,
+        status=SignalAgentRun.Status.RUNNING,
+        metadata={"budget": {"max_runtime_s": 1800}},
+    )
+    # Age the row past 2x its 1800s budget.
+    await database_sync_to_async(SignalAgentRun.objects.filter(id=stale.id).update)(
+        started_at=datetime.now(UTC) - timedelta(seconds=4000),
+    )
+
+    async def fake_spawn(**_kwargs):
+        return "fresh run completed"
+
+    with patch("products.signals.backend.agent_harness.runner._spawn_and_run", side_effect=fake_spawn):
+        result = await arun_signals_agent(team_id=ateam.id, skill_name="signals-agent-errors")
+
+    # Fresh run was allowed to proceed.
+    assert result.status == SignalAgentRun.Status.COMPLETED
+    assert result.run_id is not None and result.run_id != str(stale.id)
+    # Stale row was healed in place.
+    healed = await database_sync_to_async(SignalAgentRun.objects.get)(id=stale.id)
+    assert healed.status == SignalAgentRun.Status.FAILED
+    assert healed.completed_at is not None
+    assert "auto-healed" in healed.summary.lower()
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_self_heal_leaves_recent_running_row_alone(ateam, aerrors_skill):
+    """A RUNNING row within its budget window is a legitimate concurrent run — the
+    self-heal must NOT touch it, and the skip-if-running guard must still fire.
+    """
+    config = await database_sync_to_async(SignalAgentConfig.objects.create)(team=ateam)
+    recent = await database_sync_to_async(SignalAgentRun.objects.create)(
+        team=ateam,
+        agent_config=config,
+        skill_name="signals-agent-errors",
+        skill_version=1,
+        status=SignalAgentRun.Status.RUNNING,
+        metadata={"budget": {"max_runtime_s": 1800}},
+    )
+    # Within the 2x threshold (3600s).
+    await database_sync_to_async(SignalAgentRun.objects.filter(id=recent.id).update)(
+        started_at=datetime.now(UTC) - timedelta(seconds=120),
+    )
+
+    async def fake_spawn(**_kwargs):
+        raise AssertionError("spawn should not run while a recent prior run is RUNNING")
+
+    with patch("products.signals.backend.agent_harness.runner._spawn_and_run", side_effect=fake_spawn):
+        result = await arun_signals_agent(team_id=ateam.id, skill_name="signals-agent-errors")
+
+    assert result.run_id is None
+    assert result.skip_reason and "RUNNING" in result.skip_reason
+    untouched = await database_sync_to_async(SignalAgentRun.objects.get)(id=recent.id)
+    assert untouched.status == SignalAgentRun.Status.RUNNING
+    assert untouched.completed_at is None
 
 
 @pytest.mark.asyncio

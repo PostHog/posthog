@@ -11,7 +11,7 @@ from django.utils import timezone
 from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
 
-from products.signals.backend.agent_harness.budgets import BudgetCaps, resolve_budget
+from products.signals.backend.agent_harness.budgets import DEFAULT_MAX_RUNTIME_S, BudgetCaps, resolve_budget
 from products.signals.backend.agent_harness.lazy_seed import seed_canonical_skills
 from products.signals.backend.agent_harness.prompt import SignalAgentRunSummary, build_run_prompt
 from products.signals.backend.agent_harness.skill_loader import LoadedSkill, load_skill_for_run
@@ -102,6 +102,13 @@ async def arun_signals_agent(
     )
     budget = _budget_for_run(config, budget_overrides)
 
+    # Self-heal stale RUNNING rows whose age exceeds 2x their max_runtime_s. Catches
+    # rows left behind when a worker / sandbox died before the cleanup path could run
+    # (e.g. SIGTERM during file-watcher restart, kernel OOM, asyncio cancellation that
+    # escaped the harness). Without this, a single stale row blocks every subsequent
+    # coordinator tick from spawning a fresh run.
+    await database_sync_to_async(_self_heal_stale_runs, thread_sensitive=False)(team_id, config.id)
+
     # Skip-if-running guard. Best-effort — there is a TOCTOU window between this check
     # and the row insert below; we accept that until a claim/lease primitive lands.
     if await database_sync_to_async(_has_running_run, thread_sensitive=False)(team_id, config.id):
@@ -166,6 +173,40 @@ async def arun_signals_agent(
             skill_name=skill.name,
             skill_version=skill.version,
         )
+    except BaseException as exc:
+        # Cancellation / worker-shutdown / system-exit: persist the failure so the row
+        # doesn't go stale, then re-raise so Temporal sees the activity as failed. The
+        # `except Exception` branch above doesn't catch `asyncio.CancelledError` (which
+        # subclasses BaseException in Python 3.8+) — without this, "Worker is shutting
+        # down" leaves the row at status=running and blocks every subsequent run.
+        runtime_s = time.monotonic() - started
+        logger.warning(
+            "signals_agent: run cancelled mid-flight, marking row failed",
+            extra={
+                "team_id": team_id,
+                "run_id": str(run.id),
+                "skill_name": skill.name,
+                "exception_type": type(exc).__name__,
+            },
+        )
+        try:
+            await database_sync_to_async(_finalize_failed, thread_sensitive=False)(
+                run_id=run.id,
+                exc=exc,
+                runtime_s=runtime_s,
+                budget=budget,
+                skill=skill,
+            )
+        except Exception:
+            # If we can't even write the failure row (e.g. worker truly going away),
+            # let the next coordinator tick's self-heal path catch it. Don't swallow
+            # the original cancellation.
+            logger.exception(
+                "signals_agent: failed to mark row failed during cancellation; "
+                "self-heal will reconcile on next coordinator tick",
+                extra={"team_id": team_id, "run_id": str(run.id)},
+            )
+        raise
 
 
 async def _spawn_and_run(
@@ -232,6 +273,54 @@ def _has_running_run(team_id: int, config_id: str) -> bool:
         agent_config_id=config_id,
         status=SignalAgentRun.Status.RUNNING,
     ).exists()
+
+
+# Stale rows past this multiple of their max_runtime_s budget are reconciled to FAILED.
+# 2x is conservative: a run that legitimately runs over budget by 2x is so rare that we
+# accept the rare false positive in exchange for never blocking fresh runs indefinitely.
+_STALE_RUN_MULTIPLIER = 2
+
+
+def _self_heal_stale_runs(team_id: int, config_id: str) -> None:
+    """Reconcile RUNNING rows older than `_STALE_RUN_MULTIPLIER * max_runtime_s` to FAILED.
+
+    Catches rows orphaned by worker shutdown, sandbox crash, or async cancellation that
+    bypassed the activity's cleanup path. The row's own recorded `max_runtime_s` budget
+    is the staleness threshold base — a row started with a 1800s budget is treated as
+    stale after 3600s of wall-clock RUNNING time.
+
+    Idempotent: safe to call from any number of concurrent coordinator activities.
+    """
+    candidates = SignalAgentRun.objects.filter(
+        team_id=team_id,
+        agent_config_id=config_id,
+        status=SignalAgentRun.Status.RUNNING,
+    ).only("id", "started_at", "metadata")
+    now = timezone.now()
+    for run in candidates:
+        budget_max_s = ((run.metadata or {}).get("budget", {}) or {}).get("max_runtime_s") or DEFAULT_MAX_RUNTIME_S
+        threshold_s = _STALE_RUN_MULTIPLIER * budget_max_s
+        age_s = (now - run.started_at).total_seconds()
+        if age_s <= threshold_s:
+            continue
+        SignalAgentRun.objects.filter(id=run.id, status=SignalAgentRun.Status.RUNNING).update(
+            status=SignalAgentRun.Status.FAILED,
+            completed_at=now,
+            summary=(
+                f"Run row auto-healed: status=RUNNING for {age_s:.0f}s "
+                f"(threshold {threshold_s}s = {_STALE_RUN_MULTIPLIER}x max_runtime_s). "
+                f"Worker / sandbox likely died without the cleanup path running."
+            ),
+        )
+        logger.warning(
+            "signals_agent: self-healed stale running run",
+            extra={
+                "team_id": team_id,
+                "run_id": str(run.id),
+                "age_s": age_s,
+                "threshold_s": threshold_s,
+            },
+        )
 
 
 def _create_run_row(
