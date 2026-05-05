@@ -76,6 +76,12 @@ class StripeNestedResource:
     nested_parent_param: str
     parent_id: str
     parent: StripeResource
+    # Top-level resource name the parent maps to (e.g. "Customer"). Carried explicitly because
+    # we cannot reverse-lookup `parent.method` by identity — Stripe's SDK exposes endpoints via
+    # property descriptors that return a fresh bound method on each attribute access, so
+    # `id(client.customers.list) == id(client.customers.list)` is False at runtime even though
+    # MagicMock caches attribute access in tests and makes it look True.
+    parent_name: str = ""
     params: dict[str, Any] = dataclasses.field(default_factory=dict)
 
 
@@ -121,12 +127,14 @@ def _build_resources(
             nested_parent_param="customer",
             parent_id="id",
             parent=StripeResource(method=client.customers.list),
+            parent_name=CUSTOMER_RESOURCE_NAME,
         ),
         CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME: StripeNestedResource(
             method=client.customers.payment_methods.list,
             nested_parent_param="customer",
             parent_id="id",
             parent=StripeResource(method=client.customers.list),
+            parent_name=CUSTOMER_RESOURCE_NAME,
         ),
     }
 
@@ -377,29 +385,27 @@ def validate_credentials(api_key: str, table_name: Optional[str] = None) -> bool
 
     # Drive validation off the same resource definitions get_rows uses — single source of truth.
     # Nested resources (e.g. /v1/customers/:id/payment_methods) can't be listed without a parent
-    # ID, so we resolve them to their parent via the StripeNestedResource.parent linkage that
-    # already exists on each entry.
+    # ID, so we resolve them to their parent via the StripeNestedResource.parent_name field,
+    # which names the top-level entry that gates the same scope.
     all_resources = _build_resources(client, logger=None)
-    # Reverse index from parent method → flat resource name so we can recover a nested
-    # resource's parent name from its `parent.method` reference, without restating the
-    # relationship in a separate constant.
-    flat_method_to_name = {id(r.method): name for name, r in all_resources.items() if isinstance(r, StripeResource)}
 
     def _resolve_to_flat(name: str) -> tuple[str, StripeResource]:
         """Return (display_name, resource_to_probe) for a given table.
 
         For nested resources, the display name is `<nested> (<parent>)` — keeping the
         nested table the user toggled visible while making the actionable scope (the
-        parent) explicit in the same string. The parent lookup is direct (KeyError on
-        miss); the test
-        `test_validate_credentials_nested_resources_have_registered_parents` proves
-        every nested resource's parent.method is registered as a top-level
-        StripeResource, so a miss can only mean a programming error and should fail loud.
+        parent) explicit in the same string.
         """
         entry = all_resources[name]
         if isinstance(entry, StripeNestedResource):
-            parent_name = flat_method_to_name[id(entry.parent.method)]
-            return f"{name} ({parent_name})", entry.parent
+            parent_entry = all_resources[entry.parent_name]
+            assert isinstance(parent_entry, StripeResource), (
+                f"Nested resource {name!r} declares parent_name={entry.parent_name!r}, but that "
+                f"is not a top-level StripeResource. The "
+                f"test_validate_credentials_nested_resources_have_registered_parents test "
+                f"covers this invariant."
+            )
+            return f"{name} ({entry.parent_name})", parent_entry
         return name, entry
 
     missing_permissions: dict[str, str] = {}

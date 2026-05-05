@@ -451,22 +451,29 @@ def test_validate_credentials_nested_resource_surfaces_parent_permission_error(n
 
 
 def test_validate_credentials_nested_resources_have_registered_parents():
-    """Invariant: every StripeNestedResource's `parent.method` must point at a method
-    that is also registered as a top-level StripeResource in _build_resources. The
-    nested→parent reverse lookup in validate_credentials does a direct dict access on
-    that, so a miss would crash rather than render a useful error. Catching the
-    misconfiguration here in CI is cheaper than a silent regression."""
+    """Invariant: every StripeNestedResource's `parent_name` must point at a key that is
+    also registered as a top-level StripeResource in _build_resources. validate_credentials
+    does a direct dict lookup on parent_name, so a miss would crash rather than render a
+    useful error. Catch the misconfiguration here in CI rather than at runtime.
+
+    Important: this test does NOT compare method identity. Stripe's SDK exposes endpoints
+    via property descriptors that return a fresh bound method on every attribute access
+    (`id(client.customers.list) == id(client.customers.list)` is False). MagicMock caches
+    attribute access and made identity checks falsely pass — so the linkage is carried
+    explicitly via the `parent_name` string instead.
+    """
     mock_client = mock.MagicMock()
     resources = _build_resources(mock_client, logger=None)
 
-    flat_method_ids = {id(r.method) for r in resources.values() if isinstance(r, StripeResource)}
+    top_level_names = {name for name, r in resources.items() if isinstance(r, StripeResource)}
 
     for name, resource in resources.items():
         if isinstance(resource, StripeNestedResource):
-            assert id(resource.parent.method) in flat_method_ids, (
-                f"Nested resource {name!r} has a parent.method that is not registered as a "
-                f"top-level StripeResource — validate_credentials would fail to resolve the "
-                f"parent name and crash."
+            assert resource.parent_name, f"Nested resource {name!r} must declare a parent_name."
+            assert resource.parent_name in top_level_names, (
+                f"Nested resource {name!r} declares parent_name={resource.parent_name!r}, "
+                f"but no top-level StripeResource with that name is registered in "
+                f"_build_resources. validate_credentials would crash trying to resolve it."
             )
 
 
