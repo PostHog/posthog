@@ -151,6 +151,10 @@ OrgCacheField = Literal["member_count"]
 
 
 def _fetch_member_count(organization: Organization) -> int:
+    # The cache version is bumped on OrganizationMembership signals (see _INVALIDATION_SOURCES
+    # below), so add/remove of members invalidates immediately. User.is_active flips and email
+    # changes to/from INTERNAL_BOT_EMAIL_SUFFIX do NOT invalidate via signals — they rely on
+    # ORG_SERIALIZER_CACHE_TTL_SECONDS (1h) as the staleness bound.
     return (
         OrganizationMembership.objects.exclude(user__email__endswith=INTERNAL_BOT_EMAIL_SUFFIX)
         .filter(user__is_active=True, organization=organization)
@@ -412,10 +416,7 @@ class OrganizationSerializer(
     @extend_schema_field(serializers.IntegerField())
     @tracer.start_as_current_span("organization_serializer.member_count")
     def get_member_count(self, organization: Organization) -> int:
-        organization_id = str(organization.id) if organization.id is not None else None
-        if organization_id is None:
-            return _fetch_member_count(organization)
-        return _cached_per_org("member_count", organization_id, lambda: _fetch_member_count(organization))
+        return _cached_per_org("member_count", str(organization.id), lambda: _fetch_member_count(organization))
 
     @tracer.start_as_current_span("organization_serializer.to_representation")
     def to_representation(self, instance):
