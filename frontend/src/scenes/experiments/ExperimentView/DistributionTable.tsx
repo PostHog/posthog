@@ -45,7 +45,11 @@ export function DistributionModal(): JSX.Element {
             setVariants(experiment.feature_flag?.filters?.multivariate?.variants || [])
             setRolloutPercentage(experiment.feature_flag?.filters?.groups?.[0]?.rollout_percentage ?? 100)
         }
-    }, [isDistributionModalOpen, experiment.feature_flag?.filters?.multivariate?.variants])
+    }, [
+        isDistributionModalOpen,
+        experiment.feature_flag?.filters?.multivariate?.variants,
+        experiment.feature_flag?.filters?.groups,
+    ])
 
     const handleClose = (): void => {
         closeDistributionModal()
