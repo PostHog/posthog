@@ -8,7 +8,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1139_alter_datadeletionrequest_person_distinct_ids_and_more"),
+        ("posthog", "1140_integrationrepositorycacheentry"),
     ]
 
     operations = [
