@@ -112,7 +112,6 @@ import {
     getOrderedMetricsWithResults,
     initializeMetricOrdering,
     isLegacyExperiment,
-    percentageDistribution,
 } from './utils'
 
 export const NEW_EXPERIMENT: Experiment = {
@@ -717,12 +716,7 @@ export const experimentLogic = kea<experimentLogicType>([
         createExperiment: (draft?: boolean, folder?: string | null) => ({ draft, folder }),
         setCreateExperimentLoading: (loading: boolean) => ({ loading }),
         setLaunchExperimentLoading: (loading: boolean) => ({ loading }),
-        setExperimentType: (type?: string) => ({ type }),
-
-        addVariant: true,
-        removeVariant: (idx: number) => ({ idx }),
         setEditExperiment: (editing: boolean) => ({ editing }),
-        setExposureAndSampleSize: (exposure: number, sampleSize: number) => ({ exposure, sampleSize }),
         refreshExperimentResults: (forceRefresh?: boolean, triggeredBy?: ExperimentTriggeredBy) => ({
             forceRefresh,
             triggeredBy: triggeredBy ?? 'manual',
@@ -923,55 +917,6 @@ export const experimentLogic = kea<experimentLogicType>([
             {
                 setExperiment: (state, { experiment }) => {
                     return { ...state, ...experiment }
-                },
-                addVariant: (state) => {
-                    if (state?.parameters?.feature_flag_variants) {
-                        const newRolloutPercentages = percentageDistribution(
-                            state.parameters.feature_flag_variants.length + 1
-                        )
-                        const updatedRolloutPercentageVariants = state.parameters.feature_flag_variants.map(
-                            (variant: MultivariateFlagVariant, i: number) => ({
-                                ...variant,
-                                rollout_percentage: newRolloutPercentages[i],
-                            })
-                        )
-                        return {
-                            ...state,
-                            parameters: {
-                                ...state.parameters,
-                                feature_flag_variants: [
-                                    ...updatedRolloutPercentageVariants,
-                                    {
-                                        key: `test-${state.parameters.feature_flag_variants.length}`,
-                                        rollout_percentage: newRolloutPercentages[newRolloutPercentages.length - 1],
-                                    },
-                                ],
-                            },
-                        }
-                    }
-                    return state
-                },
-                removeVariant: (state, { idx }) => {
-                    if (!state) {
-                        return { ...NEW_EXPERIMENT }
-                    }
-                    const variants = [...(state.parameters?.feature_flag_variants || [])]
-                    variants.splice(idx, 1)
-                    const newRolloutPercentages = percentageDistribution(
-                        (state?.parameters?.feature_flag_variants || []).length - 1
-                    )
-                    const updatedVariants = variants.map((variant: MultivariateFlagVariant, i: number) => ({
-                        ...variant,
-                        rollout_percentage: newRolloutPercentages[i],
-                    }))
-
-                    return {
-                        ...state,
-                        parameters: {
-                            ...state.parameters,
-                            feature_flag_variants: updatedVariants,
-                        },
-                    }
                 },
                 setExposureCriteria: (
                     state,
@@ -1562,9 +1507,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 })
             }
             actions.setCreateExperimentLoading(false)
-        },
-        setExperimentType: async ({ type }) => {
-            actions.setExperiment({ type: type })
         },
         loadExperimentSuccess: async ({ experiment, payload }) => {
             const duration = experiment?.start_date ? dayjs().diff(experiment.start_date, 'second') : null
