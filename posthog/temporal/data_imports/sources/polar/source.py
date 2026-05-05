@@ -115,6 +115,7 @@ class PolarSource(ResumableSource[PolarSourceConfig, PolarResumeConfig]):
         return polar_source(
             api_key=config.polar_api_key,
             endpoint=inputs.schema_name,
+            incremental_field=inputs.incremental_field,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value,
             logger=inputs.logger,

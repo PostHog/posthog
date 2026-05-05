@@ -54,13 +54,18 @@ def polar_request(session: requests.Session, method: str, url: str, **kwargs) ->
     return response
 
 
-def _build_url(endpoint: str, page: int) -> str:
+def _default_sort_field(endpoint: str) -> str:
+    config = INCREMENTAL_FIELDS.get(endpoint, [])
+    return config[0]["field"] if config else "created_at"
+
+
+def _build_url(endpoint: str, page: int, sort_field: str) -> str:
     prepared = requests.Request(
         "GET",
         f"{POLAR_BASE_URL}/v1/{endpoint}/",
-        params={"limit": PAGE_SIZE, "page": page, "sorting": "created_at"},
+        params={"limit": PAGE_SIZE, "page": page, "sorting": sort_field},
     ).prepare()
-    return prepared.url or f"{POLAR_BASE_URL}/v1/{endpoint}/?limit={PAGE_SIZE}&page={page}&sorting=created_at"
+    return prepared.url or f"{POLAR_BASE_URL}/v1/{endpoint}/?limit={PAGE_SIZE}&page={page}&sorting={sort_field}"
 
 
 def _page_from_url(url: str) -> int:
@@ -75,6 +80,7 @@ def _page_from_url(url: str) -> int:
 def get_rows(
     api_key: str,
     endpoint: str,
+    incremental_field: Optional[str],
     db_incremental_field_last_value: Optional[Any],
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[PolarResumeConfig],
@@ -85,18 +91,21 @@ def get_rows(
         "Accept": "application/json",
     }
 
-    incremental_field_config = INCREMENTAL_FIELDS.get(endpoint, [])
-    incremental_field_name = incremental_field_config[0]["field"] if incremental_field_config else None
+    # Sort + cursor must use the same field. Prefer the user-configured incremental_field
+    # so the URL's `sorting` param is consistent with the cutoff column we compare against.
+    # When no incremental field is configured (full refresh), fall back to the endpoint's
+    # default so subscriptions still gets `started_at` (created_at is rejected with 422).
+    sort_field = incremental_field or _default_sort_field(endpoint)
 
-    # Polar does not expose a server-side `created_at_gte` filter on every list endpoint,
-    # but ascending sort guarantees we can client-side skip rows whose timestamp is <= the
-    # last value the pipeline saw. The pipeline itself dedupes on primary key, so this is
-    # just an optimization to avoid re-yielding rows we already processed.
+    # Polar does not expose a server-side `<field>_gte` filter on every list endpoint, but
+    # ascending sort lets us client-side skip rows whose timestamp is <= the last value the
+    # pipeline saw. The pipeline itself dedupes on primary key, so this is just an
+    # optimization to avoid re-yielding rows we already processed.
     cutoff: Optional[str] = None
-    if should_use_incremental_field and incremental_field_name and db_incremental_field_last_value:
+    if should_use_incremental_field and incremental_field and db_incremental_field_last_value:
         cutoff = _format_polar_datetime_query_value(db_incremental_field_last_value)
 
-    url: Optional[str] = _build_url(endpoint, page=1)
+    url: Optional[str] = _build_url(endpoint, page=1, sort_field=sort_field)
 
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     if resume_config and resume_config.next_url:
@@ -117,8 +126,8 @@ def get_rows(
 
         items = data.get("items", [])
         for item in items:
-            if cutoff is not None and incremental_field_name:
-                item_value = item.get(incremental_field_name)
+            if cutoff is not None and incremental_field:
+                item_value = item.get(incremental_field)
                 if item_value is not None and str(item_value) <= cutoff:
                     continue
 
@@ -132,7 +141,7 @@ def get_rows(
         current_page = _page_from_url(url)
 
         if current_page < max_page:
-            url = _build_url(endpoint, page=current_page + 1)
+            url = _build_url(endpoint, page=current_page + 1, sort_field=sort_field)
         else:
             url = None
 
@@ -150,18 +159,17 @@ def get_rows(
 def polar_source(
     api_key: str,
     endpoint: str,
+    incremental_field: Optional[str],
     db_incremental_field_last_value: Optional[Any],
     should_use_incremental_field: bool,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[PolarResumeConfig],
 ) -> SourceResponse:
-    incremental_field_config = INCREMENTAL_FIELDS.get(endpoint, [])
-    incremental_field_name = incremental_field_config[0]["field"] if incremental_field_config else None
-
     def items():
         yield from get_rows(
             api_key=api_key,
             endpoint=endpoint,
+            incremental_field=incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
             should_use_incremental_field=should_use_incremental_field,
             resumable_source_manager=resumable_source_manager,
@@ -174,11 +182,11 @@ def polar_source(
         name=endpoint,
         column_hints={},
         sort_mode="asc",
-        partition_keys=[incremental_field_name] if incremental_field_name else None,
-        partition_mode="datetime" if incremental_field_name else None,
+        partition_keys=[incremental_field] if incremental_field else None,
+        partition_mode="datetime" if incremental_field else None,
         partition_count=1,
         partition_size=1,
-        partition_format="month" if incremental_field_name else None,
+        partition_format="month" if incremental_field else None,
     )
 
 

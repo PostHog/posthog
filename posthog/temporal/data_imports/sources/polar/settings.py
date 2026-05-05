@@ -29,6 +29,20 @@ _CREATED_AT_INCREMENTAL_FIELD: IncrementalField = {
     "field_type": IncrementalFieldType.DateTime,
 }
 
+# Subscriptions list rejects sorting=created_at (Polar's enum is
+# customer/status/started_at/current_period_end/ended_at/ends_at/amount/product/discount).
+# started_at is set once when the subscription starts and is accepted as a sort key,
+# so it works as a monotonic client-side cursor.
+_STARTED_AT_INCREMENTAL_FIELD: IncrementalField = {
+    "label": "started_at",
+    "type": IncrementalFieldType.DateTime,
+    "field": "started_at",
+    "field_type": IncrementalFieldType.DateTime,
+}
+
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
-    endpoint: [_CREATED_AT_INCREMENTAL_FIELD] for endpoint in ENDPOINTS
+    endpoint: [
+        _STARTED_AT_INCREMENTAL_FIELD if endpoint == SUBSCRIPTION_RESOURCE_NAME else _CREATED_AT_INCREMENTAL_FIELD
+    ]
+    for endpoint in ENDPOINTS
 }
