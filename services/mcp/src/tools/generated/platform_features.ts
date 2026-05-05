@@ -303,6 +303,7 @@ const orgMembersList = (): ToolBase<typeof OrgMembersListSchema, Schemas.Paginat
                 limit: params.limit,
                 offset: params.offset,
                 order: params.order,
+                search: params.search,
             },
         })
         return result

@@ -4,7 +4,7 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import { GroupsQuery, NodeKind } from '~/queries/schema/schema-general'
-import { GroupPropertyFilter } from '~/types'
+import { AnyGroupScopeFilter } from '~/types'
 
 interface GroupPropertyFiltersProps {
     query: GroupsQuery
@@ -20,12 +20,13 @@ export function GroupPropertyFilters({ query, setQuery }: GroupPropertyFiltersPr
             onChange={(value) => {
                 setQuery?.({
                     ...query,
-                    properties: value as GroupPropertyFilter[],
+                    properties: value as AnyGroupScopeFilter[],
                 })
             }}
             pageKey={`GroupPropertyFilters.${id}`}
             taxonomicGroupTypes={[
                 `${TaxonomicFilterGroupType.GroupsPrefix}_${query.group_type_index}` as unknown as TaxonomicFilterGroupType,
+                TaxonomicFilterGroupType.HogQLExpression,
             ]}
             metadataSource={{ kind: NodeKind.GroupsQuery, group_type_index: query.group_type_index }}
         />
