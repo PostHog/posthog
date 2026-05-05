@@ -2,7 +2,5 @@
 # name: TestAPIDocsSchema.test_api_docs_generation_warnings_snapshot
   list([
     '',
-    '/home/runner/work/posthog/posthog/products/tracing/backend/presentation/views.py: Warning [SpansViewSet > _TracingQueryRequestSerializer > _TracingQueryBodySerializer > _DateRangeSerializer]: Encountered 2 components with identical names "_DateRange" and different identities <class \'products.tracing.backend.presentation.views._DateRangeSerializer\'> and <class \'products.logs.backend.api._DateRangeSerializer\'>. This will very likely result in an incorrect schema. Try renaming one.',
-    '/home/runner/work/posthog/posthog/products/tracing/backend/presentation/views.py: Warning [SpansViewSet > _TracingTraceRequestSerializer > _DateRangeSerializer]: Encountered 2 components with identical names "_DateRange" and different identities <class \'products.tracing.backend.presentation.views._DateRangeSerializer\'> and <class \'products.logs.backend.api._DateRangeSerializer\'>. This will very likely result in an incorrect schema. Try renaming one.',
   ])
 # ---
