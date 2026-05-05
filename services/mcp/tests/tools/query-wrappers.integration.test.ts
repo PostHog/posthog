@@ -154,7 +154,9 @@ describe('Query Wrapper Integration Tests', { concurrent: false }, () => {
             })) as any
 
             expect(result).toHaveProperty('results')
+            expect(result).toHaveProperty('_posthogUrl')
             expect(typeof result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toBe('string')
+            expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toContain('|')
         })
     })
 
