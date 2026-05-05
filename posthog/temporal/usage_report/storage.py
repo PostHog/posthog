@@ -2,7 +2,10 @@
 
 All keys are scoped under
 `{OBJECT_STORAGE_TASKS_FOLDER}/billing/usage_reports/{YYYY-MM-DD}/{run_id}/`
-so multiple runs on the same date never collide.
+so multiple runs on the same date never collide. The bucket is
+`settings.BILLING_USAGE_REPORTS_S3_BUCKET`, which falls back to
+`OBJECT_STORAGE_BUCKET` so dev / self-hosted keep working without extra
+configuration.
 """
 
 import io
@@ -21,6 +24,13 @@ from posthog.storage import object_storage
 from posthog.temporal.usage_report.types import WorkflowContext
 
 logger = structlog.get_logger(__name__)
+
+
+def bucket() -> str:
+    """The S3 bucket all usage-report artifacts go into. Read at call time
+    rather than module import so tests can `override_settings` cleanly.
+    """
+    return settings.BILLING_USAGE_REPORTS_S3_BUCKET
 
 
 def run_prefix(ctx: WorkflowContext) -> str:
@@ -59,12 +69,13 @@ def write_json(key: str, obj: Any) -> None:
         key,
         json.dumps(obj, default=str),
         extras={"ContentType": "application/json"},
+        bucket=bucket(),
     )
 
 
 def read_json(key: str) -> Any:
     """Read a JSON object from S3. Raises if the key is missing."""
-    raw = object_storage.read_bytes(key)
+    raw = object_storage.read_bytes(key, bucket=bucket())
     if raw is None:
         raise FileNotFoundError(f"S3 key not found: {key}")
     return json.loads(raw)
@@ -116,6 +127,7 @@ def _upload_gzipped_jsonl(key: str, body: bytes) -> None:
         key,
         io.BytesIO(body),
         extras={"ContentType": "application/x-ndjson", "ContentEncoding": "gzip"},
+        bucket=bucket(),
     )
 
 
@@ -133,9 +145,10 @@ def write_jsonl_chunk_gzip(key: str, lines: Iterable[dict[str, Any]]) -> int:
 def delete_keys(keys: Iterable[str]) -> int:
     """Best-effort delete; missing keys are logged and skipped."""
     deleted = 0
+    target_bucket = bucket()
     for key in keys:
         try:
-            object_storage.delete(key)
+            object_storage.delete(key, bucket=target_bucket)
             deleted += 1
         except Exception as err:
             logger.warning("usage_reports.cleanup.delete_failed", key=key, error=str(err))

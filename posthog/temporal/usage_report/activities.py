@@ -29,6 +29,7 @@ from posthog.temporal.usage_report.aggregator import (
 )
 from posthog.temporal.usage_report.queries import QUERY_INDEX
 from posthog.temporal.usage_report.storage import (
+    bucket,
     chunk_key,
     chunks_prefix,
     delete_keys,
@@ -172,7 +173,7 @@ async def enqueue_pointer_message(inputs: EnqueuePointerInputs) -> None:
         "period_end": inputs.ctx.period_end.isoformat(),
         "region": get_instance_region(),
         "site_url": settings.SITE_URL,
-        "bucket": settings.OBJECT_STORAGE_BUCKET,
+        "bucket": bucket(),
         "manifest_key": inputs.aggregate.manifest_key,
         "chunk_prefix": chunks_prefix(inputs.ctx) + "/",
         "chunk_count": len(inputs.aggregate.chunk_keys),

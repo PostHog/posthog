@@ -53,12 +53,12 @@ async def test_pointer_uses_v2_queue_and_correct_payload(activity_environment) -
 
     with (
         patch("posthog.temporal.usage_report.activities.settings") as mock_settings,
+        patch("posthog.temporal.usage_report.activities.bucket", return_value="posthog-billing-usage-reports"),
         patch("ee.sqs.SQSProducer.get_sqs_producer", side_effect=fake_get_producer),
         patch("posthog.temporal.usage_report.activities.get_instance_region", return_value="US"),
     ):
         mock_settings.EE_AVAILABLE = True
         mock_settings.SITE_URL = "https://us.posthog.com"
-        mock_settings.OBJECT_STORAGE_BUCKET = "posthog"
 
         await activity_environment.run(
             enqueue_pointer_message,
@@ -82,7 +82,7 @@ async def test_pointer_uses_v2_queue_and_correct_payload(activity_environment) -
         "period_end": "2026-05-04T23:59:59.999999+00:00",
         "region": "US",
         "site_url": "https://us.posthog.com",
-        "bucket": "posthog",
+        "bucket": "posthog-billing-usage-reports",
         "manifest_key": "tasks/billing/usage_reports/2026-05-04/run-test/manifest.json",
         "chunk_prefix": "tasks/billing/usage_reports/2026-05-04/run-test/chunks/",
         "chunk_count": 2,
@@ -125,11 +125,11 @@ async def test_pointer_raises_when_producer_misconfigured(activity_environment) 
     """
     with (
         patch("posthog.temporal.usage_report.activities.settings") as mock_settings,
+        patch("posthog.temporal.usage_report.activities.bucket", return_value="posthog"),
         patch("ee.sqs.SQSProducer.get_sqs_producer", return_value=None),
     ):
         mock_settings.EE_AVAILABLE = True
         mock_settings.SITE_URL = "https://us.posthog.com"
-        mock_settings.OBJECT_STORAGE_BUCKET = "posthog"
 
         with pytest.raises(Exception, match="usage_reports_v2"):
             await activity_environment.run(
@@ -148,12 +148,12 @@ async def test_pointer_raises_when_send_returns_none(activity_environment) -> No
 
     with (
         patch("posthog.temporal.usage_report.activities.settings") as mock_settings,
+        patch("posthog.temporal.usage_report.activities.bucket", return_value="posthog"),
         patch("ee.sqs.SQSProducer.get_sqs_producer", return_value=fake_producer),
         patch("posthog.temporal.usage_report.activities.get_instance_region", return_value="US"),
     ):
         mock_settings.EE_AVAILABLE = True
         mock_settings.SITE_URL = "https://us.posthog.com"
-        mock_settings.OBJECT_STORAGE_BUCKET = "posthog"
 
         with pytest.raises(Exception, match="no response"):
             await activity_environment.run(

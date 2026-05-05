@@ -197,9 +197,11 @@ def test_iter_chunk_lines_treats_missing_flag_as_falsy() -> None:
 
 def test_build_manifest_returns_typed_manifest() -> None:
     ctx = _ctx(run_id="run-1")
-    with patch("posthog.temporal.usage_report.aggregator.settings") as mock_settings:
+    with (
+        patch("posthog.temporal.usage_report.aggregator.settings") as mock_settings,
+        patch("posthog.temporal.usage_report.aggregator.bucket", return_value="posthog-billing-usage-reports"),
+    ):
         mock_settings.SITE_URL = "https://us.posthog.com"
-        mock_settings.OBJECT_STORAGE_BUCKET = "posthog"
         manifest = build_manifest(
             ctx,
             chunk_keys=["chunks/chunk_0000.jsonl.gz", "chunks/chunk_0001.jsonl.gz"],
@@ -217,7 +219,7 @@ def test_build_manifest_returns_typed_manifest() -> None:
     assert manifest.period_end == ctx.period_end
     assert manifest.region == "US"
     assert manifest.site_url == "https://us.posthog.com"
-    assert manifest.bucket == "posthog"
+    assert manifest.bucket == "posthog-billing-usage-reports"
     assert manifest.chunk_keys == ["chunks/chunk_0000.jsonl.gz", "chunks/chunk_0001.jsonl.gz"]
     assert manifest.chunk_count == 2
     assert manifest.total_orgs == 12345

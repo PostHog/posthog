@@ -19,7 +19,7 @@ from posthog.tasks.usage_report import (
     serialize_full_org_report,
 )
 from posthog.temporal.usage_report.queries import QUERY_INDEX
-from posthog.temporal.usage_report.storage import read_json
+from posthog.temporal.usage_report.storage import bucket, read_json
 from posthog.temporal.usage_report.types import Manifest, RunQueryToS3Result, WorkflowContext
 
 
@@ -93,7 +93,7 @@ def build_manifest(
         period_end=ctx.period_end,
         region=region,
         site_url=settings.SITE_URL,
-        bucket=settings.OBJECT_STORAGE_BUCKET,
+        bucket=bucket(),
         chunk_keys=chunk_keys,
         chunk_count=len(chunk_keys),
         total_orgs=total_orgs,
