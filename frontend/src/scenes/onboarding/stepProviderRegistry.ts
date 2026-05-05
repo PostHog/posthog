@@ -1,37 +1,39 @@
 import { ProductKey } from '~/queries/schema/schema-general'
 
-import { dataWarehouseOnboardingSteps } from 'products/data_warehouse/frontend/onboarding/steps'
-import { errorTrackingOnboardingSteps } from 'products/error_tracking/frontend/onboarding/steps'
-import { experimentsOnboardingSteps } from 'products/experiments/frontend/onboarding/steps'
-import { featureFlagsOnboardingSteps } from 'products/feature_flags/frontend/onboarding/steps'
-import { llmAnalyticsOnboardingSteps } from 'products/llm_analytics/frontend/onboarding/steps'
-import { logsOnboardingSteps } from 'products/logs/frontend/onboarding/steps'
-import { productAnalyticsOnboardingSteps } from 'products/product_analytics/frontend/onboarding/steps'
-import { sessionReplayOnboardingSteps } from 'products/session_replay/frontend/onboarding/steps'
-import { surveysOnboardingSteps } from 'products/surveys/frontend/onboarding/steps'
-import { webAnalyticsOnboardingSteps } from 'products/web_analytics/frontend/onboarding/steps'
-import { workflowsOnboardingSteps } from 'products/workflows/frontend/onboarding/steps'
+import { dataWarehouseOnboarding } from 'products/data_warehouse/frontend/onboarding/steps'
+import { errorTrackingOnboarding } from 'products/error_tracking/frontend/onboarding/steps'
+import { experimentsOnboarding } from 'products/experiments/frontend/onboarding/steps'
+import { featureFlagsOnboarding } from 'products/feature_flags/frontend/onboarding/steps'
+import { llmAnalyticsOnboarding } from 'products/llm_analytics/frontend/onboarding/steps'
+import { logsOnboarding } from 'products/logs/frontend/onboarding/steps'
+import { productAnalyticsOnboarding } from 'products/product_analytics/frontend/onboarding/steps'
+import { sessionReplayOnboarding } from 'products/session_replay/frontend/onboarding/steps'
+import { surveysOnboarding } from 'products/surveys/frontend/onboarding/steps'
+import { webAnalyticsOnboarding } from 'products/web_analytics/frontend/onboarding/steps'
+import { workflowsOnboarding } from 'products/workflows/frontend/onboarding/steps'
 
-import { type StepProvider } from './types'
+import { type ProductOnboardingProvider } from './types'
 
 /**
- * Registry of per-product step providers. The flow selector iterates `selectedProducts`
- * in order and concatenates each provider's contribution into a single flat flow.
+ * Registry of per-product onboarding providers. The flow selector iterates
+ * `selectedProducts` in order and concatenates each provider's `steps(ctx)`
+ * into a single flat flow. The primary product's `completeRedirectUrl()` is
+ * used as the post-onboarding landing target.
  *
  * Adding a product to the onboarding system: write a provider in
- * `products/<name>/frontend/onboarding/steps.tsx`, register it here, and add the
- * product to `availableOnboardingProducts` in `utils.tsx`.
+ * `products/<name>/frontend/onboarding/steps.tsx`, register it here, and add
+ * the product to `availableOnboardingProducts` in `utils.tsx`.
  */
-export const stepProviderRegistry: Partial<Record<ProductKey, StepProvider>> = {
-    [ProductKey.PRODUCT_ANALYTICS]: productAnalyticsOnboardingSteps,
-    [ProductKey.WEB_ANALYTICS]: webAnalyticsOnboardingSteps,
-    [ProductKey.SESSION_REPLAY]: sessionReplayOnboardingSteps,
-    [ProductKey.FEATURE_FLAGS]: featureFlagsOnboardingSteps,
-    [ProductKey.EXPERIMENTS]: experimentsOnboardingSteps,
-    [ProductKey.SURVEYS]: surveysOnboardingSteps,
-    [ProductKey.DATA_WAREHOUSE]: dataWarehouseOnboardingSteps,
-    [ProductKey.ERROR_TRACKING]: errorTrackingOnboardingSteps,
-    [ProductKey.LLM_ANALYTICS]: llmAnalyticsOnboardingSteps,
-    [ProductKey.WORKFLOWS]: workflowsOnboardingSteps,
-    [ProductKey.LOGS]: logsOnboardingSteps,
+export const onboardingProviderRegistry: Partial<Record<ProductKey, ProductOnboardingProvider>> = {
+    [ProductKey.PRODUCT_ANALYTICS]: productAnalyticsOnboarding,
+    [ProductKey.WEB_ANALYTICS]: webAnalyticsOnboarding,
+    [ProductKey.SESSION_REPLAY]: sessionReplayOnboarding,
+    [ProductKey.FEATURE_FLAGS]: featureFlagsOnboarding,
+    [ProductKey.EXPERIMENTS]: experimentsOnboarding,
+    [ProductKey.SURVEYS]: surveysOnboarding,
+    [ProductKey.DATA_WAREHOUSE]: dataWarehouseOnboarding,
+    [ProductKey.ERROR_TRACKING]: errorTrackingOnboarding,
+    [ProductKey.LLM_ANALYTICS]: llmAnalyticsOnboarding,
+    [ProductKey.WORKFLOWS]: workflowsOnboarding,
+    [ProductKey.LOGS]: logsOnboarding,
 }

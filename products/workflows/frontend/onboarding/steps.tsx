@@ -7,7 +7,8 @@ import {
     WorkflowsSDKInstructions,
     WorkflowsSDKTagOverrides,
 } from 'scenes/onboarding/sdks/workflows/WorkflowsSDKInstructions'
-import { type StepProvider } from 'scenes/onboarding/types'
+import { type ProductOnboardingProvider } from 'scenes/onboarding/types'
+import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { OnboardingStepKey } from '~/types'
@@ -56,18 +57,21 @@ const WorkflowsInstallHeader = (): JSX.Element => {
     )
 }
 
-export const workflowsOnboardingSteps: StepProvider = (ctx) => [
-    {
-        id: `${OnboardingStepKey.INSTALL}:${ProductKey.WORKFLOWS}`,
-        productKey: ProductKey.WORKFLOWS,
-        stepKey: OnboardingStepKey.INSTALL,
-        role: ctx.role,
-        render: () => (
-            <OnboardingInstallStep
-                sdkInstructionMap={WorkflowsSDKInstructions}
-                sdkTagOverrides={WorkflowsSDKTagOverrides}
-                header={<WorkflowsInstallHeader />}
-            />
-        ),
-    },
-]
+export const workflowsOnboarding: ProductOnboardingProvider = {
+    steps: (ctx) => [
+        {
+            id: `${OnboardingStepKey.INSTALL}:${ProductKey.WORKFLOWS}`,
+            productKey: ProductKey.WORKFLOWS,
+            stepKey: OnboardingStepKey.INSTALL,
+            role: ctx.role,
+            render: () => (
+                <OnboardingInstallStep
+                    sdkInstructionMap={WorkflowsSDKInstructions}
+                    sdkTagOverrides={WorkflowsSDKTagOverrides}
+                    header={<WorkflowsInstallHeader />}
+                />
+            ),
+        },
+    ],
+    completeRedirectUrl: () => urls.workflows(),
+}

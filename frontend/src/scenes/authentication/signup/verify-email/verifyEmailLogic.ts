@@ -28,7 +28,16 @@ export const VERIFY_EMAIL_REDIRECT_DELAY_MS = 2000
 const resolvePostVerifyDefault = (values: {
     user?: { team?: { has_completed_onboarding_for?: Record<string, boolean> } | null } | null
 }): string => {
-    const completedMap = values.user?.team?.has_completed_onboarding_for ?? {}
+    // If `loadUser` hasn't completed by the time we resolve a redirect target (a
+    // race that can happen when verify completes quickly), prefer the safe
+    // `urls.default()` over `urls.onboarding()`. sceneLogic will route the
+    // already-onboarded user away from `/` once user state hydrates; the
+    // opposite mistake (sending an onboarded user back through onboarding) is
+    // worse because they may inadvertently flip product-completion state.
+    if (!values.user) {
+        return urls.default()
+    }
+    const completedMap = values.user.team?.has_completed_onboarding_for ?? {}
     const hasCompletedSomething = Object.values(completedMap).some(Boolean)
     return hasCompletedSomething ? urls.default() : urls.onboarding()
 }

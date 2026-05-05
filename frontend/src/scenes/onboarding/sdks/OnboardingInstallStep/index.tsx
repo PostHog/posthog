@@ -11,7 +11,7 @@ import { OnboardingStepKey, type SDK, SDKInstructionsMap, SDKTagOverrides } from
 
 import { onboardingLogic, OnboardingStepComponentType } from '../../onboardingLogic'
 import { OnboardingStep } from '../../OnboardingStep'
-import { availableOnboardingProducts } from '../../utils'
+import { availableOnboardingProducts, toSentenceCase } from '../../utils'
 import { useAdblockDetection } from '../hooks/useAdblockDetection'
 import { useInstallationComplete } from '../hooks/useInstallationComplete'
 import { AdblockWarning, RealtimeCheckIndicator } from '../RealtimeCheckIndicator'
@@ -83,14 +83,8 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
         : undefined
     // Sentence-case the product name to match PostHog's UI convention ("Install web
     // analytics" rather than "Install Web Analytics"). Single-word names ("Logs",
-    // "Surveys") are unchanged.
-    const sentenceCasedProduct = productName
-        ? productName
-              .split(' ')
-              .map((w, i) => (i === 0 ? w : w.charAt(0).toLowerCase() + w.slice(1)))
-              .join(' ')
-        : undefined
-    const installTitle = sentenceCasedProduct ? `Install ${sentenceCasedProduct}` : 'Install your SDK'
+    // "Surveys") are unchanged. Initialisms ("LLM", "SQL") preserved.
+    const installTitle = productName ? `Install ${toSentenceCase(productName)}` : 'Install your SDK'
 
     const installationCompleteFromTeam = useInstallationComplete(teamPropertyToVerify)
     const installationComplete = hideInstallationCheck || installationCompleteFromTeam

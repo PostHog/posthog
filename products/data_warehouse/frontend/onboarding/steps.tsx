@@ -1,15 +1,19 @@
 import { OnboardingDataWarehouseSourcesStep } from 'scenes/onboarding/data-warehouse/OnboardingDataWarehouseSourcesStep'
-import { type StepProvider } from 'scenes/onboarding/types'
+import { type ProductOnboardingProvider } from 'scenes/onboarding/types'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { OnboardingStepKey } from '~/types'
 
-export const dataWarehouseOnboardingSteps: StepProvider = (ctx) => [
-    {
-        id: `${OnboardingStepKey.LINK_DATA}:${ProductKey.DATA_WAREHOUSE}`,
-        productKey: ProductKey.DATA_WAREHOUSE,
-        stepKey: OnboardingStepKey.LINK_DATA,
-        role: ctx.role,
-        render: () => <OnboardingDataWarehouseSourcesStep />,
-    },
-]
+// `completeRedirectUrl` intentionally omitted: data warehouse falls through to
+// urls.default() — same behaviour as the original central switch.
+export const dataWarehouseOnboarding: ProductOnboardingProvider = {
+    steps: (ctx) => [
+        {
+            id: `${OnboardingStepKey.LINK_DATA}:${ProductKey.DATA_WAREHOUSE}`,
+            productKey: ProductKey.DATA_WAREHOUSE,
+            stepKey: OnboardingStepKey.LINK_DATA,
+            role: ctx.role,
+            render: () => <OnboardingDataWarehouseSourcesStep />,
+        },
+    ],
+}

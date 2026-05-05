@@ -6,9 +6,10 @@ import { OnboardingProductConfiguration } from 'scenes/onboarding/OnboardingProd
 import { type ProductConfigOption } from 'scenes/onboarding/onboardingProductConfigurationLogic'
 import { OnboardingInstallStep } from 'scenes/onboarding/sdks/OnboardingInstallStep'
 import { SessionReplaySDKInstructions } from 'scenes/onboarding/sdks/session-replay/SessionReplaySDKInstructions'
-import { INSTALL_DEDUP_KEYS, type StepProvider } from 'scenes/onboarding/types'
+import { INSTALL_DEDUP_KEYS, type ProductOnboardingProvider } from 'scenes/onboarding/types'
 import { getMaskingConfigFromLevel, getMaskingLevelFromConfig } from 'scenes/session-recordings/utils'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -81,30 +82,33 @@ const SessionReplayConfigStep = (): JSX.Element => {
     return <OnboardingProductConfiguration options={configOptions} />
 }
 
-export const sessionReplayOnboardingSteps: StepProvider = (ctx) => {
-    const installStep = {
-        id: `${OnboardingStepKey.INSTALL}:${ProductKey.SESSION_REPLAY}`,
-        productKey: ProductKey.SESSION_REPLAY,
-        stepKey: OnboardingStepKey.INSTALL,
-        role: ctx.role,
-        setupTaskId: SetupTaskId.SetupSessionRecordings,
-        dedupKey: INSTALL_DEDUP_KEYS.POSTHOG_JS,
-        render: () => <OnboardingInstallStep sdkInstructionMap={SessionReplaySDKInstructions} />,
-    }
-
-    if (ctx.role === 'secondary') {
-        return [installStep]
-    }
-
-    return [
-        installStep,
-        {
-            id: `${OnboardingStepKey.PRODUCT_CONFIGURATION}:${ProductKey.SESSION_REPLAY}`,
+export const sessionReplayOnboarding: ProductOnboardingProvider = {
+    steps: (ctx) => {
+        const installStep = {
+            id: `${OnboardingStepKey.INSTALL}:${ProductKey.SESSION_REPLAY}`,
             productKey: ProductKey.SESSION_REPLAY,
-            stepKey: OnboardingStepKey.PRODUCT_CONFIGURATION,
+            stepKey: OnboardingStepKey.INSTALL,
             role: ctx.role,
-            setupTaskId: SetupTaskId.ConfigureRecordingSettings,
-            render: () => <SessionReplayConfigStep />,
-        },
-    ]
+            setupTaskId: SetupTaskId.SetupSessionRecordings,
+            dedupKey: INSTALL_DEDUP_KEYS.POSTHOG_JS,
+            render: () => <OnboardingInstallStep sdkInstructionMap={SessionReplaySDKInstructions} />,
+        }
+
+        if (ctx.role === 'secondary') {
+            return [installStep]
+        }
+
+        return [
+            installStep,
+            {
+                id: `${OnboardingStepKey.PRODUCT_CONFIGURATION}:${ProductKey.SESSION_REPLAY}`,
+                productKey: ProductKey.SESSION_REPLAY,
+                stepKey: OnboardingStepKey.PRODUCT_CONFIGURATION,
+                role: ctx.role,
+                setupTaskId: SetupTaskId.ConfigureRecordingSettings,
+                render: () => <SessionReplayConfigStep />,
+            },
+        ]
+    },
+    completeRedirectUrl: () => urls.replay(),
 }

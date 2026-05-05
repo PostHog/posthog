@@ -8,19 +8,7 @@ import { Link } from '@posthog/lemon-ui'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import { onboardingLogic, stepKeyToTitle } from './onboardingLogic'
-import { availableOnboardingProducts } from './utils'
-
-/**
- * Lower-case all words except the first to match PostHog's sentence-casing rule for
- * product names ("Web analytics" not "Web Analytics"). The product registry stores
- * Title Case names today; rather than touching the global names (a wider change), we
- * normalize at render time wherever names are interpolated into a sentence.
- */
-const toSentenceCase = (name: string): string =>
-    name
-        .split(' ')
-        .map((word, idx) => (idx === 0 ? word : word.charAt(0).toLowerCase() + word.slice(1)))
-        .join(' ')
+import { availableOnboardingProducts, toSentenceCase } from './utils'
 
 export function OnboardingBreadcrumbs(): JSX.Element | null {
     const { flow, currentFlowStep } = useValues(onboardingLogic)
@@ -50,7 +38,9 @@ export function OnboardingBreadcrumbs(): JSX.Element | null {
             const productName =
                 availableOnboardingProducts[step.productKey as keyof typeof availableOnboardingProducts]?.name
             if (productName) {
-                return `${base} ${toSentenceCase(productName)}`
+                // Middle dot scopes the product name as a qualifier rather than reading
+                // as one phrase ("Install · Web analytics" instead of "Install Web analytics").
+                return `${base} · ${toSentenceCase(productName)}`
             }
         }
         return base

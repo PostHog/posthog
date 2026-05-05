@@ -42,6 +42,14 @@ export interface OnboardingStepDescriptor {
      * Providers should NOT set this directly.
      */
     additionalSetupTaskIds?: SetupTaskId[]
+    /**
+     * Auto-populated by the flow selector during the dedup pass: product keys from
+     * descriptors that were dropped because they shared a `dedupKey` with this one.
+     * `completeOnboarding` credits these products as visited when the user advances
+     * past this step, so dropped secondaries still flip `has_completed_onboarding_for`.
+     * Providers should NOT set this directly.
+     */
+    additionalProductKeys?: ProductKey[]
 }
 
 export interface OnboardingFlowContext {
@@ -58,6 +66,27 @@ export interface OnboardingFlowContext {
 }
 
 export type StepProvider = (ctx: OnboardingFlowContext) => OnboardingStepDescriptor[]
+
+/**
+ * Per-product registration unit for the onboarding system. Wires a product into
+ * the flow with everything the central machinery needs to know:
+ *
+ *  - `steps`: how to build the product's contribution to the flow.
+ *  - `completeRedirectUrl`: where to send the user after their onboarding for
+ *    this product completes (was previously a central switch in onboardingLogic).
+ *
+ * Co-locating both here means adding a product is a single-file change inside
+ * `products/<name>/frontend/onboarding/steps.tsx` plus a registry entry — no
+ * scattered switches to keep in sync.
+ */
+export interface ProductOnboardingProvider {
+    steps: StepProvider
+    /**
+     * Where to redirect when this product's onboarding completes (used when this
+     * product is the primary). Falls back to `urls.default()` if not provided.
+     */
+    completeRedirectUrl?: () => string
+}
 
 /**
  * Standard dedup keys for install steps. Products that share an SDK should use the

@@ -3,6 +3,7 @@ import { useValues } from 'kea'
 import { LemonBanner, Link, Spinner } from '@posthog/lemon-ui'
 
 import { billingLogic } from 'scenes/billing/billingLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { onboardingLogic } from './onboardingLogic'
@@ -15,6 +16,7 @@ import { onboardingLogic } from './onboardingLogic'
 export function OnboardingFlowHost(): JSX.Element {
     const { product, productKey, currentFlowStep, flow, waitForBilling } = useValues(onboardingLogic)
     const { billingLoading } = useValues(billingLogic)
+    const { currentTeam } = useValues(teamLogic)
 
     // Plans-step gating: don't render until billing has loaded, otherwise the upgrade UI
     // mounts without data and flickers. Same behaviour as the legacy OnboardingWrapper.
@@ -30,7 +32,12 @@ export function OnboardingFlowHost(): JSX.Element {
     // `availableOnboardingProducts` but no entry exists in `stepProviderRegistry`. Without
     // this branch the user would see an indefinite spinner. We surface a recoverable
     // error pointing back at product selection rather than dead-ending them.
-    if (productKey && product && !billingLoading && flow.length === 0) {
+    //
+    // Also gate on `currentTeam` being loaded — a provider that reads from
+    // `ctx.currentTeam` may legitimately return [] until team is hydrated, in which case
+    // showing the misconfig banner is a false alarm. Wait for both billing and team
+    // before declaring the flow truly empty.
+    if (productKey && product && !billingLoading && currentTeam !== null && flow.length === 0) {
         return (
             <div className="max-w-screen-md mx-auto px-4 py-2">
                 <LemonBanner type="error">
