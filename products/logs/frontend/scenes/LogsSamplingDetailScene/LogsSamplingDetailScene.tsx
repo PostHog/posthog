@@ -89,10 +89,14 @@ function LogsSamplingDetailFormBody({ rule }: { rule: LogsSamplingRuleApi }): JS
             <div className="px-4 pt-2 pb-0 text-secondary text-sm flex items-center gap-1.5">
                 {ruleDropImpact24hLoading ? (
                     <span className="text-muted">Loading drop impact…</span>
+                ) : ruleDropImpact24h === null ? (
+                    <span className="text-muted" title="Drop impact for the last 24 hours is not available">
+                        —
+                    </span>
                 ) : (
                     <>
                         <span>
-                            ~{compactNumber(ruleDropImpact24h ?? 0)} log lines dropped in the last 24 hours (ingestion).
+                            ~{compactNumber(ruleDropImpact24h)} log lines dropped in the last 24 hours (ingestion).
                         </span>
                         <Tooltip
                             title={

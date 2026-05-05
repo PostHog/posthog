@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -72,6 +72,39 @@ export const logsSamplingSectionLogic = kea<logsSamplingSectionLogicType>([
             },
         ],
     })),
+
+    reducers({
+        ruleDropImpactStatus: [
+            'idle' as 'idle' | 'loading' | 'ok' | 'error',
+            {
+                loadRuleDropImpact: () => 'loading',
+                loadRuleDropImpactSuccess: () => 'ok',
+                loadRuleDropImpactFailure: () => 'error',
+            },
+        ],
+    }),
+
+    selectors({
+        ruleDropImpactCellState: [
+            (s) => [s.ruleDropImpactStatus, s.ruleDropImpactLoading, s.rules],
+            (
+                status: 'idle' | 'loading' | 'ok' | 'error',
+                loading: boolean,
+                rules: LogsSamplingRuleApi[]
+            ): 'loading' | 'ok' | 'error' | 'unknown' => {
+                if (loading || (status === 'idle' && rules.length > 0)) {
+                    return 'loading'
+                }
+                if (status === 'error') {
+                    return 'error'
+                }
+                if (status === 'ok') {
+                    return 'ok'
+                }
+                return 'unknown'
+            },
+        ],
+    }),
 
     listeners(({ actions, values }) => ({
         loadRulesSuccess: () => {
