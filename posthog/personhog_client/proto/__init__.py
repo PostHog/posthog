@@ -56,6 +56,16 @@ from posthog.personhog_client.proto.generated.personhog.types.v1.group_pb2 impor
     UpdateGroupTypeMappingRequest,
     UpdateGroupTypeMappingResponse,
 )
+from posthog.personhog_client.proto.generated.personhog.types.v1.feature_flag_pb2 import (
+    DeleteHashKeyOverridesByTeamsRequest,
+    DeleteHashKeyOverridesByTeamsResponse,
+    GetHashKeyOverrideContextRequest,
+    GetHashKeyOverrideContextResponse,
+    HashKeyOverride,
+    HashKeyOverrideContext,
+    UpsertHashKeyOverridesRequest,
+    UpsertHashKeyOverridesResponse,
+)
 from posthog.personhog_client.proto.generated.personhog.types.v1.person_pb2 import (
     DeletePersonsBatchForTeamRequest,
     DeletePersonsBatchForTeamResponse,

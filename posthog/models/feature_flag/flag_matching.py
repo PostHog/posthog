@@ -491,6 +491,10 @@ class FeatureFlagMatcher:
 
     @cached_property
     def query_conditions(self) -> dict[str, bool]:
+        # TODO(personhog): These Person/Group ORM queries build annotated QuerySets for
+        # property-based flag evaluation at the DB level. Cannot migrate to personhog without
+        # a fundamentally different evaluation approach. Is this still used in production, or
+        # has the Rust flags service fully replaced it?
         try:
             with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS * 2, READ_ONLY_DATABASE_FOR_PERSONS):
                 # Some extra wiggle room here for timeouts because this depends on the number of flags as well,
@@ -783,12 +787,146 @@ class FeatureFlagMatcher:
         return entity_to_condition_check
 
 
+def _get_existing_hash_key_override_flag_keys(
+    team_id: int,
+    distinct_ids: list[str],
+) -> Optional[set[str]]:
+    """Get the set of feature flag keys that already have hash key overrides for the given distinct IDs.
+
+    Returns None if no persons were found for the distinct IDs (meaning no overrides are needed).
+    """
+    from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.metrics import (
+        PERSONHOG_ROUTING_ERRORS_TOTAL,
+        PERSONHOG_ROUTING_TOTAL,
+        get_client_name,
+    )
+    from posthog.personhog_client.proto import GetHashKeyOverrideContextRequest
+
+    client = get_personhog_client()
+    if client is not None:
+        try:
+            resp = client.get_hash_key_override_context(
+                GetHashKeyOverrideContextRequest(
+                    team_id=team_id,
+                    distinct_ids=distinct_ids,
+                    check_person_exists=True,
+                )
+            )
+            PERSONHOG_ROUTING_TOTAL.labels(
+                operation="get_existing_hash_key_override_flag_keys", source="personhog", client_name=get_client_name()
+            ).inc()
+            if not resp.results:
+                return None
+            existing_keys: set[str] = set()
+            for ctx in resp.results:
+                existing_keys.update(ctx.existing_feature_flag_keys)
+            return existing_keys
+        except Exception:
+            PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
+                operation="get_existing_hash_key_override_flag_keys",
+                source="personhog",
+                error_type="grpc_error",
+                client_name=get_client_name(),
+            ).inc()
+            logger.warning("personhog_get_existing_hash_key_override_flag_keys_failure", team_id=team_id, exc_info=True)
+
+    PERSONHOG_ROUTING_TOTAL.labels(
+        operation="get_existing_hash_key_override_flag_keys", source="django_orm", client_name=get_client_name()
+    ).inc()
+
+    with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS, READ_ONLY_DATABASE_FOR_PERSONS) as cursor:
+        pdi_table = PersonDistinctId._meta.db_table
+        person_table = Person._meta.db_table
+        person_query = f"""
+            SELECT DISTINCT p.id
+            FROM {person_table} p
+            INNER JOIN {pdi_table} pdi ON p.id = pdi.person_id AND p.team_id = pdi.team_id
+            WHERE p.team_id = %(team_id)s AND pdi.distinct_id = ANY(%(distinct_ids)s)
+        """
+        cursor.execute(person_query, {"team_id": team_id, "distinct_ids": distinct_ids})
+        person_ids = [row[0] for row in cursor.fetchall()]
+
+    if not person_ids:
+        return None
+
+    with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS, READ_ONLY_DATABASE_FOR_PERSONS) as cursor:
+        override_query = """
+            SELECT DISTINCT feature_flag_key FROM posthog_featureflaghashkeyoverride
+            WHERE team_id = %(team_id)s AND person_id = ANY(%(person_ids)s)
+        """
+        cursor.execute(override_query, {"team_id": team_id, "person_ids": person_ids})
+        return {row[0] for row in cursor.fetchall()}
+
+
+def _get_feature_flag_hash_key_overrides_via_personhog(
+    team_id: int,
+    distinct_ids: list[str],
+    using_database: str = WRITE_DATABASE_FOR_PERSONS,
+) -> dict[str, str]:
+    from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.proto import CONSISTENCY_LEVEL_STRONG, GetHashKeyOverrideContextRequest, ReadOptions
+
+    client = get_personhog_client()
+    if client is None:
+        raise RuntimeError("personhog client not configured")
+
+    use_strong = using_database == WRITE_DATABASE_FOR_PERSONS
+    resp = client.get_hash_key_override_context(
+        GetHashKeyOverrideContextRequest(
+            team_id=team_id,
+            distinct_ids=distinct_ids,
+            read_options=ReadOptions(consistency=CONSISTENCY_LEVEL_STRONG) if use_strong else None,
+        )
+    )
+
+    feature_flag_to_key_overrides: dict[str, str] = {}
+    # Sort so the first distinct_id's person goes last → its overrides win (same priority logic as ORM path)
+    sorted_results = sorted(
+        resp.results,
+        key=lambda ctx: 1 if ctx.distinct_id == distinct_ids[0] else -1,
+    )
+    for ctx in sorted_results:
+        for override in ctx.overrides:
+            feature_flag_to_key_overrides[override.feature_flag_key] = override.hash_key
+
+    return feature_flag_to_key_overrides
+
+
 def get_feature_flag_hash_key_overrides(
     team_id: int,
     distinct_ids: list[str],
     using_database: str = WRITE_DATABASE_FOR_PERSONS,
     person_id_to_distinct_id_mapping: Optional[dict[int, str]] = None,
 ) -> dict[str, str]:
+    from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.metrics import (
+        PERSONHOG_ROUTING_ERRORS_TOTAL,
+        PERSONHOG_ROUTING_TOTAL,
+        get_client_name,
+    )
+
+    client = get_personhog_client()
+    if client is not None:
+        try:
+            result = _get_feature_flag_hash_key_overrides_via_personhog(team_id, distinct_ids, using_database)
+            PERSONHOG_ROUTING_TOTAL.labels(
+                operation="get_feature_flag_hash_key_overrides", source="personhog", client_name=get_client_name()
+            ).inc()
+            return result
+        except Exception:
+            PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
+                operation="get_feature_flag_hash_key_overrides",
+                source="personhog",
+                error_type="grpc_error",
+                client_name=get_client_name(),
+            ).inc()
+            logger.warning("personhog_get_feature_flag_hash_key_overrides_failure", team_id=team_id, exc_info=True)
+
+    PERSONHOG_ROUTING_TOTAL.labels(
+        operation="get_feature_flag_hash_key_overrides", source="django_orm", client_name=get_client_name()
+    ).inc()
+
     feature_flag_to_key_overrides = {}
 
     # Priority to the first distinctID's values, to keep this function deterministic
@@ -951,48 +1089,13 @@ def get_all_feature_flags_with_details(
         # So, if an extra query check helps us avoid the write path, it's worth it.
 
         try:
-            # Split cross-database query into separate queries for persons_db and default db
-            # Step 1: Get person_ids from persons database with explicit join
-            with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS, READ_ONLY_DATABASE_FOR_PERSONS) as cursor:
-                distinct_ids = [distinct_id, str(hash_key_override)]
-                pdi_table = PersonDistinctId._meta.db_table
-                person_table = Person._meta.db_table
-                person_query = f"""
-                    SELECT DISTINCT p.id
-                    FROM {person_table} p
-                    INNER JOIN {pdi_table} pdi ON p.id = pdi.person_id AND p.team_id = pdi.team_id
-                    WHERE p.team_id = %(team_id)s AND pdi.distinct_id = ANY(%(distinct_ids)s)
-                """
-                cursor.execute(person_query, {"team_id": team.id, "distinct_ids": distinct_ids})
-                person_ids = [row[0] for row in cursor.fetchall()]
+            distinct_ids = [distinct_id, str(hash_key_override)]
+            existing_flag_keys = _get_existing_hash_key_override_flag_keys(team.id, distinct_ids)
 
-            if not person_ids:
-                # No person IDs found, so no need to check for overrides
-                should_write_hash_key_override = False
-            else:
-                # Step 2: Get existing overrides from persons database
-                with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS, READ_ONLY_DATABASE_FOR_PERSONS) as cursor:
-                    override_query = """
-                        SELECT DISTINCT feature_flag_key FROM posthog_featureflaghashkeyoverride
-                        WHERE team_id = %(team_id)s AND person_id = ANY(%(person_ids)s)
-                    """
-                    cursor.execute(override_query, {"team_id": team.id, "person_ids": person_ids})
-                    existing_flag_keys = {row[0] for row in cursor.fetchall()}
+            if existing_flag_keys is not None:
+                all_experience_continuity_flags = _get_experience_continuity_flag_keys(team.project_id)
 
-                # Step 3: Get flags with experience continuity from default database
-                with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS, DATABASE_FOR_FLAG_MATCHING) as cursor:
-                    flag_query = """
-                        SELECT key FROM posthog_featureflag flag
-                        JOIN posthog_team team ON flag.team_id = team.id
-                        WHERE team.project_id = %(project_id)s
-                            AND flag.ensure_experience_continuity = TRUE
-                            AND flag.active = TRUE
-                            AND flag.deleted = FALSE
-                    """
-                    cursor.execute(flag_query, {"project_id": team.project_id})
-                    all_experience_continuity_flags = {row[0] for row in cursor.fetchall()}
-
-                # Step 4: Find flags that need overrides (in Python)
+                # Find flags that need overrides (in Python)
                 flags_with_no_overrides = list(all_experience_continuity_flags - existing_flag_keys)
                 should_write_hash_key_override = len(flags_with_no_overrides) > 0
         except Exception as e:
@@ -1077,7 +1180,62 @@ def get_all_feature_flags_with_details(
     )
 
 
+def _get_experience_continuity_flag_keys(project_id: int) -> set[str]:
+    with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS, DATABASE_FOR_FLAG_MATCHING) as cursor:
+        flag_query = """
+            SELECT key FROM posthog_featureflag flag
+            JOIN posthog_team team ON flag.team_id = team.id
+            WHERE team.project_id = %(project_id)s
+                AND flag.ensure_experience_continuity = TRUE
+                AND flag.active = TRUE
+                AND flag.deleted = FALSE
+        """
+        cursor.execute(flag_query, {"project_id": project_id})
+        return {row[0] for row in cursor.fetchall()}
+
+
 def set_feature_flag_hash_key_overrides(team: Team, distinct_ids: list[str], hash_key_override: str) -> bool:
+    from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.metrics import (
+        PERSONHOG_ROUTING_ERRORS_TOTAL,
+        PERSONHOG_ROUTING_TOTAL,
+        get_client_name,
+    )
+
+    client = get_personhog_client()
+    if client is not None:
+        try:
+            from posthog.personhog_client.proto import UpsertHashKeyOverridesRequest
+
+            all_experience_continuity_flags = _get_experience_continuity_flag_keys(team.project_id)
+            if not all_experience_continuity_flags:
+                return False
+
+            resp = client.upsert_hash_key_overrides(
+                UpsertHashKeyOverridesRequest(
+                    team_id=team.id,
+                    distinct_ids=distinct_ids,
+                    hash_key=hash_key_override,
+                    feature_flag_keys=list(all_experience_continuity_flags),
+                )
+            )
+            PERSONHOG_ROUTING_TOTAL.labels(
+                operation="set_feature_flag_hash_key_overrides", source="personhog", client_name=get_client_name()
+            ).inc()
+            return resp.inserted_count > 0
+        except Exception:
+            PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
+                operation="set_feature_flag_hash_key_overrides",
+                source="personhog",
+                error_type="grpc_error",
+                client_name=get_client_name(),
+            ).inc()
+            logger.warning("personhog_set_feature_flag_hash_key_overrides_failure", team_id=team.id, exc_info=True)
+
+    PERSONHOG_ROUTING_TOTAL.labels(
+        operation="set_feature_flag_hash_key_overrides", source="django_orm", client_name=get_client_name()
+    ).inc()
+
     # As a product decision, the first override wins, i.e consistency matters for the first walkthrough.
     # Thus, we don't need to do upserts here.
 
@@ -1115,17 +1273,7 @@ def set_feature_flag_hash_key_overrides(team: Team, distinct_ids: list[str], has
                 existing_flag_keys = {row[0] for row in cursor.fetchall()}
 
             # Step 3: Get flags that need overrides from default database
-            with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS, DATABASE_FOR_FLAG_MATCHING) as cursor:
-                flag_query = """
-                    SELECT key FROM posthog_featureflag flag
-                    JOIN posthog_team team ON flag.team_id = team.id
-                    WHERE team.project_id = %(project_id)s
-                        AND flag.ensure_experience_continuity = TRUE
-                        AND flag.active = TRUE
-                        AND flag.deleted = FALSE
-                """
-                cursor.execute(flag_query, {"project_id": team.project_id})
-                all_experience_continuity_flags = {row[0] for row in cursor.fetchall()}
+            all_experience_continuity_flags = _get_experience_continuity_flag_keys(team.project_id)
 
             # Step 4: Insert overrides for flags that don't have them yet
             flags_to_override = all_experience_continuity_flags - existing_flag_keys
@@ -1270,7 +1418,10 @@ def check_flag_evaluation_query_is_ok(feature_flag: FeatureFlag, team_id: int, p
     # but aren't caught by above validation, like a regex valid according to re2 but not postgresql.
     # We also randomly query for 20 people sans distinct id to make sure the query is valid.
 
-    # TODO: Once we move to no DB level evaluation, can get rid of this.
+    # TODO(personhog): These Person/Group ORM queries build annotated QuerySets for
+    # property-based flag validation at the DB level. Cannot migrate to personhog without
+    # a fundamentally different evaluation approach. Is this still used in production, or
+    # has the Rust flags service fully replaced it?
 
     group_type_index = feature_flag.aggregation_group_type_index
 

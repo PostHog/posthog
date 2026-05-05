@@ -120,6 +120,10 @@ def _exclude_realtime_backfilled_cohort_properties(
 
 def _base_query_for_aggregation(group_type_index: Optional[int], team_id: int) -> QuerySet:
     """Return the appropriate Person or Group queryset for a given aggregation type."""
+    # TODO(personhog): These Person/Group ORM queries build annotated QuerySets for
+    # property-based flag validation at the DB level. Cannot migrate to personhog without
+    # a fundamentally different evaluation approach. Is this still used in production, or
+    # has the Rust flags service fully replaced it?
     if group_type_index is None:
         return Person.objects.db_manager(READ_ONLY_DATABASE_FOR_PERSONS).filter(  # nosemgrep: no-direct-persons-db-orm
             team_id=team_id

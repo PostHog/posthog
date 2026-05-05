@@ -25,7 +25,12 @@ from typing import Any
 
 from unittest.mock import patch
 
-from posthog.personhog_client.proto.generated.personhog.types.v1 import cohort_pb2, group_pb2, person_pb2
+from posthog.personhog_client.proto.generated.personhog.types.v1 import (
+    cohort_pb2,
+    feature_flag_pb2,
+    group_pb2,
+    person_pb2,
+)
 
 
 @dataclass
@@ -66,6 +71,11 @@ class FakePersonHogClient:
         self._cohort_memberships: dict[int, list[cohort_pb2.CohortMembership]] = {}
         # keyed by (cohort_id, person_id) -> True
         self._cohort_members: dict[tuple[int, int], bool] = {}
+
+        # keyed by (team_id, person_id, feature_flag_key) -> hash_key
+        self._hash_key_overrides: dict[tuple[int, int, str], str] = {}
+        # keyed by (team_id, distinct_id) -> person_id (for upsert lookups)
+        self._hash_key_person_lookup: dict[tuple[int, str], int] = {}
 
     # ── Builder methods ──────────────────────────────────────────────
 
@@ -156,6 +166,19 @@ class FakePersonHogClient:
         )
         self._groups[(team_id, group_type_index, group_key)] = group
         return group
+
+    def add_hash_key_override(
+        self,
+        *,
+        team_id: int,
+        person_id: int,
+        feature_flag_key: str,
+        hash_key: str,
+        distinct_id: str = "",
+    ) -> None:
+        self._hash_key_overrides[(team_id, person_id, feature_flag_key)] = hash_key
+        if distinct_id:
+            self._hash_key_person_lookup[(team_id, distinct_id)] = person_id
 
     def add_cohort_membership(self, *, person_id: int, cohort_id: int, is_member: bool = True) -> None:
         self._cohort_memberships.setdefault(person_id, []).append(
@@ -536,6 +559,95 @@ class FakePersonHogClient:
         response = person_pb2.DeletePersonsBatchForTeamResponse(deleted_count=deleted_count)
         self.calls.append(_Call("delete_persons_batch_for_team", request, response))
         return response
+
+    # ── Feature flag hash key overrides ──────────────────────────────
+
+    def get_hash_key_override_context(
+        self, request: feature_flag_pb2.GetHashKeyOverrideContextRequest
+    ) -> feature_flag_pb2.GetHashKeyOverrideContextResponse:
+        self.calls.append(_Call("get_hash_key_override_context", request))
+
+        # Collect all person_ids from distinct_id lookups (via _persons_by_distinct_id or
+        # _hash_key_person_lookup) — deduplicated, preserving first-seen distinct_id per person.
+        seen_person_ids: set[int] = set()
+        person_id_to_distinct_id: dict[int, str] = {}
+
+        for did in request.distinct_ids:
+            # Try person store first, then the override-only lookup
+            person = self._persons_by_distinct_id.get((request.team_id, did))
+            if person is not None:
+                pid = person.id
+            else:
+                pid = self._hash_key_person_lookup.get((request.team_id, did), -1)
+                if pid == -1:
+                    continue
+            if pid not in seen_person_ids:
+                seen_person_ids.add(pid)
+                person_id_to_distinct_id[pid] = did
+
+        if request.check_person_exists and not seen_person_ids:
+            return feature_flag_pb2.GetHashKeyOverrideContextResponse(results=[])
+
+        results: list[feature_flag_pb2.HashKeyOverrideContext] = []
+        for pid, did in person_id_to_distinct_id.items():
+            overrides = [
+                feature_flag_pb2.HashKeyOverride(feature_flag_key=flag_key, hash_key=hk)
+                for (t_id, p_id, flag_key), hk in self._hash_key_overrides.items()
+                if t_id == request.team_id and p_id == pid
+            ]
+            existing_keys = [
+                flag_key
+                for (t_id, p_id, flag_key) in self._hash_key_overrides
+                if t_id == request.team_id and p_id == pid
+            ]
+            results.append(
+                feature_flag_pb2.HashKeyOverrideContext(
+                    person_id=pid,
+                    distinct_id=did,
+                    overrides=overrides,
+                    existing_feature_flag_keys=existing_keys,
+                )
+            )
+
+        return feature_flag_pb2.GetHashKeyOverrideContextResponse(results=results)
+
+    def upsert_hash_key_overrides(
+        self, request: feature_flag_pb2.UpsertHashKeyOverridesRequest, timeout: float | None = None
+    ) -> feature_flag_pb2.UpsertHashKeyOverridesResponse:
+        self.calls.append(_Call("upsert_hash_key_overrides", request))
+
+        person_ids: set[int] = set()
+        for did in request.distinct_ids:
+            person = self._persons_by_distinct_id.get((request.team_id, did))
+            if person is not None:
+                person_ids.add(person.id)
+            else:
+                pid = self._hash_key_person_lookup.get((request.team_id, did), -1)
+                if pid != -1:
+                    person_ids.add(pid)
+
+        inserted = 0
+        for pid in person_ids:
+            for flag_key in request.feature_flag_keys:
+                key = (request.team_id, pid, flag_key)
+                if key not in self._hash_key_overrides:
+                    self._hash_key_overrides[key] = request.hash_key
+                    inserted += 1
+
+        return feature_flag_pb2.UpsertHashKeyOverridesResponse(inserted_count=inserted)
+
+    def delete_hash_key_overrides_by_teams(
+        self, request: feature_flag_pb2.DeleteHashKeyOverridesByTeamsRequest, timeout: float | None = None
+    ) -> feature_flag_pb2.DeleteHashKeyOverridesByTeamsResponse:
+        self.calls.append(_Call("delete_hash_key_overrides_by_teams", request))
+        team_ids_set = set(request.team_ids)
+        to_remove = [k for k in self._hash_key_overrides if k[0] in team_ids_set]
+        for k in to_remove:
+            del self._hash_key_overrides[k]
+        lookup_to_remove = [k for k in self._hash_key_person_lookup if k[0] in team_ids_set]
+        for k in lookup_to_remove:
+            del self._hash_key_person_lookup[k]
+        return feature_flag_pb2.DeleteHashKeyOverridesByTeamsResponse(deleted_count=len(to_remove))
 
     # ── Assertion helpers ────────────────────────────────────────────
 

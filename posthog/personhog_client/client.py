@@ -28,6 +28,8 @@ from posthog.personhog_client.proto import (
     DeleteGroupTypeMappingResponse,
     DeleteGroupTypeMappingsBatchForTeamRequest,
     DeleteGroupTypeMappingsBatchForTeamResponse,
+    DeleteHashKeyOverridesByTeamsRequest,
+    DeleteHashKeyOverridesByTeamsResponse,
     DeletePersonsBatchForTeamRequest,
     DeletePersonsBatchForTeamResponse,
     DeletePersonsRequest,
@@ -47,6 +49,8 @@ from posthog.personhog_client.proto import (
     GetGroupTypeMappingsByProjectIdsRequest,
     GetGroupTypeMappingsByTeamIdRequest,
     GetGroupTypeMappingsByTeamIdsRequest,
+    GetHashKeyOverrideContextRequest,
+    GetHashKeyOverrideContextResponse,
     GetPersonByDistinctIdRequest,
     GetPersonByUuidRequest,
     GetPersonRequest,
@@ -68,6 +72,8 @@ from posthog.personhog_client.proto import (
     UpdateGroupResponse,
     UpdateGroupTypeMappingRequest,
     UpdateGroupTypeMappingResponse,
+    UpsertHashKeyOverridesRequest,
+    UpsertHashKeyOverridesResponse,
 )
 
 logger = structlog.get_logger(__name__)
@@ -305,6 +311,23 @@ class PersonHogClient:
         self, request: DeleteGroupTypeMappingsBatchForTeamRequest, timeout: float | None = None
     ) -> DeleteGroupTypeMappingsBatchForTeamResponse:
         return self._stub.DeleteGroupTypeMappingsBatchForTeam(request, timeout=timeout or self._timeout)
+
+    # -- Feature flag hash key overrides --
+
+    def get_hash_key_override_context(
+        self, request: GetHashKeyOverrideContextRequest
+    ) -> GetHashKeyOverrideContextResponse:
+        return self._stub.GetHashKeyOverrideContext(request, timeout=self._timeout)
+
+    def upsert_hash_key_overrides(
+        self, request: UpsertHashKeyOverridesRequest, timeout: float | None = None
+    ) -> UpsertHashKeyOverridesResponse:
+        return self._stub.UpsertHashKeyOverrides(request, timeout=timeout or self._timeout)
+
+    def delete_hash_key_overrides_by_teams(
+        self, request: DeleteHashKeyOverridesByTeamsRequest, timeout: float | None = None
+    ) -> DeleteHashKeyOverridesByTeamsResponse:
+        return self._stub.DeleteHashKeyOverridesByTeams(request, timeout=timeout or self._timeout)
 
 
 _client: Optional[PersonHogClient] = None
