@@ -525,7 +525,11 @@ export default function SchemaForm(): JSX.Element {
                                       synced_columns: columnSelectionSchema.synced_columns,
                                       primary_key_columns: columnSelectionSchema.primary_key_columns,
                                       incremental_field: columnSelectionSchema.incremental_field,
-                                      available_columns: columnSelectionSchema.available_columns,
+                                      available_columns: columnSelectionSchema.available_columns.map((c) => ({
+                                          name: c.field,
+                                          data_type: c.type,
+                                          is_nullable: c.nullable,
+                                      })),
                                   }
                                 : null
                         }
