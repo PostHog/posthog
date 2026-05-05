@@ -1375,7 +1375,7 @@ jobs:
               shell: bash
               run: | # async_migrations covered in ci-async-migrations.yml
                   set +e
-                  pytest -v --tb=short --reuse-db ${{
+                  pytest -v --tb=short --reuse-db -o junit_duration_report=call ${{
                       matrix.compat
                       && env.CLICKHOUSE_COMPAT_PYTEST_TARGETS
                       || (
@@ -1442,7 +1442,7 @@ jobs:
                   MODAL_TOKEN_SECRET: ${{ needs.changes.outputs.tasks_temporal == 'true' && secrets.MODAL_TOKEN_SECRET || '' }}
               run: |
                   set +e
-                  pytest -v --tb=short --reuse-db --timeout=600 --timeout-method=thread posthog/temporal products/batch_exports/backend/tests/temporal products/tasks/backend/temporal -m "not async_migrations" \
+                  pytest -v --tb=short --reuse-db -o junit_duration_report=call --timeout=600 --timeout-method=thread posthog/temporal products/batch_exports/backend/tests/temporal products/tasks/backend/temporal -m "not async_migrations" \
                       --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                       --durations=100 --durations-min=1.0 --store-durations \
                       --splitting-algorithm=duration_based_chunks \
@@ -1926,3 +1926,58 @@ jobs:
                   github-token: ${{ steps.telemetry-app-token.outputs.token }}
                   status-job: 'Django Tests Pass'
                   runner: 'depot'
+
+    report-test-timings:
+        name: Report per-test traces
+        needs: [django_tests]
+        runs-on: ubuntu-latest
+        continue-on-error: true
+        timeout-minutes: 10
+        # Master pushes always; PRs only when labelled `capture-test-timings`. Skip forks (no secrets access).
+        if: >-
+            always() &&
+            github.repository == 'PostHog/posthog' &&
+            (
+            (github.event_name != 'pull_request' && github.ref == 'refs/heads/master') ||
+            (github.event_name == 'pull_request' &&
+            github.event.pull_request.head.repo.full_name == 'PostHog/posthog' &&
+            contains(github.event.pull_request.labels.*.name, 'capture-test-timings'))
+            )
+        steps:
+            # Labelled PRs run the trusted base parser, so the same PR can't swap the script that receives secrets.
+            - uses: actions/checkout@v6
+              if: github.run_attempt == '1'
+              with:
+                  ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.sha }}
+                  fetch-depth: 1
+            - name: Check for trusted timing reporter
+              id: timing-reporter
+              if: github.run_attempt == '1'
+              shell: bash
+              run: |
+                  if [[ -f .github/scripts/report_test_timings.py ]]; then
+                    echo "available=true" >> "$GITHUB_OUTPUT"
+                  else
+                    echo "available=false" >> "$GITHUB_OUTPUT"
+                    echo "Trusted timing reporter is not available on the checked-out ref; skipping emit."
+                  fi
+            - uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              if: github.run_attempt == '1' && steps.timing-reporter.outputs.available == 'true'
+              with:
+                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+            - name: Download junit artifacts
+              if: github.run_attempt == '1' && steps.timing-reporter.outputs.available == 'true'
+              uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v6.0.0
+              with:
+                  path: ./junit-artifacts
+                  pattern: junit-results-*
+            - name: Emit per-test traces
+              if: github.run_attempt == '1' && steps.timing-reporter.outputs.available == 'true'
+              continue-on-error: true
+              env:
+                  POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+                  POSTHOG_OTLP_TRACES_ENDPOINT: ${{ vars.POSTHOG_OTLP_TRACES_ENDPOINT || 'https://us.i.posthog.com/i/v1/traces' }}
+              run: |
+                  uv run --script .github/scripts/report_test_timings.py \
+                      --min-duration-seconds=0.5 \
+                      ./junit-artifacts

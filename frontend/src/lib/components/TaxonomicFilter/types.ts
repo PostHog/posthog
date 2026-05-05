@@ -171,6 +171,13 @@ export interface TaxonomicFilterProps {
      *  picker never surfaces a value the surrounding UI can't represent. See `ExcludedOperators`
      *  above for how this differs from `operatorAllowlist` on `OperatorValueSelect`. */
     excludedOperators?: ExcludedOperators
+    /** Mark the picker (or specific groups within it) as key-only — the picked value is the final
+     *  selection, no operator+value pair is rendered alongside it. Consumed in two places:
+     *  - `taxonomicFilterLogic` records key-only selections directly to recents (column / event-name
+     *    pickers etc. — see #57309).
+     *  - `TaxonomicPropertyFilter` hides the operator+value pair on rows whose group is key-only.
+     *  See `SelectingKeyOnly` for the boolean-or-per-group-dict shape. */
+    selectingKeyOnly?: SelectingKeyOnly
 }
 
 export interface DataWarehousePopoverField {

@@ -1791,6 +1791,45 @@
             },
             "type": "object"
         },
+        "AssistantFunnelsGroupNode": {
+            "additionalProperties": false,
+            "description": "Defines a funnel step that combines multiple events or actions with OR (e.g. \"Pageview OR Pageleave\" counted as a single step). Filters live on the inner nodes — set per-node `properties` to give each event its own filter. Step-wide group filters, funnel math, and `optionalInFunnel` are not supported on grouped steps.",
+            "properties": {
+                "custom_name": {
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "GroupNode",
+                    "type": "string"
+                },
+                "name": {
+                    "description": "Display name for the combined step.",
+                    "type": "string"
+                },
+                "nodes": {
+                    "description": "Events and actions combined into the step. Use per-node `properties` to filter each event; there is no step-wide filter on a grouped step.",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/AssistantFunnelsEventsNode"
+                            },
+                            {
+                                "$ref": "#/definitions/AssistantFunnelsActionsNode"
+                            }
+                        ]
+                    },
+                    "minItems": 2,
+                    "type": "array"
+                },
+                "operator": {
+                    "const": "OR",
+                    "description": "Only `OR` is supported.",
+                    "type": "string"
+                }
+            },
+            "required": ["kind", "operator", "nodes"],
+            "type": "object"
+        },
         "AssistantFunnelsMath": {
             "enum": ["first_time_for_user", "first_time_for_user_with_filters"],
             "type": "string"
@@ -1802,6 +1841,9 @@
                 },
                 {
                     "$ref": "#/definitions/AssistantFunnelsActionsNode"
+                },
+                {
+                    "$ref": "#/definitions/AssistantFunnelsGroupNode"
                 }
             ]
         },
@@ -3681,6 +3723,10 @@
                     "$ref": "#/definitions/integer",
                     "default": 25,
                     "description": "How many distinct values to show."
+                },
+                "breakdown_path_cleaning": {
+                    "description": "When `true`, applies the project's configured path cleaning rules to URL or path breakdown values (e.g. `$pathname`, `$current_url`). Use this whenever the user asks for a breakdown by a URL or path property and there is no specific reason to keep the raw values. The user does not need to provide a regex — path cleaning rules come from the project's settings.",
+                    "type": "boolean"
                 },
                 "breakdowns": {
                     "description": "Use this field to define breakdowns.",

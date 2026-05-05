@@ -438,6 +438,10 @@ export interface AssistantTrendsBreakdownFilter extends AssistantBreakdownFilter
      * @maxLength 3
      */
     breakdowns: AssistantMultipleBreakdownFilter[]
+    /**
+     * When `true`, applies the project's configured path cleaning rules to URL or path breakdown values (e.g. `$pathname`, `$current_url`). Use this whenever the user asks for a breakdown by a URL or path property and there is no specific reason to keep the raw values. The user does not need to provide a regex — path cleaning rules come from the project's settings.
+     */
+    breakdown_path_cleaning?: boolean
 }
 
 // Remove deprecated display types.
@@ -634,7 +638,28 @@ export interface AssistantFunnelsActionsNode extends Omit<Node, 'response'>, Ass
     name: string
 }
 
-export type AssistantFunnelsNode = AssistantFunnelsEventsNode | AssistantFunnelsActionsNode
+/**
+ * Defines a funnel step that combines multiple events or actions with OR (e.g. "Pageview OR Pageleave"
+ * counted as a single step). Filters live on the inner nodes — set per-node `properties` to give each
+ * event its own filter. Step-wide group filters, funnel math, and `optionalInFunnel` are not supported
+ * on grouped steps.
+ */
+export interface AssistantFunnelsGroupNode {
+    kind: NodeKind.GroupNode
+    /** Only `OR` is supported. */
+    operator: FilterLogicalOperator.Or
+    /**
+     * Events and actions combined into the step. Use per-node `properties` to filter each event;
+     * there is no step-wide filter on a grouped step.
+     * @minItems 2
+     */
+    nodes: (AssistantFunnelsEventsNode | AssistantFunnelsActionsNode)[]
+    /** Display name for the combined step. */
+    name?: string
+    custom_name?: string
+}
+
+export type AssistantFunnelsNode = AssistantFunnelsEventsNode | AssistantFunnelsActionsNode | AssistantFunnelsGroupNode
 
 /**
  * Exclustion steps for funnels. The "from" and "to" steps must not exceed the funnel's series length.
