@@ -1,14 +1,16 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 import { useEffect, useRef } from 'react'
 
-import { IconChevronDown, IconMagicWand, IconX } from '@posthog/icons'
+import { IconChevronDown, IconCopy, IconMagicWand, IconX } from '@posthog/icons'
 import { LemonBanner, LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import { playerMetaLogic } from './player-meta/playerMetaLogic'
@@ -120,15 +122,39 @@ export function PlayerSummaryDock(): JSX.Element | null {
                         Use AI to summarize this session
                     </LemonButton>
                 )}
-                {(hasContentToExpand || isOpen) && (
-                    <LemonButton
-                        size="small"
-                        icon={<IconChevronDown className={isOpen ? '' : 'rotate-180'} />}
-                        onClick={() => setIsOpen(!isOpen)}
-                        tooltip={isOpen ? 'Collapse' : 'Expand'}
-                        aria-label={isOpen ? 'Collapse summary' : 'Expand summary'}
-                    />
-                )}
+                <div className="flex items-center gap-1">
+                    {hasSummary && sessionSummary && (
+                        <LemonButton
+                            size="small"
+                            icon={<IconCopy />}
+                            tooltip="Copy session summary for LLM"
+                            aria-label="Copy session summary for LLM"
+                            data-attr="copy-session-summary-for-llm"
+                            onClick={() => {
+                                void copyToClipboard(JSON.stringify(sessionSummary, null, 2), 'session summary')
+                                posthog.capture('session_summary_copied_for_llm', {
+                                    session_id: sessionRecordingId,
+                                    segment_count: sessionSummary.segments?.length ?? 0,
+                                    key_action_count:
+                                        sessionSummary.key_actions?.reduce(
+                                            (sum, k) => sum + (k.events?.length ?? 0),
+                                            0
+                                        ) ?? 0,
+                                    has_session_outcome: !!sessionSummary.session_outcome,
+                                })
+                            }}
+                        />
+                    )}
+                    {(hasContentToExpand || isOpen) && (
+                        <LemonButton
+                            size="small"
+                            icon={<IconChevronDown className={isOpen ? '' : 'rotate-180'} />}
+                            onClick={() => setIsOpen(!isOpen)}
+                            tooltip={isOpen ? 'Collapse' : 'Expand'}
+                            aria-label={isOpen ? 'Collapse summary' : 'Expand summary'}
+                        />
+                    )}
+                </div>
             </div>
             {isOpen && (
                 <div className="flex-1 overflow-y-auto px-3 pb-3">
