@@ -124,6 +124,49 @@ class TestInstanceStatus(APIBaseTest):
             },
         )
 
+    @patch("posthog.clickhouse.system_status.get_clickhouse_running_queries")
+    @patch("posthog.clickhouse.system_status.get_clickhouse_slow_log")
+    @patch("posthog.api.instance_status.InstanceStatusViewSet.get_postgres_running_queries")
+    def test_queries_returns_results_when_all_backends_succeed(self, mock_postgres, mock_slow_log, mock_running):
+        mock_postgres.return_value = [{"query": "SELECT 1"}]
+        mock_running.return_value = [{"query": "SELECT 2"}]
+        mock_slow_log.return_value = [{"query": "SELECT 3"}]
+
+        response = self.client.get("/api/instance_status/queries")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.json()["results"],
+            {
+                "postgres_running": [{"query": "SELECT 1"}],
+                "clickhouse_running": [{"query": "SELECT 2"}],
+                "clickhouse_slow_log": [{"query": "SELECT 3"}],
+            },
+        )
+
+    @patch("posthog.api.instance_status.posthoganalytics.capture_exception")
+    @patch("posthog.clickhouse.system_status.get_clickhouse_running_queries")
+    @patch("posthog.clickhouse.system_status.get_clickhouse_slow_log")
+    @patch("posthog.api.instance_status.InstanceStatusViewSet.get_postgres_running_queries")
+    def test_queries_returns_partial_results_when_a_backend_fails(
+        self, mock_postgres, mock_slow_log, mock_running, mock_capture
+    ):
+        mock_postgres.side_effect = Exception("postgres down")
+        mock_running.return_value = [{"query": "SELECT 2"}]
+        mock_slow_log.side_effect = Exception("clickhouse query log truncated")
+
+        response = self.client.get("/api/instance_status/queries")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.json()["results"],
+            {
+                "postgres_running": [],
+                "clickhouse_running": [{"query": "SELECT 2"}],
+                "clickhouse_slow_log": [],
+            },
+        )
+        self.assertEqual(mock_capture.call_count, 2)
+
     @patch("posthog.api.instance_status.is_postgres_alive")
     @patch("posthog.api.instance_status.is_redis_alive")
     @patch("posthog.api.instance_status.is_plugin_server_alive")

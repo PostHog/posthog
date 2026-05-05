@@ -6,6 +6,7 @@ from django.utils.decorators import method_decorator
 from django.views.decorators.cache import cache_page
 
 import posthoganalytics
+from drf_spectacular.utils import extend_schema
 from rest_framework import viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
@@ -29,6 +30,7 @@ from posthog.utils import (
 )
 
 
+@extend_schema(tags=["core"])
 class InstanceStatusViewSet(viewsets.ViewSet):
     """
     Show info about instance for this user
@@ -36,6 +38,10 @@ class InstanceStatusViewSet(viewsets.ViewSet):
 
     permission_classes = [IsAuthenticated, SingleTenancyOrAdmin]
 
+    @extend_schema(
+        description="Return overview metrics about the running instance: Postgres/Redis/ClickHouse health, plugin server status, and object storage availability.",
+        responses={200: None, 500: None},
+    )
     @method_decorator(cache_page(60))
     def list(self, request: Request) -> Response:
         try:
@@ -193,6 +199,10 @@ class InstanceStatusViewSet(viewsets.ViewSet):
 
         return Response({"results": {"overview": metrics}})
 
+    @extend_schema(
+        description="Lightweight health summary used by the in-app navigation to badge instance status.",
+        responses={200: None},
+    )
     @action(methods=["GET"], detail=False)
     def navigation(self, request: Request) -> Response:
         # Import here to avoid circular import
@@ -214,14 +224,33 @@ class InstanceStatusViewSet(viewsets.ViewSet):
             }
         )
 
+    @extend_schema(
+        description="Return currently running Postgres queries, currently running ClickHouse queries, and the recent ClickHouse slow query log. Each section is independently best-effort; if any backend is unavailable, that section comes back as an empty list while the others still populate.",
+        responses={200: None},
+    )
     @action(methods=["GET"], detail=False)
     def queries(self, request: Request) -> Response:
-        queries = {"postgres_running": self.get_postgres_running_queries()}
-
         from posthog.clickhouse.system_status import get_clickhouse_running_queries, get_clickhouse_slow_log
 
-        queries["clickhouse_running"] = get_clickhouse_running_queries()
-        queries["clickhouse_slow_log"] = get_clickhouse_slow_log()
+        queries: dict[str, Any] = {}
+
+        try:
+            queries["postgres_running"] = self.get_postgres_running_queries()
+        except Exception as e:
+            posthoganalytics.capture_exception(e)
+            queries["postgres_running"] = []
+
+        try:
+            queries["clickhouse_running"] = get_clickhouse_running_queries()
+        except Exception as e:
+            posthoganalytics.capture_exception(e)
+            queries["clickhouse_running"] = []
+
+        try:
+            queries["clickhouse_slow_log"] = get_clickhouse_slow_log()
+        except Exception as e:
+            posthoganalytics.capture_exception(e)
+            queries["clickhouse_slow_log"] = []
 
         return Response({"results": queries})
 
