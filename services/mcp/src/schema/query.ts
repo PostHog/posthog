@@ -156,19 +156,11 @@ const TrendsQuerySchema = InsightsQueryBase.extend({
     conversionGoal: z.any().nullable().optional(),
 })
 
-// Matches posthog/schema.py QueryLogTags — forwarded to the query API for ClickHouse tagging (required in DEBUG).
-const QueryLogTagsSchema = z.object({
-    name: z.string().optional(),
-    productKey: z.string().optional(),
-    scene: z.string().optional(),
-})
-
 // HogQL query
 const HogQLQuerySchema = z.object({
     kind: z.literal('HogQLQuery'),
     query: z.string(),
     filters: HogQLFilters.optional(),
-    tags: QueryLogTagsSchema.optional(),
     connectionId: z
         .string()
         .optional()

@@ -1,7 +1,6 @@
 import type { z } from 'zod'
 
 import { withUiApp } from '@/resources/ui-apps'
-import type { HogQLQuery } from '@/schema/query'
 import { QueryRunInputSchema } from '@/schema/tool-inputs'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase } from '@/tools/types'
@@ -15,46 +14,8 @@ type Params = z.infer<typeof schema>
 
 type Result = WithPostHogUrl<{ query: unknown; results: unknown }>
 
-/** HogQL from MCP must carry tags.productKey or Django DEBUG raises UntaggedQueryError on sync_execute. */
-function defaultHogqlProductKey(sql: string): string {
-    if (/\btrace_spans\b/i.test(sql)) {
-        return 'tracing'
-    }
-    if (/\blogs\b/i.test(sql)) {
-        return 'logs'
-    }
-    return 'platform_and_support'
-}
-
-function withDefaultTagsOnHogqlNode<Q extends HogQLQuery>(node: Q): Q {
-    if (node.tags?.productKey) {
-        return node
-    }
-    return {
-        ...node,
-        tags: {
-            ...node.tags,
-            productKey: defaultHogqlProductKey(node.query),
-            name: node.tags?.name ?? 'mcp_query_run',
-        },
-    }
-}
-
-function withDefaultHogqlTags(query: Params['query']): Params['query'] {
-    if (query.kind === 'HogQLQuery') {
-        return withDefaultTagsOnHogqlNode(query)
-    }
-    if (query.kind === 'DataVisualizationNode') {
-        return {
-            ...query,
-            source: withDefaultTagsOnHogqlNode(query.source),
-        }
-    }
-    return query
-}
-
 export const queryRunHandler: ToolBase<typeof schema, Result>['handler'] = async (context: Context, params: Params) => {
-    const query = withDefaultHogqlTags(params.query)
+    const { query } = params
 
     const projectId = await context.stateManager.getProjectId()
 
