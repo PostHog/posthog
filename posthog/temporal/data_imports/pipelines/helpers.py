@@ -46,7 +46,11 @@ def incremental_type_to_initial_value(field_type: IncrementalFieldType) -> int |
 
 
 def build_table_name(source: ExternalDataSource, schema_name: str):
-    return f"{source.prefix or ''}{source.source_type}_{schema_name}".lower()
+    # Replace dots so multi-schema warehouse names like `public.auth_group` produce a HogQL-safe
+    # identifier: `pfxpostgres_public__auth_group` instead of `pfxpostgres_public.auth_group`,
+    # which would otherwise parse as `<table>.<column>` in HogQL.
+    safe_schema_name = schema_name.replace(".", "__")
+    return f"{source.prefix or ''}{source.source_type}_{safe_schema_name}".lower()
 
 
 def sync_revenue_analytics_views(schema: ExternalDataSchema, source: ExternalDataSource) -> None:
