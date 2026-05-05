@@ -1533,20 +1533,6 @@
                                 },
                                 "query": {
                                     "type": "string"
-                                },
-                                "tags": {
-                                    "properties": {
-                                        "name": {
-                                            "type": "string"
-                                        },
-                                        "productKey": {
-                                            "type": "string"
-                                        },
-                                        "scene": {
-                                            "type": "string"
-                                        }
-                                    },
-                                    "type": "object"
                                 }
                             },
                             "required": ["kind", "query"],
@@ -1712,20 +1698,6 @@
                         },
                         "query": {
                             "type": "string"
-                        },
-                        "tags": {
-                            "properties": {
-                                "name": {
-                                    "type": "string"
-                                },
-                                "productKey": {
-                                    "type": "string"
-                                },
-                                "scene": {
-                                    "type": "string"
-                                }
-                            },
-                            "type": "object"
                         }
                     },
                     "required": ["kind", "query"],
