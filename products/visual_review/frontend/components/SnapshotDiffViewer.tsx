@@ -233,12 +233,6 @@ export function SnapshotDiffViewer({
 
     const [highlightedClusterIndex, setHighlightedClusterIndex] = useState<number | null>(null)
 
-    // Cap visible clusters at the top-N by pixel count. Backend stores
-    // up to CLUSTER_MAX (currently 20) for completeness; the UI is more
-    // useful with a tighter list — N+1 numbered chips on the image
-    // crowd each other and the sidebar runs out of vertical space.
-    // `cluster_summary.total` keeps the pre-merge true count regardless.
-    const VISIBLE_CLUSTER_CAP = 5
     // When a single (post-merge) cluster covers most of the image, the
     // bbox overlay adds no information beyond the diff% tag — full
     // inversions or wholesale changes show as "1 region · 99%". Skip
@@ -253,21 +247,10 @@ export function SnapshotDiffViewer({
         clusterSummary.items.length === 1 &&
         snapshot.diff_percentage != null &&
         snapshot.diff_percentage >= DOMINANT_CLUSTER_PCT_THRESHOLD
-    const visibleClusterSummary = useMemo(() => {
-        if (!clusterSummary || isClusterDominant) {
-            return null
-        }
-        if (clusterSummary.items.length <= VISIBLE_CLUSTER_CAP) {
-            return clusterSummary
-        }
-        return {
-            ...clusterSummary,
-            items: clusterSummary.items.slice(0, VISIBLE_CLUSTER_CAP),
-            // Force the truncation flag so the panel header reads
-            // "top 5 of 21" instead of "21 regions" when we trim.
-            truncated: true,
-        }
-    }, [clusterSummary, isClusterDominant])
+    const visibleClusterSummary = useMemo(
+        () => (isClusterDominant ? null : clusterSummary),
+        [clusterSummary, isClusterDominant]
+    )
     const overlayBoxes = useMemo(
         () =>
             visibleClusterSummary?.items.map((c) => ({

@@ -38,9 +38,18 @@ export function SnapshotClusterPanel({
         return null
     }
     const totalShownPixels = items.reduce((sum, c) => sum + c.pixel_count, 0)
-    const regionCountLabel = truncated
-        ? `top ${items.length} of ${total}`
-        : `${total} ${total === 1 ? 'region' : 'regions'}`
+    const count = items.length
+    // pixelhog 1.2 semantics: `total` is the pre-merge raw CCL count;
+    // `truncated` fires only when max_clusters dropped some pre-merge.
+    // When total > count without truncation, merging compressed
+    // pre-merge clusters — surface as context, not as missing data.
+    let regionCountLabel = `${count} ${count === 1 ? 'region' : 'regions'}`
+    if (total > count) {
+        regionCountLabel += ` · merged from ${total} raw`
+    }
+    if (truncated) {
+        regionCountLabel += ' · cap reached'
+    }
 
     return (
         <div>
