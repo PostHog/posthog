@@ -1,4 +1,5 @@
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 
@@ -54,6 +55,9 @@ class DeletionRequestContext:
     execution_mode: str = ExecutionMode.IMMEDIATE.value
     delete_all_events: bool = False
     hogql_predicate: str = ""
+    # Set by process_property_removal_per_shard; cleaned re-inserts get this exact value stamped
+    # onto inserted_at so the same op's delete pass can exclude them via inserted_at < marker.
+    inserted_at_marker: datetime | None = None
 
 
 @dataclass
@@ -124,7 +128,76 @@ def _event_removal_where(obj) -> tuple[str, dict]:
     return " ".join(p for p in parts if p), params
 
 
-def _get_affected_mat_columns(client: Client, table: str, properties: list[str]) -> list[tuple[str, bool]]:
+def _mat_col_presence_clauses(mat_cols: list[tuple[str, bool]]) -> list[str]:
+    """Per-column "value is present" checks for DEFAULT-materialized property columns.
+
+    Uses ``<col> != ''`` for both nullable and non-nullable variants:
+
+    - The DEFAULT expression (``JSONExtractRaw(properties, prop)``) returns
+      ``''`` for missing keys, regardless of whether the column type is
+      Nullable. So rows that never carried the property store ``''``, not
+      NULL, and ``IS NOT NULL`` would over-match them and pull control rows
+      into the copy/delete set.
+    - For nullable columns, ``NULL != ''`` evaluates to NULL (treated as
+      false in WHERE), so rows we reset to NULL during cleaning are
+      correctly skipped by the delete pass.
+    - The mutation reset still differs by nullability (NULL vs ``''``), which
+      is why ``is_nullable`` is preserved on the input — only the presence
+      check is uniform.
+    """
+    return [f"`{name}` != ''" for name, _ in mat_cols]
+
+
+def _property_removal_where(
+    ctx: DeletionRequestContext,
+    mat_cols: list[tuple[str, bool]] | None = None,
+    inserted_at_max: str | None = None,
+) -> tuple[str, dict]:
+    """Full WHERE predicate + params for property-removal queries.
+
+    Used both to copy candidate events into the staging table and to delete the
+    originals afterward. The presence check (JSON ``properties`` plus DEFAULT
+    materialized columns) MUST match between the two passes — drift causes
+    either data loss (delete > copy) or duplication (copy > delete).
+
+    The delete pass additionally passes ``inserted_at_max``: cleaned re-inserts
+    are stamped with that exact value, so ``inserted_at < marker`` skips them.
+    Legacy rows may have ``inserted_at IS NULL`` and are still originals to
+    delete — the NULL branch keeps them in scope.
+    """
+    presence_clauses = [_property_filter_clause(ctx.properties)]
+    if mat_cols:
+        presence_clauses.extend(_mat_col_presence_clauses(mat_cols))
+    presence = f"({' OR '.join(presence_clauses)})" if len(presence_clauses) > 1 else presence_clauses[0]
+
+    parts = [
+        "team_id = %(team_id)s",
+        "AND timestamp >= %(start_time)s",
+        "AND timestamp < %(end_time)s",
+        "AND event IN %(events)s",
+        f"AND {presence}",
+    ]
+    params = _base_params(ctx)
+    if inserted_at_max is not None:
+        # Cast explicitly to DateTime64(6) — without it the parameter is parsed as DateTime
+        # (second precision), which truncates microseconds and causes the comparison to skip
+        # originals whose inserted_at falls in the same second as the marker. The cleaned
+        # re-inserts (which stamp inserted_at = marker via the same parameter) suffer the
+        # same truncation in the mutation, so both sides must use the cast.
+        parts.append("AND (inserted_at IS NULL OR inserted_at < toDateTime64(%(inserted_at_max)s, 6, 'UTC'))")
+        params["inserted_at_max"] = inserted_at_max
+    return " ".join(parts), params
+
+
+QueryLogger = Callable[[str, str], None]
+
+
+def _get_affected_mat_columns(
+    client: Client,
+    table: str,
+    properties: list[str],
+    log: QueryLogger | None = None,
+) -> list[tuple[str, bool]]:
     """Query a specific shard for DEFAULT materialized columns matching deleted properties.
 
     Returns ``(column_name, is_nullable)`` for DEFAULT columns whose comment follows
@@ -134,8 +207,7 @@ def _get_affected_mat_columns(client: Client, table: str, properties: list[str])
     are excluded — ClickHouse recomputes them automatically at insert time.
     """
     database = django_settings.CLICKHOUSE_DATABASE
-    rows = client.execute(
-        """
+    sql = """
         SELECT name, comment, type LIKE 'Nullable(%%)'
         FROM system.columns
         WHERE database = %(database)s
@@ -143,9 +215,10 @@ def _get_affected_mat_columns(client: Client, table: str, properties: list[str])
           AND default_kind = 'DEFAULT'
           AND comment LIKE '%%column_materializer::%%'
           AND comment NOT LIKE '%%column_materializer::elements_chain::%%'
-        """,
-        {"database": database, "table": table},
-    )
+        """
+    if log:
+        log("discover-mat-cols", sql)
+    rows = client.execute(sql, {"database": database, "table": table})
 
     target_props = set(properties)
     result: list[tuple[str, bool]] = []
@@ -156,27 +229,35 @@ def _get_affected_mat_columns(client: Client, table: str, properties: list[str])
     return result
 
 
-def _create_local_staging_table(client: Client, source_table: str, staging_table: str) -> None:
+def _create_local_staging_table(
+    client: Client,
+    source_table: str,
+    staging_table: str,
+    log: QueryLogger | None = None,
+) -> None:
     """Create a non-replicated local copy of the source table schema."""
     database = django_settings.CLICKHOUSE_DATABASE
 
-    rows = client.execute(
-        "SELECT count() FROM system.tables WHERE database = %(db)s AND name = %(table)s",
-        {"db": database, "table": staging_table},
-    )
+    exists_sql = "SELECT count() FROM system.tables WHERE database = %(db)s AND name = %(table)s"
+    if log:
+        log("temp-exists-check", exists_sql)
+    rows = client.execute(exists_sql, {"db": database, "table": staging_table})
     if rows[0][0] > 0:
         return
 
-    rows = client.execute(
-        "SELECT engine_full FROM system.tables WHERE database = %(db)s AND name = %(table)s",
-        {"db": database, "table": source_table},
-    )
+    engine_sql = "SELECT engine_full FROM system.tables WHERE database = %(db)s AND name = %(table)s"
+    if log:
+        log("source-engine-lookup", engine_sql)
+    rows = client.execute(engine_sql, {"db": database, "table": source_table})
     if not rows:
         raise dagster.Failure(description=f"Source table {database}.{source_table} not found")
 
-    client.execute(
+    create_sql = (
         f"CREATE TABLE IF NOT EXISTS {database}.{staging_table} AS {database}.{source_table} ENGINE = MergeTree()"
     )
+    if log:
+        log("create-temp", create_sql)
+    client.execute(create_sql)
 
 
 # ---------------------------------------------------------------------------
@@ -399,86 +480,134 @@ def load_property_removal_request(
 
 
 @dagster.op(tags=OWNER_TAG, retry_policy=dagster.RetryPolicy(max_retries=0))
-def prepare_and_insert_modified_events(
+def process_property_removal_per_shard(
     context: dagster.OpExecutionContext,
     cluster: dagster.ResourceParam[ClickhouseCluster],
     deletion_request: DeletionRequestContext,
 ) -> DeletionRequestContext:
-    """Create temp table, copy events, drop properties, verify, and insert back — all on the same node per shard.
+    """Run the full property-removal cycle one shard at a time.
 
-    The temp table is local MergeTree (non-replicated), so every step that
-    touches it must execute on the same ClickHouse node. This op runs all
-    temp-table work within a single callable per shard to guarantee that.
+    Per shard, on a single host (the temp table is local non-replicated MergeTree):
 
-    After this op, sharded_events temporarily has both the original events
-    (with the target properties) and the modified events (without them).
-    The next op deletes the originals via a lightweight delete.
+      1. Discover affected DEFAULT materialized columns.
+      2. Create the temp table.
+      3. Copy matching events from sharded_events into temp. Presence check covers
+         JSON ``properties`` AND materialized columns — a row can carry the value
+         in the column alone, and ``SELECT *`` would otherwise leave it behind.
+      4. Mutate the temp table: drop JSON keys, reset materialized columns to their
+         defaults, stamp ``inserted_at = marker``.
+      5. Verify no target presence remains in temp (JSON or materialized columns).
+      6. Re-insert cleaned events into sharded_events.
+      7. Lightweight-delete the originals from sharded_events. Same presence check
+         as the copy, plus ``inserted_at IS NULL OR inserted_at < marker`` so the
+         cleaned re-inserts (stamped with that exact marker) are skipped.
+      8. Drop the temp table.
+
+    Steps 3 and 7 use the same predicate (modulo the ``inserted_at`` clause on
+    delete), generated by ``_property_removal_where`` from the same per-shard
+    ``mat_cols`` list, so they cannot drift.
     """
+    from django.utils import timezone
+
     source = EVENTS_DATA_TABLE()
     temp = _temp_table_name(deletion_request.team_id, deletion_request.request_id)
     db = django_settings.CLICKHOUSE_DATABASE
-    prop_filter = _property_filter_clause(deletion_request.properties)
-    params = _base_params(deletion_request)
-    keys = deletion_request.properties
+    properties = deletion_request.properties
+    marker = timezone.now()
+    deletion_request.inserted_at_marker = marker
+    # Format the marker as a string with microseconds — clickhouse-driver serializes Python
+    # datetime values with second precision, which causes the cleaned re-inserts to be stamped
+    # with a truncated inserted_at and the originals-delete predicate to mismatch by sub-second
+    # offsets. Passing as ISO string and casting in SQL preserves the full precision.
+    marker_str = marker.strftime("%Y-%m-%d %H:%M:%S.%f")
+
+    def _flatten_sql(sql: str) -> str:
+        return " ".join(sql.split())
 
     def process_shard(client: Client) -> dict:
-        # 1. Create temp table
-        _create_local_staging_table(client, source_table=source, staging_table=temp)
+        def log_query(label: str, sql: str) -> None:
+            context.log.info(f"[{label}] {_flatten_sql(sql)}")
 
-        # 2. Copy matching events (truncate first for idempotency)
-        client.execute(f"TRUNCATE TABLE IF EXISTS {db}.{temp}")
-        client.execute(
-            f"""
-            INSERT INTO {db}.{temp}
-            SELECT * FROM {db}.{source}
-            WHERE team_id = %(team_id)s
-              AND timestamp >= %(start_time)s
-              AND timestamp < %(end_time)s
-              AND event IN %(events)s
-              AND {prop_filter}
-            """,
-            params,
+        def execute(label: str, sql: str, params=None, settings=None):
+            log_query(label, sql)
+            return client.execute(sql, params, settings=settings)
+
+        affected_mat_cols = _get_affected_mat_columns(client, "events", properties, log=log_query)
+        context.log.info(f"affected materialized columns: {[c[0] for c in affected_mat_cols]}")
+
+        _create_local_staging_table(client, source_table=source, staging_table=temp, log=log_query)
+
+        copy_predicate, copy_params = _property_removal_where(deletion_request, mat_cols=affected_mat_cols)
+        execute("truncate-temp", f"TRUNCATE TABLE IF EXISTS {db}.{temp}")
+        execute(
+            "copy-into-temp",
+            f"INSERT INTO {db}.{temp} SELECT * FROM {db}.{source} WHERE {copy_predicate}",
+            copy_params,
             settings={"max_execution_time": 1800},
         )
-        copied = client.execute(f"SELECT count() FROM {db}.{temp}")[0][0]
-
-        # 3. Mutate properties and reset affected DEFAULT materialized columns.
-        # Query the distributed table (events) for column comments — sharded_events
-        # may not carry them. Queried per-shard to handle schema drift.
-        affected_mat_cols = _get_affected_mat_columns(client, "events", keys)
+        copied = execute("count-temp", f"SELECT count() FROM {db}.{temp}")[0][0]
 
         update_parts = [
             "properties = JSONDropKeys(%(keys)s)(properties)",
-            "inserted_at = now()",
+            # Cast to DateTime64(6) so microseconds survive the parameter binding —
+            # mirrors the cast in the delete predicate so both sides agree on the marker.
+            "inserted_at = toDateTime64(%(inserted_at_marker)s, 6, 'UTC')",
         ]
         for col_name, is_nullable in affected_mat_cols:
             default = "NULL" if is_nullable else "''"
             update_parts.append(f"`{col_name}` = {default}")
 
-        runner = AlterTableMutationRunner(
+        clean_runner = AlterTableMutationRunner(
             table=temp,
             commands={f"UPDATE {', '.join(update_parts)} WHERE 1=1"},
-            parameters={"keys": keys},
+            parameters={"keys": properties, "inserted_at_marker": marker_str},
         )
-        waiter = runner(client)
-        waiter.wait(client)
+        context.log.info(
+            f"[clean-temp-mutation] {_flatten_sql(clean_runner.get_statement(clean_runner.get_all_commands()))}"
+        )
+        clean_waiter = clean_runner(client)
+        clean_waiter.wait(client)
 
-        # 4. Verify no target properties remain
-        verify_params = _property_filter_params(keys)
-        remaining = client.execute(
-            f"SELECT count() FROM {db}.{temp} WHERE {prop_filter}",
+        verify_clauses = [_property_filter_clause(properties), *_mat_col_presence_clauses(affected_mat_cols)]
+        verify_predicate = f"({' OR '.join(verify_clauses)})" if len(verify_clauses) > 1 else verify_clauses[0]
+        verify_params = _property_filter_params(properties)
+        remaining = execute(
+            "verify-temp-clean",
+            f"SELECT count() FROM {db}.{temp} WHERE {verify_predicate}",
             verify_params,
         )[0][0]
         if remaining > 0:
-            raise Exception(f"{remaining} events still have target properties after mutation")
+            raise Exception(f"{remaining} events still carry target properties after mutation")
 
-        # 5. Insert modified events back into sharded_events
-        client.execute(
+        execute(
+            "insert-cleaned-back",
             f"INSERT INTO {db}.{source} SELECT * FROM {db}.{temp}",
             settings={"max_execution_time": 1800},
         )
 
-        return {"copied": copied, "remaining_after_verify": remaining}
+        # Submit the originals delete. Returns a waiter so the outer loop can block on
+        # all replicas of this shard before moving on to the next shard.
+        delete_predicate, delete_params = _property_removal_where(
+            deletion_request,
+            mat_cols=affected_mat_cols,
+            inserted_at_max=marker_str,
+        )
+        delete_runner = LightweightDeleteMutationRunner(
+            table=source,
+            predicate=delete_predicate,
+            parameters=delete_params,
+            settings={"lightweight_deletes_sync": 2, "mutations_sync": 2},
+        )
+        context.log.info(
+            f"[delete-originals] {_flatten_sql(delete_runner.get_statement(delete_runner.get_all_commands()))}"
+        )
+        delete_waiter = delete_runner(client)
+        # Wait locally so we can be sure the delete is fully applied before this op moves on
+        # to the next shard or returns. ``mutations_sync = 2`` makes the runner block on all
+        # replicas of the originating shard; the explicit ``wait`` is a defensive backstop.
+        delete_waiter.wait(client)
+
+        return {"copied": copied}
 
     shards = sorted(cluster.shards)
     for idx, shard_num in enumerate(shards, 1):
@@ -488,62 +617,16 @@ def prepare_and_insert_modified_events(
         result = cluster.map_any_host_in_shards({shard_num: process_shard}).result()
         _host, stats = next(iter(result.items()))
 
+        # Drop the local temp table. Runs on the originating host because the table is
+        # local non-replicated; we route to the same host via Query on the full schema name.
+        drop_sql = f"DROP TABLE IF EXISTS {db}.{temp}"
+        context.log.info(f"[drop-temp] shard {shard_num}: {drop_sql}")
+        cluster.map_any_host_in_shards({shard_num: Query(drop_sql)}).result()
+
         elapsed = time.monotonic() - shard_start
-        context.log.info(f"Shard {shard_num}: copied {stats['copied']} events, insert complete in {elapsed:.1f}s")
-
-    return deletion_request
-
-
-@dagster.op(tags=OWNER_TAG)
-def delete_original_events(
-    context: dagster.OpExecutionContext,
-    cluster: dagster.ResourceParam[ClickhouseCluster],
-    deletion_request: DeletionRequestContext,
-) -> DeletionRequestContext:
-    """Delete the original (unmodified) events that still have the target properties."""
-    table = EVENTS_DATA_TABLE()
-    prop_filter = _property_filter_clause(deletion_request.properties)
-
-    for shard_num in sorted(cluster.shards):
-        context.log.info(f"Deleting originals on shard {shard_num}")
-        shard_start = time.monotonic()
-
-        runner = LightweightDeleteMutationRunner(
-            table=table,
-            predicate=(
-                f"team_id = %(team_id)s "
-                f"AND timestamp >= %(start_time)s "
-                f"AND timestamp < %(end_time)s "
-                f"AND event IN %(events)s "
-                f"AND {prop_filter}"
-            ),
-            parameters=_base_params(deletion_request),
-            settings={"lightweight_deletes_sync": 0},
+        context.log.info(
+            f"Shard {shard_num}: copied {stats['copied']} events, originals deleted, temp dropped in {elapsed:.1f}s"
         )
-
-        shard_result = cluster.map_any_host_in_shards({shard_num: runner}).result()
-        _host, waiter = next(iter(shard_result.items()))
-        cluster.map_all_hosts_in_shard(shard_num, waiter.wait).result()
-
-        elapsed = time.monotonic() - shard_start
-        context.log.info(f"Shard {shard_num}: delete complete in {elapsed:.1f}s")
-
-    return deletion_request
-
-
-@dagster.op(tags=OWNER_TAG)
-def cleanup_temp_tables(
-    context: dagster.OpExecutionContext,
-    cluster: dagster.ResourceParam[ClickhouseCluster],
-    deletion_request: DeletionRequestContext,
-) -> DeletionRequestContext:
-    """Drop the temp tables on all shards."""
-    temp = _temp_table_name(deletion_request.team_id, deletion_request.request_id)
-    db = django_settings.CLICKHOUSE_DATABASE
-
-    for shard_num in sorted(cluster.shards):
-        cluster.map_any_host_in_shards({shard_num: Query(f"DROP TABLE IF EXISTS {db}.{temp}")}).result()
-        context.log.info(f"Shard {shard_num}: temp table dropped")
 
     return deletion_request
 
@@ -861,11 +944,10 @@ def data_deletion_request_event_removal():
 
 @dagster.job(tags=OWNER_TAG, hooks={mark_deletion_failed})
 def data_deletion_request_property_removal():
-    """Execute an approved property removal request: copy events, drop properties, swap back."""
+    """Execute an approved property removal request: per shard, copy events, drop properties,
+    re-insert, delete originals, drop temp."""
     request = load_property_removal_request()
-    request = prepare_and_insert_modified_events(request)
-    request = delete_original_events(request)
-    request = cleanup_temp_tables(request)
+    request = process_property_removal_per_shard(request)
     finalize_deletion_request(request)
 
 
