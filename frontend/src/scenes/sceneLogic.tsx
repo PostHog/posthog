@@ -11,6 +11,7 @@ import { TeamMembershipLevel } from 'lib/constants'
 import { trackFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { getChunkLoadRecoveryAction, isChunkLoadError, reloadAfterChunkLoadError } from 'lib/utils/chunkLoadErrorRecovery'
 import { getRelativeNextPath, identifierToHuman } from 'lib/utils'
 import { getAppContext, getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
 import { NEW_INTERNAL_TAB } from 'lib/utils/newInternalTab'
@@ -418,8 +419,6 @@ export const sceneLogic = kea<sceneLogicType>([
             tabId,
             params,
         }),
-        reloadBrowserDueToImportError: true,
-
         newTab: (
             href?: string | null,
             options?: { activate?: boolean; skipNavigate?: boolean; id?: string; source?: TabOpenSource }
@@ -660,13 +659,6 @@ export const sceneLogic = kea<sceneLogicType>([
             {
                 loadScene: (_, { sceneId }) => sceneId,
                 setScene: () => null,
-            },
-        ],
-        lastReloadAt: [
-            null as number | null,
-            { persist: true },
-            {
-                reloadBrowserDueToImportError: () => new Date().valueOf(),
             },
         ],
         lastSetScenePayload: [
@@ -1366,20 +1358,13 @@ export const sceneLogic = kea<sceneLogicType>([
                     window.ESBUILD_LOAD_CHUNKS?.(sceneId)
                     importedScene = await props.scenes[sceneId]()
                 } catch (error: any) {
-                    if (
-                        error.name === 'ChunkLoadError' || // webpack
-                        error.message?.includes('Failed to fetch dynamically imported module') // esbuild
-                    ) {
-                        // Reloaded once in the last 20 seconds and now reloading again? Show network error
-                        if (
-                            values.lastReloadAt &&
-                            parseInt(String(values.lastReloadAt)) > new Date().valueOf() - 20000
-                        ) {
+                    if (isChunkLoadError(error)) {
+                        if (getChunkLoadRecoveryAction(error) === 'show-error') {
                             console.error('App assets regenerated. Showing error page.')
                             actions.setScene(Scene.ErrorNetwork, undefined, tabId, emptySceneParams, clickedLink)
                         } else {
                             console.error('App assets regenerated. Reloading this page.')
-                            actions.reloadBrowserDueToImportError()
+                            reloadAfterChunkLoadError()
                         }
                         return
                     }
@@ -1416,9 +1401,6 @@ export const sceneLogic = kea<sceneLogicType>([
                 actions.setExportedScene(exportedScene, sceneId, sceneKey, tabId, params)
             }
             actions.setScene(sceneId, sceneKey, tabId, params, clickedLink || wasNotLoaded, exportedScene)
-        },
-        reloadBrowserDueToImportError: () => {
-            window.location.reload()
         },
     })),
 

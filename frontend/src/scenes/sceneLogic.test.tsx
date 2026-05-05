@@ -3,6 +3,7 @@ import { router } from 'kea-router'
 import { expectLogic, partial, truth } from 'kea-test-utils'
 
 import api from 'lib/api'
+import * as chunkLoadErrorRecovery from 'lib/utils/chunkLoadErrorRecovery'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -65,6 +66,11 @@ describe('sceneLogic', () => {
         await expectLogic(logic).delay(1)
     })
 
+    afterEach(() => {
+        logic.unmount()
+        featureFlagLogic.unmount()
+    })
+
     it('has preloaded some scenes', async () => {
         const preloadedScenes = [Scene.Error404, Scene.ErrorNetwork, Scene.ErrorProjectUnavailable]
         await expectLogic(logic).toMatchValues({
@@ -73,6 +79,32 @@ describe('sceneLogic', () => {
                     Object.keys(obj).filter((key) => preloadedScenes.includes(key as Scene)).length === 3
             ),
         })
+    })
+
+    it('routes to the network error scene after a repeated lazy import failure', async () => {
+        const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+
+        try {
+            logic.unmount()
+            chunkLoadErrorRecovery.markChunkLoadReloadAttempt()
+
+            const brokenScenes = {
+                ...testScenes,
+                [Scene.DataManagement]: async () => {
+                    throw new Error('Failed to fetch dynamically imported module: /static/chunk.js')
+                },
+            }
+
+            logic = sceneLogic.build({ scenes: brokenScenes })
+            logic.cache.tabsLoaded = false
+            logic.mount()
+
+            await expectLogic(logic).delay(1)
+
+            expect(logic.values.sceneId).toBe(Scene.ErrorNetwork)
+        } finally {
+            consoleErrorSpy.mockRestore()
+        }
     })
 
     it('changing URL runs openScene, loadScene and setScene', async () => {

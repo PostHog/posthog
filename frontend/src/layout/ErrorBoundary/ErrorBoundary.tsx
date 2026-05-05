@@ -2,6 +2,7 @@ import './ErrorBoundary.scss'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { IconCopy } from '@posthog/icons'
 import { PostHogErrorBoundary, type PostHogErrorBoundaryFallbackProps } from '@posthog/react'
@@ -9,8 +10,11 @@ import { PostHogErrorBoundary, type PostHogErrorBoundaryFallbackProps } from '@p
 import { SupportTicketExceptionEvent, supportLogic } from 'lib/components/Support/supportLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { getChunkLoadRecoveryAction, reloadAfterChunkLoadError } from 'lib/utils/chunkLoadErrorRecovery'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { teamLogic } from 'scenes/teamLogic'
+
+import { ErrorNetwork } from '../ErrorNetwork'
 
 const DOM_MUTATION_PATTERNS = [
     "Failed to execute 'removeChild' on 'Node'",
@@ -27,6 +31,36 @@ interface ErrorBoundaryProps {
     children?: React.ReactNode
     exceptionProps?: Record<string, number | string | boolean | bigint | symbol | null | undefined>
     className?: string
+}
+
+function ChunkLoadErrorFallback({
+    className,
+    recoveryAction,
+}: {
+    className?: string
+    recoveryAction: 'reload' | 'show-error'
+}): JSX.Element {
+    useEffect(() => {
+        if (recoveryAction === 'reload') {
+            console.error('App assets regenerated in a lazily loaded component. Reloading this page.')
+            reloadAfterChunkLoadError()
+        }
+    }, [recoveryAction])
+
+    if (recoveryAction === 'show-error') {
+        return (
+            <div className={clsx('ErrorBoundary', className)}>
+                <ErrorNetwork />
+            </div>
+        )
+    }
+
+    return (
+        <div className={clsx('ErrorBoundary', className)}>
+            <h2>Refreshing…</h2>
+            <p>PostHog just updated. Reloading the page now.</p>
+        </div>
+    )
 }
 
 export function ErrorBoundary({ children, exceptionProps = {}, className }: ErrorBoundaryProps): JSX.Element {
@@ -53,6 +87,7 @@ export function ErrorBoundary({ children, exceptionProps = {}, className }: Erro
                 const exceptionEvent = props.exceptionEvent as SupportTicketExceptionEvent
 
                 const isBrowserExtensionError = isDOMModificationError(normalizedError)
+                const chunkLoadRecoveryAction = getChunkLoadRecoveryAction(normalizedError)
 
                 const errorDetails = [
                     exceptionEvent?.uuid ? `Exception ID: ${exceptionEvent.uuid}` : null,
@@ -60,6 +95,10 @@ export function ErrorBoundary({ children, exceptionProps = {}, className }: Erro
                 ]
                     .filter(Boolean)
                     .join('\n\n')
+
+                if (chunkLoadRecoveryAction !== 'ignore') {
+                    return <ChunkLoadErrorFallback className={className} recoveryAction={chunkLoadRecoveryAction} />
+                }
 
                 return (
                     <div className={clsx('ErrorBoundary', className)}>
