@@ -57,13 +57,12 @@
         min-width: 8rem;
         max-height: var(--available-height);
         overflow: hidden auto;
-        color: var(--popover-foreground);
-        background-color: var(--popover);
+        color: var(--foreground);
+        background-color: var(--card);
         isolation: isolate;
+        border: 1px solid var(--border);
         border-radius: var(--radius-md);
-        box-shadow:
-            0 0 0 1px color-mix(in oklab, var(--foreground) 10%, transparent),
-            0 4px 6px -1px rgb(0 0 0 / 10%);
+        box-shadow: var(--shadow-md);
         transition:
             opacity 150ms cubic-bezier(0.215, 0.61, 0.355, 1),
             transform 150ms cubic-bezier(0.215, 0.61, 0.355, 1);
@@ -104,7 +103,7 @@
     }
 
     .quill-select__item:focus {
-        color: var(--accent-foreground);
+        color: var(--foreground);
         background-color: var(--fill-hover);
     }
 
@@ -148,11 +147,11 @@
 
     .quill-select__scroll-button {
         top: 0;
+        left: 50%;
         z-index: 10;
-        width: 100%;
-        padding-block: 0.25rem;
-        cursor: default;
-        background-color: var(--popover);
+        background-color: var(--card);
+        border-radius: 9999px;
+        transform: translateX(-50%);
     }
 
     .quill-select__scroll-button svg:not([class*='size-']) {
@@ -162,7 +161,11 @@
 
     .quill-select__scroll-button--down {
         top: auto;
-        bottom: 0;
+        bottom: var(--spacing);
+    }
+
+    .quill-select__scroll-button--up {
+        top: var(--spacing);
     }
 
     @media (prefers-reduced-motion: reduce) {

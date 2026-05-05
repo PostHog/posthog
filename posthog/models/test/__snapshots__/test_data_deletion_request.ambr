@@ -1,10 +1,7 @@
 # serializer version: 1
-# name: test_compile_hogql_predicate_emits_sharded_events_for_materialized_column
-  dict({
-    'events': 'like(events.`mat_$current_url`, %(hogql_val_0)s)',
-    'sharded': 'like(sharded_events.`mat_$current_url`, %(hogql_val_0)s)',
-  })
-# ---
-# name: test_compile_hogql_predicate_targets_sharded_events
+# name: test_compile_hogql_predicate_emits_no_table_qualifier
   'and(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, %(hogql_val_0)s), \'\'), \'null\'), \'^"|"$\', \'\'), %(hogql_val_1)s), 0), equals(event, %(hogql_val_2)s))'
+# ---
+# name: test_compile_hogql_predicate_emits_unqualified_materialized_column
+  'like(`mat_$current_url`, %(hogql_val_0)s)'
 # ---

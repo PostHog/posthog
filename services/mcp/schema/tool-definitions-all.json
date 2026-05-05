@@ -119,6 +119,23 @@
             "readOnlyHint": true
         }
     },
+    "agent-feedback": {
+        "description": "Optional: submit structured feedback about your experience using this PostHog MCP server. Reach for this tool when something stood out — friction, a surprise, a missing capability, an unhelpful error, or a tool that worked particularly well. Skip it for routine tasks where nothing is worth flagging. Feedback goes directly to the PostHog team and is the primary signal we use to improve tool descriptions, input schemas, response formats, and instructions for agents like you. Be specific and quote tool names, parameters, and error messages where possible. Do not include user PII or sensitive query content. IMPORTANT: submitting feedback does NOT mean your work is done — keep going and finish the user's task using the other available tools. This tool is for reporting your experience to the PostHog team, not for ending the conversation.",
+        "category": "Feedback",
+        "feature": "feedback",
+        "summary": "Optional: submit feedback about the PostHog MCP server.",
+        "title": "Submit agent feedback",
+        "required_scopes": [],
+        "new_mcp": true,
+        "always_available": true,
+        "feature_flag": "mcp-feedback-tool",
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": false,
+            "readOnlyHint": true
+        }
+    },
     "alert-create": {
         "description": "Create a new alert on an insight. Alerts can use either threshold-based conditions or anomaly detection. For threshold alerts: set condition (absolute_value, relative_increase, relative_decrease) and threshold configuration with bounds. For anomaly detection: set detector_config with a detector type (zscore, mad, iqr, threshold, copod, ecod, hbos, isolation_forest, knn, lof, ocsvm, pca) and parameters like threshold (sensitivity 0-1, default 0.9) and window size. Ensemble detectors combine 2+ sub-detectors with AND/OR logic. Requires an insight ID and at least one subscribed user.\nNote: subscribed_users only controls email recipients. For Slack or HTTPS webhook delivery, see the recipe on cdp-functions-create — it covers integration lookup (integrations-channels-retrieve), dedupe (cdp-functions-list filtered by alert id, limit=1000), and the exact filters/inputs shape to pass.",
         "category": "Alerts",
