@@ -8,7 +8,7 @@ The agent is [pi-coding-agent](https://pi.dev) running the [pi-autoresearch](htt
 
 - macOS — the coordinator hard-fails on other platforms.
 - A docker daemon (Orbstack etc).
-- `ANTHROPIC_API_KEY` exported in your shell or set in the repo `.env` (Claude Code's gateway token is intentionally NOT used).
+- `ANTHROPIC_API_KEY` in your `.env`.
 
 ## What happens when you run it
 
