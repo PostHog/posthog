@@ -5,6 +5,7 @@ import { router } from 'kea-router'
 import { IconClock, IconCopy, IconRefresh, IconTrash, IconUpload, IconWarning } from '@posthog/icons'
 import { LemonBanner, LemonDialog, LemonDivider, LemonFileInput, Link, Tooltip } from '@posthog/lemon-ui'
 
+import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
 import { SceneAddToNotebookDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToNotebookDropdownMenu'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
@@ -38,7 +39,7 @@ import {
 } from '~/layout/scenes/SceneLayout'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 import { Query } from '~/queries/Query/Query'
-import { CohortType, SidePanelTab } from '~/types'
+import { ActivityScope, CohortType, SidePanelTab } from '~/types'
 
 import { AddPersonToCohortModal } from './AddPersonToCohortModal'
 import { addPersonToCohortModalLogic } from './addPersonToCohortModalLogic'
@@ -639,6 +640,18 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                                             />
                                         )}
                                     </div>
+                                </SceneSection>
+                            </>
+                        )}
+
+                        {typeof cohort.id === 'number' && (
+                            <>
+                                <SceneDivider />
+                                <SceneSection
+                                    title="History"
+                                    description="Track changes made to this cohort over time."
+                                >
+                                    <ActivityLog scope={ActivityScope.COHORT} id={cohort.id} />
                                 </SceneSection>
                             </>
                         )}
