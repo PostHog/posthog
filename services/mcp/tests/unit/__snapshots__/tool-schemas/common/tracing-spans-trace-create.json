@@ -13,7 +13,7 @@
                             "type": "null"
                         }
                     ],
-                    "description": "Start of the date range. Accepts ISO 8601 timestamps or relative formats: -7d, -1h, -1mStart, etc."
+                    "description": "Start of the date range. Accepts ISO 8601 timestamps or relative formats: -1h, -6h, -1d, -7d, etc."
                 },
                 "date_to": {
                     "anyOf": [
