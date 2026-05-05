@@ -1,4 +1,5 @@
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from rest_framework import status
 
@@ -7,12 +8,13 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from products.business_knowledge.backend.models import KnowledgeChunk, KnowledgeDocument, KnowledgeSource
 
 
+@patch("posthoganalytics.feature_enabled", return_value=True)
 class TestKnowledgeSourceAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.url = f"/api/environments/{self.team.id}/business_knowledge/sources/"
 
-    def test_create_text_source_and_chunks(self) -> None:
+    def test_create_text_source_and_chunks(self, _ff) -> None:
         response = self.client.post(
             self.url,
             {"name": "Docs", "text": "Intro paragraph.\n\nSecond paragraph covers pricing."},
@@ -30,7 +32,7 @@ class TestKnowledgeSourceAPI(APIBaseTest):
         assert KnowledgeDocument.objects.filter(source=source, team=self.team).count() == 1
         assert KnowledgeChunk.objects.filter(source=source, team=self.team).count() >= 1
 
-    def test_list_only_returns_own_team(self) -> None:
+    def test_list_only_returns_own_team(self, _ff) -> None:
         from posthog.models.team import Team
 
         other_team = Team.objects.create_with_data(
@@ -46,7 +48,7 @@ class TestKnowledgeSourceAPI(APIBaseTest):
         names = [row["name"] for row in response.json()["results"]]
         assert names == ["Mine"]
 
-    def test_cannot_read_other_team_source_via_id(self) -> None:
+    def test_cannot_read_other_team_source_via_id(self, _ff) -> None:
         from posthog.models.team import Team
 
         other_team = Team.objects.create_with_data(
@@ -56,7 +58,7 @@ class TestKnowledgeSourceAPI(APIBaseTest):
         response = self.client.get(f"{self.url}{theirs.id}/")
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    def test_cannot_delete_other_team_source(self) -> None:
+    def test_cannot_delete_other_team_source(self, _ff) -> None:
         from posthog.models.team import Team
 
         other_team = Team.objects.create_with_data(
@@ -68,7 +70,7 @@ class TestKnowledgeSourceAPI(APIBaseTest):
         # Untouched.
         assert KnowledgeSource.objects.filter(id=theirs.id).exists()
 
-    def test_delete_cascades_and_fires_activity_log(self) -> None:
+    def test_delete_cascades_and_fires_activity_log(self, _ff) -> None:
         create = self.client.post(self.url, {"name": "Docs", "text": "body"}, format="json").json()
         source_id = create["id"]
         assert KnowledgeDocument.objects.filter(source_id=source_id).exists()
@@ -82,7 +84,7 @@ class TestKnowledgeSourceAPI(APIBaseTest):
         # Activity logging hook ran.
         assert ActivityLog.objects.filter(scope="KnowledgeSource", item_id=source_id, activity="deleted").exists()
 
-    def test_rejects_empty_text(self) -> None:
+    def test_rejects_empty_text(self, _ff) -> None:
         response = self.client.post(self.url, {"name": "Docs", "text": "   "}, format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         body = response.json()
@@ -91,12 +93,12 @@ class TestKnowledgeSourceAPI(APIBaseTest):
         # lands in `attr` so UX code can still target it.
         assert body.get("attr") == "text"
 
-    def test_rejects_oversized_text(self) -> None:
+    def test_rejects_oversized_text(self, _ff) -> None:
         response = self.client.post(self.url, {"name": "Docs", "text": "x" * 1_000_001}, format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json().get("attr") == "text"
 
-    def test_create_defaults_source_type_to_text(self) -> None:
+    def test_create_defaults_source_type_to_text(self, _ff) -> None:
         # Stage 2a dispatches on `source_type`. Omitting it must still land
         # on the text path so Stage 1 clients keep working unchanged.
         response = self.client.post(self.url, {"name": "Docs", "text": "hello"}, format="json")

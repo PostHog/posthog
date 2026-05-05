@@ -282,6 +282,7 @@ class TestRefreshSource(BaseTest):
         assert refresh_source(source_id=source.id, team_id=other_team.id) is None
 
 
+@patch("posthoganalytics.feature_enabled", return_value=True)
 class TestUrlApi(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -294,7 +295,7 @@ class TestUrlApi(APIBaseTest):
         return_value=(True, None),
     )
     def test_create_url_source_api(
-        self, _serializer_ssrf: MagicMock, _logic_ssrf: MagicMock, mock_fetch: MagicMock
+        self, _serializer_ssrf: MagicMock, _logic_ssrf: MagicMock, mock_fetch: MagicMock, _ff: MagicMock
     ) -> None:
         mock_fetch.return_value = url_fetch.FetchResult(
             status=200,
@@ -318,7 +319,7 @@ class TestUrlApi(APIBaseTest):
         "products.business_knowledge.backend.presentation.serializers.is_url_allowed",
         return_value=(False, "Loopback"),
     )
-    def test_create_url_source_rejects_internal(self, _ssrf: MagicMock) -> None:
+    def test_create_url_source_rejects_internal(self, _ssrf: MagicMock, _ff: MagicMock) -> None:
         response = self.client.post(
             self.url,
             {"name": "Bad", "url": "http://127.0.0.1/admin", "source_type": "url"},
@@ -326,7 +327,7 @@ class TestUrlApi(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
 
-    def test_cross_team_refresh_returns_404(self) -> None:
+    def test_cross_team_refresh_returns_404(self, _ff: MagicMock) -> None:
         from posthog.models.team import Team
 
         other_team = Team.objects.create_with_data(

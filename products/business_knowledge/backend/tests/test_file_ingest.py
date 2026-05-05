@@ -3,7 +3,7 @@ import zipfile
 
 import pytest
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 from rest_framework import status as http_status
@@ -177,8 +177,16 @@ class TestParseFileSecurity:
             parse_file(data, "secret.pdf")
 
     def test_zip_bomb_docx_rejected(self) -> None:
+        content_types_xml = (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+            '<Override PartName="/word/document.xml"'
+            ' ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
+            "</Types>"
+        )
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED) as zf:
+            zf.writestr("[Content_Types].xml", content_types_xml)
             zf.writestr("word/document.xml", "A" * 200)
         data = buf.getvalue()
         with patch("products.business_knowledge.backend.file_parse.MAX_FILE_DECOMPRESSED_BYTES", 50):
@@ -210,12 +218,13 @@ class TestParseFileSecurity:
 # ---------------------------------------------------------------------------
 
 
+@patch("posthoganalytics.feature_enabled", return_value=True)
 class TestFileSourceAPIIntegration(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.url = f"/api/environments/{self.team.id}/business_knowledge/sources/"
 
-    def test_upload_txt_file(self) -> None:
+    def test_upload_txt_file(self, _ff: MagicMock) -> None:
         content = b"Hello world\n\nSecond paragraph about pricing."
         uploaded = io.BytesIO(content)
         uploaded.name = "notes.txt"
@@ -236,7 +245,7 @@ class TestFileSourceAPIIntegration(APIBaseTest):
         assert KnowledgeDocument.objects.filter(source=source, team=self.team).count() == 1
         assert KnowledgeChunk.objects.filter(source=source, team=self.team).count() >= 1
 
-    def test_upload_csv_file(self) -> None:
+    def test_upload_csv_file(self, _ff: MagicMock) -> None:
         content = b"name,role\nAlice,Engineer\nBob,Designer"
         uploaded = io.BytesIO(content)
         uploaded.name = "team.csv"
@@ -250,7 +259,7 @@ class TestFileSourceAPIIntegration(APIBaseTest):
         assert body["file_content_type"] == "text/csv"
         assert body["chunk_count"] >= 1
 
-    def test_upload_markdown_file(self) -> None:
+    def test_upload_markdown_file(self, _ff: MagicMock) -> None:
         content = b"# FAQ\n\n## What is PostHog?\n\nPostHog is a product analytics platform."
         uploaded = io.BytesIO(content)
         uploaded.name = "faq.md"
@@ -263,7 +272,7 @@ class TestFileSourceAPIIntegration(APIBaseTest):
         body = response.json()
         assert body["file_content_type"] == "text/markdown"
 
-    def test_upload_docx_file(self) -> None:
+    def test_upload_docx_file(self, _ff: MagicMock) -> None:
         data = _make_minimal_docx("DOCX test content")
         uploaded = io.BytesIO(data)
         uploaded.name = "document.docx"
@@ -277,7 +286,7 @@ class TestFileSourceAPIIntegration(APIBaseTest):
         assert body["file_content_type"] == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         assert body["chunk_count"] >= 1
 
-    def test_upload_rejects_unsupported_type(self) -> None:
+    def test_upload_rejects_unsupported_type(self, _ff: MagicMock) -> None:
         uploaded = io.BytesIO(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
         uploaded.name = "image.png"
         response = self.client.post(
@@ -287,7 +296,7 @@ class TestFileSourceAPIIntegration(APIBaseTest):
         )
         assert response.status_code == http_status.HTTP_400_BAD_REQUEST
 
-    def test_upload_rejects_oversized_file(self) -> None:
+    def test_upload_rejects_oversized_file(self, _ff: MagicMock) -> None:
         # The serializer checks UploadedFile.size which Django sets from the
         # actual content length. We can't send 50 MB in a unit test, but the
         # parse_file size guard is tested separately in TestParseFileSecurity.
@@ -303,7 +312,7 @@ class TestFileSourceAPIIntegration(APIBaseTest):
             )
         assert response.status_code == http_status.HTTP_400_BAD_REQUEST
 
-    def test_upload_missing_file_field(self) -> None:
+    def test_upload_missing_file_field(self, _ff: MagicMock) -> None:
         response = self.client.post(
             self.url,
             {"name": "No file", "source_type": "file"},
@@ -311,7 +320,7 @@ class TestFileSourceAPIIntegration(APIBaseTest):
         )
         assert response.status_code == http_status.HTTP_400_BAD_REQUEST
 
-    def test_upload_missing_name(self) -> None:
+    def test_upload_missing_name(self, _ff: MagicMock) -> None:
         uploaded = io.BytesIO(b"content")
         uploaded.name = "data.txt"
         response = self.client.post(
@@ -321,7 +330,7 @@ class TestFileSourceAPIIntegration(APIBaseTest):
         )
         assert response.status_code == http_status.HTTP_400_BAD_REQUEST
 
-    def test_file_source_appears_in_list(self) -> None:
+    def test_file_source_appears_in_list(self, _ff: MagicMock) -> None:
         uploaded = io.BytesIO(b"test content")
         uploaded.name = "test.txt"
         self.client.post(
@@ -333,7 +342,7 @@ class TestFileSourceAPIIntegration(APIBaseTest):
         names = [r["name"] for r in response.json()["results"]]
         assert "Listed file" in names
 
-    def test_file_source_cross_team_isolation(self) -> None:
+    def test_file_source_cross_team_isolation(self, _ff: MagicMock) -> None:
         from posthog.models.team import Team
 
         uploaded = io.BytesIO(b"secret data")
