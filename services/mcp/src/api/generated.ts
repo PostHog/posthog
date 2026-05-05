@@ -41668,33 +41668,6 @@ export namespace Schemas {
       Starting: 'starting',
     } as const;
 
-    export type TracingSpansAttributesRetrieveParams = {
-    /**
-     * Type of attributes: "span" for span attributes, "resource" for resource attributes.
-
-    * `span` - span
-    * `resource` - resource
-     * @minLength 1
-     */
-    attribute_type?: TracingSpansAttributesRetrieveAttributeType;
-    /**
-     * Max results (default: 100).
-     * @minimum 1
-     * @maximum 100
-     */
-    limit?: number;
-    /**
-     * Pagination offset (default: 0).
-     * @minimum 0
-     */
-    offset?: number;
-    /**
-     * Search filter for attribute names.
-     * @minLength 1
-     */
-    search?: string;
-    };
-
     export type TaggersListParams = {
     /**
      * Filter by enabled status
@@ -41725,6 +41698,33 @@ export namespace Schemas {
     order_by?: string[];
     /**
      * Search in name or description
+     */
+    search?: string;
+    };
+
+    export type TracingSpansAttributesRetrieveParams = {
+    /**
+     * Type of attributes: "span" for span attributes, "resource" for resource attributes.
+
+    * `span` - span
+    * `resource` - resource
+     * @minLength 1
+     */
+    attribute_type?: TracingSpansAttributesRetrieveAttributeType;
+    /**
+     * Max results (default: 100).
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * Pagination offset (default: 0).
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Search filter for attribute names.
+     * @minLength 1
      */
     search?: string;
     };

@@ -13,12 +13,28 @@ ui_apps:
         view_prop: data
     trace-span-list:
         type: list
-        detail_tool: tracing-spans-trace-create
+        detail_tool: apm-trace-get
         detail_args: '{ trace_id: item.trace_id }'
         item_name_field: name
         click_prop: onSpanClick
 tools:
-    tracing-spans-attributes-retrieve:
+    apm-attribute-values-list:
+        operation: tracing_spans_values_retrieve
+        enabled: true
+        scopes:
+            - tracing:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List tracing attribute values
+        description: >
+            List values for a specific span or resource attribute key. Use to discover what values exist for a given
+            attribute before building filters.
+        response:
+            include:
+                - results
+    apm-attributes-list:
         operation: tracing_spans_attributes_retrieve
         enabled: true
         scopes:
@@ -36,22 +52,7 @@ tools:
             include:
                 - results
                 - count
-    tracing-spans-query-create:
-        operation: tracing_spans_query_create
-        enabled: true
-        scopes:
-            - tracing:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Query tracing spans
-        description_file: ./prompts/query-tracing-spans.md
-        ui_app: trace-span-list
-        response:
-            include:
-                - results
-    tracing-spans-service-names-retrieve:
+    apm-services-list:
         operation: tracing_spans_service_names_retrieve
         enabled: true
         scopes:
@@ -67,10 +68,10 @@ tools:
         response:
             include:
                 - results
-    tracing-spans-sparkline-create:
+    apm-sparkline-query:
         operation: tracing_spans_sparkline_create
         enabled: false
-    tracing-spans-trace-create:
+    apm-trace-get:
         operation: tracing_spans_trace_create
         enabled: true
         scopes:
@@ -88,8 +89,8 @@ tools:
         response:
             include:
                 - results
-    tracing-spans-values-retrieve:
-        operation: tracing_spans_values_retrieve
+    query-apm-spans:
+        operation: tracing_spans_query_create
         enabled: true
         scopes:
             - tracing:read
@@ -97,10 +98,9 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        title: List tracing attribute values
-        description: >
-            List values for a specific span or resource attribute key. Use to discover what values exist for a given
-            attribute before building filters.
+        title: Query tracing spans
+        description_file: ./prompts/query-apm-spans.md
+        ui_app: trace-span-list
         response:
             include:
                 - results

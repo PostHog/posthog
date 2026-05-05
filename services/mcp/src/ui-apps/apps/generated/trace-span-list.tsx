@@ -36,7 +36,7 @@ function TraceSpanListContent({ data, app }: { data: TraceSpanListData; app: App
             }
             try {
                 const result = await app.callServerTool({
-                    name: 'tracing-spans-trace-create',
+                    name: 'apm-trace-get',
                     arguments: { trace_id: item.trace_id },
                 })
                 if (result.isError || !result.structuredContent) {

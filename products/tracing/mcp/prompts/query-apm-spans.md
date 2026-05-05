@@ -1,6 +1,6 @@
 Query trace spans with filtering by service name, status code, date range, and structured attribute filters. Supports cursor-based pagination. Returns spans with uuid, trace_id, span_id, parent_span_id, name, kind, service_name, status_code, timestamp, end_time, duration_nano, and is_root_span.
 
-Use 'tracing-spans-attributes-retrieve' and 'tracing-spans-values-retrieve' to discover available attributes before building filters. Use 'tracing-spans-service-names-retrieve' to discover available services.
+Use 'apm-attributes-list' and 'apm-attribute-values-list' to discover available attributes before building filters. Use 'apm-services-list' to discover available services.
 
 CRITICAL: Be minimalist. Only include filters and settings that are essential to answer the user's specific question. Default settings are usually sufficient unless the user explicitly requests customization.
 
@@ -18,8 +18,8 @@ When using a property filter, you should:
   - `span` — filters built-in span fields (trace_id, span_id, duration, name, kind, status_code).
   - `span_attribute` — filters span-level attributes (e.g. "http.method", "http.status_code").
   - `span_resource_attribute` — filters resource-level attributes (e.g. k8s labels, deployment info).
-- **Use `tracing-spans-attributes-retrieve` to discover available attribute keys** before building filters.
-- **Use `tracing-spans-values-retrieve` to discover valid values** for a specific attribute key.
+- **Use `apm-attributes-list` to discover available attribute keys** before building filters.
+- **Use `apm-attribute-values-list` to discover valid values** for a specific attribute key.
 - **Find the suitable operator for the value type** (see supported operators below).
 
 Supported operators:
@@ -40,7 +40,7 @@ All parameters go inside `query`.
 
 ## query.serviceNames
 
-Filter by service names. Use `tracing-spans-service-names-retrieve` to discover available services.
+Filter by service names. Use `apm-services-list` to discover available services.
 
 ## query.statusCodes
 
@@ -151,6 +151,6 @@ Number of child spans to prefetch per trace (1-100). Useful to get a preview of 
 # Reminders
 
 - Ensure that any property filters are directly relevant to the user's question. Avoid unnecessary filtering.
-- Use `tracing-spans-attributes-retrieve` and `tracing-spans-values-retrieve` to discover attributes before guessing filter keys/values.
-- Use `tracing-spans-service-names-retrieve` to discover available services before filtering by service name.
+- Use `apm-attributes-list` and `apm-attribute-values-list` to discover attributes before guessing filter keys/values.
+- Use `apm-services-list` to discover available services before filtering by service name.
 - Duration values are in nanoseconds (1 second = 1,000,000,000 nanoseconds).

@@ -13,12 +13,12 @@ import { withUiApp } from '@/resources/ui-apps'
 import { pickResponseFields } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const TracingSpansAttributesRetrieveSchema = TracingSpansAttributesRetrieveQueryParams
+const ApmAttributesListSchema = TracingSpansAttributesRetrieveQueryParams
 
-const tracingSpansAttributesRetrieve = (): ToolBase<typeof TracingSpansAttributesRetrieveSchema, unknown> => ({
-    name: 'tracing-spans-attributes-retrieve',
-    schema: TracingSpansAttributesRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof TracingSpansAttributesRetrieveSchema>) => {
+const apmAttributesList = (): ToolBase<typeof ApmAttributesListSchema, unknown> => ({
+    name: 'apm-attributes-list',
+    schema: ApmAttributesListSchema,
+    handler: async (context: Context, params: z.infer<typeof ApmAttributesListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'GET',
@@ -35,13 +35,13 @@ const tracingSpansAttributesRetrieve = (): ToolBase<typeof TracingSpansAttribute
     },
 })
 
-const TracingSpansQueryCreateSchema = TracingSpansQueryCreateBody
+const QueryApmSpansSchema = TracingSpansQueryCreateBody
 
-const tracingSpansQueryCreate = (): ToolBase<typeof TracingSpansQueryCreateSchema, unknown> =>
+const queryApmSpans = (): ToolBase<typeof QueryApmSpansSchema, unknown> =>
     withUiApp('trace-span-list', {
-        name: 'tracing-spans-query-create',
-        schema: TracingSpansQueryCreateSchema,
-        handler: async (context: Context, params: z.infer<typeof TracingSpansQueryCreateSchema>) => {
+        name: 'query-apm-spans',
+        schema: QueryApmSpansSchema,
+        handler: async (context: Context, params: z.infer<typeof QueryApmSpansSchema>) => {
             const projectId = await context.stateManager.getProjectId()
             const body: Record<string, unknown> = {}
             if (params.query !== undefined) {
@@ -57,12 +57,12 @@ const tracingSpansQueryCreate = (): ToolBase<typeof TracingSpansQueryCreateSchem
         },
     })
 
-const TracingSpansServiceNamesRetrieveSchema = TracingSpansServiceNamesRetrieveQueryParams
+const ApmServicesListSchema = TracingSpansServiceNamesRetrieveQueryParams
 
-const tracingSpansServiceNamesRetrieve = (): ToolBase<typeof TracingSpansServiceNamesRetrieveSchema, unknown> => ({
-    name: 'tracing-spans-service-names-retrieve',
-    schema: TracingSpansServiceNamesRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof TracingSpansServiceNamesRetrieveSchema>) => {
+const apmServicesList = (): ToolBase<typeof ApmServicesListSchema, unknown> => ({
+    name: 'apm-services-list',
+    schema: ApmServicesListSchema,
+    handler: async (context: Context, params: z.infer<typeof ApmServicesListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'GET',
@@ -77,15 +77,15 @@ const tracingSpansServiceNamesRetrieve = (): ToolBase<typeof TracingSpansService
     },
 })
 
-const TracingSpansTraceCreateSchema = TracingSpansTraceCreateParams.omit({ project_id: true }).extend(
+const ApmTraceGetSchema = TracingSpansTraceCreateParams.omit({ project_id: true }).extend(
     TracingSpansTraceCreateBody.shape
 )
 
-const tracingSpansTraceCreate = (): ToolBase<typeof TracingSpansTraceCreateSchema, unknown> =>
+const apmTraceGet = (): ToolBase<typeof ApmTraceGetSchema, unknown> =>
     withUiApp('trace-span-list', {
-        name: 'tracing-spans-trace-create',
-        schema: TracingSpansTraceCreateSchema,
-        handler: async (context: Context, params: z.infer<typeof TracingSpansTraceCreateSchema>) => {
+        name: 'apm-trace-get',
+        schema: ApmTraceGetSchema,
+        handler: async (context: Context, params: z.infer<typeof ApmTraceGetSchema>) => {
             const projectId = await context.stateManager.getProjectId()
             const body: Record<string, unknown> = {}
             if (params.dateRange !== undefined) {
@@ -101,12 +101,12 @@ const tracingSpansTraceCreate = (): ToolBase<typeof TracingSpansTraceCreateSchem
         },
     })
 
-const TracingSpansValuesRetrieveSchema = TracingSpansValuesRetrieveQueryParams
+const ApmAttributeValuesListSchema = TracingSpansValuesRetrieveQueryParams
 
-const tracingSpansValuesRetrieve = (): ToolBase<typeof TracingSpansValuesRetrieveSchema, unknown> => ({
-    name: 'tracing-spans-values-retrieve',
-    schema: TracingSpansValuesRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof TracingSpansValuesRetrieveSchema>) => {
+const apmAttributeValuesList = (): ToolBase<typeof ApmAttributeValuesListSchema, unknown> => ({
+    name: 'apm-attribute-values-list',
+    schema: ApmAttributeValuesListSchema,
+    handler: async (context: Context, params: z.infer<typeof ApmAttributeValuesListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'GET',
@@ -125,9 +125,9 @@ const tracingSpansValuesRetrieve = (): ToolBase<typeof TracingSpansValuesRetriev
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
-    'tracing-spans-attributes-retrieve': tracingSpansAttributesRetrieve,
-    'tracing-spans-query-create': tracingSpansQueryCreate,
-    'tracing-spans-service-names-retrieve': tracingSpansServiceNamesRetrieve,
-    'tracing-spans-trace-create': tracingSpansTraceCreate,
-    'tracing-spans-values-retrieve': tracingSpansValuesRetrieve,
+    'apm-attributes-list': apmAttributesList,
+    'query-apm-spans': queryApmSpans,
+    'apm-services-list': apmServicesList,
+    'apm-trace-get': apmTraceGet,
+    'apm-attribute-values-list': apmAttributeValuesList,
 }
