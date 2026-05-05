@@ -2588,24 +2588,9 @@
                                                 }
                                             }
                                         },
-                                        "tags": {
-                                            "type": "object",
-                                            "properties": {
-                                                "name": {
-                                                    "type": "string"
-                                                },
-                                                "productKey": {
-                                                    "type": "string"
-                                                },
-                                                "scene": {
-                                                    "type": "string"
-                                                }
-                                            }
-                                        },
                                         "connectionId": {
                                             "description": "Optional id of an external data source (e.g. a Postgres or DuckDB direct-query connection). When set, the query runs against that source instead of ClickHouse. Use external-data-sources-list to discover available connection ids.",
                                             "type": "string"
-
                                         }
                                     },
                                     "required": ["kind", "query"]
@@ -2767,24 +2752,9 @@
                                         }
                                     }
                                 },
-                                "tags": {
-                                    "type": "object",
-                                    "properties": {
-                                        "name": {
-                                            "type": "string"
-                                        },
-                                        "productKey": {
-                                            "type": "string"
-                                        },
-                                        "scene": {
-                                            "type": "string"
-                                        }
-                                    }
-                                },
                                 "connectionId": {
                                     "description": "Optional id of an external data source (e.g. a Postgres or DuckDB direct-query connection). When set, the query runs against that source instead of ClickHouse. Use external-data-sources-list to discover available connection ids.",
                                     "type": "string"
-
                                 }
                             },
                             "required": ["kind", "query"]
