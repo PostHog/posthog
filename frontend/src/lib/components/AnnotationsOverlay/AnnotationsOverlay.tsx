@@ -376,7 +376,11 @@ function AnnotationsPopover({
                             onClick={() =>
                                 openModalToCreateAnnotation(activeDate, insightId, annotationsOverlayProps.dashboardId)
                             }
-                            disabled={!isDateLocked}
+                            disabledReason={
+                                !isDateLocked
+                                    ? 'Click a date on the chart first to add an annotation'
+                                    : undefined
+                            }
                         >
                             Add annotation
                         </LemonButton>
