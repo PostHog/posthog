@@ -91,6 +91,11 @@ export const FeedbackSubmitSchema = z.object({
         .describe(
             'A one-sentence headline summarising your feedback (e.g. "query-trends descriptions made it hard to choose between trends and funnels").'
         ),
+    source: z
+        .enum(['user_initiated', 'agent_observed'])
+        .describe(
+            'Who initiated this feedback. Use "user_initiated" when the user explicitly asked to send feedback. Use "agent_observed" when you noticed friction and the user confirmed it was OK to send.'
+        ),
     sentiment: z
         .enum(['positive', 'negative', 'mixed'])
         .describe(

@@ -32,6 +32,7 @@ export const submitFeedbackHandler: ToolBase<typeof schema, Result>['handler'] =
     try {
         await context.trackEvent(AnalyticsEvent.MCP_FEEDBACK_SUBMITTED, {
             feedback_summary: params.summary,
+            feedback_source: params.source,
             feedback_sentiment: params.sentiment,
             feedback_category: params.category,
             feedback_task_completed: params.task_completed,

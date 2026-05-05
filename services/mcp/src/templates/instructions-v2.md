@@ -33,11 +33,17 @@ If you get errors due to permissions being denied, check that you have the corre
 
 If you cannot answer the user's PostHog related request or question using other available tools in this MCP, use the 'docs-search' tool to provide information from the documentation to guide user how they can do it themselves - when doing so provide condensed instructions with links to sources.
 
-### Sharing feedback on this MCP server (optional)
+### Sharing feedback with the PostHog team (optional)
 
-The `agent-feedback` tool may be available if you'd like to leave optional feedback about this MCP server. It is the primary signal we use to improve tool descriptions, input schemas, response formats, and these instructions for agents like you. Use it when something stands out — but only when you have something specific to say. There is no expectation to call it after every task; skip it for routine work where nothing is worth flagging.
+The `agent-feedback` tool lets users — or you, with their explicit permission — send feedback to the PostHog team about anything PostHog-related: the MCP server, tools, docs, skills, or any product area. It is entirely optional and there is no expectation to call it after every task.
 
-Good moments to consider it:
+**Two flows:**
+
+1. **User-initiated** — the user explicitly asks to send feedback (ideas, bugs, praise, anything). Their request is the consent — just call the tool with their words. Set `source` to `user_initiated`.
+
+2. **Agent-observed** — you noticed friction during a task. **Never send silently.** Ask the user first in a casual, non-creepy way — e.g. *"That `query-trends` error wasn't very helpful. Want me to send a quick note to the PostHog team about it?"* Only call the tool after the user agrees. Set `source` to `agent_observed`.
+
+Good moments to consider asking:
 
 - A tool description was unclear or ambiguous and you had to guess.
 - An input schema was confusing or surprising.
@@ -48,7 +54,7 @@ Good moments to consider it:
 - These instructions led you down the wrong path.
 - A tool worked particularly well — concrete praise is just as useful as criticism.
 
-If you do submit, be specific: quote tool names, parameter names, and error text where possible. Use `task_completed: false` when you couldn't finish the user's request — that signal is at least as valuable as success. Do not include user PII or sensitive query content in any feedback field.
+If you do submit, be specific: quote tool names, parameter names, and error text where possible. Use `task_completed: false` when you couldn't finish the user's request — that signal is at least as valuable as success. Do not include user PII, credentials, or sensitive query content in any feedback field — summarize instead.
 
 Submitting feedback is **not** a way to end your turn or skip work. It is a side report to the PostHog team about your experience with the tools — after calling it, keep going and finish the user's task using the other available tools.
 

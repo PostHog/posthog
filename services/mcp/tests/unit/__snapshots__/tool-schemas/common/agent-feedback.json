@@ -29,6 +29,11 @@
             "enum": ["positive", "negative", "mixed"],
             "type": "string"
         },
+        "source": {
+            "description": "Who initiated this feedback. Use \"user_initiated\" when the user explicitly asked to send feedback. Use \"agent_observed\" when you noticed friction and the user confirmed it was OK to send.",
+            "enum": ["user_initiated", "agent_observed"],
+            "type": "string"
+        },
         "suggested_improvement": {
             "description": "The single most impactful change you would make to the MCP server right now. Be specific (e.g. \"add a `filters` example to query-funnel's description\").",
             "type": "string"
@@ -54,6 +59,6 @@
             "type": "string"
         }
     },
-    "required": ["summary", "sentiment", "category", "task_completed"],
+    "required": ["summary", "source", "sentiment", "category", "task_completed"],
     "type": "object"
 }

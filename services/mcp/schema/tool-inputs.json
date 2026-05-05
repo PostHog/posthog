@@ -832,6 +832,11 @@
                     "minLength": 1,
                     "description": "A one-sentence headline summarising your feedback (e.g. \"query-trends descriptions made it hard to choose between trends and funnels\")."
                 },
+                "source": {
+                    "type": "string",
+                    "enum": ["user_initiated", "agent_observed"],
+                    "description": "Who initiated this feedback. Use \"user_initiated\" when the user explicitly asked to send feedback. Use \"agent_observed\" when you noticed friction and the user confirmed it was OK to send."
+                },
                 "sentiment": {
                     "type": "string",
                     "enum": ["positive", "negative", "mixed"],
@@ -880,7 +885,7 @@
                     "type": "string"
                 }
             },
-            "required": ["summary", "sentiment", "category", "task_completed"]
+            "required": ["summary", "source", "sentiment", "category", "task_completed"]
         },
         "HogQLSchemaInputSchema": {
             "type": "object",
