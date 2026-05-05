@@ -130,6 +130,8 @@ def test_load_deletion_request_increments_attempt_on_retry():
     request.refresh_from_db()
     first_attempt_at = request.first_executed_at
     first_last_at = request.last_executed_at
+    assert first_attempt_at is not None
+    assert first_last_at is not None
 
     DataDeletionRequest.objects.filter(pk=request.pk).update(status=RequestStatus.APPROVED)
 
@@ -138,6 +140,7 @@ def test_load_deletion_request_increments_attempt_on_retry():
 
     assert request.attempt_count == 2
     assert request.first_executed_at == first_attempt_at
+    assert request.last_executed_at is not None
     assert request.last_executed_at >= first_last_at
 
 
