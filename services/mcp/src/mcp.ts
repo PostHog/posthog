@@ -715,7 +715,7 @@ export class MCP extends McpAgent<Env> {
             getClientUserAgent: async () => this.requestProperties.clientUserAgent,
             // Server-resolved version (may differ from the client-reported one because of
             // the `mcp-version-2` feature flag), so mcpcat events line up with ours.
-            getVersion: async () => version,
+            getMcpVersion: async () => version,
             getOAuthClientName: async () => (await this.cache.get('clientName')) || undefined,
             getReadOnly: async () => readOnly,
             getTransport: async () => this.requestProperties.transport,

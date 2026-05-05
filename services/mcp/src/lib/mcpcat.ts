@@ -14,7 +14,7 @@ export type McpCatIdentityProvider = {
     getRegion: () => Promise<string | undefined>
     getAnalyticsContext: () => Promise<MCPAnalyticsContext | undefined>
     getClientUserAgent: () => Promise<string | undefined>
-    getVersion: () => Promise<number | undefined>
+    getMcpVersion: () => Promise<number | undefined>
     getOAuthClientName: () => Promise<string | undefined>
     getReadOnly: () => Promise<boolean | undefined>
     getTransport: () => Promise<string | undefined>
@@ -80,7 +80,7 @@ export async function initMcpCatObservability(server: McpServer, identity: McpCa
                     mcpConsumer,
                     mcpMode,
                 ] = await Promise.all([
-                    identity.getVersion(),
+                    identity.getMcpVersion(),
                     identity.getClientUserAgent(),
                     identity.getMcpClientName(),
                     identity.getMcpClientVersion(),

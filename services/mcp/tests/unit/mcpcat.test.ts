@@ -54,7 +54,7 @@ describe('initMcpCatObservability', () => {
                 projectName: 'Project 101',
             }),
             getClientUserAgent: vi.fn().mockResolvedValue('test-agent/1.0'),
-            getVersion: vi.fn().mockResolvedValue(2),
+            getMcpVersion: vi.fn().mockResolvedValue(2),
             getOAuthClientName: vi.fn().mockResolvedValue('PostHog Code'),
             getReadOnly: vi.fn().mockResolvedValue(true),
             getTransport: vi.fn().mockResolvedValue('streamable-http'),
@@ -224,7 +224,7 @@ describe('initMcpCatObservability', () => {
         {
             name: 'no analytics context omits $groups entirely',
             overrides: {
-                getVersion: vi.fn().mockResolvedValue(undefined),
+                getMcpVersion: vi.fn().mockResolvedValue(undefined),
                 getClientUserAgent: vi.fn().mockResolvedValue(undefined),
                 getMcpClientName: vi.fn().mockResolvedValue(undefined),
                 getMcpClientVersion: vi.fn().mockResolvedValue(undefined),
