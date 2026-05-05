@@ -13,6 +13,7 @@ from temporalio.client import (
     Client as TemporalClient,
     Schedule,
     ScheduleActionStartWorkflow,
+    ScheduleAlreadyRunningError,
     ScheduleIntervalSpec,
     ScheduleOverlapPolicy,
     SchedulePolicy,
@@ -152,7 +153,10 @@ def sync_external_data_job_workflow(
     schedule = get_sync_schedule(external_data_schema, should_sync=should_sync)
 
     if create:
-        create_schedule(temporal, id=str(external_data_schema.id), schedule=schedule, trigger_immediately=True)
+        try:
+            create_schedule(temporal, id=str(external_data_schema.id), schedule=schedule, trigger_immediately=True)
+        except ScheduleAlreadyRunningError:
+            update_schedule(temporal, id=str(external_data_schema.id), schedule=schedule)
     else:
         update_schedule(temporal, id=str(external_data_schema.id), schedule=schedule)
 
@@ -167,7 +171,12 @@ async def a_sync_external_data_job_workflow(
     schedule = get_sync_schedule(external_data_schema, should_sync=should_sync)
 
     if create:
-        await a_create_schedule(temporal, id=str(external_data_schema.id), schedule=schedule, trigger_immediately=True)
+        try:
+            await a_create_schedule(
+                temporal, id=str(external_data_schema.id), schedule=schedule, trigger_immediately=True
+            )
+        except ScheduleAlreadyRunningError:
+            await a_update_schedule(temporal, id=str(external_data_schema.id), schedule=schedule)
     else:
         await a_update_schedule(temporal, id=str(external_data_schema.id), schedule=schedule)
 
