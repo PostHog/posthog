@@ -19,7 +19,7 @@ from unittest.mock import patch
 from django.utils import timezone
 
 from products.visual_review.backend.facade import api as vr_api
-from products.visual_review.backend.facade.contracts import BASELINE_OVERVIEW_MAX_ENTRIES, BASELINE_SPARKLINE_DAYS
+from products.visual_review.backend.facade.contracts import BASELINE_OVERVIEW_MAX_ENTRIES
 from products.visual_review.backend.facade.enums import RunStatus, RunType, SnapshotResult, ToleratedReason
 from products.visual_review.backend.models import Artifact, QuarantinedIdentifier, Repo, Run, RunSnapshot, ToleratedHash
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
@@ -79,6 +79,7 @@ def _mk_snapshot(
     tolerated_match: ToleratedHash | None = None,
     metadata: dict | None = None,
     created_offset: timedelta = timedelta(hours=0),
+    diff_percentage: float | None = None,
 ) -> RunSnapshot:
     snap = RunSnapshot.objects.create(
         run=run,
@@ -90,6 +91,7 @@ def _mk_snapshot(
         is_quarantined=is_quarantined,
         tolerated_hash_match=tolerated_match,
         metadata=metadata or {},
+        diff_percentage=diff_percentage,
     )
     if created_offset:
         # Force created_at backwards for sparkline window tests.
@@ -255,6 +257,45 @@ class TestBaselinesOverview(APIBaseTest):
         assert result.totals.recently_tolerated == 1  # ≥1 in last 30d
         assert result.totals.frequently_tolerated == 1  # ≥3 in last 90d
 
+    def test_tolerate_counts_exclude_auto_threshold(self):
+        """AUTO_THRESHOLD rows are auto-minted by the diff pipeline for
+        sub-threshold pixel jitter — they're a system-judged tolerated-hash
+        cache, not a user/agent decision to accept drift. The Tolerated drift
+        tile and its inline `frequent` chip should reflect intent only.
+        """
+        run = _mk_run(self.repo)
+        _mk_snapshot(run, identifier="noisy")
+
+        # 5 auto-threshold rows in the last 30d — pure rendering noise.
+        for i in range(5):
+            ToleratedHash.objects.create(
+                repo=self.repo,
+                team_id=self.team.id,
+                identifier="noisy",
+                baseline_hash="b",
+                alternate_hash=f"auto-{i}",
+                reason=ToleratedReason.AUTO_THRESHOLD,
+            )
+        # 1 deliberate human tolerate.
+        ToleratedHash.objects.create(
+            repo=self.repo,
+            team_id=self.team.id,
+            identifier="noisy",
+            baseline_hash="b",
+            alternate_hash="human",
+            reason=ToleratedReason.HUMAN,
+        )
+
+        result = vr_api.get_baselines_overview(self.repo.id)
+        entry = next(e for e in result.entries if e.identifier == "noisy")
+
+        # Only the human row should count.
+        assert entry.tolerate_count_30d == 1
+        assert entry.tolerate_count_90d == 1
+        assert result.totals.recently_tolerated == 1
+        # 1 deliberate < 3, so this identifier is not "frequently tolerated".
+        assert result.totals.frequently_tolerated == 0
+
     def test_active_quarantine_counts_but_expired_does_not(self):
         run = _mk_run(self.repo)
         _mk_snapshot(run, identifier="active")
@@ -294,59 +335,68 @@ class TestBaselinesOverview(APIBaseTest):
         assert by_id == {"active": True, "expired": False, "future": True}
         assert result.totals.currently_quarantined == 2
 
-    def test_sparkline_buckets_by_classification(self):
-        # Universe row (latest baseline) — counts as 1 clean in sparkline.
-        latest = _mk_run(self.repo)
-        _mk_snapshot(latest, identifier="story")
+    def test_baseline_change_count_lifetime(self):
+        # Three master runs over time. The middle one classifies the snapshot
+        # as CHANGED (the moment the YAML baseline moved), the others are
+        # steady-state UNCHANGED. Only CHANGED/REMOVED rows count toward the
+        # lifetime baseline-flip count — UNCHANGED runs against an existing
+        # baseline must not inflate the count.
+        old = _mk_run(self.repo, branch="master", completed_offset=timedelta(days=10))
+        _mk_snapshot(old, identifier="story", result=SnapshotResult.UNCHANGED)
 
-        # Separate history runs (different branches so the unique constraint
-        # on (run, identifier) doesn't bite). Each contributes one bucketed
-        # entry to the 30-day window.
-        clean_run = _mk_run(self.repo, branch="pr-clean", completed_offset=timedelta(days=1))
-        _mk_snapshot(clean_run, identifier="story", result=SnapshotResult.UNCHANGED)
+        # Real baseline flip — supersede the prior latest first to satisfy the
+        # partial unique index on (repo, branch, run_type, superseded_by IS NULL).
+        Run.objects.filter(id=old.id).update(superseded_by=old)
+        flipped = _mk_run(self.repo, branch="master", completed_offset=timedelta(days=5))
+        Run.objects.filter(id=old.id).update(superseded_by=flipped)
+        _mk_snapshot(flipped, identifier="story", result=SnapshotResult.CHANGED)
 
-        changed_run = _mk_run(self.repo, branch="pr-changed", completed_offset=timedelta(days=2))
-        _mk_snapshot(changed_run, identifier="story", result=SnapshotResult.CHANGED, created_offset=timedelta(days=2))
+        # Latest run sees the new baseline as steady-state.
+        Run.objects.filter(id=flipped.id).update(superseded_by=flipped)
+        latest = _mk_run(self.repo, branch="master")
+        Run.objects.filter(id=flipped.id).update(superseded_by=latest)
+        _mk_snapshot(latest, identifier="story", result=SnapshotResult.UNCHANGED)
 
-        quar_run = _mk_run(self.repo, branch="pr-quar", completed_offset=timedelta(days=3))
-        _mk_snapshot(
-            quar_run,
-            identifier="story",
-            result=SnapshotResult.UNCHANGED,
-            is_quarantined=True,
-            created_offset=timedelta(days=3),
-        )
-
-        tol = ToleratedHash.objects.create(
-            repo=self.repo,
-            team_id=self.team.id,
-            identifier="story",
-            baseline_hash="b",
-            alternate_hash="a",
-            reason=ToleratedReason.HUMAN,
-        )
-        tol_run = _mk_run(self.repo, branch="pr-tol", completed_offset=timedelta(days=4))
-        _mk_snapshot(
-            tol_run,
-            identifier="story",
-            result=SnapshotResult.UNCHANGED,
-            tolerated_match=tol,
-            created_offset=timedelta(days=4),
-        )
+        # PR-branch CHANGED diff must NOT count — only default-branch flips
+        # represent real YAML moves.
+        pr = _mk_run(self.repo, branch="feat/something", completed_offset=timedelta(days=2))
+        _mk_snapshot(pr, identifier="story", result=SnapshotResult.CHANGED)
 
         result = vr_api.get_baselines_overview(self.repo.id)
         entry = next(e for e in result.entries if e.identifier == "story")
-        assert len(entry.sparkline) == BASELINE_SPARKLINE_DAYS
+        assert entry.baseline_change_count == 1
 
-        totals = {
-            "clean": sum(d.clean for d in entry.sparkline),
-            "tolerated": sum(d.tolerated for d in entry.sparkline),
-            "changed": sum(d.changed for d in entry.sparkline),
-            "quarantined": sum(d.quarantined for d in entry.sparkline),
-        }
-        # The universe-anchor snapshot itself counts once as clean (it's the
-        # most recent UNCHANGED). Plus one explicit "clean" history row.
-        assert totals == {"clean": 2, "tolerated": 1, "changed": 1, "quarantined": 1}
+    def test_recent_drift_avg_smooths_over_last_n_runs(self):
+        # Three master runs with different drift levels. The average should
+        # smooth one extreme reading rather than reflect just the latest.
+        Run.objects.filter(repo_id=self.repo.id, branch="master").update(superseded_by_id=None)
+        run_a = _mk_run(self.repo, branch="master", completed_offset=timedelta(days=3))
+        _mk_snapshot(run_a, identifier="story", diff_percentage=10.0)
+
+        Run.objects.filter(id=run_a.id).update(superseded_by=run_a)
+        run_b = _mk_run(self.repo, branch="master", completed_offset=timedelta(days=2))
+        Run.objects.filter(id=run_a.id).update(superseded_by=run_b)
+        _mk_snapshot(run_b, identifier="story", diff_percentage=20.0)
+
+        Run.objects.filter(id=run_b.id).update(superseded_by=run_b)
+        run_c = _mk_run(self.repo, branch="master")
+        Run.objects.filter(id=run_b.id).update(superseded_by=run_c)
+        _mk_snapshot(run_c, identifier="story", diff_percentage=30.0)
+
+        result = vr_api.get_baselines_overview(self.repo.id)
+        entry = next(e for e in result.entries if e.identifier == "story")
+        # AVG(10, 20, 30) = 20. Rows with diff_percentage NULL or 0 are excluded.
+        assert entry.recent_drift_avg == 20.0
+
+    def test_recent_drift_avg_is_none_without_signal(self):
+        # No diff_percentage values → no drift signal in the window.
+        run = _mk_run(self.repo)
+        _mk_snapshot(run, identifier="story")
+
+        result = vr_api.get_baselines_overview(self.repo.id)
+        entry = next(e for e in result.entries if e.identifier == "story")
+        assert entry.recent_drift_avg is None
+        assert entry.baseline_change_count == 0
 
     def test_truncation_at_cap(self):
         # Use a tiny cap for speed. logic.get_baselines_overview imports the
@@ -381,7 +431,8 @@ class TestBaselinesOverview(APIBaseTest):
         first = next(e for e in data["entries"] if e["identifier"] == "card-one")
         assert first["thumbnail_hash"] == "t1"
         assert first["browser"] == "chromium"
-        assert len(first["sparkline"]) == BASELINE_SPARKLINE_DAYS
+        assert first["baseline_change_count"] == 0
+        assert first["recent_drift_avg"] is None
 
     def test_endpoint_404_for_unknown_repo(self):
         url = f"/api/projects/{self.team.id}/visual_review/repos/{uuid4()}/baselines/"

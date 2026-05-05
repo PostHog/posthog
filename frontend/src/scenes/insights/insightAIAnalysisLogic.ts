@@ -30,7 +30,6 @@ export const insightAIAnalysisLogic = kea<insightAIAnalysisLogicType>([
     actions({
         startAnalysis: true,
         setHasClickedAnalyze: (hasClicked: boolean) => ({ hasClicked }),
-        setHasClickedSuggestions: true,
         resetAnalysis: true,
         reportAnalysisFeedback: (isPositive: boolean) => ({ isPositive }),
         reportSuggestionFeedback: (suggestionIndex: number, suggestionTitle: string, isPositive: boolean) => ({
@@ -80,13 +79,6 @@ export const insightAIAnalysisLogic = kea<insightAIAnalysisLogicType>([
                 resetAnalysis: () => false,
             },
         ],
-        hasClickedSuggestions: [
-            false,
-            {
-                setHasClickedSuggestions: () => true,
-                resetAnalysis: () => false,
-            },
-        ],
         analysisFeedbackGiven: [
             null as boolean | null, // true = positive, false = negative, null = no feedback
             {
@@ -130,14 +122,6 @@ export const insightAIAnalysisLogic = kea<insightAIAnalysisLogicType>([
         startAnalysis: () => {
             actions.setHasClickedAnalyze(true)
             posthog.capture('insight ai analysis started', {
-                insight_id: props.insightId,
-                insight_type: props.query.kind,
-                team_id: values.currentTeamId,
-                organization_id: values.currentOrganizationId,
-            })
-        },
-        setHasClickedSuggestions: () => {
-            posthog.capture('insight ai suggestions clicked', {
                 insight_id: props.insightId,
                 insight_type: props.query.kind,
                 team_id: values.currentTeamId,

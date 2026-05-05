@@ -242,7 +242,6 @@ const createMockContext = (scopes: string[]): Context => ({
     api: {} as any,
     cache: {} as any,
     env: {
-        INKEEP_API_KEY: undefined,
         MCP_APPS_BASE_URL: undefined,
         POSTHOG_ANALYTICS_API_KEY: undefined,
         POSTHOG_ANALYTICS_HOST: undefined,
@@ -475,7 +474,6 @@ describe('Tool Filtering - AI Consent', () => {
             api: {} as any,
             cache: {} as any,
             env: {
-                INKEEP_API_KEY: undefined,
                 MCP_APPS_BASE_URL: undefined,
                 POSTHOG_ANALYTICS_API_KEY: undefined,
                 POSTHOG_ANALYTICS_HOST: undefined,
@@ -502,7 +500,6 @@ describe('Tool Filtering - AI Consent', () => {
             api: {} as any,
             cache: {} as any,
             env: {
-                INKEEP_API_KEY: undefined,
                 MCP_APPS_BASE_URL: undefined,
                 POSTHOG_ANALYTICS_API_KEY: undefined,
                 POSTHOG_ANALYTICS_HOST: undefined,
@@ -638,7 +635,15 @@ describe('Tool Filtering - Feature Flags', () => {
     it('getRequiredFeatureFlags should return flags used by current definitions', () => {
         const flags = getRequiredFeatureFlags()
         // Includes the gating flag for agent-feedback alongside the other gated tools.
-        expect(flags).toEqual(expect.arrayContaining(['logs-alerting', 'visual-review', 'mcp-feedback-tool']))
+        expect(flags).toEqual(
+            expect.arrayContaining([
+                'logs-alerting',
+                'replay-video-based-summarization',
+                'visual-review',
+                'mcp-feedback-tool',
+            ])
+        )
+        expect(flags).toHaveLength(4)
     })
 
     // Test the filtering logic with a direct unit test approach using

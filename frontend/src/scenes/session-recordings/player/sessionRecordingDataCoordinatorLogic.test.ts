@@ -207,7 +207,7 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
                 .toFinishAllListeners()
 
             // Two HogQL session/related-events queries plus a third query that fetches full
-            // properties for events with a promoted property (e.g. $pageview's $pathname)
+            // properties for events with a primary property (e.g. $pageview's $pathname)
             // — see preloadableEvents in sessionEventsDataLogic.
             expect(api.create).toHaveBeenCalledTimes(3)
 

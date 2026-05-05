@@ -4,15 +4,15 @@ Executes HogQL — PostHog's variant of SQL that supports most of ClickHouse SQL
 
 ### When to use `execute-sql`
 
-**Prefer `query-*` wrappers** (`query-trends`, `query-funnel`, `query-retention`, `query-stickiness`, `query-paths`, `query-lifecycle`, `query-llm-traces-list`) for analytics questions that map to a supported insight type. They produce typed, saveable insights that map cleanly to the visual product.
+**Use `query-*` tools whenever the question maps to a supported insight type.** These tools produce typed, saveable insights; SQL forfeits that.
+Reach for `execute-sql` only when no `query-*` tool can express the question:
 
-Reach for `execute-sql` only when a wrapper cannot express the question:
+- **Searching or listing existing PostHog entities** — insights, dashboards, cohorts, feature flags, experiments, surveys. No `query-*` tool covers these; query the `system.*` tables.
+- **Multi-event joins or aggregations across event types** that don't fit a single series.
+- **Sophisticated queries beyond `query-*` schemas** — custom grouping, window functions, non-trivial CTEs, data warehouse joins.
+- **Pre-filtering or shaping** a large dataset before running a `query-*` call.
 
-- **Searching or listing existing PostHog entities** — insights, dashboards, cohorts, feature flags, experiments, surveys. No wrapper covers these; query the `system.*` tables.
-- **Agentic exploration** — ad-hoc joins, aggregations across multiple event types, or pre-filtering a large dataset before running a wrapper query.
-- **Sophisticated queries beyond wrapper schemas** — custom grouping, window functions, non-trivial CTEs, data warehouse joins.
-
-If a wrapper fits, use the wrapper.
+If a `query-*` tool fits, use it. Default to `query-*`; SQL is the escape hatch, not the starting point.
 
 ### Always consult the `querying-posthog-data` skill
 
@@ -45,7 +45,7 @@ Assistant: I'll search existing insights and dashboards via SQL.
 3. Validate promising insights with `insight-retrieve`.
 4. Summarize with links.
 <reasoning>
-1. SQL against `system.*` tables is the fastest way to discover existing entities — no wrapper covers entity search.
+1. SQL against `system.*` tables is the fastest way to discover existing entities — no `query-*` tool covers entity search.
 2. ILIKE with multiple terms catches naming variants ("Monthly Revenue", "MRR", "Payment Events").
 3. `insight-retrieve` confirms the insight's query configuration still matches intent.
 </reasoning>
