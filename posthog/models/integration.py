@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     import aiohttp
 
 from django.conf import settings
-from django.db import models
+from django.db import models, transaction
 from django.http import HttpRequest
 from django.utils import timezone
 
@@ -3185,15 +3185,19 @@ class AnthropicIntegration:
             return integration
 
         try:
-            return Integration.objects.create(
-                team_id=team_id,
-                kind=anthropic_kind,
-                integration_id=integration_id,
-                config=config,
-                sensitive_config={"api_key": api_key},
-                created_by=created_by,
-                errors="",
-            )
+            # Wrap in a savepoint so the unique-constraint IntegrityError below
+            # aborts only the INSERT, not the surrounding transaction (e.g. the
+            # outer DRF request atomic block, or the test wrapper).
+            with transaction.atomic():
+                return Integration.objects.create(
+                    team_id=team_id,
+                    kind=anthropic_kind,
+                    integration_id=integration_id,
+                    config=config,
+                    sensitive_config={"api_key": api_key},
+                    created_by=created_by,
+                    errors="",
+                )
         except IntegrityError:
             raise ValidationError(
                 {
